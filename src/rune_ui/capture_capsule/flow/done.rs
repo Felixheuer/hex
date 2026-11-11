@@ -345,6 +345,7 @@ pub(super) fn offered_again(route: Route, from: &Dest, too_late: bool, now: f64)
         already_with: too_late.then(|| from.name.clone()),
         taken_from: Some(from.clone()),
         delivered: false,
+        sending: false,
     })
 }
 
@@ -374,12 +375,16 @@ pub(super) fn lone_back(from: &Dest, now: f64) -> Routed {
         already_with: None,
         taken_from: Some(from.clone()),
         delivered: false,
+        sending: false,
     }
 }
 
 pub(super) fn routed_done(routed: &Routed, now: f64) -> Done {
-    let undo = now - routed.at < undo_s();
-    let countdown = undo.then(|| routed.at + undo_s());
+    // A rule's Undo stops its send, so it lasts until the router posts it:
+    // the ring counts the router's hold, and Undo goes once the send has.
+    let going = routed.delivered || routed.sending;
+    let window = send_hold_s();
+    let countdown = (!going && now - routed.at < window).then_some(routed.at + window);
     let base = match &routed.route {
         // Sent nowhere, it waits for a pick: a click on Send to… reopens the list.
         _ if routed.taken_back => Done {
@@ -394,8 +399,9 @@ pub(super) fn routed_done(routed: &Routed, now: f64) -> Done {
             )
         },
         Route::Rule { to, .. } => Done {
-            undo: undo || !routed.delivered,
+            undo: !going,
             countdown,
+            window,
             ..Done::plain(
                 Lead::Check,
                 if routed.delivered {
@@ -406,8 +412,9 @@ pub(super) fn routed_done(routed: &Routed, now: f64) -> Done {
             )
         },
         Route::ResolvingRule { name } => Done {
-            undo: true,
+            undo: !going,
             countdown,
+            window,
             ..Done::plain(Lead::Check, tr_fill("Sending to {}", &short(name)))
         },
         // The suggestions are the ask (closed, Send to… opens them).

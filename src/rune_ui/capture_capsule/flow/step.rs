@@ -55,6 +55,16 @@ impl Flow {
         {
             return actions;
         }
+        if input == Input::Sending {
+            if !self.undoing
+                && let Phase::Routed(routed) = &mut self.phase
+                && matches!(routed.route, Route::Rule { .. })
+                && !routed.taken_back
+            {
+                routed.sending = true;
+            }
+            return actions;
+        }
         if matches!(input, Input::Settled | Input::Delivered(_)) {
             self.waiting = None;
             if input == Input::Settled {
@@ -201,6 +211,7 @@ impl Flow {
                         already_with: None,
                         taken_from: None,
                         delivered: false,
+                        sending: false,
                     });
                 }
                 Phase::Hidden
@@ -241,6 +252,7 @@ impl Flow {
                     already_with: None,
                     taken_from: None,
                     delivered: false,
+                    sending: false,
                 })
             }
             (Phase::Routed(routed), Input::OpenList)
@@ -400,11 +412,12 @@ impl Flow {
                         actions
                     };
                 }
-                // The chip is only there while the window runs; a click that
-                // lands as it ends still counts, and the router answers too
-                // late if it was.
+                // The chip is there until the router posts the send; a click
+                // that lands as it goes says nothing, since Undo stops a
+                // send and never chases one that went.
+                let going = routed.delivered || routed.sending;
                 match (rule_to(&routed.route).cloned(), !routed.taken_back) {
-                    (Some(to), true) => {
+                    (Some(to), true) if !going => {
                         actions.push(Action::Undo {
                             to: to.name.clone(),
                         });
