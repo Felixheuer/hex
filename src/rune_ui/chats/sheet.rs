@@ -7,15 +7,15 @@ use rune_kit::{Button, ButtonVariant, RadioItem, Spinner, TextInput, glyphs};
 
 use super::super::controls::{Paint, PushSize, pulsing_dot};
 use super::super::onboarding_kit::{LEAD, Motion, arrives, keys, title_font};
+use super::setup::ProbeState;
 use super::setup::{
     self, Grant, Page, SetupFlow, State, can_finish, check_title, chosen, fix_for, fix_label,
     grant_state, needs_restart, page_done,
 };
-use super::setup::ProbeState;
 use super::shortcut::{ConflictFix, Probe};
-use crate::app_settings::HotkeySlot;
 use super::{BACKENDS, Ui, backend_name};
 use crate::app_settings::AssistantBackend;
+use crate::app_settings::HotkeySlot;
 use crate::assistant::backends::{CheckResult, CheckState, Fix};
 use crate::desktop::i18n::{tr, tr_fill};
 
@@ -266,6 +266,7 @@ fn row_of(
                         .key("title")
                         .font(p.k.ty.ui_medium)
                         .color(p.text())
+                        .wrap()
                         .a11y_hidden(),
                 )
                 .children((!detail.is_empty()).then(|| {
@@ -894,7 +895,10 @@ fn slot_keys(ui: &Ui, p: Paint, slot: HotkeySlot) -> Option<El> {
 fn probe_words(found: &Probe, taker: Option<&str>) -> (String, bool) {
     match found {
         Probe::Works(held) => (
-            tr_fill("Hex received it (held {})", &format!("{:.1} s", held.as_secs_f32())),
+            tr_fill(
+                "Hex received it (held {})",
+                &format!("{:.1} s", held.as_secs_f32()),
+            ),
             true,
         ),
         Probe::Swallowed => (
@@ -927,9 +931,13 @@ fn probe_row(ui: &Ui, flow: &SetupFlow, p: Paint, slot: HotkeySlot) -> El {
         None => (
             tr("Press Test, then press and release it").to_owned(),
             p.muted(),
-            push(p, "test", tr("Test"), slot == HotkeySlot::Action, move |ui: &mut Ui| {
-                setup::test_shortcut(ui, slot)
-            }),
+            push(
+                p,
+                "test",
+                tr("Test"),
+                slot == HotkeySlot::Action,
+                move |ui: &mut Ui| setup::test_shortcut(ui, slot),
+            ),
         ),
         Some(ProbeState::Waiting) => (
             tr("Press and release it now").to_owned(),
@@ -941,9 +949,13 @@ fn probe_row(ui: &Ui, flow: &SetupFlow, p: Paint, slot: HotkeySlot) -> El {
             let control = if works {
                 done_pill(p, "works", tr("Works"))
             } else {
-                push(p, "test", tr("Test again"), slot == HotkeySlot::Action, move |ui: &mut Ui| {
-                    setup::test_shortcut(ui, slot)
-                })
+                push(
+                    p,
+                    "test",
+                    tr("Test again"),
+                    slot == HotkeySlot::Action,
+                    move |ui: &mut Ui| setup::test_shortcut(ui, slot),
+                )
             };
             (words, if works { p.muted() } else { p.danger() }, control)
         }
@@ -959,7 +971,12 @@ fn probe_row(ui: &Ui, flow: &SetupFlow, p: Paint, slot: HotkeySlot) -> El {
         .px(16.0)
         .gap(12.0)
         .center_y()
-        .child(icon(&glyphs::KEYBOARD, 16.0).key("icon").color(p.k.c.icon_base).a11y_hidden())
+        .child(
+            icon(&glyphs::KEYBOARD, 16.0)
+                .key("icon")
+                .color(p.k.c.icon_base)
+                .a11y_hidden(),
+        )
         .child(
             col()
                 .key("copy")
@@ -1045,9 +1062,13 @@ fn shortcut(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                     p,
                     &format!("conflict{index}"),
                     &glyphs::CIRCLE_X,
-                    &format!("{title} · {}", slot_name(*slot)),
-                    &conflict.description,
-                    if conflict.taken { p.danger() } else { p.warning() },
+                    &title,
+                    &format!("{}: {}", slot_name(*slot), conflict.description),
+                    if conflict.taken {
+                        p.danger()
+                    } else {
+                        p.warning()
+                    },
                     control,
                 ));
             }
@@ -1062,7 +1083,9 @@ fn shortcut(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         tr("Make the shortcuts yours"),
         lead(
             p,
-            tr("Nothing else may take them, and Hex has to receive them. Test each by pressing it once."),
+            tr(
+                "Nothing else may take them, and Hex has to receive them. Test each by pressing it once.",
+            ),
         ),
         Some(rows_card(p, "shortcut-card", rows)),
         flow.fix_error.as_ref().map(|error| note(p, error)),

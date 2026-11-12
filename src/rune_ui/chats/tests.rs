@@ -412,22 +412,49 @@ fn the_try_page_shows_the_real_question_and_its_answer() {
 }
 
 #[test]
-fn the_shortcut_page_never_passes_on_the_stubs() {
+fn the_shortcut_page_waits_for_a_free_shortcut_and_a_real_press() {
+    use super::setup::ProbeState;
+    use super::shortcut::{Conflict, ConflictFix, Probe};
+    use crate::app_settings::HotkeySlot;
     let mut rt = onboarding();
     rt.update(|ui, _| super::setup::go(ui, Page::Shortcut));
     settle(&mut rt);
-    let asked = &rt.state.chats.jobs.asked;
-    assert!(asked.iter().any(|job| matches!(job, Job::Conflicts(_))));
-    answer(
-        &mut rt,
-        Done::Conflicts(Err(
-            "Hex can't check for other apps on the shortcut yet".into()
-        )),
+    assert!(
+        rt.state
+            .chats
+            .jobs
+            .asked
+            .iter()
+            .any(|job| matches!(job, Job::Conflicts(_)))
     );
-    let flow = rt.state.chats.setup.as_ref().unwrap();
-    assert!(!super::setup::page_done(&rt.state, flow, Page::Shortcut));
-    assert!(shows(
-        &rt,
-        "Hex can't check for other apps on the shortcut yet"
-    ));
+    assert!(
+        shows(&rt, "Press and release it now"),
+        "the Action test listens"
+    );
+    let done = |rt: &Runtime<Ui>| {
+        let flow = rt.state.chats.setup.as_ref().unwrap();
+        super::setup::page_done(&rt.state, flow, Page::Shortcut)
+    };
+    let siri = Conflict {
+        name: "Siri".into(),
+        description: "Press Right Command twice talks to Siri.".into(),
+        taken: true,
+        fix: ConflictFix::SiriSettings,
+    };
+    answer(&mut rt, Done::Conflicts(vec![(HotkeySlot::Action, siri)]));
+    assert!(shows(&rt, "Siri takes it"));
+    let probed = |rt: &mut Runtime<Ui>, found: Probe| {
+        let flow = rt.state.chats.setup.as_mut().unwrap();
+        flow.probes = vec![(HotkeySlot::Action, ProbeState::Done(found))];
+        rt.invalidate();
+        settle(rt);
+    };
+    probed(&mut rt, Probe::Swallowed);
+    assert!(shows(&rt, "Siri took the keys before Hex could"));
+    assert!(!done(&rt));
+    probed(&mut rt, Probe::Works(std::time::Duration::from_millis(400)));
+    assert!(!done(&rt), "a taken shortcut keeps the page unfinished");
+    answer(&mut rt, Done::Conflicts(Vec::new()));
+    assert!(done(&rt));
+    assert!(shows(&rt, "Hex received it (held 0.4 s)"));
 }

@@ -166,7 +166,6 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
     }
 }
 
-
 /// Takes in every answer that arrived. True when any did.
 pub(super) fn poll(ui: &mut Ui) -> bool {
     let answers = ui.chats.jobs.take();

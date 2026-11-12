@@ -5,7 +5,8 @@
 //! (each missing one opens its exact System Settings page with Hex's
 //! floating guide, and the page waits until macOS reports the grant), runs
 //! the live self-tests until they're green, makes sure the Action shortcut
-//! is free and that Hex really receives it (hold and double-tap), and ends
+//! and dictation shortcuts are free and that a press of each really reaches
+//! Hex (`recognition::shortcut_probe`), and ends
 //! with one real spoken question through it.
 //!
 //! Nothing shows as working until its check ran and saw it work. Continue
@@ -919,8 +920,14 @@ pub(in crate::rune_ui) fn fixture(ui: &mut Ui, page: Page, all_passed: bool) {
         }),
         probes: if all_passed {
             vec![
-                (HotkeySlot::Action, ProbeState::Done(Probe::Works(Duration::from_millis(420)))),
-                (HotkeySlot::Dictation, ProbeState::Done(Probe::Works(Duration::from_millis(610)))),
+                (
+                    HotkeySlot::Action,
+                    ProbeState::Done(Probe::Works(Duration::from_millis(420))),
+                ),
+                (
+                    HotkeySlot::Dictation,
+                    ProbeState::Done(Probe::Works(Duration::from_millis(610))),
+                ),
             ]
         } else {
             vec![

@@ -1304,10 +1304,14 @@ Accessibility, and Screen Recording, each Allow opening its System Settings
 page with Hex's guide and waiting until macOS reports it on (read every
 1.5 s); agent-desktop, installed with Homebrew if missing, and its two
 permissions; the self-tests (`backends::self_tests`), run on arrival, with
-each failure's fix; the Action shortcut free of other apps and macOS
-features and heard by Hex, held and double-tapped (stubbed in
-`chats/shortcut_stub.rs` until the trigger's `conflicts` and probe land); and
-one real spoken question, answered. A row shows ✓ only after its check saw
+each failure's fix; the Action and dictation shortcuts, with what else takes
+them (`shortcut_conflicts::conflicts`, read again every 3 s, each with where
+it's fixed and, for the Action shortcut, Choose another…) and a live press
+test of each (`recognition::shortcut_probe`; ✓ only when the press and its
+release reached Hex, and a swallowed press names the app that took it), the
+page waiting for a free Action shortcut that works (`chats/shortcut.rs`
+adapts both); then the try-it: hold the Action shortcut and ask, with the
+double-tap Agent mode hint, waiting for one real spoken question, answered. A row shows ✓ only after its check saw
 it work. Continue waits for its page; Later moves on and marks it unfinished
 (amber in the progress marks). Finish waits until the chosen agent answers
 and can use agent-desktop, then sets `assistant.setup_done`. Menu bar: Agent
