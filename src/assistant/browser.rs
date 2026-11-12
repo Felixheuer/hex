@@ -237,16 +237,41 @@ pub(crate) fn policy(task: &str) -> consent::Policy {
 
 /// `task`'s browsers that agent-browser has open.
 pub(crate) fn running(path: &Path, task: &str) -> Vec<String> {
-    let listed = call(path, &session(task), &["session", "list"]).unwrap_or_default();
-    listed
+    running_of(path, &[task.to_owned()])
+        .remove(task)
+        .unwrap_or_default()
+}
+
+/// Each of `tasks`' browsers that agent-browser has open, from one listing
+/// (one process however many tasks are asked about).
+pub(crate) fn running_of(
+    path: &Path,
+    tasks: &[String],
+) -> std::collections::HashMap<String, Vec<String>> {
+    let mut found: std::collections::HashMap<String, Vec<String>> = tasks
+        .iter()
+        .map(|task| (task.clone(), Vec::new()))
+        .collect();
+    let Some(first) = tasks.first() else {
+        return found;
+    };
+    let listed = call(path, &session(first), &["session", "list"]).unwrap_or_default();
+    let open: Vec<&str> = listed
         .get("sessions")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
-        .filter(|session| sessions::belongs(task, session))
-        .map(str::to_owned)
-        .collect()
+        .collect();
+    for task in tasks {
+        let mine = found.entry(task.clone()).or_default();
+        mine.extend(
+            open.iter()
+                .filter(|session| sessions::belongs(task, session))
+                .map(|session| (*session).to_owned()),
+        );
+    }
+    found
 }
 
 /// `task`'s session name: agent-browser takes letters, digits, `-`, `_`.

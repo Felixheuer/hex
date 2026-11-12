@@ -10,6 +10,7 @@ use serde_json::{Map, Value, json};
 mod apps;
 mod consent;
 mod displays;
+mod front;
 mod lookup;
 
 use super::child::{self, Desktop, Window};
@@ -575,6 +576,10 @@ impl<D: Desktop> Guard<D> {
         let _ = self.list(Look::Check);
         let hands = (self.config.physical_input && activate)
             .then(|| self.store.hands_on(&self.config.task, self.pid));
+        // The person's app keeps the front (`front`): noted before.
+        let before = (self.config.lane == Lane::Background && !activate)
+            .then(front::frontmost)
+            .flatten();
         let result = self.forward(tool, args);
         drop(hands);
         let result = result?;
@@ -589,6 +594,9 @@ impl<D: Desktop> Guard<D> {
         self.watch(&app);
         self.watch(&launched.app);
         let _ = self.list(Look::Launched(&launched));
+        front::keep_front(before, launched.pid);
+        // Onto the agents' display now, not after the call.
+        self.place_arrivals();
         Ok(result)
     }
 

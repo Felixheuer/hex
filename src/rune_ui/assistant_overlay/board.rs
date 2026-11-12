@@ -515,6 +515,18 @@ impl Board {
     }
 
     /// Every live task's windows, whatever started it, for their outlines.
+    /// Whether any task works now (queued, running, paused, or waiting out
+    /// a limit), as opposed to only waiting for the person's answer: the
+    /// screen frame shows meanwhile.
+    pub(crate) fn working(&self) -> bool {
+        self.tasks.iter().any(|task| {
+            matches!(
+                task.phase,
+                Phase::Queued | Phase::Running | Phase::Paused | Phase::Waiting { .. }
+            )
+        })
+    }
+
     pub(crate) fn outlined(&self) -> Vec<Outlined> {
         self.tasks
             .iter()

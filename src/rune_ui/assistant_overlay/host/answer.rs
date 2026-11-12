@@ -52,7 +52,7 @@ pub(super) fn bubble_event(state: &mut BubbleOverlay, event: &Event, tx: &mut Tx
                 .as_ref()
                 .is_none_or(|old| old.conversation != bubble.conversation);
             state.setup = None;
-            if bubble.escalated {
+            if bubble.escalated && bubble.answer.trim().is_empty() {
                 // Drawn once flying, then gone toward the orb.
                 tx.wake_after(Duration::from_millis(30));
                 return true;

@@ -280,6 +280,14 @@ impl Runner {
                 self.emit(&Event::Cancelled { conversation });
             }
             Outcome::Escalate { title, reply, more } => {
+                // The line said meanwhile ("On it: …") shows where it's
+                // heard: the Here bubble holds it until it was read.
+                if !reply.is_empty() {
+                    self.emit(&Event::AnswerDelta {
+                        conversation: conversation.clone(),
+                        text: reply.clone(),
+                    });
+                }
                 if voice && settings.speak_answers && !reply.is_empty() {
                     self.voice.finish(self, &conversation, &reply);
                 }

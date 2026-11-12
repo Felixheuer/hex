@@ -897,6 +897,11 @@ impl Runner {
             self.cancel_task(key);
         }
         if let Some(line) = on_it {
+            // Shown where it's heard (the Here bubble), then the job goes on.
+            self.emit(&Event::AnswerDelta {
+                conversation: id.clone(),
+                text: line.clone(),
+            });
             self.emit(&Event::Escalated {
                 conversation: id.clone(),
             });
