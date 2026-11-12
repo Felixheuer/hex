@@ -212,6 +212,55 @@ real press on a Mac, the recorder rows' rendering (macOS only, so no golden
 changes), Escape against a running question, or ⌃⌥Esc reaching Hex past
 macOS.
 
+## Windows
+
+The Windows listener (`windows::input`'s keyboard hook, `windows::dictation`'s
+loop) runs the Action shortcut and Stop all tasks through the shared
+`assistant::shortcut` while `active_action_hotkey` and
+`active_stop_all_hotkey` return them (right Ctrl alone and Ctrl+Alt+Esc by
+default); settings changes restart the hook with them.
+
+```ts
+Action shortcut (Windows; DictationFlavour::Assistant, its own capture)
+├── a modifier alone (right Ctrl) or a key chord; always Hold, whatever the
+│   dictation shortcut's mode; no lock, no Toggle cancel key
+├── hold -> Here question: shortcut::press(false) at the press, intend() and
+│   service::prewarm(lane) once the hold is real, shortcut::reply(question)
+│   as the capture's print reply at the release; the HUD gets
+│   Asking { agent } after Started
+├── tap, then press within 300 ms and hold -> Background (after_tap)
+├── two taps under 300 ms, the second within 300 ms -> HotkeyAction::DoubleTap:
+│   the capture is discarded, shortcut::double_tap()
+├── right Ctrl with another key or button (Ctrl+C) -> the capture is
+│   discarded and the key reaches the app; right Ctrl starts nothing until up
+├── processed like a paste (modes, vocabulary, replacements), never pasted,
+│   copied, kept for Paste last dictation, or written to History
+├── not ready (applied_assistant_ready false) -> nothing records; the release
+│   calls shortcut::unready_release(held_for)
+└── owns its capture: dictation shortcuts never finish it, nor it theirs;
+    `hex dictation stop` refuses while it records, `cancel` discards it
+Stop all tasks -> its key swallowed (repeats and release too), once per press;
+    shortcut::stop_all() on the listener's loop, not the hook's thread
+Escape -> taken (down, repeats, up) only while shortcut::claims_escape(bound,
+    nothing records), refreshed every loop turn; shortcut::escape()
+Tray (shared tray_menu, Windows) -> while assistant::enabled: Stop all tasks
+    (disabled under its own id while nothing runs) and Chats…
+```
+
+Checks: `an_action_hold_asks_here`,
+`an_action_tap_then_hold_asks_in_the_background`,
+`an_action_double_tap_is_a_gesture`, `right_control_with_a_key_is_the_apps_chord`,
+`an_action_key_chord_is_held_and_swallowed`,
+`the_action_shortcut_and_dictation_never_share_a_capture`,
+`stop_all_presses_once_per_press`, and
+`escape_is_the_assistants_only_while_claimed_and_nothing_records` in
+[windows/input.rs](../../src/windows/input.rs) (compile-checked from Linux,
+not run); `tray_menu_ids_round_trip_and_show_the_state` in
+[desktop/tray_menu.rs](../../src/desktop/tray_menu.rs). Not yet observed: any
+of it on Windows. Chats… opens the window (`rune_ui::show` with
+`Destination::Chats`), but the Chats pane is still macOS-only
+(`chats::available`), so it lands on the current pane there.
+
 ## Chats
 
 The assistant's window (`rune_ui/chats`, macOS): Chats is in the sidebar
