@@ -237,9 +237,10 @@ cleared when the pane, view, or window goes. Every `assistant::subscribe`
 event wakes the window. `hex://chats?id=<conversation>`,
 `hex://settings/chats`, the menu bar, and the HUD's task stack and "Open in
 Chats" (`assistant_overlay::set_open_chats` → `macos_rune::open_chat`) open
-it. Settings: the Assistant switch first (`assistant.enabled`, "Hold right ⌘ to
-ask, double-tap for your tasks"), then the agent (and whether each is ready), its model, the Claude
-API key (Keychain only), Read answers aloud with its voice and Test voice,
+it. Settings: the Assistant switch first (`assistant.enabled`, "Hold Right ⌘ to
+ask, double-tap for your tasks", with the Action shortcut as its binding
+draws it), then the agent (and whether each is ready), its model, the Claude
+API key (the Keychain, Credential Manager, or keyring only), Read answers aloud with its voice and Test voice,
 Operate apps, the real pointer and keyboard (with its warning), Send a
 screenshot, the follow-up window, Tasks at once (1 to 64), and Run setup….
 
@@ -252,11 +253,12 @@ while `assistant.setup_done` is false, after the voice first run on a fresh
 install, and from Run setup…
 or Chats' notice. Pages: Meet your assistant; Choose who answers (the
 agents `backends::detect` found, Claude Code by default, each with its fix:
-install, sign in, start OpenCode, or the API key); Hex's Microphone,
+install, sign in, start OpenCode, or the API key); the permissions this OS
+has (`computer::permissions_now`; on macOS Hex's Microphone,
 Accessibility, and Screen Recording, each Allow opening its System Settings
-page with Hex's guide and waiting until macOS reports it on (read every
-1.5 s); agent-desktop, installed with Homebrew if missing, and its two
-permissions; the self-tests (`backends::self_tests`), run on arrival, with
+page with Hex's guide and waiting until macOS reports it on, read every
+1.5 s; see Platforms for Windows and Linux); agent-desktop, installed with
+this OS's installer if missing, and its own permissions; the self-tests (`backends::self_tests`), run on arrival, with
 each failure's fix; the Action and dictation shortcuts, with what else takes
 them (`shortcut_conflicts::conflicts`, read again every 3 s, each with where
 it's fixed and, for the Action shortcut, Choose another…) and a live press
@@ -275,3 +277,34 @@ the tests in [rune_ui/chats/tests.rs](../../src/rune_ui/chats/tests.rs),
 [status_item.rs](../../src/macos_rune/status_item.rs); scenes `mac-chats*`
 and `mac-assistant-setup*` (macOS only, so no golden changes). Not yet
 observed: the live service, real grants, or a real question on a Mac.
+
+## Platforms
+
+The assistant's own code is the same on every OS; what differs is where
+the tools live, how they install and start, and what the OS asks for.
+`backends::os::Os` names the OS, and every decision that depends on it
+(search folders, install plans, sign-in windows, checks, the parking
+sliver) is a plain function of it, tested for all three on any one.
+
+| | macOS | Windows | Linux |
+|---|---|---|---|
+| Finding tools | the login shell's PATH and `command -v`, plus Homebrew, npm, fnm, nvm, Volta, bun, mise, asdf folders | PATH from the registry (machine, then user; read afresh) and the process, with `PATHEXT`; `%USERPROFILE%\.local\bin` (Claude Code's installer), `%APPDATA%\npm`, npm's prefix, WinGet links, Scoop, Chocolatey, `Program Files\nodejs`, nvm-windows, Volta, fnm, bun | the login shell's PATH and the process's, plus `~/.local/bin`, npm's prefix (`NPM_CONFIG_PREFIX`, `~/.npmrc`), Linuxbrew, `/snap/bin`, and the macOS list's version managers |
+| Installing an agent | Homebrew, else npm, else the project's script | npm, else the project's script: Claude Code's `irm https://claude.ai/install.ps1 \| iex`; Codex and OpenCode need Node.js (npm) | npm, else the project's `curl … \| bash` script; Linuxbrew for agent-desktop and agent-browser |
+| agent-desktop, agent-browser | Homebrew or npm | npm | npm or Linuxbrew |
+| Lightpanda (clean browsers) | its installer (needs jq, part of macOS 15) | no Windows build: clean browsers use Chrome, and setup and Settings say so | its installer (needs `jq`) |
+| Starting tools | as found | npm's `.cmd` shims are read and started as `node.exe <script>` (or the program they name), so prompts keep their line breaks and agents' MCP clients can start agent-desktop; children end with a job object | as found; process groups |
+| Signing in | a Terminal window | a console window of its own | the person's terminal (`$TERMINAL`, then the usual emulators) |
+| Hex's permissions | Microphone, Accessibility, Screen Recording | none: the permission page only installs agent-desktop, and the checks skip them | the accessibility bus (AT-SPI, as Accessibility) and the screenshot portal (as Screen Recording); the page says to install `at-spi2-core` or `xdg-desktop-portal` when one doesn't answer |
+| agent-desktop's permissions | `agent-desktop permissions` and its `--guide` | `agent-desktop status`: UI Automation answers (an app run as administrator can't be read by one that isn't) | `agent-desktop status`: the accessibility bus answers, with agent-desktop's own suggestion when not; screenshots ask the portal at the first one on Wayland |
+| API keys | the login Keychain | Credential Manager | the Secret Service (GNOME Keyring, KWallet); without one, keys aren't saved |
+| Agent windows out of the way (`agent_space`) | parked through `move-window` | the same, with a 16 px sliver past the invisible resize border | X11 only: Wayland lets no app move another's windows, so the switch says "Not on Wayland" |
+
+Needs, per OS: Windows 10 1809 or later in the signed-in, unlocked
+desktop (agent-desktop's floor), and Node.js for the npm installs; Linux
+Ubuntu 24.04 or later (agent-desktop's floor), a running AT-SPI bus
+(`at-spi2-core`), `xdg-desktop-portal` for screenshots on Wayland, and a
+Secret Service for keys. Only macOS's paths ran here; the Windows and Linux
+code is type-checked (`scripts/check-other-os`) and its OS-neutral parts
+are unit-tested on macOS. `hex dev assistant-doctor` prints this OS's
+findings and runs its checks (it is reached from macOS's `main` so far).
+
