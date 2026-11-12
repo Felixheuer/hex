@@ -43,12 +43,15 @@ mod hint;
 #[cfg(target_os = "macos")]
 mod host;
 mod markdown;
+#[cfg(test)]
+mod multi;
 mod orb;
 mod outline;
 mod palette;
 mod place;
 mod pops;
 mod quick;
+mod screens;
 mod stack;
 #[cfg(target_os = "macos")]
 pub(crate) mod stories;

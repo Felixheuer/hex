@@ -213,6 +213,7 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
             label,
             look: item.look,
             progress: item.progress,
+            origin: (0.0, 0.0),
         };
         root = root.child(
             el().key(format!("outline-{}", item.task))
