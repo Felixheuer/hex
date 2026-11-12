@@ -102,6 +102,9 @@ pub fn round_trip(check: Check) -> CheckResult {
 
 /// Lightpanda opens the check's page through agent-browser.
 pub fn light_round_trip(check: Check) -> CheckResult {
+    if super::super::os::Os::HERE == super::super::os::Os::Windows {
+        return CheckResult::failed(check, super::super::install::NO_LIGHTPANDA_ON_WINDOWS, None);
+    }
     let path = match agent_browser(check) {
         Ok(path) => path,
         Err(failed) => return failed,

@@ -34,7 +34,7 @@ use crate::app_settings::AssistantBackend;
 pub use check::{
     Check, CheckResult, CheckState, Fix, opencode_recent_model, self_test, self_tests,
 };
-pub use install::{Installers, Tool, apply_fix, apply_fix_with, install_command, plan};
+pub use install::{Installers, Tool, apply_fix, apply_fix_with, install_command};
 pub use providers::{
     Provider, agent_env_for, merge_config, opencode_model, opencode_provider_config, providers,
     set_provider_key, verify_provider_key,
@@ -360,10 +360,30 @@ pub fn agent_desktop() -> AgentDesktop {
 }
 
 fn agent_desktop_grants(path: &Path) -> std::result::Result<desktop::Grants, String> {
-    match desktop_call(path, &["permissions"])? {
-        desktop::Reply::Ok(data) => {
-            desktop::grants(&data).ok_or_else(|| "agent-desktop didn't say its permissions".into())
-        }
+    agent_desktop_report(path).map(|(grants, _)| grants)
+}
+
+/// What agent-desktop asks of this OS: `permissions` on macOS, where its
+/// grants are Accessibility and Screen Recording; `status` elsewhere, which
+/// says whether UI Automation (Windows) or the accessibility bus (Linux)
+/// answers.
+pub fn desktop_report_command(os: os::Os) -> &'static str {
+    if os == os::Os::Mac {
+        "permissions"
+    } else {
+        "status"
+    }
+}
+
+/// agent-desktop's grants as it reports them when Hex starts it, and what
+/// it suggests for a missing one.
+pub(in crate::assistant) fn agent_desktop_report(
+    path: &Path,
+) -> std::result::Result<(desktop::Grants, Option<String>), String> {
+    match desktop_call(path, &[desktop_report_command(os::Os::HERE)])? {
+        desktop::Reply::Ok(data) => desktop::grants(&data)
+            .map(|grants| (grants, desktop::suggestion(&data)))
+            .ok_or_else(|| "agent-desktop didn't say its permissions".into()),
         desktop::Reply::Failed { message, .. } => Err(message),
     }
 }
@@ -391,8 +411,14 @@ pub(in crate::assistant) fn desktop_call(
 
 /// Opens System Settings at agent-desktop's missing permission
 /// (`agent-desktop permissions --guide`), with its guide showing Hex as the
-/// app to switch on. Returns at once.
+/// app to switch on. Returns at once. macOS only: Windows and Linux have
+/// nothing to grant.
 pub fn guide_permissions() {
+    if os::Os::HERE != os::Os::Mac {
+        // Only macOS asks for grants; elsewhere setup never offers this.
+        tracing::debug!("agent-desktop has no permission guide on this OS");
+        return;
+    }
     let Some(path) = search::find("agent-desktop") else {
         tracing::warn!("agent-desktop isn't installed; nothing to guide");
         return;

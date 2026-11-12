@@ -425,7 +425,12 @@ fn main() -> Result<()> {
         command: DevCommand::AssistantSpaceProbe,
     }) = &cli.command
     {
+        #[cfg(target_os = "macos")]
         return assistant::space::probe::run();
+        #[cfg(not(target_os = "macos"))]
+        return Err(color_eyre::eyre::eyre!(
+            "the space probe opens TextEdit, so it runs only on macOS"
+        ));
     }
     // A headless render (`hex app -- --snap …`) draws fixtures: no data
     // folder, log, lock, or settings, so it never touches the user's Hex.

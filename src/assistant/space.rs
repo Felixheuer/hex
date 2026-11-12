@@ -22,7 +22,7 @@
 //!
 //! OWNER: browser (with the Space spike).
 
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, target_os = "macos"))]
 pub mod probe;
 
 use std::collections::HashMap;

@@ -6,7 +6,9 @@
 //!
 //! Run from Hex, so macOS judges Hex.app's permissions: agent-desktop
 //! started by Hex (directly, or by an agent Hex started) acts with Hex's
-//! Accessibility and Screen Recording.
+//! Accessibility and Screen Recording. Windows asks for no permissions, so
+//! there the checks prove agent-desktop reaches UI Automation; on Linux
+//! that the accessibility bus (AT-SPI) answers, and Hex's screenshot portal.
 
 mod browser;
 
@@ -16,6 +18,7 @@ use std::time::{Duration, Instant};
 use color_eyre::Result;
 use serde_json::Value;
 
+use super::os::Os;
 use super::{agent_command, desktop, name, run, search};
 use crate::app_settings::{AssistantBackend, AssistantSettings};
 use crate::assistant::computer::{self, Permission};
@@ -50,36 +53,56 @@ pub enum Check {
 }
 
 impl Check {
-    /// The checks setup shows for `backend`, in order; the hidden browser's
-    /// when `background_browser` is on.
+    /// The checks setup shows for `backend` on this OS, in order; the
+    /// hidden browser's when `background_browser` is on.
     pub fn for_backend(backend: AssistantBackend, background_browser: bool) -> Vec<Self> {
-        let mut checks = vec![
-            Self::HexPermissions,
+        Self::for_backend_on(Os::HERE, backend, background_browser)
+    }
+
+    /// [`Self::for_backend`] on `os`: Windows has no permissions of Hex's
+    /// to check, and no Lightpanda.
+    pub fn for_backend_on(
+        os: Os,
+        backend: AssistantBackend,
+        background_browser: bool,
+    ) -> Vec<Self> {
+        let mut checks = Vec::new();
+        if os != Os::Windows {
+            checks.push(Self::HexPermissions);
+        }
+        checks.extend([
             Self::Answers(backend),
             Self::DesktopPermissions,
             Self::DesktopRoundTrip,
-        ];
+        ]);
         if backend != AssistantBackend::ClaudeApi {
             checks.push(Self::DesktopThroughAgent(backend));
         }
         if background_browser {
-            checks.extend([
-                Self::BrowserRoundTrip,
-                Self::LightBrowser,
-                Self::BrowserThroughAgent(backend),
-            ]);
+            checks.push(Self::BrowserRoundTrip);
+            if os != Os::Windows {
+                checks.push(Self::LightBrowser);
+            }
+            checks.push(Self::BrowserThroughAgent(backend));
         }
         checks
     }
 
     /// What it proves, for its row.
     pub fn title(self) -> String {
+        self.title_on(Os::HERE)
+    }
+
+    /// [`Self::title`] on `os`.
+    pub fn title_on(self, os: Os) -> String {
         match self {
             Self::HexPermissions => "Hex can read the screen and selected text".into(),
             Self::Answers(backend) => format!("{} answers", name(backend)),
-            Self::DesktopPermissions => {
-                "agent-desktop has Accessibility and Screen Recording".into()
-            }
+            Self::DesktopPermissions => match os {
+                Os::Mac => "agent-desktop has Accessibility and Screen Recording".into(),
+                Os::Windows => "agent-desktop reaches UI Automation".into(),
+                Os::Linux => "agent-desktop reaches the accessibility bus".into(),
+            },
             Self::DesktopRoundTrip => "agent-desktop reads apps and windows".into(),
             Self::DesktopThroughAgent(backend) => {
                 format!("{} can use agent-desktop", name(backend))
@@ -172,7 +195,7 @@ pub enum Fix {
     InstallAgentBrowser,
     /// Lightpanda's official installer (into `~/.local/bin`).
     InstallLightpanda,
-    /// Opens Terminal on the agent's sign-in (`claude`, `codex login`).
+    /// Opens a terminal on the agent's sign-in (`claude`, `codex login`).
     SignIn(AssistantBackend),
     /// Use a saved API key instead of an account: Codex signs in with the
     /// OpenAI key (`codex login --with-api-key`); OpenCode and the Claude
@@ -182,9 +205,10 @@ pub enum Fix {
     StartOpenCode,
     /// The sheet's API key field: nothing for [`apply_fix`] to do.
     AddApiKey,
-    /// agent-desktop's own guide (`permissions --guide`).
+    /// agent-desktop's own guide (`permissions --guide`; macOS only).
     GuidePermissions,
-    /// System Settings at Hex's own missing permission.
+    /// The OS's settings at Hex's own missing permission
+    /// (`computer::open_settings`).
     OpenSettings(Permission),
     /// Run it again (a timeout, a hiccup).
     Retry,
@@ -271,17 +295,38 @@ pub fn self_tests(
 }
 
 fn hex_permissions(check: Check) -> CheckResult {
-    let permissions = computer::permissions_now();
+    judge_hex(Os::HERE, check, computer::permissions_now())
+}
+
+/// What Hex's own permissions on `os` mean for its check.
+pub fn judge_hex(os: Os, check: Check, permissions: computer::Permissions) -> CheckResult {
+    let (granted, no_reading, no_screenshot) = match os {
+        Os::Mac => (
+            "Accessibility and Screen Recording are on",
+            "Hex needs Accessibility to read the selected text",
+            "Hex needs Screen Recording to send a screenshot with a question",
+        ),
+        Os::Linux => (
+            "The accessibility bus and the screenshot portal answer",
+            "Hex can't reach the accessibility bus (AT-SPI), so it can't read the selected text. \
+             Install at-spi2-core, or log out and back in",
+            "Hex can't reach the screenshot portal (xdg-desktop-portal), so it can't send a \
+             screenshot with a question",
+        ),
+        Os::Windows => {
+            return CheckResult::passed(check, "Windows asks for no permissions");
+        }
+    };
     match (permissions.accessibility, permissions.screen_recording) {
-        (true, true) => CheckResult::passed(check, "Accessibility and Screen Recording are on"),
+        (true, true) => CheckResult::passed(check, granted),
         (false, _) => CheckResult::failed(
             check,
-            "Hex needs Accessibility to read the selected text",
+            no_reading,
             Some(Fix::OpenSettings(Permission::Accessibility)),
         ),
         (true, false) => CheckResult::failed(
             check,
-            "Hex needs Screen Recording to send a screenshot with a question",
+            no_screenshot,
             Some(Fix::OpenSettings(Permission::ScreenRecording)),
         ),
     }
@@ -612,24 +657,60 @@ fn agent_desktop(check: Check) -> Result<PathBuf, CheckResult> {
     })
 }
 
-/// What a permissions reply means for a check.
-fn judge_grants(check: Check, grants: desktop::Grants, who: &str) -> CheckResult {
-    match (grants.accessibility, grants.screen_recording) {
-        (true, true) => CheckResult::passed(
-            check,
-            format!("Accessibility and Screen Recording are granted ({who})"),
-        ),
-        (false, _) => CheckResult::failed(
-            check,
-            format!("agent-desktop has no Accessibility ({who}). Switch Hex on in System Settings"),
-            Some(Fix::GuidePermissions),
-        ),
-        (true, false) => CheckResult::failed(
+/// What agent-desktop's reply on `os` means for a check; `suggestion` is
+/// what it suggests for a denied Accessibility.
+pub fn judge_grants(
+    os: Os,
+    check: Check,
+    grants: desktop::Grants,
+    who: &str,
+    suggestion: Option<&str>,
+) -> CheckResult {
+    match os {
+        Os::Mac => match (grants.accessibility, grants.screen_recording) {
+            (true, true) => CheckResult::passed(
+                check,
+                format!("Accessibility and Screen Recording are granted ({who})"),
+            ),
+            (false, _) => CheckResult::failed(
+                check,
+                format!(
+                    "agent-desktop has no Accessibility ({who}). Switch Hex on in System Settings"
+                ),
+                Some(Fix::GuidePermissions),
+            ),
+            (true, false) => CheckResult::failed(
+                check,
+                format!(
+                    "agent-desktop has no Screen Recording ({who}), so agents can't take screenshots"
+                ),
+                Some(Fix::GuidePermissions),
+            ),
+        },
+        // Nothing to grant: a denial is an elevation boundary (an app run
+        // as administrator) or a desktop it can't reach, so trying again
+        // is all Hex can offer.
+        Os::Windows if grants.accessibility => {
+            CheckResult::passed(check, format!("UI Automation answers ({who})"))
+        }
+        Os::Windows => CheckResult::failed(
             check,
             format!(
-                "agent-desktop has no Screen Recording ({who}), so agents can't take screenshots"
+                "agent-desktop can't reach UI Automation ({who}). {}",
+                suggestion.unwrap_or("It works only in your own signed-in, unlocked desktop")
             ),
-            Some(Fix::GuidePermissions),
+            Some(Fix::Retry),
+        ),
+        Os::Linux if grants.accessibility => {
+            CheckResult::passed(check, format!("The accessibility bus answers ({who})"))
+        }
+        Os::Linux => CheckResult::failed(
+            check,
+            format!(
+                "agent-desktop can't reach the accessibility bus ({who}). {}",
+                suggestion.unwrap_or("Install at-spi2-core, or log out and back in")
+            ),
+            Some(Fix::Retry),
         ),
     }
 }
@@ -639,8 +720,14 @@ fn desktop_permissions(check: Check) -> CheckResult {
         Ok(path) => path,
         Err(failed) => return failed,
     };
-    match super::agent_desktop_grants(&path) {
-        Ok(grants) => judge_grants(check, grants, "started by Hex"),
+    match super::agent_desktop_report(&path) {
+        Ok((grants, suggestion)) => judge_grants(
+            Os::HERE,
+            check,
+            grants,
+            "started by Hex",
+            suggestion.as_deref(),
+        ),
         Err(error) => CheckResult::failed(
             check,
             format!("agent-desktop didn't answer: {error}"),
@@ -664,16 +751,25 @@ fn round_trip(check: Check) -> CheckResult {
         Ok(data) => desktop::apps(&data),
         Err(error) => return failed_round_trip(check, "list the running apps", &error),
     };
-    if apps.is_empty() {
+    // On Linux an app shows only once it registered on the accessibility
+    // bus; none yet is no failure.
+    if apps.is_empty() && Os::HERE != Os::Linux {
         return failed_round_trip(check, "list the running apps", "it listed none");
     }
-    let dock = match call(&["snapshot", "--surface", "dock", "--skeleton", "--compact"]) {
-        Ok(data) => data.get("ref_count").and_then(Value::as_u64).unwrap_or(0),
-        Err(error) => return failed_round_trip(check, "read the Dock", &error),
+    // The Dock is macOS's; Windows' taskbar opens only in front of the
+    // person, so it isn't read.
+    let dock = if Os::HERE == Os::Mac {
+        let dock = match call(&["snapshot", "--surface", "dock", "--skeleton", "--compact"]) {
+            Ok(data) => data.get("ref_count").and_then(Value::as_u64).unwrap_or(0),
+            Err(error) => return failed_round_trip(check, "read the Dock", &error),
+        };
+        if dock == 0 {
+            return failed_round_trip(check, "read the Dock", "it found nothing in it");
+        }
+        Some(dock)
+    } else {
+        None
     };
-    if dock == 0 {
-        return failed_round_trip(check, "read the Dock", "it found nothing in it");
-    }
     let windows = match call(&["list-windows"]) {
         Ok(data) => desktop::windows(&data),
         Err(error) => return failed_round_trip(check, "list the windows", &error),
@@ -693,18 +789,19 @@ fn round_trip(check: Check) -> CheckResult {
             Some(Fix::Retry),
         );
     }
+    let counted = format!("{} apps running, {} windows", apps.len(), windows.len());
     CheckResult::passed(
         check,
-        format!(
-            "{} apps running, {} windows, {dock} items in the Dock",
-            apps.len(),
-            windows.len()
-        ),
+        match dock {
+            Some(dock) => format!("{counted}, {dock} items in the Dock"),
+            None => counted,
+        },
     )
 }
 
 fn failed_round_trip(check: Check, what: &str, why: &str) -> CheckResult {
-    let fix = if why.contains("PERM") || why.to_ascii_lowercase().contains("permission") {
+    let denied = why.contains("PERM") || why.to_ascii_lowercase().contains("permission");
+    let fix = if denied && Os::HERE == Os::Mac {
         Fix::GuidePermissions
     } else {
         Fix::Retry
@@ -803,10 +900,16 @@ fn through_agent(
         return match desktop::grants(&status) {
             Some(grants) => {
                 let who = format!("started by {} from Hex", name(backend));
-                let mut result = judge_grants(check, grants, &who);
+                let suggestion = desktop::suggestion(&status);
+                let mut result = judge_grants(Os::HERE, check, grants, &who, suggestion.as_deref());
                 if result.ok() {
+                    let reach = match Os::HERE {
+                        Os::Mac => "it has Accessibility and Screen Recording",
+                        Os::Windows => "UI Automation answers",
+                        Os::Linux => "the accessibility bus answers",
+                    };
                     result.detail = format!(
-                        "Called agent-desktop in {:.1} s; it has Accessibility and Screen Recording",
+                        "Called agent-desktop in {:.1} s; {reach}",
                         ran.took.as_secs_f32()
                     );
                 }
@@ -942,7 +1045,7 @@ mod tests {
     #[test]
     fn each_backend_gets_its_checks_with_their_prerequisites() {
         assert_eq!(
-            Check::for_backend(AssistantBackend::Codex, false),
+            Check::for_backend_on(Os::Mac, AssistantBackend::Codex, false),
             [
                 Check::HexPermissions,
                 Check::Answers(AssistantBackend::Codex),
@@ -952,7 +1055,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            Check::for_backend(AssistantBackend::Codex, true)[5..],
+            Check::for_backend_on(Os::Mac, AssistantBackend::Codex, true)[5..],
             [
                 Check::BrowserRoundTrip,
                 Check::LightBrowser,
@@ -967,11 +1070,11 @@ mod tests {
             ]
         );
         assert!(
-            Check::for_backend(AssistantBackend::ClaudeApi, true)
+            Check::for_backend_on(Os::Mac, AssistantBackend::ClaudeApi, true)
                 .contains(&Check::BrowserThroughAgent(AssistantBackend::ClaudeApi))
         );
         assert!(
-            !Check::for_backend(AssistantBackend::ClaudeApi, true)
+            !Check::for_backend_on(Os::Mac, AssistantBackend::ClaudeApi, true)
                 .contains(&Check::DesktopThroughAgent(AssistantBackend::ClaudeApi))
         );
         assert_eq!(
@@ -980,6 +1083,87 @@ mod tests {
                 Check::Answers(AssistantBackend::Codex),
                 Check::DesktopPermissions
             ]
+        );
+    }
+
+    #[test]
+    fn windows_skips_hexs_own_permissions_and_lightpanda() {
+        let windows = Check::for_backend_on(Os::Windows, AssistantBackend::Codex, true);
+        assert!(!windows.contains(&Check::HexPermissions));
+        assert!(!windows.contains(&Check::LightBrowser));
+        assert!(windows.contains(&Check::DesktopPermissions));
+        assert!(windows.contains(&Check::BrowserThroughAgent(AssistantBackend::Codex)));
+        let linux = Check::for_backend_on(Os::Linux, AssistantBackend::Codex, true);
+        assert_eq!(
+            linux,
+            Check::for_backend_on(Os::Mac, AssistantBackend::Codex, true)
+        );
+        assert_eq!(
+            Check::DesktopPermissions.title_on(Os::Windows),
+            "agent-desktop reaches UI Automation"
+        );
+        assert!(
+            !Check::DesktopPermissions
+                .title_on(Os::Linux)
+                .contains("Screen Recording")
+        );
+    }
+
+    #[test]
+    fn each_os_judges_permissions_in_its_own_words() {
+        let check = Check::DesktopPermissions;
+        let none = desktop::Grants::default();
+        let mac = judge_grants(Os::Mac, check, none, "started by Hex", None);
+        assert_eq!(mac.fix, Some(Fix::GuidePermissions));
+        assert!(mac.detail.contains("System Settings"));
+        for os in [Os::Windows, Os::Linux] {
+            let failed = judge_grants(os, check, none, "started by Hex", None);
+            assert_eq!(failed.fix, Some(Fix::Retry), "{os:?}");
+            assert!(
+                !failed.detail.contains("System Settings"),
+                "{}",
+                failed.detail
+            );
+            assert!(
+                !failed.detail.contains("Screen Recording"),
+                "{}",
+                failed.detail
+            );
+        }
+        let linux = judge_grants(
+            Os::Linux,
+            check,
+            none,
+            "started by Hex",
+            Some("Install at-spi2-core; Flatpak: add --talk-name=org.a11y.Bus"),
+        );
+        assert!(
+            linux
+                .detail
+                .ends_with("Flatpak: add --talk-name=org.a11y.Bus")
+        );
+        let reached = desktop::Grants {
+            accessibility: true,
+            screen_recording: false,
+        };
+        // Screenshots don't gate the desktop off macOS.
+        assert!(judge_grants(Os::Linux, check, reached, "started by Hex", None).ok());
+        assert!(judge_grants(Os::Windows, check, reached, "started by Hex", None).ok());
+        assert!(!judge_grants(Os::Mac, check, reached, "started by Hex", None).ok());
+
+        let hex = Check::HexPermissions;
+        let nothing = computer::Permissions::default();
+        assert!(judge_hex(Os::Windows, hex, nothing).ok());
+        let linux = judge_hex(Os::Linux, hex, nothing);
+        assert!(linux.detail.contains("AT-SPI"), "{}", linux.detail);
+        assert_eq!(
+            linux.fix,
+            Some(Fix::OpenSettings(Permission::Accessibility))
+        );
+        let mac = judge_hex(Os::Mac, hex, nothing);
+        assert_eq!(
+            mac.detail,
+            "Hex needs Accessibility to read the selected text"
         );
     }
 
