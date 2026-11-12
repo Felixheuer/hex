@@ -147,6 +147,15 @@ pub struct ListenerConfig {
     pub device: Option<String>,
 }
 
+/// Whether a meeting records now, as the controller last saw it.
+static RECORDING: AtomicBool = AtomicBool::new(false);
+
+/// Whether a meeting records now (Labs › Assistant's conversation mode never
+/// listens over one).
+pub(crate) fn recording() -> bool {
+    RECORDING.load(Ordering::Relaxed)
+}
+
 pub(crate) fn controller_loop(
     shutdown: &AtomicBool,
     events: SyncSender<ControllerEvent>,
@@ -190,6 +199,7 @@ pub(crate) fn controller_loop(
         }
 
         poll_recording(&mut recording, &mut detector, &events)?;
+        RECORDING.store(recording.is_some(), Ordering::Relaxed);
         reminders.poll(enabled, recording.is_some(), &events);
         pending_finals.poll(enabled, recording.is_some(), &events);
         expiry.poll();

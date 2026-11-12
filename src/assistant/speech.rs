@@ -51,6 +51,14 @@ pub fn stop() {
         .stop();
 }
 
+/// How loud the answer being read sounds now: the linear RMS (0 to 1) of
+/// what plays, or `None` while nothing plays or it can't be measured. Barge-in
+/// on speakers needs it (`recognition::conversation`).
+// Stub until reading aloud measures its own level.
+pub fn level() -> Option<f32> {
+    None
+}
+
 /// Whether something is being read now.
 pub fn speaking() -> bool {
     PLAYER

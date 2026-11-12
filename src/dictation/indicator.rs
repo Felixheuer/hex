@@ -42,6 +42,12 @@ pub enum DictationIndicatorEvent {
     Asking {
         agent: bool,
     },
+    /// Labs › Assistant's conversation mode: after an answer, the microphone
+    /// listens hands-free for a follow-up and has heard nothing yet. A soft
+    /// state for the assistant's overlays to draw; `Started` follows once
+    /// speech begins, `Discarded` when it gives up. The dictation HUD stays
+    /// as it is.
+    Listening,
     Meter {
         average: f32,
         // Dot scope follows `average`; the window's meters read
@@ -326,6 +332,8 @@ impl IndicatorModel {
             DictationIndicatorEvent::DemoVoice => {
                 self.demo_voice = Some(0.0);
             }
+            // The assistant's overlays draw conversation mode's listening.
+            DictationIndicatorEvent::Listening => {}
             DictationIndicatorEvent::Started => {
                 // HUD Lab and the playground send `DemoVoice` after this.
                 self.demo_voice = None;

@@ -541,6 +541,29 @@ Labs > Assistant > Stop all tasks            // assistant.stop_all_hotkey, ⌃�
     -> nothing matched or swallowed
 ```
 
+After a Here answer, conversation mode keeps listening without the
+shortcut (`recognition::conversation`, carried out by `recognition::talk`):
+
+```ts
+Here answer (or a Here task's question) -> assistant::subscribe
+├── read aloud, then -> Listening for assistant.conversation_seconds (8 s; 0 off)
+│   ├── a capture opens without a tone; HUD: DictationIndicatorEvent::Listening
+│   ├── speech (160 ms, the dictation frame test) -> Started, Asking: the follow-up
+│   │   └── 900 ms without speech -> asked in the same conversation, never pasted
+│   └── nothing in time -> closed quietly (Discarded)
+├── assistant.barge_in (on): the capture opens as Hex starts reading
+│   ├── headphones or AirPods (audio::output_route): 240 ms of speech -> speech::stop(),
+│   │   and the words are the follow-up
+│   └── speakers: only speech 6 dB louder than the answer itself (speech::level());
+│       without that level (not yet measured) barge-in is off on speakers
+└── any key or modifier (Escape and the Action shortcut too), a dictation, a
+    command's capture, a pause, a meeting recording, or setup unfinished -> closed
+```
+
+It uses the listener's ordinary capture, so release-while-idle holds: the
+microphone opens for the window and is released after, and a microphone
+loss never salvages it as a dictation.
+
 The shortcut that started a capture owns it: dictation and the Action
 shortcut stand down while the other records.
 
