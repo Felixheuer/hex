@@ -6,7 +6,7 @@
 //! scrolled up).
 
 use rune::{Align, El, Tx, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, TextArea};
+use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant};
 
 use super::super::controls::{DESCRIPTION, Paint, PushSize};
 use super::super::onboarding_kit::arrives;
@@ -217,13 +217,22 @@ pub(super) fn composer(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
             tr("Ask anything, or give it a job…")
         }
     };
-    let field = TextArea::new(&pane.composer)
-        .placeholder(placeholder)
+    // The bare editor (what TextArea draws inside its frame): the rounded
+    // box below is the frame.
+    let ink = p.k.c.text_base;
+    let style = rune::TextStyle {
+        line_height: (p.k.ty.body.size * 1.45 * 2.0).round() / 2.0,
+        ..p.k.ty.body
+    };
+    let input = rune::text_input(&pane.composer, style)
+        .key("input")
+        .w_full()
+        .color(ink)
+        .placeholder(placeholder, p.k.c.text_faint)
+        .caret(ink, p.k.selection())
         .label(tr("Message"))
-        .width(None)
-        .auto_grow(1, 8)
         .on_edit(|ui: &mut Ui| &mut ui.chats.composer)
-        .on_key(|ui: &mut Ui, event: &rune::KeyEvent, tx: &mut Tx| {
+        .on_input_key(|ui: &mut Ui, event: &rune::KeyEvent, tx: &mut Tx| {
             if event.key != rune::Key::Enter || event.mods.shift || event.mods.alt {
                 return false;
             }
@@ -231,11 +240,15 @@ pub(super) fn composer(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
                 tx.instant();
             }
             true
-        })
-        .build(p.k)
+        });
+    let field = col()
         .key("composer-input")
-        .grow(1.0)
-        .shrink();
+        .role("textbox")
+        .w_full()
+        .px(8.0)
+        .pt(8.0)
+        .pb(4.0)
+        .child(rune::auto_grow(input, 1, 8));
     let action = if running && empty {
         let stop = pane.selected.clone().unwrap_or_default();
         IconButton::new(STOP_ICON)
@@ -283,12 +296,45 @@ pub(super) fn composer(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
         .child(lead)
         .child(el().key("spacer").grow(1.0))
         .child(action);
+    // One rounded box, as in a chat app: the field without its own frame,
+    // the controls along its bottom edge; its border lights while typing.
+    let k = p.k;
+    let focused = pane.composer.focused;
+    let shell = col()
+        .key("composer-box")
+        .w_full()
+        .max_w(super::transcript::READING_W)
+        .gap(2.0)
+        .pl(6.0)
+        .pr(8.0)
+        .pt(6.0)
+        .pb(8.0)
+        .radius(k.radius.lg + 10.0)
+        .fill(k.c.layer_01)
+        .border(
+            p.hair.max(1.0),
+            if focused {
+                k.c.border_strong
+            } else {
+                k.c.border_weak
+            },
+        )
+        .box_shadow(rune::Shadow {
+            x: 0.0,
+            y: 4.0,
+            blur: 18.0,
+            spread: 0.0,
+            color: rune::Color::BLACK.alpha(if k.dark { 0.28 } else { 0.06 }),
+            inset: false,
+        })
+        .child(field)
+        .child(controls.pl(6.0));
     col()
         .key("composer")
-        .gap(8.0)
+        .w_full()
+        .items_center()
         .pt(10.0)
-        .pb(14.0)
+        .pb(16.0)
         .pr(12.0)
-        .child(field)
-        .child(controls)
+        .child(shell)
 }

@@ -22,6 +22,7 @@
 
 mod answer;
 mod displays;
+mod enlarged;
 mod follow;
 mod watcher;
 
@@ -62,6 +63,8 @@ struct Overlays {
     hint: OverlayHandle<Hint>,
     hands: OverlayHandle<Hands>,
     listening: OverlayHandle<Listening>,
+    /// A task's browser, live and large (`enlarged`).
+    enlarged: OverlayHandle<super::enlarged::Enlarged>,
 }
 
 static OVERLAYS: OnceLock<Overlays> = OnceLock::new();
@@ -178,9 +181,8 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
                         orb.board.dismiss_question(id);
                     },
                     hover: hover_task,
-                    open_preview: |_, task, session| {
-                        super::live::request_view(task, session);
-                        open_chats(task);
+                    open_preview: |orb, task, session| {
+                        enlarged::open(&orb.board, task, session);
                     },
                 },
                 hover: |orb, inside| {
@@ -236,6 +238,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         passive("Hex listening", listening::SIZE, listening::view).poll(listening_poll),
         Listening::default(),
     );
+    let enlarged = enlarged::install(app);
     let _ = OVERLAYS.set(Overlays {
         frames,
         outlines,
@@ -244,6 +247,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         hint,
         hands,
         listening,
+        enlarged,
     });
     // Tasks already running when Hex started listening.
     if let Some(overlays) = OVERLAYS.get() {
@@ -260,6 +264,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         if let Some(overlays) = OVERLAYS.get() {
             overlays.orb.update(|_, _| {});
         }
+        enlarged::redraw();
     });
     // The Action shortcut's double tap unfolds the list.
     crate::assistant::shortcut::set_toggle_tasks(toggle_tasks);
@@ -423,6 +428,7 @@ fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
     }
     let live = orb.board.tasks.iter().any(|task| task.phase.live());
     watcher::publish(outlined, live);
+    enlarged::follow(&orb.board);
     set_hands(hands.map(|task| task.id));
     let Some(overlays) = OVERLAYS.get() else {
         return;
