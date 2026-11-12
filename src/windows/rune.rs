@@ -99,6 +99,11 @@ pub(crate) enum ShortcutTarget {
     SecondDictation,
     /// Toggle mode's cancel shortcut.
     Cancel,
+    /// The assistant's Action shortcut: hold to ask, tap then hold for a
+    /// Background task, double-tap for the task list.
+    Action,
+    /// The assistant's Stop all tasks.
+    StopAll,
 }
 
 /// What the runtime last published for the window.

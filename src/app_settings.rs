@@ -1069,16 +1069,18 @@ impl AppSettings {
             .filter(|binding| !self.hotkey_in_use(HotkeySlot::SecondDictation, binding))
     }
 
-    /// The assistant's Action shortcut while it takes effect: macOS, the
-    /// assistant on, bound, and sharing no key with another active shortcut.
-    /// Otherwise Hex matches, suppresses, and checks nothing for it.
+    /// The assistant's Action shortcut while it takes effect: the assistant
+    /// on, bound, sharing no key with another active shortcut, and, on
+    /// Windows and Linux, naming a key (their listeners bind one). Otherwise
+    /// Hex matches, suppresses, registers, and checks nothing for it.
     pub fn active_action_hotkey(&self) -> Option<&HotkeyBinding> {
-        if !cfg!(target_os = "macos") || !crate::assistant::enabled(self) {
+        if !crate::assistant::enabled(self) {
             return None;
         }
         self.assistant
             .action_hotkey
             .as_ref()
+            .filter(|binding| cfg!(target_os = "macos") || binding.key.is_some())
             .filter(|binding| !self.hotkey_in_use(HotkeySlot::Action, binding))
     }
 
@@ -1353,7 +1355,6 @@ pub fn hex_microphone_enabled() -> bool {
 #[derive(Default)]
 struct AppliedHotkeys {
     runtime: RuntimeHotkeys,
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     settings: Option<Arc<AppSettings>>,
 }
 
@@ -1396,7 +1397,6 @@ pub fn refresh_layout_hotkeys() {
 
 /// The assistant's options as last applied, for the listener's Action
 /// shortcut; the defaults until settings load.
-#[cfg(target_os = "macos")]
 pub fn applied_assistant() -> AssistantSettings {
     HOTKEYS
         .get_or_init(Default::default)

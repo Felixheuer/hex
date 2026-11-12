@@ -64,12 +64,17 @@ pub(in crate::rune_ui) fn portal_grant(
         ShortcutTarget::SecondDictation => "Second dictation shortcut",
         #[cfg(not(target_os = "linux"))]
         ShortcutTarget::SecondDictation => return None,
+        // The assistant's shortcuts, under the names Linux binds them with.
+        #[cfg(target_os = "linux")]
+        ShortcutTarget::Action => "Action shortcut",
+        #[cfg(target_os = "linux")]
+        ShortcutTarget::StopAll => "Stop all tasks",
+        #[cfg(not(target_os = "linux"))]
+        ShortcutTarget::Action | ShortcutTarget::StopAll => return None,
         #[cfg(target_os = "macos")]
         ShortcutTarget::Screenshot
         | ShortcutTarget::ScreenshotRecord
-        | ShortcutTarget::ExtraDictation(_)
-        | ShortcutTarget::Action
-        | ShortcutTarget::StopAll => return None,
+        | ShortcutTarget::ExtraDictation(_) => return None,
     };
     granted.iter().find(|shortcut| shortcut.name == name)
 }

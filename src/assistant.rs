@@ -49,9 +49,9 @@ pub use types::*;
 
 use crate::app_settings::AppSettings;
 
-/// Whether the assistant may run: this OS has it and its switch is on.
+/// Whether the assistant may run: its switch is on.
 pub fn enabled(settings: &AppSettings) -> bool {
-    cfg!(target_os = "macos") && settings.assistant.enabled
+    settings.assistant.enabled
 }
 
 /// Whether the assistant may answer: enabled, and its setup finished. Until
