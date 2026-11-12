@@ -7,10 +7,12 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
+mod apps;
 mod lookup;
 
 use super::child::{self, Desktop, Window};
 use super::policy::{self, Kind};
+use super::screen::Screen;
 use super::state::{Acquire, LeaseFile, Store};
 use crate::assistant::types::{Lane, TaskWindow};
 
@@ -58,6 +60,21 @@ struct Launched {
 /// How long an app the task worked in has its new windows adopted.
 const WATCH: Duration = Duration::from_secs(120);
 
+/// How long a look at the windows on screen (and so at the one in front)
+/// stands for the next.
+const FRESH: Duration = Duration::from_millis(150);
+
+/// Why the guard looks at the windows on screen.
+#[derive(Clone, Copy)]
+enum Look<'a> {
+    /// To check a call: a look up to [`FRESH`] old will do.
+    Check,
+    /// Right after the task's own action: new windows may be its.
+    AfterAction,
+    /// Right after a launch: the app's new windows are its.
+    Launched(&'a Launched),
+}
+
 pub const RESUMED: &str = "The person used this window while this task was paused; take a fresh \
 snapshot before acting. (The action you asked for was not sent.)";
 
@@ -66,39 +83,56 @@ pub struct Guard<D: Desktop> {
     store: Store,
     pid: u32,
     desktop: D,
+    screen: Box<dyn Screen>,
     snapshots: HashMap<String, Origin>,
     /// Window ids on screen at the last look (Background: new ones may be
     /// adopted).
     known: Option<HashSet<String>>,
     watched: HashMap<String, Instant>,
-    /// This call's `list-windows`, once fetched.
-    fresh: Option<Vec<Window>>,
+    /// The last look at the windows on screen, and when.
+    looked: Option<(Instant, Vec<Window>)>,
     notes: Vec<String>,
     resumed: Option<String>,
     note_pending: bool,
     here_ready: bool,
     bundle_ids: Option<Vec<(String, String)>>,
+    /// Time this call spent in agent-desktop.
+    forwarding: Duration,
+    /// How long a look at the windows stands for the next check.
+    pub fresh_for: Duration,
+    /// How long `hex_open_app` waits for a new window.
+    pub window_wait: Duration,
     /// How often a paused action looks again.
     pub poll: Duration,
 }
 
 impl<D: Desktop> Guard<D> {
-    pub fn new(config: Config, store: Store, pid: u32, desktop: D) -> Self {
+    pub fn new(
+        config: Config,
+        store: Store,
+        pid: u32,
+        desktop: D,
+        screen: Box<dyn Screen>,
+    ) -> Self {
         let resumed = store.resumed(&config.task);
         Self {
             config,
             store,
             pid,
             desktop,
+            screen,
             snapshots: HashMap::new(),
             known: None,
             watched: HashMap::new(),
-            fresh: None,
+            looked: None,
             notes: Vec::new(),
             resumed,
             note_pending: false,
             here_ready: false,
             bundle_ids: None,
+            forwarding: Duration::ZERO,
+            fresh_for: FRESH,
+            window_wait: apps::WINDOW_WAIT,
             poll: Duration::from_millis(250),
         }
     }
@@ -116,8 +150,9 @@ impl<D: Desktop> Guard<D> {
         tools.retain(|tool| {
             let name = tool.get("name").and_then(Value::as_str).unwrap_or_default();
             match policy::kind(name, &Map::new()) {
-                Kind::Refused(_) | Kind::Claim => false,
+                Kind::Refused(_) | Kind::Claim | Kind::InstalledApps | Kind::OpenApp => false,
                 Kind::Physical => physical,
+                Kind::Clipboard => !background || physical,
                 Kind::Launch | Kind::FocusWindow => background == (name == "desktop_launch"),
                 _ => true,
             }
@@ -125,6 +160,7 @@ impl<D: Desktop> Guard<D> {
         if background {
             tools.push(claim_tool());
         }
+        tools.extend(apps::tools(background));
         Ok(tools)
     }
 
@@ -139,8 +175,9 @@ impl<D: Desktop> Guard<D> {
         match self.config.lane {
             Lane::Here => format!(
                 "Hex guards these tools. This task was asked about the window in front ({}); it \
-                 may read and act only in that window. Other windows, launching apps, and \
-                 blocked apps are refused. {input}",
+                 may read and act only in that window, and in new windows of that app its own \
+                 actions open (a dialog, a panel). Other windows, launching apps, and blocked \
+                 apps are refused. {input}",
                 self.config
                     .here_window
                     .as_ref()
@@ -159,11 +196,23 @@ impl<D: Desktop> Guard<D> {
 
     /// Checks and forwards one call; the MCP `CallToolResult` to return.
     pub fn call(&mut self, tool: &str, args: Map<String, Value>) -> Value {
-        self.fresh = None;
+        let started = Instant::now();
         self.notes.clear();
+        self.forwarding = Duration::ZERO;
         self.notice_resume();
         let mut args = args;
         let outcome = self.run(tool, &mut args);
+        tracing::debug!(
+            tool,
+            guard_ms = started
+                .elapsed()
+                .saturating_sub(self.forwarding)
+                .as_secs_f64()
+                * 1000.0,
+            forward_ms = self.forwarding.as_secs_f64() * 1000.0,
+            refused = outcome.is_err(),
+            "guarded call"
+        );
         let forwarded = outcome.is_ok();
         let mut result = match outcome {
             Ok(result) | Err(result) => result,
@@ -196,11 +245,23 @@ impl<D: Desktop> Guard<D> {
         match kind {
             Kind::Refused(why) => return Err(refusal(tool, "POLICY_DENIED", why)),
             Kind::Claim => return self.claim(tool, args),
+            Kind::InstalledApps => return Ok(self.installed_apps(args)),
+            Kind::Clipboard
+                if self.config.lane == Lane::Background && !self.config.physical_input =>
+            {
+                return Err(refusal(
+                    tool,
+                    "POLICY_DENIED",
+                    "The clipboard is shared with the person; a Background task puts text in its \
+                     window with desktop_type or desktop_set_value instead.",
+                ));
+            }
+            Kind::Clipboard => return self.forward(tool, args),
             Kind::Free => {
                 let result = self.forward(tool, args)?;
                 let background = self.config.lane == Lane::Background;
                 if background && tool == "desktop_wait" && args.contains_key("event") {
-                    let _ = self.list(None);
+                    let _ = self.list(Look::AfterAction);
                 }
                 if tool == "desktop_list_windows" {
                     self.windows_note();
@@ -231,6 +292,9 @@ impl<D: Desktop> Guard<D> {
         if kind == Kind::Launch {
             return self.launch(tool, args);
         }
+        if kind == Kind::OpenApp {
+            return self.open_app(args);
+        }
         if kind == Kind::FocusWindow && self.config.lane == Lane::Background {
             return Err(refusal(
                 tool,
@@ -249,10 +313,14 @@ impl<D: Desktop> Guard<D> {
         for window in &resolved {
             self.check(tool, kind, window, &held)?;
         }
-        if kind.acts() && self.config.lane == Lane::Background {
-            for window in &resolved {
-                self.watch(&window.app);
+        if kind.acts() {
+            if self.config.lane == Lane::Background {
+                for window in &resolved {
+                    self.watch(&window.app);
+                }
             }
+            // What was on screen before, so what its action opens is new.
+            let _ = self.list(Look::Check);
         }
         let hands = (kind.acts() && self.config.physical_input)
             .then(|| self.store.hands_on(&self.config.task, self.pid));
@@ -260,17 +328,20 @@ impl<D: Desktop> Guard<D> {
         drop(hands);
         let result = result?;
         self.record(&result, &resolved);
-        if kind.acts() && self.config.lane == Lane::Background {
-            self.fresh = None;
-            let _ = self.list(None);
+        if kind.acts() {
+            let _ = self.list(Look::AfterAction);
         }
         Ok(result)
     }
 
     fn forward(&mut self, tool: &str, args: &Map<String, Value>) -> Result<Value, Value> {
-        self.desktop
+        let started = Instant::now();
+        let result = self
+            .desktop
             .call(tool, args)
-            .map_err(|why| failure(&format!("agent-desktop: {why}")))
+            .map_err(|why| failure(&format!("agent-desktop: {why}")));
+        self.forwarding += started.elapsed();
+        result
     }
 
     /// The Here lane takes its window once.
@@ -284,7 +355,7 @@ impl<D: Desktop> Guard<D> {
         };
         let window = match &here.window_id {
             Some(id) => Some((id.clone(), here.app.clone())),
-            None => self.list(None).ok().and_then(|windows| {
+            None => self.list(Look::Check).ok().and_then(|windows| {
                 let of_app: Vec<&Window> = windows
                     .iter()
                     .filter(|window| window.visible && same_app(&window.app, &here.app))
@@ -311,47 +382,57 @@ impl<D: Desktop> Guard<D> {
         }
     }
 
-    /// The task's windows now.
+    /// The task's windows now (a Here task's are all in its app).
     fn held(&self) -> Vec<LeaseFile> {
         let mut held = self.store.held_by(&self.config.task);
-        if self.config.lane == Lane::Here {
-            let here = self
-                .config
-                .here_window
-                .as_ref()
-                .and_then(|window| window.window_id.clone());
-            if let Some(here) = here {
-                held.retain(|lease| lease.window_id == here);
-            }
+        if let (Lane::Here, Some(here)) = (self.config.lane, &self.config.here_window) {
+            held.retain(|lease| {
+                here.window_id.as_ref() == Some(&lease.window_id) || same_app(&lease.app, &here.app)
+            });
         }
         held
     }
 
-    /// `list-windows`, once per call (a launch looks again); in the
-    /// Background lane, new windows of apps the task works in become its.
-    fn list(&mut self, launched: Option<&Launched>) -> Result<Vec<Window>, Value> {
-        if launched.is_none()
-            && let Some(fresh) = &self.fresh
+    /// The windows on screen, read in this process (`screen`); a look up
+    /// to [`FRESH`] old stands for a check. New windows the task's own
+    /// actions open become its (`adopt`).
+    fn list(&mut self, look: Look<'_>) -> Result<Vec<Window>, Value> {
+        if let (Look::Check, Some((at, windows))) = (look, &self.looked)
+            && at.elapsed() < self.fresh_for
         {
-            return Ok(fresh.clone());
+            return Ok(windows.clone());
         }
-        let result = self
-            .desktop
-            .call("desktop_list_windows", &Map::new())
-            .map_err(|why| failure(&format!("agent-desktop: {why}")))?;
-        let windows = child::data(&result)
-            .map(|data| child::windows(&data))
-            .ok_or_else(|| {
-                failure("Hex couldn't list the windows to check this call; try again.")
-            })?;
-        if self.config.lane == Lane::Background {
-            self.adopt(&windows, launched);
+        let mut windows = self.screen.windows();
+        if windows.is_empty() {
+            return Err(failure(
+                "Hex couldn't see the windows on screen to check this call; try again.",
+            ));
         }
-        self.fresh = Some(windows.clone());
+        // The task's own windows that aren't on screen (on another Space,
+        // minimized) are still its to use; they can't be in front.
+        for lease in self.held() {
+            if !windows.iter().any(|window| window.id == lease.window_id) {
+                windows.push(Window {
+                    id: lease.window_id,
+                    app: lease.app,
+                    title: String::new(),
+                    pid: None,
+                    focused: false,
+                    visible: true,
+                    minimized: false,
+                    bounds: None,
+                });
+            }
+        }
+        self.adopt(&windows, look);
+        self.looked = Some((Instant::now(), windows.clone()));
         Ok(windows)
     }
 
-    fn adopt(&mut self, windows: &[Window], launched: Option<&Launched>) {
+    /// Takes new windows that are the task's own doing: a Background task's
+    /// in an app it launched or works in (never one in front, which the
+    /// person opened), a Here task's in its own app right after its action.
+    fn adopt(&mut self, windows: &[Window], look: Look<'_>) {
         let now = Instant::now();
         self.watched
             .retain(|_, since| now.duration_since(*since) < WATCH);
@@ -363,17 +444,36 @@ impl<D: Desktop> Guard<D> {
         let Some(known) = self.known.replace(on_screen) else {
             return;
         };
+        let here = self.config.here_window.clone().map(|here| {
+            let pid = here.window_id.as_ref().and_then(|id| {
+                windows
+                    .iter()
+                    .find(|window| &window.id == id)
+                    .and_then(|window| window.pid)
+            });
+            (here.app, pid)
+        });
         for window in windows.iter().filter(|window| window.visible) {
             if known.contains(&window.id) || self.blocked(&window.app) {
                 continue;
             }
-            let from_launch = launched.is_some_and(|launched| {
-                launched.pid.is_some() && launched.pid == window.pid
-                    || same_app(&launched.app, &window.app)
-            });
-            let watched =
-                !window.focused && self.watched.contains_key(&policy::app_key(&window.app));
-            if !from_launch && !watched {
+            let ours = match (self.config.lane, look) {
+                (Lane::Here, Look::AfterAction) => {
+                    here.as_ref().is_some_and(|(app, pid)| match pid {
+                        Some(pid) => window.pid == Some(*pid),
+                        None => same_app(app, &window.app),
+                    })
+                }
+                (Lane::Here, _) => false,
+                (Lane::Background, Look::Launched(launched)) => {
+                    launched.pid.is_some() && launched.pid == window.pid
+                        || same_app(&launched.app, &window.app)
+                }
+                (Lane::Background, _) => {
+                    !window.focused && self.watched.contains_key(&policy::app_key(&window.app))
+                }
+            };
+            if !ours {
                 continue;
             }
             let acquired = self.store.acquire(
@@ -434,7 +534,7 @@ impl<D: Desktop> Guard<D> {
             ));
         }
         let app = text(args, "app").unwrap_or_default();
-        let _ = self.list(None);
+        let _ = self.list(Look::Check);
         let hands = (self.config.physical_input && activate)
             .then(|| self.store.hands_on(&self.config.task, self.pid));
         let result = self.forward(tool, args);
@@ -450,7 +550,7 @@ impl<D: Desktop> Guard<D> {
         };
         self.watch(&app);
         self.watch(&launched.app);
-        let _ = self.list(Some(&launched));
+        let _ = self.list(Look::Launched(&launched));
         Ok(result)
     }
 
@@ -469,7 +569,7 @@ impl<D: Desktop> Guard<D> {
                 "Name the window to claim with window_id (from desktop_list_windows).",
             )
         })?;
-        let windows = self.list(None)?;
+        let windows = self.list(Look::Check)?;
         let window = windows
             .iter()
             .find(|window| window.id == id && window.visible)

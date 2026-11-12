@@ -8,8 +8,11 @@ use serde_json::{Map, Value};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
     /// Reads nothing of a window, or what anyone may see (`list-windows`,
-    /// `status`, skills, the clipboard, a timed wait): forwarded as is.
+    /// `status`, skills, a timed wait): forwarded as is.
     Free,
+    /// The clipboard, which is the person's too: Here tasks, or with real
+    /// input allowed.
+    Clipboard,
     /// Reads one window (snapshot, find, screenshot, get, is, …).
     Observe,
     /// Operates one window without real input.
@@ -25,6 +28,10 @@ pub enum Kind {
     CloseApp,
     /// Hex's own `desktop_claim_window`.
     Claim,
+    /// Hex's own `hex_installed_apps`.
+    InstalledApps,
+    /// Hex's own `hex_open_app`.
+    OpenApp,
     /// Never forwarded; the text says why.
     Refused(&'static str),
 }
@@ -40,6 +47,7 @@ impl Kind {
                 | Self::Press
                 | Self::FocusWindow
                 | Self::Launch
+                | Self::OpenApp
                 | Self::CloseApp
         )
     }
@@ -47,6 +55,13 @@ impl Kind {
 
 /// Hex's tool for taking a free window (Background lane).
 pub const CLAIM_TOOL: &str = "desktop_claim_window";
+
+/// Hex's list of the apps installed on this Mac.
+pub const INSTALLED_APPS_TOOL: &str = "hex_installed_apps";
+
+/// Hex's safer `launch`: opens an app (or a fresh instance of it) and makes
+/// its new window the task's (Background lane).
+pub const OPEN_APP_TOOL: &str = "hex_open_app";
 
 const MANAGED: &str = "Hex manages agent-desktop's sessions, cursors, traces, and permissions; \
 this tool isn't available to tasks.";
@@ -114,16 +129,19 @@ pub const TAKES_WINDOW_ID: &[&str] = &[
 ];
 
 pub fn kind(tool: &str, args: &Map<String, Value>) -> Kind {
-    if tool == CLAIM_TOOL {
-        return Kind::Claim;
+    match tool {
+        CLAIM_TOOL => return Kind::Claim,
+        INSTALLED_APPS_TOOL => return Kind::InstalledApps,
+        OPEN_APP_TOOL => return Kind::OpenApp,
+        _ => {}
     }
     let Some(name) = tool.strip_prefix("desktop_") else {
         return Kind::Refused("Hex doesn't know this tool.");
     };
     match name {
         "list_apps" | "list_windows" | "list_displays" | "status" | "version" | "skills_list"
-        | "skills_get" | "skills_path" | "clipboard_get" | "clipboard_set" | "clipboard_clear"
-        | "list_notifications" => Kind::Free,
+        | "skills_get" | "skills_path" | "list_notifications" => Kind::Free,
+        "clipboard_get" | "clipboard_set" | "clipboard_clear" => Kind::Clipboard,
         "wait" => {
             let bound = ["element", "text", "menu", "menu_closed"]
                 .iter()

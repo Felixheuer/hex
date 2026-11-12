@@ -5,16 +5,18 @@
 //! does: the same microphone, HUD, sounds, chord discards, and short-tap
 //! discards. Its gestures:
 //!
-//! - **Hold** asks about the window in front (`Origin::ActionShortcut`, the
-//!   Here lane). The desktop is read on its own thread once the hold is real
-//!   (past the hold threshold with no other key), so a ⌘C chord reads
-//!   nothing; the screenshot leaves out Hex's own windows. It continues
-//!   `assistant::focus`, which is the running Here task first, so speaking
-//!   into a running task steers it.
+//! - **Hold** is for everything: say anything, and the assistant decides
+//!   whether to answer, act in the window in front, or escalate to a
+//!   background job. It always asks as `Origin::ActionShortcut`, continuing
+//!   `assistant::focus` (a task waiting on a question first, then a running
+//!   Here task, then a recent one), so a hold answers an open question or
+//!   steers a running task. The desktop is read on its own thread once the
+//!   hold is real (past the hold threshold with no other key), so a ⌘C chord
+//!   reads nothing; the screenshot leaves out Hex's own windows.
 //! - **Tap, then hold** (the second press within the double-tap window, held
-//!   past the hold threshold) starts a new Background task
-//!   (`Origin::Background`) with no conversation and no screenshot. It never
-//!   pastes.
+//!   past the hold threshold) is an optional shortcut that forces a new
+//!   Background task (`Origin::Background`) with no conversation and no
+//!   screenshot. It never pastes.
 //! - **Double tap** (two taps, no hold) shows or hides the HUD's task list
 //!   ([`set_toggle_tasks`]).
 //! - A Here question that starts with "im Hintergrund", "in the background",
@@ -232,10 +234,11 @@ impl Question {
         !std::mem::replace(&mut self.real, true)
     }
 
-    /// The request `text` makes, or none when nothing was said. A Here
-    /// question continues the conversation `focus` names (the running Here
-    /// task first, which it then steers); a Background task, or a question
-    /// that asks for one first, starts its own and looks for itself.
+    /// The request `text` makes, or none when nothing was said. A hold
+    /// continues the conversation `focus` names (a task waiting on a
+    /// question, a running Here task, or a recent one), and the assistant
+    /// decides how to answer; a forced Background task, or words that ask
+    /// for one first, start their own and look for themselves.
     pub(super) fn request(
         mut self,
         text: &str,

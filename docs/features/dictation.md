@@ -506,22 +506,27 @@ real Wayland grant or X11 grab run, and no Windows hook run.
 While Labs › Assistant is on (`labs.assistant`), its Action shortcut
 (`assistant.action_hotkey`, right Command alone by default) records through
 the same microphone pipeline, HUD, and sounds as dictation, but its transcript
-asks the assistant instead of pasting ([labs.md](labs.md), Assistant):
+asks the assistant instead of pasting ([labs.md](labs.md), Assistant). Hold
+and say anything; Hex decides: the assistant answers, acts in the window in
+front, or escalates to a background job, so there is no mode to choose:
 
 ```ts
 Labs > Assistant > Action shortcut           // recognition::ask, Shortcut::Action
 ├── Setup not finished (assistant::ready false) -> nothing recorded; a hold
 │   opens the setup at its saved page (ask::set_open_setup); a tap does nothing
-├── Hold -> Here (Origin::ActionShortcut): capture starts at once; once the
-│   hold is real the desktop is read off the key path and the lane prewarms
+├── Hold, say anything (Origin::ActionShortcut): capture starts at once; once
+│   the hold is real the desktop is read off the key path and the lane prewarms
 │   ├── release -> processed like a paste (TranscriptionTarget::Assistant),
 │   │   never pasted, copied, kept for Paste last, or saved to History
-│   ├── assistant::submit, continuing assistant::focus (a running Here task
-│   │   first, which it steers); only words stop the answer being read aloud
+│   ├── assistant::submit, continuing assistant::focus (a task waiting on a
+│   │   question, then a running Here task, then a recent one), so a hold
+│   │   answers an open question or steers; the brain answers, acts, or
+│   │   escalates; only words stop the answer being read aloud
 │   └── "im Hintergrund …", "in the background …", "nebenbei …",
 │       "parallel …", "Hintergrund: …" -> a Background task without those words
-├── Tap, then hold (second press within 300 ms, held past 300 ms)
-│   -> Background (Origin::Background): no conversation, no screenshot
+├── Optional: tap, then hold (second press within 300 ms, held past 300 ms)
+│   -> forces a Background task (Origin::Background): no conversation, no
+│   screenshot
 ├── Double tap (two taps, 300 ms each) -> the HUD's task list shows or hides
 │   (ask::set_toggle_tasks), with a soft tone; no lock, nothing recorded
 ├── Short tap, chord (R⌘+C), or silence -> discarded, nothing asked

@@ -29,6 +29,9 @@ unsafe extern "C" {
         result: *mut CfTypeRef,
     ) -> i32;
     fn AXValueGetTypeID() -> usize;
+    /// Private but long stable (window managers rely on it): an
+    /// AXUIElement window's CoreGraphics window number.
+    fn _AXUIElementGetWindow(element: AxUiElementRef, window: *mut u32) -> i32;
     fn AXValueCreate(value_type: u32, value: *const c_void) -> CfTypeRef;
     fn AXValueGetValue(value: CfTypeRef, value_type: u32, value_out: *mut c_void) -> bool;
 }
@@ -70,6 +73,19 @@ unsafe extern "C" {
     fn CFArrayGetCount(array: CfTypeRef) -> isize;
     fn CFArrayGetValueAtIndex(array: CfTypeRef, index: isize) -> CfTypeRef;
     static kCFBooleanTrue: CfTypeRef;
+}
+
+/// The CoreGraphics window number of the application's focused window
+/// (agent-desktop names it `w-<number>`). An app's frontmost CoreGraphics
+/// window can be a strip or panel of its own; this is the window it says
+/// has focus.
+pub fn focused_window_number(pid: i32) -> Option<u32> {
+    let application = foreign_application(pid)?;
+    let window = copy_element(&application, c"AXFocusedWindow")?;
+    let mut number = 0_u32;
+    // SAFETY: `window` is a live AXUIElement; `number` is written on success.
+    let status = unsafe { _AXUIElementGetWindow(window.0, &raw mut number) };
+    (status == 0 && number != 0).then_some(number)
 }
 
 pub fn focused_window_title(pid: i32) -> Option<String> {

@@ -4,18 +4,26 @@
 //! what the lanes promise, so a prompt is never the only safeguard:
 //!
 //! - **Window leases.** A task acts only in windows it holds. The Here lane
-//!   holds the window that was in front when asked; a Background task holds
+//!   holds the window that was in front when asked (and new windows its own
+//!   actions open in that app, such as a dialog); a Background task holds
 //!   windows it opened (`launch`, new windows after its actions) or claimed
 //!   while no other task holds them. Nobody acts in another task's window,
 //!   and Background tasks never act in the window in front of the person.
 //!   Leases live as files under `<support>/assistant/leases/`, created
-//!   exclusively, so separate processes agree; a dead holder's lease lapses.
+//!   exclusively, so separate processes agree; a dead holder's lease lapses
+//!   (its pid gone, or reused by a process that started at another time).
 //! - **Input policy.** Real pointer and keys (`--headed`) only for a Here task
 //!   with `here_physical_input`, or any task with `physical_input`; while one
-//!   runs, `hands_off()` names it for the HUD.
+//!   runs, `hands_off()` names it for the HUD. The clipboard, shared with the
+//!   person, only for Here tasks or with real input.
 //! - **Blocked apps.** No task reads or operates `blocked_apps`.
 //! - **Take over.** While a task is paused its actions wait; when handed back
 //!   its next result tells it to look again before acting.
+//!
+//! Windows on screen, and the one in front, are read in the guard's process
+//! from CoreGraphics (`screen`, under a millisecond), so agent-desktop runs
+//! only the task's own calls. Hex adds `desktop_claim_window`,
+//! `hex_installed_apps`, and `hex_open_app` to agent-desktop's tools.
 //!
 //! `hex assistant mcp --spec <json or file>` serves it (`server`); the spec
 //! is [`WireSpec`] as JSON. `mcp_server` gives a task's agent that command.
@@ -25,6 +33,7 @@
 mod child;
 mod policy;
 mod proxy;
+mod screen;
 mod server;
 mod state;
 #[cfg(test)]
@@ -77,6 +86,27 @@ pub struct WireSpec {
     /// The guard's folder; `<support>/assistant` when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state_dir: Option<PathBuf>,
+    /// Where the guard sees the windows on screen.
+    #[serde(default, skip_serializing_if = "WindowSource::is_default")]
+    pub windows: WindowSource,
+}
+
+/// Where the guard reads the windows on screen.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WindowSource {
+    /// CoreGraphics, in the guard's process: a few milliseconds.
+    #[default]
+    CoreGraphics,
+    /// agent-desktop's `list-windows` (a few hundred milliseconds), for
+    /// tests with a stand-in agent-desktop.
+    AgentDesktop,
+}
+
+impl WindowSource {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -101,6 +131,7 @@ impl WireSpec {
             blocked_apps: spec.blocked_apps.clone(),
             agent_desktop: None,
             state_dir: None,
+            windows: WindowSource::default(),
         }
     }
 
@@ -163,9 +194,19 @@ pub fn serve(spec: &str) -> Result<()> {
         &wire.agent_id,
         wire.physical_input,
     );
+    let screen: Box<dyn screen::Screen> = match wire.windows {
+        WindowSource::CoreGraphics => {
+            screen::CoreGraphics::warm();
+            Box::new(screen::CoreGraphics)
+        }
+        WindowSource::AgentDesktop => Box::new(screen::Listed(child::AgentDesktop::new(
+            program.clone(),
+            Vec::new(),
+        ))),
+    };
     let desktop = child::AgentDesktop::new(program, flags);
     let pid = std::process::id();
-    let guard = proxy::Guard::new(config(&wire), store.clone(), pid, desktop);
+    let guard = proxy::Guard::new(config(&wire), store.clone(), pid, desktop, screen);
     let served = server::serve(guard);
     // This process's leases lapse when it ends; free them now.
     for lease in store.held_by(&wire.task) {

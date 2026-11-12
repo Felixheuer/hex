@@ -135,6 +135,8 @@ fn the_guard_forwards_only_what_the_lane_allows() {
             "task": task, "lane": "background", "agent_id": agent, "session": "s1",
             "physical_input": false, "blocked_apps": ["1Password"],
             "agent_desktop": fake, "state_dir": root.join("state"),
+            // The stand-in's recorded windows, not this Mac's.
+            "windows": "agent_desktop",
         })
     };
     let log_a = root.join("a.jsonl");
@@ -151,9 +153,12 @@ fn the_guard_forwards_only_what_the_lane_allows() {
     assert!(names.contains(&"desktop_snapshot"));
     assert!(!names.contains(&"desktop_batch"));
     assert!(!names.contains(&"desktop_mouse_click"));
-    assert_eq!(
-        reached(&log_a)[0]["argv"],
-        json!(["mcp", "--session", "s1", "--agent-id", "hex-1"])
+    assert!(
+        reached(&log_a)
+            .iter()
+            .any(|entry| entry["argv"] == json!(["mcp", "--session", "s1", "--agent-id", "hex-1"])),
+        "{:?}",
+        reached(&log_a)
     );
 
     // The window in front is the person's: refused, and never forwarded.

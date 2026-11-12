@@ -25,9 +25,10 @@ pub enum AssistantBackend {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default)]
 pub struct AssistantSettings {
-    /// Hold to ask about the window in front; tap then hold for a new
-    /// Background task; double-tap to show or hide the task list. Right
-    /// Command by default.
+    /// Hold and say anything: the assistant answers, acts in the window in
+    /// front, or starts a background job. Double-tap shows or hides the task
+    /// list; a tap then a hold forces a new Background task. Right Command
+    /// by default.
     pub action_hotkey: Option<HotkeyBinding>,
     pub backend: AssistantBackend,
     /// Each backend's model; `None` is that agent's own default.
