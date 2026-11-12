@@ -749,7 +749,61 @@ pub(super) const SCENES: &[Scene] = &[
         *ui = mac_fixture();
         ui.settings.meetings.enabled = false;
     }),
-    // The assistant's Chats and setup (macOS only, so no golden moves).
+    // The assistant's Chats and setup on Linux and Windows (their goldens).
+    ("chats", |ui| {
+        chats_on(ui, Os::Linux, chats::fixture::Scene::Conversation)
+    }),
+    ("chats-empty", |ui| {
+        chats_on(ui, Os::Linux, chats::fixture::Scene::Empty)
+    }),
+    ("chats-settings", |ui| {
+        chats_on(ui, Os::Linux, chats::fixture::Scene::Settings)
+    }),
+    ("assistant-setup-welcome", |ui| {
+        chats_on(
+            ui,
+            Os::Linux,
+            chats::fixture::Scene::Setup(chats::Page::Welcome),
+        )
+    }),
+    ("assistant-setup-agent", |ui| {
+        chats_on(
+            ui,
+            Os::Linux,
+            chats::fixture::Scene::Setup(chats::Page::Agent),
+        )
+    }),
+    ("assistant-setup-desktop", |ui| {
+        chats_on(
+            ui,
+            Os::Linux,
+            chats::fixture::Scene::Setup(chats::Page::Desktop),
+        )
+    }),
+    ("assistant-setup-try", |ui| {
+        chats_on(
+            ui,
+            Os::Linux,
+            chats::fixture::Scene::Setup(chats::Page::Try),
+        )
+    }),
+    ("assistant-setup-done", |ui| {
+        chats_on(ui, Os::Linux, chats::fixture::Scene::SetupDone)
+    }),
+    ("windows-chats", |ui| {
+        chats_on(ui, Os::Windows, chats::fixture::Scene::Conversation)
+    }),
+    ("windows-chats-settings", |ui| {
+        chats_on(ui, Os::Windows, chats::fixture::Scene::Settings)
+    }),
+    ("windows-assistant-setup-desktop", |ui| {
+        chats_on(
+            ui,
+            Os::Windows,
+            chats::fixture::Scene::Setup(chats::Page::Desktop),
+        )
+    }),
+    // The assistant's Chats and setup on macOS.
     #[cfg(target_os = "macos")]
     ("mac-chats", |ui| {
         mac_chats(ui, chats::fixture::Scene::Conversation)
@@ -780,7 +834,9 @@ pub(super) const SCENES: &[Scene] = &[
         mac_chats(ui, chats::fixture::Scene::Interrupted)
     }),
     #[cfg(target_os = "macos")]
-    ("mac-chats-job", |ui| mac_chats(ui, chats::fixture::Scene::Job)),
+    ("mac-chats-job", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Job)
+    }),
     #[cfg(target_os = "macos")]
     ("mac-chats-new-schedule", |ui| {
         mac_chats(ui, chats::fixture::Scene::NewSchedule)
@@ -860,6 +916,31 @@ pub(super) const SCENES: &[Scene] = &[
     #[cfg(target_os = "macos")]
     ("mac-assistant-setup-browser", |ui| {
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Browser))
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-browser-sign-in", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Browser));
+        ui.chats.settings.sign_in_editor = true;
+        ui.chats.settings.site_address = rune::TextEdit::new("mail.example.org");
+        ui.chats.settings.saved_sites = vec!["portal.example.org".into()];
+        ui.chats.settings.signed_in = true;
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-permission-repair", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Desktop));
+        ui.platform.permissions.accessibility =
+            crate::desktop::onboarding::PermissionState::NeedsSettings;
+        ui.platform
+            .note_stale(crate::desktop::onboarding::PermissionKind::Accessibility);
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-screen-restart", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Desktop));
+        ui.platform.scrawl = Some(platform::ScrawlView {
+            screen_recording: false,
+            screen_needs_restart: true,
+            ..Default::default()
+        });
     }),
     #[cfg(target_os = "macos")]
     ("mac-assistant-setup-checks", |ui| {
@@ -950,6 +1031,29 @@ fn scrawl_fixture(ui: &mut Ui, enabled: bool, adjust: fn(&mut platform::ScrawlVi
     adjust(&mut view);
     ui.platform.scrawl = Some(view);
     ui.pane = Pane::Annotate;
+}
+
+/// Which window a cross-platform Chats scene draws.
+#[derive(Clone, Copy)]
+enum Os {
+    Linux,
+    Windows,
+}
+
+/// The Linux or Windows window with the assistant on, at a Chats `scene`.
+fn chats_on(ui: &mut Ui, os: Os, scene: chats::fixture::Scene) {
+    *ui = match os {
+        Os::Linux => portal_fixture(),
+        Os::Windows => {
+            let mut ui = fixture(DesktopShortcuts::Registered);
+            ui.platform = platform::PlatformState::preview(platform::Capabilities::WINDOWS);
+            ui.host = platform::PlatformHost::Fixture(Vec::new());
+            ui.settings.paste_with_shift = false;
+            ui
+        }
+    };
+    ui.settings.meetings.enabled = false;
+    chats::fixture_scene(ui, scene);
 }
 
 /// The macOS window with the assistant on, at a Chats `scene`.
@@ -1059,6 +1163,10 @@ pub(super) fn fixture(shortcuts: DesktopShortcuts) -> Ui {
         paste_with_shift: true,
         ..AppSettings::default()
     };
+    // The assistant is on and set up, so a voice first run ends at "Hex is
+    // ready"; the assistant's own scenes set up its setup themselves.
+    let mut settings = settings;
+    settings.assistant.setup_done = true;
     let mut ui = Ui::with(settings, Service::Fixture(Vec::new()));
     ui.platform.wayland = true;
     ui.models = models::Models::fixture();

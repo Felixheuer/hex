@@ -101,18 +101,20 @@ fn agent_row(ui: &Ui, p: Paint, index: usize, backend: AssistantBackend) -> El {
         .key("radio")
         .grow(1.0)
         .shrink();
-    let action = action_label(backend, status).filter(|_| !working).map(|label| {
-        Button::new(label)
-            .variant(if selected {
-                ButtonVariant::Contrast
-            } else {
-                ButtonVariant::Neutral
-            })
-            .disabled(state.working.is_some())
-            .on_press(move |ui: &mut Ui| agents::act(ui, backend))
-            .build_small_push(p.k)
-            .key("act")
-    });
+    let action = action_label(backend, status)
+        .filter(|_| !working)
+        .map(|label| {
+            Button::new(label)
+                .variant(if selected {
+                    ButtonVariant::Contrast
+                } else {
+                    ButtonVariant::Neutral
+                })
+                .disabled(state.working.is_some())
+                .on_press(move |ui: &mut Ui| agents::act(ui, backend))
+                .build_small_push(p.k)
+                .key("act")
+        });
     let mut line = row()
         .key("line")
         .gap(10.0)
@@ -121,9 +123,12 @@ fn agent_row(ui: &Ui, p: Paint, index: usize, backend: AssistantBackend) -> El {
         .children(chip(p, status))
         .children(action);
     if working {
-        line = line.child(el().key("busy").size(16.0, 16.0).center().child(
-            Spinner::new().size(14.0).color(p.accent()).build(p.k),
-        ));
+        line = line.child(
+            el().key("busy")
+                .size(16.0, 16.0)
+                .center()
+                .child(Spinner::new().size(14.0).color(p.accent()).build(p.k)),
+        );
     }
     let mut block = col()
         .key(format!("agent{index}"))
@@ -163,18 +168,27 @@ fn agent_row(ui: &Ui, p: Paint, index: usize, backend: AssistantBackend) -> El {
 fn codex_key(ui: &Ui, p: Paint) -> El {
     let state = &ui.chats.settings.agents;
     let Some(field) = &state.codex_key else {
-        return link(p, "codex-use-key", tr("Use an OpenAI API key instead"), |ui| {
-            ui.chats.settings.agents.codex_key = Some(rune::TextEdit::default());
-        })
+        return link(
+            p,
+            "codex-use-key",
+            tr("Use an OpenAI API key instead"),
+            |ui| {
+                ui.chats.settings.agents.codex_key = Some(rune::TextEdit::default());
+            },
+        )
         .pl(30.0);
     };
     let mut block = col().key("codex-key").pl(30.0).gap(6.0).child(
-        text(tr("This replaces Codex's ChatGPT sign-in on this Mac for all apps."))
-            .key("warning")
-            .role("status")
-            .font(p.k.ty.small_medium)
-            .color(p.warning())
-            .wrap(),
+        text(if cfg!(target_os = "macos") {
+            tr("This replaces Codex's ChatGPT sign-in on this Mac for all apps.")
+        } else {
+            tr("This replaces Codex's ChatGPT sign-in on this computer for all apps.")
+        })
+        .key("warning")
+        .role("status")
+        .font(p.k.ty.small_medium)
+        .color(p.warning())
+        .wrap(),
     );
     block = block.child(
         row()
@@ -279,7 +293,13 @@ fn link(p: Paint, key: &str, label: &str, press: impl Fn(&mut Ui) + 'static) -> 
 }
 
 /// A small choice chip.
-pub(super) fn choice(p: Paint, key: String, label: &str, on: bool, press: impl Fn(&mut Ui) + 'static) -> El {
+pub(super) fn choice(
+    p: Paint,
+    key: String,
+    label: &str,
+    on: bool,
+    press: impl Fn(&mut Ui) + 'static,
+) -> El {
     let k = p.k;
     let chip = row()
         .key(key)
@@ -315,7 +335,11 @@ fn byok(ui: &Ui, p: Paint) -> Option<El> {
     let provider = agents::provider(byok);
     let k = p.k;
     let providers = crate::assistant::backends::providers();
-    let mut provider_chips = row().key("providers").role("radiogroup").gap(6.0).flex_wrap();
+    let mut provider_chips = row()
+        .key("providers")
+        .role("radiogroup")
+        .gap(6.0)
+        .flex_wrap();
     for (index, each) in providers.iter().enumerate() {
         provider_chips = provider_chips.child(choice(
             p,
@@ -347,7 +371,8 @@ fn byok(ui: &Ui, p: Paint) -> Option<El> {
         ));
     }
     let key_url = provider.key_url;
-    let installed = agents::found(ui, AssistantBackend::OpenCode).is_some_and(|found| found.path.is_some());
+    let installed =
+        agents::found(ui, AssistantBackend::OpenCode).is_some_and(|found| found.path.is_some());
     let verify_label = if installed {
         tr("Verify")
     } else {
@@ -419,7 +444,13 @@ fn byok(ui: &Ui, p: Paint) -> Option<El> {
                             .color(p.text()),
                     )
                     .child(
-                        text(tr("OpenCode runs any provider's model on your key. Hex keeps the key in your Keychain."))
+                        text(if cfg!(target_os = "macos") {
+                            tr("OpenCode runs any provider's model on your key. Hex keeps the key in your Keychain.")
+                        } else if cfg!(target_os = "windows") {
+                            tr("OpenCode runs any provider's model on your key. Hex keeps the key in Credential Manager.")
+                        } else {
+                            tr("OpenCode runs any provider's model on your key. Hex keeps the key in your keyring.")
+                        })
                             .key("detail")
                             .font(k.ty.small)
                             .color(p.muted())
@@ -531,24 +562,29 @@ fn suggestion(ui: &Ui, p: Paint) -> El {
     if let Some((failed, why)) = &state.failed
         && *failed == backend
     {
-        card = card.child(super::sheet::install_failure(p, why, state.command.as_deref()).w(0.0).grow(1.0));
+        card = card.child(
+            super::sheet::install_failure(p, why, state.command.as_deref())
+                .w(0.0)
+                .grow(1.0),
+        );
     }
-    col()
-        .key("nothing-installed")
-        .gap(4.0)
-        .child(card)
-        .child(
-            row()
-                .key("alternatives")
-                .px(4.0)
-                .gap(4.0)
-                .center_y()
-                .child(link(p, "use-own-key", tr("Or use your own API key"), agents::open_byok))
-                .child(el().key("spacer").grow(1.0))
-                .child(link(p, "see-all-agents", tr("See all agents"), |ui| {
-                    ui.chats.settings.agents.show_all = true;
-                })),
-        )
+    col().key("nothing-installed").gap(4.0).child(card).child(
+        row()
+            .key("alternatives")
+            .px(4.0)
+            .gap(4.0)
+            .center_y()
+            .child(link(
+                p,
+                "use-own-key",
+                tr("Or use your own API key"),
+                agents::open_byok,
+            ))
+            .child(el().key("spacer").grow(1.0))
+            .child(link(p, "see-all-agents", tr("See all agents"), |ui| {
+                ui.chats.settings.agents.show_all = true;
+            })),
+    )
 }
 
 /// The picker: the suggestion when nothing is installed, else the list,
@@ -560,13 +596,15 @@ pub(super) fn picker(ui: &Ui, p: Paint) -> El {
         return picker.child(suggestion(ui, p));
     }
     if ui.chats.settings.found.is_none() {
-        return picker.child(
-            row()
-                .key("looking")
-                .px(16.0)
-                .py(12.0)
-                .child(progress(ui, p, tr("Looking for the agents on this Mac…"))),
-        );
+        return picker.child(row().key("looking").px(16.0).py(12.0).child(progress(
+            ui,
+            p,
+            if cfg!(target_os = "macos") {
+                tr("Looking for the agents on this Mac…")
+            } else {
+                tr("Looking for the agents on this computer…")
+            },
+        )));
     }
     for (index, backend) in agents::all().into_iter().enumerate() {
         picker = picker.child(agent_row(ui, p, index, backend));

@@ -99,6 +99,10 @@ pub(crate) enum ShortcutTarget {
     SecondDictation,
     /// Toggle mode's cancel shortcut.
     Cancel,
+    /// The assistant's Action shortcut (right Ctrl alone by default).
+    Action,
+    /// The assistant's Stop all tasks.
+    StopAll,
 }
 
 /// What the runtime last published for the window.
@@ -210,6 +214,11 @@ pub fn open(event_path: PathBuf, shutdown: &'static AtomicBool, start_hidden: bo
     };
     let hud = crate::rune_hud::install(&mut app);
     crate::rune_ui::live_text::install(&mut app, crate::rune_hud::live_text_place);
+    // The assistant: the frame, task stack, and quick answer; hidden,
+    // without windows, until the assistant reports work.
+    crate::rune_ui::assistant_overlay::install(&mut app);
+    crate::rune_ui::window_link::remember(window.clone());
+    crate::rune_ui::window_link::wire_assistant();
     // The capture capsule, picker, and ink.
     let _capture_overlays =
         crate::rune_ui::capture_capsule::feed::CaptureOverlays::install(&mut app);
@@ -351,6 +360,7 @@ fn run_runtime(
 ) {
     let mut tray_view = None;
     let mut tray_meetings = None;
+    let mut tray_assistant = None;
     indicator.set_position(settings.indicator_position);
     let mut host = WindowsDesktopHost::new(
         event_path,
@@ -393,10 +403,16 @@ fn run_runtime(
             }
         }
         let meetings = crate::meeting::runtime::tray_state();
+        // Tasks start and end without a published change.
+        let assistant = assistant_tray(&published.settings);
         if let Some(tray) = tray
-            && (changed || tray_view.is_none() || tray_meetings != meetings)
+            && (changed
+                || tray_view.is_none()
+                || tray_meetings != meetings
+                || tray_assistant != assistant)
         {
             tray_meetings = meetings;
+            tray_assistant = assistant;
             let view = tray_view_for(&published);
             if tray_view.as_ref() != Some(&view) {
                 tray.set_tooltip(view.tooltip());
@@ -617,6 +633,7 @@ impl crate::control::host::Host for WindowsControl {
 fn tray_view_for(published: &Published) -> TrayView {
     TrayView {
         meetings: crate::meeting::runtime::tray_state(),
+        assistant: assistant_tray(&published.settings),
         ..TrayView::new(
             published.listener.running,
             published.state,
@@ -628,6 +645,14 @@ fn tray_view_for(published: &Published) -> TrayView {
             ),
         )
     }
+}
+
+/// The assistant's tray items while it's on: Stop all tasks can stop
+/// something while a task runs or waits.
+fn assistant_tray(settings: &AppSettings) -> Option<crate::desktop::tray_menu::AssistantTray> {
+    crate::assistant::enabled(settings).then(|| crate::desktop::tray_menu::AssistantTray {
+        running: crate::assistant::busy(),
+    })
 }
 
 /// Gives the window the executable's embedded icon (resource 1, see
@@ -861,6 +886,13 @@ fn create_tray(window: rune::AppHandle<Ui>) -> Result<rune::Tray> {
         rune::TrayEvent::Menu(id) => match TrayCommand::from_id(&id) {
             Some(TrayCommand::Show) => window.open(),
             Some(TrayCommand::Quit) => window.quit(),
+            Some(TrayCommand::OpenChats) => {
+                window.open();
+                window.update(|ui, tx| {
+                    crate::rune_ui::show(ui, crate::rune_ui::Destination::Chats(None), tx);
+                });
+            }
+            Some(TrayCommand::StopAllTasks) => crate::assistant::shortcut::stop_all(),
             Some(
                 command @ (TrayCommand::RecordMeeting
                 | TrayCommand::StopMeeting
@@ -905,7 +937,9 @@ fn create_tray(window: rune::AppHandle<Ui>) -> Result<rune::Tray> {
                     | TrayCommand::Quit
                     | TrayCommand::RecordMeeting
                     | TrayCommand::StopMeeting
-                    | TrayCommand::CopyLastMeeting => return,
+                    | TrayCommand::CopyLastMeeting
+                    | TrayCommand::OpenChats
+                    | TrayCommand::StopAllTasks => return,
                 };
                 let _ = runtime.send(request);
             }

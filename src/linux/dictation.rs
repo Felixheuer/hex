@@ -1,7 +1,7 @@
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, SyncSender, TrySendError};
-use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -9,6 +9,7 @@ use color_eyre::Result;
 use color_eyre::eyre::eyre;
 
 use crate::app_settings::AppSettings;
+use crate::assistant::shortcut::{self as ask, Question};
 use crate::audio::linger::MicrophoneLinger;
 use crate::audio::{CaptureInstant, RecoveringAudioInput, RecoveringAudioInputEvent};
 use crate::control::{PrintReply, PrintedTranscript};
@@ -16,6 +17,7 @@ use crate::desktop::events::{
     DictationPhase, EventLog, TranscriptPhase, VoiceEvent, VoiceState, now_ms,
 };
 use crate::desktop::host::DesktopShortcuts;
+use crate::dictation::DictationFlavour;
 use crate::dictation::service::{DictationQueue, Effect, MICROPHONE_LOST, ServiceDictations};
 use crate::dictation::{DictationCapture, Finish, ReleaseWait};
 use crate::feedback::{self, Tone};
@@ -28,13 +30,18 @@ use crate::transcription::engine::{PendingTranscript, TranscriptionEngine};
 use crate::transcription::local_transcriber::LocalTranscriber;
 
 const UPDATE_INTERVAL: Duration = Duration::from_millis(20);
+/// How often the X11 listener's answer to "is Escape the assistant's now"
+/// is refreshed (`assistant::shortcut::claims_escape`).
+const ESCAPE_REFRESH: Duration = Duration::from_millis(100);
 
 mod gap;
+mod output;
 mod shortcuts;
 mod silence;
 mod typing;
 
 use gap::{ChunkStep, chunk_step};
+pub(crate) use output::DictationOutput;
 use shortcuts::shortcuts;
 use silence::reopen_silent_stream;
 use typing::CaptureTyping;
@@ -154,117 +161,6 @@ fn microphone_input(settings: &AppSettings, device: Option<&str>) -> RecoveringA
         RecoveringAudioInput::closed(device, 0, microphone)
     } else {
         RecoveringAudioInput::open(device, 0, microphone)
-    }
-}
-
-/// What happens to a transcript before and after it is pasted: the modes
-/// that process it and the history that keeps it. The host shares it
-/// with the listener so saved settings apply without a restart.
-#[derive(Clone)]
-pub(crate) struct DictationOutput {
-    pub(crate) history: Option<crate::history::History>,
-    pub(crate) modes: Arc<RwLock<crate::dictation::modes::ModeRuntime>>,
-    pub(crate) transformations: Arc<crate::personal_commands::TransformationClient>,
-}
-
-impl DictationOutput {
-    pub(crate) fn from_settings(
-        settings: &crate::app_settings::AppSettings,
-        history: Option<crate::history::History>,
-    ) -> Self {
-        Self {
-            history,
-            modes: Arc::new(RwLock::new(
-                crate::dictation::modes::ModeRuntime::from_settings(settings),
-            )),
-            transformations: Arc::new(crate::personal_commands::TransformationClient::default()),
-        }
-    }
-
-    /// Reuses the mode runtime and transformation client the local API's
-    /// `process=global` reads, so both see the same settings and personal
-    /// commands host.
-    pub(crate) fn sharing(mut self, processing: crate::dictation::modes::ProcessingState) -> Self {
-        self.modes = processing.modes;
-        self.transformations = processing.transformations;
-        self
-    }
-
-    /// Processes (unless raw) and pastes one transcript, or only
-    /// processes it when there is no paster (a printing stop), then records
-    /// it.
-    #[allow(clippy::too_many_arguments)]
-    fn deliver(
-        &self,
-        raw_text: String,
-        flavour: crate::dictation::DictationFlavour,
-        language: &str,
-        paster: Option<&mut LinuxPaster>,
-        audio_ms: u64,
-        inference_ms: u64,
-        started: Instant,
-        recording: Option<crate::history::Recording>,
-        typing: Option<crate::linux::live_typing::Session>,
-    ) -> Result<String> {
-        let modes = self
-            .modes
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone();
-        let context = crate::linux::context::capture(!flavour.raw() && modes.reads_page());
-        let processed = if flavour.raw() {
-            crate::dictation::processor::Processed::unchanged(raw_text.trim())
-        } else {
-            modes.process(
-                &raw_text,
-                language,
-                &context,
-                &self.transformations,
-                crate::dictation::processor::Source::Dictation,
-            )
-        };
-        let printed = paster.is_none();
-        // Live typing inserts the final text through the input method; a
-        // printed or copy-only dictation clears its preedit and takes the
-        // usual path instead.
-        let inserted = match typing {
-            Some(session) if !printed && !crate::labs::copy_only() => {
-                session.finish(&processed.text)
-            }
-            Some(session) => {
-                session.cancel();
-                false
-            }
-            None => false,
-        };
-        if processed.text.trim().is_empty() {
-            return Err(eyre!("text replacements produced empty output"));
-        }
-        if let Some(paster) = paster
-            && !inserted
-        {
-            paster.paste(&processed.text, flavour.terminal_paste())?;
-        }
-        if let Some(history) = &self.history {
-            let mut draft = crate::dictation::modes::history_draft(
-                raw_text,
-                &processed,
-                context.application,
-                audio_ms,
-                inference_ms,
-                started.elapsed().as_millis() as u64,
-                recording,
-            );
-            if printed {
-                draft.kind = crate::history::HistoryKind::Printed;
-            } else if flavour.raw() {
-                draft.kind = crate::history::HistoryKind::Raw;
-            }
-            if let Err(error) = history.record(draft) {
-                tracing::warn!(%error, "could not retain Linux dictation history");
-            }
-        }
-        Ok(processed.text)
     }
 }
 
@@ -539,6 +435,12 @@ pub(crate) fn run(
     // The flavour of the shortcut that started the recording (Dictate
     // without processing, or Labs › Terminal paste).
     let mut recording_flavour = crate::dictation::DictationFlavour::Normal;
+    // The assistant's Action shortcut: the question its press settled, for
+    // the capture it records; and a press while the assistant isn't set up,
+    // which records nothing and, held, opens the setup as it comes up.
+    let mut question: Option<Question> = None;
+    let mut setup_press: Option<Instant> = None;
+    let mut escape_refreshed: Option<Instant> = None;
     let mut pending = 0_usize;
     // A local API client's dictation, and its transcripts as they finish.
     let mut service = ServiceDictations::default();
@@ -845,6 +747,25 @@ pub(crate) fn run(
         for (id, result) in service_finished.try_iter() {
             service.complete(id, result);
         }
+        // X11 grabs Escape for the assistant only while it would stop
+        // something (a Here task or an answer read aloud) and nothing
+        // records. The portal can't bind Escape, so Wayland never asks.
+        if !wayland
+            && escape_refreshed.is_none_or(|refreshed| refreshed.elapsed() >= ESCAPE_REFRESH)
+        {
+            escape_refreshed = Some(Instant::now());
+            let bound = settings
+                .active_action_hotkey()
+                .is_some_and(|binding| binding.key.is_some());
+            let free = !capture.is_recording()
+                && !start_pending
+                && finishing.is_none()
+                && !service.is_active()
+                && capture_host
+                    .as_mut()
+                    .is_none_or(|host| host.recording_since(&timeline).is_none());
+            crate::linux::input::set_assistant_escape(ask::claims_escape(bound, free));
+        }
         while finishing.is_none()
             && let Some(action) = hotkey
                 .as_ref()
@@ -858,7 +779,11 @@ pub(crate) fn run(
             match action {
                 // A client's dictation records: the shortcut and `hex
                 // dictation` neither start nor end anything.
-                HotkeyEvent::Start { .. } | HotkeyEvent::Finish | HotkeyEvent::Cancel
+                HotkeyEvent::Start { .. }
+                | HotkeyEvent::Ask { .. }
+                | HotkeyEvent::DoubleTap
+                | HotkeyEvent::Finish
+                | HotkeyEvent::Cancel
                     if service.is_active() =>
                 {
                     if let Some(print) = print.take() {
@@ -868,15 +793,41 @@ pub(crate) fn run(
                 // Annotate records the narration itself: while it records,
                 // dictation starts nothing. The desktop already took the keys,
                 // so nothing reaches the app.
-                HotkeyEvent::Start { .. }
+                HotkeyEvent::Start { .. } | HotkeyEvent::Ask { .. }
                     if capture_host
                         .as_mut()
                         .is_some_and(|host| host.recording_since(&timeline).is_some()) => {}
-                HotkeyEvent::Start { flavour } if !capture.is_recording() && !start_pending => {
+                // The assistant isn't set up: the Action shortcut records
+                // nothing, and a hold opens the setup as it comes up.
+                HotkeyEvent::Ask { .. } if !crate::app_settings::applied_assistant_ready() => {
+                    question = None;
+                    setup_press = Some(Instant::now());
+                }
+                HotkeyEvent::Finish | HotkeyEvent::Cancel | HotkeyEvent::DoubleTap
+                    if setup_press.is_some() =>
+                {
+                    let pressed = setup_press.take().expect("a setup press is down");
+                    if action == HotkeyEvent::Finish {
+                        ask::unready_release(pressed.elapsed());
+                    }
+                }
+                HotkeyEvent::Start { .. } | HotkeyEvent::Ask { .. }
+                    if !capture.is_recording() && !start_pending =>
+                {
                     // A failed stream keeps its backoff; the press asks now.
                     if input.is_recovering() {
                         input.retry_now();
                     }
+                    let (flavour, asking) = match action {
+                        HotkeyEvent::Ask { after_tap } => {
+                            // Settles the lane; the desktop is read only
+                            // once the hold is real.
+                            question = Some(ask::press(after_tap));
+                            (DictationFlavour::Assistant, Some(after_tap))
+                        }
+                        HotkeyEvent::Start { flavour } => (flavour, None),
+                        _ => unreachable!("only a start reaches here"),
+                    };
                     recording_flavour = flavour;
                     // A short tap or chord must never create an input method;
                     // Live typing starts at the hold threshold (or the Toggle
@@ -889,15 +840,24 @@ pub(crate) fn run(
                         start_capture(&mut capture, pressed_at, pre_roll, || {
                             feedback::play_provisional_start();
                         });
-                        begin_live_typing(
-                            &capture,
-                            toggle,
-                            wayland,
-                            &mut live_typing,
-                            &mut next_capture_id,
-                            &mut active_typing,
+                        // A question is never typed into the app.
+                        if flavour != DictationFlavour::Assistant {
+                            begin_live_typing(
+                                &capture,
+                                toggle,
+                                wayland,
+                                &mut live_typing,
+                                &mut next_capture_id,
+                                &mut active_typing,
+                            );
+                        }
+                        // The Action shortcut always holds, so it streams
+                        // only once the hold is real.
+                        stream_when_due(
+                            &mut capture,
+                            &engine,
+                            toggle && flavour != DictationFlavour::Assistant,
                         );
-                        stream_when_due(&mut capture, &engine, toggle);
                     } else if audio_ready || release_while_idle {
                         start_pending = true;
                         if !audio_ready {
@@ -905,7 +865,14 @@ pub(crate) fn run(
                         }
                         feedback::prepare();
                     } else {
+                        question = None;
                         continue;
+                    }
+                    if let Some(after_tap) = asking {
+                        // The HUD wears the assistant's colours (and after
+                        // a tap says "New task"), so a question never looks
+                        // like a dictation.
+                        indicator.asking(after_tap);
                     }
                     events.dictation(DictationPhase::Started, "")?;
                     emit_state(&mut events, VoiceState::Dictating, &device_label)?;
@@ -915,6 +882,8 @@ pub(crate) fn run(
                     // nothing was captured.
                     start_pending = false;
                     cancel_typing(&mut active_typing);
+                    // A question released before any audio asks nothing.
+                    question = None;
                     if let Some(print) = print.take() {
                         print.send(PrintedTranscript::NoSpeech);
                     }
@@ -931,6 +900,12 @@ pub(crate) fn run(
                     emit_state(&mut events, active_state(false, pending), &device_label)?;
                 }
                 HotkeyEvent::Finish if capture.is_recording() => {
+                    // A question's transcript goes to the assistant, never
+                    // pasted: its reply answers the question's own thread.
+                    if recording_flavour == DictationFlavour::Assistant {
+                        let asked = question.take().unwrap_or_else(|| ask::press(false));
+                        print = Some(ask::reply(asked));
+                    }
                     let released_at = clock.at(Instant::now()).unwrap_or(CaptureInstant::ZERO);
                     finishing = Some(Finishing {
                         flavour: recording_flavour,
@@ -972,7 +947,30 @@ pub(crate) fn run(
                         }
                     }
                 }
+                // The second tap of a double tap: its capture ends unheard,
+                // as a short tap's does, and the task list shows or hides.
+                HotkeyEvent::DoubleTap => {
+                    question = None;
+                    if capture.is_recording() || start_pending {
+                        start_pending = false;
+                        capture.cancel();
+                        cancel_typing(&mut active_typing);
+                        feedback::retract_start();
+                        suppressor.restore();
+                        release_microphone!();
+                        events.dictation(DictationPhase::Discarded, "")?;
+                        emit_state(
+                            &mut events,
+                            active_state(capture.is_recording(), pending),
+                            &device_label,
+                        )?;
+                    }
+                    ask::double_tap();
+                }
+                HotkeyEvent::StopAll => ask::stop_all(),
+                HotkeyEvent::AssistantEscape => ask::escape(),
                 HotkeyEvent::Cancel if capture.is_recording() => {
+                    question = None;
                     capture.cancel();
                     cancel_typing(&mut active_typing);
                     feedback::retract_start();
@@ -1164,10 +1162,23 @@ pub(crate) fn run(
                     // lower, or pause audio.
                     suppressor.suppress();
                 }
+                // A question's hold became real: a Here question starts
+                // reading the desktop, and its lane gets ready to answer.
+                if recording_flavour == DictationFlavour::Assistant
+                    && finishing.is_none()
+                    && capture.is_intentional()
+                    && let Some(asked) = question.as_mut()
+                    && asked.intend()
+                {
+                    crate::assistant::service::prewarm(asked.lane());
+                }
                 // A release in its tail never starts an input method: a
                 // short tap must stay inert even while its last audio lands.
                 // A client's dictation returns its text and types nothing.
-                if finishing.is_none() && !service.is_active() {
+                if finishing.is_none()
+                    && !service.is_active()
+                    && recording_flavour != DictationFlavour::Assistant
+                {
                     begin_live_typing(
                         &capture,
                         toggle,
@@ -1177,7 +1188,11 @@ pub(crate) fn run(
                         &mut active_typing,
                     );
                 }
-                stream_when_due(&mut capture, &engine, toggle);
+                stream_when_due(
+                    &mut capture,
+                    &engine,
+                    toggle && recording_flavour != DictationFlavour::Assistant,
+                );
                 if let Some(partial) = capture.report_live_text() {
                     if let Some(typing) = &active_typing {
                         typing.session.preedit(&partial.stable, &partial.tentative);
@@ -1251,6 +1266,7 @@ pub(crate) fn run(
         capture.cancel();
         events.dictation(DictationPhase::Cancelled, "")?;
     }
+    crate::linux::input::set_assistant_escape(false);
     cancel_typing(&mut active_typing);
     if let Some(mut host) = capture_host.take() {
         host.shutdown(&timeline);
@@ -1387,7 +1403,10 @@ fn submit_capture(
                 .held_selection()
                 .unwrap_or_else(|| crate::app_settings::transcription_selection().1)
                 .language;
-            let recording = crate::history::Recording::keep(&samples);
+            // A question keeps no recording, as it keeps no History entry.
+            let recording = (flavour != DictationFlavour::Assistant)
+                .then(|| crate::history::Recording::keep(&samples))
+                .flatten();
             let job = OutputJob::Dictation(Job {
                 transcript: engine.finish(stream, samples)?,
                 audio_ms,
@@ -1918,6 +1937,36 @@ mod tests {
 
         settings.typed_text_hotkey = None;
         assert!(shortcuts(&settings).1.typed_text.is_none());
+    }
+
+    #[test]
+    fn the_assistant_shortcuts_are_registered_only_while_it_is_on() {
+        let mut settings = AppSettings::default();
+        settings.assistant.enabled = false;
+        let (_, options) = shortcuts(&settings);
+        assert!(options.action.is_none() && options.stop_all.is_none());
+
+        settings.assistant.enabled = true;
+        let (_, options) = shortcuts(&settings);
+        // Ctrl+Alt+A and Ctrl+Alt+Q by default.
+        let control_alt = |key: &str| LinuxHotkey {
+            control: true,
+            alt: true,
+            shift: false,
+            super_key: false,
+            key: key.into(),
+        };
+        assert_eq!(options.action, Some(control_alt("a")));
+        assert_eq!(options.stop_all, Some(control_alt("q")));
+
+        // A keyless binding (a macOS default) never registers on Linux.
+        settings.assistant.action_hotkey = Some(crate::app_settings::HotkeyBinding {
+            key: None,
+            ..crate::app_settings::HotkeyBinding::action_default()
+        });
+        settings.assistant.stop_all_hotkey = None;
+        let (_, options) = shortcuts(&settings);
+        assert!(options.action.is_none() && options.stop_all.is_none());
     }
 
     #[test]

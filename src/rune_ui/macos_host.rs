@@ -759,6 +759,18 @@ impl NativeHost for MacHost {
                         == crate::capture_host::ScreenAccess::Off
                 {
                     self.note_permission_asked(kind);
+                    // Both lists only show an app once it has asked: without
+                    // the request, Hex never appears under Screen Recording
+                    // and the guide points at a list that lacks it.
+                    match kind {
+                        PermissionKind::Accessibility => {
+                            let _ = crate::desktop::permission_guide::prompt_accessibility_trust();
+                        }
+                        PermissionKind::ScreenRecording => {
+                            let _ = crate::meeting::request_screen_recording();
+                        }
+                        _ => {}
+                    }
                     crate::desktop::permission_guide::show(kind);
                 }
             }

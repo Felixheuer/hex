@@ -47,13 +47,10 @@ pub fn bounded(mut command: Command, limit: Duration) -> std::io::Result<Ran> {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
+    own_group(&mut command, true);
     let started = Instant::now();
     let mut child = command.spawn()?;
+    let tree = Tree::of(&child);
     let (done, finished) = mpsc::channel();
     let stdout = reader(child.stdout.take(), done.clone());
     let stderr = reader(child.stderr.take(), done);
@@ -70,7 +67,7 @@ pub fn bounded(mut command: Command, limit: Duration) -> std::io::Result<Ran> {
         }
     }
     if status.is_none() || open > 0 {
-        kill_group(&mut child);
+        tree.kill_with(&mut child);
     }
     Ok(Ran {
         status,
@@ -92,14 +89,11 @@ pub fn streamed(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
+    own_group(&mut command, true);
     let started = Instant::now();
     let deadline = started + limit;
     let mut child = command.spawn()?;
+    let tree = Tree::of(&child);
     let (sender, lines) = mpsc::channel();
     split_lines(child.stdout.take(), false, sender.clone());
     split_lines(child.stderr.take(), true, sender);
@@ -133,7 +127,7 @@ pub fn streamed(
         }
     }
     if status.is_none() || exited_at.is_some_and(|at| at.elapsed() > Duration::from_millis(500)) {
-        kill_group(&mut child);
+        tree.kill_with(&mut child);
     }
     Ok(Ran {
         status,
@@ -211,7 +205,8 @@ fn wait_until(child: &mut Child, deadline: Instant) -> Option<ExitStatus> {
     }
 }
 
-/// Kills `child` and the process group it leads, then reaps it.
+/// Kills `child` and the process group it leads, then reaps it. Off Unix
+/// it ends `child` alone; keep a [`Tree`] to reach its children there.
 pub fn kill_group(child: &mut Child) {
     #[cfg(unix)]
     if let Ok(pid) = i32::try_from(child.id()) {
@@ -220,6 +215,140 @@ pub fn kill_group(child: &mut Child) {
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// Starts `command` as the head of its own process tree: its own process
+/// group on Unix (a [`Tree`] made after spawning reaches it). With
+/// `with_thread`, on Linux the direct child also dies with the thread that
+/// spawns it, so a caller that waits for it never leaves it behind; leave it
+/// off when another thread keeps the process (a prewarmed agent).
+pub fn own_group(command: &mut Command, with_thread: bool) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+        #[cfg(target_os = "linux")]
+        if with_thread {
+            // SAFETY: `prctl` is async-signal-safe and touches only the child.
+            unsafe {
+                command.pre_exec(|| {
+                    libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+                    Ok(())
+                });
+            }
+        }
+    }
+    let _ = (command, with_thread);
+}
+
+/// Everything one started process began: its process group on Unix
+/// ([`own_group`]), a job object on Windows that ends them all if Hex stops
+/// without cleaning up. Dropping it leaves what still runs alone (a daemon
+/// the program started on purpose), as on Unix; [`Tree::kill`] ends it all.
+#[derive(Clone)]
+pub struct Tree {
+    pid: u32,
+    #[cfg(windows)]
+    job: Option<Arc<Released>>,
+}
+
+/// A job released on its last drop.
+#[cfg(windows)]
+struct Released(crate::personal_commands::process::windows_job::Job);
+
+#[cfg(windows)]
+impl Drop for Released {
+    fn drop(&mut self) {
+        self.0.release();
+    }
+}
+
+impl std::fmt::Debug for Tree {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Tree").field("pid", &self.pid).finish()
+    }
+}
+
+impl Tree {
+    /// The tree `child` heads; spawn it after [`own_group`].
+    pub fn of(child: &Child) -> Self {
+        #[cfg(windows)]
+        {
+            use crate::personal_commands::process::windows_job::Job;
+            let job = Job::new().and_then(|job| job.assign(child).map(|()| job));
+            if let Err(error) = &job {
+                tracing::debug!(%error, "couldn't put an agent in a job; only it can be ended");
+            }
+            Self {
+                pid: child.id(),
+                job: job.ok().map(|job| Arc::new(Released(job))),
+            }
+        }
+        #[cfg(not(windows))]
+        Self { pid: child.id() }
+    }
+
+    /// The head process's id.
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    /// Asks the tree to stop: SIGTERM on Unix. Windows has nothing gentler
+    /// than ending the job.
+    pub fn terminate(&self) {
+        #[cfg(unix)]
+        self.signal(libc::SIGTERM);
+        #[cfg(windows)]
+        self.end();
+    }
+
+    /// Ends the tree at once.
+    pub fn kill(&self) {
+        #[cfg(unix)]
+        self.signal(libc::SIGKILL);
+        #[cfg(windows)]
+        self.end();
+    }
+
+    /// [`Tree::kill`], then reaps `child`.
+    pub fn kill_with(&self, child: &mut Child) {
+        self.kill();
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[cfg(unix)]
+    fn signal(&self, signal: libc::c_int) {
+        if let Ok(group) = i32::try_from(self.pid)
+            && group > 0
+        {
+            // SAFETY: a negative pid signals the group this tree's head leads.
+            unsafe { libc::kill(-group, signal) };
+        }
+    }
+
+    #[cfg(windows)]
+    fn end(&self) {
+        match &self.job {
+            Some(job) => job.0.terminate(),
+            None => terminate_pid(self.pid),
+        }
+    }
+}
+
+/// Ends process `pid` (a process no job holds).
+#[cfg(windows)]
+fn terminate_pid(pid: u32) {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
+    // SAFETY: the handle is checked, used once, and closed.
+    unsafe {
+        let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+        if !handle.is_null() {
+            TerminateProcess(handle, 1);
+            CloseHandle(handle);
+        }
+    }
 }
 
 /// `text` cut to `max` characters, with an ellipsis when cut.
@@ -234,6 +363,7 @@ pub fn shorten(text: &str, max: usize) -> String {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn a_quick_command_reports_its_output() {
         let mut command = Command::new("/bin/sh");
@@ -244,6 +374,7 @@ mod tests {
         assert_eq!(ran.last_words(), "err");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_slow_command_and_its_children_are_killed_at_the_limit() {
         let mut command = Command::new("/bin/sh");
@@ -254,6 +385,7 @@ mod tests {
         assert!(!ran.stdout.contains("never"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_child_left_holding_the_output_does_not_hold_the_caller() {
         let mut command = Command::new("/bin/sh");
@@ -264,6 +396,7 @@ mod tests {
         assert!(ran.took < Duration::from_secs(5));
     }
 
+    #[cfg(unix)]
     #[test]
     fn progress_comes_line_by_line_as_it_happens() {
         let mut command = Command::new("/bin/sh");
@@ -282,6 +415,7 @@ mod tests {
         assert_eq!(ran.last_words(), "err");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_streamed_command_is_killed_at_the_limit() {
         let mut command = Command::new("/bin/sh");

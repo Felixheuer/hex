@@ -8,8 +8,11 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
+#[cfg(target_os = "macos")]
 use objc2::MainThreadMarker;
+#[cfg(target_os = "macos")]
 use objc2_app_kit::{NSEvent, NSScreen};
+#[cfg(target_os = "macos")]
 use objc2_foundation::{NSNumber, NSString};
 use rune::{DisplayTarget, OverlayHandle, OverlayPlacement, ScreenEdge};
 
@@ -22,7 +25,26 @@ use crate::rune_ui::live_text::Spot;
 /// How a panel that moved to another display comes in there.
 const MOVE_IN: Duration = Duration::from_millis(240);
 
+/// Every display with its taskbar or panels, in global points, y down.
+#[cfg(not(target_os = "macos"))]
+pub(super) fn screens() -> Vec<Screen> {
+    displays::read()
+}
+
+/// The pointer, in global points.
+#[cfg(not(target_os = "macos"))]
+pub(super) fn pointer() -> Option<(f64, f64)> {
+    displays::pointer()
+}
+
+/// The front window, in global points.
+#[cfg(not(target_os = "macos"))]
+fn front_window() -> Option<[f64; 4]> {
+    displays::front_window()
+}
+
 /// Every display with its menu bar and Dock, in global points, y down.
+#[cfg(target_os = "macos")]
 pub(super) fn screens() -> Vec<Screen> {
     let Some(mtm) = MainThreadMarker::new() else {
         return displays::read();
@@ -54,6 +76,7 @@ pub(super) fn screens() -> Vec<Screen> {
         .collect()
 }
 
+#[cfg(target_os = "macos")]
 fn screen_number(screen: &NSScreen) -> Option<u32> {
     let description = screen.deviceDescription();
     let number = description.objectForKey(&NSString::from_str("NSScreenNumber"))?;
@@ -61,6 +84,7 @@ fn screen_number(screen: &NSScreen) -> Option<u32> {
 }
 
 /// The pointer, in global points.
+#[cfg(target_os = "macos")]
 pub(super) fn pointer() -> Option<(f64, f64)> {
     let mtm = MainThreadMarker::new()?;
     let primary = NSScreen::screens(mtm).iter().next()?.frame();
@@ -70,6 +94,7 @@ pub(super) fn pointer() -> Option<(f64, f64)> {
 }
 
 /// The front window of the app in front, in global points.
+#[cfg(target_os = "macos")]
 fn front_window() -> Option<[f64; 4]> {
     let app = objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication()?;
     let pid = app.processIdentifier();

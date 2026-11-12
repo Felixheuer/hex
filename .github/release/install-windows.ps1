@@ -3,12 +3,12 @@
 # %APPDATA%\hex\versions\<version>\hex.exe with its console entry point
 # hex.com beside it, a Start Menu shortcut points at hex.exe, %APPDATA%\hex\bin
 # (a copy of hex.com) goes on PATH, install.json marks the install as direct,
-# and the app then keeps itself current from the Anomaly release service
-# (docs/plans/release-service.md).
+# and the app then keeps itself current from Pilot's release server
+# (docs/pilot-release.md, docs/plans/release-service.md).
 #
-# Trust: HTTPS to the release service, the manifest's size and SHA-256 for
-# the download, and the executable's Authenticode signature, which the app
-# checks again for every update.
+# Trust: HTTPS to the release server and the manifest's size and SHA-256 for
+# the download. Every in-app update is also checked against Pilot's ed25519
+# release signature (and Authenticode, when the build names a signer).
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File install-windows.ps1
@@ -21,7 +21,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$origin = if ($env:HEX_RELEASE_BASE_URL) { $env:HEX_RELEASE_BASE_URL.TrimEnd('/') } else { 'https://anoma.ly/release' }
+$origin = if ($env:HEX_RELEASE_BASE_URL) { $env:HEX_RELEASE_BASE_URL.TrimEnd('/') } else { 'https://ai.sms-pilot.de/release' }
 if (-not $origin.StartsWith('https://')) { throw 'HEX_RELEASE_BASE_URL must be an https:// URL.' }
 # HEX_INSTALL_CHANNEL=dev installs the newest dev build and keeps the
 # install on the Dev update channel; =stable requires the stable release.

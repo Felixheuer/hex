@@ -1,13 +1,22 @@
 //! Setup's one-click fixes: installing an agent, agent-desktop, or
 //! agent-browser without a prompt, with each line of the installer's output
-//! handed to the caller as progress, and signing in through Terminal while
-//! Hex waits for the agent to say it's signed in.
+//! handed to the caller as progress, and signing in through a terminal
+//! window while Hex waits for the agent to say it's signed in.
 //!
-//! Each install uses its project's documented method: Homebrew when it's
-//! there, else npm when Node is, else the project's own install script (the
-//! agents have one; agent-desktop and agent-browser need Homebrew or npm,
-//! and without either [`install_command`] gives what to paste in Terminal).
-//! Something already installed is never installed again.
+//! Each install uses its project's documented method, per system:
+//!
+//! - macOS: Homebrew when it's there, else npm when Node is, else the
+//!   project's own install script.
+//! - Linux: npm, else the project's install script (run with bash), else
+//!   Linuxbrew when someone has it. Claude Code's native script comes first:
+//!   its npm package is deprecated.
+//! - Windows: WinGet where the project publishes a package (Claude Code),
+//!   else npm, else the project's PowerShell script. Lightpanda has no
+//!   Windows build.
+//!
+//! agent-desktop and agent-browser need npm (or Homebrew on macOS); without
+//! it [`install_command`] gives what to paste in a terminal. Something
+//! already installed is never installed again.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -28,6 +37,44 @@ const SIGN_IN_LIMIT: Duration = Duration::from_secs(600);
 /// Installs Homebrew; it asks for the person's password, so only a person
 /// runs it, in Terminal.
 const HOMEBREW: &str = r#"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv)""#;
+
+/// The system an install is planned for.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Os {
+    Mac,
+    Linux,
+    Windows,
+}
+
+impl Os {
+    pub fn current() -> Self {
+        if cfg!(target_os = "macos") {
+            Self::Mac
+        } else if cfg!(windows) {
+            Self::Windows
+        } else {
+            Self::Linux
+        }
+    }
+
+    /// What the person pastes a command into.
+    fn terminal(self) -> &'static str {
+        match self {
+            Self::Mac => "Terminal",
+            Self::Linux => "a terminal",
+            Self::Windows => "PowerShell",
+        }
+    }
+
+    /// Between the commands of a pasted line: Windows PowerShell 5 has no
+    /// `&&`.
+    fn then(self) -> &'static str {
+        match self {
+            Self::Windows => "; ",
+            _ => " && ",
+        }
+    }
+}
 
 /// Something setup can install.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -83,6 +130,32 @@ impl Tool {
         }
     }
 
+    /// The WinGet package id, where the project publishes one.
+    fn winget(self) -> Option<&'static str> {
+        match self {
+            Self::Agent(AssistantBackend::ClaudeCode) => Some("Anthropic.ClaudeCode"),
+            _ => None,
+        }
+    }
+
+    /// The project's own PowerShell install script (Windows).
+    fn powershell(self) -> Option<&'static str> {
+        match self {
+            Self::Agent(AssistantBackend::ClaudeCode) => {
+                Some("irm https://claude.ai/install.ps1 | iex")
+            }
+            Self::Agent(AssistantBackend::Codex) => {
+                Some("irm https://chatgpt.com/codex/install.ps1 | iex")
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether `os` has a build of it.
+    pub fn available_on(self, os: Os) -> bool {
+        !(self == Self::Lightpanda && os == Os::Windows)
+    }
+
     /// The project's own install script, as its docs give it.
     fn script(self) -> Option<&'static str> {
         match self {
@@ -120,11 +193,19 @@ impl Tool {
     }
 }
 
-/// What this Mac has for installing `tool`, and whether it's there already.
+/// What this computer has for installing `tool`, and whether it's there
+/// already.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Installers {
     pub brew: Option<PathBuf>,
     pub npm: Option<PathBuf>,
+    /// Windows' package manager.
+    pub winget: Option<PathBuf>,
+    /// Windows PowerShell, for a project's `install.ps1`.
+    pub powershell: Option<PathBuf>,
+    /// Where a global npm install goes when npm's own folder belongs to the
+    /// system (Linux's packaged npm): `~/.local`, whose `bin` Hex searches.
+    pub npm_prefix: Option<PathBuf>,
     pub installed: bool,
     /// agent-browser's Chrome is downloaded.
     pub browser_ready: bool,
@@ -138,22 +219,39 @@ impl Installers {
         let browser_ready = tool == Tool::AgentBrowser
             && installed.is_some()
             && crate::assistant::browser::agent_browser().browser_ready;
+        let windows = cfg!(windows);
+        // npm runs on node; without it, npm can't install anything.
+        let npm = search::find("node").and_then(|_| search::find("npm"));
+        let system_npm =
+            cfg!(target_os = "linux") && npm.as_ref().is_some_and(|npm| npm.starts_with("/usr/"));
         Self {
             brew: brew(),
-            // npm runs on node; without it, npm can't install anything.
-            npm: search::find("node").and_then(|_| search::find("npm")),
+            npm_prefix: system_npm
+                .then(|| crate::app_paths::home_dir().map(|home| home.join(".local")))
+                .flatten(),
+            npm,
+            winget: windows.then(|| search::find("winget")).flatten(),
+            powershell: windows.then(|| search::find("powershell")).flatten(),
             installed: installed.is_some(),
             browser_ready,
         }
     }
 }
 
+/// Homebrew (macOS), or Linuxbrew; never on Windows.
 fn brew() -> Option<PathBuf> {
-    ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
-        .map(PathBuf::from)
-        .into_iter()
-        .find(|path| search::is_executable(path))
-        .or_else(|| search::find("brew"))
+    if cfg!(windows) {
+        return None;
+    }
+    [
+        "/opt/homebrew/bin/brew",
+        "/usr/local/bin/brew",
+        "/home/linuxbrew/.linuxbrew/bin/brew",
+    ]
+    .map(PathBuf::from)
+    .into_iter()
+    .find(|path| search::is_executable(path))
+    .or_else(|| search::find("brew"))
 }
 
 /// One command of an install: an executable's path, or a name found on the
@@ -172,23 +270,43 @@ impl Step {
         }
     }
 
-    /// As typed in a shell.
+    /// As typed in this system's shell.
     pub fn command_line(&self) -> String {
-        std::iter::once(&self.program)
+        self.command_line_for(Os::current())
+    }
+
+    /// As typed in `os`'s shell: a POSIX shell, or PowerShell on Windows.
+    pub fn command_line_for(&self, os: Os) -> String {
+        let words = std::iter::once(&self.program)
             .chain(&self.args)
-            .map(|word| quote(word))
+            .map(|word| quote(word, os))
             .collect::<Vec<_>>()
-            .join(" ")
+            .join(" ");
+        // PowerShell runs a quoted program only after `&`.
+        if os == Os::Windows && words.starts_with('\'') {
+            format!("& {words}")
+        } else {
+            words
+        }
     }
 }
 
-fn quote(word: &str) -> String {
+fn quote(word: &str, os: Os) -> String {
+    let plain_chars = if os == Os::Windows {
+        "-_./:=+\\"
+    } else {
+        "-_./:@=+"
+    };
     let plain = !word.is_empty()
         && word
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "-_./:@=+".contains(c));
+            .all(|c| c.is_ascii_alphanumeric() || plain_chars.contains(c));
     if plain {
         word.to_owned()
+    } else if os == Os::Windows {
+        // PowerShell's single quotes take everything literally; a quote
+        // inside is doubled.
+        format!("'{}'", word.replace('\'', "''"))
     } else {
         format!("'{}'", word.replace('\'', r"'\''"))
     }
@@ -208,40 +326,34 @@ pub enum Plan {
     },
 }
 
-/// The install for `tool` given what `here` has: Homebrew, else npm, else
-/// the project's script; agent-browser then downloads its Chrome.
+/// The install for `tool` given what `here` has, on this system.
 pub fn plan(tool: Tool, here: &Installers) -> Plan {
+    plan_for(Os::current(), tool, here)
+}
+
+/// The install for `tool` on `os` given what `here` has; agent-browser then
+/// downloads its Chrome.
+pub fn plan_for(os: Os, tool: Tool, here: &Installers) -> Plan {
     let chrome = Step::new("agent-browser", &["install"]);
+    if !tool.available_on(os) {
+        return Plan::Missing {
+            why: format!("{} has no Windows version", tool.name()),
+            command: String::new(),
+        };
+    }
     if here.installed {
         return match tool {
             Tool::AgentBrowser if !here.browser_ready => Plan::Run(vec![chrome]),
             _ => Plan::Ready,
         };
     }
-    let package = if let Some(brew) = here.brew.as_ref().filter(|_| !tool.brew().is_empty()) {
-        let mut args = vec!["install"];
-        args.extend(tool.brew());
-        Step::new(brew.to_string_lossy(), &args)
-    } else if let (Some(npm), Some(package)) = (&here.npm, tool.npm()) {
-        Step::new(
-            npm.to_string_lossy(),
-            &["install", "-g", "--no-fund", "--no-audit", package],
-        )
-    } else if let Some(script) = tool.script() {
-        Step::new("/bin/bash", &["-c", script])
-    } else {
-        let mut install = format!("brew install {}", tool.brew().join(" "));
-        if tool == Tool::AgentBrowser {
-            install.push_str(" && agent-browser install");
-        }
-        return Plan::Missing {
-            why: format!(
-                "Homebrew isn't installed, so Hex can't install {} by itself. Install \
-                 Homebrew from brew.sh, or paste this in Terminal",
-                tool.name()
-            ),
-            command: format!("{HOMEBREW} && {install}"),
-        };
+    let package = match os {
+        Os::Mac => mac_step(tool, here),
+        Os::Linux => linux_step(tool, here),
+        Os::Windows => windows_step(tool, here),
+    };
+    let Some(package) = package else {
+        return missing(os, tool);
     };
     let mut steps = vec![package];
     if tool == Tool::AgentBrowser {
@@ -250,21 +362,174 @@ pub fn plan(tool: Tool, here: &Installers) -> Plan {
     Plan::Run(steps)
 }
 
-/// What a person could paste in Terminal to do what `fix` installs, for
+fn brew_step(tool: Tool, brew: &Path) -> Step {
+    let mut args = vec!["install"];
+    args.extend(tool.brew());
+    Step::new(brew.to_string_lossy(), &args)
+}
+
+fn npm_step(npm: &Path, package: &str, here: &Installers) -> Step {
+    let prefix = here
+        .npm_prefix
+        .as_ref()
+        .map(|prefix| prefix.to_string_lossy().into_owned());
+    let mut args = vec!["install", "-g"];
+    if let Some(prefix) = &prefix {
+        args.extend(["--prefix", prefix]);
+    }
+    args.extend(["--no-fund", "--no-audit", package]);
+    Step::new(npm.to_string_lossy(), &args)
+}
+
+/// Homebrew, else npm, else the project's script.
+fn mac_step(tool: Tool, here: &Installers) -> Option<Step> {
+    if let Some(brew) = here.brew.as_ref().filter(|_| !tool.brew().is_empty()) {
+        Some(brew_step(tool, brew))
+    } else if let (Some(npm), Some(package)) = (&here.npm, tool.npm()) {
+        Some(npm_step(npm, package, here))
+    } else {
+        tool.script()
+            .map(|script| Step::new("/bin/bash", &["-c", script]))
+    }
+}
+
+/// npm, else the project's script, else a Linuxbrew formula (casks are
+/// macOS only). Claude Code's own script first: its npm package is
+/// deprecated.
+fn linux_step(tool: Tool, here: &Installers) -> Option<Step> {
+    let script = || {
+        tool.script()
+            .map(|script| Step::new("bash", &["-c", script]))
+    };
+    if tool == Tool::Agent(AssistantBackend::ClaudeCode)
+        && let Some(step) = script()
+    {
+        return Some(step);
+    }
+    let formula = tool.brew().first().is_some_and(|first| *first != "--cask");
+    if let (Some(npm), Some(package)) = (&here.npm, tool.npm()) {
+        Some(npm_step(npm, package, here))
+    } else if let Some(step) = script() {
+        Some(step)
+    } else {
+        here.brew
+            .as_ref()
+            .filter(|_| formula)
+            .map(|brew| brew_step(tool, brew))
+    }
+}
+
+/// WinGet where the project publishes a package, else npm (Claude Code's is
+/// deprecated), else the project's PowerShell script.
+fn windows_step(tool: Tool, here: &Installers) -> Option<Step> {
+    if let (Some(winget), Some(id)) = (&here.winget, tool.winget()) {
+        return Some(Step::new(
+            winget.to_string_lossy(),
+            &[
+                "install",
+                "--id",
+                id,
+                "--exact",
+                "--source",
+                "winget",
+                "--silent",
+                "--disable-interactivity",
+                "--accept-source-agreements",
+                "--accept-package-agreements",
+            ],
+        ));
+    }
+    let npm_ok = tool != Tool::Agent(AssistantBackend::ClaudeCode);
+    if let (Some(npm), Some(package), true) = (&here.npm, tool.npm(), npm_ok) {
+        return Some(npm_step(npm, package, here));
+    }
+    let powershell = here.powershell.as_ref().map_or_else(
+        || "powershell".to_owned(),
+        |path| path.to_string_lossy().into_owned(),
+    );
+    tool.powershell().map(|script| {
+        Step::new(
+            powershell,
+            &[
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                script,
+            ],
+        )
+    })
+}
+
+/// Why Hex can't install `tool` by itself on `os`, and what to paste.
+fn missing(os: Os, tool: Tool) -> Plan {
+    let then = os.then();
+    let chrome = if tool == Tool::AgentBrowser {
+        format!("{then}agent-browser install")
+    } else {
+        String::new()
+    };
+    let npm = |prefix: &str| {
+        tool.npm()
+            .map(|package| format!("npm install -g {prefix}{package}"))
+            .unwrap_or_default()
+    };
+    match os {
+        Os::Mac => Plan::Missing {
+            why: format!(
+                "Homebrew isn't installed, so Hex can't install {} by itself. Install \
+                 Homebrew from brew.sh, or paste this in Terminal",
+                tool.name()
+            ),
+            command: format!(
+                "{HOMEBREW} && brew install {}{chrome}",
+                tool.brew().join(" ")
+            ),
+        },
+        Os::Linux => Plan::Missing {
+            why: format!(
+                "Node.js and npm aren't installed, so Hex can't install {} by itself. \
+                 Install them from your distribution's packages (for example \
+                 `sudo apt install nodejs npm`), or paste this in a terminal",
+                tool.name()
+            ),
+            command: format!(
+                "sudo apt install -y nodejs npm && {}{chrome}",
+                npm("--prefix ~/.local ")
+            ),
+        },
+        Os::Windows => Plan::Missing {
+            why: format!(
+                "Node.js isn't installed, so Hex can't install {} by itself. Install \
+                 Node.js from nodejs.org, or paste this in PowerShell",
+                tool.name()
+            ),
+            command: format!(
+                "winget install --id OpenJS.NodeJS.LTS --exact; $env:Path = \
+                 [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + \
+                 [Environment]::GetEnvironmentVariable('Path','User'); {}{chrome}",
+                npm("")
+            ),
+        },
+    }
+}
+
+/// What a person could paste in a terminal to do what `fix` installs, for
 /// setup's "Copy install command"; `None` when it installs nothing (or
-/// it's installed).
+/// it's installed, or there's no version for this system).
 pub fn install_command(fix: Fix) -> Option<String> {
     let tool = Tool::of(fix)?;
-    match plan(tool, &Installers::here(tool)) {
+    let os = Os::current();
+    match plan_for(os, tool, &Installers::here(tool)) {
         Plan::Ready => None,
         Plan::Run(steps) => Some(
             steps
                 .iter()
-                .map(Step::command_line)
+                .map(|step| step.command_line_for(os))
                 .collect::<Vec<_>>()
-                .join(" && "),
+                .join(os.then()),
         ),
-        Plan::Missing { command, .. } => Some(command),
+        Plan::Missing { command, .. } => (!command.is_empty()).then_some(command),
     }
 }
 
@@ -353,8 +618,13 @@ pub fn apply_fix_with(fix: Fix, mut progress: impl FnMut(&str)) -> Result<()> {
         Fix::UseApiKey(backend) => super::providers::use_api_key(backend, progress),
         Fix::SignIn(backend) => {
             sign_in(backend)?;
+            let window = if cfg!(target_os = "macos") {
+                "Terminal window"
+            } else {
+                "terminal window"
+            };
             progress(&format!(
-                "Sign in to {} in the Terminal window Hex opened…",
+                "Sign in to {} in the {window} Hex opened…",
                 name(backend)
             ));
             wait_for_sign_in(backend, progress)
@@ -384,13 +654,7 @@ pub fn apply_fix_with(fix: Fix, mut progress: impl FnMut(&str)) -> Result<()> {
 }
 
 fn open_url(url: &str) -> Result<()> {
-    let status = crate::desktop::background_process::command("/usr/bin/open")
-        .arg(url)
-        .status()?;
-    status
-        .success()
-        .then_some(())
-        .ok_or_else(|| eyre!("Couldn't open {url}"))
+    crate::desktop::opencode_catalog::open_url(url)
 }
 
 /// The sign-in command for `backend`, after its executable.
@@ -403,7 +667,9 @@ fn sign_in_arguments(backend: AssistantBackend) -> Option<&'static str> {
     }
 }
 
-/// Terminal, running the agent's sign-in: a `.command` file Terminal opens.
+/// A terminal window running the agent's sign-in: on macOS a `.command`
+/// file Terminal opens, on Linux the desktop's terminal running a script,
+/// on Windows a console window running a batch file.
 fn sign_in(backend: AssistantBackend) -> Result<()> {
     let path =
         super::executable(backend).ok_or_else(|| eyre!("{} isn't installed", name(backend)))?;
@@ -411,17 +677,19 @@ fn sign_in(backend: AssistantBackend) -> Result<()> {
         .ok_or_else(|| eyre!("The Claude API needs a key, not a sign-in"))?;
     let folder = std::env::temp_dir().join("hex-assistant");
     std::fs::create_dir_all(&folder)?;
-    let script = folder.join(format!("Sign in to {}.command", name(backend)));
-    let quoted = format!("'{}'", path.to_string_lossy().replace('\'', r"'\''"));
+    open_sign_in(&folder, &path, arguments, name(backend))
+}
+
+#[cfg(target_os = "macos")]
+fn open_sign_in(folder: &Path, path: &Path, arguments: &str, agent: &str) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let script = folder.join(format!("Sign in to {agent}.command"));
+    let quoted = quote(&path.to_string_lossy(), Os::Mac);
     std::fs::write(
         &script,
         format!("#!/bin/zsh -l\nclear\nexec {quoted}{arguments}\n"),
     )?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))?;
-    }
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))?;
     let status = crate::desktop::background_process::command("/usr/bin/open")
         .args(["-a", "Terminal"])
         .arg(&script)
@@ -430,6 +698,106 @@ fn sign_in(backend: AssistantBackend) -> Result<()> {
         .success()
         .then_some(())
         .ok_or_else(|| eyre!("Couldn't open Terminal"))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_sign_in(folder: &Path, path: &Path, arguments: &str, agent: &str) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let script = folder.join(format!(
+        "sign-in-{}.sh",
+        agent.to_lowercase().replace(' ', "-")
+    ));
+    let quoted = quote(&path.to_string_lossy(), Os::Linux);
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nclear\nprintf 'Sign in to {agent}\\n\\n'\n{quoted}{arguments}\n\
+             printf '\\nYou can close this window.\\n'\nread -r _ || true\n"
+        ),
+    )?;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))?;
+    let script = script.to_string_lossy().into_owned();
+    for (terminal, before) in linux_terminals() {
+        let Some(program) = search::find(terminal) else {
+            continue;
+        };
+        let mut command = crate::desktop::background_process::command(program);
+        command
+            .args(*before)
+            .arg(&script)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        match command.spawn() {
+            Ok(mut child) => {
+                // Some terminals return at once, others when the window
+                // closes; either way it is reaped.
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+                return Ok(());
+            }
+            Err(error) => tracing::debug!(terminal, %error, "couldn't open this terminal"),
+        }
+    }
+    Err(eyre!(
+        "Hex couldn't find a terminal to open. Run `{quoted}{arguments}` in one yourself"
+    ))
+}
+
+/// Terminals to try, each with what goes before the command it runs: the
+/// desktop's own choice first (`xdg-terminal-exec`, Debian's
+/// `x-terminal-emulator`), then the common ones.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn linux_terminals() -> &'static [(&'static str, &'static [&'static str])] {
+    &[
+        ("xdg-terminal-exec", &[]),
+        ("x-terminal-emulator", &["-e"]),
+        ("gnome-terminal", &["--"]),
+        ("kgx", &["--"]),
+        ("ptyxis", &["--"]),
+        ("konsole", &["-e"]),
+        ("xfce4-terminal", &["-x"]),
+        ("mate-terminal", &["-x"]),
+        ("tilix", &["-e"]),
+        ("kitty", &[]),
+        ("alacritty", &["-e"]),
+        ("wezterm", &["start", "--"]),
+        ("foot", &[]),
+        ("xterm", &["-e"]),
+    ]
+}
+
+#[cfg(windows)]
+fn open_sign_in(folder: &Path, path: &Path, arguments: &str, agent: &str) -> Result<()> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+    let script = folder.join(format!(
+        "sign-in-{}.cmd",
+        agent.to_lowercase().replace(' ', "-")
+    ));
+    std::fs::write(
+        &script,
+        format!(
+            "@echo off\r\ntitle Sign in to {agent}\r\ncls\r\ncall \"{}\"{arguments}\r\n\
+             echo.\r\necho You can close this window.\r\n",
+            path.display()
+        ),
+    )?;
+    let shell = std::env::var_os("ComSpec").unwrap_or_else(|| "cmd.exe".into());
+    // A console window of its own (not `background_process`, which has
+    // none); `/k` keeps it open. The doubled quotes survive cmd's rule of
+    // stripping the outer pair.
+    std::process::Command::new(shell)
+        .raw_arg(format!("/d /k \"\"{}\"\"", script.display()))
+        .creation_flags(CREATE_NEW_CONSOLE)
+        .spawn()
+        .map(|mut child| {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        })
+        .map_err(|error| eyre!("Couldn't open a console window: {error}"))
 }
 
 /// Asks the agent every few seconds whether it's signed in, for ten
@@ -450,7 +818,7 @@ fn wait_for_sign_in(backend: AssistantBackend, progress: &mut dyn FnMut(&str)) -
         }
         if Instant::now() >= deadline {
             return Err(eyre!(
-                "{} isn't signed in yet. Finish in Terminal, then try again",
+                "{} isn't signed in yet. Finish in the terminal window, then try again",
                 name(backend)
             ));
         }
@@ -465,16 +833,189 @@ mod tests {
         Installers {
             brew: brew.then(|| PathBuf::from("/opt/homebrew/bin/brew")),
             npm: npm.then(|| PathBuf::from("/Users/me/.fnm/bin/npm")),
-            installed: false,
-            browser_ready: false,
+            ..Installers::default()
         }
     }
 
+    /// The macOS plan (the tests below without an `os` are macOS's).
+    fn plan(tool: Tool, here: &Installers) -> Plan {
+        plan_for(Os::Mac, tool, here)
+    }
+
     fn lines(plan: Plan) -> Vec<String> {
+        lines_on(Os::Mac, plan)
+    }
+
+    fn lines_on(os: Os, plan: Plan) -> Vec<String> {
         match plan {
-            Plan::Run(steps) => steps.iter().map(Step::command_line).collect(),
+            Plan::Run(steps) => steps.iter().map(|step| step.command_line_for(os)).collect(),
             other => panic!("not a run: {other:?}"),
         }
+    }
+
+    fn linux(npm: Option<&str>, brew: bool) -> Installers {
+        Installers {
+            brew: brew.then(|| PathBuf::from("/home/linuxbrew/.linuxbrew/bin/brew")),
+            npm: npm.map(PathBuf::from),
+            npm_prefix: npm
+                .filter(|npm| npm.starts_with("/usr/"))
+                .map(|_| PathBuf::from("/home/me/.local")),
+            ..Installers::default()
+        }
+    }
+
+    fn windows(winget: bool, npm: bool) -> Installers {
+        Installers {
+            winget: winget.then(|| {
+                PathBuf::from(r"C:\Users\me\AppData\Local\Microsoft\WindowsApps\winget.exe")
+            }),
+            npm: npm.then(|| PathBuf::from(r"C:\Program Files\nodejs\npm.cmd")),
+            powershell: Some(PathBuf::from(
+                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            )),
+            ..Installers::default()
+        }
+    }
+
+    #[test]
+    fn linux_uses_npm_into_the_home_folder_when_npm_is_the_systems() {
+        let system = linux(Some("/usr/bin/npm"), false);
+        assert_eq!(
+            lines_on(Os::Linux, plan_for(Os::Linux, Tool::AgentDesktop, &system)),
+            ["/usr/bin/npm install -g --prefix /home/me/.local --no-fund --no-audit agent-desktop"]
+        );
+        let own = linux(Some("/home/me/.nvm/versions/node/v22.1.0/bin/npm"), true);
+        assert_eq!(
+            lines_on(
+                Os::Linux,
+                plan_for(Os::Linux, Tool::Agent(AssistantBackend::Codex), &own)
+            ),
+            [
+                "/home/me/.nvm/versions/node/v22.1.0/bin/npm install -g --no-fund --no-audit @openai/codex"
+            ]
+        );
+        // Claude Code's native installer, even with npm there.
+        assert_eq!(
+            lines_on(
+                Os::Linux,
+                plan_for(Os::Linux, Tool::Agent(AssistantBackend::ClaudeCode), &own)
+            ),
+            ["bash -c 'curl -fsSL https://claude.ai/install.sh | bash'"]
+        );
+    }
+
+    #[test]
+    fn linux_without_npm_uses_scripts_then_linuxbrew_formulas() {
+        let bare = linux(None, false);
+        assert_eq!(
+            lines_on(
+                Os::Linux,
+                plan_for(Os::Linux, Tool::Agent(AssistantBackend::OpenCode), &bare)
+            ),
+            ["bash -c 'curl -fsSL https://opencode.ai/v2/install | bash'"]
+        );
+        assert_eq!(
+            lines_on(
+                Os::Linux,
+                plan_for(Os::Linux, Tool::AgentBrowser, &linux(None, true))
+            ),
+            [
+                "/home/linuxbrew/.linuxbrew/bin/brew install agent-browser",
+                "agent-browser install"
+            ]
+        );
+        let Plan::Missing { why, command } = plan_for(Os::Linux, Tool::AgentDesktop, &bare) else {
+            panic!("expected Missing");
+        };
+        assert!(why.starts_with("Node.js and npm aren't installed"), "{why}");
+        assert!(
+            !why.contains("Homebrew") && !why.contains("Terminal"),
+            "{why}"
+        );
+        assert_eq!(
+            command,
+            "sudo apt install -y nodejs npm && npm install -g --prefix ~/.local agent-desktop"
+        );
+    }
+
+    #[test]
+    fn windows_uses_winget_then_npm_then_powershell() {
+        let all = windows(true, true);
+        assert_eq!(
+            lines_on(
+                Os::Windows,
+                plan_for(Os::Windows, Tool::Agent(AssistantBackend::ClaudeCode), &all)
+            ),
+            [
+                r"C:\Users\me\AppData\Local\Microsoft\WindowsApps\winget.exe install --id Anthropic.ClaudeCode --exact --source winget --silent --disable-interactivity --accept-source-agreements --accept-package-agreements"
+            ]
+        );
+        assert_eq!(
+            lines_on(
+                Os::Windows,
+                plan_for(Os::Windows, Tool::Agent(AssistantBackend::Codex), &all)
+            ),
+            [
+                r"& 'C:\Program Files\nodejs\npm.cmd' install -g --no-fund --no-audit '@openai/codex'"
+            ]
+        );
+        assert_eq!(
+            lines_on(Os::Windows, plan_for(Os::Windows, Tool::AgentBrowser, &all))[1],
+            "agent-browser install"
+        );
+        // No WinGet: Claude Code's PowerShell script, not its deprecated npm.
+        assert_eq!(
+            lines_on(
+                Os::Windows,
+                plan_for(
+                    Os::Windows,
+                    Tool::Agent(AssistantBackend::ClaudeCode),
+                    &windows(false, true)
+                )
+            ),
+            [
+                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'irm https://claude.ai/install.ps1 | iex'"
+            ]
+        );
+        let Plan::Missing { why, command } =
+            plan_for(Os::Windows, Tool::AgentDesktop, &windows(true, false))
+        else {
+            panic!("expected Missing");
+        };
+        assert!(why.starts_with("Node.js isn't installed"), "{why}");
+        assert!(
+            !why.contains("Homebrew") && !why.contains("Terminal"),
+            "{why}"
+        );
+        assert!(
+            command.starts_with("winget install --id OpenJS.NodeJS.LTS"),
+            "{command}"
+        );
+        assert!(
+            command.ends_with("; npm install -g agent-desktop"),
+            "{command}"
+        );
+    }
+
+    #[test]
+    fn lightpanda_has_nothing_to_install_on_windows() {
+        let Plan::Missing { why, command } =
+            plan_for(Os::Windows, Tool::Lightpanda, &windows(true, true))
+        else {
+            panic!("expected Missing");
+        };
+        assert!(why.contains("no Windows version"), "{why}");
+        assert!(command.is_empty());
+        assert!(!Tool::Lightpanda.available_on(Os::Windows));
+        assert!(Tool::Lightpanda.available_on(Os::Linux));
+    }
+
+    #[test]
+    fn words_are_quoted_for_each_shell() {
+        assert_eq!(quote("it's", Os::Mac), r"'it'\''s'");
+        assert_eq!(quote("it's", Os::Windows), "'it''s'");
+        assert_eq!(quote(r"C:\x\npm.cmd", Os::Windows), r"C:\x\npm.cmd");
+        assert_eq!(quote("@openai/codex", Os::Windows), "'@openai/codex'");
     }
 
     #[test]

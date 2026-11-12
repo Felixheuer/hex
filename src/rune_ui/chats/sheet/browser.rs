@@ -6,7 +6,7 @@ use rune::{El, el, row, text};
 
 use super::super::super::controls::Paint;
 use super::super::super::lists::small_button;
-use super::super::{Job, Ui};
+use super::super::Ui;
 use super::super::setup::{self, Page, SetupFlow, check_title, page_done};
 use super::checks::result_row;
 use super::desktop::install_failure;
@@ -24,19 +24,12 @@ pub(super) fn installing(p: Paint, flow: &SetupFlow, fallback: &str) -> (String,
     (line, spinner(p, "installing"))
 }
 
-/// Sign in to sites…, then Done signing in while Hex's browser shows.
+/// First choose a website; opening this editor never navigates the browser.
 pub(in crate::rune_ui) fn sign_in_button(ui: &Ui, p: Paint, key: &str) -> El {
-    let settings = &ui.chats.settings;
-    if settings.signing_in {
-        small_button(p, key, tr("Done signing in"), |ui: &mut Ui, _| {
-            ui.chats.jobs.run(Job::FinishSignIn);
-        })
-    } else {
-        small_button(p, key, tr("Sign in to sites…"), |ui: &mut Ui, _| {
-            ui.chats.settings.sign_in_error = None;
-            ui.chats.jobs.run(Job::SignIn(None));
-        })
-    }
+    let _ = ui;
+    small_button(p, key, tr("Add website…"), |ui: &mut Ui, _| {
+        super::super::site_sign_in::open(ui);
+    })
 }
 
 /// Lightpanda, optional and recommended: much lighter browsers for many
@@ -46,7 +39,10 @@ fn lightpanda_row(p: Paint, flow: &SetupFlow, result: &CheckResult) -> El {
         _ if flow.fixing == Some(Fix::InstallLightpanda) => {
             installing(p, flow, tr("Installing Lightpanda…"))
         }
-        CheckState::Ok => (result.detail.clone(), done_pill(p, "lightpanda-ready", tr("Installed"))),
+        CheckState::Ok => (
+            tr("Ready").to_owned(),
+            done_pill(p, "lightpanda-ready", tr("Installed")),
+        ),
         CheckState::Running | CheckState::Pending => (
             tr("10× lighter for parallel research").to_owned(),
             spinner(p, "lightpanda-checking"),
@@ -61,9 +57,13 @@ fn lightpanda_row(p: Paint, flow: &SetupFlow, result: &CheckResult) -> El {
                     false,
                     |ui: &mut Ui| setup::apply(ui, Fix::InstallLightpanda),
                 ),
-                _ => push(p, "retry-lightpanda", tr("Try again"), false, |ui: &mut Ui| {
-                    setup::browser::run_checks(ui)
-                }),
+                _ => push(
+                    p,
+                    "retry-lightpanda",
+                    tr("Try again"),
+                    false,
+                    |ui: &mut Ui| setup::browser::run_checks(ui),
+                ),
             },
         ),
     };
@@ -171,20 +171,19 @@ pub(super) fn browser(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             ));
         }
         if step.ready() {
-            let signed_in = ui.chats.settings.signed_in;
+            let saved = super::super::site_sign_in::summary(ui);
             rows.push(row_of(
                 p,
                 "sign-in",
                 super::KEY,
                 tr("Sign in to sites (optional)"),
-                if signed_in {
-                    tr("Tasks start signed in where you signed in")
-                } else {
-                    tr("In Hex's own browser window. Tasks then start signed in there")
-                },
+                &saved,
                 p.muted(),
                 sign_in_button(ui, p, "sign-in-sites"),
             ));
+            rows.extend(
+                super::super::site_sign_in::editor(ui, p).map(|editor| editor.px(16.0).py(12.0)),
+            );
         }
     }
     let below = if !ui.settings.assistant.background_browser {
@@ -203,11 +202,11 @@ pub(super) fn browser(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             .as_ref()
             .map(|error| install_failure(p, error, flow.fix_command.as_deref()))
             .or_else(|| {
-                ui.chats.settings.sign_in_error.as_ref().map(|error| {
-                    row()
-                        .key("sign-in-error")
-                        .child(super::note(p, error))
-                })
+                ui.chats
+                    .settings
+                    .sign_in_error
+                    .as_ref()
+                    .map(|error| row().key("sign-in-error").child(super::note(p, error)))
             })
     };
     page(
@@ -216,7 +215,9 @@ pub(super) fn browser(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         tr("A browser of its own"),
         lead(
             p,
-            tr("Web tasks run in agent-browser's hidden browsers, one per task, so many run at once and none takes over your windows."),
+            tr(
+                "Web tasks run in agent-browser's hidden browsers, one per task, so many run at once and none takes over your windows.",
+            ),
         ),
         Some(rows_card(p, "browser-card", rows)),
         below,

@@ -1,11 +1,15 @@
-//! What Hex itself reads from the desktop (macOS): a quick question's
-//! context (screenshot, selected text, frontmost app) and where a task's
-//! windows are, for their outlines. Tasks operate apps through agent-desktop
+//! What Hex itself reads from the desktop: a quick question's context
+//! (screenshot, selected text, frontmost app) and where a task's windows
+//! are, for their outlines. Tasks operate apps through agent-desktop
 //! (`backends`), not through this module.
 //!
-//! Everything here only reads: the selection comes through Accessibility,
-//! never the clipboard, and the screenshot through ScreenCaptureKit with
-//! every window of Hex's own (the HUD, the frame, Chats) left out.
+//! Everything here only reads, never the clipboard. macOS: the selection
+//! through Accessibility and the screenshot through ScreenCaptureKit with
+//! every window of Hex's own (the HUD, the frame, Chats) left out. Linux
+//! ([`linux`]): X11 or the compositor for the focused window, the PRIMARY
+//! selection, and X11, `grim`, or the desktop portal for the screenshot.
+//! Windows ([`windows`]): the foreground window, UI Automation's selection,
+//! and GDI for the screenshot.
 //!
 //! OWNER: hands (with `speech`).
 
@@ -27,7 +31,11 @@ pub const LONG_SIDE: u32 = 1280;
 const MAX_SELECTION: usize = 20_000;
 
 mod displays;
+#[cfg(target_os = "linux")]
+mod linux;
 mod privacy;
+#[cfg(target_os = "windows")]
+mod windows;
 
 pub use displays::{
     Display, agents_display, cascade, describe as describe_displays, display_of, displays, relation,
@@ -46,7 +54,15 @@ pub fn screenshot() -> Result<Screenshot> {
     {
         macos::screenshot()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        linux::screenshot()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        windows::screenshot()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         Err(eyre!("taking screenshots isn't available on this computer"))
     }
@@ -62,7 +78,15 @@ pub fn window_frame(window: &crate::assistant::TaskWindow) -> Option<(f64, f64, 
     {
         macos::window_frame(window)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        linux::window_frame(window)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        windows::window_frame(window)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         let _ = window;
         None
@@ -93,7 +117,15 @@ pub fn quick_context() -> crate::assistant::Context {
     {
         macos::quick_context()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        linux::quick_context()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        windows::quick_context()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         crate::assistant::Context::default()
     }
@@ -246,7 +278,59 @@ pub fn permissions() -> Permissions {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Permissions::default()
+        others_permissions()
+    }
+}
+
+/// Linux and Windows ask no permission to read other apps or the screen:
+/// only a Wayland desktop without `grim` or the portal's Screenshot can't
+/// give Hex a screenshot, which the question then goes without.
+#[cfg(not(target_os = "macos"))]
+fn others_permissions() -> Permissions {
+    Permissions {
+        accessibility: true,
+        screen_recording: true,
+    }
+}
+
+/// Whether this OS asks the person to grant Hex Accessibility and Screen
+/// Recording (macOS), which setup then walks through.
+pub const fn asks_permissions() -> bool {
+    cfg!(target_os = "macos")
+}
+
+/// The X11 monitors (XWayland's too on a Wayland desktop, where Rune puts
+/// overlays on GNOME), for the overlays.
+#[cfg(target_os = "linux")]
+pub fn x11_monitors() -> Vec<Display> {
+    linux::x11_monitors()
+}
+
+/// The pointer on X11 (XWayland's on Wayland).
+#[cfg(target_os = "linux")]
+pub fn x11_pointer() -> Option<(f64, f64)> {
+    linux::x11_pointer()
+}
+
+/// The active window's frame on X11 (`[x, y, width, height]`).
+#[cfg(target_os = "linux")]
+pub fn x11_front_window() -> Option<[f64; 4]> {
+    linux::x11_front_window()
+}
+
+/// Every running process's executable, for which apps run now.
+pub fn process_paths() -> Vec<std::path::PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        linux::process_paths()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        windows::process_paths()
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        Vec::new()
     }
 }
 
@@ -259,7 +343,7 @@ pub fn permissions_now() -> Permissions {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Permissions::default()
+        others_permissions()
     }
 }
 

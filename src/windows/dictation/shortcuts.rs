@@ -12,6 +12,8 @@ pub(super) struct Shortcuts {
     pub(super) second_dictation_hotkey: Option<WindowsHotkey>,
     pub(super) annotate_hotkey: Option<WindowsHotkey>,
     pub(super) cancel_hotkey: Option<WindowsHotkey>,
+    pub(super) action_hotkey: Option<WindowsHotkey>,
+    pub(super) stop_all_hotkey: Option<WindowsHotkey>,
     pub(super) double_tap_lock: bool,
     pub(super) double_tap_only: bool,
     pub(super) shortcut_mode: crate::dictation::ShortcutMode,
@@ -30,6 +32,8 @@ impl Shortcuts {
             second_dictation_hotkey: config.second_dictation_hotkey.clone(),
             annotate_hotkey: config.annotate_hotkey.clone(),
             cancel_hotkey: config.cancel_hotkey.clone(),
+            action_hotkey: config.action_hotkey.clone(),
+            stop_all_hotkey: config.stop_all_hotkey.clone(),
             double_tap_lock: config.double_tap_lock,
             double_tap_only: config.double_tap_only,
             shortcut_mode: config.shortcut_mode,
@@ -38,20 +42,22 @@ impl Shortcuts {
     }
 
     pub(super) fn start(&self) -> Result<WindowsHotkeyMonitor> {
-        // Double-tap-only depends on the double-tap window; without the lock
-        // there is no second tap to wait for.
-        WindowsHotkeyMonitor::start(
-            self.hotkey.clone(),
-            self.paste_last_hotkey.clone(),
-            self.raw_dictation_hotkey.clone(),
-            self.terminal_paste_hotkey.clone(),
-            self.second_dictation_hotkey.clone(),
-            self.annotate_hotkey.clone(),
-            self.cancel_hotkey.clone(),
-            self.double_tap_lock,
-            self.double_tap_lock && self.double_tap_only,
-            self.shortcut_mode,
-            self.share_dictation_shortcut,
-        )
+        WindowsHotkeyMonitor::start(crate::windows::input::HookConfig {
+            binding: self.hotkey.clone(),
+            paste_last: self.paste_last_hotkey.clone(),
+            raw: self.raw_dictation_hotkey.clone(),
+            terminal_paste: self.terminal_paste_hotkey.clone(),
+            second: self.second_dictation_hotkey.clone(),
+            annotate: self.annotate_hotkey.clone(),
+            cancel: self.cancel_hotkey.clone(),
+            action: self.action_hotkey.clone(),
+            stop_all: self.stop_all_hotkey.clone(),
+            double_tap_enabled: self.double_tap_lock,
+            // Double-tap-only depends on the double-tap window; without the
+            // lock there is no second tap to wait for.
+            double_tap_only: self.double_tap_lock && self.double_tap_only,
+            shortcut_mode: self.shortcut_mode,
+            share_trigger: self.share_dictation_shortcut,
+        })
     }
 }

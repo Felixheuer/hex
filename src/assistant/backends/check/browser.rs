@@ -319,21 +319,18 @@ fn through_hex(check: Check, server: &McpServer, page: &Page) -> CheckResult {
 /// Starts `server`, opens `url` with `agent_browser_open`, and returns the
 /// text of `agent_browser_get_title`'s result.
 pub fn title_over_mcp(server: &McpServer, url: &str, deadline: Instant) -> Result<String, String> {
-    let mut command = crate::desktop::background_process::command(&server.command);
+    let mut command = crate::assistant::backends::search::command(&server.command);
     command
         .args(&server.args)
         .env("PATH", &server.path_env)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
+    run::own_group(&mut command, true);
     let mut child = command
         .spawn()
         .map_err(|error| format!("it didn't start: {error}"))?;
+    let tree = run::Tree::of(&child);
     let mut input = child.stdin.take().ok_or("no input")?;
     let output = child.stdout.take().ok_or("no output")?;
     let (lines, replies) = mpsc::channel();
@@ -389,7 +386,7 @@ pub fn title_over_mcp(server: &McpServer, url: &str, deadline: Instant) -> Resul
         Ok(text_of(&title))
     })();
     drop(input);
-    run::kill_group(&mut child);
+    tree.kill_with(&mut child);
     result
 }
 

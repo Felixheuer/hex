@@ -13,7 +13,6 @@ mod activity;
 pub(crate) mod assistant_overlay;
 #[cfg(hex_capture)]
 pub(crate) mod capture_capsule;
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod chats;
 /// The HUD's task list opened by a double-tap: the assistant tutorial's
 /// third gesture. The overlay calls it.
@@ -76,6 +75,7 @@ mod speech_model;
 #[cfg(target_os = "macos")]
 pub(crate) mod story_link;
 mod vocabulary;
+pub(crate) mod window_link;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -130,6 +130,10 @@ pub(crate) fn run_app(
     }
     crate::linux::rune_hud::install(&mut app);
     live_text::install(&mut app, crate::rune_hud::live_text_place);
+    // The assistant: the frame, task stack, and quick answer; hidden,
+    // without windows, until the assistant reports work.
+    assistant_overlay::install(&mut app);
+    window_link::wire_assistant();
     // The capture capsule, picker, and ink.
     let _capture_overlays =
         crate::rune_ui::capture_capsule::feed::CaptureOverlays::install(&mut app);
@@ -137,6 +141,7 @@ pub(crate) fn run_app(
         .inspect_err(|error| tracing::error!(%error, "meetings could not start"))
         .ok();
     let handle = app.handle();
+    window_link::remember(app.handle());
     host.set_window_visible({
         let handle = handle.clone();
         Arc::new(move || handle.is_visible())
@@ -404,7 +409,6 @@ pub(crate) enum Destination {
     /// The Meetings pane, with a meeting selected when given.
     Meetings(Option<String>),
     /// Chats, on a conversation or a new chat.
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Chats(Option<String>),
     Modes,
     History,
@@ -421,13 +425,13 @@ pub(crate) fn destination(pane: Option<crate::control::Pane>) -> Destination {
         Some(Named::Modes) => Destination::Modes,
         Some(Named::History) => Destination::History,
         Some(Named::Meetings) => Destination::Meetings(None),
+        Some(Named::Chats) => Destination::Chats(None),
     }
 }
 
 /// Shows `destination` in the window (the caller opens it).
 /// The assistant's onboarding where it was left, saying the assistant
 /// answers once it's finished (a hold of the Action shortcut before that).
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn open_assistant_setup(ui: &mut Ui, tx: &mut Tx) {
     // One onboarding: the voice first run while it isn't done (its end
     // leads into the assistant's pages), else the assistant's pages.
@@ -1278,6 +1282,10 @@ fn setup(ui: &mut Ui, waker: Waker) {
                 Arc::new(move || waker())
             };
             ui.host = platform::PlatformHost::Native(host::native_host(host_wake));
+            chats::connect(ui, waker.clone());
+        }
+        #[cfg(not(target_os = "macos"))]
+        if chats::available(ui) {
             chats::connect(ui, waker.clone());
         }
         let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(move || waker());

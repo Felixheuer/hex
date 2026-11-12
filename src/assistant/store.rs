@@ -339,17 +339,7 @@ fn alive(pid: u32) -> bool {
     if pid == std::process::id() {
         return true;
     }
-    #[cfg(unix)]
-    {
-        let Ok(pid) = i32::try_from(pid) else {
-            return false;
-        };
-        // SAFETY: signal 0 only checks that the process exists.
-        let result = unsafe { libc::kill(pid, 0) };
-        result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-    }
-    #[cfg(not(unix))]
-    false
+    crate::assistant::guard::process_alive(pid)
 }
 
 fn summary(stored: &Stored) -> ConversationSummary {

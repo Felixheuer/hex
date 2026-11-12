@@ -12,7 +12,9 @@ use super::super::super::controls::Paint;
 use super::super::super::lists::small_button;
 use super::super::super::onboarding_kit::arrives;
 use super::super::Ui;
-use super::super::setup::{self, Grant, Page, SetupFlow, State, grant_state, needs_restart, page_done};
+use super::super::setup::{
+    self, Grant, Page, SetupFlow, State, grant_state, needs_restart, page_done,
+};
 use super::{
     COL_W, SCREEN, TOOL, actions, done_pill, lead, page, push, row_of, rows_card, spinner,
     waiting_pill,
@@ -23,6 +25,27 @@ use crate::desktop::i18n::{tr, tr_fill};
 /// A permission's control: Allow, then a waiting dot until macOS reports
 /// it on, then Allowed; Restart Hex and continue when macOS wants that.
 fn grant_control(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, primary: bool) -> El {
+    if needs_restart(ui, grant) {
+        if !primary {
+            return waiting_pill(p, "restart-needed", tr("Restart Hex and continue"));
+        }
+        return push(
+            p,
+            "restart",
+            tr("Restart Hex and continue"),
+            true,
+            move |ui: &mut Ui| setup::allow(ui, grant),
+        );
+    }
+    if setup::permissions::kind(grant).is_some_and(|kind| ui.platform.stale(kind)) {
+        return push(
+            p,
+            "repair",
+            tr("Repair permission entry"),
+            primary,
+            move |ui: &mut Ui| setup::allow(ui, grant),
+        );
+    }
     match grant_state(ui, flow, grant) {
         State::Passed => done_pill(p, "allowed", tr("Allowed")),
         State::Checking | State::Pending => spinner(p, "reading"),
@@ -52,6 +75,7 @@ fn grant_control(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, primary: boo
 }
 
 pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, primary: bool) -> El {
+    let shared = ui.platform.caps.os == super::super::super::platform::Os::Macos;
     let (glyph, title, detail) = match grant {
         Grant::Microphone => (
             &glyphs::MIC,
@@ -61,12 +85,20 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
         Grant::Accessibility => (
             &glyphs::CURSOR_TEXT,
             tr("Accessibility"),
-            tr("Notices the shortcut and reads the text you selected"),
+            if shared {
+                tr("Lets Hex and agent-desktop read and operate apps")
+            } else {
+                tr("Notices the shortcut and reads the text you selected")
+            },
         ),
         Grant::ScreenRecording => (
             SCREEN,
             tr("Screen Recording"),
-            tr("Sends the screen you ask about with your question"),
+            if shared {
+                tr("Lets Hex and agent-desktop see the screen")
+            } else {
+                tr("Sends the screen you ask about with your question")
+            },
         ),
         Grant::DesktopAccessibility => (
             &glyphs::CURSOR_TEXT,
@@ -81,6 +113,9 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
     };
     let state = grant_state(ui, flow, grant);
     let detail = match state {
+        _ if setup::permissions::kind(grant).is_some_and(|kind| ui.platform.stale(kind)) => {
+            tr("Already enabled? Repair the entry for this copy of Hex, then allow it again.")
+        }
         State::Waiting if needs_restart(ui, grant) => {
             tr("macOS turns it on when Hex restarts. Hex reopens right here")
         }
@@ -149,8 +184,9 @@ pub(in crate::rune_ui) fn install_failure(p: Paint, error: &str, command: Option
 pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     // The voice setup asked for the Microphone and Accessibility already;
     // they show again only while missing.
-    let hex: Vec<Grant> = Grant::HEX
-        .into_iter()
+    let hex: Vec<Grant> = Grant::hex()
+        .iter()
+        .copied()
         .filter(|grant| {
             *grant == Grant::ScreenRecording || grant_state(ui, flow, *grant) != State::Passed
         })
@@ -158,8 +194,9 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     let found = flow.desktop.as_ref();
     let installed = found.is_some_and(|found| found.path.is_some());
     let mut grants: Vec<Grant> = hex.clone();
-    if installed {
-        grants.extend(Grant::DESKTOP);
+    let shared = ui.platform.caps.os == super::super::super::platform::Os::Macos;
+    if installed && !shared {
+        grants.extend(Grant::desktop());
     }
     let first_missing = grants
         .iter()
@@ -198,9 +235,9 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         p.muted(),
         control,
     ));
-    if installed {
+    if installed && !shared {
         rows.extend(
-            Grant::DESKTOP
+            Grant::desktop()
                 .iter()
                 .map(|grant| grant_row(ui, flow, p, *grant, Some(*grant) == first_missing)),
         );
@@ -230,14 +267,33 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                 .children(failure),
         ),
     };
+    let (title, explained) = if crate::assistant::computer::asks_permissions() {
+        (
+            tr("Let the assistant see and use your Mac"),
+            tr(
+                "Each one opens its page in System Settings, and this page waits until macOS turns it on. Hex starts agent-desktop, so macOS asks for Hex.",
+            ),
+        )
+    } else if cfg!(target_os = "windows") {
+        (
+            tr("Let the assistant see and use your PC"),
+            tr(
+                "agent-desktop operates apps through UI Automation, without your pointer. Windows asks for no permission.",
+            ),
+        )
+    } else {
+        (
+            tr("Let the assistant see and use your computer"),
+            tr(
+                "agent-desktop operates apps through AT-SPI, the desktop's accessibility bus, without your pointer.",
+            ),
+        )
+    };
     page(
         p,
         "desktop",
-        tr("Let the assistant see and use your Mac"),
-        lead(
-            p,
-            tr("Each one opens its page in System Settings, and this page waits until macOS turns it on. Hex starts agent-desktop, so macOS asks for Hex."),
-        ),
+        title,
+        lead(p, explained),
         Some(rows_card(p, "desktop-card", rows)),
         below,
         actions(p, page_done(ui, flow, Page::Desktop), true),

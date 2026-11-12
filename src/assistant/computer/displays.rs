@@ -55,7 +55,15 @@ pub fn displays() -> Vec<Display> {
         mark_focus(&mut displays, focused, pointer);
         displays
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        super::linux::displays()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        super::windows::displays()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         Vec::new()
     }

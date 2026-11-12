@@ -67,9 +67,9 @@ pub(in crate::rune_ui) fn portal_grant(
         #[cfg(target_os = "macos")]
         ShortcutTarget::Screenshot
         | ShortcutTarget::ScreenshotRecord
-        | ShortcutTarget::ExtraDictation(_)
-        | ShortcutTarget::Action
-        | ShortcutTarget::StopAll => return None,
+        | ShortcutTarget::ExtraDictation(_) => return None,
+        // The listener lists them under the assistant's own names.
+        ShortcutTarget::Action | ShortcutTarget::StopAll => return None,
     };
     granted.iter().find(|shortcut| shortcut.name == name)
 }

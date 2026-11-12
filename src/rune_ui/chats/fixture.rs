@@ -398,7 +398,11 @@ fn jobs(store: &mut Store, now: u64) {
     ));
     store.files.insert(
         "~/Hex/Jobs/q3-quotes/".into(),
-        vec!["Comparison.xlsx".into(), "Quotes.csv".into(), "Notes.md".into()],
+        vec![
+            "Comparison.xlsx".into(),
+            "Quotes.csv".into(),
+            "Notes.md".into(),
+        ],
     );
 }
 
@@ -498,6 +502,7 @@ pub(in crate::rune_ui) fn running_turn() -> super::Turn {
 
 /// The agent page's states, for scenes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(in crate::rune_ui) enum AgentPage {
     /// Every agent ready.
     Ready,
@@ -511,6 +516,7 @@ pub(in crate::rune_ui) enum AgentPage {
 
 /// Which Chats scene to set up.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(in crate::rune_ui) enum Scene {
     /// The list, a finished conversation with steps, and a running task.
     Conversation,

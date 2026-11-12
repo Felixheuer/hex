@@ -170,6 +170,11 @@ pub fn mcp_server(spec: &TaskSpec) -> Option<McpServer> {
     Some(server_for(spec, &hex, &desktop, store.root()))
 }
 
+/// Whether process `pid` is running (for the store's conversations).
+pub fn process_alive(pid: u32) -> bool {
+    state::alive(pid)
+}
+
 fn server_for(spec: &TaskSpec, hex: &Path, desktop: &McpServer, state_dir: &Path) -> McpServer {
     let mut wire = WireSpec::new(spec);
     wire.agent_desktop = Some(desktop.command.clone());
@@ -208,10 +213,16 @@ pub fn serve(spec: &str) -> Result<()> {
         wire.physical_input,
     );
     let screen: Box<dyn screen::Screen> = match wire.windows {
+        #[cfg(target_os = "macos")]
         WindowSource::CoreGraphics => {
             screen::CoreGraphics::warm();
             Box::new(screen::CoreGraphics)
         }
+        #[cfg(not(target_os = "macos"))]
+        WindowSource::CoreGraphics => Box::new(screen::Native(child::AgentDesktop::new(
+            program.clone(),
+            Vec::new(),
+        ))),
         WindowSource::AgentDesktop => Box::new(screen::Listed(child::AgentDesktop::new(
             program.clone(),
             Vec::new(),

@@ -75,7 +75,7 @@ pub fn black_out(rgba: &mut [u8], (width, height): (u32, u32), display: Rect, re
 
 /// The blocked apps (`assistant.blocked_apps`, its defaults until settings
 /// are applied).
-fn blocked_apps() -> Vec<String> {
+pub(super) fn blocked_apps() -> Vec<String> {
     crate::app_settings::assistant_runtime()
         .map(|(_, settings)| settings.blocked_apps)
         .unwrap_or_else(|| crate::app_settings::AssistantSettings::default().blocked_apps)

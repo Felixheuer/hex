@@ -59,10 +59,14 @@ pub(in crate::rune_ui) struct SettingsState {
     pub(in crate::rune_ui) engine: Option<crate::assistant::browser::Engine>,
     /// Lightpanda installs from Settings now.
     pub(in crate::rune_ui) installing_lightpanda: bool,
-    /// Someone signed in to sites in Hex's own browser.
+    /// Browser data is saved for at least one site; its login can expire.
     pub(in crate::rune_ui) signed_in: bool,
     /// Hex's browser shows for signing in.
     pub(in crate::rune_ui) signing_in: bool,
+    pub(in crate::rune_ui) sign_in_busy: bool,
+    pub(in crate::rune_ui) sign_in_editor: bool,
+    pub(in crate::rune_ui) site_address: TextEdit,
+    pub(in crate::rune_ui) saved_sites: Vec<String>,
     pub(in crate::rune_ui) sign_in_error: Option<String>,
 }
 

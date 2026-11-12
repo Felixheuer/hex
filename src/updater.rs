@@ -1,8 +1,11 @@
-//! Hex's in-app updater on every OS, a client of the Anomaly release service
-//! (`docs/plans/release-service.md`). One worker polls the channel's manifest
+//! Hex's in-app updater on every OS, a client of the Anomaly release
+//! protocol (`docs/plans/release-service.md`) served by Pilot's own release
+//! server at `ai.sms-pilot.de/release` (`docs/pilot-release.md`). One worker
+//! polls the channel's manifest
 //! 10 seconds after launch, then hourly or on "Check for updates", decides with the
 //! protocol's client rules, and for a direct install downloads the target,
-//! checks its size, SHA-256, and OS code signature, and stages it until the
+//! checks its size, SHA-256, Pilot's release signature, and (when the build
+//! names a signer) the OS code signature, and stages it until the
 //! user restarts. Checks continue while an update is staged, so a newer
 //! release replaces it, and Restart to update checks once more before it
 //! switches over. Versions are display text and never compared: whenever the
@@ -11,8 +14,8 @@
 //! after the user confirms. Package-managed installs only learn the command to run;
 //! source builds, test builds, and installs whose administrator set
 //! `DisableUpdates` never check. Manifests are not signed: HTTPS, the
-//! manifest's SHA-256, and (macOS, Windows) the code signature are the
-//! integrity checks.
+//! manifest's SHA-256, and the ed25519 signature over that SHA-256
+//! (`signature`) are the integrity checks.
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub mod legacy;
@@ -22,6 +25,7 @@ pub(crate) mod notes;
 #[cfg_attr(target_os = "windows", path = "updater/windows.rs")]
 mod platform;
 pub mod protocol;
+pub(crate) mod signature;
 mod transport;
 
 use std::path::{Path, PathBuf};
@@ -40,7 +44,9 @@ pub use platform::finish_on_launch;
 
 const APP: &str = "hex";
 const ARTIFACT: &str = "desktop";
-const ORIGIN: &str = "https://anoma.ly/release";
+const ORIGIN: &str = "https://ai.sms-pilot.de/release";
+/// Pilot's download page, for installs that can't update themselves.
+pub(crate) const DOWNLOAD_PAGE: &str = "https://ai.sms-pilot.de/#download";
 const STARTUP_DELAY: Duration = Duration::from_secs(10);
 const CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
 /// Dev builds land on every push to dev, so the Dev channel checks often.
@@ -675,7 +681,7 @@ fn check(
         } => Ok(match command {
             Some(command) => State::Command { command },
             None => State::Download {
-                url: notes_url.unwrap_or_else(|| "https://anoma.ly/hex".into()),
+                url: notes_url.unwrap_or_else(|| DOWNLOAD_PAGE.into()),
             },
         }),
         Decision::Install {
@@ -703,7 +709,7 @@ fn check(
                             .and_then(|target| protocol::resolve_url(&manifest_url, &target.url))
                             .or(manifest.release.notes_url)
                     })
-                    .unwrap_or_else(|| "https://anoma.ly/hex".into());
+                    .unwrap_or_else(|| DOWNLOAD_PAGE.into());
                 return Ok(State::Download { url });
             }
             let url = protocol::resolve_url(&manifest_url, &target.url)
@@ -714,8 +720,14 @@ fn check(
                 *lock(&shared.state) = State::Downloading;
             }
             transport::prune(&updates, Some(&target.sha256));
-            #[cfg(target_os = "linux")]
-            verify_linux_signature(&manifest, &manifest_url, &user_agent, &target, &updates)?;
+            verify_release_signature(
+                &manifest,
+                &manifest_url,
+                &user_agent,
+                platform::TARGET,
+                &target,
+                &updates,
+            )?;
             let file = transport::download(&url, &user_agent, &target, &updates)?;
             #[cfg(target_os = "windows")]
             let staged = download_console(&manifest, &manifest_url, &user_agent, &updates)
@@ -749,14 +761,14 @@ fn fetch_notes(shared: &Shared, channel: &str, user_agent: &str, updates: &Path,
     *lock(&shared.notes) = notes;
 }
 
-/// Checks the manifest's `<target>-sig` file: Anomaly's release key signing
-/// the SHA-256 the executable is downloaded against. Without it, whoever
-/// controls the manifest could name any executable.
-#[cfg(target_os = "linux")]
-fn verify_linux_signature(
+/// Checks the manifest's `<target>-sig` file: Pilot's release key signing
+/// the SHA-256 the file is downloaded against. Without it, whoever controls
+/// the manifest could name any file.
+fn verify_release_signature(
     manifest: &str,
     manifest_url: &str,
     user_agent: &str,
+    name: &str,
     target: &protocol::Target,
     updates: &Path,
 ) -> Result<()> {
@@ -764,19 +776,21 @@ fn verify_linux_signature(
         .ok_or_else(|| eyre!("the update manifest was rejected: malformed"))?;
     let signature = manifest
         .release
-        .target(&platform::signature_target())
-        .ok_or_else(|| eyre!("the Linux update has no signature"))?;
+        .target(&signature::signature_target(name))
+        .ok_or_else(|| eyre!("the update ({name}) has no signature"))?;
     if signature.size != 64 {
-        return Err(eyre!("the Linux update's signature is malformed"));
+        return Err(eyre!("the update's signature ({name}) is malformed"));
     }
     let url = protocol::resolve_url(manifest_url, &signature.url)
         .ok_or_else(|| eyre!("the signature URL {} is not usable", signature.url))?;
     let file = transport::download(&url, user_agent, signature, updates)?;
-    platform::verify_signature(&target.sha256, &std::fs::read(file)?)
+    signature::verify_signature(&target.sha256, &std::fs::read(file)?)
+        .wrap_err_with(|| format!("refusing the {name} update"))
 }
 
 /// The release's `hex.com` (`<target>-cli`), checked against the manifest's
-/// size and SHA-256; none when the release has no console entry point.
+/// size, SHA-256, and release signature; none when the release has no
+/// console entry point.
 #[cfg(target_os = "windows")]
 fn download_console(
     manifest: &str,
@@ -784,14 +798,22 @@ fn download_console(
     user_agent: &str,
     updates: &Path,
 ) -> Result<Option<PathBuf>> {
-    let Some(manifest) = protocol::parse_manifest(manifest) else {
+    let Some(parsed) = protocol::parse_manifest(manifest) else {
         return Ok(None);
     };
-    let Some(target) = manifest.release.target(platform::CONSOLE_TARGET) else {
+    let Some(target) = parsed.release.target(platform::CONSOLE_TARGET) else {
         return Ok(None);
     };
     let url = protocol::resolve_url(manifest_url, &target.url)
         .ok_or_else(|| eyre!("the hex.com URL {} is not usable", target.url))?;
+    verify_release_signature(
+        manifest,
+        manifest_url,
+        user_agent,
+        platform::CONSOLE_TARGET,
+        target,
+        updates,
+    )?;
     transport::download(&url, user_agent, target, updates).map(Some)
 }
 
@@ -1214,7 +1236,7 @@ mod tests {
     fn the_manifest_url_names_app_artifact_and_channel() {
         assert_eq!(
             manifest_url("stable"),
-            "https://anoma.ly/release/hex/desktop/stable.json"
+            "https://ai.sms-pilot.de/release/hex/desktop/stable.json"
         );
     }
 }

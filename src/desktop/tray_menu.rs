@@ -66,6 +66,10 @@ mod tray {
         /// Stop & transcribe the recording meeting.
         StopMeeting,
         CopyLastMeeting,
+        /// Chats…: the window on the assistant's Chats.
+        OpenChats,
+        /// Stop all tasks: every assistant task and its speech stop.
+        StopAllTasks,
     }
 
     impl TrayCommand {
@@ -80,6 +84,8 @@ mod tray {
                 "meeting-record" => Self::RecordMeeting,
                 "meeting-stop" => Self::StopMeeting,
                 "meeting-copy-last" => Self::CopyLastMeeting,
+                "chats" => Self::OpenChats,
+                "assistant-stop-all" => Self::StopAllTasks,
                 _ => Self::UseModel(id.strip_prefix("model:")?.parse().ok()?),
             })
         }
@@ -94,6 +100,13 @@ mod tray {
         Transcribing,
     }
 
+    /// The assistant's items, as the tray shows them while it's on.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub(crate) struct AssistantTray {
+        /// A task runs or waits, so Stop all tasks can stop something.
+        pub(crate) running: bool,
+    }
+
     /// Everything the tray shows.
     #[derive(Clone, Debug, Default, Eq, PartialEq)]
     pub(crate) struct TrayView {
@@ -103,6 +116,8 @@ mod tray {
         pub(crate) models: Vec<ModelMenuEntry>,
         /// `None` while Meetings is off.
         pub(crate) meetings: Option<MeetingTray>,
+        /// `None` while the assistant is off (`assistant::enabled`).
+        pub(crate) assistant: Option<AssistantTray>,
     }
 
     impl TrayView {
@@ -118,6 +133,7 @@ mod tray {
                 update: update_label(update),
                 models,
                 meetings: None,
+                assistant: None,
             }
         }
 
@@ -180,6 +196,17 @@ mod tray {
                     "meeting-copy-last",
                     tr("Copy last meeting transcript"),
                 ));
+            }
+            if let Some(assistant) = self.assistant {
+                menu.push(TrayItem::Separator);
+                // Like the meeting states, the disabled item takes an id of
+                // its own (#1287).
+                menu.push(if assistant.running {
+                    TrayItem::action("assistant-stop-all", tr("Stop all tasks"))
+                } else {
+                    TrayItem::action("assistant-idle", tr("Stop all tasks")).enabled(false)
+                });
+                menu.push(TrayItem::action("chats", tr("Chats…")));
             }
             if !self.models.is_empty() {
                 menu.push(TrayItem::Separator);
@@ -359,6 +386,35 @@ mod tests {
         for disabled in [MeetingTray::Starting, MeetingTray::Transcribing] {
             assert!(!enabled.contains(&meeting_id(disabled)));
         }
+        // The assistant on adds Stop all tasks and Chats… before the models;
+        // Stop all tasks is disabled under an id of its own while nothing
+        // runs (#1287).
+        let ids_of = |view: &TrayView| -> Vec<String> {
+            view.menu()
+                .into_iter()
+                .filter_map(|item| match item {
+                    rune::TrayItem::Action { id, .. } => Some(id),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert!(!ids_of(&view).iter().any(|id| id == "chats"), "off: hidden");
+        let running = TrayView {
+            assistant: Some(AssistantTray { running: true }),
+            ..view.clone()
+        };
+        assert_eq!(ids_of(&running)[3..5], ["assistant-stop-all", "chats"]);
+        let idle = TrayView {
+            assistant: Some(AssistantTray { running: false }),
+            ..view.clone()
+        };
+        assert_eq!(ids_of(&idle)[3..5], ["assistant-idle", "chats"]);
+        assert_eq!(TrayCommand::from_id("chats"), Some(TrayCommand::OpenChats));
+        assert_eq!(
+            TrayCommand::from_id("assistant-stop-all"),
+            Some(TrayCommand::StopAllTasks)
+        );
+        assert_eq!(TrayCommand::from_id("assistant-idle"), None);
         let stopped = TrayView::new(
             false,
             Some(VoiceState::Dictating),

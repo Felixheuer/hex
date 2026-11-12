@@ -107,7 +107,7 @@ pub(super) fn clear() {
 fn end(warm: Warm) {
     let mut process = warm.process;
     drop(process.stdin.take());
-    end_group(process.child.id());
+    end_group(process.tree.clone());
     std::thread::spawn(move || {
         let _ = process.child.wait();
     });

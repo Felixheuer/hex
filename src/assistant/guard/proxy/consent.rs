@@ -2,7 +2,9 @@
 //! text ending in Return, the guard asks what it would do (`autonomy`):
 //! the element's own label as the snapshot showed it ("Send", "Move to
 //! Trash", "Jetzt kaufen"), or a known shortcut in a known app (⌘⌫ in
-//! Finder, ⌘⇧D in Mail, Return in Messages). Unless the person's mode and
+//! Finder, ⌘⇧D in Mail, Return in Messages; on Linux and Windows Ctrl
+//! stands for ⌘, and Delete or Shift+Delete in Explorer, Nautilus, or
+//! Dolphin, Ctrl+Enter in Outlook or Thunderbird count too). Unless the person's mode and
 //! what they authorized for this task allow it, it is refused with
 //! `NEEDS_CONFIRMATION`. What a task reads on screen never authorizes
 //! anything.
@@ -36,17 +38,51 @@ const CHAT_APPS: &[&str] = &[
     "element",
     "threema",
     "skype",
+    "telegram desktop",
+    "ms-teams",
 ];
 
 const MAIL_APPS: &[&str] = &[
     "mail",
     "microsoft outlook",
     "outlook",
+    "outlook (new)",
+    "new outlook",
+    "olk",
     "spark",
     "airmail",
     "mimestream",
     "superhuman",
+    "thunderbird",
+    "mozilla thunderbird",
+    "betterbird",
+    "evolution",
+    "geary",
+    "kmail",
+    "mailspring",
 ];
+
+/// File managers on Linux and Windows, where Delete trashes the selection
+/// and Shift+Delete deletes it for good.
+const FILE_MANAGERS: &[&str] = &[
+    "explorer",
+    "file explorer",
+    "windows explorer",
+    "datei-explorer",
+    "nautilus",
+    "org.gnome.nautilus",
+    "files",
+    "dateien",
+    "dolphin",
+    "nemo",
+    "thunar",
+    "caja",
+    "pcmanfm",
+    "pcmanfm-qt",
+];
+
+/// Linux and Windows apps where Delete deletes the selection.
+const DELETE_KEY_APPS: &[&str] = &["photos", "fotos", "gnome photos", "shotwell", "gwenview"];
 
 /// Apps where ⌘⌫ deletes the selection.
 const DELETE_APPS: &[&str] = &[
@@ -275,7 +311,9 @@ fn is_secure(node: &Map<String, Value>) -> bool {
 
 fn is_one_of(app: &str, apps: &[&str]) -> bool {
     let app = super::super::policy::app_key(app);
-    apps.contains(&app.as_str())
+    // Windows may name an app by its program (`explorer.exe`).
+    let app = app.strip_suffix(".exe").unwrap_or(&app);
+    apps.contains(&app)
 }
 
 /// The App Store's Get, Install, and price buttons.
@@ -303,7 +341,10 @@ fn combo_parts(combo: &str) -> (Vec<&'static str>, String) {
             "shift" | "⇧" => modifiers.push("shift"),
             "option" | "opt" | "alt" | "⌥" => modifiers.push("option"),
             "ctrl" | "control" | "⌃" => modifiers.push("ctrl"),
-            "backspace" | "delete" | "⌫" => key = "delete".into(),
+            "super" | "win" | "windows" => modifiers.push("super"),
+            "backspace" | "⌫" => key = "backspace".into(),
+            "delete" | "del" => key = "delete".into(),
+            "forwarddelete" | "forward_delete" | "⌦" => key = "forward_delete".into(),
             "return" | "enter" | "↩" => key = "return".into(),
             other => key = other.to_owned(),
         }
@@ -313,11 +354,40 @@ fn combo_parts(combo: &str) -> (Vec<&'static str>, String) {
     (modifiers, key)
 }
 
-/// What a shortcut does in a known app.
+/// What a shortcut does in a known app, on this system.
 fn shortcut(app: &str, combo: &str) -> Option<Category> {
+    shortcut_on(cfg!(target_os = "macos"), app, combo)
+}
+
+/// What a shortcut does in a known app: macOS's shortcuts on a Mac (where
+/// "delete" is ⌫), else Linux's and Windows' (Ctrl for ⌘, "delete" the
+/// forward Delete key).
+fn shortcut_on(mac: bool, app: &str, combo: &str) -> Option<Category> {
     let (modifiers, key) = combo_parts(combo);
-    let modifiers = modifiers.as_slice();
-    match (modifiers, key.as_str()) {
+    if mac {
+        let key = if key == "backspace" {
+            "delete".into()
+        } else {
+            key
+        };
+        return mac_shortcut(app, modifiers.as_slice(), &key);
+    }
+    let mut modifiers: Vec<&str> = modifiers
+        .into_iter()
+        .map(|modifier| if modifier == "ctrl" { "cmd" } else { modifier })
+        .collect();
+    modifiers.sort_unstable();
+    modifiers.dedup();
+    let key = if key == "forward_delete" {
+        "delete".into()
+    } else {
+        key
+    };
+    other_shortcut(app, modifiers.as_slice(), &key)
+}
+
+fn mac_shortcut(app: &str, modifiers: &[&str], key: &str) -> Option<Category> {
+    match (modifiers, key) {
         ([], "return") | (["cmd"], "return") if is_one_of(app, CHAT_APPS) => Some(Category::Send),
         (["cmd", "shift"], "d") | (["cmd"], "return") if is_one_of(app, MAIL_APPS) => {
             Some(Category::Send)
@@ -332,13 +402,38 @@ fn shortcut(app: &str, combo: &str) -> Option<Category> {
     }
 }
 
+/// Linux and Windows, with Ctrl folded into `cmd`.
+fn other_shortcut(app: &str, modifiers: &[&str], key: &str) -> Option<Category> {
+    match (modifiers, key) {
+        ([], "return") | (["cmd"], "return") if is_one_of(app, CHAT_APPS) => Some(Category::Send),
+        // Ctrl+Enter sends in Outlook and Thunderbird; Alt+S in Outlook.
+        (["cmd"], "return") | (["option"], "s") if is_one_of(app, MAIL_APPS) => {
+            Some(Category::Send)
+        }
+        ([] | ["shift"], "delete")
+            if is_one_of(app, FILE_MANAGERS)
+                || is_one_of(app, MAIL_APPS)
+                || is_one_of(app, DELETE_KEY_APPS) =>
+        {
+            Some(Category::Delete)
+        }
+        // Ctrl+D deletes a message in Outlook and Evolution.
+        (["cmd"], "d") if is_one_of(app, MAIL_APPS) => Some(Category::Delete),
+        // Ctrl+Delete moves to the trash in Nautilus.
+        (["cmd"], "delete") if is_one_of(app, FILE_MANAGERS) => Some(Category::Delete),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn known_shortcuts_in_known_apps_are_consequential() {
+        let shortcut = |app, combo| shortcut_on(true, app, combo);
         assert_eq!(shortcut("Finder", "cmd+backspace"), Some(Category::Delete));
+        assert_eq!(shortcut("Finder", "cmd+delete"), Some(Category::Delete));
         assert_eq!(
             shortcut("Finder", "Cmd+Shift+Delete"),
             Some(Category::Delete)
@@ -353,6 +448,35 @@ mod tests {
         assert_eq!(shortcut("TextEdit", "cmd+backspace"), None);
         assert_eq!(shortcut("TextEdit", "return"), None);
         assert_eq!(shortcut("Mail", "cmd+c"), None);
+    }
+
+    #[test]
+    fn linux_and_windows_shortcuts_use_ctrl_and_the_delete_key() {
+        let shortcut = |app, combo| shortcut_on(false, app, combo);
+        for app in ["File Explorer", "explorer.exe", "Nautilus", "Dolphin"] {
+            assert_eq!(shortcut(app, "Delete"), Some(Category::Delete), "{app}");
+            assert_eq!(
+                shortcut(app, "shift+delete"),
+                Some(Category::Delete),
+                "{app}"
+            );
+            assert_eq!(shortcut(app, "backspace"), None, "{app}");
+        }
+        assert_eq!(shortcut("Outlook", "ctrl+enter"), Some(Category::Send));
+        assert_eq!(
+            shortcut("Thunderbird", "Control+Return"),
+            Some(Category::Send)
+        );
+        assert_eq!(shortcut("Outlook", "alt+s"), Some(Category::Send));
+        assert_eq!(shortcut("Outlook", "ctrl+d"), Some(Category::Delete));
+        assert_eq!(shortcut("Thunderbird", "del"), Some(Category::Delete));
+        assert_eq!(shortcut("Slack", "enter"), Some(Category::Send));
+        assert_eq!(
+            shortcut("Microsoft Teams", "ctrl+enter"),
+            Some(Category::Send)
+        );
+        assert_eq!(shortcut("Notepad", "delete"), None);
+        assert_eq!(shortcut("Outlook", "ctrl+c"), None);
     }
 
     #[test]

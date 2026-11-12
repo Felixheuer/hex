@@ -222,21 +222,9 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
-/// This Mac's offset from UTC now, in seconds.
+/// This computer's offset from UTC now, in seconds.
 fn local_offset_seconds() -> i64 {
-    #[cfg(unix)]
-    {
-        let seconds = (super::super::store::now_ms() / 1000) as libc::time_t;
-        // SAFETY: a zeroed `tm` is valid; `localtime_r` writes only into it.
-        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-        // SAFETY: both pointers are valid for the call.
-        if unsafe { libc::localtime_r(&seconds, &mut tm) }.is_null() {
-            return 0;
-        }
-        tm.tm_gmtoff
-    }
-    #[cfg(not(unix))]
-    0
+    crate::assistant::schedules::local_offset(super::super::store::now_ms())
 }
 
 #[cfg(test)]

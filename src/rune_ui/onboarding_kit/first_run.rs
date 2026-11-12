@@ -206,7 +206,14 @@ fn back(p: Paint, s: &Onboard) -> Option<El> {
             .on_press(live::back_to_models)
             .build_push(p.k)
             .key("back")
-            .absolute(20.0, 8.0)
+            .absolute(
+                if s.live.is_some() && s.home == super::landing::Home::MenuBar {
+                    88.0
+                } else {
+                    20.0
+                },
+                8.0,
+            )
             .transition(arrives())
     })
 }

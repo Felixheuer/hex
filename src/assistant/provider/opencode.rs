@@ -45,8 +45,19 @@ pub(super) fn run(
         }
     }
     command.env("OPENCODE_CONFIG_CONTENT", config(run).to_string());
-    command.args(arguments(run));
-    let mut process = Process::spawn(command, Stdin::Null, control)?;
+    // A Windows batch file can't take the prompt's newlines and quotes as
+    // an argument; when OpenCode is one Hex couldn't unwrap, the prompt goes
+    // on its input, which `opencode run` reads as the message.
+    let batch = is_batch_file(&crate::assistant::backends::search::launch(&executable).0);
+    let mut args = arguments(run);
+    let stdin = if batch {
+        args.truncate(args.len() - 2);
+        Stdin::Write(run.prompt.clone().into_bytes())
+    } else {
+        Stdin::Null
+    };
+    command.args(args);
+    let mut process = Process::spawn(command, stdin, control)?;
     let mut stream = Stream::default();
     while let Some(line) = process.next_line() {
         stream.line(&line, report);
@@ -97,6 +108,14 @@ fn arguments(run: &Run) -> Vec<String> {
     }
     args.extend(["--".into(), run.prompt.clone()]);
     args
+}
+
+/// A `.cmd` or `.bat` file (Windows).
+fn is_batch_file(program: &std::path::Path) -> bool {
+    cfg!(windows)
+        && program.extension().is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
+        })
 }
 
 /// What `OPENCODE_CONFIG_CONTENT` adds to the person's configuration.

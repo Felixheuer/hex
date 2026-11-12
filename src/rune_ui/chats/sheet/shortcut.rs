@@ -244,4 +244,3 @@ pub(super) fn shortcut(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         actions(p, page_done(ui, flow, Page::Shortcut), true),
     )
 }
-

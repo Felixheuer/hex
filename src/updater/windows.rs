@@ -3,8 +3,9 @@
 //! new `hex.exe` and its console entry point `hex.com` (crates/console) into
 //! their own version directory and switching the `current-version` pointer.
 //! `bin\hex.com`, the copy PATH names, follows. Before anything runs, every
-//! download must carry a valid Authenticode signature from Anomaly's
-//! Artifact Signing identity. Administrators turn updates off with the
+//! download must carry Pilot's release signature (`super::signature`) and,
+//! when the build names a signer (`HEX_AUTHENTICODE_SIGNER`), a valid
+//! Authenticode signature from it. Administrators turn updates off with the
 //! `DisableUpdates` policy value.
 
 use std::fs::{self, OpenOptions};
@@ -31,10 +32,12 @@ pub const DOWNLOAD_TARGET: &str = "windows-x64-setup";
 #[cfg(target_arch = "aarch64")]
 pub const DOWNLOAD_TARGET: &str = "windows-arm64-setup";
 
-/// The common name of the certificate Azure Artifact Signing issues to
-/// Anomaly (as on OpenCode's signed Windows builds); updates signed by
-/// anyone else are refused.
-pub const AUTHENTICODE_SIGNER: &str = "Anomaly Innovations, Inc https://anoma.ly/";
+/// The common name of the Authenticode certificate Pilot's Windows builds
+/// are signed with, stamped at build time (`HEX_AUTHENTICODE_SIGNER`, set by
+/// `scripts/pilot-release-windows.ps1` when it signs). With one, updates
+/// signed by anyone else are refused; without one (unsigned builds), Pilot's
+/// release signature alone vouches for the update.
+pub const AUTHENTICODE_SIGNER: Option<&str> = option_env!("HEX_AUTHENTICODE_SIGNER");
 /// `HKLM` (or `HKCU`) `\SOFTWARE\Policies\Anomaly\Hex`, value `DisableUpdates`.
 const POLICY_KEY: &str = r"SOFTWARE\Policies\Anomaly\Hex";
 /// The Apps & Features entry that packaging/windows/hex.iss registers.
@@ -61,13 +64,13 @@ impl Ineligible {
     fn message(self) -> &'static str {
         match self {
             Self::NotInstalled => {
-                "This copy of Hex can't update itself because the Hex installer didn't install it. Install Hex from anoma.ly/hex to get updates in the app."
+                "This copy of Hex can't update itself because the Hex installer didn't install it. Install Hex from ai.sms-pilot.de to get updates in the app."
             }
             Self::OutsideProfile => {
-                "This copy of Hex can't update itself because it's installed outside your user folder. Reinstall Hex from anoma.ly/hex to get updates in the app."
+                "This copy of Hex can't update itself because it's installed outside your user folder. Reinstall Hex from ai.sms-pilot.de to get updates in the app."
             }
             Self::Receipt => {
-                "This copy of Hex can't update itself because its install record is from another installer. Reinstall Hex from anoma.ly/hex to get updates in the app."
+                "This copy of Hex can't update itself because its install record is from another installer. Reinstall Hex from ai.sms-pilot.de to get updates in the app."
             }
         }
     }
@@ -199,9 +202,9 @@ pub fn updates_disabled_by_policy() -> bool {
 /// Stages `file` (hex.exe) and `console` (hex.com), when the release has
 /// one, as `version`.
 pub fn stage(file: &Path, console: Option<&Path>, version: &str) -> Result<Staged> {
-    verify_authenticode(file, AUTHENTICODE_SIGNER)?;
+    verify_code_signature(file)?;
     if let Some(console) = console {
-        verify_authenticode(console, AUTHENTICODE_SIGNER)?;
+        verify_code_signature(console)?;
     }
     let support = crate::app_paths::support_dir()?;
     let lock = OpenOptions::new()
@@ -247,6 +250,15 @@ pub fn stage(file: &Path, console: Option<&Path>, version: &str) -> Result<Stage
         tracing::warn!(%error, "could not update the Apps & Features version");
     }
     Ok(Staged(executable))
+}
+
+/// The Authenticode check of [`AUTHENTICODE_SIGNER`], when this build names
+/// one.
+fn verify_code_signature(file: &Path) -> Result<()> {
+    match AUTHENTICODE_SIGNER {
+        Some(signer) if !signer.is_empty() => verify_authenticode(file, signer),
+        _ => Ok(()),
+    }
 }
 
 /// Requires a valid Authenticode signature (chain and timestamp checked by
@@ -382,7 +394,7 @@ pub fn console_missing() -> bool {
 /// PATH, for an install whose updater predates it. hex.com only starts the
 /// `hex.exe` beside it, so any release's copy serves this version.
 pub fn install_console(file: &Path) -> Result<()> {
-    verify_authenticode(file, AUTHENTICODE_SIGNER)?;
+    verify_code_signature(file)?;
     let support = crate::app_paths::support_dir()?;
     let beside = std::env::current_exe()?.with_file_name("hex.com");
     replace_file(file, &beside)?;
@@ -740,7 +752,7 @@ mod tests {
         .find_map(|path| signer_of(&path).map(|signer| (path, signer)))
         .expect("a validly signed system program");
         verify_authenticode(&signed, &signer).unwrap();
-        assert!(verify_authenticode(&signed, AUTHENTICODE_SIGNER).is_err());
+        assert!(verify_authenticode(&signed, "Pilot Example Signer").is_err());
 
         let unsigned =
             std::env::temp_dir().join(format!("hex-unsigned-{}.exe", std::process::id()));

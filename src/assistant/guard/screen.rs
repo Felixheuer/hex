@@ -1,8 +1,10 @@
-//! What the guard sees of this Mac in its own process, in milliseconds
-//! rather than through agent-desktop's hundreds: the windows on screen
-//! (CoreGraphics; an agent-desktop window id `w-N` is CoreGraphics window
-//! number N), the installed apps (`application_catalog`), and which of them
-//! run (libproc).
+//! What the guard sees of this computer in its own process, in
+//! milliseconds rather than through agent-desktop's hundreds: on macOS the
+//! windows on screen (CoreGraphics; an agent-desktop window id `w-N` is
+//! CoreGraphics window number N), and everywhere the installed apps
+//! (`application_catalog`), which of them run (libproc, `/proc`, or the
+//! windows' processes), and the displays. On Linux and Windows the windows
+//! come from agent-desktop ([`Native`]), whose window ids are its own.
 
 use std::path::PathBuf;
 
@@ -89,10 +91,35 @@ impl Screen for CoreGraphics {
     }
 
     fn running_apps(&mut self) -> Vec<PathBuf> {
-        process_paths()
-            .iter()
-            .filter_map(|path| bundle_of(path))
-            .collect()
+        let paths = process_paths();
+        if cfg!(target_os = "macos") {
+            paths.iter().filter_map(|path| bundle_of(path)).collect()
+        } else {
+            paths
+        }
+    }
+}
+
+/// Linux and Windows: the windows as agent-desktop lists them (its window
+/// ids are its own there), everything else read in process as
+/// [`CoreGraphics`] reads it.
+pub struct Native<D: Desktop>(pub D);
+
+impl<D: Desktop> Screen for Native<D> {
+    fn windows(&mut self) -> Vec<Window> {
+        listed_windows(&mut self.0)
+    }
+
+    fn installed_apps(&mut self) -> Vec<App> {
+        CoreGraphics.installed_apps()
+    }
+
+    fn running_apps(&mut self) -> Vec<PathBuf> {
+        CoreGraphics.running_apps()
+    }
+
+    fn displays(&mut self) -> Vec<Display> {
+        CoreGraphics.displays()
     }
 }
 
@@ -101,13 +128,18 @@ pub struct Listed<D: Desktop>(pub D);
 
 impl<D: Desktop> Screen for Listed<D> {
     fn windows(&mut self) -> Vec<Window> {
-        self.0
-            .call("desktop_list_windows", &serde_json::Map::new())
-            .ok()
-            .and_then(|result| super::child::data(&result))
-            .map(|data| super::child::windows(&data))
-            .unwrap_or_default()
+        listed_windows(&mut self.0)
     }
+}
+
+/// agent-desktop's `list-windows`.
+fn listed_windows(desktop: &mut impl Desktop) -> Vec<Window> {
+    desktop
+        .call("desktop_list_windows", &serde_json::Map::new())
+        .ok()
+        .and_then(|result| super::child::data(&result))
+        .map(|data| super::child::windows(&data))
+        .unwrap_or_default()
 }
 
 /// `raw` (front to back) as agent-desktop would list it: ordinary windows
@@ -182,6 +214,6 @@ fn process_paths() -> Vec<PathBuf> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Vec::new()
+        crate::assistant::computer::process_paths()
     }
 }

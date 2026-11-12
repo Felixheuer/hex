@@ -59,6 +59,8 @@ color-eyre = "0.6.5"
 cpal = "0.18.2"
 ctrlc = "3.5.2"
 dirs = "7.0.0"
+# Pilot's release signature on every update target (src/updater/signature.rs).
+ed25519-dalek = { version = "2.2.0", default-features = false, features = ["std"] }
 fs2 = "0.4.3"
 getrandom = "0.4.3"
 hound = "3.5.1"
@@ -109,7 +111,6 @@ screencapturekit = { version = "=11.0.0", features = ["macos_15_0"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ctrlc = { version = "3.5.2", features = ["termination"] }
-ed25519-dalek = { version = "2.2.0", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["alloc"] }
 tokio = { version = "1.54.1", features = ["rt", "rt-multi-thread", "time"] }
 transcribe-cpp = { version = "=0.4.1", features = ["vulkan"] }
@@ -155,6 +156,7 @@ windows-sys = { version = "0.61.2", features = [
   "Win32_Networking_WinHttp",
   "Win32_Networking_WinSock",
   "Win32_Security",
+  "Win32_Security_Credentials",
   "Win32_Storage_FileSystem",
   "Win32_System_Console",
   "Win32_System_DataExchange",
@@ -168,7 +170,7 @@ windows-sys = { version = "0.61.2", features = [
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
-windows = { version = "0.62.2", features = ["Media_Control", "Foundation", "Foundation_Collections", "Win32_Foundation", "Win32_Media_Audio", "Win32_Security", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Ole", "Win32_System_Threading", "Win32_System_Variant", "Win32_UI_Accessibility"] }
+windows = { version = "0.62.2", features = ["Data_Xml_Dom", "Media_Control", "Media_Core", "Media_SpeechSynthesis", "Storage_Streams", "UI_Notifications", "Foundation", "Foundation_Collections", "Win32_Foundation", "Win32_Media_Audio", "Win32_Security", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Ole", "Win32_System_Threading", "Win32_System_Variant", "Win32_UI_Accessibility"] }
 windows-core = "0.62.2"
 windows-future = "0.3.2"
 

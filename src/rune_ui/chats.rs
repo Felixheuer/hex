@@ -12,26 +12,27 @@
 
 mod agent_picker;
 mod agents;
+mod bridge;
 mod composer;
 mod displays;
 mod events;
-mod follow;
 pub(super) mod fixture;
+mod follow;
 mod jobs;
 mod list;
-mod bridge;
 mod schedules;
 mod settings;
-mod work;
 mod setup;
 mod sheet;
 mod shortcut;
+mod site_sign_in;
 mod source;
 mod strip;
 mod switch;
 #[cfg(all(test, target_os = "macos"))]
 mod tests;
 mod transcript;
+mod work;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -267,7 +268,7 @@ impl ChatsPane {
     }
 
     /// The fixture store, in scenes and tests.
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos"))]
     pub(super) fn store(&self) -> Option<&fixture::Store> {
         match &self.source {
             Source::Fixture(store) => Some(store.as_ref()),
@@ -280,7 +281,7 @@ impl ChatsPane {
     }
 
     /// An event as the service reports it, for the next poll (tests).
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos"))]
     pub(super) fn deliver(&self, event: Event) {
         if let Ok(mut inbox) = self.inbox.lock() {
             inbox.push(event);
@@ -559,10 +560,11 @@ impl ChatsPane {
     }
 }
 
-/// Whether the pane is in the sidebar: on macOS, whether or not the
-/// assistant is on (off, it offers to turn it on).
+/// Whether the pane is in the sidebar: on every desktop, whether or not
+/// the assistant is on (off, it offers to turn it on).
 pub(super) fn available(ui: &Ui) -> bool {
-    cfg!(target_os = "macos") && ui.platform.caps.os == super::platform::Os::Macos
+    let _ = ui;
+    crate::assistant::available()
 }
 
 /// Whether the assistant runs: the pane is here and its switch is on.
@@ -683,8 +685,16 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
     if std::mem::take(&mut ui.chats.follow.to_end) {
         tx.scroll_to_bottom_instant(follow::SCROLL);
     }
-    if ui.chats.holds.values().any(|hold| matches!(hold, Hold::Waiting { .. }))
-        || ui.chats.tasks.iter().any(|task| matches!(task.state, TaskState::Waiting { .. }))
+    if ui
+        .chats
+        .holds
+        .values()
+        .any(|hold| matches!(hold, Hold::Waiting { .. }))
+        || ui
+            .chats
+            .tasks
+            .iter()
+            .any(|task| matches!(task.state, TaskState::Waiting { .. }))
     {
         // The countdown ticks.
         tx.wake_after(Duration::from_secs(1));
@@ -735,7 +745,7 @@ pub(super) fn pane(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> (Vec<El>, El) {
             super::scroll_body(p.k, "chats-settings-scroll", settings::page(ui, p, layer)),
         ),
         View::Chats if !crate::assistant::enabled(&ui.settings) => {
-            (Vec::new(), switch::off_card(p))
+            (Vec::new(), switch::off_card(ui, p))
         }
         View::Chats => {
             layer.extend(schedules::sheet(ui, p));

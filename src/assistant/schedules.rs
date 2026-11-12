@@ -2,7 +2,7 @@
 //! `<support>/assistant/schedules.json`, readable only by this user, and
 //! started by the task runner's scheduler (`service`) as Background jobs.
 //! A schedule says when as a cron line (`0 8 * * 1-5`) or an iCalendar
-//! RRULE (`FREQ=WEEKLY;BYDAY=MO;BYHOUR=9`), in this Mac's local time.
+//! RRULE (`FREQ=WEEKLY;BYDAY=MO;BYHOUR=9`), in this computer's local time.
 //!
 //! Runs missed while the Mac slept or Hex was closed run once when Hex next
 //! looks, never once per missed time. Tasks add, list, and remove schedules
@@ -429,26 +429,73 @@ pub struct Local {
     pub weekday: u32,
 }
 
-/// `ms` in this Mac's time zone.
+/// `ms` in this computer's time zone.
 pub fn local(ms: u64) -> Local {
+    match local_tm(ms) {
+        Some(tm) => Local {
+            year: tm.tm_year + 1900,
+            month: tm.tm_mon as u32 + 1,
+            day: tm.tm_mday as u32,
+            hour: tm.tm_hour as u32,
+            minute: tm.tm_min as u32,
+            weekday: tm.tm_wday as u32,
+        },
+        None => utc(ms),
+    }
+}
+
+/// `ms` broken into this computer's local time (`localtime_r`, or
+/// `localtime_s` on Windows); `None` when the zone can't be read.
+pub(crate) fn local_tm(ms: u64) -> Option<libc::tm> {
+    let seconds = (ms / 1000) as libc::time_t;
+    // SAFETY: a zeroed `tm` is valid; the call writes only into it.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    #[cfg(unix)]
+    // SAFETY: both pointers are valid for the call.
+    let ok = !unsafe { libc::localtime_r(&seconds, &mut tm) }.is_null();
+    #[cfg(windows)]
+    // SAFETY: both pointers are valid for the call.
+    let ok = unsafe { libc::localtime_s(&mut tm, &seconds) } == 0;
+    #[cfg(not(any(unix, windows)))]
+    let ok = false;
+    ok.then_some(tm)
+}
+
+/// This computer's offset from UTC at `ms`, in seconds.
+pub(crate) fn local_offset(ms: u64) -> i64 {
+    let Some(tm) = local_tm(ms) else {
+        return 0;
+    };
     #[cfg(unix)]
     {
-        let seconds = (ms / 1000) as libc::time_t;
-        // SAFETY: a zeroed `tm` is valid; `localtime_r` writes only into it.
-        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-        // SAFETY: both pointers are valid for the call.
-        if !unsafe { libc::localtime_r(&seconds, &mut tm) }.is_null() {
-            return Local {
-                year: tm.tm_year + 1900,
-                month: tm.tm_mon as u32 + 1,
-                day: tm.tm_mday as u32,
-                hour: tm.tm_hour as u32,
-                minute: tm.tm_min as u32,
-                weekday: tm.tm_wday as u32,
-            };
-        }
+        tm.tm_gmtoff
     }
-    utc(ms)
+    // The wall clock read as UTC, less the instant itself.
+    #[cfg(not(unix))]
+    {
+        let days = days_from_civil(
+            i64::from(tm.tm_year) + 1900,
+            i64::from(tm.tm_mon) + 1,
+            i64::from(tm.tm_mday),
+        );
+        let wall = days * 86_400
+            + i64::from(tm.tm_hour) * 3600
+            + i64::from(tm.tm_min) * 60
+            + i64::from(tm.tm_sec);
+        wall - (ms / 1000) as i64
+    }
+}
+
+/// Days since 1970-01-01 of a civil date (Howard Hinnant's algorithm).
+#[cfg_attr(unix, allow(dead_code))]
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year - era * 400;
+    let month_index = (month + 9) % 12;
+    let day_of_year = (153 * month_index + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
 }
 
 /// `ms` in UTC (tests, and where the zone can't be read).
@@ -501,6 +548,14 @@ pub fn describe(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn civil_days_round_trip() {
+        for days in [0_i64, 59, 60, 365, 11_016, 20_000, 20_769] {
+            let (year, month, day) = civil(days);
+            assert_eq!(days_from_civil(year, month as i64, day as i64), days);
+        }
+    }
 
     /// Thursday 2026-11-12 09:30 UTC.
     const NOW: u64 = 1_794_475_800_000;

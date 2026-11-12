@@ -1282,9 +1282,8 @@ impl AppSettings {
         {
             others.push(second.clone());
         }
-        // The assistant's Action shortcut (macOS), while the assistant is on.
+        // The assistant's Action shortcut, while the assistant is on.
         if slot != HotkeySlot::Action
-            && cfg!(target_os = "macos")
             && crate::assistant::enabled(self)
             && let Some(action) = &self.assistant.action_hotkey
         {
@@ -1292,7 +1291,6 @@ impl AppSettings {
         }
         // The assistant's Stop all tasks shortcut, while the assistant is on.
         if slot != HotkeySlot::StopAll
-            && cfg!(target_os = "macos")
             && crate::assistant::enabled(self)
             && let Some(stop_all) = &self.assistant.stop_all_hotkey
         {

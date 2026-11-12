@@ -98,7 +98,10 @@ fn the_settings_switch_turns_the_assistant_off_and_on() {
     tap(&mut rt, "assistant-enabled");
     assert!(!rt.state.settings.assistant.enabled);
     assert!(!crate::assistant::enabled(&rt.state.settings));
-    assert!(rt.find("run-assistant-setup").is_none(), "nothing to set up while off");
+    assert!(
+        rt.find("run-assistant-setup").is_none(),
+        "nothing to set up while off"
+    );
     tap(&mut rt, "assistant-enabled");
     assert!(rt.state.settings.assistant.enabled);
 }
@@ -322,7 +325,10 @@ fn tasks_show_taken_over_waiting_and_queued_and_events_move_them() {
     });
     rt.invalidate();
     settle(&mut rt);
-    assert!(!rt.state.chats.holds.contains_key("reply-to-maya"), "retrying");
+    assert!(
+        !rt.state.chats.holds.contains_key("reply-to-maya"),
+        "retrying"
+    );
     assert_eq!(
         rt.state.chats.holds.get("coffee"),
         Some(&super::Hold::Paused)
@@ -345,7 +351,10 @@ fn an_interrupted_conversation_offers_resume() {
         vec!["sort-downloads".to_owned()]
     );
     assert!(rt.state.chats.running("sort-downloads"));
-    assert!(rt.find("resume").is_none(), "the banner leaves while it runs");
+    assert!(
+        rt.find("resume").is_none(),
+        "the banner leaves while it runs"
+    );
 }
 
 #[test]
@@ -399,7 +408,10 @@ fn a_job_shows_its_plan_and_its_question_takes_the_answer() {
     assert_eq!(sent.conversation.as_deref(), Some("suppliers"));
     assert_eq!(sent.text, "Save drafts as files");
     assert!(!rt.state.chats.questions.contains_key("suppliers"));
-    assert!(shows(&rt, "Save drafts as files"), "the answer shows under it");
+    assert!(
+        shows(&rt, "Save drafts as files"),
+        "the answer shows under it"
+    );
     rt.state.chats.deliver(Event::Question {
         conversation: "suppliers".into(),
         text: "Which countries first?".into(),
@@ -464,7 +476,10 @@ fn a_message_to_a_running_conversation_steers_it() {
     );
     assert_eq!(store.submitted[0].origin, Origin::Background);
     let turn = &rt.state.chats.turns["reply-to-maya"];
-    assert_eq!(turn.steered, vec!["Also ask about the projector".to_owned()]);
+    assert_eq!(
+        turn.steered,
+        vec!["Also ask about the projector".to_owned()]
+    );
     assert_eq!(turn.steps.len(), 4, "the turn goes on");
     assert!(shows(&rt, "Sent while working"));
 }
@@ -476,7 +491,11 @@ fn pane_with(tasks: Vec<crate::assistant::TaskStatus>) -> super::ChatsPane {
     super::ChatsPane::fixture(store)
 }
 
-fn task(id: &str, origin: Origin, state: crate::assistant::TaskState) -> crate::assistant::TaskStatus {
+fn task(
+    id: &str,
+    origin: Origin,
+    state: crate::assistant::TaskState,
+) -> crate::assistant::TaskStatus {
     crate::assistant::TaskStatus {
         conversation: id.into(),
         origin,
@@ -497,7 +516,11 @@ fn opening_chats_selects_here_then_the_latest_started_task_then_the_latest_chat(
         task("book-table", Origin::Background, Running),
     ]);
     pane.auto_select();
-    assert_eq!(pane.selected.as_deref(), Some("window-question"), "Here first");
+    assert_eq!(
+        pane.selected.as_deref(),
+        Some("window-question"),
+        "Here first"
+    );
     let mut pane = pane_with(vec![
         task("regex", Origin::Background, Running),
         task("book-table", Origin::Background, Running),
@@ -559,7 +582,10 @@ fn chats_shows_a_finish_setup_card_until_ready() {
     rt.state.settings.assistant.setup_done = false;
     tap(&mut rt, "new-chat");
     assert!(shows(&rt, "Finish setting up the assistant"));
-    assert!(rt.find("composer-input").is_none(), "no chat until it's ready");
+    assert!(
+        rt.find("composer-input").is_none(),
+        "no chat until it's ready"
+    );
     tap(&mut rt, "continue-setup");
     assert!(rt.state.chats.setup.is_some());
 }
@@ -571,10 +597,7 @@ fn a_hold_before_setup_opens_the_onboarding_and_says_so() {
     rt.update(super::open_setup_from_hold);
     settle(&mut rt);
     assert!(rt.state.chats.setup.as_ref().unwrap().from_hold);
-    assert!(shows(
-        &rt,
-        "Finish setting up the assistant first"
-    ));
+    assert!(shows(&rt, "Finish setting up the assistant first"));
 }
 
 #[test]
@@ -632,6 +655,7 @@ fn continue_waits_for_each_page_and_later_marks_it_unfinished() {
 #[test]
 fn a_permission_waits_after_allow_until_macos_reports_it() {
     let mut rt = onboarding();
+    rt.state.host = super::super::platform::PlatformHost::Fixture(Vec::new());
     rt.state.platform.permissions.microphone = crate::desktop::onboarding::PermissionState::Ready;
     rt.state.platform.permissions.accessibility =
         crate::desktop::onboarding::PermissionState::Ready;
@@ -650,10 +674,16 @@ fn a_permission_waits_after_allow_until_macos_reports_it() {
     assert_eq!(state(&rt), State::Failed);
     tap(&mut rt, "allow");
     assert_eq!(state(&rt), State::Waiting);
-    assert!(rt.state.chats.jobs.asked.iter().any(|job| matches!(
-        job,
-        Job::Fix(crate::assistant::backends::Fix::OpenSettings(_))
-    )));
+    let super::super::platform::PlatformHost::Fixture(sent) = &rt.state.host else {
+        panic!("fixture host");
+    };
+    assert!(
+        sent.contains(&super::super::platform::PlatformRequest::Permission(
+            crate::desktop::onboarding::PermissionAction::ShowGuide(
+                crate::desktop::onboarding::PermissionKind::ScreenRecording
+            )
+        ))
+    );
     answer(
         &mut rt,
         Done::Permissions(Permissions {
@@ -713,7 +743,12 @@ fn the_assistant_pages_continue_the_voice_first_run_before_hex_is_ready() {
     rt.state.first_run.as_mut().unwrap().jump_to_ready();
     rt.invalidate();
     settle(&mut rt);
-    let flow = rt.state.chats.setup.as_ref().expect("the assistant's pages");
+    let flow = rt
+        .state
+        .chats
+        .setup
+        .as_ref()
+        .expect("the assistant's pages");
     assert!(flow.merged);
     assert!(shows(&rt, "Now, your assistant"));
     assert!(!rt.state.first_run.as_ref().unwrap().ready_age().is_finite());
@@ -732,10 +767,14 @@ fn with_nothing_installed_one_button_sets_up_the_suggested_agent() {
     let mut rt = scene("mac-assistant-setup-agent-none");
     assert!(shows(&rt, "Recommended: Claude Code"));
     tap(&mut rt, "set-up-recommended");
-    assert!(rt.state.chats.jobs.asked.iter().any(|job| matches!(
-        job,
-        Job::SetUpAgent(AssistantBackend::ClaudeCode, _)
-    )));
+    assert!(
+        rt.state
+            .chats
+            .jobs
+            .asked
+            .iter()
+            .any(|job| matches!(job, Job::SetUpAgent(AssistantBackend::ClaudeCode, _)))
+    );
     assert_eq!(
         rt.state.chats.settings.agents.working,
         Some(AssistantBackend::ClaudeCode)
@@ -743,10 +782,16 @@ fn with_nothing_installed_one_button_sets_up_the_suggested_agent() {
     // Its lines show as it goes, and the row turns Ready when it answers.
     answer(
         &mut rt,
-        Done::AgentProgress(AssistantBackend::ClaudeCode, "Downloading Claude Code".into()),
+        Done::AgentProgress(
+            AssistantBackend::ClaudeCode,
+            "Downloading Claude Code".into(),
+        ),
     );
     assert!(shows(&rt, "Downloading Claude Code"));
-    answer(&mut rt, Done::AgentSetUp(AssistantBackend::ClaudeCode, Ok(())));
+    answer(
+        &mut rt,
+        Done::AgentSetUp(AssistantBackend::ClaudeCode, Ok(())),
+    );
     assert_eq!(rt.state.chats.settings.agents.working, None);
 }
 
@@ -756,14 +801,7 @@ fn your_own_key_installs_opencode_checks_the_key_and_saves_the_model() {
     tap(&mut rt, "use-own-key");
     assert!(shows(&rt, "Your own API key"));
     tap(&mut rt, "provider-deepseek");
-    rt.state
-        .chats
-        .settings
-        .agents
-        .byok
-        .as_mut()
-        .unwrap()
-        .key = TextEdit::new("sk-deepseek-123456");
+    rt.state.chats.settings.agents.byok.as_mut().unwrap().key = TextEdit::new("sk-deepseek-123456");
     rt.invalidate();
     settle(&mut rt);
     tap(&mut rt, "verify-key");
@@ -772,12 +810,18 @@ fn your_own_key_installs_opencode_checks_the_key_and_saves_the_model() {
         Job::OwnKey { provider, install: true, .. } if provider == "deepseek"
     )));
     answer(&mut rt, Done::OwnKey(Ok("deepseek/deepseek-chat".into())));
-    assert_eq!(rt.state.settings.assistant.backend, AssistantBackend::OpenCode);
+    assert_eq!(
+        rt.state.settings.assistant.backend,
+        AssistantBackend::OpenCode
+    );
     assert_eq!(
         rt.state.settings.assistant.opencode_model.as_deref(),
         Some("deepseek/deepseek-chat")
     );
-    assert!(shows(&rt, "Works. OpenCode answers with deepseek/deepseek-chat"));
+    assert!(shows(
+        &rt,
+        "Works. OpenCode answers with deepseek/deepseek-chat"
+    ));
 }
 
 #[test]
@@ -856,7 +900,7 @@ fn schedules_list_toggle_run_and_add_by_hand() {
 
 #[test]
 fn page_names_round_trip_for_the_saved_progress() {
-    for page in Page::ALL {
+    for page in Page::shown().iter().copied() {
         assert_eq!(Page::named(page.name()), Some(page));
     }
     assert_eq!(Page::named("permissions"), None);
@@ -869,7 +913,10 @@ fn the_merged_flow_says_it_continues_and_new_in_hex_says_so() {
     let rt = scene("mac-assistant-setup-new");
     assert!(shows(&rt, "New in Hex: your assistant"));
     let rt = scene("mac-assistant-setup-resumed");
-    assert!(shows(&rt, "Hex restarted. Checking again where you left off…"));
+    assert!(shows(
+        &rt,
+        "Hex restarted. Checking again where you left off…"
+    ));
 }
 
 #[test]
@@ -883,7 +930,7 @@ fn checks_run_on_arrival_and_finish_waits_for_answers_and_agent_desktop() {
             .jobs
             .asked
             .iter()
-            .any(|job| matches!(job, Job::SelfTests(_)))
+            .any(|job| matches!(job, Job::SelfTests(..)))
     );
     let backend = AssistantBackend::ClaudeCode;
     let ok = |check| CheckResult {
@@ -1003,4 +1050,132 @@ fn the_shortcut_page_waits_for_a_free_shortcut_and_a_real_press() {
     answer(&mut rt, Done::Conflicts(Vec::new()));
     assert!(done(&rt));
     assert!(shows(&rt, "Hex received it (held 0.4 s)"));
+}
+
+#[test]
+fn onboarding_polish_back_leaves_room_for_macos_window_controls() {
+    let rt = scene("mac-assistant-setup-desktop");
+    let back = rt
+        .elements()
+        .into_iter()
+        .find(|element| element.path.ends_with("/back"))
+        .expect("Back button");
+    assert!(
+        back.rect[0] >= 88.0,
+        "Back overlaps the native window controls: {:?}",
+        back.rect
+    );
+}
+
+#[test]
+fn onboarding_polish_sign_in_chooses_a_site_before_opening_a_browser() {
+    let mut rt = scene("mac-assistant-setup-browser");
+    tap(&mut rt, "sign-in-sites");
+    assert!(
+        rt.find("sign-in-website").is_some(),
+        "choose a website first"
+    );
+    assert!(
+        !rt.state
+            .chats
+            .jobs
+            .asked
+            .iter()
+            .any(|job| matches!(job, Job::SignIn(_))),
+        "opening the editor must not navigate"
+    );
+}
+
+#[test]
+fn onboarding_polish_screen_recording_restart_is_offered() {
+    let mut rt = scene("mac-assistant-setup-desktop");
+    rt.state.platform.scrawl = Some(super::super::platform::ScrawlView {
+        screen_needs_restart: true,
+        ..Default::default()
+    });
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(
+        rt.find("restart").is_some(),
+        "a granted screen permission needs Restart, not another Allow"
+    );
+}
+
+#[test]
+fn onboarding_polish_refreshes_failed_checks_when_permissions_change() {
+    let mut rt = scene("mac-assistant-setup-checks");
+    {
+        let flow = rt.state.chats.setup.as_mut().unwrap();
+        flow.checks_running = false;
+        flow.permissions = Some(Permissions {
+            accessibility: false,
+            screen_recording: false,
+        });
+    }
+    let before = rt.state.chats.jobs.asked.len();
+    answer(
+        &mut rt,
+        Done::Permissions(Permissions {
+            accessibility: true,
+            screen_recording: true,
+        }),
+    );
+    assert!(
+        rt.state.chats.jobs.asked[before..]
+            .iter()
+            .any(|job| matches!(job, Job::SelfTests(..))),
+        "the Checks page must recheck a changed grant"
+    );
+}
+
+#[test]
+fn a_selected_sign_in_site_opens_once_and_failed_saves_can_be_retried() {
+    let mut rt = scene("mac-assistant-setup-browser");
+    tap(&mut rt, "sign-in-sites");
+    rt.state.chats.settings.site_address = TextEdit::new("mail.google.com");
+    super::site_sign_in::launch(&mut rt.state);
+    super::site_sign_in::launch(&mut rt.state);
+    let opens: Vec<_> = rt
+        .state
+        .chats
+        .jobs
+        .asked
+        .iter()
+        .filter_map(|job| match job {
+            Job::SignIn(url) => Some(url.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(opens, [Some("https://mail.google.com/".to_owned())]);
+    answer(&mut rt, Done::SignIn(true, Ok(())));
+    super::site_sign_in::save(&mut rt.state);
+    answer(
+        &mut rt,
+        Done::SignIn(false, Err("fixture save failed".into())),
+    );
+    assert!(
+        rt.state.chats.settings.signing_in,
+        "a failed close leaves the browser open"
+    );
+    assert!(!rt.state.chats.settings.sign_in_busy, "Save can be retried");
+    assert!(rt.state.chats.settings.sign_in_editor);
+}
+
+#[test]
+fn stale_assistant_grants_use_the_running_apps_permission_repair() {
+    use super::super::platform::{PlatformHost, PlatformRequest};
+    use crate::desktop::onboarding::{PermissionAction, PermissionKind};
+    let mut rt = scene("mac-assistant-setup-desktop");
+    rt.state.platform.note_stale(PermissionKind::Accessibility);
+    super::setup::allow(&mut rt.state, Grant::DesktopAccessibility);
+    let PlatformHost::Fixture(sent) = &rt.state.host else {
+        panic!("fixture host");
+    };
+    assert!(sent.contains(&PlatformRequest::Permission(
+        PermissionAction::ResetAndPrompt(PermissionKind::Accessibility)
+    )));
+    assert!(!rt.state.chats.jobs.asked.iter().any(|job| matches!(
+        job,
+        Job::Fix(crate::assistant::backends::Fix::GuidePermissions)
+    )));
 }

@@ -4,9 +4,13 @@
 
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "macos")]
 use objc2::MainThreadMarker;
+#[cfg(target_os = "macos")]
 use objc2::rc::Retained;
+#[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
+#[cfg(target_os = "macos")]
 use objc2_app_kit::{NSEvent, NSEventMask};
 use rune::{OverlayHandle, Tx};
 
@@ -23,6 +27,7 @@ const BUBBLE_OUT: Duration = Duration::from_millis(260);
 /// How long "Finish setting up the assistant first" stays.
 const SETUP_SHOWS: Duration = Duration::from_secs(7);
 /// Esc's key code.
+#[cfg(target_os = "macos")]
 const ESCAPE: u16 = 53;
 /// How often the pulse follows a measured voice.
 const VOICE_TICK: Duration = Duration::from_millis(33);
@@ -194,6 +199,7 @@ pub(super) fn place_bubble(handle: &OverlayHandle<BubbleOverlay>) -> bool {
 thread_local! {
     /// The global Esc monitor while the bubble or the Hands off pill shows,
     /// and which of them wants it.
+    #[cfg(target_os = "macos")]
     static ESCAPE_MONITOR: std::cell::RefCell<Option<Retained<AnyObject>>> =
         const { std::cell::RefCell::new(None) };
     static ESCAPE_WANTED: std::cell::Cell<(bool, bool)> =
@@ -209,9 +215,16 @@ pub(super) fn want_escape(bubble: Option<bool>, hands: Option<bool>) {
     watch_escape(wanted.0 || wanted.1);
 }
 
+/// Linux and Windows: the listener takes Escape while the assistant is
+/// busy (`assistant::shortcut::claims_escape`), and the bubble has its own
+/// close button.
+#[cfg(not(target_os = "macos"))]
+fn watch_escape(_on: bool) {}
+
 /// Watches for Esc in any app (a passive monitor: the key still reaches the
 /// app). Esc stops the task moving the real pointer, unless that task
 /// pressed it itself, and dismisses the bubble. Main thread only.
+#[cfg(target_os = "macos")]
 fn watch_escape(on: bool) {
     if MainThreadMarker::new().is_none() {
         return;
@@ -256,8 +269,10 @@ fn watch_escape(on: bool) {
 }
 
 /// `kCGEventSourceUnixProcessID`: the process that posted an event.
+#[cfg(target_os = "macos")]
 const SOURCE_PID: u32 = 41;
 
+#[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
     fn CGEventGetIntegerValueField(event: *mut std::ffi::c_void, field: u32) -> i64;
@@ -265,6 +280,7 @@ unsafe extern "C" {
 
 /// Whether a key came from the person rather than from the agent pressing
 /// keys for its task (agent-desktop, or Hex itself).
+#[cfg(target_os = "macos")]
 fn pressed_by_person(event: &NSEvent) -> bool {
     // SAFETY: `CGEvent` returns the event's own CGEventRef (or null), alive
     // while the event is; reading a field doesn't retain or change it.

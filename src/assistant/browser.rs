@@ -285,13 +285,76 @@ pub fn finish_sign_in() -> Result<()> {
     Ok(())
 }
 
-/// Whether the person signed in to anything in Hex's browser.
-pub fn signed_in() -> bool {
-    std::fs::read_dir(state_dir().unwrap_or_default()).is_ok_and(|entries| {
-        entries
+/// Websites with saved browser data, not a claim that their login is still valid.
+pub fn saved_sites() -> Vec<String> {
+    let mut sites = std::collections::BTreeSet::new();
+    if let Some(dir) = state_dir()
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        for entry in entries
             .flatten()
-            .any(|entry| is_sign_in_state(&entry.file_name().to_string_lossy()))
-    })
+            .filter(|entry| is_sign_in_state(&entry.file_name().to_string_lossy()))
+        {
+            if let Ok(bytes) = std::fs::read(entry.path())
+                && let Ok(state) = serde_json::from_slice::<Value>(&bytes)
+            {
+                sites.extend(sites_in_state(&state));
+            }
+        }
+    }
+    sites.into_iter().collect()
+}
+
+fn sites_in_state(state: &Value) -> Vec<String> {
+    let mut sites = std::collections::BTreeSet::new();
+    for cookie in state["cookies"].as_array().into_iter().flatten() {
+        if cookie["value"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+            && let Some(domain) = cookie["domain"].as_str()
+            && let Ok(url) = url::Url::parse(&format!("https://{}", domain.trim_start_matches('.')))
+            && let Some(host) = url.host_str()
+        {
+            sites.insert(host.to_owned());
+        }
+    }
+    for origin in state["origins"].as_array().into_iter().flatten() {
+        if origin["localStorage"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty())
+            && let Some(origin) = origin["origin"].as_str()
+            && let Ok(url) = url::Url::parse(origin)
+            && let Some(host) = url.host_str()
+        {
+            sites.insert(host.to_owned());
+        }
+    }
+    sites.into_iter().collect()
+}
+
+/// A typed website; never launch file, script, or credential-bearing URLs.
+pub fn sign_in_url(input: &str) -> Result<String, &'static str> {
+    let input = input.trim();
+    let address = if input.contains("://") {
+        input.to_owned()
+    } else {
+        format!("https://{input}")
+    };
+    let url = url::Url::parse(&address).map_err(|_| "Enter a valid website address")?;
+    if input.is_empty()
+        || !matches!(url.scheme(), "https" | "http")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err("Enter a valid website address");
+    }
+    Ok(url.into())
+}
+
+/// Whether browser data is saved for any website; it can expire independently.
+pub fn signed_in() -> bool {
+    !saved_sites().is_empty()
 }
 
 /// Forgets every sign-in: the next tasks start signed out.
@@ -338,16 +401,16 @@ fn private_state() {
 /// agent-browser with Hex's agent PATH (and Lightpanda's folder) and none
 /// of the person's own `AGENT_BROWSER_*` settings.
 fn base_command(path: &Path) -> Command {
-    let mut command = crate::desktop::background_process::command(path);
+    let mut command = search::command(path);
     let extra: Vec<PathBuf> = [Some(path.to_owned()), lightpanda()]
         .into_iter()
         .flatten()
         .collect();
-    command.env_clear().envs(
-        backends::agent_env()
-            .into_iter()
-            .filter(|(key, _)| key != "PATH" && !key.starts_with("AGENT_BROWSER_")),
-    );
+    command
+        .env_clear()
+        .envs(backends::agent_env().into_iter().filter(|(key, _)| {
+            !key.eq_ignore_ascii_case("PATH") && !key.starts_with("AGENT_BROWSER_")
+        }));
     command.env("PATH", search::path_value(&extra));
     command
 }
@@ -452,6 +515,47 @@ fn last_json(output: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sign_in_addresses_open_the_selected_website_only() {
+        assert_eq!(
+            sign_in_url(" mail.google.com ").unwrap(),
+            "https://mail.google.com/"
+        );
+        assert_eq!(
+            sign_in_url("https://example.org/login").unwrap(),
+            "https://example.org/login"
+        );
+        for invalid in [
+            "",
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "https://user:secret@example.org",
+            "https://",
+        ] {
+            assert!(sign_in_url(invalid).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn saved_sites_describe_storage_not_a_blank_state_file_or_a_login_verdict() {
+        assert!(sites_in_state(&serde_json::json!({"cookies": [], "origins": []})).is_empty());
+        let state = serde_json::json!({
+            "cookies": [
+                {"domain": ".example.org", "value": "fixture-token"},
+                {"domain": "example.org", "value": "another-fixture"},
+                {"domain": "empty.example.org", "value": ""}
+            ],
+            "origins": [
+                {"origin": "https://portal.example.org", "localStorage": [{"name": "fixture", "value": "fixture"}]},
+                {"origin": "https://blank.example.org", "localStorage": []}
+            ]
+        });
+        assert_eq!(
+            sites_in_state(&state),
+            ["example.org", "portal.example.org"]
+        );
+    }
 
     #[test]
     fn replies_are_read_from_the_last_envelope() {

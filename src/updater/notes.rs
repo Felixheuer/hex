@@ -12,10 +12,10 @@ use serde_json::Value;
 use super::transport::ManifestCache;
 use crate::desktop::host::UpdateNotes;
 
-const URL: &str = "https://anoma.ly/hex/files/dev-notes.json";
-const PAGE: &str = "https://anoma.ly/hex/dev";
-/// A stable release's notes, as the release workflow links them (`plan.sh`).
-const RELEASES: &str = "https://github.com/anomalyco/hex/releases/tag";
+const URL: &str = "https://ai.sms-pilot.de/release/hex/dev-notes.json";
+/// Pilot's version history (`site/public/versionen/`), one anchor per
+/// published version, from `scripts/pilot-publish.sh`'s `history.json`.
+const PAGE: &str = "https://ai.sms-pilot.de/versionen";
 const TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_ITEMS: usize = 40;
 const MAX_TITLE: usize = 200;
@@ -45,24 +45,31 @@ fn is_dev_version(version: &str) -> bool {
     })
 }
 
+fn digits(part: Option<&str>) -> bool {
+    part.is_some_and(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
 /// A plain `major.minor.patch`, with no suffix.
 fn is_stable_version(version: &str) -> bool {
-    fn digits(part: Option<&str>) -> bool {
-        part.is_some_and(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
-    }
     let mut parts = version.split('.');
     digits(parts.next()) && digits(parts.next()) && digits(parts.next()) && parts.next().is_none()
 }
 
-/// Where the release notes for a running version are: the dev changelog for a
-/// dev version, GitHub's release for a stable one, and nothing for an odd one.
+/// A Pilot build of a release, `major.minor.patch-pilot.N`.
+fn is_pilot_version(version: &str) -> bool {
+    version
+        .split_once("-pilot.")
+        .is_some_and(|(release, build)| is_stable_version(release) && digits(Some(build)))
+}
+
+/// Where the release notes for a running version are: its entry in Pilot's
+/// version history for a dev, stable, or Pilot version, and nothing for an
+/// odd one.
 /// The sidebar asks only on a release build, so a local or test build with a
 /// plain version still shows no link.
 pub fn release_notes_url(running: &str) -> Option<String> {
-    if is_dev_version(running) {
+    if is_dev_version(running) || is_stable_version(running) || is_pilot_version(running) {
         Some(format!("{PAGE}#{running}"))
-    } else if is_stable_version(running) {
-        Some(format!("{RELEASES}/v{running}"))
     } else {
         None
     }
@@ -129,7 +136,7 @@ mod tests {
         assert_eq!(notes.items, ["Fix A", "Fix B", "Fix C"]);
         assert_eq!(
             notes.url,
-            "https://anoma.ly/hex/dev?since=0.0.0-dev-8#0.0.0-dev-11"
+            "https://ai.sms-pilot.de/versionen?since=0.0.0-dev-8#0.0.0-dev-11"
         );
     }
 
@@ -138,7 +145,10 @@ mod tests {
         let notes = parse(NOTES, "0.0.0-dev-2", "0.0.0-dev-9").unwrap();
         assert_eq!(notes.items, ["Fix A", "Fix C", "Already running"]);
         let from_stable = parse(NOTES, "3.1.1", "0.0.0-dev-9").unwrap();
-        assert_eq!(from_stable.url, "https://anoma.ly/hex/dev#0.0.0-dev-9");
+        assert_eq!(
+            from_stable.url,
+            "https://ai.sms-pilot.de/versionen#0.0.0-dev-9"
+        );
     }
 
     #[test]
@@ -152,15 +162,19 @@ mod tests {
     fn a_dev_build_opens_the_changelog_at_itself() {
         assert_eq!(
             release_notes_url("0.0.0-dev-12").as_deref(),
-            Some("https://anoma.ly/hex/dev#0.0.0-dev-12")
+            Some("https://ai.sms-pilot.de/versionen#0.0.0-dev-12")
         );
     }
 
     #[test]
-    fn a_stable_build_opens_its_github_release() {
+    fn a_stable_or_pilot_build_opens_its_version_entry() {
         assert_eq!(
             release_notes_url("3.3.0").as_deref(),
-            Some("https://github.com/anomalyco/hex/releases/tag/v3.3.0")
+            Some("https://ai.sms-pilot.de/versionen#3.3.0")
+        );
+        assert_eq!(
+            release_notes_url("3.4.0-pilot.2").as_deref(),
+            Some("https://ai.sms-pilot.de/versionen#3.4.0-pilot.2")
         );
     }
 
@@ -173,6 +187,8 @@ mod tests {
             "3.3.0.1",
             "3.3.0-beta.1",
             "3.3.0-dev-4",
+            "3.3.0-pilot.",
+            "3.3-pilot.1",
             "v3.3.0",
             "",
         ] {

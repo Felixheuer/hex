@@ -26,7 +26,9 @@ const MODES: [Autonomy; 3] = [Autonomy::Ask, Autonomy::Smart, Autonomy::Yolo];
 /// What a mode lets it do, in a line.
 fn explain(mode: Autonomy) -> &'static str {
     match mode {
-        Autonomy::Ask => tr("Asks you before it sends, deletes, pays, shares, or publishes anything"),
+        Autonomy::Ask => {
+            tr("Asks you before it sends, deletes, pays, shares, or publishes anything")
+        }
         Autonomy::Smart => tr("Does what you asked for; anything else that matters asks first"),
         Autonomy::Yolo => tr("Does everything without asking. Use it only for tasks you trust"),
     }
@@ -57,15 +59,15 @@ pub(in crate::rune_ui) fn autonomy_choice(ui: &Ui, p: Paint) -> El {
             } else {
                 explain(current).to_owned()
             })
-                .key("explain")
-                .role("status")
-                .font(DESCRIPTION)
-                .color(if current == Autonomy::Yolo {
-                    p.warning()
-                } else {
-                    p.text()
-                })
-                .wrap(),
+            .key("explain")
+            .role("status")
+            .font(DESCRIPTION)
+            .color(if current == Autonomy::Yolo {
+                p.warning()
+            } else {
+                p.text()
+            })
+            .wrap(),
         )
         .child(
             text(tr(
@@ -83,7 +85,13 @@ pub(in crate::rune_ui) fn autonomy_section(ui: &Ui, p: Paint) -> El {
         p,
         "assistant-autonomy",
         tr("How freely it acts"),
-        vec![row().key("autonomy-row").px(16.0).py(12.0).child(autonomy_choice(ui, p).grow(1.0))],
+        vec![
+            row()
+                .key("autonomy-row")
+                .px(16.0)
+                .py(12.0)
+                .child(autonomy_choice(ui, p).grow(1.0)),
+        ],
     )
 }
 
@@ -95,9 +103,7 @@ fn voice_label(name: &str) -> String {
         voices::Quality::Default => tr("Default"),
         voices::Quality::Personal => tr("Personal Voice"),
     };
-    let bare = name
-        .replace(" (Premium)", "")
-        .replace(" (Enhanced)", "");
+    let bare = name.replace(" (Premium)", "").replace(" (Enhanced)", "");
     format!("{bare} · {quality}")
 }
 
@@ -154,6 +160,11 @@ pub(super) fn voice_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
 
 /// "Get a better voice", when none installed sounds natural.
 pub(super) fn better_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
+    // Linux's voices are packages (Piper, Pico, eSpeak), with no page to
+    // download one from.
+    if !crate::assistant::speech::has_voice_settings() {
+        return None;
+    }
     let installed = ui.chats.settings.voices.as_ref()?;
     voices::better_voice_available(installed)?;
     Some(
@@ -162,14 +173,24 @@ pub(super) fn better_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
             "assistant-better-voice",
             tr("Get a better voice"),
             Some((
-                tr("Premium voices sound far more natural. Download one in System Settings").to_owned(),
+                if cfg!(target_os = "macos") {
+                    tr("Premium voices sound far more natural. Download one in System Settings")
+                } else {
+                    tr("More natural voices are in Settings › Time & language › Speech")
+                }
+                .to_owned(),
                 p.muted(),
             )),
-            small_button(p, "get-better-voice", tr("Open Settings…"), |ui: &mut Ui, _| {
-                if ui.chats.live() {
-                    voices::open_voice_settings();
-                }
-            }),
+            small_button(
+                p,
+                "get-better-voice",
+                tr("Open Settings…"),
+                |ui: &mut Ui, _| {
+                    if ui.chats.live() {
+                        voices::open_voice_settings();
+                    }
+                },
+            ),
         )
         .into(),
     )
@@ -270,7 +291,9 @@ pub(in crate::rune_ui) fn memory_section(ui: &Ui, p: Paint) -> El {
     ];
     if on {
         let editor = TextArea::new(&state.memory)
-            .placeholder(tr("For example: I work at Acme as a designer. My manager is Sam."))
+            .placeholder(tr(
+                "For example: I work at Acme as a designer. My manager is Sam.",
+            ))
             .label(tr("What Hex knows about you"))
             .width(None)
             .auto_grow(3, 12)
@@ -304,5 +327,10 @@ pub(in crate::rune_ui) fn memory_section(ui: &Ui, p: Paint) -> El {
                 .into(),
         );
     }
-    section(p, "assistant-memory-section", tr("What Hex knows about you"), rows)
+    section(
+        p,
+        "assistant-memory-section",
+        tr("What Hex knows about you"),
+        rows,
+    )
 }

@@ -1,14 +1,15 @@
 #!/bin/sh
 set -eu
 
-# Installs Hex from the Anomaly release service (docs/plans/release-service.md):
-# the stable manifest names the linux-x64 or linux-arm64 executable with its
-# size and SHA-256, and install.json marks the install as one Hex updates itself.
-# Anomaly's ed25519 Linux release key (.github/release/linux-signing.pub):
-# every executable must carry its signature as the release's <target>-sig
-# file, over "anomaly.hex.linux-artifact.v1\n<sha256>\n".
-signing_key=MCowBQYDK2VwAyEAv60C5iII/xRLXJ0hx+ecfBbGkEKZpDfYVzAwB81P99g=
-origin=${HEX_RELEASE_BASE_URL:-https://anoma.ly/release}
+# Installs Pilot (the Hex fork, executable `hex`) from Pilot's release server
+# (docs/pilot-release.md, docs/plans/release-service.md): the stable manifest
+# names the linux-x64 or linux-arm64 executable with its size and SHA-256,
+# and install.json marks the install as one Hex updates itself.
+# Pilot's ed25519 release key (.github/release/linux-signing.pub): every
+# executable must carry its signature as the release's <target>-sig file,
+# over "pilot.release-artifact.v1\n<sha256>\n".
+signing_key=MCowBQYDK2VwAyEAes3MJM3Y4nibp16w/85IDJGZtRSi3T/ZbcstKZP1oQA=
+origin=${HEX_RELEASE_BASE_URL:-https://ai.sms-pilot.de/release}
 origin=${origin%/}
 # HEX_INSTALL_CHANNEL=dev installs the newest dev build and keeps the
 # install on the Dev update channel; =stable requires the stable release.
@@ -270,7 +271,7 @@ if [ -z "${HEX_INSTALL_ARTIFACT:-}" ]; then
   test "$(sha256sum "$artifact_path" | awk '{ print $1 }')" = "$sha256" \
     || fail "Downloaded Linux release checksum does not match."
 
-  # The signature ties the manifest's SHA-256 to Anomaly's release key, so a
+  # The signature ties the manifest's SHA-256 to Pilot's release key, so a
   # tampered manifest cannot name another executable.
   signature_url=$(jq -er --arg target "$target-sig" '.release.targets[$target].url' "$manifest") \
     || fail "Hex $version has no signature for $target."
@@ -283,7 +284,7 @@ if [ -z "${HEX_INSTALL_ARTIFACT:-}" ]; then
   test "$(sha256sum "$temporary/hex.sig" | awk '{ print $1 }')" = "$signature_sha256" \
     || fail "Downloaded Linux release signature checksum does not match."
   printf -- '-----BEGIN PUBLIC KEY-----\n%s\n-----END PUBLIC KEY-----\n' "$signing_key" > "$temporary/signing.pem"
-  printf 'anomaly.hex.linux-artifact.v1\n%s\n' "$sha256" > "$temporary/signed"
+  printf 'pilot.release-artifact.v1\n%s\n' "$sha256" > "$temporary/signed"
   openssl pkeyutl -verify -rawin -pubin -inkey "$temporary/signing.pem" \
     -in "$temporary/signed" -sigfile "$temporary/hex.sig" > /dev/null 2>&1 \
     || fail "Linux release signature does not verify; refusing to install it."
@@ -539,5 +540,5 @@ printf 'Start in the background: %s start (quit with %s quit)\n' "$binary" "$bin
 if [ "${HEX_INSTALL_SOURCE:-}" = 1 ]; then
   printf 'Uninstall: scripts/install-linux.sh uninstall (from the Hex checkout)\n'
 else
-  printf 'Uninstall: curl -fsSL https://anoma.ly/hex/files/install-linux.sh | sh -s -- uninstall\n'
+  printf 'Uninstall: curl -fsSL https://ai.sms-pilot.de/install-linux.sh | sh -s -- uninstall\n'
 fi

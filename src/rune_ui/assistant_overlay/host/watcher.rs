@@ -6,17 +6,25 @@
 use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "macos")]
 use objc2::msg_send;
+#[cfg(target_os = "macos")]
 use objc2::rc::Retained;
+#[cfg(target_os = "macos")]
 use objc2::runtime::{AnyClass, AnyObject};
+#[cfg(target_os = "macos")]
 use objc2_foundation::{NSNumber, NSString};
 use rune::{DisplayTarget, OverlayPlacement};
 
 use super::super::board::Outlined;
-use super::super::frame::{self, Frame};
+#[cfg(target_os = "macos")]
+use super::super::frame;
+use super::super::frame::Frame;
 use super::super::outline::{self, LabelSide, Outline};
 use super::super::screens::{self, Screen, Seams};
-use super::{FADE, OVERLAYS, displays, panel};
+#[cfg(target_os = "macos")]
+use super::panel;
+use super::{FADE, OVERLAYS, displays};
 use crate::assistant::{ConversationId, Event, TaskWindow};
 
 /// Frame panels: one per display, as many as macOS drives at once.
@@ -450,8 +458,13 @@ const NORMAL_LEVEL: isize = 0;
 /// `NSStatusWindowLevel`, Rune's default for overlays.
 const STATUS_LEVEL: isize = 25;
 
+/// Linux and Windows draw outlines above everything.
+#[cfg(not(target_os = "macos"))]
+fn order_above(_number: Option<u32>, _target: u32) {}
+
 /// Orders the outline panel `number` just above window `target` (another
 /// app's, by its CoreGraphics number), when it shows. Main thread.
+#[cfg(target_os = "macos")]
 fn order_above(number: Option<u32>, target: u32) {
     let Some(panel) = panel(number) else {
         return;
@@ -470,15 +483,22 @@ fn display_top(displays: &[Screen], (x, y, w, _): (f64, f64, f64, f64)) -> f64 {
 
 /// Whether macOS asks for less motion (Accessibility › Display › Reduce
 /// motion).
+#[cfg(target_os = "macos")]
 fn reduce_motion() -> bool {
     objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
 }
 
+#[cfg(target_os = "macos")]
 const BREATHE_KEY: &str = "hex-breathe";
+
+/// Linux and Windows: the frame stays still (no window server animates it).
+#[cfg(not(target_os = "macos"))]
+fn ensure_breathing(_number: Option<u32>) {}
 
 /// Breathes the frame panel's layer in Core Animation (none with Reduce
 /// motion on): the window server animates it, so Hex draws nothing for it.
 /// Added again if the layer was remade.
+#[cfg(target_os = "macos")]
 fn ensure_breathing(number: Option<u32>) {
     let Some(panel) = panel(number) else {
         return;

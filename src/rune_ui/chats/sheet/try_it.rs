@@ -45,11 +45,7 @@ fn gesture_row(
         .child(
             icon(glyph, 16.0)
                 .key("icon")
-                .color(if current {
-                    p.accent()
-                } else {
-                    p.k.c.icon_base
-                })
+                .color(if current { p.accent() } else { p.k.c.icon_base })
                 .a11y_hidden(),
         )
         .child(
