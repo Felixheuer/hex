@@ -253,3 +253,70 @@ fn browsers_start_with_the_person_s_accounts_and_a_clean_one_is_asked_for() {
     assert!(prompt.contains("`signedIn: false` for a clean one"));
     assert!(prompt.contains("Never ask the person to sign in unless a page still shows a login"));
 }
+
+#[test]
+fn a_hand_off_starts_its_jobs_and_a_mere_claim_starts_one() {
+    let asked = job(
+        "Kannst du auch ein Werbevideo über diese Webseite machen?",
+        Origin::ActionShortcut,
+        Context::default(),
+    );
+    // The tool's jobs: the first carries its own part when there are several.
+    let handoff = handoff::Handoff {
+        jobs: vec![
+            handoff::Job {
+                title: "Werbevideo".into(),
+                task: "Mach ein Werbevideo über example.com".into(),
+            },
+            handoff::Job {
+                title: "Wettbewerber".into(),
+                task: "Recherchiere drei Wettbewerber".into(),
+            },
+        ],
+        say: Some("Mach ich: zwei Aufträge.".into()),
+    };
+    match super::handed_on(&asked, "Mach ich.", Some(handoff)) {
+        Some(Outcome::Escalate {
+            title,
+            reply,
+            more,
+            first_task,
+        }) => {
+            assert_eq!(title, "Werbevideo");
+            assert_eq!(reply, "Mach ich: zwei Aufträge.");
+            assert_eq!(more.len(), 1);
+            assert_eq!(
+                first_task.as_deref(),
+                Some("Mach ein Werbevideo über example.com")
+            );
+        }
+        _ => panic!("the hand-off should escalate"),
+    }
+    // The pilot.14 bug: prose that claims the background, no tool, no marker.
+    match super::handed_on(
+        &asked,
+        "Das läuft als Hintergrundauftrag, und das Video landet im Arbeitsordner.",
+        None,
+    ) {
+        Some(Outcome::Escalate {
+            title, first_task, ..
+        }) => {
+            assert!(title.starts_with("Kannst du auch ein Werbevideo"));
+            assert_eq!(first_task, None, "the whole request is the job");
+        }
+        _ => panic!("a claimed background job should start"),
+    }
+    // A plain answer starts nothing.
+    assert!(super::handed_on(&asked, "Ja, das kann ich.", None).is_none());
+}
+
+#[test]
+fn the_routing_rule_hands_jobs_on_with_the_tool() {
+    assert!(ROUTING.contains("hex_start_jobs"));
+    let here = system_prompt(
+        Origin::ActionShortcut,
+        Some(&Desktop::fixture(None, "hex-1")),
+        false,
+    );
+    assert!(here.contains("hex_start_jobs"));
+}

@@ -279,10 +279,24 @@ impl Runner {
                 self.voice.drop_answer(&conversation);
                 self.emit(&Event::Cancelled { conversation });
             }
-            Outcome::Escalate { title, reply, more } => {
+            Outcome::Escalate {
+                title,
+                reply,
+                more,
+                first_task,
+            } => {
                 if voice && settings.speak_answers && !reply.is_empty() {
                     self.voice.finish(self, &conversation, &reply);
                 }
+                // A request split into several jobs: the conversation goes on
+                // with the first one's own part.
+                let request = match first_task {
+                    Some(task) => Request {
+                        text: task,
+                        ..request
+                    },
+                    None => request,
+                };
                 self.escalate(request, title, new_conversation, voice);
                 for (title, text) in more {
                     self.submit_as(
