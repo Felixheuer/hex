@@ -11,7 +11,9 @@ use super::setup::{
     self, Grant, Page, SetupFlow, State, can_finish, check_title, chosen, fix_for, fix_label,
     grant_state, needs_restart, page_done,
 };
-use super::shortcut_stub::ConflictFix;
+use super::setup::ProbeState;
+use super::shortcut::{ConflictFix, Probe};
+use crate::app_settings::HotkeySlot;
 use super::{BACKENDS, Ui, backend_name};
 use crate::app_settings::AssistantBackend;
 use crate::assistant::backends::{CheckResult, CheckState, Fix};
@@ -861,64 +863,137 @@ fn checks(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
 }
 
 /// A conflict's fix button.
-fn conflict_label(fix: &ConflictFix) -> String {
+fn conflict_label(fix: &ConflictFix, name: &str) -> String {
     match fix {
-        ConflictFix::OpenSettings(_) => tr("Open Settings…").into(),
-        ConflictFix::QuitApp(app) => tr_fill("Quit {}", app),
-        ConflictFix::ChooseAnother => tr("Choose another…").into(),
+        ConflictFix::KeyboardSettings => tr("Open Keyboard Settings").into(),
+        ConflictFix::SiriSettings => tr("Open Siri Settings…").into(),
+        ConflictFix::OpenApp(_) => tr_fill("Open {}", name),
     }
 }
 
-/// A row that waits for a press of the shortcut, green once Hex heard it.
-fn press_row(ui: &Ui, p: Paint, key: &str, title: &str, heard: bool) -> El {
-    let control = if heard {
-        done_pill(p, "heard", tr("Hex heard it"))
-    } else {
-        waiting_pill(p, "waiting", tr("Press it now"))
+/// The shortcut's name, as General's rows call it.
+fn slot_name(slot: HotkeySlot) -> &'static str {
+    match slot {
+        HotkeySlot::Action => tr("Action shortcut"),
+        _ => tr("Dictation shortcut"),
+    }
+}
+
+/// The keys of a tested shortcut.
+fn slot_keys(ui: &Ui, p: Paint, slot: HotkeySlot) -> Option<El> {
+    let binding = match slot {
+        HotkeySlot::Action => ui.settings.assistant.action_hotkey.as_ref(),
+        _ => Some(&ui.settings.dictation_hotkey),
+    }?;
+    let caps = super::super::settings::shortcut_caps(binding, false);
+    Some(keys(p, "keys", &caps, false))
+}
+
+/// What a press test found, for a person; `taker` names who took the keys
+/// when a conflict says so.
+fn probe_words(found: &Probe, taker: Option<&str>) -> (String, bool) {
+    match found {
+        Probe::Works(held) => (
+            tr_fill("Hex received it (held {})", &format!("{:.1} s", held.as_secs_f32())),
+            true,
+        ),
+        Probe::Swallowed => (
+            match taker {
+                Some(name) => tr_fill("{} took the keys before Hex could", name),
+                None => tr("Another app or macOS took the keys before Hex could").into(),
+            },
+            false,
+        ),
+        Probe::NothingReceived => (
+            tr("Nothing reached Hex. Another app or macOS may take it").into(),
+            false,
+        ),
+        Probe::WrongKeys(saw) => (tr_fill("Hex saw {} instead", saw), false),
+        Probe::NoRelease => (tr("Hex never saw the keys let go").into(), false),
+        Probe::Unavailable(why) => (why.clone(), false),
+    }
+}
+
+/// One shortcut's live press test: Test, a waiting pill while it listens,
+/// then what reached Hex.
+fn probe_row(ui: &Ui, flow: &SetupFlow, p: Paint, slot: HotkeySlot) -> El {
+    let taker = flow.conflicts.as_ref().and_then(|found| {
+        found
+            .iter()
+            .find(|(tested, _)| *tested == slot)
+            .map(|(_, conflict)| conflict.name.as_str())
+    });
+    let (detail, ink, control) = match setup::probe_state(flow, slot) {
+        None => (
+            tr("Press Test, then press and release it").to_owned(),
+            p.muted(),
+            push(p, "test", tr("Test"), slot == HotkeySlot::Action, move |ui: &mut Ui| {
+                setup::test_shortcut(ui, slot)
+            }),
+        ),
+        Some(ProbeState::Waiting) => (
+            tr("Press and release it now").to_owned(),
+            p.muted(),
+            waiting_pill(p, "waiting", tr("Listening")),
+        ),
+        Some(ProbeState::Done(found)) => {
+            let (words, works) = probe_words(found, taker);
+            let control = if works {
+                done_pill(p, "works", tr("Works"))
+            } else {
+                push(p, "test", tr("Test again"), slot == HotkeySlot::Action, move |ui: &mut Ui| {
+                    setup::test_shortcut(ui, slot)
+                })
+            };
+            (words, if works { p.muted() } else { p.danger() }, control)
+        }
     };
-    let keys = action_keys(ui, p, "keys", false).unwrap_or_else(|| el().key("keys"));
+    let title = slot_name(slot);
     row()
-        .key(key.to_owned())
+        .key(format!("probe-{slot:?}").to_lowercase())
         .role("group")
-        .label(title.to_owned())
-        .description(if heard {
-            tr("Hex heard it")
-        } else {
-            tr("Press it now")
-        })
+        .label(title)
+        .description(detail.clone())
         .min_h(ROW_H)
         .py(8.0)
         .px(16.0)
         .gap(12.0)
         .center_y()
+        .child(icon(&glyphs::KEYBOARD, 16.0).key("icon").color(p.k.c.icon_base).a11y_hidden())
         .child(
-            icon(&glyphs::KEYBOARD, 16.0)
-                .key("icon")
-                .color(p.k.c.icon_base)
-                .a11y_hidden(),
-        )
-        .child(
-            row()
+            col()
                 .key("copy")
                 .grow(1.0)
                 .w(0.0)
-                .gap(8.0)
-                .center_y()
+                .gap(2.0)
                 .child(
-                    text(title.to_owned())
-                        .key("title")
-                        .font(p.k.ty.ui_medium)
-                        .color(p.text())
-                        .a11y_hidden(),
+                    row()
+                        .key("title-row")
+                        .gap(8.0)
+                        .center_y()
+                        .child(
+                            text(title)
+                                .key("title")
+                                .font(p.k.ty.ui_medium)
+                                .color(p.text())
+                                .a11y_hidden(),
+                        )
+                        .children(slot_keys(ui, p, slot).map(El::a11y_hidden)),
                 )
-                .child(keys.a11y_hidden()),
+                .child(
+                    text(detail)
+                        .key("detail")
+                        .font(p.k.ty.small)
+                        .color(ink)
+                        .wrap()
+                        .a11y_hidden(),
+                ),
         )
         .child(control)
 }
 
-/// The Action shortcut is free, and Hex receives it: other apps and macOS
-/// features that take it, each with its fix, then a live hold and
-/// double-tap.
+/// The shortcuts are free and Hex receives them: what else takes them,
+/// each with where it's fixed, then a live press of each.
 fn shortcut(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     let mut rows = Vec::new();
     match &flow.conflicts {
@@ -927,102 +1002,71 @@ fn shortcut(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             "conflicts",
             &glyphs::SEARCH,
             tr("Other apps"),
-            tr("Looking for apps and macOS features on this shortcut…"),
+            tr("Looking for apps and macOS features on these shortcuts…"),
             p.muted(),
             spinner(p, "looking"),
         )),
-        Some(Err(why)) => rows.push(row_of(
+        Some(found) if found.is_empty() => rows.push(row_of(
             p,
             "conflicts",
             &glyphs::SEARCH,
             tr("Other apps"),
-            why,
-            p.danger(),
-            push(
-                p,
-                "check-again",
-                tr("Check again"),
-                false,
-                setup::check_shortcut,
-            ),
-        )),
-        Some(Ok(found)) if found.is_empty() => rows.push(row_of(
-            p,
-            "conflicts",
-            &glyphs::SEARCH,
-            tr("Other apps"),
-            tr("Nothing else on this Mac uses it"),
+            tr("Nothing else on this Mac uses them"),
             p.muted(),
             done_pill(p, "free", tr("Free")),
         )),
-        Some(Ok(found)) => {
-            for (index, conflict) in found.iter().enumerate() {
-                let control = match &conflict.fix {
-                    Some(fix) => {
-                        let fix = fix.clone();
-                        Button::new(conflict_label(&fix))
-                            .variant(if index == 0 {
-                                ButtonVariant::Contrast
-                            } else {
-                                ButtonVariant::Neutral
-                            })
-                            .on_press_tx(move |ui: &mut Ui, tx: &mut Tx| {
-                                setup::clear_conflict(ui, fix.clone(), tx)
-                            })
+        Some(found) => {
+            for (index, (slot, conflict)) in found.iter().enumerate() {
+                let fix = conflict.fix.clone();
+                let control = row()
+                    .key("fixes")
+                    .gap(8.0)
+                    .center_y()
+                    .child(push(
+                        p,
+                        "fix",
+                        &conflict_label(&fix, &conflict.name),
+                        index == 0 && conflict.taken,
+                        move |ui: &mut Ui| setup::clear_conflict(ui, &fix),
+                    ))
+                    .children((*slot == HotkeySlot::Action && conflict.taken).then(|| {
+                        Button::new(tr("Choose another…"))
+                            .variant(ButtonVariant::Neutral)
+                            .on_press_tx(setup::choose_another)
                             .build_push(p.k)
-                            .key("fix")
-                            .transition(arrives())
-                    }
-                    None => el().key("none"),
+                            .key("choose-another")
+                    }));
+                let title = if conflict.taken {
+                    tr_fill("{} takes it", &conflict.name)
+                } else {
+                    tr_fill("{} may take it", &conflict.name)
                 };
                 rows.push(row_of(
                     p,
                     &format!("conflict{index}"),
                     &glyphs::CIRCLE_X,
-                    &conflict.owner,
-                    &conflict.detail,
-                    p.danger(),
+                    &format!("{title} · {}", slot_name(*slot)),
+                    &conflict.description,
+                    if conflict.taken { p.danger() } else { p.warning() },
                     control,
                 ));
             }
         }
     }
-    rows.push(press_row(
-        ui,
-        p,
-        "hold-probe",
-        tr("Hold"),
-        flow.heard_keys.hold,
-    ));
-    rows.push(press_row(
-        ui,
-        p,
-        "double-tap-probe",
-        tr("Double-tap"),
-        flow.heard_keys.double_tap,
-    ));
-    let free_again = matches!(&flow.conflicts, Some(Ok(found)) if !found.is_empty()).then(|| {
-        push(
-            p,
-            "check-again",
-            tr("Check again"),
-            false,
-            setup::check_shortcut,
-        )
-    });
+    for slot in setup::TESTED {
+        rows.push(probe_row(ui, flow, p, slot));
+    }
     page(
         p,
         "shortcut",
-        tr("Make the shortcut yours"),
+        tr("Make the shortcuts yours"),
         lead(
             p,
-            tr(
-                "Nothing else may take it, and Hex has to hear it. Hold it once, then double-tap it.",
-            ),
+            tr("Nothing else may take them, and Hex has to receive them. Test each by pressing it once."),
         ),
         Some(rows_card(p, "shortcut-card", rows)),
         flow.fix_error.as_ref().map(|error| note(p, error)),
-        actions(p, page_done(ui, flow, Page::Shortcut), true).children(free_again),
+        actions(p, page_done(ui, flow, Page::Shortcut), true),
     )
 }
 

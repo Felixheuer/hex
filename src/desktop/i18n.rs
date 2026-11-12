@@ -1691,7 +1691,7 @@ mod tests {
         include_str!("../rune_ui/chats/settings.rs"),
         include_str!("../rune_ui/chats/setup.rs"),
         include_str!("../rune_ui/chats/sheet.rs"),
-        include_str!("../rune_ui/chats/shortcut_stub.rs"),
+        include_str!("../rune_ui/chats/shortcut.rs"),
         include_str!("../rune_ui/chats/transcript.rs"),
         #[cfg(hex_capture)]
         include_str!("../rune_ui/screenshot_thumbnail/editor.rs"),

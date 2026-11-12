@@ -9,7 +9,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use rune::Waker;
 
 use super::Ui;
-use super::shortcut_stub::{self, Conflict, ConflictFix};
+use super::shortcut::{self, Conflict};
 use crate::app_settings::{AppSettings, AssistantSettings, HotkeySlot};
 use crate::assistant::backends::{AgentDesktop, CheckResult, Fix, Found};
 use crate::assistant::computer::Permissions;
@@ -29,10 +29,8 @@ pub(in crate::rune_ui) enum Job {
     Fix(Fix),
     /// The self-tests for these settings' agent, in order.
     SelfTests(AssistantSettings),
-    /// What else takes the Action shortcut.
+    /// What else takes the tested shortcuts.
     Conflicts(Box<AppSettings>),
-    /// Clears one: System Settings at its page, or its app quit.
-    ClearConflict(ConflictFix),
     /// Saves the Claude API key in the Keychain (empty deletes it).
     SaveKey(String),
     /// The installed voices.
@@ -52,8 +50,8 @@ pub(in crate::rune_ui) enum Done {
     /// A self-test started (`Running`) or ended.
     Check(CheckResult),
     AllChecked,
-    Conflicts(Result<Vec<Conflict>, String>),
-    ConflictCleared(Result<(), String>),
+    /// What else takes each tested shortcut.
+    Conflicts(Vec<(HotkeySlot, Conflict)>),
     KeySaved(Result<(), String>),
     Voices(Vec<String>),
 }
@@ -147,11 +145,16 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             });
             send(Done::AllChecked);
         }
-        Job::Conflicts(settings) => send(Done::Conflicts(shortcut_stub::conflicts(
-            HotkeySlot::Action,
-            &settings,
-        ))),
-        Job::ClearConflict(fix) => send(Done::ConflictCleared(clear(fix))),
+        Job::Conflicts(settings) => send(Done::Conflicts(
+            super::setup::TESTED
+                .iter()
+                .flat_map(|slot| {
+                    shortcut::conflicts(*slot, &settings)
+                        .into_iter()
+                        .map(move |conflict| (*slot, conflict))
+                })
+                .collect(),
+        )),
         Job::SaveKey(key) => send(Done::KeySaved(
             credentials::set_api_key(&key).map_err(|error| format!("{error:#}")),
         )),
@@ -163,28 +166,6 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
     }
 }
 
-/// Opens the page that owns a conflict, or quits its app.
-fn clear(fix: ConflictFix) -> Result<(), String> {
-    let mut command = match fix {
-        ConflictFix::OpenSettings(link) => {
-            let mut open = crate::desktop::background_process::command("/usr/bin/open");
-            open.arg(link);
-            open
-        }
-        ConflictFix::QuitApp(app) => {
-            let mut quit = crate::desktop::background_process::command("/usr/bin/osascript");
-            quit.arg("-e")
-                .arg(format!("quit app \"{}\"", app.replace('"', "")));
-            quit
-        }
-        ConflictFix::ChooseAnother => return Ok(()),
-    };
-    match command.status() {
-        Ok(status) if status.success() => Ok(()),
-        Ok(_) => Err(crate::desktop::i18n::tr("That didn't work. Try it by hand").into()),
-        Err(error) => Err(error.to_string()),
-    }
-}
 
 /// Takes in every answer that arrived. True when any did.
 pub(super) fn poll(ui: &mut Ui) -> bool {

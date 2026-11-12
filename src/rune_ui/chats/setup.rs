@@ -16,7 +16,9 @@
 use std::time::{Duration, Instant};
 
 use super::super::platform::PlatformRequest;
-use super::shortcut_stub::{self as shortcut, Conflict, ConflictFix, Heard};
+use std::sync::mpsc::Receiver;
+
+use super::shortcut::{self, Conflict, ConflictFix, Probe};
 use super::{Job, Ui};
 use crate::app_settings::{AssistantBackend, HotkeySlot};
 use crate::assistant::backends::{AgentDesktop, Check, CheckResult, CheckState, Fix, Found};
@@ -80,6 +82,14 @@ pub(in crate::rune_ui) enum State {
     Failed,
 }
 
+/// A shortcut's press test.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::rune_ui) enum ProbeState {
+    /// Waiting for the person to press and release it.
+    Waiting,
+    Done(Probe),
+}
+
 /// A permission the assistant needs.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::rune_ui) enum Grant {
@@ -132,12 +142,14 @@ pub(in crate::rune_ui) struct SetupFlow {
     pub(in crate::rune_ui) checks_running: bool,
     /// The agent the checks ran against.
     pub(in crate::rune_ui) checked_backend: Option<AssistantBackend>,
-    /// What else takes the Action shortcut, once checked (or why it
-    /// couldn't be).
-    pub(in crate::rune_ui) conflicts: Option<Result<Vec<Conflict>, String>>,
-    /// What the live probe heard of the Action shortcut.
-    pub(in crate::rune_ui) heard_keys: Heard,
-    probing: bool,
+    /// What else takes the tested shortcuts, by shortcut, once read.
+    pub(in crate::rune_ui) conflicts: Option<Vec<(HotkeySlot, Conflict)>>,
+    conflicts_checking: bool,
+    conflicts_checked_at: Option<Instant>,
+    /// Each tested shortcut's press test.
+    pub(in crate::rune_ui) probes: Vec<(HotkeySlot, ProbeState)>,
+    /// The test waiting for a press now.
+    probing: Option<(HotkeySlot, Receiver<Probe>)>,
     /// The try-it question: heard, then answered.
     pub(in crate::rune_ui) asked_question: Option<ConversationId>,
     pub(in crate::rune_ui) heard: Option<String>,
@@ -162,8 +174,10 @@ impl Default for SetupFlow {
             checks_running: false,
             checked_backend: None,
             conflicts: None,
-            heard_keys: Heard::default(),
-            probing: false,
+            conflicts_checking: false,
+            conflicts_checked_at: None,
+            probes: Vec::new(),
+            probing: None,
             asked_question: None,
             heard: None,
             answer: None,
@@ -306,10 +320,17 @@ pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bo
                 && !flow.checks.is_empty()
                 && flow.checks.iter().all(CheckResult::ok)
         }
+        // Nothing takes the Action shortcut for sure, and a press of it
+        // really reached Hex.
         Page::Shortcut => {
-            matches!(&flow.conflicts, Some(Ok(found)) if found.is_empty())
-                && flow.heard_keys.hold
-                && flow.heard_keys.double_tap
+            flow.conflicts.as_ref().is_some_and(|found| {
+                !found
+                    .iter()
+                    .any(|(slot, conflict)| *slot == HotkeySlot::Action && conflict.taken)
+            }) && matches!(
+                probe_state(flow, HotkeySlot::Action),
+                Some(ProbeState::Done(Probe::Works(_)))
+            )
         }
         Page::Try => matches!(flow.answer, Some(Ok(_))),
     }
@@ -373,45 +394,77 @@ pub(in crate::rune_ui) fn go(ui: &mut Ui, page: Page) {
     }
     if page == Page::Shortcut {
         check_shortcut(ui);
+        test_shortcut(ui, HotkeySlot::Action);
     }
 }
 
-/// Looks for other apps on the Action shortcut, and starts listening for
-/// it.
+/// The shortcuts the Shortcut page tests: the Action shortcut, which the
+/// page waits for, and dictation's beside it.
+pub(in crate::rune_ui) const TESTED: [HotkeySlot; 2] = [HotkeySlot::Action, HotkeySlot::Dictation];
+
+/// How long a press test waits for its press.
+const PROBE_WAIT: Duration = Duration::from_secs(20);
+
+/// Looks for other apps and macOS features on the tested shortcuts.
 pub(in crate::rune_ui) fn check_shortcut(ui: &mut Ui) {
     let settings = ui.settings.clone();
-    let live = ui.chats.live();
     let Some(flow) = ui.chats.setup.as_mut() else {
         return;
     };
-    flow.conflicts = None;
-    flow.heard_keys = Heard::default();
-    ui.chats.jobs.run(Job::Conflicts(Box::new(settings)));
+    flow.conflicts_checked_at = Some(Instant::now());
+    if !flow.conflicts_checking {
+        flow.conflicts_checking = true;
+        ui.chats.jobs.run(Job::Conflicts(Box::new(settings)));
+    }
+}
+
+/// Asks for a press of `slot`'s shortcut now: the row waits, then shows
+/// whether its press and release really reached Hex.
+pub(in crate::rune_ui) fn test_shortcut(ui: &mut Ui, slot: HotkeySlot) {
+    let live = ui.chats.live();
+    stop_probe(ui);
+    let Some(flow) = ui.chats.setup.as_mut() else {
+        return;
+    };
+    flow.probes.retain(|(tested, _)| *tested != slot);
+    flow.probes.push((slot, ProbeState::Waiting));
     if live {
-        shortcut::start_probe(HotkeySlot::Action);
-        if let Some(flow) = ui.chats.setup.as_mut() {
-            flow.probing = true;
-        }
+        flow.probing = Some((slot, shortcut::start_probe(slot, PROBE_WAIT)));
     }
 }
 
+/// Ends a press test still waiting; its row goes back to Test.
 fn stop_probe(ui: &mut Ui) {
-    if let Some(flow) = ui.chats.setup.as_mut()
-        && std::mem::take(&mut flow.probing)
-    {
-        shortcut::stop_probe(HotkeySlot::Action);
+    let Some(flow) = ui.chats.setup.as_mut() else {
+        return;
+    };
+    if let Some((slot, _)) = flow.probing.take() {
+        shortcut::cancel_probe();
+        flow.probes.retain(|(tested, _)| *tested != slot);
+    }
+    flow.probes
+        .retain(|(_, state)| *state != ProbeState::Waiting);
+}
+
+/// Opens where a conflict is fixed; the page reads them again meanwhile.
+pub(in crate::rune_ui) fn clear_conflict(ui: &mut Ui, fix: &ConflictFix) {
+    if ui.chats.live() {
+        fix.open();
     }
 }
 
-/// Clears a conflict on the Action shortcut.
-pub(in crate::rune_ui) fn clear_conflict(ui: &mut Ui, fix: ConflictFix, tx: &mut rune::Tx) {
-    match fix {
-        ConflictFix::ChooseAnother => {
-            close(ui);
-            ui.select_pane(super::super::Pane::General, tx);
-        }
-        fix => ui.chats.jobs.run(Job::ClearConflict(fix)),
-    }
+/// Another shortcut, in General.
+pub(in crate::rune_ui) fn choose_another(ui: &mut Ui, tx: &mut rune::Tx) {
+    close(ui);
+    ui.select_pane(super::super::Pane::General, tx);
+}
+
+/// The press test's state for `slot`.
+pub(in crate::rune_ui) fn probe_state(flow: &SetupFlow, slot: HotkeySlot) -> Option<&ProbeState> {
+    flow.probes
+        .iter()
+        .find(|(tested, _)| *tested == slot)
+        .map(|(_, state)| state)
 }
 
 /// Continue: the next page, once this one works.
@@ -649,11 +702,9 @@ pub(super) fn receive(ui: &mut Ui, done: super::Done) {
                 flow.fix_error = Some(error);
             }
         }
-        Done::Conflicts(found) => flow.conflicts = Some(found),
-        Done::ConflictCleared(Err(error)) => flow.fix_error = Some(error),
-        Done::ConflictCleared(Ok(())) => {
-            check_shortcut(ui);
-            return;
+        Done::Conflicts(found) => {
+            flow.conflicts_checking = false;
+            flow.conflicts = Some(found);
         }
         Done::KeySaved(_) | Done::Voices(_) => {}
     }
@@ -683,18 +734,38 @@ fn forget_granted(ui: &mut Ui) {
 /// Reads the grants again every moment while a page waits on them, and
 /// what the probe heard while the Shortcut page shows.
 pub(super) fn poll(ui: &mut Ui, tx: &mut rune::Tx) -> bool {
+    let live = ui.chats.live();
     let Some(flow) = ui.chats.setup.as_mut() else {
         return false;
     };
-    if flow.probing {
-        let heard = shortcut::probe(HotkeySlot::Action);
-        let changed = heard != flow.heard_keys;
-        flow.heard_keys.hold |= heard.hold;
-        flow.heard_keys.double_tap |= heard.double_tap;
-        tx.wake_after(Duration::from_millis(100));
-        if changed {
+    // A press test's answer.
+    if let Some((slot, answer)) = &flow.probing {
+        let slot = *slot;
+        let done = match answer.try_recv() {
+            Ok(found) => Some(found),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Some(Probe::Unavailable(tr("The test stopped").into()))
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => None,
+        };
+        if let Some(found) = done {
+            flow.probing = None;
+            flow.probes.retain(|(tested, _)| *tested != slot);
+            flow.probes.push((slot, ProbeState::Done(found)));
             return true;
         }
+        tx.wake_after(Duration::from_millis(100));
+    }
+    // Conflicts are read again while their page shows, so a fix made in
+    // System Settings or another app shows.
+    if flow.page == Page::Shortcut
+        && live
+        && flow
+            .conflicts_checked_at
+            .is_none_or(|at| at.elapsed() >= Duration::from_secs(3))
+    {
+        check_shortcut(ui);
+        tx.wake_after(Duration::from_secs(3));
     }
     let Some(flow) = ui.chats.setup.as_ref() else {
         return false;
@@ -834,19 +905,28 @@ pub(in crate::rune_ui) fn fixture(ui: &mut Ui, page: Page, all_passed: bool) {
         checks_running: !all_passed,
         checked_backend: Some(backend),
         conflicts: Some(if all_passed {
-            Ok(Vec::new())
+            Vec::new()
         } else {
-            Ok(vec![Conflict {
-                owner: "Siri".into(),
-                detail: "Press right ⌘ twice talks to Siri".into(),
-                fix: Some(ConflictFix::OpenSettings(
-                    "x-apple.systempreferences:com.apple.Siri-Settings.extension".into(),
-                )),
-            }])
+            vec![(
+                HotkeySlot::Action,
+                Conflict {
+                    name: "Siri".into(),
+                    description: "Press Right Command twice talks to Siri.".into(),
+                    taken: true,
+                    fix: ConflictFix::SiriSettings,
+                },
+            )]
         }),
-        heard_keys: Heard {
-            hold: true,
-            double_tap: all_passed,
+        probes: if all_passed {
+            vec![
+                (HotkeySlot::Action, ProbeState::Done(Probe::Works(Duration::from_millis(420)))),
+                (HotkeySlot::Dictation, ProbeState::Done(Probe::Works(Duration::from_millis(610)))),
+            ]
+        } else {
+            vec![
+                (HotkeySlot::Action, ProbeState::Done(Probe::Swallowed)),
+                (HotkeySlot::Dictation, ProbeState::Waiting),
+            ]
         },
         heard: all_passed.then(|| "What time is it in Tokyo?".into()),
         answer: all_passed.then(|| Ok("It's 9:41 PM in Tokyo.".into())),

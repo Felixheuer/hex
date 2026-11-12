@@ -14,7 +14,7 @@ mod list;
 mod settings;
 mod setup;
 mod sheet;
-mod shortcut_stub;
+mod shortcut;
 #[cfg(all(test, target_os = "macos"))]
 mod tests;
 mod transcript;
