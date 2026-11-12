@@ -28,7 +28,7 @@ use super::super::controls::Paint;
 use super::super::icons::SPARKLES;
 use super::board::{Asking, Board, Phase, Task};
 use super::pops::{Pop, PopKind};
-use super::{frame, palette, stack, when};
+use super::{frame, jobs, palette, stack, when};
 use crate::desktop::i18n::{tr, tr_fill};
 
 /// The panel: room for the list unfolded, or a few bubbles.
@@ -167,10 +167,13 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
             .transition(unfold(grow)),
         );
     } else {
-        let mut bubbles: Vec<El> = board
-            .active_question()
+        // One order, nearest the orb first, so nothing overlaps: the
+        // question, a held or waiting task, the jobs, then the pops.
+        let asking = board.active_question();
+        let mut bubbles: Vec<El> = asking
+            .as_ref()
             .map(|asking| {
-                question(p, &asking, &look.answer_key, actions.list).transition(pop_in(grow))
+                question(p, asking, &look.answer_key, actions.list).transition(pop_in(grow))
             })
             .into_iter()
             .collect();
@@ -179,12 +182,28 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
                 .iter()
                 .filter_map(|task| standing(p, task, grow, actions.list)),
         );
+        let running = jobs::running(&board.tasks);
+        let layout = jobs::layout(&running, asking.is_some());
+        let carded: Vec<&str> = match &layout {
+            jobs::Layout::Cards(ids) => ids.iter().map(String::as_str).collect(),
+            _ => Vec::new(),
+        };
+        bubbles.extend(
+            jobs::view(p, &running, &layout, actions.list)
+                .into_iter()
+                .map(|card| card.transition(pop_in(grow))),
+        );
         bubbles.extend(
             board
                 .pops
                 .items
                 .iter()
                 .rev()
+                // A job with a card shows its start and steps there.
+                .filter(|item| {
+                    !(matches!(item.kind, PopKind::New | PopKind::Step)
+                        && carded.contains(&item.task.as_str()))
+                })
                 .map(|item| pop(p, item, actions.list).transition(pop_in(grow))),
         );
         parts.extend(bubbles);

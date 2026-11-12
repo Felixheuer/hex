@@ -128,6 +128,9 @@ pub(crate) struct Task {
     pub(crate) plan: Vec<PlanStep>,
     /// When it finished, for how long it lingers.
     ended: Option<Instant>,
+    /// When it started (or a follow-up started it again), as far as the
+    /// overlays saw it: a job's card says how long it runs.
+    pub(crate) since: Option<Instant>,
 }
 
 impl Task {
@@ -148,6 +151,7 @@ impl Task {
             asked: 0,
             plan: Vec::new(),
             ended: None,
+            since: None,
         }
     }
 
@@ -347,6 +351,9 @@ impl Board {
                     task.ended = None;
                     task.error = None;
                     task.answer.clear();
+                    if task.since.is_none() || task.ended.is_some() {
+                        task.since = Some(now);
+                    }
                     // Answered: a follow-up is how an answer arrives.
                     task.question = None;
                     if let Some(colour) = colour {
@@ -355,13 +362,9 @@ impl Board {
                     return true;
                 }
                 let colour = colour.map_or_else(|| self.free_colour(), |c| c % COLOURS);
-                self.tasks.push(Task::new(
-                    conversation.clone(),
-                    *origin,
-                    question,
-                    colour,
-                    phase,
-                ));
+                let mut task = Task::new(conversation.clone(), *origin, question, colour, phase);
+                task.since = Some(now);
+                self.tasks.push(task);
                 true
             }
             Event::Thinking { conversation } => self.live(conversation, |task| {

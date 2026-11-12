@@ -221,7 +221,12 @@ fn an_escalated_question_flies_into_the_orb() {
         false,
     );
     assert!(rect(&rt, &format!("orb-dot-{}", fixture::ESCALATED)).is_some());
-    assert_eq!(count(&rt, "pop-text"), 1, "its title pops");
+    // A running job shows as its card (title there), not as a "New" pop.
+    assert!(
+        rect(&rt, &format!("job-{}", fixture::ESCALATED)).is_some(),
+        "its card shows"
+    );
+    assert_eq!(count(&rt, "pop-text"), 0, "no second bubble for it");
     let mut flying = fixture::bubble_ended("Sort my Downloads", None, None);
     flying.escalated = true;
     assert_eq!(

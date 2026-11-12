@@ -183,14 +183,53 @@ pub(super) fn place_bubble(handle: &OverlayHandle<BubbleOverlay>) -> bool {
         0.0
     };
     let (x, y, below) = follow::hud_spot(&screen, &all);
-    let top = if below {
-        y - inset + room
+    let past = if crate::labs::live_text() {
+        f64::from(crate::rune_ui::live_text::SIZE.1)
     } else {
-        y - height + inset - room
+        0.0
     };
+    let top = bubble_top(y, below, height, inset, room + past);
     let rect = screens::snap([x - width / 2.0, top, width, height], screen.scale);
     follow::set_rect(handle, rect.map(|v| v as f32));
     below
+}
+
+/// The listening glow's slot, right past the HUD: the bubble always starts
+/// past it, so the glow never sits on an answer (it shows after one).
+const LISTEN_SLOT: f64 = super::super::listening::SIZE.1 as f64 + 4.0;
+
+/// The bubble's top (global points) for a HUD spot at `y`, below it or
+/// above it, `room` taken by what sits between (the Hands off pill, Live
+/// text's plate), past the listening glow's slot.
+fn bubble_top(y: f64, below: bool, height: f64, inset: f64, room: f64) -> f64 {
+    let skip = room + LISTEN_SLOT;
+    if below {
+        y - inset + skip
+    } else {
+        y - height + inset - skip
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::{LISTEN_SLOT, bubble_top};
+
+    /// The glow sits right past the HUD (`place_past_hud`: `y` to
+    /// `y + 44`); the bubble's card (inside its inset) starts past it.
+    #[test]
+    fn the_listening_glow_and_the_answer_never_overlap() {
+        let (y, inset, height) = (100.0, 10.0, 340.0);
+        let glow = (y, y + super::super::super::listening::SIZE.1 as f64);
+        let card_top = bubble_top(y, true, height, inset, 0.0) + inset;
+        assert!(card_top >= glow.1, "{card_top} past {glow:?}");
+        // Above the HUD (a HUD at the bottom): mirrored.
+        let glow_top = y - super::super::super::listening::SIZE.1 as f64;
+        let card_bottom = bubble_top(y, false, height, inset, 0.0) + height - inset;
+        assert!(card_bottom <= glow_top, "{card_bottom} before {glow_top}");
+        // The Hands off pill pushes it further.
+        assert!(bubble_top(y, true, height, inset, 30.0) > bubble_top(y, true, height, inset, 0.0));
+        assert!(LISTEN_SLOT > 0.0);
+    }
 }
 
 // ---------------------------------------------------------------------------
