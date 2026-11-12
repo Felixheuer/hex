@@ -79,6 +79,25 @@ pub(super) fn basics(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Opt
                 ),
             );
         }
+        // Labs › Assistant (macOS): the Action shortcut, held to ask and
+        // double-tapped for Agent mode.
+        #[cfg(target_os = "macos")]
+        if crate::assistant::enabled(&ui.settings) {
+            let purpose = tr("Hold to ask the assistant; double-tap for Agent mode");
+            rows.extend_described(
+                tr("Action shortcut"),
+                Some(purpose),
+                shortcut_rows(
+                    ui,
+                    p,
+                    "action-shortcut",
+                    &KEYBOARD,
+                    tr("Action shortcut"),
+                    ShortcutTarget::Action,
+                    Some(purpose),
+                ),
+            );
+        }
         // Labs › More dictation shortcuts (macOS): up to four more keys that
         // each dictate like the one above, each with its own shortcut mode.
         #[cfg(target_os = "macos")]

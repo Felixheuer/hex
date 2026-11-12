@@ -16,6 +16,11 @@ pub enum HotkeyAction {
     CancelShortcut,
     PasteLast,
     PasteMeeting,
+    /// Two complete taps on a machine that takes a double tap as a gesture
+    /// (Labs › Assistant's Action shortcut) instead of a lock: the second
+    /// tap's provisional capture ends unheard, and the gesture is the
+    /// caller's to act on.
+    DoubleTap,
 }
 
 impl HotkeyAction {
@@ -139,6 +144,10 @@ pub struct DictationHotkey {
     /// Cancel works in every trigger mode, not only under Toggle: an extra
     /// dictation shortcut has its own mode and always takes its cancel key.
     cancel_in_any_mode: bool,
+    /// A double tap is a gesture, not a lock: two complete taps report
+    /// [`HotkeyAction::DoubleTap`] and leave the machine idle, and only a
+    /// tap (a press shorter than the hold threshold) arms the second.
+    double_tap_gesture: bool,
     /// Labs › Tap or hold, read at each Toggle release: a press held past
     /// the hold threshold finishes on release instead of locking.
     tap_or_hold: fn() -> bool,
@@ -198,6 +207,7 @@ impl DictationHotkey {
             double_tap_only: false,
             toggle: false,
             cancel_in_any_mode: false,
+            double_tap_gesture: false,
             tap_or_hold: TAP_OR_HOLD,
             double_tap_modifiers: DOUBLE_TAP_MODIFIERS,
             binding,
@@ -278,6 +288,14 @@ impl DictationHotkey {
     /// as an extra dictation shortcut does.
     pub fn set_cancel_in_any_mode(&mut self, enabled: bool) {
         self.cancel_in_any_mode = enabled;
+    }
+
+    /// Whether two complete taps are a gesture the caller acts on
+    /// ([`HotkeyAction::DoubleTap`]) rather than a hands-free lock. Needs
+    /// double-tap enabled and Hold, as Labs › Assistant's Action shortcut
+    /// configures it.
+    pub fn set_double_tap_gesture(&mut self, enabled: bool) {
+        self.double_tap_gesture = enabled;
     }
 
     /// Toggle's or an extra shortcut's cancel shortcut, or `None` for no
@@ -873,6 +891,18 @@ impl DictationHotkey {
                 self.state = State::Locked;
                 None
             }
+            // A gesture machine's second tap ends here: its capture is the
+            // caller's to discard, and nothing locks.
+            State::Recording {
+                previous_release: Some(released),
+                ..
+            } if trigger_released
+                && now.duration_since(released) < DOUBLE_TAP_WINDOW
+                && self.double_tap_gesture =>
+            {
+                self.state = State::IDLE;
+                Some(HotkeyAction::DoubleTap)
+            }
             State::Recording {
                 previous_release: Some(released),
                 ..
@@ -880,9 +910,13 @@ impl DictationHotkey {
                 self.state = State::Locked;
                 None
             }
-            State::Recording { .. } if trigger_released => {
+            State::Recording { started_at, .. } if trigger_released => {
+                // A gesture's first tap is a tap: a hold that just asked
+                // something never pairs with the press after it.
+                let tapped = !self.double_tap_gesture
+                    || now.duration_since(started_at) < MINIMUM_HOLD_DURATION;
                 self.state = State::Idle {
-                    last_release_at: self.double_tap_enabled.then_some(now),
+                    last_release_at: (self.double_tap_enabled && tapped).then_some(now),
                 };
                 Some(HotkeyAction::Finish)
             }

@@ -13,6 +13,18 @@ pub(super) fn claims_escape(programmatic: bool, capture_escape: bool) -> bool {
     !programmatic && capture_escape
 }
 
+/// Whether Hex takes Escape for Labs › Assistant: only while its Action
+/// shortcut is bound (the Lab on), nothing records or holds Escape
+/// otherwise (`free`), and a quick question runs or an answer is read aloud
+/// (`busy`, asked only then). Agent mode's tasks never claim it.
+pub(super) fn assistant_claims_escape(
+    bound: bool,
+    free: bool,
+    busy: impl FnOnce() -> bool,
+) -> bool {
+    bound && free && busy()
+}
+
 /// Whether a Caps Lock press may act. An Annotate capture records the
 /// narration itself, so a Caps Lock press must not start a dictation over it;
 /// a press that finishes an already-running Caps Lock capture still works.

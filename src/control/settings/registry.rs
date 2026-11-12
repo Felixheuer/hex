@@ -241,7 +241,7 @@ pub(super) const KEYS: &[Key] = &[
     ),
     optional(
         "assistant.action_hotkey",
-        Kind::Json,
+        Kind::Shortcut(HotkeySlot::Action),
         "Labs: hold to ask the assistant by voice, double-tap for Agent mode; right command \
          by default; none turns it off (macOS, with labs.assistant)",
     ),

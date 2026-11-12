@@ -793,7 +793,12 @@ impl Feature {
             Self::SpeakersOnly => settings.labs.speakers_only = on,
             Self::PauseMenu => settings.labs.pause_menu = on,
             Self::PrintStart => settings.labs.print_start = on,
-            Self::Assistant => settings.labs.assistant = on,
+            // On, an Action shortcut another shortcut took meanwhile is
+            // unbound rather than left dead.
+            Self::Assistant => {
+                settings.labs.assistant = on;
+                settings.repair_action_shortcut();
+            }
             Self::MoreDictationShortcuts => settings.labs.more_dictation_shortcuts = on,
             // Off, no shortcut keeps a key only the feature allows.
             Self::StandaloneSpecialKeys => {

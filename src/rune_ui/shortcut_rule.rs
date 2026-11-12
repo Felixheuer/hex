@@ -29,6 +29,12 @@ pub(crate) fn shortcut_rule(slot: HotkeySlot, binding: &HotkeyBinding) -> Result
         HotkeySlot::ExtraDictation(index) => ShortcutTarget::ExtraDictation(index),
         #[cfg(not(target_os = "macos"))]
         HotkeySlot::ExtraDictation(_) => ShortcutTarget::Dictation,
+        // Labs › Assistant's Action shortcut (macOS): a lone modifier is
+        // welcome, as for the dictation shortcut; elsewhere it never runs.
+        #[cfg(target_os = "macos")]
+        HotkeySlot::Action => ShortcutTarget::Action,
+        #[cfg(not(target_os = "macos"))]
+        HotkeySlot::Action => ShortcutTarget::Dictation,
         #[cfg(target_os = "macos")]
         HotkeySlot::Screenshot => ShortcutTarget::Screenshot,
         #[cfg(target_os = "macos")]
