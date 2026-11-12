@@ -151,7 +151,7 @@ pub(super) fn apply_assistant(settings: &AppSettings) {
         .get_or_init(Default::default)
         .write()
         .unwrap_or_else(|error| error.into_inner()) = Some((
-        crate::labs::Feature::Assistant.on(settings),
+        crate::assistant::enabled(settings),
         settings.assistant.clone(),
     ));
 }

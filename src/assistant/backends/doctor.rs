@@ -39,6 +39,15 @@ pub fn run(doctor: Doctor) -> color_eyre::Result<()> {
         );
     }
     println!("agent_desktop(): {:?}", super::agent_desktop());
+    for tool in super::BACKENDS
+        .into_iter()
+        .filter(|backend| *backend != crate::app_settings::AssistantBackend::ClaudeApi)
+        .map(super::Tool::Agent)
+        .chain([super::Tool::AgentDesktop, super::Tool::AgentBrowser])
+    {
+        let plan = super::plan(tool, &super::Installers::here(tool));
+        println!("install plan for {}: {plan:?}", tool.name());
+    }
     println!(
         "browser::agent_browser(): {:?} signed_in={}",
         crate::assistant::browser::agent_browser(),

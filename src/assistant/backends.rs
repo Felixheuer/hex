@@ -15,6 +15,7 @@ mod check;
 pub(in crate::assistant) mod desktop;
 #[cfg(debug_assertions)]
 pub mod doctor;
+mod install;
 pub(in crate::assistant) mod run;
 pub(in crate::assistant) mod search;
 
@@ -27,8 +28,9 @@ use color_eyre::{Result, eyre::eyre};
 use crate::app_settings::AssistantBackend;
 
 pub use check::{
-    Check, CheckResult, CheckState, Fix, apply_fix, opencode_recent_model, self_test, self_tests,
+    Check, CheckResult, CheckState, Fix, opencode_recent_model, self_test, self_tests,
 };
+pub use install::{Installers, Plan, Step, Tool, apply_fix, apply_fix_with, install_command, plan};
 
 /// One agent found on this computer.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -347,43 +349,11 @@ pub(in crate::assistant) fn desktop_call(
     })
 }
 
-/// Installs agent-desktop with Homebrew (`brew install agent-desktop`);
-/// blocks until done (minutes at most). Fails with a person-readable reason
-/// when Homebrew is missing.
+/// Installs agent-desktop (Homebrew, else npm); blocks until done (minutes
+/// at most). Fails with a person-readable reason when neither is there
+/// ([`install_command`] has what to paste in Terminal instead).
 pub fn install_agent_desktop() -> Result<()> {
-    let brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
-        .map(PathBuf::from)
-        .into_iter()
-        .find(|path| search::is_executable(path))
-        .or_else(|| search::find("brew"))
-        .ok_or_else(|| {
-            eyre!(
-                "Homebrew isn't installed. Install it from brew.sh, or run \
-                 `npm install -g agent-desktop` in Terminal"
-            )
-        })?;
-    let mut command = agent_command(&brew);
-    command
-        .args(["install", "agent-desktop"])
-        .env("HOMEBREW_NO_ENV_HINTS", "1");
-    let ran = run::bounded(command, Duration::from_secs(600))
-        .map_err(|error| eyre!("Homebrew didn't start: {error}"))?;
-    if ran.timed_out() {
-        return Err(eyre!("Installing agent-desktop took more than 10 minutes"));
-    }
-    if !ran.success() {
-        return Err(eyre!(
-            "Homebrew couldn't install agent-desktop: {}",
-            ran.last_words()
-        ));
-    }
-    refresh();
-    if search::find("agent-desktop").is_none() {
-        return Err(eyre!(
-            "Homebrew installed agent-desktop, but Hex can't find it"
-        ));
-    }
-    Ok(())
+    install::install(Tool::AgentDesktop, &mut |_| {})
 }
 
 /// Opens System Settings at agent-desktop's missing permission

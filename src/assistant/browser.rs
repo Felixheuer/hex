@@ -52,9 +52,6 @@ const IDLE_MS: &str = "1800000";
 /// few seconds).
 const COMMAND_LIMIT: Duration = Duration::from_secs(45);
 
-/// Installing (Homebrew, then Chrome for Testing) may take this long.
-const INSTALL_LIMIT: Duration = Duration::from_secs(600);
-
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AgentBrowser {
     pub path: Option<PathBuf>,
@@ -103,61 +100,15 @@ pub fn chrome_installed(doctor: &str) -> Option<bool> {
     Some(check.get("status").and_then(Value::as_str) == Some("pass"))
 }
 
-/// `brew install agent-browser`, then `agent-browser install`; blocks.
+/// `brew install agent-browser` (else npm), then `agent-browser install`
+/// (its Chrome); blocks. What isn't missing isn't installed again.
 pub fn install() -> Result<()> {
-    if executable().is_none() {
-        let brew = brew().ok_or_else(|| {
-            eyre!(
-                "Homebrew isn't installed. Install it from brew.sh, or run \
-                 `npm install -g agent-browser && agent-browser install` in Terminal"
-            )
-        })?;
-        let mut command = backends::agent_command(&brew);
-        command
-            .args(["install", "agent-browser"])
-            .env("HOMEBREW_NO_ENV_HINTS", "1");
-        let ran = run::bounded(command, INSTALL_LIMIT)
-            .map_err(|error| eyre!("Homebrew didn't start: {error}"))?;
-        if ran.timed_out() {
-            return Err(eyre!("Installing agent-browser took more than 10 minutes"));
-        }
-        if !ran.success() {
-            return Err(eyre!(
-                "Homebrew couldn't install agent-browser: {}",
-                ran.last_words()
-            ));
-        }
-        backends::refresh();
-    }
-    let path =
-        executable().ok_or_else(|| eyre!("agent-browser was installed, but Hex can't find it"))?;
-    if browser_installed(&path) == Some(true) {
-        return Ok(());
-    }
-    let mut command = base_command(&path);
-    command.arg("install");
-    let ran = run::bounded(command, INSTALL_LIMIT)
-        .map_err(|error| eyre!("agent-browser didn't start: {error}"))?;
-    if ran.timed_out() {
-        return Err(eyre!(
-            "Downloading agent-browser's Chrome took more than 10 minutes"
-        ));
-    }
-    if !ran.success() {
-        return Err(eyre!(
-            "agent-browser couldn't download its Chrome: {}",
-            ran.last_words()
-        ));
-    }
-    Ok(())
+    install_with(|_| {})
 }
 
-fn brew() -> Option<PathBuf> {
-    ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
-        .map(PathBuf::from)
-        .into_iter()
-        .find(|path| search::is_executable(path))
-        .or_else(|| search::find("brew"))
+/// [`install`], handing `progress` each line of the installers' output.
+pub fn install_with(progress: impl FnMut(&str)) -> Result<()> {
+    backends::apply_fix_with(backends::Fix::InstallAgentBrowser, progress)
 }
 
 /// The browser tool for `task`: its own session, closed when the task ends
