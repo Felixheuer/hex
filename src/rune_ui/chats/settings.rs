@@ -35,6 +35,8 @@ pub(in crate::rune_ui) struct SettingsState {
     pub(in crate::rune_ui) found: Option<Vec<Found>>,
     /// The installed voices, once listed.
     pub(in crate::rune_ui) voices: Option<Vec<String>>,
+    /// Hex's voice downloading (its bytes so far) or why it couldn't.
+    pub(in crate::rune_ui) voice_download: Option<Result<u64, String>>,
     /// Each backend's model, in [`BACKENDS`] order, as typed.
     pub(in crate::rune_ui) models: [TextEdit; 4],
     /// When a model field last changed without being saved.
@@ -179,6 +181,7 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
     ];
     if assistant.speak_answers {
         voice.push(more::voice_row(ui, p, layer).into());
+        voice.extend(more::hex_voice_row(ui, p));
         voice.extend(more::better_voice_row(ui, p));
     }
     voice.extend(more::conversation_rows(ui, p, layer));

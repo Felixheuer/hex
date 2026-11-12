@@ -38,6 +38,8 @@ pub(in crate::rune_ui) enum Job {
     Voices,
     /// Reads a line aloud with this voice.
     Speak(Option<String>),
+    /// Downloads Hex's own voice (`speech::neural`), reporting its bytes.
+    DownloadVoice,
     /// agent-browser, its own browser, and whether anyone signed in to it.
     Browser,
     /// The browser's self-tests for these settings' agent.
@@ -85,6 +87,10 @@ pub(in crate::rune_ui) enum Done {
     Conflicts(Vec<(HotkeySlot, Conflict)>),
     KeySaved(Result<(), String>),
     Voices(Vec<String>),
+    /// Bytes of Hex's voice downloaded so far.
+    VoiceProgress(u64),
+    /// Hex's voice downloaded, or why not.
+    VoiceDownloaded(Result<(), String>),
     /// agent-browser as found, sites with saved browser data, and the
     /// engine its clean browsers run.
     Browser(AgentBrowser, Vec<String>, Engine),
@@ -220,6 +226,7 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             crate::desktop::i18n::tr("Hi, I'm your assistant. Ask me anything."),
             voice.as_deref(),
         ),
+        Job::DownloadVoice => send(Done::VoiceDownloaded(download_voice(&send))),
         Job::Browser => send(Done::Browser(
             browser::agent_browser(),
             browser::saved_sites(),
@@ -302,6 +309,22 @@ pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
     match &done {
         Done::Detected(found) => ui.chats.settings.found = Some(found.clone()),
         Done::Voices(voices) => ui.chats.settings.voices = Some(voices.clone()),
+        Done::VoiceProgress(bytes) => {
+            ui.chats.settings.voice_download = Some(Ok(*bytes));
+        }
+        Done::VoiceDownloaded(result) => {
+            ui.chats.settings.voice_download = result.clone().err().map(Err);
+            if result.is_ok() {
+                // Downloaded to be used: it reads from now on.
+                let voice = format!(
+                    "{}{}",
+                    crate::assistant::speech::neural::PREFIX,
+                    crate::assistant::speech::neural::DEFAULT_PRESET
+                );
+                ui.update(|settings| settings.assistant.voice = Some(voice));
+                ui.chats.jobs.run(Job::Voices);
+            }
+        }
         Done::RunningApps(apps) => ui.chats.settings.running = Some(apps.clone()),
         Done::Browser(found, sites, engine) => {
             ui.chats.settings.browser = Some(found.clone());
@@ -335,4 +358,28 @@ pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
         _ => {}
     }
     super::setup::receive(ui, done);
+}
+
+/// Downloads Hex's voice, telling `send` its progress twice a second.
+fn download_voice(send: &dyn Fn(Done)) -> Result<(), String> {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    let canceled = AtomicBool::new(false);
+    let done = AtomicU64::new(0);
+    let finished = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let download = scope.spawn(|| {
+            let result = crate::assistant::speech::neural::files::download(&canceled, &done)
+                .map(|_| ())
+                .map_err(|error| format!("{error:#}"));
+            finished.store(true, Ordering::Release);
+            result
+        });
+        while !finished.load(Ordering::Acquire) {
+            send(Done::VoiceProgress(done.load(Ordering::Relaxed)));
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        download
+            .join()
+            .unwrap_or_else(|_| Err("the download stopped".into()))
+    })
 }
