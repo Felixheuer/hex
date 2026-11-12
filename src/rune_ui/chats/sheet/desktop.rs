@@ -12,7 +12,9 @@ use super::super::super::controls::Paint;
 use super::super::super::lists::small_button;
 use super::super::super::onboarding_kit::arrives;
 use super::super::Ui;
-use super::super::setup::{self, Grant, Page, SetupFlow, State, grant_state, needs_restart, page_done};
+use super::super::setup::{
+    self, Grant, Page, SetupFlow, State, grant_state, needs_restart, page_done,
+};
 use super::{
     COL_W, SCREEN, TOOL, actions, done_pill, lead, page, push, row_of, rows_card, spinner,
     waiting_pill,
@@ -236,7 +238,9 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         tr("Let the assistant see and use your Mac"),
         lead(
             p,
-            tr("Each one opens its page in System Settings, and this page waits until macOS turns it on. Hex starts agent-desktop, so macOS asks for Hex."),
+            tr(
+                "Each one opens its page in System Settings, and this page waits until macOS turns it on. Hex starts agent-desktop, so macOS asks for Hex.",
+            ),
         ),
         Some(rows_card(p, "desktop-card", rows)),
         below,

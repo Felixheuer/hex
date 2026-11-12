@@ -339,28 +339,20 @@ fn engine_voices() -> Vec<Voice> {
     voices
 }
 
-/// `say -v '?'`, read once.
+/// The speech program's voices (`say -v '?'` on macOS; Piper, Pico, and
+/// eSpeak on Linux; the Windows voices), read again after a minute, since
+/// voices can be installed meanwhile.
 fn say_voices() -> Vec<Voice> {
-    static VOICES: OnceLock<Vec<Voice>> = OnceLock::new();
-    VOICES
-        .get_or_init(|| {
-            if !cfg!(target_os = "macos") {
-                return Vec::new();
-            }
-            let output = crate::desktop::background_process::command("/usr/bin/say")
-                .args(["-v", "?"])
-                .stdin(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .output();
-            match output {
-                Ok(output) => voices::parse_voices(&String::from_utf8_lossy(&output.stdout)),
-                Err(error) => {
-                    tracing::warn!(%error, "could not list the voices");
-                    Vec::new()
-                }
-            }
-        })
-        .clone()
+    static VOICES: Mutex<Option<(Instant, Vec<Voice>)>> = Mutex::new(None);
+    let mut cached = VOICES.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some((at, voices)) = cached.as_ref()
+        && at.elapsed() < VOICES_FRESH
+    {
+        return voices.clone();
+    }
+    let voices = say::voices();
+    *cached = Some((Instant::now(), voices.clone()));
+    voices
 }
 
 /// The voice [`speak`] reads `text` with when none is chosen: the best
@@ -386,10 +378,27 @@ pub fn better_voice_available(language: &str) -> Option<VoiceHint> {
     voices::better_voice_for(language, &voices_with_languages())
 }
 
-/// Opens System Settings › Accessibility › Spoken Content, where voices
-/// are downloaded (System Voice › Manage Voices…).
+/// Whether this computer has a page where voices are installed
+/// ([`open_voice_settings`]): macOS and Windows.
+pub const fn has_voice_settings() -> bool {
+    cfg!(any(target_os = "macos", target_os = "windows"))
+}
+
+/// Opens where voices are installed: System Settings › Accessibility ›
+/// Spoken Content on macOS (System Voice › Manage Voices…), Settings › Time
+/// & language › Speech on Windows. Linux has no such page; its voices are
+/// packages (`piper`, `pico2wave`, `espeak-ng`).
 #[allow(dead_code, reason = "for the assistant's setup and Settings")]
 pub fn open_voice_settings() {
+    #[cfg(target_os = "windows")]
+    {
+        let opened = crate::desktop::background_process::command("explorer.exe")
+            .arg("ms-settings:speech")
+            .spawn();
+        if let Err(error) = opened {
+            tracing::warn!(%error, "could not open the speech settings");
+        }
+    }
     #[cfg(target_os = "macos")]
     {
         let opened = [

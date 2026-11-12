@@ -44,7 +44,9 @@ use crate::assistant::computer::ContextHandle;
 #[cfg(test)]
 use crate::assistant::shortcut::spoken_background;
 pub(crate) use crate::assistant::shortcut::{Question, set_open_setup, set_toggle_tasks, submit};
-use crate::assistant::shortcut::{here_tasks, held, open_setup, quick_question_running, toggle_tasks};
+use crate::assistant::shortcut::{
+    held, here_tasks, open_setup, quick_question_running, toggle_tasks,
+};
 use crate::audio::CaptureInstant;
 use crate::control::{ControlReply, PrintReply};
 use crate::desktop::events::EventLog;
@@ -347,8 +349,8 @@ mod tests {
     use super::*;
     use crate::assistant::{Context, Lane, Origin, Request, TaskStatus};
     use crate::control::PrintedTranscript;
-    use std::time::Duration;
     use std::sync::mpsc;
+    use std::time::Duration;
 
     fn read(text: &str) -> ContextHandle {
         let context = Context {

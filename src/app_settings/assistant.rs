@@ -130,14 +130,9 @@ impl Default for AssistantSettings {
             stop_all_hotkey: Some(HotkeyBinding::stop_all_default()),
             here_physical_input: true,
             background_browser: true,
-            blocked_apps: [
-                "Passwords",
-                "Keychain Access",
-                "1Password",
-                "Bitwarden",
-            ]
-            .map(String::from)
-            .to_vec(),
+            blocked_apps: ["Passwords", "Keychain Access", "1Password", "Bitwarden"]
+                .map(String::from)
+                .to_vec(),
             task_timeout_minutes: 30,
             retry_on_limit: true,
             agent_space: false,

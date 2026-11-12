@@ -398,7 +398,11 @@ fn jobs(store: &mut Store, now: u64) {
     ));
     store.files.insert(
         "~/Hex/Jobs/q3-quotes/".into(),
-        vec!["Comparison.xlsx".into(), "Quotes.csv".into(), "Notes.md".into()],
+        vec![
+            "Comparison.xlsx".into(),
+            "Quotes.csv".into(),
+            "Notes.md".into(),
+        ],
     );
 }
 

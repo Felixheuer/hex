@@ -23,14 +23,22 @@ pub enum Role {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Part {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     /// A PNG saved beside the conversation (`store::attachment_path`).
-    Screenshot { file: String },
+    Screenshot {
+        file: String,
+    },
     /// One thing the assistant did on the desktop, as a person reads it:
     /// "Clicked Reply", "Typed 12 characters", "Opened Safari".
-    Action { description: String },
+    Action {
+        description: String,
+    },
     /// The request failed here; the text is for a person.
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -183,7 +191,9 @@ pub enum TaskState {
     /// The person took it over: its desktop actions wait until handed back.
     Paused,
     /// The backend hit a usage limit; it retries at this Unix ms time.
-    Waiting { until_ms: u64 },
+    Waiting {
+        until_ms: u64,
+    },
     /// It asked the person something (`Event::Question`) and waits for the
     /// answer: the next hold of the Action shortcut, or a message in Chats.
     NeedsInput,
@@ -215,7 +225,9 @@ pub enum Event {
         question: String,
     },
     /// Waiting on the model.
-    Thinking { conversation: ConversationId },
+    Thinking {
+        conversation: ConversationId,
+    },
     /// About to do, or doing, one thing on the desktop.
     Step {
         conversation: ConversationId,
@@ -241,10 +253,16 @@ pub enum Event {
         conversation: ConversationId,
         window: TaskWindow,
     },
-    Cancelled { conversation: ConversationId },
+    Cancelled {
+        conversation: ConversationId,
+    },
     /// Taken over by the person (`Paused`) or handed back (`Resumed`).
-    Paused { conversation: ConversationId },
-    Resumed { conversation: ConversationId },
+    Paused {
+        conversation: ConversationId,
+    },
+    Resumed {
+        conversation: ConversationId,
+    },
     /// Hit a usage limit; retries at `until_ms`.
     Waiting {
         conversation: ConversationId,
@@ -265,7 +283,9 @@ pub enum Event {
     },
     /// A Here request turned out to be a long job and continues as a
     /// Background task in the same conversation (the frame comes on).
-    Escalated { conversation: ConversationId },
+    Escalated {
+        conversation: ConversationId,
+    },
     /// A Here task is (or stops) moving the real pointer or pressing real
     /// keys in the window in front: the HUD shows "Hands off".
     HandsOff {
@@ -276,7 +296,9 @@ pub enum Event {
     ConversationsChanged,
     /// Background work started or ended: the screen frame shows while any
     /// Background or Chat task runs, waits, or is queued.
-    ModeChanged { on: bool },
+    ModeChanged {
+        on: bool,
+    },
 }
 
 impl Event {

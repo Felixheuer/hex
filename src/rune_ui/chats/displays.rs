@@ -8,8 +8,8 @@ use rune::{El, el, row};
 use super::super::Menu;
 use super::super::controls::{Paint, setting_row};
 use super::super::general::quiet_select;
-use crate::assistant::computer::{self, Display};
 use super::Ui;
+use crate::assistant::computer::{self, Display};
 use crate::desktop::i18n::tr;
 
 /// The map's size, in points.
@@ -38,8 +38,14 @@ fn choose(ui: &mut Ui, display: Option<String>) {
 fn map(p: Paint, displays: &[Display], chosen: Option<&str>) -> El {
     let k = p.k;
     let used = used(displays, chosen).map(|display| display.id.clone());
-    let left = displays.iter().map(|d| d.frame.0).fold(f64::INFINITY, f64::min);
-    let top = displays.iter().map(|d| d.frame.1).fold(f64::INFINITY, f64::min);
+    let left = displays
+        .iter()
+        .map(|d| d.frame.0)
+        .fold(f64::INFINITY, f64::min);
+    let top = displays
+        .iter()
+        .map(|d| d.frame.1)
+        .fold(f64::INFINITY, f64::min);
     let right = displays
         .iter()
         .map(|d| d.frame.0 + d.frame.2)
@@ -74,12 +80,11 @@ fn map(p: Paint, displays: &[Display], chosen: Option<&str>) -> El {
         };
         if display.has_focus {
             // You: a dot on the display you're working on.
-            screen = screen.child(
-                el().key("you")
-                    .size(4.0, 4.0)
-                    .radius(2.0)
-                    .fill(if agents { k.c.bg_base } else { p.muted() }),
-            );
+            screen = screen.child(el().key("you").size(4.0, 4.0).radius(2.0).fill(if agents {
+                k.c.bg_base
+            } else {
+                p.muted()
+            }));
         }
         map = map.child(screen.a11y_hidden());
     }
@@ -113,7 +118,14 @@ pub(super) fn settings_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
             tr("Agents work on"),
             labels(&displays),
             selected(&displays, chosen.as_deref()),
-            move |ui, chosen| choose(ui, chosen.checked_sub(1).and_then(|index| ids.get(index).cloned())),
+            move |ui, chosen| {
+                choose(
+                    ui,
+                    chosen
+                        .checked_sub(1)
+                        .and_then(|index| ids.get(index).cloned()),
+                )
+            },
             layer,
         )
     };
@@ -140,13 +152,21 @@ pub(super) fn onboarding_row(ui: &Ui, p: Paint) -> Option<El> {
     }
     let chosen = ui.settings.assistant.agent_display.clone();
     let picked = selected(displays, chosen.as_deref());
-    let mut chips = row().key("display-chips").role("radiogroup").gap(6.0).flex_wrap();
+    let mut chips = row()
+        .key("display-chips")
+        .role("radiogroup")
+        .gap(6.0)
+        .flex_wrap();
     for (index, label) in labels(displays).into_iter().enumerate() {
         let id = index
             .checked_sub(1)
             .and_then(|index| displays.get(index))
             .map(|display| display.id.clone());
-        let label = if index == 0 { tr("Auto").to_owned() } else { label };
+        let label = if index == 0 {
+            tr("Auto").to_owned()
+        } else {
+            label
+        };
         chips = chips.child(super::agent_picker::choice(
             p,
             format!("display{index}"),

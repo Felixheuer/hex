@@ -37,6 +37,7 @@ pub mod notify;
 pub mod palette;
 pub mod provider;
 pub mod schedules;
+pub mod secrets;
 pub mod service;
 pub mod shortcut;
 pub mod space;

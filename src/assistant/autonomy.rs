@@ -382,7 +382,6 @@ const NOT_CONSEQUENTIAL: &[&str] = &[
     "post it",
 ];
 
-
 /// Whether an action of `category` may run now for this task. A kind of
 /// action the person said yes to (`confirmed`) runs in every mode.
 pub fn allowed(mode: Autonomy, category: Category, authorized: &Authorized) -> bool {

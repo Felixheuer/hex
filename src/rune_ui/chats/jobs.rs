@@ -188,10 +188,9 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
         Job::Desktop => send(Done::Desktop(backends::agent_desktop())),
         Job::Permissions => send(Done::Permissions(computer::permissions_now())),
         Job::Fix(fix) => {
-            let result = backends::apply_fix_with(fix, |line| {
-                send(Done::FixProgress(fix, line.to_owned()))
-            })
-            .map_err(|error| format!("{error:#}"));
+            let result =
+                backends::apply_fix_with(fix, |line| send(Done::FixProgress(fix, line.to_owned())))
+                    .map_err(|error| format!("{error:#}"));
             if result.is_err() {
                 send(Done::FixCommand(fix, backends::install_command(fix)));
             }
@@ -223,7 +222,11 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             crate::desktop::i18n::tr("Hi, I'm your assistant. Ask me anything."),
             voice.as_deref(),
         ),
-        Job::Browser => send(Done::Browser(browser::agent_browser(), browser::signed_in(), browser::clean_engine())),
+        Job::Browser => send(Done::Browser(
+            browser::agent_browser(),
+            browser::signed_in(),
+            browser::clean_engine(),
+        )),
         Job::BrowserChecks(settings) => super::setup::browser::perform_checks(&settings, send),
         Job::SignIn(_) | Job::FinishSignIn => {
             let open = matches!(job, Job::SignIn(_));
@@ -231,14 +234,25 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
                 Job::SignIn(url) => browser::sign_in(url.as_deref()),
                 _ => browser::finish_sign_in(),
             };
-            send(Done::SignIn(open, result.map_err(|error| format!("{error:#}"))));
-            send(Done::Browser(browser::agent_browser(), browser::signed_in(), browser::clean_engine()));
+            send(Done::SignIn(
+                open,
+                result.map_err(|error| format!("{error:#}")),
+            ));
+            send(Done::Browser(
+                browser::agent_browser(),
+                browser::signed_in(),
+                browser::clean_engine(),
+            ));
         }
         Job::ForgetSignIn => {
             if let Err(error) = browser::forget_sign_in() {
                 tracing::warn!(error = %format!("{error:#}"), "could not forget the sign-ins");
             }
-            send(Done::Browser(browser::agent_browser(), browser::signed_in(), browser::clean_engine()));
+            send(Done::Browser(
+                browser::agent_browser(),
+                browser::signed_in(),
+                browser::clean_engine(),
+            ));
         }
         Job::RunningApps => send(Done::RunningApps(running_apps())),
         Job::SetUpAgent(..) | Job::OwnKey { .. } | Job::CodexKey(_) => {}

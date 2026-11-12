@@ -88,14 +88,39 @@ pub fn system_locale() -> String {
                     .firstObject()
                     .map(|language| language.to_string())
             });
-            #[cfg(not(target_os = "macos"))]
-            let preferred = std::env::var("LANG").ok();
+            #[cfg(target_os = "windows")]
+            let preferred = windows_locale();
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            let preferred = ["LC_ALL", "LC_MESSAGES", "LANG"]
+                .into_iter()
+                .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()));
             preferred
-                .map(|locale| locale.split('.').next().unwrap_or_default().to_owned())
-                .filter(|locale| !locale.is_empty())
+                .map(|locale| {
+                    locale
+                        .split(['.', '@'])
+                        .next()
+                        .unwrap_or_default()
+                        .replace('_', "-")
+                })
+                .filter(|locale| !locale.is_empty() && locale != "C" && locale != "POSIX")
                 .unwrap_or_else(|| "en-US".into())
         })
         .clone()
+}
+
+/// The person's locale on Windows (`de-DE`), `GetUserDefaultLocaleName`.
+#[cfg(target_os = "windows")]
+fn windows_locale() -> Option<String> {
+    let mut buffer = [0_u16; 85];
+    // SAFETY: `buffer` holds LOCALE_NAME_MAX_LENGTH (85) characters.
+    let length = unsafe {
+        windows_sys::Win32::Globalization::GetUserDefaultLocaleName(
+            buffer.as_mut_ptr(),
+            buffer.len() as i32,
+        )
+    };
+    let length = usize::try_from(length).ok().filter(|length| *length > 1)?;
+    Some(String::from_utf16_lossy(&buffer[..length - 1]))
 }
 
 /// The system's language (`de` for a German Mac).

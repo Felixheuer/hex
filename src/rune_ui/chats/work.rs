@@ -43,7 +43,10 @@ fn words(text: &str) -> impl Iterator<Item = &str> {
 /// The folder a finished job's answer names: the first absolute or
 /// home-relative path, or the folder of the first file it names.
 pub(super) fn folder_in(text: &str) -> Option<String> {
-    let path = words(text).find(|word| word.starts_with("~/") || (word.starts_with('/') && word.len() > 1 && word[1..].contains('/')))?;
+    let path = words(text).find(|word| {
+        word.starts_with("~/")
+            || (word.starts_with('/') && word.len() > 1 && word[1..].contains('/'))
+    })?;
     if path.ends_with('/') {
         return Some(path.trim_end_matches('/').to_owned() + "/");
     }
@@ -147,7 +150,12 @@ pub(super) fn plan_card(ui: &Ui, p: Paint, id: &str) -> Option<El> {
         let seconds = crate::history::now_ms().saturating_sub(turn.started_ms) / 1_000;
         match seconds {
             0..=3_599 => format!("{}:{:02}", seconds / 60, seconds % 60),
-            _ => format!("{}:{:02}:{:02}", seconds / 3_600, seconds / 60 % 60, seconds % 60),
+            _ => format!(
+                "{}:{:02}:{:02}",
+                seconds / 3_600,
+                seconds / 60 % 60,
+                seconds % 60
+            ),
         }
     });
     // Folded, the line names the step it's on.
@@ -198,12 +206,12 @@ pub(super) fn plan_card(ui: &Ui, p: Paint, id: &str) -> Option<El> {
         )
         .child(
             text(now)
-            .key("now")
-            .font(k.ty.small)
-            .color(p.muted())
-            .grow(1.0)
-            .shrink()
-            .truncate(),
+                .key("now")
+                .font(k.ty.small)
+                .color(p.muted())
+                .grow(1.0)
+                .shrink()
+                .truncate(),
         )
         .children(elapsed.map(|elapsed| {
             text(elapsed)
@@ -224,12 +232,7 @@ pub(super) fn plan_card(ui: &Ui, p: Paint, id: &str) -> Option<El> {
         .transition(arrives())
         .child(head);
     if !folded {
-        let mut list = col()
-            .key("steps")
-            .role("list")
-            .px(12.0)
-            .pb(10.0)
-            .gap(4.0);
+        let mut list = col().key("steps").role("list").px(12.0).pb(10.0).gap(4.0);
         for (index, step) in steps.iter().enumerate() {
             list = list.child(plan_step(p, index, step, Some(index) == current));
         }
@@ -271,11 +274,7 @@ fn plan_step(p: Paint, index: usize, step: &PlanStep, current: bool) -> El {
                 } else {
                     p.k.ty.small
                 })
-                .color(if step.done {
-                    p.muted()
-                } else {
-                    p.text()
-                })
+                .color(if step.done { p.muted() } else { p.text() })
                 .wrap()
                 .grow(1.0)
                 .shrink()
@@ -447,7 +446,10 @@ pub(super) fn results(ui: &Ui, p: Paint, conversation: &Conversation) -> Option<
             "folder",
             FOLDER_ICON,
             &folder,
-            Some((tr("Open folder"), Box::new(move |ui: &mut Ui| ui.chats.source.open(&open, false)))),
+            Some((
+                tr("Open folder"),
+                Box::new(move |ui: &mut Ui| ui.chats.source.open(&open, false)),
+            )),
             true,
         ));
         let files = ui.chats.folders.get(&folder).cloned().unwrap_or_default();
@@ -578,7 +580,10 @@ mod tests {
             sign_in_for("I need you to sign in to Gmail first."),
             Some(Some("https://accounts.google.com"))
         );
-        assert_eq!(sign_in_for("Please log in to the supplier portal"), Some(None));
+        assert_eq!(
+            sign_in_for("Please log in to the supplier portal"),
+            Some(None)
+        );
         assert_eq!(sign_in_for("Which 50 suppliers?"), None);
     }
 }

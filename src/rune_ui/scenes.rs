@@ -780,7 +780,9 @@ pub(super) const SCENES: &[Scene] = &[
         mac_chats(ui, chats::fixture::Scene::Interrupted)
     }),
     #[cfg(target_os = "macos")]
-    ("mac-chats-job", |ui| mac_chats(ui, chats::fixture::Scene::Job)),
+    ("mac-chats-job", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Job)
+    }),
     #[cfg(target_os = "macos")]
     ("mac-chats-new-schedule", |ui| {
         mac_chats(ui, chats::fixture::Scene::NewSchedule)

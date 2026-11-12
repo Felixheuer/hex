@@ -12,17 +12,16 @@
 
 mod agent_picker;
 mod agents;
+mod bridge;
 mod composer;
 mod displays;
 mod events;
-mod follow;
 pub(super) mod fixture;
+mod follow;
 mod jobs;
 mod list;
-mod bridge;
 mod schedules;
 mod settings;
-mod work;
 mod setup;
 mod sheet;
 mod shortcut;
@@ -32,6 +31,7 @@ mod switch;
 #[cfg(all(test, target_os = "macos"))]
 mod tests;
 mod transcript;
+mod work;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -683,8 +683,16 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
     if std::mem::take(&mut ui.chats.follow.to_end) {
         tx.scroll_to_bottom_instant(follow::SCROLL);
     }
-    if ui.chats.holds.values().any(|hold| matches!(hold, Hold::Waiting { .. }))
-        || ui.chats.tasks.iter().any(|task| matches!(task.state, TaskState::Waiting { .. }))
+    if ui
+        .chats
+        .holds
+        .values()
+        .any(|hold| matches!(hold, Hold::Waiting { .. }))
+        || ui
+            .chats
+            .tasks
+            .iter()
+            .any(|task| matches!(task.state, TaskState::Waiting { .. }))
     {
         // The countdown ticks.
         tx.wake_after(Duration::from_secs(1));

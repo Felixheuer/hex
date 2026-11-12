@@ -126,4 +126,3 @@ pub(super) fn checks(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         actions,
     )
 }
-

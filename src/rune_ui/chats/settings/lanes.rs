@@ -8,8 +8,8 @@ use rune_kit::TextInput;
 
 use super::super::super::Menu;
 use super::super::super::controls::{
-    CardRow, Paint, described_row, keycaps, note, pressable_row, row_switch, section,
-    section_with, setting_row, toggle_row,
+    CardRow, Paint, described_row, keycaps, note, pressable_row, row_switch, section, section_with,
+    setting_row, toggle_row,
 };
 use super::super::super::general::quiet_select;
 use super::super::super::list_detail as ld;
@@ -192,9 +192,12 @@ pub(in crate::rune_ui) fn blocked_section(ui: &Ui, p: Paint, layer: &mut Vec<El>
                     .grow(1.0)
                     .shrink(),
             )
-            .child(small_button(p, "add-blocked-app", tr("Add"), |ui: &mut Ui, _| {
-                add_typed(ui)
-            }))
+            .child(small_button(
+                p,
+                "add-blocked-app",
+                tr("Add"),
+                |ui: &mut Ui, _| add_typed(ui),
+            ))
             .into(),
     );
     section_with(
@@ -288,7 +291,9 @@ pub(in crate::rune_ui) fn task_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> V
             p,
             "assistant-timeout",
             tr("Stop a task after"),
-            Some(tr("A task that runs this long stops, with what it did so far")),
+            Some(tr(
+                "A task that runs this long stops, with what it did so far",
+            )),
             timeout,
         ),
         toggle_row(
@@ -311,7 +316,9 @@ pub(in crate::rune_ui) fn experimental_section(ui: &Ui, p: Paint) -> El {
         p,
         "assistant-agent-space",
         tr("Park agent windows off-screen (experimental)"),
-        tr("Windows background tasks open move out of sight until you bring one forward from the task list. A Space of their own isn't possible on current macOS"),
+        tr(
+            "Windows background tasks open move out of sight until you bring one forward from the task list. A Space of their own isn't possible on current macOS",
+        ),
         ui.settings.assistant.agent_space,
         |ui: &mut Ui| {
             ui.update(|settings| settings.assistant.agent_space ^= true);
@@ -369,7 +376,8 @@ fn engine_row(ui: &Ui, p: Paint) -> CardRow {
     let state = &ui.chats.settings;
     let (detail, control) = match state.engine {
         Some(Engine::Lightpanda) => (
-            tr("Lightpanda: about ten times lighter, so many research tasks run at once").to_owned(),
+            tr("Lightpanda: about ten times lighter, so many research tasks run at once")
+                .to_owned(),
             text(tr("Lightpanda"))
                 .key("engine")
                 .font(p.k.ty.small_medium)
@@ -385,12 +393,17 @@ fn engine_row(ui: &Ui, p: Paint) -> CardRow {
         ),
         _ => (
             tr("Chrome. Lightpanda is about ten times lighter for parallel research").to_owned(),
-            small_button(p, "install-lightpanda", tr("Install Lightpanda"), |ui: &mut Ui, _| {
-                ui.chats.settings.installing_lightpanda = true;
-                ui.chats
-                    .jobs
-                    .run(super::super::Job::Fix(crate::assistant::backends::Fix::InstallLightpanda));
-            }),
+            small_button(
+                p,
+                "install-lightpanda",
+                tr("Install Lightpanda"),
+                |ui: &mut Ui, _| {
+                    ui.chats.settings.installing_lightpanda = true;
+                    ui.chats.jobs.run(super::super::Job::Fix(
+                        crate::assistant::backends::Fix::InstallLightpanda,
+                    ));
+                },
+            ),
         ),
     };
     described_row(
