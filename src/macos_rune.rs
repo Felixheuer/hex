@@ -503,6 +503,9 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     crate::rune_ui::assistant_overlay::install(&mut app);
     // Its task stack and "Open in Chats" open the conversation in Chats.
     crate::rune_ui::assistant_overlay::set_open_chats(|id| open_chat(Some(id.to_owned())));
+    // "Continue setup" on its "Finish setting up" bubble opens Chats, which
+    // offers the setup until it's done.
+    crate::rune_ui::assistant_overlay::set_open_setup(|| open_chat(None));
     // The capture capsule, picker, and ink.
     #[cfg(hex_capture)]
     let capture_overlays =

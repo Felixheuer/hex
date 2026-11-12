@@ -4,12 +4,14 @@
 use rune::text::TextSystem;
 use rune::{Cx, El, Env, Runtime};
 
-use super::board::{Board, Phase};
+use super::board::{Board, Look, Phase};
 use super::bubble::{self, BubbleOverlay};
 use super::desk::{self, Desk};
 use super::fixture;
+use super::hint::{self, Hint};
+use super::orb::{self, Orb};
 use super::outline::{self, LabelSide, Outline};
-use super::stack::{self, Stack};
+use super::{hands, stack};
 use crate::assistant::{Event, Origin};
 
 fn runtime<S: 'static>(
@@ -47,14 +49,37 @@ fn count<S>(rt: &Runtime<S>, key: &str) -> usize {
         .count()
 }
 
-fn stack_state(board: Board) -> Stack {
-    Stack {
+fn count_prefix<S>(rt: &Runtime<S>, prefix: &str) -> usize {
+    rt.elements()
+        .into_iter()
+        .filter(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with(prefix)))
+        .count()
+}
+
+fn inside(r: [f32; 4], size: (f32, f32)) -> bool {
+    let [x, y, w, h] = r;
+    x >= -0.5 && y >= -0.5 && x + w <= size.0 + 0.5 && y + h <= size.1 + 0.5
+}
+
+fn orb_state(board: Board, expanded: bool) -> Orb {
+    Orb {
         board,
         shown: true,
         armed: None,
-        actions: stack::Actions {
-            stop: |_, _| {},
-            open: |_, _| {},
+        expanded,
+        peek: false,
+        grow: orb::Grow::default(),
+        actions: orb::Actions {
+            list: stack::Actions {
+                stop: |_, _| {},
+                open: |_, _| {},
+                take_over: |_, _| {},
+                hand_back: |_, _| {},
+                stop_all: |_| {},
+                toggle: |_| {},
+            },
+            hover: |_, _| {},
+            drag: |_, _| {},
         },
     }
 }
@@ -64,51 +89,129 @@ fn bubble_state(bubble: Option<super::board::Bubble>) -> BubbleOverlay {
         bubble,
         below: true,
         shown: true,
+        speaking: false,
+        setup: None,
         actions: bubble::Actions {
             dismiss: |_| {},
             open: |_, _| {},
+            setup: |_| {},
         },
     }
 }
 
 #[test]
-fn the_stack_lists_each_task_with_its_state() {
-    let board = fixture::board();
-    let phases: Vec<Phase> = board.stack().iter().map(|task| task.phase).collect();
-    assert_eq!(
-        phases,
+fn the_fixture_has_a_task_in_every_state() {
+    let phases: Vec<Phase> = fixture::board()
+        .stack()
+        .iter()
+        .map(|task| task.phase)
+        .collect();
+    assert!(matches!(
+        phases.as_slice(),
         [
             Phase::Running,
-            Phase::Running,
+            Phase::Paused,
             Phase::Queued,
             Phase::Done,
-            Phase::Failed
+            Phase::Failed,
+            Phase::Waiting { .. }
         ]
-    );
+    ));
+}
+
+#[test]
+fn the_orb_shows_a_dot_per_live_task_and_its_bubbles() {
+    let board = fixture::board();
     for dark in [false, true] {
-        let rt = runtime(stack_state(board.clone()), stack::view, stack::SIZE, dark);
-        for task in board.stack() {
-            let [x, y, w, h] = rect(&rt, &format!("task-{}", task.id))
-                .unwrap_or_else(|| panic!("{} has a plate", task.id));
-            assert!(x >= 0.0 && y >= 0.0, "inside: {x} {y}");
-            assert!(
-                x + w <= stack::SIZE.0 && y + h <= stack::SIZE.1,
-                "inside: {w} {h}"
-            );
+        let rt = runtime(orb_state(board.clone(), false), orb::view, orb::SIZE, dark);
+        let core = rect(&rt, "core").expect("the orb's core");
+        assert!(core[0] < 40.0 && core[1] < 40.0, "in its corner: {core:?}");
+        assert_eq!(
+            count_prefix(&rt, "orb-dot-"),
+            4,
+            "running, taken over, queued, waiting"
+        );
+        assert!(rect(&rt, "standing-mail").is_some(), "You have it");
+        assert!(rect(&rt, "standing-news").is_some(), "Waiting for limit");
+        assert_eq!(count(&rt, "hand-back"), 1);
+        assert!(count_prefix(&rt, "pop-") >= 1, "bubbles about the tasks");
+        assert!(rect(&rt, "sheet").is_none(), "the list stays folded");
+        for key in ["orb", "standing-mail", "standing-news"] {
+            assert!(inside(rect(&rt, key).unwrap(), orb::SIZE), "{key} inside");
         }
-        assert_eq!(count(&rt, "spinner"), 2, "the running ones spin");
-        assert_eq!(count(&rt, "queued"), 1);
-        assert_eq!(count(&rt, "done"), 1);
-        assert_eq!(count(&rt, "failed"), 1);
-        assert_eq!(count(&rt, "stop"), 3, "only live tasks can be stopped");
-        // The newest plate sits nearest the corner.
-        let [_, last_y, _, last_h] = rect(&rt, "task-export").unwrap();
-        assert!(last_y + last_h > stack::SIZE.1 - stack::INSET - 1.0);
     }
 }
 
 #[test]
-fn a_long_stack_folds_its_oldest_tasks_into_a_count() {
+fn a_quiet_orb_has_no_bubbles_and_no_tasks_draw_nothing() {
+    let rt = runtime(
+        orb_state(fixture::quiet_board(), false),
+        orb::view,
+        orb::SIZE,
+        false,
+    );
+    assert!(rect(&rt, "orb").is_some());
+    assert_eq!(count_prefix(&rt, "pop-"), 0);
+    let empty = runtime(
+        orb_state(Board::default(), false),
+        orb::view,
+        orb::SIZE,
+        false,
+    );
+    assert!(rect(&empty, "orb").is_none());
+}
+
+#[test]
+fn the_list_unfolds_with_every_task_its_state_and_controls() {
+    let board = fixture::board();
+    for dark in [false, true] {
+        let rt = runtime(orb_state(board.clone(), true), orb::view, orb::SIZE, dark);
+        let sheet = rect(&rt, "sheet").expect("the list");
+        assert!(inside(sheet, orb::SIZE), "{sheet:?}");
+        assert_eq!(count_prefix(&rt, "task-"), 6);
+        assert_eq!(count(&rt, "spinner"), 1, "the running one spins");
+        assert_eq!(count(&rt, "paused"), 1, "You have it");
+        assert_eq!(count(&rt, "countdown"), 1, "minutes until the limit lifts");
+        assert_eq!(count(&rt, "queued"), 1);
+        assert_eq!(count(&rt, "done"), 1);
+        assert_eq!(count(&rt, "failed"), 1);
+        assert_eq!(count(&rt, "take-over"), 1);
+        assert_eq!(count(&rt, "hand-back"), 1);
+        assert_eq!(count(&rt, "stop"), 4, "only live tasks can be stopped");
+        assert!(rect(&rt, "stop-all").is_some(), "two or more live tasks");
+        assert!(count(&rt, "place-glyph") >= 3, "where each works");
+        assert_eq!(
+            count_prefix(&rt, "pop-"),
+            0,
+            "the list replaces the bubbles"
+        );
+        // Newest nearest the orb, below it.
+        let [_, news_y, ..] = rect(&rt, "task-news").unwrap();
+        let [_, table_y, ..] = rect(&rt, "task-table").unwrap();
+        assert!(news_y < table_y);
+    }
+}
+
+#[test]
+fn stop_all_needs_two_live_tasks() {
+    let now = std::time::Instant::now();
+    let mut board = Board::default();
+    board.apply(
+        &Event::Started {
+            conversation: "one".into(),
+            origin: Origin::Background,
+            question: "Only task".into(),
+        },
+        None,
+        now,
+    );
+    let rt = runtime(orb_state(board, true), orb::view, orb::SIZE, false);
+    assert!(rect(&rt, "task-one").is_some());
+    assert!(rect(&rt, "stop-all").is_none());
+}
+
+#[test]
+fn a_long_list_scrolls_inside_the_panel() {
     let now = std::time::Instant::now();
     let mut board = Board::default();
     for n in 0..9 {
@@ -121,32 +224,24 @@ fn a_long_stack_folds_its_oldest_tasks_into_a_count() {
             None,
             now,
         );
+        for step in ["Opened Safari", "Read the page", "Typed a reply"] {
+            board.apply(
+                &Event::Step {
+                    conversation: format!("t{n}"),
+                    description: step.into(),
+                },
+                None,
+                now,
+            );
+        }
     }
-    let rt = runtime(stack_state(board), stack::view, stack::SIZE, false);
-    assert!(rect(&rt, "more").is_some(), "+3 more");
-    assert!(rect(&rt, "task-t0").is_none(), "the oldest folded away");
-    assert!(rect(&rt, "task-t8").is_some());
-    let [_, top, ..] = rect(&rt, "more").unwrap();
-    assert!(top >= 0.0, "the count stays in the overlay: {top}");
+    let rt = runtime(orb_state(board, true), orb::view, orb::SIZE, false);
+    let sheet = rect(&rt, "sheet").unwrap();
+    assert!(inside(sheet, orb::SIZE), "{sheet:?}");
 }
 
 #[test]
-fn an_empty_stack_draws_nothing() {
-    let rt = runtime(
-        stack_state(Board::default()),
-        stack::view,
-        stack::SIZE,
-        false,
-    );
-    assert!(
-        rt.elements()
-            .iter()
-            .all(|e| !e.key.as_deref().is_some_and(|k| k.starts_with("task-")))
-    );
-}
-
-#[test]
-fn the_bubble_shows_each_stage_of_a_quick_question() {
+fn the_bubble_shows_each_stage_of_a_here_question() {
     let thinking = runtime(
         bubble_state(fixture::bubble_at(7.5)),
         bubble::view,
@@ -176,10 +271,25 @@ fn the_bubble_shows_each_stage_of_a_quick_question() {
     );
     assert!(rect(&answered, "answer").is_some());
     assert!(rect(&answered, "open-chats").is_some());
+    assert!(rect(&answered, "voice").is_none(), "silent");
     let [_, card_y, _, _] = rect(&answered, "card").unwrap();
     assert!(
         (card_y - bubble::INSET).abs() < 0.5,
         "hangs from the top, under the HUD: {card_y}"
+    );
+
+    let speaking = runtime(
+        BubbleOverlay {
+            speaking: true,
+            ..bubble_state(fixture::bubble_at(f64::MAX))
+        },
+        bubble::view,
+        bubble::SIZE,
+        false,
+    );
+    assert!(
+        rect(&speaking, "voice").is_some(),
+        "pulses while read aloud"
     );
 
     let failed = runtime(
@@ -193,6 +303,33 @@ fn the_bubble_shows_each_stage_of_a_quick_question() {
         false,
     );
     assert!(rect(&failed, "error").is_some());
+
+    let hidden = runtime(
+        BubbleOverlay {
+            shown: false,
+            ..bubble_state(fixture::bubble_at(f64::MAX))
+        },
+        bubble::view,
+        bubble::SIZE,
+        false,
+    );
+    assert!(rect(&hidden, "card").is_none(), "shrinks back as it hides");
+}
+
+#[test]
+fn before_setup_the_bubble_offers_to_continue_it() {
+    let rt = runtime(
+        BubbleOverlay {
+            setup: Some(std::time::Instant::now()),
+            ..bubble_state(None)
+        },
+        bubble::view,
+        bubble::SIZE,
+        false,
+    );
+    assert!(rect(&rt, "setup-text").is_some());
+    let button = rect(&rt, "continue-setup").unwrap();
+    assert!(inside(button, bubble::SIZE));
 }
 
 #[test]
@@ -230,38 +367,95 @@ fn no_bubble_draws_nothing() {
 }
 
 #[test]
-fn an_outline_frames_its_window_with_the_label_above() {
+fn the_hints_and_the_hands_off_pill_fit_their_panels() {
+    for state in [Hint::Background, Hint::Here("Microsoft Outlook".into())] {
+        let here = matches!(state, Hint::Here(_));
+        let rt = runtime(state, hint::view, hint::SIZE, false);
+        let key = if here { "here" } else { "hint" };
+        assert!(inside(rect(&rt, key).unwrap(), hint::SIZE), "{key}");
+    }
+    let rt = runtime(hands::Hands::default(), hands::view, hands::SIZE, true);
+    let pill = rect(&rt, "hands-off").unwrap();
+    assert!(inside(pill, hands::SIZE), "{pill:?}");
+    assert!(rect(&rt, "hands-esc").is_some());
+}
+
+fn outline_of(look: Look) -> Runtime<Outline> {
     let outline = Outline {
         colour: 2,
         title: "Find a table for two at Nopa tonight".into(),
         size: (600.0, 400.0),
         label: LabelSide::Above,
+        look,
     };
     let (rect_global, _) = outline::rect((100.0, 200.0, 600.0, 400.0), 0.0);
-    let size = (rect_global[2], rect_global[3]);
-    let rt = runtime(outline, outline::view, size, false);
+    runtime(
+        outline,
+        outline::view,
+        (rect_global[2], rect_global[3]),
+        false,
+    )
+}
+
+#[test]
+fn an_outline_frames_its_window_with_the_label_above() {
+    let rt = outline_of(Look::Working);
     let [lx, ly, lw, lh] = rect(&rt, "line").unwrap();
     assert_eq!((lw, lh), (600.0, 400.0));
     assert_eq!(lx, outline::PAD);
     let [_, label_y, _, label_h] = rect(&rt, "label").unwrap();
     assert!(label_y + label_h <= ly, "the label sits above the window");
+    for look in [Look::Paused, Look::Waiting { until_ms: 0 }] {
+        assert!(rect(&outline_of(look), "label").is_some(), "{look:?}");
+    }
+    let soft = outline_of(Look::HandsOff);
+    assert!(rect(&soft, "line").is_some());
+    assert!(
+        rect(&soft, "label").is_none(),
+        "Hands off is just a soft line"
+    );
 }
 
 #[test]
 fn the_pretend_desktop_shows_every_overlay() {
     let rt = runtime(Desk::settled(), desk::view, desk::SIZE, true);
-    for key in ["frame", "stack", "bubble", "outline-table", "outline-mail"] {
+    for key in [
+        "frame",
+        "orb",
+        "bubble",
+        "outline-table",
+        "outline-mail",
+        "outline-news",
+    ] {
         assert!(rect(&rt, key).is_some(), "{key} draws");
     }
     assert!(
         rect(&rt, "outline-dentist").is_none(),
         "a finished task's outline is gone"
     );
+    let [orb_x, ..] = rect(&rt, "orb").unwrap();
+    let [bubble_x, _, bubble_w, _] = rect(&rt, "bubble").unwrap();
+    assert!(
+        orb_x > bubble_x + bubble_w,
+        "the orb keeps clear of the Here bubble"
+    );
+    let hands = runtime(hands_off_desk(), desk::view, desk::SIZE, false);
+    assert!(rect(&hands, "hands-off").is_some());
+    assert!(rect(&hands, "outline-quick").is_some(), "its soft outline");
+}
+
+/// The desktop while the Here question holds the pointer.
+fn hands_off_desk() -> Desk {
+    Desk {
+        board: fixture::board_at(9.0),
+        bubble: fixture::bubble_at(9.0),
+        ..Desk::settled()
+    }
 }
 
 /// Renders the overlays to `HEX_ASSISTANT_SNAPS/assistant-*.png` in both
-/// appearances, to look at: the pretend desktop with everything, the stack,
-/// and the bubble in each state.
+/// appearances, to look at: the pretend desktop in each state, the orb, the
+/// list, the bubble in each state, the hints, and the Hands off pill.
 #[test]
 #[ignore = "set HEX_ASSISTANT_SNAPS to a folder; needs a GPU"]
 fn snapshots() {
@@ -276,83 +470,129 @@ fn snapshots() {
             rune::render::write_png(&path, w, h, &pixels).unwrap();
         };
         let px = |size: (f32, f32)| ((size.0 * 2.0) as u32, (size.1 * 2.0) as u32);
-        let mut desk_rt = runtime(Desk::settled(), desk::view, desk::SIZE, dark);
-        let (w, h) = px(desk::SIZE);
-        save(
-            "desktop",
-            desk::SIZE,
-            crate::rune_ui::offscreen::draw(&gpu, &mut desk_rt, w, h),
-        );
-        let mut holding = runtime(
-            Desk {
-                holding: true,
-                ..Desk::settled()
-            },
-            desk::view,
-            desk::SIZE,
-            dark,
-        );
-        save(
-            "desktop-new-task",
-            desk::SIZE,
-            crate::rune_ui::offscreen::draw(&gpu, &mut holding, w, h),
-        );
-        let mut hint_rt = runtime(
-            super::hint::Hint,
-            super::hint::view,
-            super::hint::SIZE,
-            dark,
-        );
-        let (hw, hh) = px(super::hint::SIZE);
-        save(
-            "hint",
-            super::hint::SIZE,
-            backdrop(&gpu, &mut hint_rt, hw, hh, dark),
-        );
-        let mut stack_rt = runtime(
-            stack_state(fixture::board()),
-            stack::view,
-            stack::SIZE,
-            dark,
-        );
-        let (w, h) = px(stack::SIZE);
-        save(
-            "stack",
-            stack::SIZE,
-            backdrop(&gpu, &mut stack_rt, w, h, dark),
-        );
-        let bubbles = [
-            ("bubble-thinking", fixture::bubble_at(7.5)),
-            ("bubble-working", fixture::bubble_at(9.1)),
-            ("bubble-streaming", fixture::bubble_at(11.0)),
-            ("bubble-answered", fixture::bubble_at(f64::MAX)),
+        let desks = [
+            ("desktop", Desk::settled()),
             (
-                "bubble-long",
-                Some(fixture::bubble_ended(
-                    "What changed in the release notes?",
-                    Some(fixture::LONG_ANSWER),
-                    None,
-                )),
+                "desktop-list",
+                Desk {
+                    expanded: true,
+                    bubble: None,
+                    ..Desk::settled()
+                },
+            ),
+            ("desktop-hands-off", hands_off_desk()),
+            (
+                "desktop-new-background-task",
+                Desk {
+                    hint: Some(Hint::Background),
+                    ..Desk::settled()
+                },
+            ),
+            (
+                "desktop-here",
+                Desk {
+                    hint: Some(Hint::Here("Mail".into())),
+                    board: fixture::quiet_board(),
+                    ..Desk::settled()
+                },
+            ),
+            (
+                "desktop-speaking",
+                Desk {
+                    speaking: true,
+                    board: fixture::quiet_board(),
+                    ..Desk::settled()
+                },
+            ),
+            (
+                "desktop-setup",
+                Desk {
+                    setup: true,
+                    frame: false,
+                    board: Board::default(),
+                    ..Desk::settled()
+                },
+            ),
+        ];
+        let (w, h) = px(desk::SIZE);
+        for (name, state) in desks {
+            let mut rt = runtime(state, desk::view, desk::SIZE, dark);
+            save(
+                name,
+                desk::SIZE,
+                crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h),
+            );
+        }
+        let orbs = [
+            ("orb-bubbles", orb_state(fixture::board(), false)),
+            ("orb-quiet", orb_state(fixture::quiet_board(), false)),
+            ("orb-list", orb_state(fixture::board(), true)),
+        ];
+        for (name, state) in orbs {
+            let mut rt = runtime(state, orb::view, orb::SIZE, dark);
+            let (w, h) = px(orb::SIZE);
+            save(name, orb::SIZE, backdrop(&gpu, &mut rt, w, h, dark));
+        }
+        for look in [
+            ("outline-paused", Look::Paused),
+            (
+                "outline-waiting",
+                Look::Waiting {
+                    until_ms: super::when::now_ms() + 23 * 60_000,
+                },
+            ),
+            ("outline-hands-off", Look::HandsOff),
+        ] {
+            let mut rt = outline_of(look.1);
+            let (r, _) = outline::rect((100.0, 200.0, 600.0, 400.0), 0.0);
+            let size = (r[2], r[3]);
+            let (w, h) = px(size);
+            save(look.0, size, backdrop(&gpu, &mut rt, w, h, dark));
+        }
+        let mut hands_rt = runtime(hands::Hands::default(), hands::view, hands::SIZE, dark);
+        let (w, h) = px(hands::SIZE);
+        save(
+            "hands-off",
+            hands::SIZE,
+            backdrop(&gpu, &mut hands_rt, w, h, dark),
+        );
+        for (name, state) in [
+            ("hint-background", Hint::Background),
+            ("hint-here", Hint::Here("Mail".into())),
+        ] {
+            let mut rt = runtime(state, hint::view, hint::SIZE, dark);
+            let (w, h) = px(hint::SIZE);
+            save(name, hint::SIZE, backdrop(&gpu, &mut rt, w, h, dark));
+        }
+        let bubbles = [
+            ("bubble-thinking", bubble_state(fixture::bubble_at(7.5))),
+            ("bubble-working", bubble_state(fixture::bubble_at(9.1))),
+            ("bubble-streaming", bubble_state(fixture::bubble_at(11.0))),
+            (
+                "bubble-speaking",
+                BubbleOverlay {
+                    speaking: true,
+                    ..bubble_state(fixture::bubble_at(f64::MAX))
+                },
             ),
             (
                 "bubble-markdown",
-                Some(fixture::bubble_ended(
+                bubble_state(Some(fixture::bubble_ended(
                     "How do I free up disk space?",
                     Some(fixture::MARKDOWN_ANSWER),
                     None,
-                )),
+                ))),
             ),
             (
-                "bubble-failed",
-                Some(fixture::bubble_ended(
-                    fixture::QUICK_QUESTION,
-                    None,
-                    Some("Claude Code isn't signed in. Open Terminal and run “claude” to sign in."),
-                )),
+                "bubble-setup",
+                BubbleOverlay {
+                    setup: Some(std::time::Instant::now()),
+                    ..bubble_state(None)
+                },
             ),
         ];
-        for (name, bubble) in bubbles {
-            let mut rt = runtime(bubble_state(bubble), bubble::view, bubble::SIZE, dark);
+        for (name, state) in bubbles {
+            let mut rt = runtime(state, bubble::view, bubble::SIZE, dark);
             let (w, h) = px(bubble::SIZE);
             save(name, bubble::SIZE, backdrop(&gpu, &mut rt, w, h, dark));
         }

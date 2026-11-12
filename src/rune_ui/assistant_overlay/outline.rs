@@ -2,11 +2,18 @@
 //! task works in, with a soft glow and a small label naming the task. Each
 //! outline is its own click-through overlay, sized to its window plus a
 //! margin and moved with it, so a moving window costs a move, not a redraw.
+//!
+//! Its look follows the task: dashed with "You have it" while the person
+//! has taken it over, dimmed with when it resumes while it waits out a
+//! usage limit, and a soft line without a label while a task moves the real
+//! pointer there ("Hands off").
 
 use rune::{Cx, El, Shadow, el, row, text};
 
 use super::super::controls::Paint;
-use super::palette;
+use super::board::Look;
+use super::{palette, when};
+use crate::desktop::i18n::{tr, tr_fill};
 
 /// Room around the window for the glow, in points.
 pub(crate) const PAD: f32 = 10.0;
@@ -20,6 +27,8 @@ const LABEL_MAX_W: f32 = 260.0;
 /// glow covers the difference).
 const WINDOW_CORNER: f32 = 10.0;
 const LINE: f32 = 2.0;
+/// A waiting task's outline, dimmed.
+const WAITING_OPACITY: f32 = 0.5;
 
 /// Where the label sits.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -40,6 +49,7 @@ pub(crate) struct Outline {
     /// The window's size in points.
     pub(crate) size: (f32, f32),
     pub(crate) label: LabelSide,
+    pub(crate) look: Look,
 }
 
 /// The overlay's rect in global points (x, y, width, height) for a window
@@ -93,19 +103,31 @@ pub(crate) fn drawn(p: Paint, outline: &Outline, x: f32, y: f32) -> El {
         .absolute(left, top)
         .size(w, h)
         .radius(WINDOW_CORNER)
-        .border(LINE, colour)
-        // A soft ring outside the line; a drop shadow would also paint
-        // under the (clear) element and tint the window.
-        .outline(4.0, 0.0, colour.alpha(0.28))
-        .box_shadow(Shadow {
-            x: 0.0,
-            y: 0.0,
-            blur: 10.0,
-            spread: 0.0,
-            color: colour.alpha(0.22),
-            inset: true,
-        })
         .a11y_hidden();
+    let line = match outline.look {
+        Look::HandsOff => {
+            line.border(LINE * 0.75, colour.alpha(0.7))
+                .outline(6.0, 0.0, colour.alpha(0.14))
+        }
+        Look::Paused => {
+            line.border(LINE, colour)
+                .border_dash(10.0, 6.0)
+                .outline(4.0, 0.0, colour.alpha(0.16))
+        }
+        Look::Working | Look::Waiting { .. } => line
+            .border(LINE, colour)
+            // A soft ring outside the line; a drop shadow would also paint
+            // under the (clear) element and tint the window.
+            .outline(4.0, 0.0, colour.alpha(0.28))
+            .box_shadow(Shadow {
+                x: 0.0,
+                y: 0.0,
+                blur: 10.0,
+                spread: 0.0,
+                color: colour.alpha(0.22),
+                inset: true,
+            }),
+    };
     let label_top = match outline.label {
         LabelSide::Above => y + PAD,
         LabelSide::Inside => top + h - LABEL_H - 8.0,
@@ -114,27 +136,44 @@ pub(crate) fn drawn(p: Paint, outline: &Outline, x: f32, y: f32) -> El {
         LabelSide::Above => left + 2.0,
         LabelSide::Inside => left + 8.0,
     };
-    let label = row()
-        .key("label")
-        .absolute(label_left, label_top)
-        .h(LABEL_H)
-        .max_w(LABEL_MAX_W.min(w - 16.0).max(40.0))
-        .px(8.0)
-        .center_y()
-        .radius(LABEL_H / 2.0)
-        .fill(colour)
-        .child(
-            text(outline.title.clone())
-                .key("label-text")
-                .truncate()
-                .font(p.k.ty.small_medium)
-                .color(ink),
-        );
-    el().key("outline")
+    let words = match outline.look {
+        Look::Working => Some(outline.title.clone()),
+        Look::Paused => Some(tr("You have it").to_owned()),
+        Look::Waiting { until_ms } => Some(tr_fill(
+            "Waiting for limit · resumes {}",
+            &when::clock(until_ms),
+        )),
+        Look::HandsOff => None,
+    };
+    let label = words.map(|words| {
+        row()
+            .key("label")
+            .absolute(label_left, label_top)
+            .h(LABEL_H)
+            .max_w(LABEL_MAX_W.min(w - 16.0).max(40.0))
+            .px(8.0)
+            .center_y()
+            .radius(LABEL_H / 2.0)
+            .fill(colour)
+            .child(
+                text(words)
+                    .key("label-text")
+                    .truncate()
+                    .font(p.k.ty.small_medium)
+                    .color(ink),
+            )
+    });
+    let drawn = el()
+        .key("outline")
         .w_full()
         .h_full()
         .child(line)
-        .child(label)
+        .children(label);
+    if matches!(outline.look, Look::Waiting { .. }) {
+        drawn.opacity(WAITING_OPACITY)
+    } else {
+        drawn
+    }
 }
 
 #[cfg(test)]

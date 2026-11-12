@@ -1,21 +1,23 @@
-//! Labs › Assistant's overlays as playground stories (⇧⌘D, Prototypes ›
-//! Assistant), fed by the made-up activity in `fixture` while the service
-//! is a stub: the whole desktop playing the script, then the task stack,
-//! the quick answer in each state, and the frame on their own.
+//! The assistant's overlays as playground stories (⇧⌘D, Prototypes ›
+//! Assistant), fed by the made-up activity in `fixture`: the whole desktop
+//! playing the script, then the orb in each state, the Here bubble in each
+//! state, the Hands off pill, and the frame on their own.
 
 use rune::{Cx, El, Playground, Stage, Story, el};
 
 use super::super::controls::Paint;
 use super::board::{Board, Bubble};
 use super::desk::{self, Desk};
-use super::{bubble, fixture, frame, stack};
+use super::hint::Hint;
+use super::{bubble, fixture, frame, hands, orb, stack};
 
 /// Adds the assistant's stories to `playground`.
 pub(crate) fn add<S: 'static>(playground: Playground<S>) -> Playground<S> {
     playground
         .story(desktop())
-        .story(stack_story())
+        .story(orb_story())
         .story(quick_answer())
+        .story(hands_story())
         .story(frame_story())
 }
 
@@ -31,12 +33,28 @@ fn desktop() -> Story<Desk> {
                 play.after(at, move |desk: &mut Desk, _| desk.apply(&event));
             }
         })
-        .trigger('f', "Agent mode on or off", |desk, _| {
+        .trigger('f', "Background work frame on or off", |desk, _| {
             desk.frame = !desk.frame
         })
-        .trigger('n', "Hold for a new task", |desk, _| {
-            desk.holding = !desk.holding
+        .trigger('n', "Tap+hold: a new background task", |desk, _| {
+            desk.hint = match desk.hint {
+                Some(Hint::Background) => None,
+                _ => Some(Hint::Background),
+            }
         })
+        .trigger('h', "Hold: a Here question", |desk, _| {
+            desk.hint = match desk.hint {
+                Some(Hint::Here(_)) => None,
+                _ => Some(Hint::Here("Mail".into())),
+            }
+        })
+        .trigger('e', "Double-tap: the task list", |desk, _| {
+            desk.expanded = !desk.expanded
+        })
+        .trigger('v', "Reading the answer aloud", |desk, _| {
+            desk.speaking = !desk.speaking
+        })
+        .trigger('u', "Before setup", |desk, _| desk.setup = !desk.setup)
         .trigger('s', "Everything at once", |desk, play| {
             play.clear();
             *desk = Desk {
@@ -46,45 +64,60 @@ fn desktop() -> Story<Desk> {
         })
 }
 
-/// A stack's state for its story: the board, and what was pressed.
-struct StackStory {
+/// The orb's state for its story: the board, whether its list is open, and
+/// what was pressed.
+struct OrbStory {
     board: Board,
+    open: bool,
     note: String,
 }
 
-fn stack_story() -> Story<StackStory> {
+fn orb_story() -> Story<OrbStory> {
+    let with = |board: fn() -> Board, open: bool| {
+        move |s: &mut OrbStory| {
+            s.board = board();
+            s.open = open;
+        }
+    };
     Story::new(
-        "Prototypes/Assistant/Task stack",
-        || StackStory {
+        "Prototypes/Assistant/Orb",
+        || OrbStory {
             board: fixture::board(),
+            open: false,
             note: String::new(),
         },
-        stack_view,
+        orb_view,
     )
+    .variant("bubbles", with(fixture::board, false))
+    .variant("quiet", with(fixture::quiet_board, false))
+    .variant("list", with(fixture::board, true))
 }
 
-fn stack_view(state: &StackStory, cx: &mut Cx<StackStory>) -> El {
+fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
     let p = Paint::new(cx.system_dark(), cx.env().scale);
-    let (w, h) = stack::SIZE;
+    let (w, h) = orb::SIZE;
     let note = (!state.note.is_empty()).then(|| {
         rune::text(state.note.clone())
             .key("note")
             .font(p.k.ty.small)
             .color(p.faint())
     });
-    rune::col()
-        .key("stack-story")
-        .gap(8.0)
-        .children(note)
-        .child(
-            el().key("stack-stage")
-                .size(w, h)
-                .padding(stack::INSET)
-                .child(stack::plates(
-                    p,
-                    &state.board.stack(),
-                    stack::Actions {
-                        stop: |s: &mut StackStory, id| {
+
+    rune::col().key("orb-story").gap(8.0).children(note).child(
+        el().key("orb-stage")
+            .size(w, h)
+            .padding(orb::INSET)
+            .child(orb::content(
+                p,
+                &state.board,
+                orb::Look {
+                    open: state.open,
+                    grow: orb::Grow::default(),
+                    still: cx.system_reduced_motion(),
+                },
+                orb::Actions {
+                    list: stack::Actions {
+                        stop: |s: &mut OrbStory, id| {
                             s.board.apply(
                                 &crate::assistant::Event::Cancelled {
                                     conversation: id.into(),
@@ -94,17 +127,40 @@ fn stack_view(state: &StackStory, cx: &mut Cx<StackStory>) -> El {
                             );
                             s.note = format!("Stopped {id}");
                         },
-                        open: |s: &mut StackStory, id| {
-                            s.note = format!("Would open “{id}” in Chats")
+                        open: |s: &mut OrbStory, id| s.note = format!("Would open “{id}” in Chats"),
+                        take_over: |s: &mut OrbStory, id| {
+                            s.board.apply(
+                                &crate::assistant::Event::Paused {
+                                    conversation: id.into(),
+                                },
+                                None,
+                                std::time::Instant::now(),
+                            );
                         },
+                        hand_back: |s: &mut OrbStory, id| {
+                            s.board.apply(
+                                &crate::assistant::Event::Resumed {
+                                    conversation: id.into(),
+                                },
+                                None,
+                                std::time::Instant::now(),
+                            );
+                        },
+                        stop_all: |s: &mut OrbStory| s.note = "Would stop every task".into(),
+                        toggle: |s: &mut OrbStory| s.open = !s.open,
                     },
-                )),
-        )
+                    hover: |_, _| {},
+                    drag: |_, _| {},
+                },
+            )),
+    )
 }
 
 /// The bubble's states, one variant each.
 struct BubbleStory {
     bubble: Bubble,
+    speaking: bool,
+    setup: bool,
 }
 
 fn quick_answer() -> Story<BubbleStory> {
@@ -112,13 +168,25 @@ fn quick_answer() -> Story<BubbleStory> {
         move |s: &mut BubbleStory| {
             if let Some(bubble) = fixture::bubble_at(seconds) {
                 s.bubble = bubble;
+                s.speaking = false;
+                s.setup = false;
             }
         }
     };
+    let ended =
+        |question: &'static str, answer: Option<&'static str>, error: Option<&'static str>| {
+            move |s: &mut BubbleStory| {
+                s.bubble = fixture::bubble_ended(question, answer, error);
+                s.speaking = false;
+                s.setup = false;
+            }
+        };
     Story::new(
         "Prototypes/Assistant/Quick answer",
         || BubbleStory {
             bubble: fixture::bubble_at(7.5).expect("the quick question has started"),
+            speaking: false,
+            setup: false,
         },
         bubble_view,
     )
@@ -126,42 +194,76 @@ fn quick_answer() -> Story<BubbleStory> {
     .variant("working", at(9.1))
     .variant("streaming", at(11.0))
     .variant("answered", at(f64::MAX))
-    .variant("long", |s| {
-        s.bubble = fixture::bubble_ended(
+    .variant("speaking", move |s| {
+        at(f64::MAX)(s);
+        s.speaking = true;
+    })
+    .variant(
+        "long",
+        ended(
             "What changed in the release notes?",
             Some(fixture::LONG_ANSWER),
             None,
-        );
-    })
-    .variant("markdown", |s| {
-        s.bubble = fixture::bubble_ended(
+        ),
+    )
+    .variant(
+        "markdown",
+        ended(
             "How do I free up disk space?",
             Some(fixture::MARKDOWN_ANSWER),
             None,
-        );
-    })
-    .variant("failed", |s| {
-        s.bubble = fixture::bubble_ended(
+        ),
+    )
+    .variant(
+        "failed",
+        ended(
             fixture::QUICK_QUESTION,
             None,
             Some("Claude Code isn't signed in. Open Terminal and run “claude” to sign in."),
-        );
-    })
+        ),
+    )
+    .variant("before setup", |s| s.setup = true)
 }
 
 fn bubble_view(state: &BubbleStory, cx: &mut Cx<BubbleStory>) -> El {
     let p = Paint::new(cx.system_dark(), cx.env().scale);
+    let actions = bubble::Actions {
+        dismiss: |_: &mut BubbleStory| {},
+        open: |_: &mut BubbleStory, _| {},
+        setup: |_: &mut BubbleStory| {},
+    };
+    let card = if state.setup {
+        bubble::setup_card(p, actions)
+    } else {
+        bubble::card(
+            p,
+            &state.bubble,
+            bubble::Voice {
+                speaking: state.speaking,
+                still: cx.system_reduced_motion(),
+            },
+            actions,
+        )
+    };
     el().key("bubble-stage")
         .w(bubble::SIZE.0)
         .padding(bubble::INSET)
-        .child(bubble::card(
-            p,
-            &state.bubble,
-            bubble::Actions {
-                dismiss: |_: &mut BubbleStory| {},
-                open: |_: &mut BubbleStory, _| {},
-            },
-        ))
+        .child(card)
+}
+
+fn hands_story() -> Story<()> {
+    Story::new(
+        "Prototypes/Assistant/Hands off",
+        || (),
+        |_: &(), cx: &mut Cx<()>| {
+            let p = Paint::new(cx.system_dark(), cx.env().scale);
+            let (w, h) = hands::SIZE;
+            el().key("hands-stage")
+                .size(w, h)
+                .center()
+                .child(hands::pill(p))
+        },
+    )
 }
 
 fn frame_story() -> Story<()> {

@@ -1,7 +1,8 @@
 //! Made-up assistant activity for the stories, the render tests, and a
-//! development run with `HEX_ASSISTANT_FAKE=1` (the service is a stub until
-//! the agent is wired): five Agent mode tasks in every state, a quick
-//! question that thinks, steps, and streams its answer, and where their
+//! development run with `HEX_ASSISTANT_FAKE=1`: six Background tasks in
+//! every state (running, taken over, waiting out a usage limit, queued,
+//! done, failed), a Here question that thinks, takes the pointer for a
+//! moment ("Hands off"), steps, and streams its answer, and where their
 //! windows are.
 
 use std::time::Instant;
@@ -9,6 +10,10 @@ use std::time::Instant;
 use crate::assistant::{Event, Origin, TaskWindow};
 
 use super::board::{Board, Bubble};
+use super::when;
+
+/// How long the fixture's waiting task waits for its usage limit.
+pub(crate) const LIMIT_MINUTES: u64 = 23;
 
 pub(crate) const QUICK: &str = "quick";
 pub(crate) const QUICK_QUESTION: &str = "What's on my calendar this afternoon?";
@@ -35,10 +40,11 @@ pub(crate) const MARKDOWN_ANSWER: &str = "You're at **92%** of 494 GB. The quick
 /// A rect in points: x, y, width, height.
 pub(crate) type Rect = (f64, f64, f64, f64);
 
-pub(crate) const WINDOWS: [(&str, &str, Rect); 3] = [
+pub(crate) const WINDOWS: [(&str, &str, Rect); 4] = [
     ("Safari", "safari", (64.0, 92.0, 560.0, 400.0)),
     ("Mail", "mail", (700.0, 250.0, 450.0, 300.0)),
     ("Calendar", "calendar", (250.0, 520.0, 430.0, 230.0)),
+    ("Arc", "arc", (740.0, 600.0, 400.0, 160.0)),
 ];
 
 pub(crate) fn window(id: &str) -> TaskWindow {
@@ -84,9 +90,10 @@ fn opened(id: &str, window_id: &str) -> Event {
     }
 }
 
-/// The whole show, as `(seconds from the start, event)`: Agent mode turns
-/// on, five tasks start, step, open windows, queue, fail, and finish, and a
-/// quick question is asked and answered.
+/// The whole show, as `(seconds from the start, event)`: Background work
+/// starts, six tasks start, step, open windows, queue, fail, finish, get
+/// taken over, and wait out a usage limit, and a Here question takes the
+/// pointer for a moment, then is answered.
 pub(crate) fn script() -> Vec<(f64, Event)> {
     let agent = Origin::Background;
     let mut script: Vec<(f64, Event)> = vec![
@@ -161,6 +168,46 @@ pub(crate) fn script() -> Vec<(f64, Event)> {
             },
         ),
         (7.0, step("table", "Chose 8:00 pm for 2 people")),
+        (
+            4.0,
+            started(
+                "news",
+                agent,
+                "Summarise today's top stories on Hacker News",
+            ),
+        ),
+        (4.3, step("news", "Opened https://news.ycombinator.com")),
+        (4.4, opened("news", "arc")),
+        (4.9, step("news", "Read the top 10 stories")),
+        (
+            5.4,
+            Event::Waiting {
+                conversation: "news".into(),
+                until_ms: when::now_ms() + LIMIT_MINUTES * 60_000,
+                reason: "Claude's usage limit".into(),
+            },
+        ),
+        (
+            6.2,
+            Event::Paused {
+                conversation: "mail".into(),
+            },
+        ),
+        (8.5, opened(QUICK, "calendar")),
+        (
+            8.6,
+            Event::HandsOff {
+                conversation: QUICK.into(),
+                on: true,
+            },
+        ),
+        (
+            9.3,
+            Event::HandsOff {
+                conversation: QUICK.into(),
+                on: false,
+            },
+        ),
         (7.4, started(QUICK, Origin::ActionShortcut, QUICK_QUESTION)),
         (
             7.6,
@@ -194,18 +241,63 @@ pub(crate) fn script() -> Vec<(f64, Event)> {
     script
 }
 
-/// The board after the whole script, every task still listed: two
-/// running, one queued, one done, one failed.
+/// The script, then the rest of the story for a development run: the mail
+/// task handed back, every task finishing, and the Background work ending.
+pub(crate) fn script_to_the_end() -> Vec<(f64, Event)> {
+    let mut script = script();
+    let end = script.last().map_or(0.0, |(at, _)| *at);
+    script.push((
+        end + 3.0,
+        Event::Resumed {
+            conversation: "mail".into(),
+        },
+    ));
+    for (id, at) in [("table", 6.0), ("mail", 9.0), ("news", 13.0)] {
+        script.push((
+            end + at,
+            Event::Answer {
+                conversation: id.into(),
+                origin: Origin::Background,
+                text: "Done.".into(),
+            },
+        ));
+    }
+    script.push((
+        end + 11.0,
+        Event::Cancelled {
+            conversation: "rename".into(),
+        },
+    ));
+    script.push((end + 18.0, Event::ModeChanged { on: false }));
+    script
+}
+
+/// The board after the whole script, every task still listed: one running,
+/// one taken over, one queued, one done, one failed, one waiting.
 pub(crate) fn board() -> Board {
+    board_at(f64::MAX)
+}
+
+/// The board after the script's events up to `seconds`.
+pub(crate) fn board_at(seconds: f64) -> Board {
     let now = Instant::now();
     let mut board = Board::default();
-    for (_, event) in script() {
+    for (_, event) in script().into_iter().filter(|(at, _)| *at <= seconds) {
         board.apply(&event, None, now);
     }
     board
 }
 
+/// The orb with nothing to say: the live tasks only, no bubbles.
+pub(crate) fn quiet_board() -> Board {
+    let mut board = board();
+    board.tasks.retain(|task| task.phase.live());
+    board.pops = Default::default();
+    board
+}
+
 /// The quick question's bubble as it is after the script's events up to
+
 /// `seconds`.
 pub(crate) fn bubble_at(seconds: f64) -> Option<Bubble> {
     let now = Instant::now();
