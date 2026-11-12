@@ -19,6 +19,7 @@ mod bridge;
 mod language;
 pub mod neural;
 mod output;
+pub mod own_echo;
 mod playback;
 mod say;
 mod voices;
@@ -106,6 +107,7 @@ pub fn queue(text: &str, voice: Option<&str>) {
     if text.is_empty() {
         return;
     }
+    own_echo::note(&text);
     let request = Request {
         id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
         text,

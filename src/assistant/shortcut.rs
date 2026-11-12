@@ -252,6 +252,11 @@ impl Question {
                 };
                 // "Stopp" ends the speech (and the Here task), asking
                 // nothing; "Stopp alle Aufgaben" stops every task.
+                // Hex's own reading, heard back through the speakers.
+                if crate::assistant::speech::own_echo::heard_back(&text) {
+                    tracing::info!("dropped a question that was Hex's own voice");
+                    return;
+                }
                 match spoken_stop::spoken_stop(&text) {
                     Some(spoken_stop::SpokenStop::Quiet) => return escape(),
                     Some(spoken_stop::SpokenStop::All) => return stop_all(),

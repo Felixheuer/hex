@@ -305,7 +305,7 @@ pub(in crate::rune_ui) fn task_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> V
         p,
         Menu::Pick("assistant-timeout"),
         "assistant-timeout-control".to_owned(),
-        tr("Stop a task after"),
+        tr("Stop a quick question after"),
         values
             .iter()
             .map(|minutes| match minutes {
@@ -327,7 +327,7 @@ pub(in crate::rune_ui) fn task_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> V
         p,
         Menu::Pick("assistant-budget"),
         "assistant-budget-control".to_owned(),
-        tr("Stop a job after"),
+        tr("Background jobs may run"),
         budgets
             .iter()
             .map(|minutes| match *minutes {
@@ -349,7 +349,7 @@ pub(in crate::rune_ui) fn task_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> V
         setting_row(
             p,
             "assistant-budget",
-            tr("Stop a job after"),
+            tr("Background jobs may run"),
             Some(tr(
                 "A background job works until its goal is met, through restarts, for at most this long",
             )),
@@ -358,9 +358,9 @@ pub(in crate::rune_ui) fn task_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> V
         setting_row(
             p,
             "assistant-timeout",
-            tr("Stop a task after"),
+            tr("Stop a quick question after"),
             Some(tr(
-                "A task that runs this long stops, with what it did so far",
+                "Only a quick question about the window in front; background jobs follow the line above",
             )),
             timeout,
         ),
