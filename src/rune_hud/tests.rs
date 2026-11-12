@@ -41,6 +41,33 @@ fn dot_scope_window_fits_the_largest_plate() {
     assert!(largest("dot-height") / 2.0 + 19.0 <= WINDOW.1 / 2.0);
 }
 
+/// An Action capture (Labs › Assistant) wears the assistant's colours until
+/// the next capture starts; a dictation's colours are exactly as before.
+#[test]
+fn a_question_tints_the_hud_and_a_dictation_never_does() {
+    let start = Instant::now();
+    let mut model = IndicatorModel::new(Tuning::default(), start);
+    model.handle(HudEvent::Started, start, false);
+    let dictation = model.step(start, 1.0 / 60.0, false);
+    assert_eq!(dictation.pose.ask, 0.0);
+    assert_eq!(model.asking(), None);
+    model.handle(HudEvent::Asking { agent: true }, start, false);
+    assert_eq!(model.asking(), Some(true));
+    let asking = model.step(start, 1.0 / 60.0, false);
+    assert_eq!(asking.pose.ask, 1.0);
+    for dark in [false, true] {
+        let plain = dot_scope::palette(dark, &dictation.pose, 1.0);
+        let tinted = dot_scope::palette(dark, &asking.pose, 1.0);
+        assert_ne!(plain.base, tinted.base, "a question looks different");
+        assert_eq!(plain.plate, tinted.plate, "on the same plate");
+        let blue = |c: [f32; 3]| c[2] - c[0];
+        assert!(blue(tinted.base) > blue(plain.base), "and bluer");
+    }
+    model.handle(HudEvent::Started, start, false);
+    assert_eq!(model.asking(), None, "the next capture dictates again");
+    assert_eq!(model.step(start, 1.0 / 60.0, false).pose.ask, 0.0);
+}
+
 /// The macOS HUD's window, which the captures use on every OS so they line
 /// up with the Metal reference frames.
 const CAPTURE_DOT_WINDOW: (f32, f32) = (320.0, 128.0);
@@ -54,6 +81,19 @@ fn schedule(model: &mut IndicatorModel, start: Instant) -> Vec<DotFrame> {
         (3.6, HudEvent::Processing { job_id: 1 }),
         (4.4, HudEvent::JobCompleted { job_id: 1 }),
     ];
+    // `HEX_HUD_ASK=quick` or `agent`: the Action shortcut asks the
+    // assistant instead (Labs › Assistant).
+    if let Ok(ask) = std::env::var("HEX_HUD_ASK") {
+        events.insert(
+            1,
+            (
+                0.0,
+                HudEvent::Asking {
+                    agent: ask == "agent",
+                },
+            ),
+        );
+    }
     events.reverse();
     (0..330)
         .map(|n| {

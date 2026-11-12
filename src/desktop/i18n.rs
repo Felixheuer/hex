@@ -9,6 +9,7 @@ use std::sync::OnceLock;
 #[cfg(not(test))]
 use std::sync::atomic::{AtomicU8, Ordering};
 
+mod assistant_overlay;
 mod failures;
 mod french;
 mod labs;
@@ -350,6 +351,7 @@ pub(super) fn all_translations() -> impl Iterator<Item = &'static (&'static str,
         .chain(labs::TRANSLATIONS)
         .chain(failures::TRANSLATIONS)
         .chain(onboarding::TRANSLATIONS)
+        .chain(assistant_overlay::TRANSLATIONS)
 }
 
 /// Columns: Polish, Chinese (Simplified), Japanese, German, Spanish, Ukrainian.
@@ -1721,6 +1723,9 @@ mod tests {
         include_str!("../windows/app.rs"),
         include_str!("../windows/rune.rs"),
         include_str!("../rune_hud.rs"),
+        include_str!("../rune_ui/assistant_overlay/bubble.rs"),
+        include_str!("../rune_ui/assistant_overlay/hint.rs"),
+        include_str!("../rune_ui/assistant_overlay/stack.rs"),
     ];
 
     /// The string literals passed to `tr`, `tr_fill`, and `tr_named`.

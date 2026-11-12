@@ -34,6 +34,9 @@ fn desktop() -> Story<Desk> {
         .trigger('f', "Agent mode on or off", |desk, _| {
             desk.frame = !desk.frame
         })
+        .trigger('n', "Hold for a new task", |desk, _| {
+            desk.holding = !desk.holding
+        })
         .trigger('s', "Everything at once", |desk, play| {
             play.clear();
             *desk = Desk {
@@ -127,6 +130,13 @@ fn quick_answer() -> Story<BubbleStory> {
         s.bubble = fixture::bubble_ended(
             "What changed in the release notes?",
             Some(fixture::LONG_ANSWER),
+            None,
+        );
+    })
+    .variant("markdown", |s| {
+        s.bubble = fixture::bubble_ended(
+            "How do I free up disk space?",
+            Some(fixture::MARKDOWN_ANSWER),
             None,
         );
     })

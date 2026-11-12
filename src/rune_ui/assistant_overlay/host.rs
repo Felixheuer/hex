@@ -34,6 +34,7 @@ use rune::{
 use super::board::{Board, Bubble, Due, Outlined};
 use super::bubble::{self, BubbleOverlay};
 use super::frame::{self, Frame};
+use super::hint::{self, Hint};
 use super::outline::{self, Outline};
 use super::stack::{self, Stack};
 use crate::assistant::{ConversationId, Event, TaskWindow};
@@ -60,6 +61,7 @@ struct Overlays {
     outlines: Vec<OverlayHandle<Outline>>,
     stack: OverlayHandle<Stack>,
     bubble: OverlayHandle<BubbleOverlay>,
+    hint: OverlayHandle<Hint>,
 }
 
 static OVERLAYS: OnceLock<Overlays> = OnceLock::new();
@@ -184,11 +186,19 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             },
         },
     );
+    let hint = app.overlay(
+        OverlaySpec::new("Hex new task", hint::SIZE, hint::view)
+            .options(options(OverlayInput::None))
+            .on_created(|created| leave_out_of_mission_control(created.window_number))
+            .release_gpu_when_hidden(),
+        Hint,
+    );
     let _ = OVERLAYS.set(Overlays {
         frames,
         outlines,
         stack,
         bubble,
+        hint,
     });
     // Tasks already running when Hex started listening.
     if let Some(overlays) = OVERLAYS.get() {
@@ -370,6 +380,62 @@ fn place_stack(handle: &OverlayHandle<Stack>) {
         width,
         height,
     }));
+}
+
+// ---------------------------------------------------------------------------
+// "New task" beside the HUD
+
+/// Whether the "New task" hint shows.
+static HINT_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Shows "New task" just past the HUD while `on` (the Action shortcut held
+/// in Agent mode), and hides it after. The HUD calls it on the main thread
+/// with each event, once it has placed itself; a repeat does nothing.
+pub(crate) fn new_task_hint(on: bool) {
+    use std::sync::atomic::Ordering;
+    if HINT_SHOWN.swap(on, Ordering::AcqRel) == on {
+        return;
+    }
+    let Some(overlays) = OVERLAYS.get() else {
+        return;
+    };
+    if on {
+        place_hint(&overlays.hint);
+        overlays.hint.fade_in(FADE);
+    } else {
+        overlays.hint.fade_out(FADE);
+    }
+}
+
+/// Places the hint where Live text would start, past its plate when Labs ›
+/// Live text may show one there.
+fn place_hint(handle: &OverlayHandle<Hint>) {
+    let (width, height) = hint::SIZE;
+    let past = if crate::labs::live_text() {
+        crate::rune_ui::live_text::SIZE.1
+    } else {
+        0.0
+    };
+    match crate::rune_hud::live_text_place() {
+        Spot::Global { x, y, below } => {
+            handle.set_display(DisplayTarget::Primary);
+            handle.set_placement(Some(OverlayPlacement::Rect {
+                x: x - width / 2.0,
+                y: if below { y + past } else { y - height - past },
+                width,
+                height,
+            }));
+        }
+        Spot::Edge(edge, margin) => {
+            handle.set_display(DisplayTarget::UnderPointer);
+            handle.set_placement(Some(OverlayPlacement::Edge {
+                edge,
+                margin: margin + past,
+                align: Align::Center,
+                inset: 0.0,
+            }));
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -578,6 +644,11 @@ struct Slot {
     key: (ConversationId, TaskWindow),
     rect: Option<[f32; 4]>,
     outline: Outline,
+    /// The window's CoreGraphics number, when its id names one: the
+    /// outline then sits among ordinary windows, just above it.
+    target: Option<u32>,
+    /// The panel's level was set for `target`.
+    levelled: bool,
 }
 
 #[derive(Default)]
@@ -721,6 +792,8 @@ impl Watcher {
                             key,
                             rect: None,
                             outline: Outline::default(),
+                            target: None,
+                            levelled: false,
                         });
                         free
                     }
@@ -766,8 +839,50 @@ impl Watcher {
                 }
                 slot.rect = Some(rect);
             }
+            let target = item
+                .window
+                .window_id
+                .as_deref()
+                .and_then(crate::assistant::computer::window_number);
+            if !slot.levelled || slot.target != target {
+                // Among ordinary windows when its window is known, so a
+                // window covering it covers its outline too; otherwise
+                // over everything, like the other overlays.
+                handle.set_macos_level(if target.is_some() {
+                    NORMAL_LEVEL
+                } else {
+                    STATUS_LEVEL
+                });
+                slot.target = target;
+                slot.levelled = true;
+            }
+            if let Some(target) = target {
+                // Each poll, since clicking another window reorders them.
+                let panel = handle.clone();
+                handle.update_if(move |_, _| {
+                    order_above(panel.window_number(), target);
+                    false
+                });
+            }
         }
     }
+}
+
+/// `NSNormalWindowLevel`: ordinary app windows.
+const NORMAL_LEVEL: isize = 0;
+/// `NSStatusWindowLevel`, Rune's default for overlays.
+const STATUS_LEVEL: isize = 25;
+
+/// Orders the outline panel `number` just above window `target` (another
+/// app's, by its CoreGraphics number), when it shows. Main thread.
+fn order_above(number: Option<u32>, target: u32) {
+    let Some(panel) = panel(number) else {
+        return;
+    };
+    if !panel.isVisible() {
+        return;
+    }
+    panel.orderWindow_relativeTo(objc2_app_kit::NSWindowOrderingMode::Above, target as isize);
 }
 
 /// The top of the display the window's top edge is on (its centre's, else

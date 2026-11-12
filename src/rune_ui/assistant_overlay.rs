@@ -24,8 +24,10 @@ mod bubble;
 mod desk;
 mod fixture;
 mod frame;
+mod hint;
 #[cfg(target_os = "macos")]
 mod host;
+mod markdown;
 mod outline;
 mod palette;
 mod stack;
@@ -35,7 +37,7 @@ pub(crate) mod stories;
 mod tests;
 
 #[cfg(target_os = "macos")]
-pub(crate) use host::install;
+pub(crate) use host::{install, new_task_hint};
 // For the Chats pane to call once it can open a conversation.
 #[cfg(target_os = "macos")]
 #[allow(unused_imports)]
