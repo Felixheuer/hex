@@ -252,6 +252,7 @@ pub(in crate::rune_ui) fn fix_label(fix: Fix) -> String {
     match fix {
         Fix::Install(backend) => tr_fill("Install {}", super::backend_name(backend)),
         Fix::InstallAgentDesktop => tr("Install agent-desktop").into(),
+        Fix::InstallAgentBrowser => tr("Install agent-browser").into(),
         Fix::SignIn(_) => tr("Sign in…").into(),
         Fix::StartOpenCode => tr("Start OpenCode").into(),
         Fix::AddApiKey => tr("Add API key").into(),
@@ -277,9 +278,10 @@ pub(in crate::rune_ui) fn check_title(check: Check) -> String {
         Check::DesktopThroughAgent(backend) => {
             tr_fill("{} can use agent-desktop", super::backend_name(backend))
         }
-        // A check added after this page was written, in its own words.
-        #[allow(unreachable_patterns)]
-        _ => check.title(),
+        Check::BrowserRoundTrip => tr("agent-browser opens pages in hidden browsers").into(),
+        Check::BrowserThroughAgent(backend) => {
+            tr_fill("{} can use agent-browser", super::backend_name(backend))
+        }
     }
 }
 
@@ -596,7 +598,7 @@ pub(in crate::rune_ui) fn run_checks(ui: &mut Ui) {
     }
     flow.checks_running = true;
     flow.checked_backend = Some(backend);
-    flow.checks = Check::for_backend(backend)
+    flow.checks = Check::for_backend(backend, settings.background_browser)
         .into_iter()
         .map(|check| CheckResult {
             check,
