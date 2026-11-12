@@ -849,9 +849,10 @@ fn flush(rt: &mut Runtime<Ui>) {
 /// A shown window keeps drawing while its runtime animates, has input queued
 /// or has live values pending (Rune's `Host::redraw`). Five seconds after
 /// mounting, with nothing changing, the only motion left in any scene is the
-/// pulsing dot of something live, Output's turning spark, or the
-/// shortcut explainer's looping demo, and under Reduce Motion, which stills
-/// them all, no scene asks for another frame.
+/// pulsing dot of something live, the spinners of the assistant's work in
+/// flight, Output's turning spark, or the shortcut explainer's looping
+/// demo, and under Reduce Motion, which stills them all, no scene asks for
+/// another frame.
 #[test]
 fn every_scene_stops_asking_for_frames() {
     const FRAME: f64 = 1.0 / 60.0;
@@ -868,7 +869,12 @@ fn every_scene_stops_asking_for_frames() {
             moving.extend(
                 rt.elements()
                     .into_iter()
-                    .filter(|e| e.moving && !matches!(e.key.as_deref(), Some("dot")) && !spark(e))
+                    .filter(|e| {
+                        e.moving
+                            && !matches!(e.key.as_deref(), Some("dot"))
+                            && !spark(e)
+                            && !working(e)
+                    })
                     .map(|e| format!("{scene}: {}", e.path)),
             );
         }
@@ -956,6 +962,15 @@ fn switching_panes_is_instant() {
             element.path
         );
     }
+}
+
+/// A part of a spinner or busy bar in Chats or the assistant's setup (a
+/// request in flight, a plan's running step, a check or an install under
+/// way), which turns for as long as that work runs. Rune Kit's spinners
+/// draw into unnamed children (`#0`).
+fn working(e: &rune::ElementInfo) -> bool {
+    (e.path.contains("/chats-pane/") || e.path.starts_with("kit-root/assistant-setup/"))
+        && e.path.contains("/#0")
 }
 
 /// A frame of Output's turning spark or a word of its cycling examples,
