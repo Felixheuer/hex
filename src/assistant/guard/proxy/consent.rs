@@ -15,6 +15,7 @@ use serde_json::{Map, Value, json};
 use super::super::child::Desktop;
 use super::{Guard, Resolved, refusal, text};
 use crate::assistant::autonomy::{self, Autonomy, Category};
+use crate::assistant::backends::os::Os;
 
 /// What the guard learned about an element from a result.
 #[derive(Clone, Debug, Default)]
@@ -42,6 +43,10 @@ const MAIL_APPS: &[&str] = &[
     "mail",
     "microsoft outlook",
     "outlook",
+    "olk",
+    "thunderbird",
+    "evolution",
+    "geary",
     "spark",
     "airmail",
     "mimestream",
@@ -64,6 +69,23 @@ const DELETE_APPS: &[&str] = &[
     "kalender",
     "music",
     "musik",
+];
+
+/// File managers and mail apps where Delete (or Shift+Delete, Ctrl+D)
+/// deletes the selection on Windows and Linux.
+const DELETE_KEY_APPS: &[&str] = &[
+    "explorer",
+    "file explorer",
+    "files",
+    "nautilus",
+    "dolphin",
+    "nemo",
+    "thunar",
+    "outlook",
+    "olk",
+    "thunderbird",
+    "evolution",
+    "photos",
 ];
 
 impl<D: Desktop> Guard<D> {
@@ -144,7 +166,8 @@ impl<D: Desktop> Guard<D> {
             }
             "press" => {
                 let combo = text(args, "combo")?;
-                shortcut(app, &combo).map(|category| (category, format!("the {combo} shortcut")))
+                shortcut(Os::HERE, app, &combo)
+                    .map(|category| (category, format!("the {combo} shortcut")))
             }
             "type" | "set_value" => {
                 let key = if tool.ends_with("type") {
@@ -313,10 +336,23 @@ fn combo_parts(combo: &str) -> (Vec<&'static str>, String) {
     (modifiers, key)
 }
 
-/// What a shortcut does in a known app.
-fn shortcut(app: &str, combo: &str) -> Option<Category> {
+/// What a shortcut does in a known app on `os`: ⌘ shortcuts on macOS,
+/// Ctrl and the bare Delete key on Windows and Linux.
+fn shortcut(os: Os, app: &str, combo: &str) -> Option<Category> {
     let (modifiers, key) = combo_parts(combo);
     let modifiers = modifiers.as_slice();
+    if os != Os::Mac {
+        return match (modifiers, key.as_str()) {
+            ([], "return") | (["ctrl"], "return") if is_one_of(app, CHAT_APPS) => {
+                Some(Category::Send)
+            }
+            (["ctrl"], "return") if is_one_of(app, MAIL_APPS) => Some(Category::Send),
+            ([] | ["shift"], "delete") | (["ctrl"], "d") if is_one_of(app, DELETE_KEY_APPS) => {
+                Some(Category::Delete)
+            }
+            _ => None,
+        };
+    }
     match (modifiers, key.as_str()) {
         ([], "return") | (["cmd"], "return") if is_one_of(app, CHAT_APPS) => Some(Category::Send),
         (["cmd", "shift"], "d") | (["cmd"], "return") if is_one_of(app, MAIL_APPS) => {
@@ -338,21 +374,53 @@ mod tests {
 
     #[test]
     fn known_shortcuts_in_known_apps_are_consequential() {
-        assert_eq!(shortcut("Finder", "cmd+backspace"), Some(Category::Delete));
         assert_eq!(
-            shortcut("Finder", "Cmd+Shift+Delete"),
+            shortcut(Os::Mac, "Finder", "cmd+backspace"),
             Some(Category::Delete)
         );
-        assert_eq!(shortcut("Mail", "cmd+shift+d"), Some(Category::Send));
         assert_eq!(
-            shortcut("Microsoft Outlook", "cmd+enter"),
+            shortcut(Os::Mac, "Finder", "Cmd+Shift+Delete"),
+            Some(Category::Delete)
+        );
+        assert_eq!(
+            shortcut(Os::Mac, "Mail", "cmd+shift+d"),
             Some(Category::Send)
         );
-        assert_eq!(shortcut("Messages", "return"), Some(Category::Send));
-        assert_eq!(shortcut("Nachrichten", "enter"), Some(Category::Send));
-        assert_eq!(shortcut("TextEdit", "cmd+backspace"), None);
-        assert_eq!(shortcut("TextEdit", "return"), None);
-        assert_eq!(shortcut("Mail", "cmd+c"), None);
+        assert_eq!(
+            shortcut(Os::Mac, "Microsoft Outlook", "cmd+enter"),
+            Some(Category::Send)
+        );
+        assert_eq!(
+            shortcut(Os::Mac, "Messages", "return"),
+            Some(Category::Send)
+        );
+        assert_eq!(
+            shortcut(Os::Mac, "Nachrichten", "enter"),
+            Some(Category::Send)
+        );
+        assert_eq!(shortcut(Os::Mac, "TextEdit", "cmd+backspace"), None);
+        assert_eq!(shortcut(Os::Mac, "TextEdit", "return"), None);
+        assert_eq!(shortcut(Os::Mac, "Mail", "cmd+c"), None);
+    }
+
+    #[test]
+    fn windows_and_linux_shortcuts_use_ctrl_and_the_delete_key() {
+        for os in [Os::Windows, Os::Linux] {
+            assert_eq!(shortcut(os, "outlook", "ctrl+enter"), Some(Category::Send));
+            assert_eq!(
+                shortcut(os, "Thunderbird", "Ctrl+Return"),
+                Some(Category::Send)
+            );
+            assert_eq!(shortcut(os, "Slack", "enter"), Some(Category::Send));
+            assert_eq!(shortcut(os, "explorer", "delete"), Some(Category::Delete));
+            assert_eq!(
+                shortcut(os, "nautilus", "shift+delete"),
+                Some(Category::Delete)
+            );
+            // ⌘ is the Windows or Super key there: not a send.
+            assert_eq!(shortcut(os, "outlook", "cmd+enter"), None);
+            assert_eq!(shortcut(os, "notepad", "delete"), None);
+        }
     }
 
     #[test]
