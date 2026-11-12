@@ -21,9 +21,6 @@
 //!
 //! Everything here is inert while `assistant.enabled` is off.
 
-// Until the Action shortcut and Chats call into it. Remove when wired.
-#![allow(dead_code, unused_imports)]
-
 pub mod agent;
 pub mod autonomy;
 pub mod backends;
@@ -45,9 +42,7 @@ pub mod tools;
 pub mod types;
 
 pub use service::{
-    agent_mode, background_busy, busy, cancel, cancel_all, conversation, conversations, delete,
-    focus, hand_back, prewarm, resume_interrupted, set_agent_mode, set_focus, stop_all, submit,
-    subscribe, take_over, tasks,
+    busy, cancel, conversation, conversations, delete, focus, set_focus, submit, subscribe, tasks,
 };
 pub use types::*;
 

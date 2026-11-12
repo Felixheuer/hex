@@ -41,7 +41,6 @@ mod voice;
 mod warm;
 
 use std::collections::VecDeque;
-use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
@@ -133,20 +132,6 @@ pub fn tasks() -> Vec<TaskStatus> {
 /// Whether any task is running or queued.
 pub fn busy() -> bool {
     !runner().state().tasks.is_empty()
-}
-
-/// The screen frame's state, as `background_busy` (Agent mode is gone: the
-/// frame follows Background work).
-pub fn agent_mode() -> bool {
-    background_busy()
-}
-
-/// Kept for callers of the old Agent mode switch: turning it off stops every
-/// task; turning it on does nothing (Background work turns the frame on).
-pub fn set_agent_mode(on: bool) {
-    if !on {
-        stop_all();
-    }
 }
 
 /// Stops every task (the Stop all shortcut, the stack's and Chats' button,
@@ -336,8 +321,6 @@ pub(crate) struct Hooks {
     pub style_agent: Box<StyleAgent>,
     /// Starts reading text aloud with a voice (returns at once).
     pub speak: Box<Speak>,
-    /// Whether something is being read aloud.
-    pub speaking: Hook<bool>,
     /// The voice for an answer, from its first sentence, when none is set.
     pub pick_voice: OnTask<Option<String>>,
     pub stop_speaking: Hook<()>,
@@ -390,7 +373,6 @@ impl Hooks {
             end_session: Box::new(session::desktop_session::end),
             style_agent: Box::new(session::desktop_session::style),
             speak: Box::new(speak_next),
-            speaking: Box::new(super::speech::speaking),
             pick_voice: Box::new(super::speech::automatic_voice),
             stop_speaking: Box::new(super::speech::stop),
             now_ms: Box::new(store::now_ms),

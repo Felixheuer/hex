@@ -27,9 +27,9 @@ use super::super::platform::PlatformRequest;
 use super::shortcut::{self, Conflict, ConflictFix, Probe};
 use super::{Job, Ui};
 use crate::app_settings::{AssistantBackend, HotkeySlot};
+use crate::assistant::Event;
 use crate::assistant::backends::{AgentDesktop, Check, CheckResult, CheckState, Fix, Found};
 use crate::assistant::computer::{Permission, Permissions};
-use crate::assistant::Event;
 use crate::desktop::i18n::{tr, tr_fill};
 use crate::desktop::onboarding::{PermissionAction, PermissionKind, PermissionState};
 
@@ -382,9 +382,9 @@ pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bo
                 .iter()
                 .all(|grant| grant_state(ui, flow, *grant) == State::Passed)
                 && flow
-                .desktop
-                .as_ref()
-                .is_some_and(|found| found.path.is_some())
+                    .desktop
+                    .as_ref()
+                    .is_some_and(|found| found.path.is_some())
                 && Grant::DESKTOP
                     .iter()
                     .all(|grant| grant_state(ui, flow, *grant) == State::Passed)

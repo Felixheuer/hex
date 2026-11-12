@@ -13,7 +13,7 @@ mod browser;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use color_eyre::{Result, eyre::eyre};
+use color_eyre::Result;
 use serde_json::Value;
 
 use super::{agent_command, desktop, name, run, search};
@@ -106,18 +106,6 @@ impl Check {
             Self::BrowserThroughAgent(backend) => {
                 vec![Self::Answers(backend), Self::BrowserRoundTrip]
             }
-        }
-    }
-
-    /// How long it may take, at most (plus a few seconds to find things).
-    pub fn limit(self) -> Duration {
-        match self {
-            Self::HexPermissions => Duration::from_secs(10),
-            Self::Answers(_) => ANSWER_LIMIT,
-            Self::DesktopPermissions | Self::DesktopRoundTrip => Duration::from_secs(45),
-            Self::DesktopThroughAgent(_) => MCP_LIMIT,
-            Self::BrowserRoundTrip | Self::LightBrowser => browser::ROUND_TRIP_LIMIT,
-            Self::BrowserThroughAgent(_) => browser::THROUGH_AGENT_LIMIT,
         }
     }
 }

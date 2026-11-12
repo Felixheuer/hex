@@ -7,7 +7,6 @@ use serde_json::{Map, Value, json};
 
 use super::super::child::{Desktop, Window};
 use super::super::policy::DISPLAYS_TOOL;
-use super::super::screen::Display;
 use super::Guard;
 use super::apps::success;
 use crate::assistant::computer;

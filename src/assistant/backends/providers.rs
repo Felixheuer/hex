@@ -185,11 +185,6 @@ pub fn set_provider_key(id: &str, key: &str) -> Result<()> {
     keys::save(provider.id, key)
 }
 
-/// Whether a key for `id` is saved.
-pub fn has_provider_key(id: &str) -> bool {
-    provider_key(id).is_some()
-}
-
 pub(super) fn provider_key(id: &str) -> Option<String> {
     keys::load(provider(id)?.id)
 }

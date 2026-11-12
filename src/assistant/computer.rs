@@ -30,7 +30,7 @@ mod displays;
 mod privacy;
 
 pub use displays::{
-    Display, agents_display, cascade, describe as describe_displays, display_of, displays, relation,
+    Display, agents_display, cascade, describe as describe_displays, display_of, displays,
 };
 
 /// `assistant.agent_display` as last applied.
@@ -67,22 +67,6 @@ pub fn window_frame(window: &crate::assistant::TaskWindow) -> Option<(f64, f64, 
         let _ = window;
         None
     }
-}
-
-/// What the desktop looks like now, for a question: a screenshot when
-/// `with_screenshot`, the selected text, the frontmost app and its window.
-/// Blocks for the screenshot (a few hundred milliseconds); off the UI
-/// thread, or use [`context_async`].
-pub fn context(with_screenshot: bool) -> crate::assistant::Context {
-    let mut context = quick_context();
-    if with_screenshot {
-        context.screenshot = screenshot()
-            .inspect_err(|error| {
-                tracing::warn!(error = %format!("{error:#}"), "no screenshot for the question");
-            })
-            .ok();
-    }
-    context
 }
 
 /// The Accessibility part of [`context`] alone (the frontmost app, its
@@ -196,6 +180,7 @@ impl ContextHandle {
     }
 
     /// Whether the read has finished (or failed to start).
+    #[cfg(test)]
     pub fn is_done(&self) -> bool {
         self.shared
             .state
@@ -236,26 +221,13 @@ impl Drop for ContextHandle {
 }
 
 /// Whether Hex may read other apps and record the screen (macOS
-/// Accessibility and Screen Recording), for setup to show what's missing.
-/// Never blocks: Screen Recording follows a cached read that refreshes in
-/// the background (see [`permissions_now`]).
-pub fn permissions() -> Permissions {
-    #[cfg(target_os = "macos")]
-    {
-        macos::permissions(false)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        Permissions::default()
-    }
-}
-
-/// [`permissions`] read afresh, so a grant made since launch shows; blocks
-/// for up to a few seconds. Off the UI thread.
+/// Accessibility and Screen Recording), for setup to show what's missing,
+/// read afresh so a grant made since launch shows; blocks for up to a few
+/// seconds. Off the UI thread.
 pub fn permissions_now() -> Permissions {
     #[cfg(target_os = "macos")]
     {
-        macos::permissions(true)
+        macos::permissions()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -471,7 +443,7 @@ mod macos {
             true,
         )
         .map_err(|error| {
-            if permissions(false).screen_recording {
+            if crate::capture_host::screen_access() == crate::capture_host::ScreenAccess::Allowed {
                 eyre!("Couldn't take a screenshot: {error}")
             } else {
                 eyre!("Hex needs Screen Recording to see the screen")
@@ -532,17 +504,13 @@ mod macos {
         }
     }
 
-    pub fn permissions(fresh: bool) -> Permissions {
+    pub fn permissions() -> Permissions {
         use crate::capture_host::ScreenAccess;
         use crate::desktop::onboarding::PermissionState;
         let accessibility = crate::desktop::onboarding::status_with_transcription_model(true)
             .accessibility
             == PermissionState::Ready;
-        let screen = if fresh {
-            crate::capture_host::screen_access_now()
-        } else {
-            crate::capture_host::screen_access()
-        };
+        let screen = crate::capture_host::screen_access_now();
         Permissions {
             accessibility,
             screen_recording: screen == ScreenAccess::Allowed,

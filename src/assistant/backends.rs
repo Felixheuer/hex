@@ -26,20 +26,17 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use color_eyre::{Result, eyre::eyre};
-
 use crate::app_settings::AssistantBackend;
 
 pub use check::{
     Check, CheckResult, CheckState, Fix, opencode_recent_model, self_test, self_tests,
 };
-pub use install::{Installers, Plan, Step, Tool, apply_fix, apply_fix_with, install_command, plan};
+pub use install::{Installers, Tool, apply_fix, apply_fix_with, install_command, plan};
 pub use providers::{
-    Provider, agent_env_for, has_provider_key, merge_config, opencode_model,
-    opencode_provider_config, parse_models, provider, providers, set_provider_key,
-    signed_in_providers, verify_provider_key,
+    Provider, agent_env_for, merge_config, opencode_model, opencode_provider_config, providers,
+    set_provider_key, verify_provider_key,
 };
-pub use recommend::{Recommendation, recommendations};
+pub use recommend::recommendations;
 
 /// One agent found on this computer.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -380,13 +377,6 @@ pub(in crate::assistant) fn desktop_call(
             words
         }
     })
-}
-
-/// Installs agent-desktop (Homebrew, else npm); blocks until done (minutes
-/// at most). Fails with a person-readable reason when neither is there
-/// ([`install_command`] has what to paste in Terminal instead).
-pub fn install_agent_desktop() -> Result<()> {
-    install::install(Tool::AgentDesktop, &mut |_| {})
 }
 
 /// Opens System Settings at agent-desktop's missing permission

@@ -26,7 +26,7 @@ mod warm;
 
 use std::collections::VecDeque;
 use std::ffi::OsString;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -541,26 +541,6 @@ impl Process {
             .join("\n");
         (status, stderr)
     }
-}
-
-/// Runs `executable args` to completion (an agent-desktop call) and returns
-/// its stdout, ended early when the task is cancelled.
-pub fn output(command: Command, control: &Control, limit: usize) -> Result<String> {
-    let mut process = Process::spawn(command, Stdin::Null, control)?;
-    let mut text = String::new();
-    if let Some(reader) = process.stdout.take() {
-        let mut buffer = Vec::new();
-        let _ = reader.take(limit as u64).read_to_end(&mut buffer);
-        text = String::from_utf8_lossy(&buffer).into_owned();
-    }
-    let (status, stderr) = process.finish(control);
-    if control.cancelled() {
-        return Err(eyre!("cancelled"));
-    }
-    if text.trim().is_empty() && !status.is_some_and(|status| status.success()) {
-        return Err(eyre!("{}", last_line(&stderr, "the command failed")));
-    }
-    Ok(text)
 }
 
 /// The last non-empty line of `text`, or `fallback`.

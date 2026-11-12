@@ -39,6 +39,13 @@ static PARKED: Mutex<Option<HashMap<String, (f64, f64)>>> = Mutex::new(None);
 
 /// Whether moving task windows out of the way is on and can work here
 /// (`agent_space` and the assistant are on, and agent-desktop is installed).
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the agent_space setting is not wired to tasks yet"
+    )
+)]
 pub fn available() -> bool {
     let on = crate::app_settings::assistant_runtime()
         .is_some_and(|(lab, settings)| lab && settings.agent_space);
@@ -47,6 +54,13 @@ pub fn available() -> bool {
 
 /// Moves `window` out of the person's way; false when it couldn't (or
 /// `agent_space` is off).
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the agent_space setting is not wired to tasks yet"
+    )
+)]
 pub fn park(window: &TaskWindow) -> bool {
     available()
         && park_now(window)
@@ -56,6 +70,13 @@ pub fn park(window: &TaskWindow) -> bool {
 
 /// Brings `window` back where it was and to the front; false when it
 /// couldn't (or `agent_space` is off).
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the agent_space setting is not wired to tasks yet"
+    )
+)]
 pub fn show(window: &TaskWindow) -> bool {
     available()
         && show_now(window)

@@ -2,8 +2,8 @@
 //! assistant service once the window connects, else the in-memory
 //! [`fixture::Store`] (scenes, tests, a window not yet connected).
 
-use super::fixture;
 use super::bridge::schedules::{self, Repeat, Schedule};
+use super::fixture;
 use crate::assistant::{
     Context, Conversation, ConversationId, ConversationSummary, Request, TaskState, TaskStatus,
     TaskWindow,
@@ -79,7 +79,11 @@ impl Source {
         match self {
             Self::Fixture(store) => {
                 store.taken_over.push((id.to_owned(), paused));
-                for task in store.tasks.iter_mut().filter(|task| task.conversation == id) {
+                for task in store
+                    .tasks
+                    .iter_mut()
+                    .filter(|task| task.conversation == id)
+                {
                     task.state = if paused {
                         TaskState::Paused
                     } else {
@@ -138,7 +142,9 @@ impl Source {
                         .stderr(std::process::Stdio::null())
                         .spawn()
                 } else {
-                    std::process::Command::new("/usr/bin/open").arg(&target).spawn()
+                    std::process::Command::new("/usr/bin/open")
+                        .arg(&target)
+                        .spawn()
                 };
                 if let Err(error) = spawned {
                     tracing::warn!(%error, "could not open a job's result");
@@ -155,7 +161,12 @@ impl Source {
         }
     }
 
-    pub(super) fn add_schedule(&mut self, text: &str, minute: u32, repeat: Repeat) -> Result<(), String> {
+    pub(super) fn add_schedule(
+        &mut self,
+        text: &str,
+        minute: u32,
+        repeat: Repeat,
+    ) -> Result<(), String> {
         match self {
             Self::Fixture(store) => {
                 if text.is_empty() {
@@ -187,7 +198,11 @@ impl Source {
     pub(super) fn set_schedule_enabled(&mut self, id: &str, on: bool) {
         match self {
             Self::Fixture(store) => {
-                for schedule in store.schedules.iter_mut().filter(|schedule| schedule.id == id) {
+                for schedule in store
+                    .schedules
+                    .iter_mut()
+                    .filter(|schedule| schedule.id == id)
+                {
                     schedule.enabled = on;
                 }
             }

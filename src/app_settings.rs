@@ -15,9 +15,9 @@ use serde::{Deserialize, Serialize};
 use crate::dictation::vocabulary::{VocabularyEntry, serialize_saved};
 use crate::transcription::models::{TranscriptionModelId, TranscriptionSelection};
 
+mod assistant;
 #[cfg(hex_capture)]
 mod capture;
-mod assistant;
 mod dictation_processing;
 mod extra_shortcuts;
 mod hotkeys;
@@ -31,12 +31,12 @@ pub(crate) use persistence::LaunchLoad;
 pub(crate) use persistence::LaunchNote;
 mod shortcut_repair;
 
+pub use assistant::*;
 #[cfg(hex_capture)]
 pub use capture::*;
 pub use dictation_processing::{
     DictationMode, DictationPostProcessing, DictationProcessingSettings,
 };
-pub use assistant::*;
 pub use extra_shortcuts::*;
 pub use hotkeys::*;
 pub use labs::*;

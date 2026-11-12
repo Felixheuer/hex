@@ -36,7 +36,7 @@ use serde_json::Value;
 use crate::assistant::backends::{self, McpServer, run, search};
 
 pub use proxy::serve;
-pub use sessions::{Engine, MAX_SESSIONS};
+pub use sessions::Engine;
 
 /// The server's name in each agent's config: its tools are then
 /// `mcp__agent-browser__agent_browser_*` (Claude Code), `agent_browser_*`
@@ -106,17 +106,6 @@ pub fn chrome_installed(doctor: &str) -> Option<bool> {
     Some(check.get("status").and_then(Value::as_str) == Some("pass"))
 }
 
-/// `brew install agent-browser` (else npm), then `agent-browser install`
-/// (its Chrome); blocks. What isn't missing isn't installed again.
-pub fn install() -> Result<()> {
-    install_with(|_| {})
-}
-
-/// [`install`], handing `progress` each line of the installers' output.
-pub fn install_with(progress: impl FnMut(&str)) -> Result<()> {
-    backends::apply_fix_with(backends::Fix::InstallAgentBrowser, progress)
-}
-
 /// Lightpanda, if installed (`~/.local/bin/lightpanda` from its installer).
 pub fn lightpanda() -> Option<PathBuf> {
     search::find("lightpanda")
@@ -130,12 +119,6 @@ pub fn clean_engine() -> Engine {
     } else {
         Engine::Chrome
     }
-}
-
-/// Installs Lightpanda with its official script (into `~/.local/bin`);
-/// blocks. Nothing happens when it's installed.
-pub fn install_lightpanda_with(progress: impl FnMut(&str)) -> Result<()> {
-    backends::apply_fix_with(backends::Fix::InstallLightpanda, progress)
 }
 
 /// The browser tool for `task`: its own browsers, closed when the task

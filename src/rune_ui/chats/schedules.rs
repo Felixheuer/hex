@@ -14,7 +14,12 @@ use crate::desktop::i18n::tr;
 
 static RUN_ICON: &rune::Icon = &rune_theme_opencode::icons::ARROW_RIGHT;
 
-const REPEATS: [Repeat; 4] = [Repeat::Once, Repeat::Daily, Repeat::Weekdays, Repeat::Weekly];
+const REPEATS: [Repeat; 4] = [
+    Repeat::Once,
+    Repeat::Daily,
+    Repeat::Weekdays,
+    Repeat::Weekly,
+];
 
 /// The New schedule sheet, while it shows.
 pub(in crate::rune_ui) struct NewSchedule {
@@ -146,9 +151,15 @@ fn schedule_row(p: Paint, index: usize, schedule: &Schedule) -> El {
                 .key("hover")
                 .gap(2.0)
                 .group_opacity(0.0, 1.0)
-                .child(ld::row_action(p, "run-now", RUN_ICON, tr("Run now"), move |ui: &mut Ui, _| {
-                    ui.chats.run_schedule(&run);
-                }))
+                .child(ld::row_action(
+                    p,
+                    "run-now",
+                    RUN_ICON,
+                    tr("Run now"),
+                    move |ui: &mut Ui, _| {
+                        ui.chats.run_schedule(&run);
+                    },
+                ))
                 .child(ld::row_action(
                     p,
                     "delete-schedule",
@@ -257,7 +268,11 @@ pub(super) fn sheet(ui: &Ui, p: Paint) -> Option<El> {
                 .label(tr("What to do"))
                 .width(None)
                 .on_edit(|ui: &mut Ui| {
-                    &mut ui.chats.new_schedule.get_or_insert_with(Default::default).text
+                    &mut ui
+                        .chats
+                        .new_schedule
+                        .get_or_insert_with(Default::default)
+                        .text
                 })
                 .on_submit(|ui: &mut Ui, _| ui.chats.save_schedule())
                 .build(k)
@@ -274,7 +289,11 @@ pub(super) fn sheet(ui: &Ui, p: Paint) -> Option<El> {
                         .label(tr("Time"))
                         .width(Some(80.0))
                         .on_edit(|ui: &mut Ui| {
-                            &mut ui.chats.new_schedule.get_or_insert_with(Default::default).time
+                            &mut ui
+                                .chats
+                                .new_schedule
+                                .get_or_insert_with(Default::default)
+                                .time
                         })
                         .build(k)
                         .key("schedule-time"),

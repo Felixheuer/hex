@@ -18,7 +18,6 @@ use crate::app_settings::{AssistantBackend, AssistantSettings};
 use crate::assistant::backends::McpServer;
 use crate::assistant::browser::{self, MCP_NAME};
 
-pub const ROUND_TRIP_LIMIT: Duration = Duration::from_secs(60);
 pub const THROUGH_AGENT_LIMIT: Duration = Duration::from_secs(90);
 
 /// A check's page: its title is `Hex-check-<nonce>`, spelled `%2D` in the

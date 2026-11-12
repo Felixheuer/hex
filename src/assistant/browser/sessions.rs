@@ -102,10 +102,6 @@ impl Sessions {
         }
     }
 
-    pub fn task(&self) -> &str {
-        &self.task
-    }
-
     /// A tool call's arguments pinned to one of this task's browsers;
     /// `Err` is the tool error to answer with instead of calling.
     pub fn pin(&mut self, tool: &str, arguments: &mut Map<String, Value>) -> Result<(), String> {

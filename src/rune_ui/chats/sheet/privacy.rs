@@ -110,7 +110,12 @@ fn blocked(ui: &Ui, p: Paint) -> El {
                         .grow(1.0)
                         .shrink(),
                 )
-                .child(small_button(p, "add-blocked-app", tr("Add"), move |ui: &mut Ui, _| add(ui))),
+                .child(small_button(
+                    p,
+                    "add-blocked-app",
+                    tr("Add"),
+                    move |ui: &mut Ui, _| add(ui),
+                )),
         )
 }
 
@@ -157,7 +162,10 @@ pub(super) fn privacy(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         p,
         "privacy",
         tr("Your privacy, your rules"),
-        lead(p, tr("In plain words: what leaves your Mac, and what the assistant may do on its own.")),
+        lead(
+            p,
+            tr("In plain words: what leaves your Mac, and what the assistant may do on its own."),
+        ),
         Some(body),
         None,
         actions(p, page_done(ui, flow, Page::Privacy), false),
@@ -183,11 +191,7 @@ pub(super) fn about(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                     .label(label.to_owned())
                     .width(None)
                     .on_edit(move |ui: &mut Ui| {
-                        &mut ui
-                            .chats
-                            .setup
-                            .get_or_insert_with(Default::default)
-                            .about[index]
+                        &mut ui.chats.setup.get_or_insert_with(Default::default).about[index]
                     })
                     .build(k)
                     .key("field"),
@@ -199,15 +203,30 @@ pub(super) fn about(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             .gap(12.0)
             .px(16.0)
             .py(14.0)
-            .child(field(0, "company", tr("Company"), tr("Where you work, and what you do there")))
+            .child(field(
+                0,
+                "company",
+                tr("Company"),
+                tr("Where you work, and what you do there"),
+            ))
             .child(field(1, "website", tr("Website"), "acme.com"))
-            .child(field(2, "colleagues", tr("Colleagues"), tr("Names you'll mention, like Maya (design), Sam (manager)"))),
+            .child(field(
+                2,
+                "colleagues",
+                tr("Colleagues"),
+                tr("Names you'll mention, like Maya (design), Sam (manager)"),
+            )),
     );
     page(
         p,
         "about",
         tr("Tell Hex about you"),
-        lead(p, tr("Optional. It remembers these so you don't repeat them. Change them anytime in Settings.")),
+        lead(
+            p,
+            tr(
+                "Optional. It remembers these so you don't repeat them. Change them anytime in Settings.",
+            ),
+        ),
         Some(body),
         None,
         actions(p, page_done(ui, flow, Page::About), true),

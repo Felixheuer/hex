@@ -107,11 +107,12 @@ pub(super) fn pills(ui: &Ui, p: Paint) -> Vec<El> {
                 .pin(Some(0.0), Some(4.0), Some(0.0), None)
                 .justify_center()
                 .child(
-                    pill(p, "jump-to-current", tr("Jump to current"), &title, None)
-                        .on_press_tx(|ui: &mut Ui, tx: &mut Tx| {
+                    pill(p, "jump-to-current", tr("Jump to current"), &title, None).on_press_tx(
+                        |ui: &mut Ui, tx: &mut Tx| {
                             tx.instant();
                             ui.chats.jump_to_current();
-                        }),
+                        },
+                    ),
                 ),
         );
     }
@@ -135,13 +136,7 @@ pub(super) fn pills(ui: &Ui, p: Paint) -> Vec<El> {
 }
 
 /// A small raised pill: an icon, a label, and a quiet detail.
-fn pill(
-    p: Paint,
-    key: &str,
-    label: &str,
-    detail: &str,
-    glyph: Option<&'static rune::Icon>,
-) -> El {
+fn pill(p: Paint, key: &str, label: &str, detail: &str, glyph: Option<&'static rune::Icon>) -> El {
     let k = p.k;
     let mut pill = row()
         .key(key.to_owned())
@@ -162,28 +157,23 @@ fn pill(
     for shadow in &k.elevation.raised {
         pill = pill.box_shadow(*shadow);
     }
-    pill.children(glyph.map(|glyph| {
-        icon(glyph, 13.0)
-            .key("icon")
-            .color(p.muted())
-            .a11y_hidden()
-    }))
-    .child(
-        text(label.to_owned())
-            .key("label")
-            .font(k.ty.small_medium)
-            .color(p.text())
-            .a11y_hidden(),
-    )
-    .children((!detail.is_empty()).then(|| {
-        text(detail.to_owned())
-            .key("detail")
-            .font(k.ty.small)
-            .color(p.muted())
-            .shrink()
-            .truncate()
-            .a11y_hidden()
-    }))
+    pill.children(glyph.map(|glyph| icon(glyph, 13.0).key("icon").color(p.muted()).a11y_hidden()))
+        .child(
+            text(label.to_owned())
+                .key("label")
+                .font(k.ty.small_medium)
+                .color(p.text())
+                .a11y_hidden(),
+        )
+        .children((!detail.is_empty()).then(|| {
+            text(detail.to_owned())
+                .key("detail")
+                .font(k.ty.small)
+                .color(p.muted())
+                .shrink()
+                .truncate()
+                .a11y_hidden()
+        }))
 }
 
 /// Where a new message goes: Auto (the assistant decides), with Here and
@@ -223,7 +213,9 @@ pub(super) fn composer(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
         (true, _, _) => tr("Tell it something while it works…"),
         (false, true, _) => tr("Reply…"),
         (false, false, SendMode::Here) => tr("Ask about the window in front…"),
-        (false, false, SendMode::Auto | SendMode::Background) => tr("Ask anything, or give it a job…"),
+        (false, false, SendMode::Auto | SendMode::Background) => {
+            tr("Ask anything, or give it a job…")
+        }
     };
     let field = TextArea::new(&pane.composer)
         .placeholder(placeholder)

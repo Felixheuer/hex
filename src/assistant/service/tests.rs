@@ -257,7 +257,6 @@ impl World {
                 style.log(format!("style {session} {agent} {colour} {label:?}"));
             }),
             speak: Box::new(move |text, _| speak.spoken.lock().unwrap().push(text.to_owned())),
-            speaking: Box::new(|| false),
             pick_voice: Box::new(|_| None),
             stop_speaking: Box::new(|| {}),
             now_ms: Box::new(move || clock.clock.load(Ordering::SeqCst)),
