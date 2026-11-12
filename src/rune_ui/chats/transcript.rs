@@ -91,7 +91,7 @@ impl Thumbnails {
 }
 
 /// The detail card: a new chat, or the selected conversation.
-pub(super) fn detail(ui: &Ui, p: Paint) -> El {
+pub(super) fn detail(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     let pane = &ui.chats;
     // Until its onboarding finished, the assistant offers to finish it
     // instead of a chat.
@@ -112,7 +112,7 @@ pub(super) fn detail(ui: &Ui, p: Paint) -> El {
         .min_h(0.0)
         .child(content)
         .children(banner)
-        .children(ready.then(|| composer::composer(ui, p)))
+        .children(ready.then(|| composer::composer(ui, p, layer)))
 }
 
 /// Setup isn't finished: a calm card that picks it up where it was left.
@@ -226,7 +226,19 @@ fn conversation(ui: &Ui, p: Paint, id: &str) -> El {
     let running = pane.running(id);
     let mut meta = Vec::new();
     if let Some(origin) = origin {
-        meta.push(ld::meta_text(p, origin_label(origin)));
+        // Keyed by lane, so a Here question that becomes a job changes its
+        // badge with a transition.
+        meta.push(
+            ld::meta_text(p, origin_label(origin))
+                .key(format!("origin-{origin:?}"))
+                .transition(super::super::onboarding_kit::arrives()),
+        );
+    }
+    if super::work::escalated(ui, &id.to_owned()) && running {
+        meta.push(
+            tone_tag(p, "escalated", tr("Moved to the background"), Tone::Accent)
+                .transition(super::super::onboarding_kit::arrives()),
+        );
     }
     if let Some(updated) = stored.map(|conversation| conversation.updated_ms) {
         meta.push(ld::meta_text(
@@ -236,6 +248,7 @@ fn conversation(ui: &Ui, p: Paint, id: &str) -> El {
     }
     if running {
         meta.push(match pane.task(id).and_then(|task| pane.hold(task)) {
+            Some(Hold::Asking(_)) => tone_tag(p, "running", tr("Needs your answer"), Tone::Accent),
             Some(Hold::Paused) => tone_tag(p, "running", tr("You have it"), Tone::Warning),
             Some(Hold::Waiting { .. }) => tone_tag(p, "running", tr("Waiting"), Tone::Neutral),
             None => tone_tag(p, "running", tr("Running"), Tone::Accent),
@@ -250,6 +263,12 @@ fn conversation(ui: &Ui, p: Paint, id: &str) -> El {
             Role::Assistant => answer(ui, p, id, index, message),
         });
     }
+    if turn.is_none()
+        && let Some(stored) = stored
+        && let Some(results) = super::work::results(ui, p, stored)
+    {
+        column = column.child(results);
+    }
     if let Some(turn) = turn {
         let asked = messages
             .last()
@@ -257,7 +276,7 @@ fn conversation(ui: &Ui, p: Paint, id: &str) -> El {
         if !asked {
             column = column.child(bubble(p, "pending-question", &turn.question));
         }
-        column = column.child(in_flight(pane, p, id, turn));
+        column = column.child(in_flight(ui, p, id, turn));
     } else if let Some(failure) = pane.failures.get(id)
         && !stored.is_some_and(ends_in_error)
     {
@@ -272,6 +291,7 @@ fn conversation(ui: &Ui, p: Paint, id: &str) -> El {
         .grow(1.0)
         .shrink()
         .min_h(0.0)
+        .children(super::work::plan_card(ui, p, id))
         .child(scroll)
         .children(composer::pills(ui, p));
     // Keyed by conversation, so a switch arrives rather than snaps.
@@ -335,7 +355,7 @@ fn question(ui: &Ui, p: Paint, id: &str, index: usize, message: &Message) -> El 
 }
 
 /// A question's words in a bubble on the right.
-fn bubble(p: Paint, key: &str, words: &str) -> El {
+pub(super) fn bubble(p: Paint, key: &str, words: &str) -> El {
     row().key(key.to_owned()).justify_end().child(
         text(words.to_owned())
             .key("words")
@@ -480,13 +500,17 @@ fn step_row(p: Paint, index: usize, step: &str, ink: rune::Color) -> El {
 
 /// A request in flight: its steps, its answer so far, and what it's doing
 /// with Stop.
-fn in_flight(pane: &ChatsPane, p: Paint, id: &str, turn: &Turn) -> El {
+fn in_flight(ui: &Ui, p: Paint, id: &str, turn: &Turn) -> El {
+    let pane = &ui.chats;
     let mut block = col().key("in-flight").gap(10.0);
     if !turn.steps.is_empty() {
         let key = format!("{id}/live");
         let folded = !pane.unfolded.contains(&key);
         let steps: Vec<&str> = turn.steps.iter().map(String::as_str).collect();
         block = block.child(step_block(p, &key, &steps, folded));
+    }
+    for (index, (question, answer)) in turn.answers.iter().enumerate() {
+        block = block.child(super::work::answered(p, index, question, answer));
     }
     for (index, words) in turn.steered.iter().enumerate() {
         block = block.child(
@@ -506,7 +530,11 @@ fn in_flight(pane: &ChatsPane, p: Paint, id: &str, turn: &Turn) -> El {
     if !turn.answer.is_empty() {
         block = block.child(markdown(p, "streaming", &turn.answer, true));
     }
+    if let Some(question) = super::work::question_block(ui, p, id) {
+        return block.child(question);
+    }
     let doing = match pane.task(id).and_then(|task| pane.hold(task)) {
+        Some(Hold::Asking(_)) => tr("Waiting for your answer").to_owned(),
         Some(Hold::Paused) => tr("Paused while you have it. Hand it back to go on").to_owned(),
         Some(Hold::Waiting { until_ms, .. }) => tr_fill(
             "Hit a usage limit. Retries in {}",

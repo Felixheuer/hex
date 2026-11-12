@@ -775,6 +775,16 @@ pub(super) const SCENES: &[Scene] = &[
         mac_chats(ui, chats::fixture::Scene::Interrupted)
     }),
     #[cfg(target_os = "macos")]
+    ("mac-chats-job", |ui| mac_chats(ui, chats::fixture::Scene::Job)),
+    #[cfg(target_os = "macos")]
+    ("mac-chats-results", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Results)
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-chats-escalated", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Escalated)
+    }),
+    #[cfg(target_os = "macos")]
     ("mac-assistant-setup", |ui| {
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Welcome))
     }),

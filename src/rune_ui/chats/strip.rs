@@ -14,6 +14,7 @@ use crate::assistant::{TaskState, TaskStatus};
 use crate::desktop::i18n::{tr, tr_fill};
 
 static STOP_ICON: &rune::Icon = &rune_theme_opencode::icons::STOP;
+static ASKING_ICON: &rune::Icon = &rune_theme_opencode::icons::HELP;
 
 /// "3 running" and Stop all, while any task runs, waits, or is queued.
 pub(super) fn header_running(ui: &Ui, p: Paint) -> Vec<El> {
@@ -92,6 +93,7 @@ pub(super) fn task_strip(ui: &Ui, p: Paint) -> Option<El> {
 /// their ink when it's a state rather than a step.
 pub(super) fn doing(ui: &Ui, p: Paint, task: &TaskStatus) -> (String, Option<rune::Color>) {
     match ui.chats.hold(task) {
+        Some(Hold::Asking(_)) => (tr("Needs your answer").to_owned(), Some(p.accent())),
         Some(Hold::Paused) => (tr("You have it").to_owned(), Some(p.warning())),
         Some(Hold::Waiting { until_ms, reason }) => {
             let left = countdown(until_ms, crate::history::now_ms());
@@ -128,6 +130,7 @@ pub(super) fn countdown(until_ms: u64, now_ms: u64) -> String {
 pub(super) fn mark(ui: &Ui, p: Paint, task: &TaskStatus) -> El {
     let colour = super::super::assistant_overlay::task_colour(task.colour, p.k.dark);
     let mark = match ui.chats.hold(task) {
+        Some(Hold::Asking(_)) => icon(ASKING_ICON, 13.0).color(p.accent()),
         Some(Hold::Paused) => icon(&HAND, 13.0).color(p.warning()),
         Some(Hold::Waiting { .. }) => icon(&TIMER, 13.0).color(p.muted()),
         None if task.state == TaskState::Queued => status_dot(p.faint()),
@@ -176,7 +179,7 @@ fn chip(ui: &Ui, p: Paint, index: usize, task: &TaskStatus) -> El {
         .pr(2.0)
         .gap(8.0)
         .center_y()
-        .max_w(400.0)
+        .max_w(330.0)
         .radius(p.k.radius.md)
         .fill(if selected { c.layer_02 } else { c.layer_01 })
         .border(

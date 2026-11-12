@@ -39,7 +39,7 @@ pub(super) fn origin_label(origin: Origin) -> &'static str {
     }
 }
 
-pub(super) fn body(ui: &Ui, p: Paint) -> El {
+pub(super) fn body(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     let pane = &ui.chats;
     let mut notices = Vec::new();
     // Unfinished setup shows in the detail card while nothing is selected,
@@ -63,7 +63,7 @@ pub(super) fn body(ui: &Ui, p: Paint) -> El {
         .shrink()
         .children((!notices.is_empty()).then(|| ld::notices(notices)))
         .children(strip::task_strip(ui, p))
-        .child(ld::body(p, "chats-body", column, transcript::detail(ui, p)))
+        .child(ld::body(p, "chats-body", column, transcript::detail(ui, p, layer)))
 }
 
 fn search(ui: &Ui, p: Paint) -> El {

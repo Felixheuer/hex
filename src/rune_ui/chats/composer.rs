@@ -9,11 +9,10 @@ use rune::{Align, El, Tx, col, el, icon, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, TextArea};
 
 use super::super::controls::{DESCRIPTION, Paint, PushSize};
-use super::super::icons::{MIC, SPARKLES};
 use super::super::onboarding_kit::arrives;
 use super::list::INTERRUPTED_ICON;
-use super::{Ui, follow};
-use crate::assistant::{Lane, Outcome};
+use super::{SendMode, Ui, follow};
+use crate::assistant::Outcome;
 use crate::desktop::i18n::tr;
 
 static SEND_ICON: &rune::Icon = &rune_theme_opencode::icons::ARROW_UP;
@@ -187,85 +186,44 @@ fn pill(
     }))
 }
 
-/// Here / Background: where a new message goes. Hidden while the shown
-/// conversation runs (a message then steers it).
-fn lane_toggle(ui: &Ui, p: Paint) -> El {
-    let lane = ui.chats.lane;
-    let k = p.k;
-    let option = |key: &str, glyph: &'static rune::Icon, label: &str, this: Lane, help: &str| {
-        let on = lane == this;
-        let option = row()
-            .key(key.to_owned())
-            .role("radio")
-            .label(label.to_owned())
-            .checked(on)
-            .focusable(true)
-            .focus_ring(2.0, 0.0, k.c.border_focus)
-            .help(help.to_owned())
-            .h(24.0)
-            .px(8.0)
-            .gap(5.0)
-            .center_y()
-            .radius(k.radius.sm);
-        let option = if on {
-            option.fill(k.c.bg_base).border(p.hair, k.c.border_weak)
-        } else {
-            option.hover(k.c.hover)
-        };
-        option
-            .on_press(move |ui: &mut Ui| ui.chats.lane = this)
-            .child(
-                icon(glyph, 12.0)
-                    .key("icon")
-                    .color(if on { p.text() } else { p.faint() })
-                    .a11y_hidden(),
-            )
-            .child(
-                text(label.to_owned())
-                    .key("label")
-                    .font(k.ty.small_medium)
-                    .color(if on { p.text() } else { p.muted() })
-                    .a11y_hidden(),
-            )
-    };
-    row()
-        .key("lane")
-        .role("radiogroup")
-        .label(tr("Send as"))
-        .px(2.0)
-        .py(2.0)
-        .gap(2.0)
-        .center_y()
-        .radius(k.radius.md)
-        .fill(k.c.layer_01)
-        .child(option(
-            "lane-here",
-            &MIC,
-            tr("Here"),
-            Lane::Here,
-            tr("About the window in front of Hex; one at a time, answered aloud"),
-        ))
-        .child(option(
-            "lane-background",
-            &SPARKLES,
-            tr("Background"),
-            Lane::Background,
-            tr("A task that works beside the others, in windows of its own"),
-        ))
+/// Where a new message goes: Auto (the assistant decides), with Here and
+/// Background as overrides in a small menu.
+fn send_mode(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
+    const MODES: [SendMode; 3] = [SendMode::Auto, SendMode::Here, SendMode::Background];
+    let labels = vec![
+        tr("Auto").to_owned(),
+        tr("Here: the window in front").to_owned(),
+        tr("Background job").to_owned(),
+    ];
+    let selected = MODES
+        .iter()
+        .position(|mode| *mode == ui.chats.lane)
+        .unwrap_or(0);
+    super::super::general::quiet_select(
+        ui,
+        p,
+        super::super::Menu::Pick("composer-send-mode"),
+        "composer-send-mode-control".to_owned(),
+        tr("Send as"),
+        labels,
+        selected,
+        |ui, chosen| ui.chats.lane = MODES[chosen.min(MODES.len() - 1)],
+        layer,
+    )
 }
 
 /// The composer: Return sends, Shift-Return starts a new line. While the
 /// shown conversation runs, an empty composer's button stops it and a
-/// message steers it.
-pub(super) fn composer(ui: &Ui, p: Paint) -> El {
+/// message steers it (or answers what it asked).
+pub(super) fn composer(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     let pane = &ui.chats;
     let empty = pane.composer.text.trim().is_empty();
     let running = pane.selected.as_deref().is_some_and(|id| pane.running(id));
     let placeholder = match (running, pane.selected.is_some(), pane.lane) {
         (true, _, _) => tr("Tell it something while it works…"),
         (false, true, _) => tr("Reply…"),
-        (false, false, Lane::Here) => tr("Ask about the window in front…"),
-        (false, false, Lane::Background) => tr("Ask anything…"),
+        (false, false, SendMode::Here) => tr("Ask about the window in front…"),
+        (false, false, SendMode::Auto | SendMode::Background) => tr("Ask anything, or give it a job…"),
     };
     let field = TextArea::new(&pane.composer)
         .placeholder(placeholder)
@@ -324,7 +282,7 @@ pub(super) fn composer(ui: &Ui, p: Paint) -> El {
             .shrink()
             .truncate()
     } else {
-        lane_toggle(ui, p)
+        send_mode(ui, p, layer)
     };
     let controls = row()
         .key("composer-controls")

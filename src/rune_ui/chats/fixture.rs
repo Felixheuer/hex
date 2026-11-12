@@ -24,6 +24,10 @@ pub(in crate::rune_ui) struct Store {
     pub(in crate::rune_ui) taken_over: Vec<(ConversationId, bool)>,
     /// Conversations resumed after Hex quit while they ran.
     pub(in crate::rune_ui) resumed: Vec<ConversationId>,
+    /// The files in each job folder, by folder.
+    pub(in crate::rune_ui) files: HashMap<String, Vec<String>>,
+    /// Folders, files, and links opened, in order.
+    pub(in crate::rune_ui) opened: Vec<String>,
     /// The conversation last named as the one showing.
     pub(in crate::rune_ui) focus: Option<ConversationId>,
 }
@@ -326,6 +330,75 @@ fn mixed_tasks(store: &mut Store, now: u64) {
     }
 }
 
+/// A big job asking its one question with its plan under way, a finished
+/// one with its folder and sheet, and a Here question that became a job.
+fn jobs(store: &mut Store, now: u64) {
+    let ask = "Research 50 specialty coffee suppliers in Europe, draft an email to each in Gmail, put them in a spreadsheet, document everything, and share it with me in Google Sheets";
+    store.conversations.push(conversation(
+        "suppliers",
+        "Research 50 coffee suppliers and draft emails",
+        Origin::Background,
+        now - MINUTE,
+        vec![message(Role::User, now - 4 * MINUTE, vec![text(ask)])],
+    ));
+    store.outcomes.insert("suppliers".into(), Outcome::Running);
+    store.tasks.push(TaskStatus {
+        conversation: "suppliers".into(),
+        origin: Origin::Background,
+        title: "Research 50 coffee suppliers and draft emails".into(),
+        state: TaskState::NeedsInput,
+        step: Some("Found 31 of 50 suppliers".into()),
+        windows: Vec::new(),
+        colour: 5,
+    });
+    store.conversations.push(conversation(
+        "q3-report",
+        "Compare the Q3 supplier quotes",
+        Origin::Background,
+        now - 50 * MINUTE,
+        vec![
+            message(
+                Role::User,
+                now - 70 * MINUTE,
+                vec![text("Compare the Q3 supplier quotes in my Downloads and share a summary sheet")],
+            ),
+            message(
+                Role::Assistant,
+                now - 50 * MINUTE,
+                vec![
+                    action("Opened 12 quotes in Downloads"),
+                    action("Built the comparison in a spreadsheet"),
+                    action("Shared it in Google Sheets"),
+                    text("Done. **Bean & Co** is cheapest for single origin, **Nordroast** for blends. Everything is in `~/Hex/Jobs/q3-quotes/`, and the shared sheet is at https://docs.google.com/spreadsheets/d/1hX9q3quotes/edit."),
+                ],
+            ),
+        ],
+    ));
+    store.files.insert(
+        "~/Hex/Jobs/q3-quotes/".into(),
+        vec!["Comparison.xlsx".into(), "Quotes.csv".into(), "Notes.md".into()],
+    );
+}
+
+/// The big job's plan, partway.
+fn job_plan() -> Vec<crate::assistant::PlanStep> {
+    [
+        ("Find 50 specialty coffee suppliers in Europe", false),
+        ("Note each one's contact, prices, and minimums", false),
+        ("Draft an email to each in Gmail", false),
+        ("Build the spreadsheet", false),
+        ("Write up how it was done", false),
+        ("Share it in Google Sheets", false),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (title, _))| crate::assistant::PlanStep {
+        title: title.into(),
+        done: index < 2,
+    })
+    .collect()
+}
+
 /// The running task's turn so far, as its events left it.
 pub(in crate::rune_ui) fn running_turn() -> super::Turn {
     super::Turn {
@@ -340,6 +413,8 @@ pub(in crate::rune_ui) fn running_turn() -> super::Turn {
         ],
         answer: String::new(),
         steered: Vec::new(),
+        answers: Vec::new(),
+        started_ms: crate::history::now_ms() - 3 * MINUTE,
     }
 }
 
@@ -355,6 +430,12 @@ pub(in crate::rune_ui) enum Scene {
     Tasks,
     /// A conversation Hex quit in the middle of, with Resume.
     Interrupted,
+    /// A big job: its plan, and the one question it asks.
+    Job,
+    /// A finished job: its folder, files, and shared sheet.
+    Results,
+    /// A Here question that became a Background job, its plan just in.
+    Escalated,
     /// No conversations yet.
     Empty,
     Settings,
@@ -384,6 +465,9 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
             | Scene::Settings
             | Scene::Tasks
             | Scene::Interrupted
+            | Scene::Job
+            | Scene::Results
+            | Scene::Escalated
     );
     ui.pane = super::Pane::Chats;
     let store = match scene {
@@ -391,6 +475,11 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
         Scene::Tasks => {
             let mut store = store(now);
             mixed_tasks(&mut store, now);
+            store
+        }
+        Scene::Job | Scene::Results | Scene::Escalated => {
+            let mut store = store(now);
+            jobs(&mut store, now);
             store
         }
         _ => store(now),
@@ -432,6 +521,59 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
         Scene::Interrupted => {
             pane.turns.insert("reply-to-maya".into(), running_turn());
             pane.select("sort-downloads".into());
+        }
+        Scene::Job => {
+            let mut turn = super::Turn::new(
+                "Research 50 specialty coffee suppliers in Europe, draft an email to each in Gmail, put them in a spreadsheet, document everything, and share it with me in Google Sheets".into(),
+                Origin::Background,
+                super::Phase::Working,
+            );
+            turn.started_ms = now - (4 * MINUTE + 12_000);
+            turn.steps = vec![
+                "Searched for specialty coffee roasters and importers".into(),
+                "Found 31 of 50 suppliers".into(),
+            ];
+            pane.turns.insert("suppliers".into(), turn);
+            pane.turns.insert("reply-to-maya".into(), running_turn());
+            pane.plans.insert("suppliers".into(), job_plan());
+            pane.questions.insert(
+                "suppliers".into(),
+                "I'll draft the emails in your Gmail and share the sheet from your Google account. **Sign in to Google** in Hex's browser so I can, or tell me to save drafts as files instead.".into(),
+            );
+            pane.select("suppliers".into());
+        }
+        Scene::Results => {
+            pane.select("q3-report".into());
+        }
+        Scene::Escalated => {
+            let mut turn = super::Turn::new(
+                "What does this error mean?".into(),
+                Origin::Background,
+                super::Phase::Working,
+            );
+            turn.started_ms = now - 40_000;
+            turn.steps = vec!["Read the build log in Xcode".into()];
+            turn.answer = "This needs more than a quick answer: I'll fix the signing settings in the background and tell you when it builds.".into();
+            pane.turns.insert("window-question".into(), turn);
+            pane.plans.insert(
+                "window-question".into(),
+                vec![
+                    crate::assistant::PlanStep {
+                        title: "Read the error and the signing settings".into(),
+                        done: true,
+                    },
+                    crate::assistant::PlanStep {
+                        title: "Pick the personal team".into(),
+                        done: false,
+                    },
+                    crate::assistant::PlanStep {
+                        title: "Build again and check it passes".into(),
+                        done: false,
+                    },
+                ],
+            );
+            pane.escalated.push("window-question".into());
+            pane.select("window-question".into());
         }
         Scene::Empty => {
             pane.tasks.clear();

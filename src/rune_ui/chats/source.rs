@@ -102,6 +102,50 @@ impl Source {
         }
     }
 
+    /// The files in `folder` worth a row (sheets, tables, documents), by
+    /// name, sorted.
+    pub(super) fn files(&self, folder: &str) -> Vec<String> {
+        match self {
+            Self::Fixture(store) => store.files.get(folder).cloned().unwrap_or_default(),
+            Self::Live => {
+                let Ok(entries) = std::fs::read_dir(expand_home(folder)) else {
+                    return Vec::new();
+                };
+                let mut names: Vec<String> = entries
+                    .flatten()
+                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                    .filter(|name| super::work::worth_a_row(name))
+                    .take(50)
+                    .collect();
+                names.sort_by_key(|name| name.to_lowercase());
+                names
+            }
+        }
+    }
+
+    /// Opens a folder, file, or link; `quick` shows a file in Quick Look.
+    pub(super) fn open(&mut self, target: &str, quick: bool) {
+        match self {
+            Self::Fixture(store) => store.opened.push(target.to_owned()),
+            Self::Live => {
+                let target = expand_home(target);
+                let spawned = if quick {
+                    std::process::Command::new("/usr/bin/qlmanage")
+                        .arg("-p")
+                        .arg(&target)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .spawn()
+                } else {
+                    std::process::Command::new("/usr/bin/open").arg(&target).spawn()
+                };
+                if let Err(error) = spawned {
+                    tracing::warn!(%error, "could not open a job's result");
+                }
+            }
+        }
+    }
+
     /// What a Here question typed in Chats is about: the frontmost window
     /// that isn't Hex's own (Chats is in front while it's typed).
     pub(super) fn here_context(&self) -> Context {
@@ -117,6 +161,16 @@ impl Source {
             },
             Self::Live => live_here_context(),
         }
+    }
+}
+
+/// `~/…` in the person's home folder.
+fn expand_home(path: &str) -> std::path::PathBuf {
+    match path.strip_prefix("~/") {
+        Some(rest) => crate::app_paths::home_dir()
+            .map(|home| home.join(rest))
+            .unwrap_or_else(|| path.into()),
+        None => path.into(),
     }
 }
 

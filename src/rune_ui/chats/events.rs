@@ -120,6 +120,30 @@ impl ChatsPane {
                 reload_list = true;
                 reload_shown = true;
             }
+            Event::Plan {
+                conversation,
+                steps,
+            } => {
+                self.plans.insert(conversation.clone(), steps.clone());
+            }
+            Event::Question { conversation, text } => {
+                self.questions.insert(conversation.clone(), text.clone());
+                // It waits on the person: show it, its answer field ready.
+                self.activity(conversation, Instant::now());
+                if self.selected.as_ref() == Some(conversation) {
+                    self.focus_answer = true;
+                    self.follow.to_end = true;
+                }
+            }
+            Event::Escalated { conversation } => {
+                if let Some(turn) = self.turns.get_mut(conversation) {
+                    turn.origin = crate::assistant::Origin::Background;
+                }
+                if !self.escalated.contains(conversation) {
+                    self.escalated.push(conversation.clone());
+                }
+                reload_list = true;
+            }
             // The screen frame shows it; the strip follows the tasks.
             Event::ModeChanged { .. } => {}
         }
@@ -161,10 +185,12 @@ impl ChatsPane {
         }
     }
 
-    /// A request ended: its turn, hold, and Hands off go.
+    /// A request ended: its turn, plan, question, hold, and Hands off go.
     fn ended(&mut self, conversation: &str) {
         self.turns.remove(conversation);
         self.holds.remove(conversation);
+        self.plans.remove(conversation);
+        self.questions.remove(conversation);
         if self.hands_off.as_deref() == Some(conversation) {
             self.hands_off = None;
         }

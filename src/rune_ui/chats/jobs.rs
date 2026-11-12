@@ -42,9 +42,11 @@ pub(in crate::rune_ui) enum Job {
     Browser,
     /// The browser's self-tests for these settings' agent.
     BrowserChecks(Box<AssistantSettings>),
-    /// Opens Hex's own browser in a window to sign in to sites
-    /// (`browser::sign_in`), or saves and closes it (`finish_sign_in`).
-    SignIn(bool),
+    /// Opens Hex's own browser in a window to sign in to sites, at this
+    /// page or a blank one (`browser::sign_in`).
+    SignIn(Option<String>),
+    /// Saves and closes that window (`browser::finish_sign_in`).
+    FinishSignIn,
     /// Forgets every sign-in.
     ForgetSignIn,
     /// The apps running now, for Settings' blocked apps.
@@ -197,11 +199,11 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
         ),
         Job::Browser => send(Done::Browser(browser::agent_browser(), browser::signed_in())),
         Job::BrowserChecks(settings) => super::setup::browser::perform_checks(&settings, send),
-        Job::SignIn(open) => {
-            let result = if open {
-                browser::sign_in(None)
-            } else {
-                browser::finish_sign_in()
+        Job::SignIn(_) | Job::FinishSignIn => {
+            let open = matches!(job, Job::SignIn(_));
+            let result = match &job {
+                Job::SignIn(url) => browser::sign_in(url.as_deref()),
+                _ => browser::finish_sign_in(),
             };
             send(Done::SignIn(open, result.map_err(|error| format!("{error:#}"))));
             send(Done::Browser(browser::agent_browser(), browser::signed_in()));

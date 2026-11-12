@@ -334,32 +334,102 @@ fn an_interrupted_conversation_offers_resume() {
 }
 
 #[test]
-fn the_composer_sends_here_with_the_window_in_front_or_background() {
+fn the_composer_sends_auto_by_default_with_here_and_background_overrides() {
+    use super::SendMode;
     let mut rt = chats();
-    tap(&mut rt, "new-chat");
-    rt.state.chats.composer = TextEdit::new("Summarize this page");
-    rt.invalidate();
-    settle(&mut rt);
-    tap(&mut rt, "composer-send");
-    tap(&mut rt, "new-chat");
-    tap(&mut rt, "lane-here");
-    rt.state.chats.composer = TextEdit::new("What's this error?");
-    rt.invalidate();
-    settle(&mut rt);
-    tap(&mut rt, "composer-send");
+    assert!(rt.find("composer-send-mode-control").is_none() || shows(&rt, "Auto"));
+    for (mode, words) in [
+        (SendMode::Auto, "Summarize this page"),
+        (SendMode::Here, "What's this error?"),
+        (SendMode::Background, "Sort my Downloads"),
+    ] {
+        tap(&mut rt, "new-chat");
+        rt.state.chats.lane = mode;
+        rt.state.chats.composer = TextEdit::new(words);
+        rt.invalidate();
+        settle(&mut rt);
+        tap(&mut rt, "composer-send");
+    }
     let store = rt.state.chats.store().unwrap();
-    assert_eq!(store.submitted[0].origin, Origin::Chat, "Background by default");
-    assert!(store.submitted[0].context.window.is_none());
-    assert_eq!(store.submitted[1].origin, Origin::ActionShortcut);
-    assert_eq!(
-        store.submitted[1]
+    let window = |index: usize| {
+        store.submitted[index]
             .context
             .window
             .as_ref()
-            .map(|window| window.app.as_str()),
-        Some("Safari"),
-        "Here names the window in front of Hex"
+            .map(|window| window.app.clone())
+    };
+    // Auto: the assistant decides, knowing the window in front of Hex.
+    assert_eq!(store.submitted[0].origin, Origin::Chat);
+    assert_eq!(window(0).as_deref(), Some("Safari"));
+    assert_eq!(store.submitted[1].origin, Origin::ActionShortcut);
+    assert_eq!(window(1).as_deref(), Some("Safari"));
+    assert_eq!(store.submitted[2].origin, Origin::Chat);
+    assert_eq!(window(2), None, "Background looks for itself");
+}
+
+#[test]
+fn a_job_shows_its_plan_and_its_question_takes_the_answer() {
+    let mut rt = scene("mac-chats-job");
+    assert!(shows(&rt, "Plan"));
+    assert!(shows(&rt, "Draft an email to each in Gmail"));
+    assert!(shows(&rt, "Sign in to Google…"));
+    tap(&mut rt, "plan-head");
+    assert!(!shows(&rt, "Build the spreadsheet"), "folds to one line");
+    rt.state.chats.answer = TextEdit::new("Save drafts as files");
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "send-answer");
+    let store = rt.state.chats.store().unwrap();
+    let sent = store.submitted.last().unwrap();
+    assert_eq!(sent.conversation.as_deref(), Some("suppliers"));
+    assert_eq!(sent.text, "Save drafts as files");
+    assert!(!rt.state.chats.questions.contains_key("suppliers"));
+    assert!(shows(&rt, "Save drafts as files"), "the answer shows under it");
+    rt.state.chats.deliver(Event::Question {
+        conversation: "suppliers".into(),
+        text: "Which countries first?".into(),
+    });
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(shows(&rt, "Which countries first?"));
+}
+
+#[test]
+fn a_finished_job_offers_its_folder_files_and_sheet() {
+    let mut rt = scene("mac-chats-results");
+    for words in ["Open folder", "Comparison.xlsx", "Open Google Sheet"] {
+        assert!(shows(&rt, words), "{words}: {:?}", texts(&rt));
+    }
+    tap(&mut rt, "link0");
+    tap(&mut rt, "file0");
+    assert_eq!(
+        rt.state.chats.store().unwrap().opened,
+        vec![
+            "https://docs.google.com/spreadsheets/d/1hX9q3quotes/edit".to_owned(),
+            "~/Hex/Jobs/q3-quotes/Comparison.xlsx".to_owned(),
+        ]
     );
+}
+
+#[test]
+fn a_here_question_that_becomes_a_job_says_so() {
+    let mut rt = chats();
+    rt.state.chats.deliver(Event::Started {
+        conversation: "window-question".into(),
+        origin: Origin::ActionShortcut,
+        question: "Fix this error".into(),
+    });
+    rt.state.chats.deliver(Event::Escalated {
+        conversation: "window-question".into(),
+    });
+    rt.invalidate();
+    settle(&mut rt);
+    assert_eq!(rt.state.chats.selected.as_deref(), Some("window-question"));
+    assert_eq!(
+        rt.state.chats.turns["window-question"].origin,
+        Origin::Background
+    );
+    assert!(shows(&rt, "Moved to the background"));
 }
 
 #[test]

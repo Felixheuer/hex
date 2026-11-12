@@ -17,6 +17,7 @@ pub(super) mod fixture;
 mod jobs;
 mod list;
 mod settings;
+mod work;
 mod setup;
 mod sheet;
 mod shortcut;
@@ -36,8 +37,8 @@ use super::controls::{ButtonKind, Paint, button, segmented_tx};
 use super::{Pane, Ui};
 use crate::app_settings::AssistantBackend;
 use crate::assistant::{
-    Context, Conversation, ConversationId, ConversationSummary, Event, Lane, Origin, Request,
-    TaskState, TaskStatus,
+    Context, Conversation, ConversationId, ConversationSummary, Event, Origin, Request, TaskState,
+    TaskStatus,
 };
 use crate::desktop::i18n::{tr, tr_fill};
 use source::Source;
@@ -92,6 +93,10 @@ pub(super) struct Turn {
     pub(super) answer: String,
     /// What the person sent while it worked, in order (steering).
     pub(super) steered: Vec<String>,
+    /// Questions it asked while it worked, each with the person's answer.
+    pub(super) answers: Vec<(String, String)>,
+    /// When it started (Unix ms), for the plan's elapsed time.
+    pub(super) started_ms: u64,
 }
 
 impl Turn {
@@ -103,8 +108,21 @@ impl Turn {
             steps: Vec::new(),
             answer: String::new(),
             steered: Vec::new(),
+            answers: Vec::new(),
+            started_ms: crate::history::now_ms(),
         }
     }
+}
+
+/// Where the composer sends a new message.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) enum SendMode {
+    /// The assistant decides: about the window in front, or a job of its
+    /// own (it can move a Here question to the background as it grows).
+    #[default]
+    Auto,
+    Here,
+    Background,
 }
 
 /// The most steps a turn keeps while it runs; the stored conversation has
@@ -119,6 +137,8 @@ pub(super) enum Hold {
     Paused,
     /// Retries at `until_ms` (Unix ms).
     Waiting { until_ms: u64, reason: String },
+    /// It asked the person something and waits for the answer.
+    Asking(String),
 }
 
 /// The Chats pane's state.
@@ -146,9 +166,22 @@ pub(super) struct ChatsPane {
     pub(super) hands_off: Option<ConversationId>,
     pub(super) search: TextEdit,
     pub(super) composer: TextEdit,
-    /// Where the composer sends: about the window in front (Here), or a
-    /// Background task (the default).
-    pub(super) lane: Lane,
+    /// Where the composer sends a new message: Auto, or Here or Background.
+    pub(super) lane: SendMode,
+    /// Each running job's plan, by conversation.
+    pub(super) plans: HashMap<ConversationId, Vec<crate::assistant::PlanStep>>,
+    /// Plans folded to their one line.
+    pub(super) plan_folded: Vec<ConversationId>,
+    /// The question each waiting job asked.
+    pub(super) questions: HashMap<ConversationId, String>,
+    /// The answer to the shown conversation's question, as typed.
+    pub(super) answer: TextEdit,
+    /// A question arrived in the shown conversation: its field takes focus.
+    pub(super) focus_answer: bool,
+    /// Here conversations that became Background jobs while shown.
+    pub(super) escalated: Vec<ConversationId>,
+    /// The files in each job folder an answer named, by folder.
+    pub(super) folders: HashMap<String, Vec<String>>,
     /// A conversation whose Delete waits for its confirmation.
     pub(super) delete_armed: Option<ConversationId>,
     /// Step blocks the person unfolded, by key.
@@ -188,7 +221,14 @@ impl Default for ChatsPane {
             hands_off: None,
             search: TextEdit::default(),
             composer: TextEdit::default(),
-            lane: Lane::Background,
+            lane: SendMode::Auto,
+            plans: HashMap::new(),
+            plan_folded: Vec::new(),
+            questions: HashMap::new(),
+            answer: TextEdit::default(),
+            focus_answer: false,
+            escalated: Vec::new(),
+            folders: HashMap::new(),
             delete_armed: None,
             unfolded: Vec::new(),
             focus: None,
@@ -248,6 +288,23 @@ impl ChatsPane {
             .selected
             .as_deref()
             .and_then(|id| self.source.conversation(id));
+        // The job folder its answer names, listed once.
+        if let Some(folder) = self.shown.as_ref().and_then(work::folder_of) {
+            let files = self.source.files(&folder);
+            self.folders.insert(folder, files);
+        }
+        if let Some(id) = self.selected.clone()
+            && self.live()
+            && !self.plans.contains_key(&id)
+        {
+            let plan = crate::assistant::service::plan(&id);
+            if !plan.is_empty() {
+                self.plans.insert(id.clone(), plan);
+            }
+            if let Some(question) = crate::assistant::service::question(&id) {
+                self.questions.insert(id, question);
+            }
+        }
     }
 
     /// Shows conversation `id`.
@@ -286,13 +343,19 @@ impl ChatsPane {
         if let Some(id) = self.selected.clone()
             && self.running(&id)
         {
+            if self.questions.contains_key(&id) {
+                self.composer.clear();
+                return self.answer_question(&id, question);
+            }
             return self.steer(id, question);
         }
         // Here asks about the window in front of Hex, read now; Background
-        // looks for itself.
+        // looks for itself; Auto lets the assistant choose, knowing the
+        // window in front.
         let (origin, context) = match self.lane {
-            Lane::Here => (Origin::ActionShortcut, self.source.here_context()),
-            Lane::Background => (Origin::Chat, Context::default()),
+            SendMode::Here => (Origin::ActionShortcut, self.source.here_context()),
+            SendMode::Auto => (Origin::Chat, self.source.here_context()),
+            SendMode::Background => (Origin::Chat, Context::default()),
         };
         let id = self.source.submit(Request {
             conversation: self.selected.clone(),
@@ -419,7 +482,11 @@ impl ChatsPane {
         if let Some(hold) = self.holds.get(&task.conversation) {
             return Some(hold.clone());
         }
+        if let Some(question) = self.questions.get(&task.conversation) {
+            return Some(Hold::Asking(question.clone()));
+        }
         match task.state {
+            TaskState::NeedsInput => Some(Hold::Asking(String::new())),
             TaskState::Paused => Some(Hold::Paused),
             TaskState::Waiting { until_ms } => Some(Hold::Waiting {
                 until_ms,
@@ -607,6 +674,7 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
         None
     };
     changed |= set_focus(ui, focus);
+    work::poll(ui, tx);
     changed |= setup::poll(ui, tx);
     changed |= settings::poll(ui, now);
     changed
@@ -641,7 +709,7 @@ pub(super) fn pane(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> (Vec<El>, El) {
             vec![setup_button(p)],
             super::scroll_body(p.k, "chats-settings-scroll", settings::page(ui, p, layer)),
         ),
-        View::Chats => (header_actions(ui, p), list::body(ui, p)),
+        View::Chats => (header_actions(ui, p), list::body(ui, p, layer)),
     }
 }
 

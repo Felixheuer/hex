@@ -29,12 +29,12 @@ pub(in crate::rune_ui) fn sign_in_button(ui: &Ui, p: Paint, key: &str) -> El {
     let settings = &ui.chats.settings;
     if settings.signing_in {
         small_button(p, key, tr("Done signing in"), |ui: &mut Ui, _| {
-            ui.chats.jobs.run(Job::SignIn(false));
+            ui.chats.jobs.run(Job::FinishSignIn);
         })
     } else {
         small_button(p, key, tr("Sign in to sites…"), |ui: &mut Ui, _| {
             ui.chats.settings.sign_in_error = None;
-            ui.chats.jobs.run(Job::SignIn(true));
+            ui.chats.jobs.run(Job::SignIn(None));
         })
     }
 }
