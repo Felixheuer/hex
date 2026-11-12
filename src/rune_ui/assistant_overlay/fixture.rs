@@ -374,6 +374,36 @@ pub(crate) fn escalated_board() -> Board {
     board
 }
 
+/// `count` Background jobs at work, each with a step, as many as fold into
+/// the orb's count line: research, spreadsheets, messages, and code.
+pub(crate) fn many_jobs_board(count: usize) -> Board {
+    const JOBS: [(&str, &str); 8] = [
+        ("Recherche Lieferanten", "Vergleicht Preise auf 12 Seiten"),
+        ("Excel: Angebote eintragen", "Trägt Zeile 48 von 120 ein"),
+        ("WhatsApp an das Team", "Wartet auf die fertige Tabelle"),
+        ("Landingpage nachbauen", "Vergleicht mit dem Original"),
+        ("Pull Request vorbereiten", "Lässt die Tests laufen"),
+        ("Konkurrenz beobachten", "Liest die Preisseite"),
+        ("Rechnungen sortieren", "Ordnet 214 PDFs"),
+        ("Termine abgleichen", "Prüft den Kalender"),
+    ];
+    let now = Instant::now();
+    let mut board = Board::default();
+    for n in 0..count {
+        let (title, doing) = JOBS[n % JOBS.len()];
+        let id = format!("job{n}");
+        let title = if n < JOBS.len() {
+            title.to_owned()
+        } else {
+            format!("{title} {}", n / JOBS.len() + 1)
+        };
+        board.apply(&started(&id, Origin::Background, &title), None, now);
+        board.apply(&step(&id, doing), None, now);
+    }
+    board.pops = Default::default();
+    board
+}
+
 /// The Here question in [`escalated_board`].
 pub(crate) const ESCALATED: &str = "downloads";
 pub(crate) const ESCALATED_QUESTION: &str = "Sort my Downloads folder into folders by type";

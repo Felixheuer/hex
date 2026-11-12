@@ -69,6 +69,8 @@ fn orb_state(board: Board, expanded: bool) -> Orb {
         expanded,
         peek: false,
         hovered: None,
+        jobs_hovered: false,
+        jobs_pinned: false,
         grow: orb::Grow::default(),
         answer_key: fixture::ANSWER_KEY.into(),
         voice: None,
@@ -87,6 +89,10 @@ fn orb_state(board: Board, expanded: bool) -> Orb {
             },
             hover: |_, _| {},
             drag: |_, _| {},
+            jobs: super::jobs::LineActions {
+                hover: |_, _| {},
+                pin: |_| {},
+            },
         },
     }
 }
@@ -774,6 +780,86 @@ fn a_new_question_chimes_only_when_it_cant_be_read_aloud() {
     assert!(!should_chime(Some("a"), None, true, false), "none left");
 }
 
+fn rest_on<S: 'static>(rt: &mut Runtime<S>, key: &str, seconds: f32) {
+    let (x, y) = rt.find(key).unwrap_or_else(|| panic!("no {key}"));
+    rt.pointer_move(x, y);
+    let mut left = seconds;
+    while left > 0.0 {
+        rt.frame(1.0 / 60.0);
+        left -= 1.0 / 60.0;
+    }
+}
+
+fn many_jobs_orb(count: usize) -> Orb {
+    let mut state = orb_state(fixture::many_jobs_board(count), false);
+    state.actions.hover = |orb, inside| {
+        orb.peek = inside && !orb.jobs_hovered;
+        if !inside {
+            orb.jobs_hovered = false;
+        }
+    };
+    state.actions.jobs.hover = |orb, inside| {
+        orb.jobs_hovered = inside;
+        if inside {
+            orb.peek = false;
+        }
+    };
+    state.actions.jobs.pin = |orb| orb.jobs_pinned = !orb.jobs_pinned;
+    state
+}
+
+#[test]
+fn resting_on_the_count_unfolds_every_job_s_card() {
+    for dark in [false, true] {
+        let mut rt = runtime(many_jobs_orb(12), orb::view, orb::SIZE, dark);
+        assert_eq!(count(&rt, "jobs-line"), 1, "twelve jobs fold into the line");
+        assert!(
+            count_prefix(&rt, "orb-dot-") <= orb::MAX_DOTS && count(&rt, "orb-more") == 1,
+            "the orb stays small"
+        );
+        let orb_rect = rect(&rt, "orb").expect("the orb");
+        assert!(inside(orb_rect, orb::SIZE), "{orb_rect:?}");
+        assert_eq!(count_prefix(&rt, "job-job"), 0, "no card while folded");
+        rest_on(&mut rt, "jobs-line-text", 0.5);
+        rt.settle_all();
+        rt.frame(0.0);
+        assert_eq!(
+            count_prefix(&rt, "job-job"),
+            12,
+            "every job's card, none summarised away"
+        );
+        assert!(
+            rect(&rt, "sheet").is_none(),
+            "resting on the cards shows the cards, not the list"
+        );
+        // The cards scroll inside the panel instead of running past it.
+        let all = rect(&rt, "jobs-all").expect("the unfolded cards");
+        assert!(inside(all, orb::SIZE), "{all:?} inside {:?}", orb::SIZE);
+        // Leaving folds them back.
+        rt.pointer_move(-50.0, -50.0);
+        for _ in 0..60 {
+            rt.frame(1.0 / 60.0);
+        }
+        rt.settle_all();
+        rt.frame(0.0);
+        assert_eq!(count_prefix(&rt, "job-job"), 0, "folded again");
+    }
+}
+
+#[test]
+fn a_press_on_the_count_keeps_every_card_open() {
+    let mut rt = runtime(many_jobs_orb(5), orb::view, orb::SIZE, false);
+    state_press(&mut rt, "jobs-line-text");
+    rt.pointer_move(-50.0, -50.0);
+    for _ in 0..60 {
+        rt.frame(1.0 / 60.0);
+    }
+    rt.settle_all();
+    rt.frame(0.0);
+    assert_eq!(count_prefix(&rt, "job-job"), 5, "pinned open");
+    assert_eq!(count(&rt, "jobs-line-list"), 1, "the list stays a press away");
+}
+
 /// Renders the overlays to `HEX_ASSISTANT_SNAPS/assistant-*.png` in both
 /// appearances, to look at: the pretend desktop in each state, the orb, the
 /// list, the bubble in each state, the hints, and the Hands off pill.
@@ -855,6 +941,14 @@ fn snapshots() {
                 },
             ),
         ];
+        for (name, open) in [("orb-many-jobs", false), ("orb-many-jobs-open", true)] {
+            let mut state = many_jobs_orb(14);
+            state.jobs_pinned = open;
+            let mut rt = runtime(state, orb::view, orb::SIZE, dark);
+            rt.settle_all();
+            let (w, h) = px(orb::SIZE);
+            save(name, orb::SIZE, crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h));
+        }
         // The whole desk at 1×: 2560 × 2609 pixels.
         let mut two = crate::rune_ui::offscreen::runtime(
             super::multi::TwoDisplays {

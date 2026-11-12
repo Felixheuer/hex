@@ -46,7 +46,7 @@ use super::hint::{self, Hint};
 use super::listening::{self, Listening};
 use super::orb::{self, Orb};
 use super::outline::{self, Outline};
-use super::{stack, when};
+use super::{jobs, stack, when};
 use crate::assistant::{ConversationId, Event, TaskWindow};
 pub(crate) use answer::setup_needed;
 use answer::{bubble_event, bubble_poll, dismiss_bubble, place_bubble, want_escape};
@@ -166,6 +166,8 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             expanded: false,
             peek: false,
             hovered: None,
+            jobs_hovered: false,
+            jobs_pinned: false,
             grow: orb::Grow::default(),
             answer_key: answer_key(),
             voice: None,
@@ -187,12 +189,27 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
                     defer: |_, id| crate::assistant::defer_question(id),
                 },
                 hover: |orb, inside| {
-                    orb.peek = inside && !orb.board.stack().is_empty();
+                    // Resting on the jobs' cards shows the cards, not the
+                    // list over them.
+                    orb.peek = inside && !orb.jobs_hovered && !orb.board.stack().is_empty();
                     if !inside {
+                        orb.jobs_hovered = false;
                         hover_task(orb, "", false);
                     }
                 },
                 drag: drag_orb,
+                jobs: jobs::LineActions {
+                    hover: |orb, inside| {
+                        orb.jobs_hovered = inside;
+                        if inside {
+                            orb.peek = false;
+                        }
+                    },
+                    pin: |orb| {
+                        orb.jobs_pinned = !orb.jobs_pinned;
+                        orb.peek = false;
+                    },
+                },
             },
         },
     );
@@ -488,6 +505,10 @@ fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
     if orb.board.stack().is_empty() {
         orb.expanded = false;
         orb.peek = false;
+    }
+    if super::jobs::running(&orb.board.tasks).is_empty() {
+        orb.jobs_hovered = false;
+        orb.jobs_pinned = false;
     }
     let visible = orb.board.orb_shows();
     if visible && !orb.shown {
