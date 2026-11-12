@@ -460,6 +460,9 @@ pub(crate) struct Hooks {
     pub due_schedules: Box<DueSchedules>,
     /// Settles an utterance the inbox's router can't place (`inbox`).
     pub classify_reply: Box<ClassifyReply>,
+    /// How tight memory is now: queued Background tasks wait while it is
+    /// (`capacity::background_room`).
+    pub pressure: Hook<super::capacity::Pressure>,
 }
 
 impl Hooks {
@@ -528,6 +531,7 @@ impl Hooks {
             memory: Box::new(super::memory::read),
             notify: Box::new(super::notify::show),
             due_schedules: Box::new(super::schedules::take_due),
+            pressure: Box::new(super::capacity::pressure),
             classify_reply: Box::new(|question, title, said| {
                 let (_, settings) = current_settings();
                 (settings.backend == AssistantBackend::ClaudeApi).then_some(())?;
@@ -1012,6 +1016,7 @@ impl Runner {
     fn pump(self: &Arc<Self>) {
         let (_, settings) = (self.hooks.settings)();
         let limit = settings.max_parallel.max(1) as usize;
+        let pressure = (self.hooks.pressure)();
         let mut start = Vec::new();
         let mut queued = Vec::new();
         let mut monitor = false;
@@ -1038,7 +1043,9 @@ impl Runner {
                 }
                 let free = match task.lane() {
                     Lane::Here => here == 0,
-                    Lane::Background => background < limit,
+                    Lane::Background => {
+                        super::capacity::background_room(limit, background, pressure)
+                    }
                 };
                 if free && !busy.contains(&task.status.conversation) {
                     task.running = true;

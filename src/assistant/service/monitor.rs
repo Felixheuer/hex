@@ -57,6 +57,10 @@ impl Runner {
         }
         self.check_hands_off(&here);
         self.check_plans();
+        // Queued tasks held back by tight memory start once it eases.
+        if self.state().tasks.iter().any(|task| !task.running) {
+            self.pump();
+        }
         for (target, verb) in (self.hooks.requests)() {
             let ours = target == remote::ALL
                 || self

@@ -58,6 +58,8 @@ struct World {
     due: Mutex<Vec<Schedule>>,
     /// Messages written beside running tasks: (conversation, role, text).
     notes: Mutex<Vec<(String, Role, String)>>,
+    /// Memory pressure: 0 normal, 1 warning, 2 critical.
+    pressure: std::sync::atomic::AtomicU8,
 }
 
 const START: u64 = 1_000_000;
@@ -95,6 +97,7 @@ impl World {
             memory: Mutex::default(),
             due: Mutex::default(),
             notes: Mutex::default(),
+            pressure: std::sync::atomic::AtomicU8::new(0),
             workspaces: std::env::temp_dir().join(format!(
                 "hex-runner-{}-{}",
                 std::process::id(),
@@ -239,6 +242,7 @@ impl World {
             world(self),
         );
         let notes = world(self);
+        let pressure = world(self);
         let (recent, interrupted, prewarm, requests, workspaces) = (
             world(self),
             world(self),
@@ -328,6 +332,11 @@ impl World {
             }),
             due_schedules: Box::new(move |_| std::mem::take(&mut *due.due.lock().unwrap())),
             classify_reply: Box::new(|_, _, _| None),
+            pressure: Box::new(move || match pressure.pressure.load(Ordering::Acquire) {
+                2 => crate::assistant::capacity::Pressure::Critical,
+                1 => crate::assistant::capacity::Pressure::Warning,
+                _ => crate::assistant::capacity::Pressure::Normal,
+            }),
         });
         let events = Arc::clone(self);
         runner.subscribe(Box::new(move |event| {
@@ -446,6 +455,25 @@ fn ended(id: &str) -> impl Fn(&[Event]) -> bool + '_ {
             .iter()
             .any(|event| event.is_final() && event.conversation().map(String::as_str) == Some(id))
     }
+}
+
+#[test]
+fn tight_memory_holds_queued_jobs_until_it_eases() {
+    let world = World::new(10);
+    world.pressure.store(2, Ordering::Release);
+    let runner = world.runner();
+    let a = runner.submit(request("a", Origin::Background));
+    let b = runner.submit(request("b", Origin::Background));
+    world.wait_for("a to start, one always runs", started(&a));
+    assert!(
+        !started(&b)(&world.events.lock().unwrap()),
+        "b waits while memory is critical"
+    );
+    world.pressure.store(0, Ordering::Release);
+    world.wait_for("b to start by itself once memory eases", started(&b));
+    world.release("a");
+    world.release("b");
+    world.wait_for("both answers", |events| ended(&a)(events) && ended(&b)(events));
 }
 
 #[test]
