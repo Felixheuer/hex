@@ -1556,6 +1556,18 @@ tests through cargo-nextest (`brew install cargo-nextest`) with
 the same config's `ci` profile. Read its output whole rather than piping it
 through `grep | head`; failures are summarized at the end.
 
+**Never run the whole test suite more than once at a time on a Mac.** Many
+tests open CoreAudio devices, device-list listeners, and sounds; several
+unfiltered `cargo test --bin hex` runs at once (parallel agents, worktrees,
+or terminals) wedged `coreaudiod` at 400% CPU and left the Mac with no sound
+(2026-11-12). Only `sudo killall coreaudiod` brings it back, which needs the
+person's password. So: while working, filter to the modules you touch
+(`scripts/check assistant`) and stay off audio, microphone, feedback,
+meeting, and recording tests unless you changed them; run the full suite
+alone, once, at the end; parallel subagents never run it. If sound stops,
+check `ps -axo %cpu,command | grep coreaudiod` and ask the person to run
+`sudo killall coreaudiod`.
+
 Benchmark with strobe (`docs/perf.md`): `strobe.json` builds `--release`
 with `CARGO_PROFILE_RELEASE_*` env for line tables in `hex.pdb` (no profile
 or feature, so any commit builds), and `perf/*.bench.ts` holds the cases.
