@@ -396,6 +396,12 @@ impl Hud {
         if starts || (self.shown.load(Ordering::Acquire) && !meter) {
             self.show();
         }
+        // Labs › Assistant: holding the Action shortcut in Agent mode says
+        // "New task" past the HUD, which has just placed itself.
+        #[cfg(target_os = "macos")]
+        crate::rune_ui::assistant_overlay::new_task_hint(
+            self.model.asking() == Some(true) && self.model.status() == Some("Recording"),
+        );
     }
 
     #[cfg(not(target_os = "macos"))]

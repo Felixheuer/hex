@@ -14,6 +14,7 @@ pub(super) fn table() -> &'static HashMap<&'static str, &'static str> {
         TRANSLATIONS
             .iter()
             .chain(super::assistant::FRENCH)
+            .chain(super::assistant_overlay::FRENCH)
             .copied()
             .collect()
     })

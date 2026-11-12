@@ -24,6 +24,12 @@ pub(crate) const LONG_ANSWER: &str = "Here's what changed in the release notes s
     Finally, the updater now resumes interrupted downloads instead of starting over, which \
     should help on slow connections.";
 
+pub(crate) const MARKDOWN_ANSWER: &str = "You're at **92%** of 494 GB. The quickest wins:\n\n\
+    - Empty the Trash (**31 GB**)\n\
+    - Delete old iOS backups in *Settings › General › Storage*\n\
+    - Clear Xcode's `DerivedData` folder\n\n\
+    Run `du -sh ~/Library/Caches` to see what the caches take.";
+
 /// A window of the fixture's, by its id, and where it sits on a 1280 × 800
 /// desktop (global points, y down).
 /// A rect in points: x, y, width, height.

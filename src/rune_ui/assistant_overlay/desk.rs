@@ -13,7 +13,7 @@ use super::super::controls::Paint;
 use super::board::{Board, Bubble, Due};
 use super::fixture;
 use super::outline::{self, Outline};
-use super::{bubble, frame, stack};
+use super::{bubble, frame, hint, stack};
 use crate::assistant::Event;
 
 /// The pretend desktop's size, in points.
@@ -28,6 +28,8 @@ pub(crate) struct Desk {
     pub(crate) frame: bool,
     /// The frame breathes (the playground), or holds still (renders).
     pub(crate) breathe: bool,
+    /// The Action shortcut is held in Agent mode: "New task" past the HUD.
+    pub(crate) holding: bool,
     /// What the last press asked for, for the stage's caption.
     pub(crate) note: String,
 }
@@ -39,6 +41,7 @@ impl Desk {
             bubble: None,
             frame: false,
             breathe: true,
+            holding: false,
             note: String::new(),
         }
     }
@@ -50,6 +53,7 @@ impl Desk {
             bubble: fixture::bubble_at(f64::MAX),
             frame: true,
             breathe: false,
+            holding: false,
             note: String::new(),
         }
     }
@@ -160,7 +164,16 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
             .fill(c.bg_inverse)
             .a11y_hidden(),
     );
-    if let Some(bubble) = &desk.bubble {
+    if desk.holding {
+        let (w, h) = hint::SIZE;
+        root = root.child(
+            el().key("hint-layer")
+                .absolute((SIZE.0 - w) / 2.0, hud_y + HUD.1 + 4.0)
+                .size(w, h)
+                .center()
+                .child(hint::pill(p)),
+        );
+    } else if let Some(bubble) = &desk.bubble {
         let (w, _) = bubble::SIZE;
         root = root.child(
             el().key("bubble")

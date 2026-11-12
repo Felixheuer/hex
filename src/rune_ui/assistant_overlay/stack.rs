@@ -12,6 +12,7 @@ use super::super::controls::Paint;
 use super::board::{Board, Phase, Task};
 use super::palette;
 use crate::app_settings::MeetingIndicatorCorner;
+use crate::desktop::i18n::{tr, tr_fill};
 
 /// The overlay: room for [`MAX_ROWS`] plates and the "more" line.
 pub(crate) const SIZE: (f32, f32) = (352.0, 400.0);
@@ -94,7 +95,7 @@ pub(crate) fn rect(visible: [f64; 4], corner: MeetingIndicatorCorner) -> [f32; 4
 pub(crate) fn plates<S: 'static>(p: Paint, tasks: &[Task], actions: Actions<S>) -> El {
     let hidden = tasks.len().saturating_sub(MAX_ROWS);
     let more = (hidden > 0).then(|| {
-        text(format!("+{hidden} more"))
+        text(tr_fill("+{} more", &hidden.to_string()))
             .key("more")
             .font(p.k.ty.small_medium)
             .color(p.muted())
@@ -108,7 +109,7 @@ pub(crate) fn plates<S: 'static>(p: Paint, tasks: &[Task], actions: Actions<S>) 
         .items_end()
         .gap(GAP)
         .role("list")
-        .label("Assistant tasks")
+        .label(tr("Assistant tasks"))
         .children(more)
         .children(
             tasks[hidden..]
@@ -176,7 +177,7 @@ fn plate<S: 'static>(p: Paint, task: &Task, actions: Actions<S>) -> El {
         IconButton::new(p.k.glyph.close)
             .variant(IconButtonVariant::GhostMuted)
             .control_size(ControlSize::Small)
-            .label("Stop task")
+            .label(tr("Stop task"))
             .on_press(move |s: &mut S| stop(s, &id))
             .build(p.k)
             .key("stop")
@@ -213,16 +214,16 @@ fn status(p: Paint, task: &Task, colour: rune::Color) -> El {
             .color(colour)
             .build(p.k)
             .key("spinner"),
-        Phase::Queued => tag(p, "Queued", "queued"),
-        Phase::Stopped => tag(p, "Stopped", "stopped"),
+        Phase::Queued => tag(p, tr("Queued"), "queued"),
+        Phase::Stopped => tag(p, tr("Stopped"), "stopped"),
         Phase::Done => icon(p.k.glyph.check, 16.0)
             .key("done")
             .color(p.success())
-            .label("Done"),
+            .label(tr("Done")),
         Phase::Failed => icon(p.k.glyph.circle_x, 16.0)
             .key("failed")
             .color(p.danger())
-            .label("Failed"),
+            .label(tr("Failed")),
     }
 }
 
