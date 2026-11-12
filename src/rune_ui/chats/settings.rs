@@ -6,6 +6,7 @@
 //! shortcuts live in General.
 
 mod lanes;
+mod models;
 pub(super) mod more;
 
 use std::time::Instant;
@@ -43,6 +44,8 @@ pub(in crate::rune_ui) struct SettingsState {
     pub(in crate::rune_ui) models: [TextEdit; 4],
     /// When a model field last changed without being saved.
     model_typed: Option<Instant>,
+    /// "Other…" is chosen in the model dropdown: the field shows.
+    pub(in crate::rune_ui) custom_model: bool,
     /// The Claude API key as typed; cleared once saved.
     pub(in crate::rune_ui) key: TextEdit,
     pub(in crate::rune_ui) key_error: Option<String>,
@@ -57,6 +60,8 @@ pub(in crate::rune_ui) struct SettingsState {
     /// What Hex knows about you, as edited, and whether that's saved.
     pub(in crate::rune_ui) memory: TextEdit,
     pub(in crate::rune_ui) memory_saved: bool,
+    /// Clear was pressed once: the next press empties what it knows.
+    pub(in crate::rune_ui) memory_clear_armed: bool,
     /// The agent picker's setups and key panels.
     pub(in crate::rune_ui) agents: super::agents::Agents,
     /// The engine clean browsers run, once read.
@@ -114,6 +119,7 @@ pub(super) fn opened(ui: &mut Ui) {
             TextEdit::new(saved_model(&ui.settings.assistant, backend));
     }
     ui.chats.settings.model_typed = None;
+    ui.chats.settings.custom_model = false;
     super::displays::read(ui);
     more::opened(ui);
     ui.chats.jobs.run(Job::Detect);
@@ -122,6 +128,14 @@ pub(super) fn opened(ui: &mut Ui) {
     if ui.chats.settings.voices.is_none() {
         ui.chats.jobs.run(Job::Voices);
     }
+}
+
+/// The current backend's model field shows `text` (a model picked from
+/// the dropdown), with nothing left to save.
+fn set_model_text(ui: &mut Ui, text: String) {
+    let slot = index(ui.settings.assistant.backend);
+    ui.chats.settings.models[slot] = TextEdit::new(text);
+    ui.chats.settings.model_typed = None;
 }
 
 /// Saves model fields once typing pauses.
@@ -159,15 +173,41 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
     let agent: Vec<CardRow> = vec![
         // The onboarding's agent picker: switch agents or keys here.
         super::agent_picker::picker(ui, p).px(4.0).into(),
-        setting_row(
-            p,
-            "assistant-model",
-            tr("Model"),
-            Some(tr("Empty uses the agent's own default")),
-            model_field(ui, p),
-        )
-        .into(),
+        if models::lists_models(assistant.backend) {
+            setting_row(
+                p,
+                "assistant-model",
+                tr("Model"),
+                Some(tr("Default uses the agent's own model")),
+                models::model_select(ui, p, layer, model_field(ui, p)),
+            )
+            .into()
+        } else {
+            setting_row(
+                p,
+                "assistant-model",
+                tr("Model"),
+                Some(tr("Empty uses the agent's own default")),
+                model_field(ui, p),
+            )
+            .into()
+        },
     ];
+    let mut agent = agent;
+    if models::lists_models(assistant.backend) {
+        agent.push(
+            setting_row(
+                p,
+                "assistant-here-model",
+                tr("Quick questions use"),
+                Some(tr(
+                    "A faster model answers questions about the window in front",
+                )),
+                models::here_select(ui, p, layer),
+            )
+            .into(),
+        );
+    }
     // How freely it acts, how long and how many jobs run, and keeping the
     // Mac awake for them.
     let mut works: Vec<CardRow> = vec![

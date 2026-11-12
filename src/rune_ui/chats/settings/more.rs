@@ -288,6 +288,32 @@ fn save_memory(ui: &mut Ui) {
 }
 
 /// "What Hex knows about you": the switch, and the facts as text.
+/// Clear…, then "Clear everything it knows" to confirm: empties the note
+/// and saves it.
+fn clear_memory_button(ui: &Ui, p: Paint) -> El {
+    let state = &ui.chats.settings;
+    if state.memory.text.trim().is_empty() {
+        return rune::el().key("clear-memory");
+    }
+    if state.memory_clear_armed {
+        Button::new(tr("Clear everything it knows"))
+            .variant(ButtonVariant::Danger)
+            .on_press(|ui: &mut Ui| {
+                ui.chats.settings.memory_clear_armed = false;
+                ui.chats.settings.memory.clear();
+                save_memory(ui);
+            })
+            .build_small_push(p.k)
+            .key("clear-memory")
+    } else {
+        Button::new(tr("Clear…"))
+            .variant(ButtonVariant::Ghost)
+            .on_press(|ui: &mut Ui| ui.chats.settings.memory_clear_armed = true)
+            .build_small_push(p.k)
+            .key("clear-memory")
+    }
+}
+
 pub(in crate::rune_ui) fn memory_section(ui: &Ui, p: Paint) -> El {
     let state = &ui.chats.settings;
     let on = ui.settings.assistant.memory;
@@ -326,18 +352,23 @@ pub(in crate::rune_ui) fn memory_section(ui: &Ui, p: Paint) -> El {
                 .gap(8.0)
                 .child(editor)
                 .child(
-                    row().key("memory-actions").gap(8.0).center_y().child(
-                        Button::new(if state.memory_saved {
-                            tr("Saved")
-                        } else {
-                            tr("Save")
-                        })
-                        .variant(ButtonVariant::Neutral)
-                        .disabled(state.memory_saved)
-                        .on_press(save_memory)
-                        .build_small_push(p.k)
-                        .key("save-memory"),
-                    ),
+                    row()
+                        .key("memory-actions")
+                        .gap(8.0)
+                        .center_y()
+                        .child(
+                            Button::new(if state.memory_saved {
+                                tr("Saved")
+                            } else {
+                                tr("Save")
+                            })
+                            .variant(ButtonVariant::Neutral)
+                            .disabled(state.memory_saved)
+                            .on_press(save_memory)
+                            .build_small_push(p.k)
+                            .key("save-memory"),
+                        )
+                        .child(clear_memory_button(ui, p)),
                 )
                 .into(),
         );
