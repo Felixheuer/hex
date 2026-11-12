@@ -6,17 +6,14 @@
 use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
-use objc2::msg_send;
-use objc2::rc::Retained;
-use objc2::runtime::{AnyClass, AnyObject};
-use objc2_foundation::{NSNumber, NSString};
 use rune::{DisplayTarget, OverlayPlacement};
 
 use super::super::board::Outlined;
-use super::super::frame::{self, Frame};
+use super::super::frame::Frame;
 use super::super::outline::{self, LabelSide, Outline};
 use super::super::screens::{self, Screen, Seams};
-use super::{FADE, OVERLAYS, displays, panel};
+use super::native::{self as displays, ensure_breathing, order_above};
+use super::{FADE, OVERLAYS};
 use crate::assistant::{ConversationId, Event, TaskWindow};
 
 /// Frame panels: one per display, as many as macOS drives at once.
@@ -249,6 +246,11 @@ impl Watcher {
             return;
         };
         let read = on && self.read_displays();
+        #[cfg(not(target_os = "macos"))]
+        if self.displays.is_empty() {
+            self.frame_by_hud(on);
+            return;
+        }
         let wanted: Vec<FrameSlot> = if on {
             self.displays
                 .iter()
@@ -313,6 +315,39 @@ impl Watcher {
                     false
                 });
             }
+        }
+    }
+
+    /// Without global coordinates (Linux): one frame over the HUD's
+    /// display, the whole display rather than a rect on it.
+    #[cfg(not(target_os = "macos"))]
+    fn frame_by_hud(&mut self, on: bool) {
+        let Some(overlays) = OVERLAYS.get() else {
+            return;
+        };
+        let handle = &overlays.frames[0];
+        match (on, self.frames[0].is_some()) {
+            (true, false) => {
+                handle.update(|frame, _| *frame = Frame::default());
+                handle.set_display(crate::rune_hud::display());
+                handle.set_placement(Some(OverlayPlacement::FullScreen));
+                handle.fade_in(FRAME_IN);
+                self.frames[0] = Some(FrameSlot {
+                    screen: Screen {
+                        id: 0,
+                        key: String::new(),
+                        frame: [0.0; 4],
+                        visible: [0.0; 4],
+                        scale: 1.0,
+                    },
+                    seams: Seams::default(),
+                });
+            }
+            (false, true) => {
+                handle.fade_out(FRAME_OUT);
+                self.frames[0] = None;
+            }
+            _ => {}
         }
     }
 
@@ -450,87 +485,10 @@ const NORMAL_LEVEL: isize = 0;
 /// `NSStatusWindowLevel`, Rune's default for overlays.
 const STATUS_LEVEL: isize = 25;
 
-/// Orders the outline panel `number` just above window `target` (another
-/// app's, by its CoreGraphics number), when it shows. Main thread.
-fn order_above(number: Option<u32>, target: u32) {
-    let Some(panel) = panel(number) else {
-        return;
-    };
-    if !panel.isVisible() {
-        return;
-    }
-    panel.orderWindow_relativeTo(objc2_app_kit::NSWindowOrderingMode::Above, target as isize);
-}
-
 /// The top of the display the window's top edge is on (its centre's, else
 /// the nearest display's), so its label stays on that display.
 fn display_top(displays: &[Screen], (x, y, w, _): (f64, f64, f64, f64)) -> f64 {
     screens::at(displays, (x + w / 2.0, y)).map_or(0.0, |screen| screen.frame[1])
-}
-
-/// Whether macOS asks for less motion (Accessibility › Display › Reduce
-/// motion).
-fn reduce_motion() -> bool {
-    objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
-}
-
-const BREATHE_KEY: &str = "hex-breathe";
-
-/// Breathes the frame panel's layer in Core Animation (none with Reduce
-/// motion on): the window server animates it, so Hex draws nothing for it.
-/// Added again if the layer was remade.
-fn ensure_breathing(number: Option<u32>) {
-    let Some(panel) = panel(number) else {
-        return;
-    };
-    let Some(view) = panel.contentView() else {
-        return;
-    };
-    let key = NSString::from_str(BREATHE_KEY);
-    // SAFETY: Core Animation calls on the main thread, on the panel's own
-    // layer, with objects that live through each call.
-    unsafe {
-        let layer: *mut AnyObject = msg_send![&*view, layer];
-        let Some(layer) = layer.as_ref() else {
-            return;
-        };
-        let existing: *mut AnyObject = msg_send![layer, animationForKey: &*key];
-        if reduce_motion() {
-            if !existing.is_null() {
-                let _: () = msg_send![layer, removeAnimationForKey: &*key];
-            }
-            return;
-        }
-        if !existing.is_null() {
-            return;
-        }
-        let (Some(animation_class), Some(timing_class)) = (
-            AnyClass::get(c"CABasicAnimation"),
-            AnyClass::get(c"CAMediaTimingFunction"),
-        ) else {
-            return;
-        };
-        let path = NSString::from_str("opacity");
-        let animation: Option<Retained<AnyObject>> =
-            msg_send![animation_class, animationWithKeyPath: &*path];
-        let Some(animation) = animation else {
-            return;
-        };
-        let from = NSNumber::new_f32(1.0);
-        let to = NSNumber::new_f32(frame::BREATH_LOW);
-        let ease = NSString::from_str("easeInEaseOut");
-        let timing: Option<Retained<AnyObject>> = msg_send![timing_class, functionWithName: &*ease];
-        let _: () = msg_send![&*animation, setFromValue: &*from];
-        let _: () = msg_send![&*animation, setToValue: &*to];
-        let _: () = msg_send![&*animation, setDuration: frame::BREATH / 2.0];
-        let _: () = msg_send![&*animation, setAutoreverses: true];
-        let _: () = msg_send![&*animation, setRepeatCount: f32::INFINITY];
-        let _: () = msg_send![&*animation, setRemovedOnCompletion: false];
-        if let Some(timing) = &timing {
-            let _: () = msg_send![&*animation, setTimingFunction: &**timing];
-        }
-        let _: () = msg_send![layer, addAnimation: &*animation, forKey: &*key];
-    }
 }
 
 #[cfg(test)]

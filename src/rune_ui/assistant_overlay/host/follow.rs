@@ -8,88 +8,22 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use objc2::MainThreadMarker;
-use objc2_app_kit::{NSEvent, NSScreen};
-use objc2_foundation::{NSNumber, NSString};
 use rune::{DisplayTarget, OverlayHandle, OverlayPlacement, ScreenEdge};
 
 use super::super::orb::Orb;
 use super::super::place;
 use super::super::screens::{self, Screen};
-use super::{OVERLAYS, displays};
+use super::OVERLAYS;
+pub(super) use super::native::{pointer, screens};
 use crate::rune_ui::live_text::Spot;
 
 /// How a panel that moved to another display comes in there.
 const MOVE_IN: Duration = Duration::from_millis(240);
 
-/// Every display with its menu bar and Dock, in global points, y down.
-pub(super) fn screens() -> Vec<Screen> {
-    let Some(mtm) = MainThreadMarker::new() else {
-        return displays::read();
-    };
-    let all = NSScreen::screens(mtm);
-    let Some(primary) = all.iter().next() else {
-        return Vec::new();
-    };
-    let top = primary.frame().origin.y + primary.frame().size.height;
-    let global = |r: objc2_foundation::NSRect| {
-        [
-            r.origin.x,
-            top - (r.origin.y + r.size.height),
-            r.size.width,
-            r.size.height,
-        ]
-    };
-    all.iter()
-        .filter_map(|screen| {
-            let id = screen_number(&screen)?;
-            Some(Screen {
-                id,
-                key: displays::key(id),
-                frame: global(screen.frame()),
-                visible: global(screen.visibleFrame()),
-                scale: screen.backingScaleFactor(),
-            })
-        })
-        .collect()
-}
-
-fn screen_number(screen: &NSScreen) -> Option<u32> {
-    let description = screen.deviceDescription();
-    let number = description.objectForKey(&NSString::from_str("NSScreenNumber"))?;
-    Some(number.downcast_ref::<NSNumber>()?.unsignedIntValue())
-}
-
-/// The pointer, in global points.
-pub(super) fn pointer() -> Option<(f64, f64)> {
-    let mtm = MainThreadMarker::new()?;
-    let primary = NSScreen::screens(mtm).iter().next()?.frame();
-    let top = primary.origin.y + primary.size.height;
-    let at = NSEvent::mouseLocation();
-    Some((at.x, top - at.y))
-}
-
-/// The front window of the app in front, in global points.
-fn front_window() -> Option<[f64; 4]> {
-    let app = objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication()?;
-    let pid = app.processIdentifier();
-    let windows = objc2::rc::autoreleasepool(|_| scrawl_capture::windows::raw_windows());
-    windows
-        .iter()
-        .find(|window| {
-            window.pid == pid
-                && window.layer == 0
-                && window.alpha > 0.0
-                && window.bounds[2] > 1.0
-                && window.bounds[3] > 1.0
-        })
-        .map(|window| window.bounds)
-}
-
 /// The display the person works on, and every display.
 pub(super) fn working() -> Option<(Screen, Vec<Screen>)> {
     let all = screens();
-    let screen = screens::working(&all, front_window(), pointer()?)?.clone();
+    let screen = screens::working(&all, super::native::front_window(), pointer()?)?.clone();
     Some((screen, all))
 }
 
@@ -132,13 +66,16 @@ pub(super) fn set_rect<T>(handle: &OverlayHandle<T>, [x, y, width, height]: [f32
 /// Places a pill of `size` where Live text would start on the working
 /// display, past its plate when Live text may show one there.
 pub(super) fn place_past_hud<T>(handle: &OverlayHandle<T>, (width, height): (f32, f32)) {
-    let Some((screen, all)) = working() else {
-        return;
-    };
     let past = if crate::labs::live_text() {
         f64::from(crate::rune_ui::live_text::SIZE.1)
     } else {
         0.0
+    };
+    let Some((screen, all)) = working() else {
+        #[cfg(not(target_os = "macos"))]
+        by_hud(handle, past as f32, rune::Align::Center);
+        let _ = (width, height);
+        return;
     };
     let (x, y, below) = hud_spot(&screen, &all);
     let (w, h) = (f64::from(width), f64::from(height));
@@ -146,6 +83,33 @@ pub(super) fn place_past_hud<T>(handle: &OverlayHandle<T>, (width, height): (f32
     let rect = screens::snap([x - w / 2.0, top, w, h], screen.scale);
     set_rect(handle, rect.map(|v| v as f32));
     note_placed(screen.id);
+}
+
+/// Without global coordinates (Linux): puts a panel at the HUD's edge of
+/// the HUD's display, `past` points further in than where Live text starts
+/// (fewer when negative), aligned `align`. Returns whether it hangs below a
+/// HUD at the top.
+#[cfg(not(target_os = "macos"))]
+pub(super) fn by_hud<T>(handle: &OverlayHandle<T>, past: f32, align: rune::Align) -> bool {
+    let (edge, margin) = match crate::rune_hud::live_text_place() {
+        Spot::Edge(edge, margin) => (edge, margin),
+        Spot::Global { below, .. } => (
+            if below {
+                ScreenEdge::Top
+            } else {
+                ScreenEdge::Bottom
+            },
+            crate::rune_hud::TOP_OFFSET,
+        ),
+    };
+    handle.set_display(crate::rune_hud::display());
+    handle.set_placement(Some(OverlayPlacement::Edge {
+        edge,
+        margin: (margin + past).max(0.0),
+        align,
+        inset: 0.0,
+    }));
+    edge == ScreenEdge::Top
 }
 
 /// Where the orb's centre is now, in global points.
@@ -161,6 +125,17 @@ fn note_placed(id: u32) {
 /// beside the HUD.
 pub(super) fn place_orb(handle: &OverlayHandle<Orb>, orb: &mut Orb) {
     let Some((screen, all)) = working() else {
+        // Without global coordinates (Linux): in the corner of the HUD's
+        // edge, unfolding into the display. It can't be dragged there.
+        #[cfg(not(target_os = "macos"))]
+        {
+            // At the edge itself: no margin past it.
+            let below = by_hud(handle, -f32::MAX, rune::Align::End);
+            orb.grow = super::super::orb::Grow {
+                down: below,
+                right: false,
+            };
+        }
         return;
     };
     let (x, _, below) = hud_spot(&screen, &all);

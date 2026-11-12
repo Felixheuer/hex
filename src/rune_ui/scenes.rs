@@ -749,135 +749,106 @@ pub(super) const SCENES: &[Scene] = &[
         *ui = mac_fixture();
         ui.settings.meetings.enabled = false;
     }),
-    // The assistant's Chats and setup (macOS only, so no golden moves).
-    #[cfg(target_os = "macos")]
-    ("mac-chats", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Conversation)
+    // The assistant's Chats and setup (no golden yet).
+    ("chats", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Conversation)
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-chats-off", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Conversation);
+    ("chats-off", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Conversation);
         ui.settings.assistant.enabled = false;
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-chats-running", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Running)
+    ("chats-running", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Running)
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-chats-empty", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Empty)
+    ("chats-empty", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Empty)
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-chats-settings", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Settings)
+    ("chats-settings", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Settings)
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-chats-tasks", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Tasks)
+    ("chats-tasks", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Tasks)
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-chats-interrupted", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Interrupted)
+    ("chats-interrupted", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Interrupted)
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-chats-job", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Job)
+    ("chats-job", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Job)
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-chats-new-schedule", |ui| {
-        mac_chats(ui, chats::fixture::Scene::NewSchedule)
+    ("chats-new-schedule", |ui| {
+        chats_scene(ui, chats::fixture::Scene::NewSchedule)
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-privacy", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Privacy))
+    ("assistant-setup-privacy", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Setup(chats::Page::Privacy))
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-about", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::About))
+    ("assistant-setup-about", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Setup(chats::Page::About))
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-chats-results", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Results)
+    ("chats-results", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Results)
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-chats-escalated", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Escalated)
+    ("chats-escalated", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Escalated)
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Welcome))
+    ("assistant-setup", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Setup(chats::Page::Welcome))
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-agent", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Agent))
+    ("assistant-setup-agent", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Setup(chats::Page::Agent))
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-agent-ready", |ui| {
-        mac_chats(
+    ("assistant-setup-agent-ready", |ui| {
+        chats_scene(
             ui,
             chats::fixture::Scene::Agent(chats::fixture::AgentPage::Ready),
         )
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-agent-none", |ui| {
-        mac_chats(
+    ("assistant-setup-agent-none", |ui| {
+        chats_scene(
             ui,
             chats::fixture::Scene::Agent(chats::fixture::AgentPage::Nothing),
         )
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-agent-own-key", |ui| {
-        mac_chats(
+    ("assistant-setup-agent-own-key", |ui| {
+        chats_scene(
             ui,
             chats::fixture::Scene::Agent(chats::fixture::AgentPage::OwnKey),
         )
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-agent-installing", |ui| {
-        mac_chats(
+    ("assistant-setup-agent-installing", |ui| {
+        chats_scene(
             ui,
             chats::fixture::Scene::Agent(chats::fixture::AgentPage::Installing),
         )
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-new", |ui| {
-        mac_chats(ui, chats::fixture::Scene::NewInHex)
+    ("assistant-setup-new", |ui| {
+        chats_scene(ui, chats::fixture::Scene::NewInHex)
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-resumed", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Resumed)
+    ("assistant-setup-resumed", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Resumed)
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-merged", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Merged)
+    ("assistant-setup-merged", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Merged)
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-restart", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Restart)
+    ("assistant-setup-restart", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Restart)
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-desktop", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Desktop))
+    ("assistant-setup-desktop", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Setup(chats::Page::Desktop))
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-browser", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Browser))
+    ("assistant-setup-browser", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Setup(chats::Page::Browser))
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-checks", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Checks))
+    ("assistant-setup-checks", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Setup(chats::Page::Checks))
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-shortcut", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Shortcut))
+    ("assistant-setup-shortcut", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Setup(chats::Page::Shortcut))
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-try", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Try))
+    ("assistant-setup-try", |ui| {
+        chats_scene(ui, chats::fixture::Scene::Setup(chats::Page::Try))
     }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-done", |ui| {
-        mac_chats(ui, chats::fixture::Scene::SetupDone)
+    ("assistant-setup-done", |ui| {
+        chats_scene(ui, chats::fixture::Scene::SetupDone)
     }),
     ("mac-activity", |ui| {
         *ui = mac_fixture();
@@ -954,10 +925,14 @@ fn scrawl_fixture(ui: &mut Ui, enabled: bool, adjust: fn(&mut platform::ScrawlVi
     ui.pane = Pane::Annotate;
 }
 
-/// The macOS window with the assistant on, at a Chats `scene`.
-#[cfg(target_os = "macos")]
-fn mac_chats(ui: &mut Ui, scene: chats::fixture::Scene) {
-    *ui = mac_fixture();
+/// The window with the assistant on, at a Chats `scene`: the macOS
+/// window on macOS, this OS's elsewhere.
+fn chats_scene(ui: &mut Ui, scene: chats::fixture::Scene) {
+    *ui = if cfg!(target_os = "macos") {
+        mac_fixture()
+    } else {
+        fixture(DesktopShortcuts::Registered)
+    };
     ui.settings.meetings.enabled = false;
     chats::fixture_scene(ui, scene);
 }

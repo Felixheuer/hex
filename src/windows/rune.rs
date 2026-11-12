@@ -99,6 +99,11 @@ pub(crate) enum ShortcutTarget {
     SecondDictation,
     /// Toggle mode's cancel shortcut.
     Cancel,
+    /// The assistant's Action shortcut: hold to ask, tap then hold for a
+    /// Background task, double-tap for the task list.
+    Action,
+    /// The assistant's Stop all tasks.
+    StopAll,
 }
 
 /// What the runtime last published for the window.
@@ -158,6 +163,34 @@ impl RuntimeHandle {
 
 static RUNTIME: OnceLock<RuntimeHandle> = OnceLock::new();
 
+/// The window's app, for what opens it from other threads: the assistant's
+/// overlays, its notifications, and the Action shortcut.
+static APP: OnceLock<rune::AppHandle<Ui>> = OnceLock::new();
+
+/// Opens the window on Chats at `conversation`, or on the most relevant
+/// one with `None` (nothing while the assistant is off). Any thread.
+pub(crate) fn open_chat(conversation: Option<String>) {
+    let Some(app) = APP.get() else {
+        return;
+    };
+    app.update(move |ui, tx| {
+        crate::rune_ui::show(ui, crate::rune_ui::Destination::Chats(conversation), tx)
+    });
+    app.open();
+}
+
+/// Opens the onboarding where it was left: the voice first run while that
+/// isn't done, else the assistant's pages at their saved page (a hold of
+/// the Action shortcut before setup finished, or the bubble's "Continue
+/// setup"). Any thread.
+pub(crate) fn open_assistant_setup() {
+    let Some(app) = APP.get() else {
+        return;
+    };
+    app.update(crate::rune_ui::open_assistant_setup);
+    app.open();
+}
+
 /// The running app's runtime; `None` outside `open` (headless snapshots).
 pub(crate) fn runtime() -> Option<RuntimeHandle> {
     RUNTIME.get().cloned()
@@ -200,6 +233,7 @@ pub fn open(event_path: PathBuf, shutdown: &'static AtomicBool, start_hidden: bo
             });
         });
     let window = app.handle();
+    let _ = APP.set(window.clone());
     // Adding the tray icon waits for Explorer, so it runs on its own thread
     // while the overlays install.
     let adding_tray = {
@@ -210,6 +244,8 @@ pub fn open(event_path: PathBuf, shutdown: &'static AtomicBool, start_hidden: bo
     };
     let hud = crate::rune_hud::install(&mut app);
     crate::rune_ui::live_text::install(&mut app, crate::rune_hud::live_text_place);
+    // The assistant's overlays, and what opens Chats and its setup.
+    crate::rune_ui::assistant_overlay::install_wired(&mut app, open_chat, open_assistant_setup);
     // The capture capsule, picker, and ink.
     let _capture_overlays =
         crate::rune_ui::capture_capsule::feed::CaptureOverlays::install(&mut app);
@@ -351,6 +387,7 @@ fn run_runtime(
 ) {
     let mut tray_view = None;
     let mut tray_meetings = None;
+    let mut tray_assistant = None;
     indicator.set_position(settings.indicator_position);
     let mut host = WindowsDesktopHost::new(
         event_path,
@@ -393,10 +430,16 @@ fn run_runtime(
             }
         }
         let meetings = crate::meeting::runtime::tray_state();
+        // Stop all tasks is enabled only while a task runs.
+        let assistant = assistant_tray(&published.settings);
         if let Some(tray) = tray
-            && (changed || tray_view.is_none() || tray_meetings != meetings)
+            && (changed
+                || tray_view.is_none()
+                || tray_meetings != meetings
+                || tray_assistant != assistant)
         {
             tray_meetings = meetings;
+            tray_assistant = assistant;
             let view = tray_view_for(&published);
             if tray_view.as_ref() != Some(&view) {
                 tray.set_tooltip(view.tooltip());
@@ -617,6 +660,7 @@ impl crate::control::host::Host for WindowsControl {
 fn tray_view_for(published: &Published) -> TrayView {
     TrayView {
         meetings: crate::meeting::runtime::tray_state(),
+        assistant: assistant_tray(&published.settings),
         ..TrayView::new(
             published.listener.running,
             published.state,
@@ -628,6 +672,11 @@ fn tray_view_for(published: &Published) -> TrayView {
             ),
         )
     }
+}
+
+/// The assistant as the tray shows it: off (`None`), or whether a task runs.
+fn assistant_tray(settings: &AppSettings) -> Option<bool> {
+    crate::assistant::enabled(settings).then(crate::assistant::busy)
 }
 
 /// Gives the window the executable's embedded icon (resource 1, see
@@ -861,6 +910,9 @@ fn create_tray(window: rune::AppHandle<Ui>) -> Result<rune::Tray> {
         rune::TrayEvent::Menu(id) => match TrayCommand::from_id(&id) {
             Some(TrayCommand::Show) => window.open(),
             Some(TrayCommand::Quit) => window.quit(),
+            // The assistant: Chats, and Stop all tasks.
+            Some(TrayCommand::OpenChats) => open_chat(None),
+            Some(TrayCommand::StopAllTasks) => crate::assistant::service::stop_all(),
             Some(
                 command @ (TrayCommand::RecordMeeting
                 | TrayCommand::StopMeeting
@@ -903,6 +955,8 @@ fn create_tray(window: rune::AppHandle<Ui>) -> Result<rune::Tray> {
                     }
                     TrayCommand::Show
                     | TrayCommand::Quit
+                    | TrayCommand::OpenChats
+                    | TrayCommand::StopAllTasks
                     | TrayCommand::RecordMeeting
                     | TrayCommand::StopMeeting
                     | TrayCommand::CopyLastMeeting => return,

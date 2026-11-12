@@ -1,4 +1,4 @@
-//! The assistant's settings (macOS): its switch, the Action shortcut, the
+//! The assistant's settings: its switch, the Action shortcut, the
 //! agent that answers, and how far it may act. The switch is
 //! `assistant.enabled`, on by default; the Anthropic API key lives in the
 //! Keychain, never here.
@@ -26,14 +26,14 @@ pub enum AssistantBackend {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default)]
 pub struct AssistantSettings {
-    /// The assistant's switch (macOS): off, the Action shortcut, the
-    /// overlays, the scheduler, and its menu bar items are inert. On by
-    /// default.
+    /// The assistant's switch: off, the Action shortcut, the overlays, the
+    /// scheduler, and its menu bar and tray items are inert. On by default.
     pub enabled: bool,
     /// Hold and say anything: the assistant answers, acts in the window in
     /// front, or starts a background job. Double-tap shows or hides the task
     /// list; a tap then a hold forces a new Background task. Right Command
-    /// by default.
+    /// by default on macOS, Ctrl+Shift+Space on Windows and Linux
+    /// ([`HotkeyBinding::action_default`]).
     pub action_hotkey: Option<HotkeyBinding>,
     pub backend: AssistantBackend,
     /// Each backend's model; `None` is that agent's own default.
@@ -68,8 +68,9 @@ pub struct AssistantSettings {
     pub max_parallel: u32,
     /// The setup sheet (agents found, agent-desktop, permissions) was finished.
     pub setup_done: bool,
-    /// Stops every task at once, and the speech: Control-Option-Escape by
-    /// default. Never Command-Option-Escape, which is macOS's Force Quit.
+    /// Stops every task at once, and the speech
+    /// ([`HotkeyBinding::stop_all_default`]). Never Command-Option-Escape,
+    /// which is macOS's Force Quit.
     pub stop_all_hotkey: Option<HotkeyBinding>,
     /// A Here task may move the real pointer and press real keys in the
     /// window in front (under a "Hands off" pill); off keeps it headless too.
@@ -147,9 +148,18 @@ impl Default for AssistantSettings {
 }
 
 impl HotkeyBinding {
-    /// Stop all tasks' default: Control-Option-Escape.
+    /// Stop all tasks' default, an Escape chord no desktop takes:
+    ///
+    /// - macOS: Control-Option-Escape (Command-Option-Escape is Force Quit).
+    /// - Windows: Ctrl+Alt+Esc. Ctrl+Esc opens Start, Alt+Esc cycles
+    ///   windows, and Ctrl+Shift+Esc opens Task Manager; Ctrl+Alt+Esc is
+    ///   free, and the keyboard hook binds any key chord.
+    /// - Linux: Ctrl+Alt+Shift+Esc. KDE takes Ctrl+Alt+Esc (kill a window)
+    ///   and Ctrl+Shift+Esc (System Monitor); the fourth key leaves both
+    ///   alone, and X11 grabs and the shortcuts portal both bind it.
     pub fn stop_all_default() -> Self {
-        Self {
+        #[cfg(target_os = "macos")]
+        let binding = Self {
             modifiers: HotkeyModifiers {
                 control: Some(ModifierSide::Either),
                 option: Some(ModifierSide::Either),
@@ -159,7 +169,18 @@ impl HotkeyBinding {
                 code: 53,
                 label: "Esc".into(),
             }),
-        }
+        };
+        #[cfg(target_os = "windows")]
+        let binding = Self::chord(HotkeyModifiers::control_option(), "escape");
+        #[cfg(target_os = "linux")]
+        let binding = Self::chord(
+            HotkeyModifiers {
+                shift: Some(ModifierSide::Either),
+                ..HotkeyModifiers::control_option()
+            },
+            "escape",
+        );
+        binding
     }
 
     /// macOS's Force Quit Applications, Command-Option-Escape, which no
@@ -178,25 +199,45 @@ impl HotkeyBinding {
         }
     }
 
-    /// The Action shortcut's default: hold right Command alone.
+    /// The Action shortcut's default, held to ask:
+    ///
+    /// - macOS: right Command alone, which the event tap tells from a ⌘
+    ///   chord.
+    /// - Windows and Linux: Ctrl+Shift+Space. Their listeners bind a key
+    ///   with modifiers (the Windows hook's and the shortcuts portal's
+    ///   other shortcuts need one, and X11 grabs one), so a lone modifier
+    ///   can't be the default there; Right Alt is AltGr on German and many
+    ///   other layouts. It sits beside dictation's Ctrl+Space (Windows) and
+    ///   Alt+Space or Ctrl+Alt+Space (Linux) without sharing their keys, and
+    ///   no common desktop binds it.
     pub fn action_default() -> Self {
-        Self {
+        #[cfg(target_os = "macos")]
+        let binding = Self {
             modifiers: HotkeyModifiers {
                 command: Some(ModifierSide::Right),
                 ..Default::default()
             },
             key: None,
-        }
+        };
+        #[cfg(not(target_os = "macos"))]
+        let binding = Self::chord(
+            HotkeyModifiers {
+                shift: Some(ModifierSide::Either),
+                ..HotkeyModifiers::control()
+            },
+            "space",
+        );
+        binding
     }
 }
 
 impl AppSettings {
-    /// The assistant's Stop all tasks shortcut while it takes effect:
-    /// macOS, the assistant on, bound, and sharing no key with another active
-    /// shortcut or Force Quit. Otherwise Hex matches and swallows nothing for
+    /// The assistant's Stop all tasks shortcut while it takes effect: the
+    /// assistant on, bound, and sharing no key with another active shortcut
+    /// or (macOS) Force Quit. Otherwise Hex matches and swallows nothing for
     /// it.
     pub fn active_stop_all_hotkey(&self) -> Option<&HotkeyBinding> {
-        if !cfg!(target_os = "macos") || !crate::assistant::enabled(self) {
+        if !crate::assistant::enabled(self) {
             return None;
         }
         self.assistant
@@ -210,7 +251,6 @@ impl AppSettings {
 /// Whether the assistant is ready to ask (`assistant::ready`) as the
 /// settings were last applied, for the listener's Action shortcut; false
 /// until settings load.
-#[cfg(target_os = "macos")]
 pub fn applied_assistant_ready() -> bool {
     HOTKEYS
         .get_or_init(Default::default)

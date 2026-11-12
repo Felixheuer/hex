@@ -1,10 +1,10 @@
-//! Chats (the assistant, macOS): every conversation with the assistant
+//! Chats (the assistant): every conversation with the assistant
 //! and how it ended, the selected one's transcript with its answers
 //! streaming in, a composer that asks about the window in front (Here) or
 //! starts a Background task, the running tasks with Take over, Hand back,
 //! and Stop, and the
 //! assistant's settings. The setup sheet (`setup`) checks, live, that every
-//! piece the assistant needs works on this Mac.
+//! piece the assistant needs works on this computer.
 //!
 //! The pane reads and asks `crate::assistant` only once the window connects
 //! to it (`connect`); before that, and in every scene and test, it works on
@@ -266,8 +266,8 @@ impl ChatsPane {
         pane
     }
 
-    /// The fixture store, in scenes and tests.
-    #[cfg(test)]
+    /// The fixture store, for the pane's tests (which run on macOS).
+    #[cfg(all(test, target_os = "macos"))]
     pub(super) fn store(&self) -> Option<&fixture::Store> {
         match &self.source {
             Source::Fixture(store) => Some(store.as_ref()),
@@ -279,8 +279,9 @@ impl ChatsPane {
         matches!(self.source, Source::Live)
     }
 
-    /// An event as the service reports it, for the next poll (tests).
-    #[cfg(test)]
+    /// An event as the service reports it, for the next poll (the pane's
+    /// tests, which run on macOS).
+    #[cfg(all(test, target_os = "macos"))]
     pub(super) fn deliver(&self, event: Event) {
         if let Ok(mut inbox) = self.inbox.lock() {
             inbox.push(event);
@@ -559,15 +560,10 @@ impl ChatsPane {
     }
 }
 
-/// Whether the pane is in the sidebar: on macOS, whether or not the
-/// assistant is on (off, it offers to turn it on).
-pub(super) fn available(ui: &Ui) -> bool {
-    cfg!(target_os = "macos") && ui.platform.caps.os == super::platform::Os::Macos
-}
-
-/// Whether the assistant runs: the pane is here and its switch is on.
+/// Whether the assistant runs: its switch is on. The pane is in the
+/// sidebar either way (off, it offers to turn it on).
 fn on(ui: &Ui) -> bool {
-    available(ui) && crate::assistant::enabled(&ui.settings)
+    crate::assistant::enabled(&ui.settings)
 }
 
 /// Connects the pane to the assistant service: the window shows what it
@@ -650,10 +646,6 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
             // The assistant turned off: its onboarding closes; the pane
             // stays, offering to turn it back on.
             setup::close(ui);
-            changed = true;
-        }
-        if !available(ui) && ui.pane == Pane::Chats {
-            ui.select_pane(Pane::General, tx);
             changed = true;
         }
         set_focus(ui, None);

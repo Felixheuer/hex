@@ -11,7 +11,7 @@ use crate::rune_ui::Ui;
 use crate::rune_ui::platform::{Capabilities, Os};
 
 fn desktop_page(os: Capabilities) -> rune::Runtime<Ui> {
-    let mut rt = scene("mac-assistant-setup-desktop");
+    let mut rt = scene("assistant-setup-desktop");
     rt.state.platform.caps = os;
     rt
 }

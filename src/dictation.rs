@@ -69,6 +69,10 @@ pub enum DictationFlavour {
     /// like the dictation shortcut. It is its own owner, so neither
     /// shortcut finishes or double-taps the other's capture.
     Second,
+    /// The assistant's Action shortcut: processed like a paste, then handed
+    /// to the question waiting for it (`assistant::trigger`). Never pasted,
+    /// copied, kept for Paste last dictation, or saved to History.
+    Assistant,
 }
 
 #[cfg_attr(not(any(target_os = "windows", target_os = "linux")), allow(dead_code))]
@@ -86,6 +90,11 @@ impl DictationFlavour {
     /// Whether the plain dictation shortcut owns the capture.
     pub fn normal(self) -> bool {
         self == Self::Normal
+    }
+
+    /// Whether the capture asks the assistant instead of pasting.
+    pub fn assistant(self) -> bool {
+        self == Self::Assistant
     }
 }
 

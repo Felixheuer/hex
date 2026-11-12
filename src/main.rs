@@ -16,7 +16,6 @@ mod apple_intelligence;
 #[cfg(target_os = "macos")]
 mod apple_speech;
 mod application_catalog;
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod assistant;
 #[cfg_attr(any(target_os = "linux", target_os = "windows"), allow(dead_code))]
 mod audio;
@@ -228,22 +227,7 @@ enum DevCommand {
     #[cfg(debug_assertions)]
     /// The assistant: find the agents and agent-desktop, and run setup's
     /// self-tests from this process.
-    AssistantDoctor {
-        /// Run every self-test (asks each installed agent a tiny prompt).
-        #[arg(long)]
-        checks: bool,
-        /// Capture a question's context, writing its screenshot to this PNG.
-        #[arg(long)]
-        context: Option<PathBuf>,
-        /// Read this text aloud.
-        #[arg(long)]
-        say: Option<String>,
-        /// Run only the hidden browser's self-tests: agent-browser directly,
-        /// through Hex's browser tool, and through each ready agent (a tiny
-        /// prompt each).
-        #[arg(long)]
-        browser: bool,
-    },
+    AssistantDoctor(assistant::backends::doctor::Doctor),
     #[cfg(debug_assertions)]
     /// The assistant's experimental agents' Space: opens a TextEdit
     /// window, parks it out of the way, checks agent-desktop still reads and
@@ -404,21 +388,10 @@ fn main() -> Result<()> {
     }
     #[cfg(debug_assertions)]
     if let Some(Command::Dev {
-        command:
-            DevCommand::AssistantDoctor {
-                checks,
-                context,
-                say,
-                browser,
-            },
+        command: DevCommand::AssistantDoctor(doctor),
     }) = &cli.command
     {
-        return assistant::backends::doctor::run(assistant::backends::doctor::Doctor {
-            checks: *checks,
-            context: context.clone(),
-            say: say.clone(),
-            browser: *browser,
-        });
+        return assistant::backends::doctor::run(doctor.clone());
     }
     #[cfg(debug_assertions)]
     if let Some(Command::Dev {
@@ -506,7 +479,7 @@ fn main() -> Result<()> {
                         return Ok(());
                     }
                     DevCommand::VoiceFilter { .. } => unreachable!("handled before startup"),
-                    DevCommand::AssistantDoctor { .. } => unreachable!("handled before startup"),
+                    DevCommand::AssistantDoctor(_) => unreachable!("handled before startup"),
                     DevCommand::AssistantSpaceProbe => unreachable!("handled before startup"),
                 };
                 let reply = local_api::call_developer(&command)?;

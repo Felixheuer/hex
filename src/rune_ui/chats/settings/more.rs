@@ -183,8 +183,22 @@ pub(super) fn better_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
     )
 }
 
-/// Keep listening after an answer, and interrupt by speaking.
+/// Keep listening after an answer, and interrupt by speaking. Only the
+/// macOS listener opens the microphone for a follow-up without the
+/// shortcut, so elsewhere the row says so and offers nothing to set.
 pub(super) fn conversation_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<CardRow> {
+    if !cfg!(target_os = "macos") {
+        return vec![
+            setting_row(
+                p,
+                "assistant-conversation",
+                tr("Keep listening after an answer"),
+                Some(tr("Only on macOS for now")),
+                rune::el(),
+            )
+            .into(),
+        ];
+    }
     let saved = ui.settings.assistant.conversation_seconds;
     let (values, selected) = super::with_saved(&CONVERSATION, saved);
     let labels = values

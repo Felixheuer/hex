@@ -22,6 +22,13 @@ use crate::desktop::host::{DesktopGrantedShortcut, DesktopShortcut, DesktopShort
 use crate::dictation::DictationFlavour;
 use crate::linux::session::LinuxSession;
 
+#[path = "input/assistant.rs"]
+mod assistant;
+#[path = "input/portal_ids.rs"]
+mod portal_ids;
+use portal_ids::{
+    granted_trigger, hyprland_legacy_id, portal_shortcut_id, project_grants, trigger_has_modifiers,
+};
 #[path = "input/x11.rs"]
 mod x11;
 pub(crate) use x11::{Keymap, MouseCapture, connect_x11};
@@ -288,6 +295,20 @@ pub(crate) enum HotkeyEvent {
     Capture,
     /// It came up: a tap stops the recording, a hold stops drawing.
     CaptureUp,
+    /// The assistant's Action shortcut went down, starting a capture it
+    /// owns (`DictationFlavour::Assistant`); `after_tap` when a tap came just
+    /// before. Its release is a `Finish`, or a `DoubleTap`.
+    Ask {
+        after_tap: bool,
+    },
+    /// The second of two taps of the Action shortcut came up: its capture
+    /// ends unheard and the task list shows or hides.
+    DoubleTap,
+    /// The assistant's Stop all tasks shortcut.
+    StopAll,
+    /// Escape while the assistant held it (X11): stop the Here tasks and
+    /// speech.
+    StopHere,
 }
 
 /// What a `hex` command asks of the running listener. Each one is
@@ -348,6 +369,10 @@ pub(crate) struct HotkeyOptions {
     /// Toggle mode's cancel shortcut, which Hex takes only while a
     /// recording runs; `None` in Hold mode, which has no cancel.
     pub(crate) cancel: Option<LinuxHotkey>,
+    /// The assistant's Action shortcut and Stop all tasks, while the
+    /// assistant is on and each is bound.
+    pub(crate) action: Option<LinuxHotkey>,
+    pub(crate) stop_all: Option<LinuxHotkey>,
 }
 
 /// Whether Annotate draws now, so Escape is Hex's (it stops drawing).
@@ -427,7 +452,7 @@ pub(crate) struct ShortcutKeys(Arc<Mutex<HeldKeys>>);
 #[derive(Debug, Default)]
 struct HeldKeys {
     /// Modifier shortcuts pressed without their release, by [`Shortcut::index`].
-    held: u8,
+    held: u16,
     last: Option<Instant>,
 }
 
@@ -502,81 +527,6 @@ impl ShortcutKeys {
     }
 }
 
-/// Whether a portal trigger holds modifiers: the one the desktop granted,
-/// else the one Hex asked for.
-fn trigger_has_modifiers(granted: Option<&str>, requested: &LinuxHotkey) -> bool {
-    match granted.map(str::trim).filter(|trigger| !trigger.is_empty()) {
-        Some(trigger) => crate::linux::portal::readable_trigger(trigger).contains('+'),
-        None => requested.control || requested.alt || requested.shift || requested.super_key,
-    }
-}
-
-/// The portal id of a shortcut asking for `trigger`. A desktop keeps the
-/// trigger it stored for an id and ignores a later `preferred_trigger`
-/// (GNOME, KDE), so a shortcut changed in Hex gets a new id, which the
-/// desktop binds to the new trigger (#575). An unchanged shortcut keeps its
-/// id, and with it any trigger the user assigned in the desktop.
-///
-/// With `desktop_assigns` (Hyprland), the desktop ignores the trigger and
-/// the user binds the id by name in its config, so the id is the bare
-/// `base`: recording another key in Hex must not leave that bind pointing
-/// at a name Hex no longer listens to (#1376).
-fn portal_shortcut_id(base: &str, trigger: &str, desktop_assigns: bool) -> String {
-    if desktop_assigns {
-        return base.to_string();
-    }
-    format!("{base}-{}", trigger.replace('+', "-"))
-}
-
-/// The name Hex 3.3 and earlier gave `shortcut` on Hyprland, the trigger in
-/// the id (`dictation-ALT-space`), which configs written then still bind.
-/// Hex binds it beside the bare id so those binds keep working while the
-/// recorded key is the one they were written for. Only the shortcuts 3.3
-/// had get one.
-fn hyprland_legacy_id(shortcut: Shortcut, trigger: &str) -> Option<String> {
-    matches!(
-        shortcut,
-        Shortcut::Dictation | Shortcut::PasteLast | Shortcut::Capture | Shortcut::RawDictation
-    )
-    .then(|| portal_shortcut_id(shortcut.portal_id().0, trigger, false))
-}
-
-/// The trigger the desktop granted a shortcut, by the id Hex bound it under.
-fn granted_trigger<'a>(
-    granted: &'a std::collections::HashMap<String, Option<String>>,
-    ids: &[Option<String>; Shortcut::ALL.len()],
-    shortcut: Shortcut,
-) -> Option<&'a str> {
-    ids[shortcut.index()]
-        .as_deref()
-        .and_then(|id| granted.get(id))
-        .and_then(Option::as_deref)
-}
-
-/// What the desktop granted, as Settings shows it: each shortcut Hex asked
-/// for. With `desktop_assigns` (Hyprland), a shortcut without a trigger is
-/// unconfirmed rather than refused.
-fn project_grants(
-    granted: &std::collections::HashMap<String, Option<String>>,
-    requested: &[Option<(Shortcut, &LinuxHotkey)>],
-    ids: &[Option<String>; Shortcut::ALL.len()],
-    desktop_assigns: bool,
-) -> Vec<DesktopGrantedShortcut> {
-    requested
-        .iter()
-        .flatten()
-        .map(|(shortcut, _)| {
-            let trigger = granted_trigger(granted, ids, *shortcut)
-                .map(crate::linux::portal::readable_trigger);
-            DesktopGrantedShortcut {
-                name: shortcut.portal_id().1.into(),
-                unconfirmed: desktop_assigns && trigger.is_none(),
-                trigger,
-            }
-        })
-        .collect()
-}
-
 /// A shortcut a backend reports pressed or released.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Shortcut {
@@ -588,10 +538,14 @@ enum Shortcut {
     TerminalPaste,
     /// Labs › Second dictation shortcut.
     SecondDictation,
+    /// The assistant's Action shortcut.
+    Action,
+    /// The assistant's Stop all tasks.
+    StopAll,
 }
 
 impl Shortcut {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 9] = [
         Self::Dictation,
         Self::PasteLast,
         Self::TypedText,
@@ -599,6 +553,8 @@ impl Shortcut {
         Self::RawDictation,
         Self::TerminalPaste,
         Self::SecondDictation,
+        Self::Action,
+        Self::StopAll,
     ];
 
     fn index(self) -> usize {
@@ -613,7 +569,8 @@ impl Shortcut {
             Self::RawDictation => Some(DictationFlavour::Raw),
             Self::TerminalPaste => Some(DictationFlavour::TerminalPaste),
             Self::SecondDictation => Some(DictationFlavour::Second),
-            Self::PasteLast | Self::TypedText | Self::Capture => None,
+            Self::Action => Some(DictationFlavour::Assistant),
+            Self::PasteLast | Self::TypedText | Self::Capture | Self::StopAll => None,
         }
     }
 
@@ -624,6 +581,7 @@ impl Shortcut {
             DictationFlavour::Raw => Self::RawDictation,
             DictationFlavour::TerminalPaste => Self::TerminalPaste,
             DictationFlavour::Second => Self::SecondDictation,
+            DictationFlavour::Assistant => Self::Action,
         }
     }
 
@@ -637,6 +595,8 @@ impl Shortcut {
             Self::RawDictation => ("raw-dictation", "Dictate without processing"),
             Self::TerminalPaste => ("terminal-paste", "Terminal paste shortcut"),
             Self::SecondDictation => ("second-dictation", "Second dictation shortcut"),
+            Self::Action => ("assistant-action", "Action shortcut"),
+            Self::StopAll => ("assistant-stop-all", "Stop all tasks"),
         }
     }
 }
@@ -689,8 +649,10 @@ struct ShortcutState {
     repeating: bool,
     /// The shortcut that owns the capture (or the last one): dictation,
     /// Dictate without processing, Labs › Terminal paste, or Labs › Second
-    /// dictation.
+    /// dictation, or the assistant's Action shortcut.
     flavour: DictationFlavour,
+    /// The assistant's Action shortcut and Stop all tasks.
+    assistant: assistant::AssistantKeys,
 }
 
 impl ShortcutState {
@@ -708,6 +670,7 @@ impl ShortcutState {
             down: false,
             repeating: false,
             flavour: DictationFlavour::Normal,
+            assistant: assistant::AssistantKeys::default(),
         }
     }
 
@@ -719,7 +682,9 @@ impl ShortcutState {
     /// only while something records, so the key stays with every app
     /// otherwise.
     fn wants_cancel(&self) -> bool {
-        self.cancels && matches!(self.capture, Capture::Held { .. } | Capture::Locked)
+        self.cancels
+            && !self.flavour.assistant()
+            && matches!(self.capture, Capture::Held { .. } | Capture::Locked)
     }
 
     /// Whatever records ends unfinished: the backend lost track of the
@@ -728,6 +693,7 @@ impl ShortcutState {
         let active = matches!(self.capture, Capture::Held { .. } | Capture::Locked);
         self.capture = Capture::Idle;
         self.last_release = None;
+        self.assistant.cancel();
         active.then_some(HotkeyEvent::Cancel)
     }
 
@@ -782,7 +748,10 @@ impl ShortcutState {
     }
 
     fn stop_dictation(&mut self) -> Option<HotkeyEvent> {
-        if !matches!(self.capture, Capture::Held { .. } | Capture::Locked) {
+        // Only the Action shortcut's release asks its question.
+        if self.flavour.assistant()
+            || !matches!(self.capture, Capture::Held { .. } | Capture::Locked)
+        {
             return None;
         }
         self.capture = Capture::Idle;
@@ -794,9 +763,22 @@ impl ShortcutState {
         match input {
             // Escape while Annotate draws stops drawing, never the recording,
             // and it ends no dictation (#786).
+            // Else, while the assistant holds it, it stops the Here task and
+            // the answer read aloud.
             Input::Escape => {
-                #[cfg(hex_capture)]
-                crate::capture_host::exit_drawing();
+                if annotate_drawing() {
+                    #[cfg(hex_capture)]
+                    crate::capture_host::exit_drawing();
+                    return None;
+                }
+                (self.idle() && crate::assistant::trigger::escape_claimed())
+                    .then_some(HotkeyEvent::StopHere)
+            }
+            Input::Pressed(Shortcut::Action) => self.action_pressed(now),
+            Input::Released(Shortcut::Action) => self.action_released(now),
+            Input::Pressed(Shortcut::StopAll) => self.assistant.stop_all(now),
+            Input::Released(Shortcut::StopAll) => {
+                self.assistant.stop_all_released();
                 None
             }
             Input::Lost => {
@@ -1261,6 +1243,11 @@ impl Backend {
                 .second_dictation
                 .as_ref()
                 .map(|key| (Shortcut::SecondDictation, key)),
+            options.action.as_ref().map(|key| (Shortcut::Action, key)),
+            options
+                .stop_all
+                .as_ref()
+                .map(|key| (Shortcut::StopAll, key)),
         ];
         let desktop_assigns = crate::linux::portal::desktop_assigns_triggers();
         let mut shortcuts = Vec::new();

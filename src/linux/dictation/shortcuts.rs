@@ -34,6 +34,8 @@ pub(super) fn shortcuts(settings: &AppSettings) -> (LinuxHotkey, HotkeyOptions) 
             .enabled
             .then(|| LinuxHotkey::from(&settings.capture.hotkey)),
         cancel: settings.active_cancel_hotkey().map(LinuxHotkey::from),
+        action: settings.active_action_hotkey().map(LinuxHotkey::from),
+        stop_all: settings.active_stop_all_hotkey().map(LinuxHotkey::from),
     };
     (LinuxHotkey::from(&settings.dictation_hotkey), options)
 }

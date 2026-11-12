@@ -9,18 +9,43 @@ use std::path::PathBuf;
 use crate::app_settings::AssistantSettings;
 use crate::assistant::{computer, speech};
 
-/// What to do beyond printing what's found.
-#[derive(Clone, Debug, Default)]
+/// What to do beyond printing what's found: `hex dev assistant-doctor`'s
+/// arguments on every OS.
+#[derive(Clone, Debug, Default, clap::Args)]
 pub struct Doctor {
-    /// Run every self-test for every installed agent (asks each a tiny
-    /// prompt, so it uses a little of each account).
+    /// Run every self-test (asks each installed agent a tiny prompt).
+    #[arg(long)]
     pub checks: bool,
-    /// Capture a question's context, writing its screenshot here.
+    /// Capture a question's context, writing its screenshot to this PNG.
+    #[arg(long)]
     pub context: Option<PathBuf>,
-    /// Read this aloud.
+    /// Read this text aloud.
+    #[arg(long)]
     pub say: Option<String>,
-    /// Run only the hidden browser's self-tests.
+    /// Run only the hidden browser's self-tests: agent-browser directly,
+    /// through Hex's browser tool, and through each ready agent (a tiny
+    /// prompt each).
+    #[arg(long)]
     pub browser: bool,
+}
+
+/// `hex dev` on Windows and Linux (debug builds): the assistant's doctor.
+/// macOS has its own, longer `hex dev`.
+#[cfg(not(target_os = "macos"))]
+#[derive(clap::Subcommand)]
+pub enum Dev {
+    /// The assistant: find the agents and agent-desktop, and run setup's
+    /// self-tests from this process.
+    AssistantDoctor(Doctor),
+}
+
+#[cfg(not(target_os = "macos"))]
+impl Dev {
+    pub fn run(self) -> color_eyre::Result<()> {
+        match self {
+            Self::AssistantDoctor(doctor) => run(doctor),
+        }
+    }
 }
 
 pub fn run(doctor: Doctor) -> color_eyre::Result<()> {

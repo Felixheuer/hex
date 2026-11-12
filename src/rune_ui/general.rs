@@ -84,10 +84,9 @@ pub(super) fn basics(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Opt
                 ),
             );
         }
-        // The assistant (macOS): the Action shortcut (hold and say
-        // anything, the assistant decides; double-tap for the task list),
-        // and Stop all tasks under it.
-        #[cfg(target_os = "macos")]
+        // The assistant: the Action shortcut (hold and say anything, the
+        // assistant decides; double-tap for the task list), and Stop all
+        // tasks under it.
         if crate::assistant::enabled(&ui.settings) {
             let purpose = tr("Hold and say anything; Hex decides");
             rows.extend_described(

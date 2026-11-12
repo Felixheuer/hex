@@ -1,4 +1,4 @@
-//! The assistant's overlays: what it draws over the desktop (macOS).
+//! The assistant's overlays: what it draws over the desktop.
 //!
 //! - The screen frame ([`frame`]): while Background work runs, waits, or is
 //!   queued, a soft glow breathes around every display.
@@ -29,18 +29,14 @@
 //! [`fixture`] and [`desk`] are made-up activity and a pretend desktop for
 //! the playground ([`stories`]) and the render tests.
 
-#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
-
 mod board;
 mod bubble;
-#[cfg(target_os = "macos")]
 mod cursor;
 mod desk;
 mod fixture;
 mod frame;
 mod hands;
 mod hint;
-#[cfg(target_os = "macos")]
 mod host;
 mod listening;
 mod markdown;
@@ -54,38 +50,47 @@ mod pops;
 mod quick;
 mod screens;
 mod stack;
-#[cfg(target_os = "macos")]
 pub(crate) mod stories;
 #[cfg(test)]
 mod tests;
 mod when;
 
-#[cfg(target_os = "macos")]
-pub(crate) use host::{ask_hint, install, listening, set_open_chats, set_open_setup, setup_needed};
+pub(crate) use host::{ask_hint, listening};
+use host::{install, set_open_chats, set_open_setup, setup_needed};
+
+/// Task `colour`'s agent cursor (a soft arrow in its colour, drawn once
+/// into `<support>/assistant/cursors/`), for agent-desktop's
+/// `cursor-overlay enable --image`; `None` when it can't be drawn.
+pub(crate) use cursor::cursor_image;
 
 /// A task's colour, for Chats' running tasks.
 pub(super) use palette::task as task_colour;
 
-/// Unfolds the task list from the orb, or folds it back: the Action
-/// shortcut's double-tap. Any thread; nothing while no Background task is
-/// listed, and nothing off macOS.
-#[allow(dead_code)] // The Action shortcut calls it through `ask::set_toggle_tasks`.
-pub fn toggle_tasks() {
-    #[cfg(target_os = "macos")]
-    host::toggle_tasks();
-}
-
-/// Task `colour`'s agent cursor (a soft arrow in its colour, drawn once
-/// into `<support>/assistant/cursors/`), for agent-desktop's
-/// `cursor-overlay enable --image`. `None` when it can't be drawn, and off
-/// macOS.
-#[allow(dead_code)] // The brain passes it to agent-desktop.
-pub fn cursor_image(colour: u8) -> Option<std::path::PathBuf> {
-    #[cfg(target_os = "macos")]
-    return cursor::cursor_image(colour);
+/// Adds the overlays to the app as it starts, and wires what opens from
+/// them, from the Action shortcut, and from notifications: `open_chat`
+/// opens Chats on a conversation (or on the most relevant one with `None`),
+/// `open_setup` the assistant's setup where it was left. Both are called
+/// from any thread. Every OS's app calls this once.
+pub(crate) fn install_wired<S: 'static>(
+    app: &mut rune::App<S>,
+    open_chat: fn(Option<String>),
+    open_setup: fn(),
+) {
+    // The frame, window outlines, task stack, and quick answer; hidden,
+    // without windows, until the assistant reports work.
+    install(app);
+    // The task stack and "Open in Chats" open the conversation in Chats.
+    set_open_chats(move |id| open_chat(Some(id.to_owned())));
+    // A hold of the Action shortcut before setup says "Finish setting up
+    // the assistant first" and opens the setup; the bubble's "Continue
+    // setup" opens it too.
+    set_open_setup(open_setup);
+    crate::assistant::trigger::set_open_setup(move || {
+        setup_needed();
+        open_setup();
+    });
+    // A click on a notification opens its conversation (macOS opens a
+    // `hex://chats` link instead).
     #[cfg(not(target_os = "macos"))]
-    {
-        let _ = colour;
-        None
-    }
+    crate::assistant::notify::set_on_click(move |id| open_chat(Some(id.to_owned())));
 }

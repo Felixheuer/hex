@@ -282,5 +282,18 @@ fn live_here_context() -> Context {
             });
         }
     }
+    // Windows and Linux list no window behind Hex's own here: with Hex in
+    // front, what was read is its own window, so a question typed in Chats
+    // goes without it rather than acting on Hex.
+    #[cfg(not(target_os = "macos"))]
+    if context
+        .frontmost_app
+        .as_deref()
+        .is_some_and(|app| app.eq_ignore_ascii_case("Hex"))
+    {
+        context.selected_text = None;
+        context.window_title = None;
+        context.window = None;
+    }
     context
 }

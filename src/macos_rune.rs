@@ -498,19 +498,8 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     };
     let hud = crate::rune_hud::install(&mut app);
     crate::rune_ui::live_text::install(&mut app, crate::rune_hud::live_text_place);
-    // The assistant: the frame, window outlines, task stack, and quick
-    // answer; hidden, without windows, until the assistant reports work.
-    crate::rune_ui::assistant_overlay::install(&mut app);
-    // Its task stack and "Open in Chats" open the conversation in Chats.
-    crate::rune_ui::assistant_overlay::set_open_chats(|id| open_chat(Some(id.to_owned())));
-    // A hold of the Action shortcut before setup says "Finish setting up the
-    // assistant first" and opens the setup; the bubble's "Continue setup"
-    // opens it too.
-    crate::rune_ui::assistant_overlay::set_open_setup(open_assistant_setup);
-    crate::recognition::ask::set_open_setup(|| {
-        crate::rune_ui::assistant_overlay::setup_needed();
-        open_assistant_setup();
-    });
+    // The assistant's overlays, and what opens Chats and its setup.
+    crate::rune_ui::assistant_overlay::install_wired(&mut app, open_chat, open_assistant_setup);
     // The capture capsule, picker, and ink.
     #[cfg(hex_capture)]
     let capture_overlays =

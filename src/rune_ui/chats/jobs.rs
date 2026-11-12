@@ -163,8 +163,8 @@ impl Jobs {
         }
     }
 
-    /// Answers a job as its thread would, for tests.
-    #[cfg(test)]
+    /// Answers a job as its thread would, for the pane's tests (macOS).
+    #[cfg(all(test, target_os = "macos"))]
     pub(in crate::rune_ui) fn finish(&self, done: Done) {
         let _ = self.sender.send(done);
     }

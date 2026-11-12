@@ -1069,16 +1069,18 @@ impl AppSettings {
             .filter(|binding| !self.hotkey_in_use(HotkeySlot::SecondDictation, binding))
     }
 
-    /// The assistant's Action shortcut while it takes effect: macOS, the
-    /// assistant on, bound, and sharing no key with another active shortcut.
-    /// Otherwise Hex matches, suppresses, and checks nothing for it.
+    /// The assistant's Action shortcut while it takes effect: the assistant
+    /// on, bound, sharing no key with another active shortcut, and, on
+    /// Windows and Linux, naming a key (their listeners bind one). Otherwise
+    /// Hex matches, suppresses, registers, and checks nothing for it.
     pub fn active_action_hotkey(&self) -> Option<&HotkeyBinding> {
-        if !cfg!(target_os = "macos") || !crate::assistant::enabled(self) {
+        if !crate::assistant::enabled(self) {
             return None;
         }
         self.assistant
             .action_hotkey
             .as_ref()
+            .filter(|binding| cfg!(target_os = "macos") || binding.key.is_some())
             .filter(|binding| !self.hotkey_in_use(HotkeySlot::Action, binding))
     }
 
@@ -1353,7 +1355,6 @@ pub fn hex_microphone_enabled() -> bool {
 #[derive(Default)]
 struct AppliedHotkeys {
     runtime: RuntimeHotkeys,
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     settings: Option<Arc<AppSettings>>,
 }
 
@@ -1396,7 +1397,6 @@ pub fn refresh_layout_hotkeys() {
 
 /// The assistant's options as last applied, for the listener's Action
 /// shortcut; the defaults until settings load.
-#[cfg(target_os = "macos")]
 pub fn applied_assistant() -> AssistantSettings {
     HOTKEYS
         .get_or_init(Default::default)
@@ -1794,9 +1794,9 @@ mod tests {
     }
 
     /// The assistant's Action shortcut: inert and unchecked while the
-    /// assistant is off; on (the default), it runs (right Command by
-    /// default), the other shortcuts refuse its keys, it refuses theirs, and
-    /// a saved overlap is unbound.
+    /// assistant is off; on (the default), it runs (right Command on macOS,
+    /// Ctrl+Shift+Space elsewhere), the other shortcuts refuse its keys, it
+    /// refuses theirs, and a saved overlap is unbound.
     #[test]
     fn the_action_shortcut_needs_the_assistant_and_its_own_keys() {
         let right_command = HotkeyBinding::action_default();
@@ -1812,10 +1812,6 @@ mod tests {
         assert!(!settings.repair_action_shortcut());
 
         settings.assistant.enabled = true;
-        if !cfg!(target_os = "macos") {
-            assert_eq!(settings.runtime_hotkeys().action, None);
-            return;
-        }
         assert_eq!(
             settings.runtime_hotkeys().action,
             Some(right_command.runtime())
@@ -1860,9 +1856,9 @@ mod tests {
     }
 
     /// The assistant's Stop all tasks: inert while the assistant is off; on,
-    /// it is matched and swallowed (⌃⌥Esc by default), the other shortcuts refuse
-    /// its keys and it refuses theirs and Force Quit's, and a saved overlap
-    /// is unbound.
+    /// it is matched and swallowed (an Escape chord by default), the other
+    /// shortcuts refuse its keys and it refuses theirs (and on macOS Force
+    /// Quit's), and a saved overlap is unbound.
     #[test]
     fn stop_all_needs_the_assistant_and_its_own_keys() {
         let stop = HotkeyBinding::stop_all_default();
@@ -1873,10 +1869,6 @@ mod tests {
         assert!(!settings.hotkey_in_use(HotkeySlot::Dictation, &stop));
 
         settings.assistant.enabled = true;
-        if !cfg!(target_os = "macos") {
-            assert_eq!(settings.runtime_hotkeys().stop_all, None);
-            return;
-        }
         assert_eq!(settings.runtime_hotkeys().stop_all, Some(stop.runtime()));
         assert!(
             settings
@@ -1888,16 +1880,27 @@ mod tests {
         assert!(settings.hotkey_in_use(HotkeySlot::StopAll, &HotkeyBinding::cancel_default()));
         assert!(settings.hotkey_in_use(HotkeySlot::PasteLast, &stop));
         assert!(settings.hotkey_in_use(HotkeySlot::Action, &stop));
-        assert!(settings.hotkey_in_use(HotkeySlot::StopAll, &HotkeyBinding::force_quit()));
         let action = HotkeyBinding::action_default();
         assert!(settings.hotkey_in_use(HotkeySlot::StopAll, &action));
         assert!(!settings.repair_action_shortcut());
 
-        // Force Quit is never matched, even when saved by hand.
-        settings.assistant.stop_all_hotkey = Some(HotkeyBinding::force_quit());
-        assert_eq!(settings.runtime_hotkeys().stop_all, None);
-        assert!(settings.repair_action_shortcut());
-        assert_eq!(settings.assistant.stop_all_hotkey, None);
+        // macOS: Force Quit is never matched, even when saved by hand.
+        let force_quit = HotkeyBinding::force_quit();
+        let mac = cfg!(target_os = "macos");
+        assert_eq!(
+            settings.hotkey_in_use(HotkeySlot::StopAll, &force_quit),
+            mac
+        );
+        settings.assistant.stop_all_hotkey = Some(force_quit.clone());
+        assert_eq!(
+            settings.runtime_hotkeys().stop_all,
+            (!mac).then(|| force_quit.runtime())
+        );
+        assert_eq!(settings.repair_action_shortcut(), mac);
+        assert_eq!(
+            settings.assistant.stop_all_hotkey,
+            (!mac).then_some(force_quit)
+        );
 
         // Paste last moved onto it: Stop all stands down and is unbound.
         settings.assistant.stop_all_hotkey = Some(stop.clone());

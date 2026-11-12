@@ -27,8 +27,11 @@ use crate::audio::CaptureInstant;
 use crate::dictation::DictationFlavour;
 use crate::dictation::ShortcutMode;
 
+mod assistant;
+mod capture;
 mod modifiers;
 
+use self::capture::CaptureState;
 use self::modifiers::ModifierState;
 
 /// The focused application's executable stem (e.g. "chrome"), lowercased,
@@ -213,13 +216,27 @@ pub enum HotkeyAction {
     /// The Annotate key went down, and came up (`CaptureUp`).
     Capture,
     CaptureUp,
+    /// The assistant's Action shortcut went down, starting a capture it
+    /// owns (`DictationFlavour::Assistant`); `after_tap` when a tap came just
+    /// before. Its release is a `Finish`, or a `DoubleTap`.
+    Ask {
+        after_tap: bool,
+    },
+    /// The second of two taps of the Action shortcut came up: its capture
+    /// ends unheard and the task list shows or hides.
+    DoubleTap,
+    /// The assistant's Stop all tasks shortcut.
+    StopAll,
+    /// Escape while the assistant held it: stop the Here tasks and speech.
+    StopHere,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HotkeyEvent {
     pub action: HotkeyAction,
     /// The shortcut that started the capture: dictation, Dictate without
-    /// processing, Labs › Terminal paste, or Labs › Second dictation.
+    /// processing, Labs › Terminal paste, Labs › Second dictation, or the
+    /// assistant's Action shortcut.
     pub flavour: DictationFlavour,
     timestamp_ms: u32,
 }
@@ -285,125 +302,13 @@ struct CallbackState {
     /// Pass the dictation key on to other apps instead of consuming it.
     share_trigger: bool,
     capture: CaptureState,
+    /// The assistant's Action shortcut, Stop all tasks, and Escape.
+    assistant: assistant::AssistantKeys,
     dirty: bool,
     /// A modifier-only shortcut with Alt or Windows was pressed, or a chord
     /// holding either had its key swallowed, with no other key since, so
     /// its release would open the menu bar or Start.
     mask_release: bool,
-}
-
-#[derive(Default)]
-struct CaptureState {
-    active: bool,
-    locked: bool,
-    second_tap: bool,
-    recording: bool,
-    last_release_ms: Option<u32>,
-    /// Every press acts as the second tap of a double-tap: releasing it
-    /// locks the capture, and the next press finishes it.
-    toggle: bool,
-    /// The shortcut, not another, owns this capture (or the last one).
-    flavour: DictationFlavour,
-}
-
-impl CaptureState {
-    /// Whether another shortcut owns a capture in progress.
-    fn owned_by_other(&self, flavour: DictationFlavour) -> bool {
-        self.flavour != flavour && (self.active || self.locked)
-    }
-
-    /// Hands an idle capture to one shortcut; a tap of the other one never
-    /// counts toward its double tap.
-    fn claim(&mut self, flavour: DictationFlavour) {
-        if self.flavour != flavour && !self.active && !self.locked {
-            self.flavour = flavour;
-            self.last_release_ms = None;
-        }
-    }
-
-    fn press(
-        &mut self,
-        double_tap_enabled: bool,
-        double_tap_only: bool,
-        timestamp_ms: u32,
-    ) -> Option<HotkeyAction> {
-        if self.locked {
-            self.locked = false;
-            self.recording = false;
-            self.last_release_ms = None;
-            return Some(HotkeyAction::Finish);
-        }
-        if self.active {
-            return None;
-        }
-        self.active = true;
-        let double_tapped = self
-            .last_release_ms
-            .take()
-            .is_some_and(|released| timestamp_ms.wrapping_sub(released) < DOUBLE_TAP_WINDOW_MS);
-        self.second_tap = self.toggle || (double_tap_enabled && double_tapped);
-        if double_tap_only && !self.second_tap {
-            // Double-tap-only: the first tap arms the window silently;
-            // recording waits for the second tap.
-            self.recording = false;
-            return None;
-        }
-        self.recording = true;
-        Some(HotkeyAction::Start)
-    }
-
-    fn release(&mut self, double_tap_enabled: bool, timestamp_ms: u32) -> Option<HotkeyAction> {
-        if !self.active {
-            return None;
-        }
-        self.active = false;
-        if self.second_tap {
-            self.second_tap = false;
-            self.locked = true;
-            self.last_release_ms = None;
-            return None;
-        }
-        self.last_release_ms = double_tap_enabled.then_some(timestamp_ms);
-        if !self.recording {
-            // Releasing an armed-but-silent first tap emits nothing.
-            return None;
-        }
-        self.recording = false;
-        Some(HotkeyAction::Finish)
-    }
-
-    /// Another key joined a held modifier-only shortcut: it was a chord
-    /// meant for another application. Only a recording capture reports
-    /// it, since a bare cancel also cancels the newest unfinished job.
-    fn interrupt(&mut self) -> Option<HotkeyAction> {
-        if !self.active {
-            return None;
-        }
-        let recording = self.recording;
-        self.active = false;
-        self.second_tap = false;
-        self.recording = false;
-        self.last_release_ms = None;
-        recording.then_some(HotkeyAction::Cancel)
-    }
-
-    /// Whether Toggle's cancel shortcut is Hex's now: only while a toggled
-    /// capture records, so the key stays with every app otherwise.
-    fn wants_cancel(&self) -> bool {
-        self.toggle && (self.active || self.locked)
-    }
-
-    fn cancel(&mut self) -> Option<HotkeyAction> {
-        if !self.active && !self.locked {
-            return None;
-        }
-        self.active = false;
-        self.locked = false;
-        self.second_tap = false;
-        self.recording = false;
-        self.last_release_ms = None;
-        Some(HotkeyAction::Cancel)
-    }
 }
 
 impl CallbackState {
@@ -425,7 +330,7 @@ impl CallbackState {
                 (self.terminal_paste_trigger_vk, self.terminal_paste.as_ref())
             }
             DictationFlavour::Second => (self.second_trigger_vk, self.second.as_ref()),
-            DictationFlavour::Normal => return None,
+            DictationFlavour::Normal | DictationFlavour::Assistant => return None,
         };
         let trigger_down = self.second_trigger_down(flavour);
         let matches = binding.is_some_and(|binding| self.modifiers.matches(binding));
@@ -474,7 +379,7 @@ impl CallbackState {
             DictationFlavour::Raw => self.raw_trigger_down,
             DictationFlavour::TerminalPaste => self.terminal_paste_trigger_down,
             DictationFlavour::Second => self.second_trigger_down,
-            DictationFlavour::Normal => false,
+            DictationFlavour::Normal | DictationFlavour::Assistant => false,
         }
     }
 
@@ -483,7 +388,7 @@ impl CallbackState {
             DictationFlavour::Raw => self.raw_trigger_down = down,
             DictationFlavour::TerminalPaste => self.terminal_paste_trigger_down = down,
             DictationFlavour::Second => self.second_trigger_down = down,
-            DictationFlavour::Normal => {}
+            DictationFlavour::Normal | DictationFlavour::Assistant => {}
         }
     }
 }
@@ -516,6 +421,7 @@ pub(crate) fn set_capture_inhibited(inhibited: bool) {
         state.raw_trigger_down = false;
         state.terminal_paste_trigger_down = false;
         state.second_trigger_down = false;
+        state.assistant.reset();
         if let Some(action) = state.capture.cancel() {
             send_event(state, action, now);
         }
@@ -558,6 +464,7 @@ impl WindowsHotkeyMonitor {
         second: Option<WindowsHotkey>,
         annotate: Option<WindowsHotkey>,
         cancel: Option<WindowsHotkey>,
+        (action, stop_all): (Option<WindowsHotkey>, Option<WindowsHotkey>),
         double_tap_enabled: bool,
         double_tap_only: bool,
         shortcut_mode: ShortcutMode,
@@ -576,6 +483,7 @@ impl WindowsHotkeyMonitor {
             chord_virtual_key(terminal_paste.as_ref(), "Terminal paste shortcut")?;
         let second_trigger_vk = chord_virtual_key(second.as_ref(), "Second dictation shortcut")?;
         let annotate_trigger_vk = chord_virtual_key(annotate.as_ref(), "Annotate")?;
+        let assistant = assistant::AssistantKeys::new(action, stop_all);
         let label = binding.label();
         let (event_sender, events) = mpsc::sync_channel(EVENT_CAPACITY);
         let (error_sender, errors) = mpsc::channel();
@@ -614,6 +522,7 @@ impl WindowsHotkeyMonitor {
                 toggle: shortcut_mode == ShortcutMode::Toggle,
                 ..CaptureState::default()
             },
+            assistant,
             dirty: false,
             mask_release: false,
         };
@@ -971,6 +880,7 @@ fn process_button(vk: u32, is_down: bool, time: u32) -> Disposition {
                     state.raw.as_ref(),
                     state.terminal_paste.as_ref(),
                     state.second.as_ref(),
+                    state.assistant.action(),
                 ]
                 .into_iter()
                 .flatten()
@@ -1036,6 +946,11 @@ fn process_button(vk: u32, is_down: bool, time: u32) -> Disposition {
             {
                 state.drawing_escape_down = is_down;
                 return Disposition::Suppress;
+            }
+            // The assistant: the Action shortcut's gestures, Stop all tasks,
+            // and Escape while a Here task runs.
+            if let Some(disposition) = state.assistant_key(vk, is_down, time) {
+                return disposition;
             }
             // Dictate without processing, Labs › Terminal paste, and Labs ›
             // Second dictation: key chords held, locked, and finished like the

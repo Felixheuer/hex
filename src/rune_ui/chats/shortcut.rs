@@ -20,7 +20,9 @@ pub(in crate::rune_ui) struct Conflict {
     pub(in crate::rune_ui) fix: ConflictFix,
 }
 
-/// Where a conflict is resolved.
+/// Where a conflict is resolved. Only macOS's conflict finder
+/// (`shortcut_conflicts`) names one, so elsewhere no variant is made.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::rune_ui) enum ConflictFix {
     KeyboardSettings,
@@ -74,7 +76,9 @@ pub(in crate::rune_ui) fn conflicts(slot: HotkeySlot, settings: &AppSettings) ->
     }
 }
 
-/// What a press test found.
+/// What a press test found. Only macOS's listener runs the test
+/// (`recognition::shortcut_probe`); elsewhere it's `Unavailable`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::rune_ui) enum Probe {
     /// Its press and release reached Hex with exactly its keys.

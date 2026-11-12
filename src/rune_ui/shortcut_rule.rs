@@ -29,18 +29,12 @@ pub(crate) fn shortcut_rule(slot: HotkeySlot, binding: &HotkeyBinding) -> Result
         HotkeySlot::ExtraDictation(index) => ShortcutTarget::ExtraDictation(index),
         #[cfg(not(target_os = "macos"))]
         HotkeySlot::ExtraDictation(_) => ShortcutTarget::Dictation,
-        // The assistant's Action shortcut (macOS): a lone modifier is
-        // welcome, as for the dictation shortcut; elsewhere it never runs.
-        #[cfg(target_os = "macos")]
+        // The assistant's Action shortcut: on macOS a lone modifier is
+        // welcome, as for the dictation shortcut; Windows and Linux bind a
+        // key.
         HotkeySlot::Action => ShortcutTarget::Action,
-        #[cfg(not(target_os = "macos"))]
-        HotkeySlot::Action => ShortcutTarget::Dictation,
-        // The assistant's Stop all tasks (macOS): a press, so it needs a
-        // key; elsewhere it never runs.
-        #[cfg(target_os = "macos")]
+        // The assistant's Stop all tasks: a press, so it needs a key.
         HotkeySlot::StopAll => ShortcutTarget::StopAll,
-        #[cfg(not(target_os = "macos"))]
-        HotkeySlot::StopAll => ShortcutTarget::PasteLast,
         #[cfg(target_os = "macos")]
         HotkeySlot::Screenshot => ShortcutTarget::Screenshot,
         #[cfg(target_os = "macos")]

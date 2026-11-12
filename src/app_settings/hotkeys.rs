@@ -94,7 +94,7 @@ impl HotkeyModifiers {
         }
     }
 
-    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     pub const fn control() -> Self {
         Self {
             control: Some(ModifierSide::Either),
@@ -1282,9 +1282,8 @@ impl AppSettings {
         {
             others.push(second.clone());
         }
-        // The assistant's Action shortcut (macOS), while the assistant is on.
+        // The assistant's Action shortcut, while the assistant is on.
         if slot != HotkeySlot::Action
-            && cfg!(target_os = "macos")
             && crate::assistant::enabled(self)
             && let Some(action) = &self.assistant.action_hotkey
         {
@@ -1292,14 +1291,13 @@ impl AppSettings {
         }
         // The assistant's Stop all tasks shortcut, while the assistant is on.
         if slot != HotkeySlot::StopAll
-            && cfg!(target_os = "macos")
             && crate::assistant::enabled(self)
             && let Some(stop_all) = &self.assistant.stop_all_hotkey
         {
             others.push(stop_all.clone());
         }
         // macOS keeps ⌘⌥Esc for Force Quit, so Stop all never gets it.
-        if slot == HotkeySlot::StopAll {
+        if slot == HotkeySlot::StopAll && cfg!(target_os = "macos") {
             others.push(HotkeyBinding::force_quit());
         }
         if cfg!(target_os = "macos") && self.labs.more_dictation_shortcuts {
@@ -1366,11 +1364,11 @@ pub struct RuntimeHotkeys {
     /// Each extra row's activation mode, folded to one its binding can
     /// trigger.
     pub extra_dictation_modes: [ExtraDictationMode; MAX_EXTRA_DICTATION_SHORTCUTS],
-    /// The assistant's Action shortcut (macOS), while the assistant is on
-    /// and it is bound and shares no key.
+    /// The assistant's Action shortcut, while the assistant is on and it is
+    /// bound and shares no key.
     pub action: Option<RuntimeHotkey>,
-    /// The assistant's Stop all tasks shortcut (macOS), while the assistant
-    /// is on and it is bound and shares no key.
+    /// The assistant's Stop all tasks shortcut, while the assistant is on
+    /// and it is bound and shares no key.
     pub stop_all: Option<RuntimeHotkey>,
     /// Toggle mode's cancel shortcut. Not among [`RuntimeHotkeys::all`]:
     /// Hex takes it only while a toggled recording runs.

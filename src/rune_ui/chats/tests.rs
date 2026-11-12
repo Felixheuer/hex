@@ -64,7 +64,7 @@ pub(super) fn shows(rt: &Runtime<Ui>, words: &str) -> bool {
 
 /// A Chats scene with its setup done and nothing selected.
 fn chats() -> Runtime<Ui> {
-    scene("mac-chats")
+    scene("chats")
 }
 
 fn answer(rt: &mut Runtime<Ui>, done: Done) {
@@ -92,7 +92,7 @@ fn chats_stays_in_the_sidebar_while_the_assistant_is_off_and_offers_to_turn_it_o
 
 #[test]
 fn the_settings_switch_turns_the_assistant_off_and_on() {
-    let mut rt = scene("mac-chats-settings");
+    let mut rt = scene("chats-settings");
     assert!(shows(&rt, "Hold Right ⌘ to ask, double-tap for your tasks"));
     assert!(rt.find("run-assistant-setup").is_some());
     tap(&mut rt, "assistant-enabled");
@@ -289,7 +289,7 @@ fn the_header_counts_tasks_and_stop_all_and_take_over_reach_the_service() {
 
 #[test]
 fn tasks_show_taken_over_waiting_and_queued_and_events_move_them() {
-    let mut rt = scene("mac-chats-tasks");
+    let mut rt = scene("chats-tasks");
     assert!(shows(&rt, "4 running"), "{:?}", texts(&rt));
     assert!(shows(&rt, "Queued"));
     assert!(
@@ -343,7 +343,7 @@ fn tasks_show_taken_over_waiting_and_queued_and_events_move_them() {
 
 #[test]
 fn an_interrupted_conversation_offers_resume() {
-    let mut rt = scene("mac-chats-interrupted");
+    let mut rt = scene("chats-interrupted");
     assert!(shows(&rt, "This task stopped when Hex quit"));
     tap(&mut rt, "resume");
     assert_eq!(
@@ -393,7 +393,7 @@ fn the_composer_sends_auto_by_default_with_here_and_background_overrides() {
 
 #[test]
 fn a_job_shows_its_plan_and_its_question_takes_the_answer() {
-    let mut rt = scene("mac-chats-job");
+    let mut rt = scene("chats-job");
     assert!(shows(&rt, "Plan"));
     assert!(shows(&rt, "Draft an email to each in Gmail"));
     assert!(shows(&rt, "Sign in to Google…"));
@@ -423,7 +423,7 @@ fn a_job_shows_its_plan_and_its_question_takes_the_answer() {
 
 #[test]
 fn a_finished_job_offers_its_folder_files_and_sheet() {
-    let mut rt = scene("mac-chats-results");
+    let mut rt = scene("chats-results");
     for words in ["Open folder", "Comparison.xlsx", "Open Google Sheet"] {
         assert!(shows(&rt, words), "{words}: {:?}", texts(&rt));
     }
@@ -692,7 +692,7 @@ fn a_permission_waits_after_allow_until_macos_reports_it() {
 
 #[test]
 fn a_grant_that_needs_a_restart_relaunches_hex_in_one_click() {
-    let mut rt = scene("mac-assistant-setup-restart");
+    let mut rt = scene("assistant-setup-restart");
     assert!(shows(&rt, "Restart Hex and continue"));
     tap(&mut rt, "restart");
     let asked = match &rt.state.host {
@@ -708,7 +708,7 @@ fn a_grant_that_needs_a_restart_relaunches_hex_in_one_click() {
 
 #[test]
 fn a_failed_check_shows_its_fix_while_later_checks_still_run() {
-    let rt = scene("mac-assistant-setup-checks");
+    let rt = scene("assistant-setup-checks");
     let flow = rt.state.chats.setup.as_ref().unwrap();
     assert!(flow.checks_running);
     assert!(
@@ -757,7 +757,7 @@ fn the_assistant_pages_continue_the_voice_first_run_before_hex_is_ready() {
 
 #[test]
 fn with_nothing_installed_one_button_sets_up_the_suggested_agent() {
-    let mut rt = scene("mac-assistant-setup-agent-none");
+    let mut rt = scene("assistant-setup-agent-none");
     assert!(shows(&rt, "Recommended: Claude Code"));
     tap(&mut rt, "set-up-recommended");
     assert!(
@@ -790,7 +790,7 @@ fn with_nothing_installed_one_button_sets_up_the_suggested_agent() {
 
 #[test]
 fn your_own_key_installs_opencode_checks_the_key_and_saves_the_model() {
-    let mut rt = scene("mac-assistant-setup-agent-none");
+    let mut rt = scene("assistant-setup-agent-none");
     tap(&mut rt, "use-own-key");
     assert!(shows(&rt, "Your own API key"));
     tap(&mut rt, "provider-deepseek");
@@ -819,7 +819,7 @@ fn your_own_key_installs_opencode_checks_the_key_and_saves_the_model() {
 
 #[test]
 fn codex_offers_an_openai_key_instead_of_a_sign_in() {
-    let mut rt = scene("mac-assistant-setup-agent");
+    let mut rt = scene("assistant-setup-agent");
     tap(&mut rt, "codex-use-key");
     rt.state.chats.settings.agents.codex_key = Some(TextEdit::new("sk-openai-123"));
     rt.invalidate();
@@ -836,7 +836,7 @@ fn codex_offers_an_openai_key_instead_of_a_sign_in() {
 
 #[test]
 fn the_display_row_shows_only_with_two_displays() {
-    let mut rt = scene("mac-assistant-setup-desktop");
+    let mut rt = scene("assistant-setup-desktop");
     assert!(rt.find("agent-display").is_some(), "two displays in scenes");
     rt.state.chats.settings.displays.truncate(1);
     rt.invalidate();
@@ -846,7 +846,7 @@ fn the_display_row_shows_only_with_two_displays() {
 
 #[test]
 fn the_privacy_page_sets_autonomy_and_blocked_apps() {
-    let mut rt = scene("mac-assistant-setup-privacy");
+    let mut rt = scene("assistant-setup-privacy");
     assert!(shows(&rt, "Dictation stays on your Mac."));
     assert_eq!(
         rt.state.settings.assistant.autonomy,
@@ -901,11 +901,11 @@ fn page_names_round_trip_for_the_saved_progress() {
 
 #[test]
 fn the_merged_flow_says_it_continues_and_new_in_hex_says_so() {
-    let rt = scene("mac-assistant-setup-merged");
+    let rt = scene("assistant-setup-merged");
     assert!(shows(&rt, "Now, your assistant"));
-    let rt = scene("mac-assistant-setup-new");
+    let rt = scene("assistant-setup-new");
     assert!(shows(&rt, "New in Hex: your assistant"));
-    let rt = scene("mac-assistant-setup-resumed");
+    let rt = scene("assistant-setup-resumed");
     assert!(shows(
         &rt,
         "Hex restarted. Checking again where you left off…"

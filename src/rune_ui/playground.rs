@@ -261,80 +261,74 @@ const PATHS: &[(&str, &str)] = &[
         "Window/Onboarding/Your turn · reopen",
     ),
     ("mac-onboarding-ready", "Window/Onboarding/Hex is ready"),
-    ("mac-chats", "Window/Chats/Conversation"),
-    ("mac-chats-off", "Window/Chats/The assistant is off"),
-    ("mac-chats-running", "Window/Chats/Tasks running"),
-    ("mac-chats-empty", "Window/Chats/No conversations"),
-    ("mac-chats-settings", "Window/Chats/Settings"),
-    ("mac-chats-tasks", "Window/Chats/Tasks in every state"),
-    ("mac-chats-interrupted", "Window/Chats/Interrupted"),
-    ("mac-chats-job", "Window/Chats/A job's plan and question"),
-    ("mac-chats-new-schedule", "Window/Chats/New schedule"),
+    ("chats", "Window/Chats/Conversation"),
+    ("chats-off", "Window/Chats/The assistant is off"),
+    ("chats-running", "Window/Chats/Tasks running"),
+    ("chats-empty", "Window/Chats/No conversations"),
+    ("chats-settings", "Window/Chats/Settings"),
+    ("chats-tasks", "Window/Chats/Tasks in every state"),
+    ("chats-interrupted", "Window/Chats/Interrupted"),
+    ("chats-job", "Window/Chats/A job's plan and question"),
+    ("chats-new-schedule", "Window/Chats/New schedule"),
+    ("assistant-setup-privacy", "Window/Assistant setup/Privacy"),
     (
-        "mac-assistant-setup-privacy",
-        "Window/Assistant setup/Privacy",
-    ),
-    (
-        "mac-assistant-setup-about",
+        "assistant-setup-about",
         "Window/Assistant setup/Tell Hex about you",
     ),
-    ("mac-chats-results", "Window/Chats/A job's results"),
-    ("mac-chats-escalated", "Window/Chats/Here became a job"),
-    ("mac-assistant-setup", "Window/Assistant setup/Welcome"),
+    ("chats-results", "Window/Chats/A job's results"),
+    ("chats-escalated", "Window/Chats/Here became a job"),
+    ("assistant-setup", "Window/Assistant setup/Welcome"),
     (
-        "mac-assistant-setup-agent",
+        "assistant-setup-agent",
         "Window/Assistant setup/Choose an agent",
     ),
     (
-        "mac-assistant-setup-agent-ready",
+        "assistant-setup-agent-ready",
         "Window/Assistant setup/Every agent ready",
     ),
     (
-        "mac-assistant-setup-agent-none",
+        "assistant-setup-agent-none",
         "Window/Assistant setup/Nothing installed",
     ),
     (
-        "mac-assistant-setup-agent-own-key",
+        "assistant-setup-agent-own-key",
         "Window/Assistant setup/Your own API key",
     ),
     (
-        "mac-assistant-setup-agent-installing",
+        "assistant-setup-agent-installing",
         "Window/Assistant setup/Installing an agent",
     ),
+    ("assistant-setup-new", "Window/Assistant setup/New in Hex"),
     (
-        "mac-assistant-setup-new",
-        "Window/Assistant setup/New in Hex",
-    ),
-    (
-        "mac-assistant-setup-resumed",
+        "assistant-setup-resumed",
         "Window/Assistant setup/Resumed after a restart",
     ),
     (
-        "mac-assistant-setup-merged",
+        "assistant-setup-merged",
         "Window/Assistant setup/After the voice first run",
     ),
     (
-        "mac-assistant-setup-restart",
+        "assistant-setup-restart",
         "Window/Assistant setup/Restart Hex and continue",
     ),
     (
-        "mac-assistant-setup-desktop",
+        "assistant-setup-desktop",
         "Window/Assistant setup/agent-desktop",
     ),
     (
-        "mac-assistant-setup-browser",
+        "assistant-setup-browser",
         "Window/Assistant setup/agent-browser",
     ),
     (
-        "mac-assistant-setup-checks",
+        "assistant-setup-checks",
         "Window/Assistant setup/Self-tests",
     ),
     (
-        "mac-assistant-setup-shortcut",
+        "assistant-setup-shortcut",
         "Window/Assistant setup/Shortcuts",
     ),
-    ("mac-assistant-setup-try", "Window/Assistant setup/Try it"),
-    ("mac-assistant-setup-done", "Window/Assistant setup/Ready"),
+    ("assistant-setup-try", "Window/Assistant setup/Try it"),
+    ("assistant-setup-done", "Window/Assistant setup/Ready"),
     ("portal", "Linux & Windows/Settings · portal shortcuts"),
     ("commands", "Linux & Windows/Settings · hex commands"),
     ("portal-mouse", "Linux & Windows/Settings · mouse button"),
@@ -436,7 +430,6 @@ fn playground() -> Playground<Ui> {
     let playground = super::live_notes::add(playground);
     #[cfg(target_os = "macos")]
     let playground = super::hud_stories::add(playground);
-    #[cfg(target_os = "macos")]
     let playground = super::assistant_overlay::stories::add(playground);
     #[cfg(all(hex_capture, target_os = "macos"))]
     let playground = super::capture_capsule::playground::stories(playground);

@@ -275,7 +275,6 @@ impl IndicatorModel {
 
     /// Whether the capture asks the assistant: `Some(true)` for a new Agent
     /// mode task, `Some(false)` for a quick question, `None` for dictation.
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn asking(&self) -> Option<bool> {
         self.asking
     }

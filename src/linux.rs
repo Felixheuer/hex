@@ -84,6 +84,13 @@ enum Command {
     },
     /// List microphone devices visible through ALSA.
     Devices,
+    /// Developer tools (debug builds).
+    #[cfg(debug_assertions)]
+    #[command(hide = true)]
+    Dev {
+        #[command(subcommand)]
+        command: crate::assistant::backends::doctor::Dev,
+    },
 }
 
 /// What a command adopts from this desktop before it starts any thread.
@@ -147,6 +154,10 @@ pub(crate) fn run(shutdown: &'static AtomicBool) -> Result<()> {
         )),
         command => command,
     };
+    #[cfg(debug_assertions)]
+    if let Command::Dev { command } = command {
+        return command.run();
+    }
     // Rune reads its own flags (`--snap`, `--scene`, …) from the process
     // arguments. A render draws fixtures: no log or data folder of its own.
     if let Command::App { rune_args, .. } = &command
@@ -211,6 +222,8 @@ pub(crate) fn run(shutdown: &'static AtomicBool) -> Result<()> {
             Ok(())
         }
         Command::Control(_) | Command::Stop => unreachable!("handled before logging"),
+        #[cfg(debug_assertions)]
+        Command::Dev { .. } => unreachable!("handled before logging"),
     }
 }
 

@@ -101,6 +101,13 @@ enum Command {
         #[command(flatten)]
         selection: SelectionArgs,
     },
+    /// Developer tools (debug builds).
+    #[cfg(debug_assertions)]
+    #[command(hide = true)]
+    Dev {
+        #[command(subcommand)]
+        command: crate::assistant::backends::doctor::Dev,
+    },
 }
 
 #[derive(Args, Clone)]
@@ -158,6 +165,10 @@ pub fn run(shutdown: &'static AtomicBool) -> Result<()> {
     // log, lock, or Hex of their own.
     if let Command::Control(command) = command {
         crate::control::cli::finish(crate::control::cli::run(command));
+    }
+    #[cfg(debug_assertions)]
+    if let Command::Dev { command } = command {
+        return command.run();
     }
     // A headless render (`--snap`) draws fixtures without starting the
     // runtime or touching the data folder, and prints to the terminal that
@@ -240,6 +251,8 @@ pub fn run(shutdown: &'static AtomicBool) -> Result<()> {
             selection,
         } => stream_bench(&wav, speed, &selection.resolve()?),
         Command::Control(_) => unreachable!("handled before logging"),
+        #[cfg(debug_assertions)]
+        Command::Dev { .. } => unreachable!("handled before logging"),
     }
 }
 
