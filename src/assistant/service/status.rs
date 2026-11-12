@@ -22,6 +22,17 @@ pub struct Job {
     pub steps: usize,
     /// What its last check found missing, if it found anything.
     pub gaps: Option<String>,
+    /// Its helpers (`agent::team`), ended and in all, when it leads some.
+    pub helpers: Option<(usize, usize)>,
+}
+
+/// `lead`'s helpers, ended and in all, from the team's records; `None`
+/// when it leads none.
+fn helpers_of(lead: &str) -> Option<(usize, usize)> {
+    let root = crate::assistant::agent::team::root()?;
+    let members = crate::assistant::agent::team::members(&root, lead);
+    let ended = members.iter().filter(|member| member.state.ended()).count();
+    (!members.is_empty()).then_some((ended, members.len()))
 }
 
 /// Whether `text` asks how the jobs are doing. A plain "how far" counts
@@ -170,6 +181,13 @@ fn one(job: &Job, german: bool) -> String {
             format!(", {} of {} steps done", job.done, job.steps)
         });
     }
+    if let Some((ended, all)) = job.helpers {
+        line.push_str(&if german {
+            format!(", {ended} von {all} Helfern fertig")
+        } else {
+            format!(", {ended} of {all} helpers done")
+        });
+    }
     if let Some(gaps) = job.gaps.as_deref().and_then(|gaps| gaps.lines().next()) {
         let gaps = gaps.trim().trim_start_matches(['-', '*', ' ']);
         line.push_str(&if german {
@@ -242,6 +260,7 @@ impl Runner {
                         done: task.plan.iter().filter(|step| step.done).count(),
                         steps: task.plan.len(),
                         gaps: None,
+                        helpers: None,
                     },
                     task.workspace.clone(),
                 )
@@ -269,6 +288,7 @@ impl Runner {
                         std::fs::read_to_string(workspace.join(goal::CHECK_FILE)).ok()
                     })
                     .filter(|check| check.trim() != "verified");
+                job.helpers = helpers_of(&conversation);
                 line(std::slice::from_ref(&job), &request.text, german)
             }
             InJob::Added => if german {
@@ -317,11 +337,13 @@ impl Runner {
             return None;
         }
         let now = self.now();
-        let (mut jobs, workspaces): (Vec<Job>, Vec<std::path::PathBuf>) = {
+        // A team answers as one: its helpers are told in its lead's line.
+        let (mut jobs, found): (Vec<Job>, Vec<(std::path::PathBuf, ConversationId)>) = {
             let state = self.state();
             state
                 .tasks
                 .iter()
+                .filter(|task| task.parent.is_none())
                 .filter_map(|task| {
                     let workspace = task.workspace.clone()?;
                     Some((
@@ -332,8 +354,9 @@ impl Runner {
                             done: task.plan.iter().filter(|step| step.done).count(),
                             steps: task.plan.len(),
                             gaps: None,
+                            helpers: None,
                         },
-                        workspace,
+                        (workspace, task.status.conversation.clone()),
                     ))
                 })
                 .unzip()
@@ -342,11 +365,13 @@ impl Runner {
         if !asks_for_status(&request.text, &titles) {
             return None;
         }
-        // Read only now, outside the lock: the last check's gaps.
-        for (job, workspace) in jobs.iter_mut().zip(&workspaces) {
+        // Read only now, outside the lock: the last check's gaps, and the
+        // team's helpers.
+        for (job, (workspace, conversation)) in jobs.iter_mut().zip(&found) {
             job.gaps = std::fs::read_to_string(workspace.join(goal::CHECK_FILE))
                 .ok()
                 .filter(|check| check.trim() != "verified");
+            job.helpers = helpers_of(conversation);
         }
         let german = said_in_german(&request.text);
         let text = line(&jobs, &request.text, german);
@@ -416,6 +441,7 @@ mod tests {
             done,
             steps,
             gaps: gaps.map(str::to_owned),
+            helpers: None,
         }
     }
 
@@ -445,6 +471,12 @@ mod tests {
         assert_eq!(
             line(&[waiting], "status", true),
             "Bericht: wartet auf deine Antwort."
+        );
+        let mut team = job("50 Lieferanten vergleichen", 1, 4, None);
+        team.helpers = Some((3, 5));
+        assert_eq!(
+            line(&[team], "status", true),
+            "50 Lieferanten vergleichen: läuft seit 3 Stunden, 1 von 4 Schritten erledigt, 3 von 5 Helfern fertig."
         );
         assert_eq!(duration(3 * 24 * 60 * 60_000, true), "3 Tagen");
         assert_eq!(duration(30_000, false), "a minute");
