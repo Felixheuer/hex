@@ -91,9 +91,12 @@ impl Runner {
             .then(|| crate::assistant::memory::for_prompt(&(self.hooks.memory)()))
             .flatten();
         let notify = |event: &Event| {
-            if lane == Lane::Background
-                && settings.notifications
-                && let Some(note) = crate::assistant::notify::for_event(event, &request.text)
+            if crate::assistant::notify::wanted(
+                settings.notifications,
+                lane == Lane::Background,
+                request.origin == Origin::Chat,
+                crate::assistant::notify::hex_in_front(),
+            ) && let Some(note) = crate::assistant::notify::for_event(event, &request.text)
             {
                 (self.hooks.notify)(&note);
             }

@@ -70,6 +70,30 @@ pub fn for_event(event: &crate::assistant::Event, title: &str) -> Option<Note> {
     })
 }
 
+/// Whether a job's event gets a notification: notifications are on, the job
+/// runs in the background, it wasn't typed in Chats (whose answer shows right
+/// there), and Hex isn't the app in front (Chats or another Hex window shows
+/// it).
+pub fn wanted(enabled: bool, background: bool, typed_in_chats: bool, hex_in_front: bool) -> bool {
+    enabled && background && !typed_in_chats && !hex_in_front
+}
+
+/// Whether one of Hex's own windows is in front.
+pub fn hex_in_front() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        objc2::rc::autoreleasepool(|_| {
+            objc2_app_kit::NSWorkspace::sharedWorkspace()
+                .frontmostApplication()
+                .is_some_and(|app| app.processIdentifier() == std::process::id() as i32)
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
 /// Shows `note`; returns at once.
 pub fn show(note: &Note) {
     #[cfg(target_os = "macos")]
@@ -346,5 +370,14 @@ mod tests {
             .is_none()
         );
         assert_eq!(applescript(r#"say "hi" \ ok"#), r#""say \"hi\" \\ ok""#);
+    }
+
+    #[test]
+    fn only_background_jobs_away_from_hex_notify() {
+        assert!(wanted(true, true, false, false));
+        assert!(!wanted(false, true, false, false), "turned off");
+        assert!(!wanted(true, false, false, false), "a Here question");
+        assert!(!wanted(true, true, true, false), "typed in Chats");
+        assert!(!wanted(true, true, false, true), "Hex is in front");
     }
 }
