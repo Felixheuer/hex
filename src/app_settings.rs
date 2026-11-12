@@ -1812,7 +1812,12 @@ mod tests {
 
         settings.assistant.enabled = true;
         if !cfg!(target_os = "macos") {
-            assert_eq!(settings.runtime_hotkeys().action, None);
+            // Right Ctrl alone on Windows, Ctrl+Alt+A on Linux: matched while on.
+            assert_eq!(
+                settings.runtime_hotkeys().action,
+                Some(right_command.runtime())
+            );
+            assert!(settings.hotkey_in_use(HotkeySlot::Dictation, &right_command));
             return;
         }
         assert_eq!(
@@ -1873,7 +1878,9 @@ mod tests {
 
         settings.assistant.enabled = true;
         if !cfg!(target_os = "macos") {
-            assert_eq!(settings.runtime_hotkeys().stop_all, None);
+            // Ctrl+Alt+Escape on Windows, Ctrl+Alt+Q on Linux: matched while on.
+            assert_eq!(settings.runtime_hotkeys().stop_all, Some(stop.runtime()));
+            assert!(settings.hotkey_in_use(HotkeySlot::PasteLast, &stop));
             return;
         }
         assert_eq!(settings.runtime_hotkeys().stop_all, Some(stop.runtime()));

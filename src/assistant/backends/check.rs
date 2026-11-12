@@ -699,34 +699,26 @@ fn atspi_bus() -> Option<Result<(), String>> {
             "There's no desktop session bus (D-Bus), so agent-desktop can't read apps".into(),
         ));
     }
-    let (program, args): (_, &[&str]) = if let Some(gdbus) = search::find("gdbus") {
-        (
-            gdbus,
-            &[
-                "call",
-                "--session",
-                "--dest",
-                "org.a11y.Bus",
-                "--object-path",
-                "/org/a11y/bus",
-                "--method",
-                "org.a11y.Bus.GetAddress",
-            ],
-        )
-    } else if let Some(send) = search::find("dbus-send") {
-        (
-            send,
-            &[
-                "--session",
-                "--print-reply",
-                "--dest=org.a11y.Bus",
-                "/org/a11y/bus",
-                "org.a11y.Bus.GetAddress",
-            ],
-        )
-    } else {
-        return None;
-    };
+    let gdbus: &[&str] = &[
+        "call",
+        "--session",
+        "--dest",
+        "org.a11y.Bus",
+        "--object-path",
+        "/org/a11y/bus",
+        "--method",
+        "org.a11y.Bus.GetAddress",
+    ];
+    let dbus_send: &[&str] = &[
+        "--session",
+        "--print-reply",
+        "--dest=org.a11y.Bus",
+        "/org/a11y/bus",
+        "org.a11y.Bus.GetAddress",
+    ];
+    let (program, args) = search::find("gdbus")
+        .map(|program| (program, gdbus))
+        .or_else(|| search::find("dbus-send").map(|program| (program, dbus_send)))?;
     let mut command = crate::desktop::background_process::command(program);
     command.args(args);
     let ran = run::bounded(command, Duration::from_secs(5)).ok()?;

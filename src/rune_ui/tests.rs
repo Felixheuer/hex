@@ -2595,6 +2595,9 @@ fn add_term_scrolls_the_new_row_into_view() {
 #[test]
 fn the_wheel_scrolls_a_long_term_list() {
     let mut rt = runtime("portal", true, (900.0, 480.0));
+    // The assistant's shortcut rows would push Vocabulary below this short
+    // window; the test is about the list's wheel.
+    rt.state.settings.assistant.enabled = false;
     rt.state.settings.vocabulary = (0..75)
         .map(|index| crate::dictation::vocabulary::VocabularyEntry {
             term: format!("term {index}"),

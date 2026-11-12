@@ -267,7 +267,7 @@ impl ChatsPane {
     }
 
     /// The fixture store, in scenes and tests.
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos"))]
     pub(super) fn store(&self) -> Option<&fixture::Store> {
         match &self.source {
             Source::Fixture(store) => Some(store.as_ref()),
@@ -280,7 +280,7 @@ impl ChatsPane {
     }
 
     /// An event as the service reports it, for the next poll (tests).
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos"))]
     pub(super) fn deliver(&self, event: Event) {
         if let Ok(mut inbox) = self.inbox.lock() {
             inbox.push(event);

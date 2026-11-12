@@ -1138,6 +1138,10 @@ pub(super) fn fixture(shortcuts: DesktopShortcuts) -> Ui {
         paste_with_shift: true,
         ..AppSettings::default()
     };
+    // The assistant is on and set up, so a voice first run ends at "Hex is
+    // ready"; the assistant's own scenes set up its setup themselves.
+    let mut settings = settings;
+    settings.assistant.setup_done = true;
     let mut ui = Ui::with(settings, Service::Fixture(Vec::new()));
     ui.platform.wayland = true;
     ui.models = models::Models::fixture();

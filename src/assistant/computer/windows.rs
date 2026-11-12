@@ -174,7 +174,7 @@ fn grab(x: i32, y: i32, width: u32, height: u32) -> Result<Vec<u8>> {
         if rows == 0 {
             return Err(eyre!("Couldn't take a screenshot"));
         }
-        for pixel in bgra.chunks_exact_mut(4) {
+        for pixel in bgra.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
             pixel[3] = 255;
         }
@@ -279,7 +279,7 @@ pub fn window_frame(window: &TaskWindow) -> Option<Frame> {
             candidate.on_screen()
                 && candidate.is_app_window()
                 && win::app_identity(candidate.pid)
-                    .is_some_and(|(name, id)| blocked(&name, &id, &[window.app.clone()]))
+                    .is_some_and(|(name, id)| blocked(&name, &id, std::slice::from_ref(&window.app)))
         })
     })?;
     let [x, y, width, height] = found.rect;

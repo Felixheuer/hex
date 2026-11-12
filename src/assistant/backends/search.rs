@@ -562,13 +562,12 @@ pub fn shim_target(text: &str) -> Option<String> {
                 .find(|prefix| lower.starts_with(*prefix))
                 .map(|prefix| piece[prefix.len()..].trim_start_matches(['\\', '/']))
         })
-        .filter(|rest| {
+        .rfind(|rest| {
             !rest.is_empty()
                 && !rest.eq_ignore_ascii_case("node.exe")
                 && !rest.eq_ignore_ascii_case("node")
                 && !rest.contains('%')
         })
-        .last()
         .map(str::to_owned)
 }
 

@@ -92,8 +92,7 @@ fn x11_windows() -> Option<Vec<Window>> {
                     // "instance\0Class\0": the class names the app.
                     let text = String::from_utf8_lossy(&reply.value).into_owned();
                     text.split('\0')
-                        .filter(|part| !part.is_empty())
-                        .last()
+                        .rfind(|part| !part.is_empty())
                         .unwrap_or_default()
                         .to_owned()
                 })
@@ -288,8 +287,8 @@ fn x11_shot() -> Result<(u32, u32, Vec<u8>)> {
         .grab()
         .map_err(|error| eyre!("Couldn't take a screenshot: {error:#}"))?;
     let mut rgba = Vec::with_capacity(bgrx.len());
-    for pixel in bgrx.chunks_exact(4) {
-        rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
+    for [b, g, r, _] in bgrx.as_chunks::<4>().0 {
+        rgba.extend_from_slice(&[*r, *g, *b, 255]);
     }
     let (width, height) = (u32::from(rect.width), u32::from(rect.height));
     let display = [
@@ -378,12 +377,16 @@ fn decode_png(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
     let rgba = match info.color_type {
         png::ColorType::Rgba => pixels.to_vec(),
         png::ColorType::Rgb => pixels
-            .chunks_exact(3)
-            .flat_map(|pixel| [pixel[0], pixel[1], pixel[2], 255])
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .flat_map(|[r, g, b]| [*r, *g, *b, 255])
             .collect(),
         png::ColorType::GrayscaleAlpha => pixels
-            .chunks_exact(2)
-            .flat_map(|pixel| [pixel[0], pixel[0], pixel[0], pixel[1]])
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .flat_map(|[value, alpha]| [*value, *value, *value, *alpha])
             .collect(),
         png::ColorType::Grayscale => pixels
             .iter()

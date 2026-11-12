@@ -21,8 +21,10 @@
 //!
 //! Everything here is inert while `assistant.enabled` is off.
 
-// Until the Action shortcut and Chats call into it. Remove when wired.
-#![allow(dead_code, unused_imports)]
+// Parts only some OSes and the CLI call (`main.rs` allows dead code off
+// macOS).
+#![cfg_attr(target_os = "macos", allow(dead_code))]
+#![allow(unused_imports)]
 
 pub mod agent;
 pub mod autonomy;
