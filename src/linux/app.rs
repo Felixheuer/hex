@@ -31,6 +31,7 @@ use crate::linux::service::{
     self as linux_service, Activation, Control, Published, ShortcutRoute, Status,
 };
 
+pub(crate) mod assistant;
 mod control;
 mod host;
 

@@ -1,7 +1,8 @@
 //! What the tray menu offers: the downloaded models the macOS menu bar and
 //! the Linux and Windows trays list, and the tray menu those two share
-//! (status, Show Hex, Paste last dictation, the meeting items, the model
-//! picker, the update, Enable / Disable Hex, Quit Hex). Each tray maps a picked [`TrayCommand`]
+//! (status, Show Hex, Paste last dictation, the assistant's Chats and Stop
+//! all tasks, the meeting items, the model picker, the update, Enable /
+//! Disable Hex, Quit Hex). Each tray maps a picked [`TrayCommand`]
 //! onto its own runtime.
 
 use crate::app_settings::AppSettings;
@@ -66,6 +67,10 @@ mod tray {
         /// Stop & transcribe the recording meeting.
         StopMeeting,
         CopyLastMeeting,
+        /// The window on Chats.
+        OpenChats,
+        /// Stops every assistant task and its speech.
+        StopAllTasks,
     }
 
     impl TrayCommand {
@@ -80,6 +85,8 @@ mod tray {
                 "meeting-record" => Self::RecordMeeting,
                 "meeting-stop" => Self::StopMeeting,
                 "meeting-copy-last" => Self::CopyLastMeeting,
+                "chats" => Self::OpenChats,
+                "stop-all-tasks" => Self::StopAllTasks,
                 _ => Self::UseModel(id.strip_prefix("model:")?.parse().ok()?),
             })
         }
@@ -103,6 +110,9 @@ mod tray {
         pub(crate) models: Vec<ModelMenuEntry>,
         /// `None` while Meetings is off.
         pub(crate) meetings: Option<MeetingTray>,
+        /// While the assistant is on: whether a task runs (Stop all tasks
+        /// is enabled only then). `None` while it's off.
+        pub(crate) assistant: Option<bool>,
     }
 
     impl TrayView {
@@ -118,6 +128,7 @@ mod tray {
                 update: update_label(update),
                 models,
                 meetings: None,
+                assistant: None,
             }
         }
 
@@ -159,6 +170,17 @@ mod tray {
             menu.push(
                 TrayItem::action("paste-last", tr("Paste last dictation")).enabled(self.listening),
             );
+            if let Some(busy) = self.assistant {
+                menu.push(TrayItem::Separator);
+                menu.push(TrayItem::action("chats", tr("Chats")));
+                // The disabled one takes an id of its own, as the meeting
+                // items do (#1287).
+                menu.push(if busy {
+                    TrayItem::action("stop-all-tasks", tr("Stop all tasks"))
+                } else {
+                    TrayItem::action("stop-all-idle", tr("Stop all tasks")).enabled(false)
+                });
+            }
             if let Some(meetings) = self.meetings {
                 menu.push(TrayItem::Separator);
                 // The disabled states take ids of their own: some tray hosts
@@ -366,5 +388,41 @@ mod tests {
             Vec::new(),
         );
         assert_eq!(stopped.tooltip(), "Hex Dictation");
+    }
+
+    /// The assistant on adds Chats and Stop all tasks after Paste last
+    /// dictation; Stop all tasks is enabled only while a task runs, and its
+    /// dimmed state never reuses the enabled id (#1287). Off, neither shows.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn the_assistant_adds_chats_and_stop_all_tasks() {
+        use crate::desktop::host::DesktopUpdateStatus;
+        let view = |assistant| TrayView {
+            assistant,
+            ..TrayView::new(true, None, &DesktopUpdateStatus::Current, Vec::new())
+        };
+        let items = |view: TrayView| -> Vec<(String, bool)> {
+            view.menu()
+                .into_iter()
+                .filter_map(|item| match item {
+                    rune::TrayItem::Action { id, enabled, .. } => Some((id, enabled)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let ids =
+            |view: TrayView| -> Vec<String> { items(view).into_iter().map(|(id, _)| id).collect() };
+        assert!(!ids(view(None)).contains(&"chats".to_string()));
+        let busy = items(view(Some(true)));
+        assert_eq!(busy[2], ("chats".into(), true));
+        assert_eq!(busy[3], ("stop-all-tasks".into(), true));
+        let idle = items(view(Some(false)));
+        assert_eq!(idle[3], ("stop-all-idle".into(), false));
+        assert_eq!(TrayCommand::from_id("chats"), Some(TrayCommand::OpenChats));
+        assert_eq!(
+            TrayCommand::from_id("stop-all-tasks"),
+            Some(TrayCommand::StopAllTasks)
+        );
+        assert_eq!(TrayCommand::from_id("stop-all-idle"), None);
     }
 }

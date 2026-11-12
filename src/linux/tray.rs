@@ -227,6 +227,15 @@ fn perform(host: &HostHandle, published: &Published, command: TrayCommand) {
         }
         TrayCommand::CopyLastMeeting => crate::meeting::runtime::copy_last_transcript()
             .map_err(|error| color_eyre::eyre::eyre!(error)),
+        // The assistant: Chats, and Stop all tasks.
+        TrayCommand::OpenChats => {
+            crate::linux::app::assistant::open_chat(None);
+            Ok(())
+        }
+        TrayCommand::StopAllTasks => {
+            crate::assistant::service::stop_all();
+            Ok(())
+        }
         TrayCommand::Show | TrayCommand::Quit => Ok(()),
     };
     if let Err(error) = result {
@@ -243,6 +252,7 @@ pub(crate) fn view(snapshot: &HostSnapshot) -> TrayView {
     let desktop = &snapshot.desktop;
     TrayView {
         meetings: crate::meeting::runtime::tray_state(),
+        assistant: crate::linux::app::assistant::tray_state(&snapshot.settings),
         ..TrayView::new(
             desktop.listener.running,
             desktop.activity.state,

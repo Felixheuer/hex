@@ -31,6 +31,7 @@ pub(super) fn run_host(
     let mut shown: Option<HostSnapshot> = None;
     let mut tray_view = None;
     let mut tray_meetings = None;
+    let mut tray_assistant = None;
     loop {
         let seen = host.refreshed();
         // Arm before taking the lock: a stop that waits on a busy host is
@@ -82,8 +83,13 @@ pub(super) fn run_host(
         let status = host.status(snapshot.clone(), session.clone());
         publish_if_changed(&published.status, status);
         let meetings = crate::meeting::runtime::tray_state();
-        if shown.as_ref() != Some(&snapshot) || tray_meetings != meetings {
+        let assistant = super::assistant::tray_state(&snapshot.settings);
+        if shown.as_ref() != Some(&snapshot)
+            || tray_meetings != meetings
+            || tray_assistant != assistant
+        {
             tray_meetings = meetings;
+            tray_assistant = assistant;
             if let Some(tray) = tray {
                 let view = crate::linux::tray::view(&snapshot);
                 if tray_view.as_ref() != Some(&view) {

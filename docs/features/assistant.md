@@ -272,6 +272,6 @@ Mode (checked while on) and Chats… show only while the assistant is on. Checks
 the tests in [rune_ui/chats/tests.rs](../../src/rune_ui/chats/tests.rs),
 `reads_chats_links` in [deep_link.rs](../../src/rune_ui/deep_link.rs), and
 `the_assistant_rows_start_hidden_and_do_something` in
-[status_item.rs](../../src/macos_rune/status_item.rs); scenes `mac-chats*`
-and `mac-assistant-setup*` (macOS only, so no golden changes). Not yet
+[status_item.rs](../../src/macos_rune/status_item.rs); scenes `chats*`
+and `assistant-setup*` (macOS only, so no golden changes). Not yet
 observed: the live service, real grants, or a real question on a Mac.
