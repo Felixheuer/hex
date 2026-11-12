@@ -212,6 +212,52 @@ real press on a Mac, the recorder rows' rendering (macOS only, so no golden
 changes), Escape against a running question, or ⌃⌥Esc reaching Hex past
 macOS.
 
+## The Action shortcut on Linux
+
+The Linux listener (`linux::input`, `linux::dictation`) runs the same
+gestures through the shared `assistant::shortcut`. While the assistant is
+on, `HotkeyOptions::action` and `stop_all` carry `active_action_hotkey` and
+`active_stop_all_hotkey` (Ctrl+Alt+A and Ctrl+Alt+Q by default; a keyless
+binding, such as a macOS right ⌘, registers nothing, since Linux shortcuts
+need a key), and the listener registers them beside the others, restarting
+when they change. X11 grabs them; on Wayland the GlobalShortcuts portal binds
+them as `assistant-action` ("Ask the assistant (hold)") and
+`assistant-stop-all` ("Stop all assistant tasks"), Hyprland's
+`anomaly.hex:assistant-action` and `anomaly.hex:assistant-stop-all`.
+
+```ts
+Shortcut::Action (ShortcutState::action_pressed / action_released; always Hold)
+├── Press -> HotkeyEvent::Ask { after_tap }: a capture with DictationFlavour::Assistant
+│   (same microphone, HUD with Asking { agent: after_tap }, sounds, short-tap discard;
+│   no Live typing, never locks or toggles); shortcut::press(after_tap) settles the lane
+├── Hold real (MINIMUM_HOLD_DURATION) -> Question::intend, prewarm(lane), once
+├── Release -> Finish: shortcut::reply(question) is the capture's print reply, so the
+│   transcript is processed like a paste and asked, never pasted, copied, kept for
+│   Paste last, saved to History, or kept as a recording
+├── Tap, then press within 300 ms of its release -> after_tap (Background when held)
+├── Double tap (second press within 300 ms of a tap's release, itself a tap)
+│   -> HotkeyEvent::DoubleTap: its capture is discarded, shortcut::double_tap()
+└── Not ready (applied_assistant_ready false) -> nothing recorded; the release
+    calls shortcut::unready_release(held)
+Shortcut::StopAll -> HotkeyEvent::StopAll -> shortcut::stop_all(), once per press
+Escape (X11 only) -> HotkeyEvent::AssistantEscape -> shortcut::escape()
+```
+
+The Action shortcut and dictation never share a capture (whichever pressed
+first owns it). `hex dictation stop` and `toggle` leave a question alone
+(`stop --print` answers "not recording"); `hex dictation cancel` discards it.
+On X11 the dictation loop refreshes whether the assistant takes Escape
+(`claims_escape`, every 100 ms; `linux::input::set_assistant_escape`) and
+the listener grabs Escape only then. The portal can't bind Escape, so on
+Wayland Escape always stays with the app: use Stop all tasks. Checks: the
+`*action_shortcut*`, `stop_all_presses_once_per_press`,
+`escape_is_the_assistants_only_while_it_claims_it_and_nothing_records`, and
+`dictation_stop_leaves_a_question_alone_and_cancel_discards_it` tests in
+[linux/input.rs](../../src/linux/input.rs);
+`the_assistant_shortcuts_are_registered_only_while_it_is_on` in
+[linux/dictation.rs](../../src/linux/dictation.rs). Not yet observed: a real
+press on X11 or through a portal, or the HUD's Asking look on Linux.
+
 ## Chats
 
 The assistant's window (`rune_ui/chats`, macOS): Chats is in the sidebar

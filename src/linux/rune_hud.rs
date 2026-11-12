@@ -29,6 +29,9 @@ static HUD: OnceLock<HudSender> = OnceLock::new();
 pub(crate) struct LinuxIndicator {
     generation: Option<u64>,
     recording: bool,
+    /// The capture asks the assistant (Agent mode's after a tap), told to
+    /// the HUD as it starts.
+    asking: Option<bool>,
     /// Submitted dictations still being transcribed or pasted, oldest first.
     jobs: VecDeque<u64>,
     next_job: u64,
@@ -48,6 +51,7 @@ impl LinuxIndicator {
         let indicator = Self {
             generation,
             recording: false,
+            asking: None,
             jobs: VecDeque::new(),
             next_job: 0,
         };
@@ -72,6 +76,13 @@ impl LinuxIndicator {
     pub(crate) fn update(&mut self, recording: bool, pending: usize) {
         if recording && !self.recording {
             self.send(HudEvent::Started);
+            // `Started` resets the HUD's look: a question says so after it.
+            if let Some(agent) = self.asking {
+                self.send(HudEvent::Asking { agent });
+            }
+        }
+        if !recording {
+            self.asking = None;
         }
         let submitted = pending > self.jobs.len();
         while pending > self.jobs.len() {
@@ -91,6 +102,15 @@ impl LinuxIndicator {
             }
         }
         self.recording = recording;
+    }
+
+    /// The capture starting (or recording) asks the assistant: the HUD
+    /// wears its colours, and after a tap (`agent`) says "New task".
+    pub(crate) fn asking(&mut self, agent: bool) {
+        self.asking = Some(agent);
+        if self.recording {
+            self.send(HudEvent::Asking { agent });
+        }
     }
 
     /// The oldest submitted dictation finished: pasted, or failed with why.
