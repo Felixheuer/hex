@@ -7,7 +7,8 @@ Action shortcut and speak), and the assistant decides the rest.
 How overlapping moments resolve is in `src/assistant/interaction.rs`.
 
 Audited on dev @ 9c2f35ff (pilot.15) by reading the code and the
-fake-backend service tests; "Gap" rows are open.
+fake-backend service tests, and again after pilot.17 (three read-only
+audits: voice, jobs architecture, overlays); "Gap" rows are open.
 
 ## Asking
 
@@ -20,6 +21,9 @@ fake-backend service tests; "Gap" rows are open.
 | Hold, "Stopp" / "Halt" / "Sei still" | Hex goes quiet | Escape path; "Stopp alle Aufgaben" = Stop all | `shortcut/spoken_stop.rs` |
 | Typed in Chats | Answer in the transcript | Same routing as a hold (Chat lane = Background rules, ROUTING applies) | `agent::prepare` |
 
+| Hold while a job's question came up during the hold | Goes where it would have gone | A hold answers the inbox's question only if it waited when the key went down (`Question::asked_at_press`, `service::focus_past_inbox`) | `shortcut.rs` |
+| „Abbrechen“ while a job asks „abschicken oder abbrechen?“ | The job gets the answer | A plain stop word goes to the waiting question when nothing is read and no quick question runs (`answers_a_question`); „Stopp alle Aufgaben“ still stops all | `shortcut.rs` |
+
 ## While Hex speaks
 
 | Trigger | The person sees / hears | Result | Code |
@@ -30,12 +34,25 @@ fake-backend service tests; "Gap" rows are open.
 | Music or another app's audio | No hands-free window, no barge-in | Hold and "Stopp" still work | `recognition/other_audio.rs` |
 | After an answer (conversation mode) | Listening ring for `conversation_seconds` | **Fixed:** the window is now a listening state of its own (`interaction::Listening::FollowUp`), so job summaries and inbox questions wait instead of being spoken into it | `interaction::listening`, `talk.rs` |
 | Hex's own voice heard back | Nothing | Dropped (`speech::own_echo`) | `shortcut.rs` |
+| A barge-in or follow-up whose capture also heard the reading | Only the person's words are asked | `own_echo::without_own_words` lines the transcript's opening up with what Hex read and keeps the rest; the follow-up window restarts its capture once the reading ended (`Talk::reopen`) | `own_echo.rs`, `talk.rs` |
+| A hold, a dictation, or Escape while an answer streams | Quiet, and the rest of that answer stays unread | `Voice::stop` keeps the cut conversation hushed until it asks again (`Voice::started`) | `service/voice.rs` |
+| An answer arrives while the person holds or dictates | It waits for them | `speak_all` waits while `interaction::listening()` is Hold or Dictation | `service/voice.rs` |
+| Dictating (any length) | Announcements wait | `interaction::Listening::Dictation`, set level by level by the listener; reasons are a set, so no capture clears another's | `interaction.rs`, `recognition.rs` |
+| „Stopp“ / „Sei still“ / Escape | Quiet for a minute | Announcements wait 60 s (`service::quiet_announcements`) | `shortcut.rs` |
+| Barge-in thresholds | Learn on this Mac | A false alarm raises the route's frames by 3 (and 1 dB), a take-over lowers them by a ninth of that: about one false alarm in ten (`interaction::tuning`, `hex assistant barge-in`) | `interaction/tuning.rs` |
 
 ## Jobs
 
 | Trigger | The person sees / hears | Result | Code |
 |---|---|---|---|
-| A job runs | Frame, task in the list (Läuft), live browser previews | Goal loop: `## Done when`, verifier, up to the 7-day budget | `agent::goal` |
+| A job runs | Frame, a card at the orb (title, step, time, live browsers), task in the list (Läuft) | Goal loop: `## Done when`, a read-only check (its guard observes only, its browsers never send, its shell is sandboxed), up to the 7-day budget | `agent::goal`, `agent::check` |
+| A big job ("50 Lieferanten vergleichen, Tabelle, Team informieren") | One card with its helpers summed up; hover shows each helper under it | The job leads a team: `hex_team_start` starts helpers (Background jobs in folders inside its own, at most 12 at once, quiet, stopped with it), `hex_team_status` waits for the next to finish; the lead does what depends on their results and answers once | `agent::team`, `Runner::start_team` |
+| More than three jobs | One line „N Aufträge laufen“; resting on it unfolds every card (scrolling), a press keeps them | `jobs::Layout::All`, `LineActions` | `rune_ui/assistant_overlay/jobs.rs` |
+| Fifty jobs with many browsers | Only browsers a card shows stream | `live::Rate::Idle`, `live::cards` | `assistant_overlay/live.rs` |
+| Memory tight | Queued jobs wait, start by themselves later | `capacity::pressure` (macOS kernel pressure level) and `background_room` | `capacity.rs` |
+| Two jobs need the real mouse | One at a time | `guard::state::take_hands` (20 s wait, then BUSY) | `guard/state.rs` |
+| Hex crashed with jobs running | Old agents end, jobs resume clean | `provider::orphans::sweep`, interrupted jobs' browsers closed before resuming | `provider/orphans.rs` |
+| What did a job do? | Every tool call, secrets blanked | `<assistant>/audit/<id>.jsonl`, `hex assistant audit <id>` | `audit.rs` |
 | A job needs something | Inbox bubble „<Aufgabe> fragt …“, read when nothing else plays | Hold answers; „später“ defers; „welche Fragen sind offen?“ reads them | `service/inbox.rs` |
 | "Wie weit ist der Shop?" (hold) | Spoken status | `status_reply` from plan, elapsed, gaps | `service/status.rs` |
 | Hold naming a running job | Goes to that job | `context::route` steers it | `service/context.rs` |
@@ -52,22 +69,28 @@ fake-backend service tests; "Gap" rows are open.
 | Hold while something essential is missing | The HUD says what's missing | Guide opens | `recognition/ask.rs` gate |
 | Settings changed | Takes effect for the next task | Settings are read per task (`assistant_runtime`) | `app_settings/assistant.rs` |
 
-## Gaps left (outside this change)
+## Security
 
-- **Overlay (agent B's area):** the spoken answer bubble was reported missing
-  on pilot.13/14; the listening ring is placed "past the HUD" and can lie on
-  top of the answer bubble. The ring should read
-  `assistant::interaction::listening()` (show for `FollowUp` and `Hearing`,
-  hide for `Off`; a `Hold` is shown by the HUD itself) instead of only the
-  HUD's `Listening`/`Started`/`Discarded` events, and be placed so it never
-  covers the answer bubble (stack it under the bubble, or tint the bubble's
-  edge instead of drawing a second ring).
-- **Chats (agent A's area):** status questions typed in a running job's
-  conversation, duplicate request after escalation, message order.
-- `asks_for_status` doesn't match „Wie weit bist du?“ (it expects a title or
-  „die Aufgaben“); add second-person phrasings when a single job runs.
-- Dictation (not a hold) doesn't set the listening state, so an announcement
-  can still be spoken while the person dictates a long text; the hush at
-  its start stops current speech only.
-- Barge-in thresholds are tuned on synthetic signals; the logs now say
-  `barge-in: paused|resumed|took over` to tune them on real rooms.
+- Authorization (`autonomy::from_request`, the plan's `HEX_AUTHORIZED`
+  check) reads only the person's own words (`service::Said`): never a
+  hand-off's or a helper's task an agent wrote, nor a schedule an agent made
+  (`Schedule::by_person`).
+- A yes to a confirmation covers that kind of action for 15 minutes
+  (`autonomy::CONFIRMED_FOR_MS`), not the rest of the job.
+- A background job's Hex tools (`tools::Role::Job`) can't remember,
+  schedule, unschedule, or hand off; it leads a team instead.
+
+## Gaps left
+
+- **Mac build unverified here:** the Linux server can't compile macOS code;
+  `recognition/*` (dictation listening, conversation restart, barge-in
+  tuning hooks) was reviewed by reading only.
+- Take over gates desktop and browser actions only; a Claude Code job's
+  shell and file tools go on (a PreToolUse hook would need Hex to stop
+  disabling hooks wholesale).
+- Linux and Windows dictation doesn't set `Listening::Dictation` (their
+  audio loop only runs while recording; it needs a level set from the main
+  loop).
+- Step texts on cards ("Opening nike.com in the browser") are English.
+- Barge-in tuning learns frames and the margin only; the echo judge's own
+  constants (`OVER_SHARE`, `PATH_PERCENTILE`) stay fixed.

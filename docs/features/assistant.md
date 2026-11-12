@@ -501,3 +501,37 @@ agent-browser) run the same way on every OS; what differs:
 
 Not yet observed on a real Linux desktop or Windows PC: installs, sign-in
 windows, the shim launch, job objects, or the agents' sandboxes.
+
+## Teams, capacity, and the audit log
+
+A background job can lead a team (`assistant::agent::team`): its Hex tools
+(`hex assistant tools-mcp --role job`) offer `hex_team_start` (helpers, each
+a Background job of its own in a folder inside the lead's, at most 12 at
+once) and `hex_team_status` (their states, steps, and final answers; with
+`wait_seconds` up to 240 it waits for the next to finish or ask). The
+runner takes the requests from `<assistant>/team/<lead>/requests/` in its
+monitor (`Runner::start_team`), records each helper under `members/`, and
+keeps the records current from the events. Helpers are authorized from the
+person's words that led to the lead, stay quiet (no spoken summary or
+notification), lead no team of their own, and stop with the lead. The orb
+shows a team as one card with its helpers summed up; resting on the cards
+shows each helper under its lead. A job's tools can't remember, schedule,
+unschedule, or hand off (`tools::Role::Job`), since it reads pages and files
+the person never saw.
+
+`max_parallel` is a ceiling: before each queued Background task starts,
+`capacity::pressure` (macOS `kern.memorystatus_vm_pressure_level`, Linux
+`MemAvailable`) may hold it back (two under a warning, one under critical
+pressure); the monitor starts it once memory eases. Only the browsers a job
+card shows stream (`live::Rate::Idle` for the rest). One task at a time
+holds the real pointer and keyboard (`guard::state::take_hands`). At
+startup, agent process groups an earlier Hex left running end
+(`provider::orphans`), and interrupted jobs' browsers close before the jobs
+resume.
+
+Every tool call of every task goes to `<assistant>/audit/<id>.jsonl`
+(secrets blanked; `hex assistant audit <id>`). A job's goal check runs with
+the guard observing only (`WireSpec::observe_only`), browsers that never
+send (`browser-mcp --observe`), a sandboxed shell, and no Hex tools.
+`hex assistant barge-in [--reset]` shows the barge-in thresholds this Mac
+learnt (`interaction::tuning`).
