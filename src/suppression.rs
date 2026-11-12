@@ -561,7 +561,12 @@ unsafe extern "C" fn physical_event_callback(
     // SAFETY: CoreGraphics supplied a valid event.
     let flags = unsafe { CGEventGetFlags(event) };
     let flags = crate::app_settings::normalized_modifier_flags(flags, physical_keys::snapshot());
-    if !is_chord_evidence(code, flags, crate::app_settings::runtime_hotkeys()) {
+    // A shortcut test (`recognition::shortcut_probe`) hears every press, so
+    // a key another app took before the session tap still shows it reached
+    // the keyboard.
+    if !is_chord_evidence(code, flags, crate::app_settings::runtime_hotkeys())
+        && !PROBING.load(Ordering::Acquire)
+    {
         return event;
     }
     // SAFETY: CoreGraphics supplied a valid event.
@@ -581,6 +586,16 @@ unsafe extern "C" fn physical_event_callback(
         at,
     );
     event
+}
+
+/// Whether a shortcut test runs: the HID tap then reports every key press,
+/// Hex's own shortcuts included.
+static PROBING: AtomicBool = AtomicBool::new(false);
+
+/// Turns the HID tap's report of every key press on or off for a shortcut
+/// test (`recognition::shortcut_probe`).
+pub fn set_probing(on: bool) {
+    PROBING.store(on, Ordering::Release);
 }
 
 /// Whether a HID key press can reveal a chord Hex would otherwise miss.

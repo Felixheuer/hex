@@ -67,6 +67,8 @@ mod rune_hud;
 mod rune_ui;
 #[cfg(all(target_os = "macos", hex_capture))]
 mod screenshots;
+#[cfg(target_os = "macos")]
+mod shortcut_conflicts;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod shortcut_pause;
 #[cfg(target_os = "macos")]

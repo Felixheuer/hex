@@ -112,5 +112,7 @@ pub(in crate::rune_ui) fn shortcut_rows(
     ];
     rows.extend(s::refused_note(ui, p, target).map(CardRow::from));
     rows.extend(s::gnome_clash_note(ui, p, target).map(CardRow::from));
+    #[cfg(target_os = "macos")]
+    rows.extend(super::conflicts::rows(ui, p, key, target));
     rows
 }
