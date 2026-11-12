@@ -1,129 +1,305 @@
-//! Reading answers aloud with the macOS voice, on this computer, through
-//! `/usr/bin/say`: one process at a time, killed by [`stop`] and by the
-//! next [`speak`].
+//! Reading answers aloud on this computer, with the best voice installed
+//! for the answer's language.
 //!
-//! Without a chosen voice, text in the system's language uses the system
-//! voice; text in another language (a German answer on an English Mac) uses
-//! an installed voice of that language, if there is one.
+//! macOS's speech engine (AVSpeechSynthesizer, through the Swift bridge in
+//! `src/speech_output.swift`) writes each sentence to audio, which Hex
+//! plays itself ([`output`]): so sentences follow each other without the
+//! engine's long pauses, a stop is heard at once, and [`level`] measures
+//! what plays. Where the engine can't answer (nothing serves the main
+//! thread, as in tests), `/usr/bin/say` writes the audio instead ([`say`]).
 //!
-//! OWNER: hands (with `computer`).
+//! The person's chosen voice wins. Otherwise the answer's language picks:
+//! their Personal Voice when Hex may use it, then Premium, then Enhanced
+//! voices, then the default voice of that language.
+//!
+//! OWNER: speech output.
 
-use std::io::Write;
-use std::process::{Child, Command, Stdio};
-use std::sync::{Mutex, OnceLock};
+#[cfg(target_os = "macos")]
+mod bridge;
+mod language;
+mod output;
+mod playback;
+mod say;
+mod voices;
 
-const SAY: &str = "/usr/bin/say";
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
-static PLAYER: Mutex<Player> = Mutex::new(Player { child: None });
+pub use language::language_of;
+use output::Shared;
+use playback::{Engine, Request};
+pub use voices::{Quality, Voice, VoiceHint};
+
+/// AVSpeechUtterance's rate (0.5 is its normal): a little brisker, as people
+/// talk to an assistant.
+const ENGINE_RATE: f32 = 0.53;
+/// How long the main queue may take to answer before `say` reads instead.
+const MAIN_TIMEOUT_MS: i32 = 250;
+/// How long the speech engine is left alone after it failed to answer.
+const ENGINE_REST: Duration = Duration::from_secs(60);
+/// How long an answered main queue counts as answering.
+const MAIN_FRESH: Duration = Duration::from_secs(5);
+/// How long a voice list is kept (voices can be downloaded meanwhile).
+const VOICES_FRESH: Duration = Duration::from_secs(60);
+
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+/// The queue and the output, started with the first sentence.
+static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
+
+/// The output, once something was read (a stop before then has nothing to
+/// stop).
+fn started() -> Option<&'static Arc<Shared>> {
+    SHARED.get()
+}
+
+fn shared() -> &'static Arc<Shared> {
+    SHARED.get_or_init(|| {
+        let shared = Arc::new(Shared::default());
+        let thread = shared.clone();
+        if let Err(error) = std::thread::Builder::new()
+            .name("hex-speech-output".into())
+            .spawn(move || output::run(thread.clone(), || tick(&thread)))
+        {
+            tracing::warn!(%error, "could not start the speech output");
+        }
+        shared
+    })
+}
+
+/// Hands sentences the speech engine never answered to `say`; whether
+/// anything is queued.
+fn tick(shared: &Shared) -> bool {
+    let moved = shared.playback().expire(Instant::now());
+    if !moved.is_empty() {
+        tracing::warn!(
+            sentences = moved.len(),
+            "the speech engine didn't answer; reading with say"
+        );
+        rest_engine();
+        for request in moved {
+            ask(Engine::Say, &request);
+        }
+    }
+    shared.playback().busy()
+}
 
 /// Starts reading `text` aloud with `voice`, stopping anything already
-/// being read. `None` picks by the answer's own language
-/// ([`automatic_voice`]): the system voice for text in the system's
-/// language, else an installed voice of the text's language. Returns at
-/// once.
+/// being read. `None` picks by the text's own language
+/// ([`automatic_voice`]). Returns at once.
 pub fn speak(text: &str, voice: Option<&str>) {
+    stop();
+    queue(text, voice);
+}
+
+/// Reads `text` aloud with `voice` after what is being read, without a
+/// pause between them: for an answer streamed sentence by sentence.
+/// Returns at once.
+#[allow(
+    dead_code,
+    reason = "for the brain's streamed answers (service::voice)"
+)]
+pub fn queue(text: &str, voice: Option<&str>) {
     let text = speakable(text);
-    let mut player = PLAYER.lock().unwrap_or_else(|error| error.into_inner());
-    player.stop();
     if text.is_empty() {
         return;
     }
-    let voice = voice.map(str::to_owned).or_else(|| automatic_voice(&text));
-    let mut command = crate::desktop::background_process::command(SAY);
-    if let Some(voice) = &voice {
-        command.args(["-v", voice]);
-    }
-    // The text goes in on stdin, so one that starts with "-" is never an
-    // option.
-    command.args(["-f", "-"]);
-    tracing::debug!(
-        voice = voice.as_deref().unwrap_or("system"),
-        "reading aloud"
-    );
-    player.play(command, text);
+    let request = Request {
+        id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+        text,
+        chosen: voice.map(str::to_owned),
+    };
+    let engine = engine();
+    let shared = shared();
+    shared
+        .playback()
+        .add(request.clone(), engine, Instant::now());
+    shared.asked();
+    ask(engine, &request);
 }
 
-/// Stops reading aloud: `say` and anything it started are killed.
+/// Asks `engine` for `request`'s audio.
+fn ask(engine: Engine, request: &Request) {
+    match engine {
+        #[cfg(target_os = "macos")]
+        Engine::Bridge => {
+            let voices = engine_voices();
+            let voice = pick(request, &voices);
+            tracing::debug!(
+                voice = voice.map_or("system", |voice| voice.name.as_str()),
+                "reading aloud"
+            );
+            bridge::speak(
+                request.id,
+                &request.text,
+                voice.map(|voice| voice.id.as_str()),
+                ENGINE_RATE,
+            );
+        }
+        #[cfg(not(target_os = "macos"))]
+        Engine::Bridge => {}
+        Engine::Say => {
+            let voices = say_voices();
+            let voice = pick(request, &voices).map(|voice| voice.id.clone());
+            tracing::debug!(
+                voice = voice.as_deref().unwrap_or("system"),
+                "reading aloud with say"
+            );
+            say::speak(
+                say::Job {
+                    id: request.id,
+                    text: request.text.clone(),
+                    voice,
+                },
+                from_say,
+            );
+        }
+    }
+}
+
+/// The voice for `request`: the one asked for, if installed, else the best
+/// for its language.
+fn pick<'a>(request: &Request, voices: &'a [Voice]) -> Option<&'a Voice> {
+    let language = language_of(&request.text);
+    request
+        .chosen
+        .as_deref()
+        .and_then(|chosen| voices::resolve(chosen, language, voices))
+        .or_else(|| {
+            let system = language::system_language();
+            voices::best_voice(
+                language.unwrap_or(&system),
+                &language::system_locale(),
+                voices,
+            )
+        })
+}
+
+/// Stops reading aloud at once and forgets what was queued.
 pub fn stop() {
-    PLAYER
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .stop();
+    let Some(shared) = started() else {
+        return;
+    };
+    shared.stop();
+    #[cfg(target_os = "macos")]
+    if ENGINE_STARTED.load(Ordering::Acquire) {
+        bridge::stop();
+    }
+    say::stop();
+}
+
+/// Whether something is being read now, or waits its turn.
+pub fn speaking() -> bool {
+    started().is_some_and(|shared| shared.playback().busy())
+}
+
+/// When the audio playing now started; `None` while nothing plays. Stays
+/// put across sentences queued back to back.
+#[allow(dead_code, reason = "for echo handling in conversation mode")]
+pub fn speaking_since() -> Option<Instant> {
+    started().and_then(|shared| shared.playback().since())
 }
 
 /// How loud the answer being read sounds now: the linear RMS (0 to 1) of
-/// what plays, or `None` while nothing plays or it can't be measured. Barge-in
-/// on speakers needs it (`recognition::conversation`).
-// Stub until reading aloud measures its own level.
+/// the last 30 ms the output played, or `None` while nothing plays.
+/// Barge-in on speakers needs it (`recognition::conversation`); cheap
+/// enough for every frame.
 pub fn level() -> Option<f32> {
-    None
+    let shared = started()?;
+    shared.playback().since()?;
+    Some(shared.level())
 }
 
-/// Whether something is being read now.
-pub fn speaking() -> bool {
-    PLAYER
+/// Which engine reads the next sentence.
+fn engine() -> Engine {
+    #[cfg(target_os = "macos")]
+    if engine_answers() {
+        return Engine::Bridge;
+    }
+    Engine::Say
+}
+
+#[cfg(target_os = "macos")]
+static ENGINE_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// When the speech engine may be tried again, and when its main queue
+/// last answered.
+static ENGINE_STATE: Mutex<(Option<Instant>, Option<Instant>)> = Mutex::new((None, None));
+
+fn rest_engine() {
+    ENGINE_STATE
         .lock()
         .unwrap_or_else(|error| error.into_inner())
-        .playing()
+        .0 = Some(Instant::now() + ENGINE_REST);
 }
 
-/// One reading-aloud process at a time, in a process group of its own so a
-/// stop ends everything it started. The seam the tests drive with a stand-in
-/// for `say`.
-struct Player {
-    child: Option<Child>,
-}
-
-impl Player {
-    /// Stops what plays, then starts `command`, handing it `text` on stdin.
-    fn play(&mut self, mut command: Command, text: String) {
-        self.stop();
-        command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        #[cfg(unix)]
+/// Whether the speech engine can read now: it lists voices, and the main
+/// queue it calls back on answers.
+#[cfg(target_os = "macos")]
+fn engine_answers() -> bool {
+    let now = Instant::now();
+    {
+        let state = ENGINE_STATE
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if state.0.is_some_and(|until| now < until) {
+            return false;
+        }
+        if state
+            .1
+            .is_some_and(|at| now.duration_since(at) < MAIN_FRESH)
         {
-            use std::os::unix::process::CommandExt;
-            command.process_group(0);
-        }
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(error) => {
-                tracing::warn!(%error, "could not start reading aloud");
-                return;
-            }
-        };
-        if let Some(mut stdin) = child.stdin.take() {
-            let spawned = std::thread::Builder::new()
-                .name("hex-assistant-say".into())
-                .spawn(move || {
-                    // A stop before it's all written ends the pipe; that's fine.
-                    let _ = stdin.write_all(text.as_bytes());
-                });
-            if let Err(error) = spawned {
-                tracing::warn!(%error, "could not hand the text to say");
-            }
-        }
-        self.child = Some(child);
-    }
-
-    fn stop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            crate::assistant::backends::run::kill_group(&mut child);
+            return true;
         }
     }
-
-    fn playing(&mut self) -> bool {
-        match self.child.as_mut().map(Child::try_wait) {
-            Some(Ok(None)) => true,
-            Some(_) => {
-                // Done: reap it.
-                self.child = None;
-                false
-            }
-            None => false,
+    if engine_voices().is_empty() {
+        return false;
+    }
+    if !ENGINE_STARTED.swap(true, Ordering::AcqRel) {
+        bridge::start(from_bridge);
+    }
+    match bridge::main_state(MAIN_TIMEOUT_MS) {
+        bridge::Main::Answers => {
+            ENGINE_STATE
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .1 = Some(now);
+            true
         }
+        bridge::Main::Pumped => true,
+        bridge::Main::Silent => {
+            tracing::debug!("the main queue didn't answer; reading with say");
+            rest_engine();
+            false
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+extern "C" fn from_bridge(id: u64, samples: *const f32, count: usize, done: bool) {
+    let samples = if samples.is_null() || count == 0 {
+        &[][..]
+    } else {
+        // SAFETY: The bridge passes `count` valid samples for this call.
+        unsafe { std::slice::from_raw_parts(samples, count) }
+    };
+    if let Some(shared) = started() {
+        shared
+            .playback()
+            .feed(Engine::Bridge, id, samples, done, Instant::now());
+    }
+}
+
+fn from_say(id: u64, audio: Option<Vec<f32>>) {
+    if let Some(shared) = started() {
+        shared.playback().feed(
+            Engine::Say,
+            id,
+            &audio.unwrap_or_default(),
+            true,
+            Instant::now(),
+        );
     }
 }
 
@@ -135,33 +311,49 @@ pub fn voices() -> Vec<String> {
         .collect()
 }
 
-/// An installed voice and its language.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Voice {
-    pub name: String,
-    /// `de_DE`, `en_US`, …
-    pub locale: String,
-}
-
-impl Voice {
-    /// Its language: `de` for `de_DE`.
-    pub fn language(&self) -> &str {
-        self.locale.split(['_', '-']).next().unwrap_or_default()
-    }
-}
-
-/// The installed voices with their languages (`say -v '?'`), read once.
+/// The installed voices with their languages and quality: the speech
+/// engine's, or `say`'s where the engine lists none.
 pub fn voices_with_languages() -> Vec<Voice> {
+    #[cfg(target_os = "macos")]
+    {
+        let voices = engine_voices();
+        if !voices.is_empty() {
+            return voices;
+        }
+    }
+    say_voices()
+}
+
+/// AVSpeechSynthesizer's voices, named for Settings.
+#[cfg(target_os = "macos")]
+fn engine_voices() -> Vec<Voice> {
+    static VOICES: Mutex<Option<(Instant, Vec<Voice>)>> = Mutex::new(None);
+    let mut cached = VOICES.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some((at, voices)) = cached.as_ref()
+        && at.elapsed() < VOICES_FRESH
+    {
+        return voices.clone();
+    }
+    let voices = voices::named(bridge::voices());
+    *cached = Some((Instant::now(), voices.clone()));
+    voices
+}
+
+/// `say -v '?'`, read once.
+fn say_voices() -> Vec<Voice> {
     static VOICES: OnceLock<Vec<Voice>> = OnceLock::new();
     VOICES
         .get_or_init(|| {
-            let output = crate::desktop::background_process::command(SAY)
+            if !cfg!(target_os = "macos") {
+                return Vec::new();
+            }
+            let output = crate::desktop::background_process::command("/usr/bin/say")
                 .args(["-v", "?"])
-                .stdin(Stdio::null())
-                .stderr(Stdio::null())
+                .stdin(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
                 .output();
             match output {
-                Ok(output) => parse_voices(&String::from_utf8_lossy(&output.stdout)),
+                Ok(output) => voices::parse_voices(&String::from_utf8_lossy(&output.stdout)),
                 Err(error) => {
                     tracing::warn!(%error, "could not list the voices");
                     Vec::new()
@@ -171,222 +363,49 @@ pub fn voices_with_languages() -> Vec<Voice> {
         .clone()
 }
 
-/// `say -v '?'`'s lines: `Anna                de_DE    # Hallo! Ich heiße Anna.`,
-/// where a name can hold spaces and parentheses
-/// (`Eddy (Deutsch (Deutschland)) de_DE    # …`).
-pub fn parse_voices(output: &str) -> Vec<Voice> {
-    output
-        .lines()
-        .filter_map(|line| {
-            let described = line
-                .split_once('#')
-                .map_or(line, |(voice, _)| voice)
-                .trim_end();
-            let (name, locale) = described.rsplit_once(char::is_whitespace)?;
-            let name = name.trim();
-            let locale = locale.trim();
-            let looks_like_locale = locale.len() >= 2
-                && locale
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-            (!name.is_empty() && looks_like_locale).then(|| Voice {
-                name: name.to_owned(),
-                locale: locale.to_owned(),
-            })
-        })
-        .collect()
-}
-
-/// The system's language (`de` for a German Mac), from AppleLanguages.
-fn system_language() -> String {
-    static LANGUAGE: OnceLock<String> = OnceLock::new();
-    LANGUAGE
-        .get_or_init(|| {
-            #[cfg(target_os = "macos")]
-            let preferred = objc2::rc::autoreleasepool(|_| {
-                objc2_foundation::NSLocale::preferredLanguages()
-                    .firstObject()
-                    .map(|language| language.to_string())
-            });
-            #[cfg(not(target_os = "macos"))]
-            let preferred = std::env::var("LANG").ok();
-            preferred
-                .and_then(|language| language.split(['-', '_', '.']).next().map(str::to_owned))
-                .unwrap_or_else(|| "en".into())
-                .to_ascii_lowercase()
-        })
-        .clone()
-}
-
-/// The voice [`speak`] reads `text` with when none is chosen: `None` for the
-/// system voice, else a voice of the text's language (see [`voice_for`]).
+/// The voice [`speak`] reads `text` with when none is chosen: the best
+/// installed voice of the text's language (the system's language when the
+/// text doesn't tell), or `None` when there is none and the system voice
+/// reads.
 pub fn automatic_voice(text: &str) -> Option<String> {
-    voice_for(text, &voices_with_languages(), &system_language())
+    let voices = voices_with_languages();
+    let system = language::system_language();
+    voices::best_voice(
+        language_of(text).unwrap_or(&system),
+        &language::system_locale(),
+        &voices,
+    )
+    .map(|voice| voice.name.clone())
 }
 
-/// The voice for `text` when none is chosen: `None` (the system voice) when
-/// the text is in the system's language or its language is unclear, else
-/// the best installed voice of its language.
-pub fn voice_for(text: &str, voices: &[Voice], system_language: &str) -> Option<String> {
-    let language = language_of(text)?;
-    if language == system_language {
-        return None;
-    }
-    best_voice(language, voices)
+/// The voice to download for `language` (`de`, `en-US`) when every
+/// installed one of it sounds worse: its name in System Settings, and about
+/// how big it is. `None` when the best is installed.
+#[allow(dead_code, reason = "for the assistant's setup and Settings")]
+pub fn better_voice_available(language: &str) -> Option<VoiceHint> {
+    voices::better_voice_for(language, &voices_with_languages())
 }
 
-/// Novelty voices that read a sentence as a joke.
-const NOVELTY: [&str; 18] = [
-    "Albert",
-    "Bad News",
-    "Bahh",
-    "Bells",
-    "Boing",
-    "Bubbles",
-    "Cellos",
-    "Good News",
-    "Jester",
-    "Organ",
-    "Superstar",
-    "Trinoids",
-    "Whisper",
-    "Wobble",
-    "Zarvox",
-    "Junior",
-    "Ralph",
-    "Fred",
-];
-
-/// Voices that read well, best first, for the languages answers come in.
-const PREFERRED: [(&str, &[&str]); 6] = [
-    (
-        "de",
-        &["Anna", "Petra", "Markus", "Yannick", "Helena", "Martin"],
-    ),
-    (
-        "en",
-        &["Samantha", "Alex", "Daniel", "Karen", "Moira", "Ava", "Tom"],
-    ),
-    ("fr", &["Thomas", "Amélie", "Audrey", "Marie"]),
-    ("es", &["Mónica", "Monica", "Jorge", "Paulina", "Juan"]),
-    ("it", &["Alice", "Federica", "Luca"]),
-    ("nl", &["Xander", "Claire", "Ellen"]),
-];
-
-fn best_voice(language: &str, voices: &[Voice]) -> Option<String> {
-    let of_language: Vec<&Voice> = voices
-        .iter()
-        .filter(|voice| voice.language().eq_ignore_ascii_case(language))
-        .filter(|voice| {
-            !NOVELTY
-                .iter()
-                .any(|novelty| voice.name.starts_with(novelty))
-        })
-        .collect();
-    let base = |voice: &Voice| {
-        voice
-            .name
-            .split(" (")
-            .next()
-            .unwrap_or(&voice.name)
-            .to_owned()
-    };
-    let quality = |voice: &Voice| {
-        if voice.name.contains("Premium") {
-            0
-        } else if voice.name.contains("Enhanced") || voice.name.contains("Erweitert") {
-            1
-        } else {
-            2
+/// Opens System Settings › Accessibility › Spoken Content, where voices
+/// are downloaded (System Voice › Manage Voices…).
+#[allow(dead_code, reason = "for the assistant's setup and Settings")]
+pub fn open_voice_settings() {
+    #[cfg(target_os = "macos")]
+    {
+        let opened = [
+            "x-apple.systempreferences:com.apple.Accessibility-Settings.extension?SpokenContent",
+            "x-apple.systempreferences:com.apple.preference.universalaccess?SpeakableItems",
+        ]
+        .into_iter()
+        .any(|url| {
+            crate::desktop::background_process::command("/usr/bin/open")
+                .arg(url)
+                .status()
+                .is_ok_and(|status| status.success())
+        });
+        if !opened {
+            tracing::warn!("could not open the Spoken Content settings");
         }
-    };
-    let preferred = PREFERRED
-        .iter()
-        .find(|(code, _)| *code == language)
-        .map_or(&[][..], |(_, names)| *names);
-    preferred
-        .iter()
-        .find_map(|name| {
-            of_language
-                .iter()
-                .filter(|voice| base(voice) == *name)
-                .min_by_key(|voice| quality(voice))
-        })
-        .or_else(|| of_language.iter().min_by_key(|voice| quality(voice)))
-        .map(|voice| voice.name.clone())
-}
-
-/// Common words that tell these languages apart.
-const MARKERS: [(&str, &[&str]); 6] = [
-    (
-        "de",
-        &[
-            "der", "die", "das", "und", "ist", "nicht", "ich", "du", "sie", "ein", "eine", "mit",
-            "auf", "für", "es", "zu", "den", "dem", "wir", "bereit", "auch", "noch",
-        ],
-    ),
-    (
-        "en",
-        &[
-            "the", "and", "is", "are", "you", "it", "of", "to", "in", "that", "this", "with",
-            "for", "not", "be", "your", "can",
-        ],
-    ),
-    (
-        "fr",
-        &[
-            "le", "la", "les", "et", "est", "vous", "une", "des", "pas", "que", "pour", "avec",
-        ],
-    ),
-    (
-        "es",
-        &[
-            "el", "los", "las", "y", "es", "una", "que", "por", "para", "con", "está", "pero",
-        ],
-    ),
-    (
-        "it",
-        &[
-            "il", "lo", "gli", "e", "è", "una", "che", "per", "non", "sono", "con", "della",
-        ],
-    ),
-    (
-        "nl",
-        &[
-            "de", "het", "een", "en", "is", "niet", "ik", "je", "van", "dat", "met", "voor",
-        ],
-    ),
-];
-
-/// The language `text` is most likely in, by its common words (German also
-/// by ä, ö, ü, ß); `None` when too little tells.
-pub fn language_of(text: &str) -> Option<&'static str> {
-    let words: Vec<String> = text
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|word| !word.is_empty())
-        .map(str::to_lowercase)
-        .collect();
-    let mut scores: Vec<(&'static str, usize)> = MARKERS
-        .iter()
-        .map(|(language, markers)| {
-            let hits = words
-                .iter()
-                .filter(|word| markers.contains(&word.as_str()))
-                .count();
-            (*language, hits)
-        })
-        .collect();
-    let umlauts = text
-        .chars()
-        .filter(|c| matches!(c, 'ä' | 'ö' | 'ü' | 'ß' | 'Ä' | 'Ö' | 'Ü'))
-        .count();
-    if let Some(german) = scores.iter_mut().find(|(language, _)| *language == "de") {
-        german.1 += umlauts.min(3);
-    }
-    scores.sort_by_key(|(_, hits)| std::cmp::Reverse(*hits));
-    match scores.as_slice() {
-        [(language, best), (_, next), ..] if *best >= 1 && best > next => Some(language),
-        _ => None,
     }
 }
 
@@ -409,168 +428,114 @@ fn speakable(text: &str) -> String {
 mod tests {
     use super::*;
 
-    const SAY_LIST: &str = "Albert              en_US    # Hello! My name is Albert.
-Anna                de_DE    # Hallo! Ich heiße Anna.
-Eddy (Deutsch (Deutschland)) de_DE    # Hallo! Ich heiße Eddy.
-Eddy (Englisch (USA)) en_US    # Hello! My name is Eddy.
-Samantha            en_US    # Hello! My name is Samantha.
-Zuzana (Premium)    cs_CZ    # Ahoj! Jmenuji se Zuzana.
-Thomas              fr_FR    # Bonjour, je m’appelle Thomas.
-";
-
-    #[test]
-    fn voices_keep_names_with_spaces_and_parentheses() {
-        let voices = parse_voices(SAY_LIST);
-        assert_eq!(voices.len(), 7);
-        assert_eq!(
-            voices[2],
-            Voice {
-                name: "Eddy (Deutsch (Deutschland))".into(),
-                locale: "de_DE".into()
-            }
-        );
-        assert_eq!(voices[5].name, "Zuzana (Premium)");
-        assert_eq!(voices[5].language(), "cs");
-        assert!(parse_voices("\n   \nnonsense\n").is_empty());
-    }
-
-    #[test]
-    fn the_language_is_told_by_common_words() {
-        assert_eq!(language_of("Hex Assistent ist bereit"), Some("de"));
-        assert_eq!(
-            language_of("Die Datei ist in deinem Downloads-Ordner."),
-            Some("de")
-        );
-        assert_eq!(
-            language_of("The file is in your Downloads folder."),
-            Some("en")
-        );
-        assert_eq!(
-            language_of("Le fichier est dans vos téléchargements et pas ici."),
-            Some("fr")
-        );
-        assert_eq!(language_of("Größe: 12 MB"), Some("de"));
-        assert_eq!(language_of("OK"), None);
-        assert_eq!(language_of(""), None);
-    }
-
-    #[test]
-    fn text_in_another_language_gets_a_voice_of_its_own() {
-        let voices = parse_voices(SAY_LIST);
-        assert_eq!(
-            voice_for("The file is in your Downloads folder.", &voices, "de").as_deref(),
-            Some("Samantha")
-        );
-        assert_eq!(
-            voice_for("Hex Assistent ist bereit", &voices, "en").as_deref(),
-            Some("Anna")
-        );
-        // The system's own language keeps the system voice.
-        assert_eq!(voice_for("Hex Assistent ist bereit", &voices, "de"), None);
-        // No voice of that language: the system voice.
-        assert_eq!(
-            voice_for("Il file è nella cartella per te", &voices, "de"),
-            None
-        );
-    }
-
-    #[test]
-    fn novelty_voices_are_never_picked() {
-        let voices = parse_voices(
-            "Albert              en_US    # Hello!\nBad News            en_US    # Hello!\nFlo (Englisch (USA)) en_US    # Hello!\n",
-        );
-        assert_eq!(
-            best_voice("en", &voices).as_deref(),
-            Some("Flo (Englisch (USA))")
-        );
-    }
-
-    fn alive(pid: i32) -> bool {
-        // SAFETY: Signal 0 only asks whether the process exists.
-        unsafe { libc::kill(pid, 0) == 0 }
-    }
-
-    fn gone_soon(pid: i32) -> bool {
-        let started = std::time::Instant::now();
-        while alive(pid) && started.elapsed() < std::time::Duration::from_secs(5) {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        !alive(pid)
-    }
-
-    /// A stand-in for `say` that reads its text and starts a child of its
-    /// own, telling us both pids.
-    fn stand_in(pids: &std::path::Path) -> Command {
-        let mut command = Command::new("/bin/sh");
-        command.args([
-            "-c",
-            &format!(
-                "sleep 60 & echo $$ $! > '{}'; cat > /dev/null; wait",
-                pids.display()
-            ),
-        ]);
-        command
-    }
-
-    fn pids(file: &std::path::Path) -> (i32, i32) {
-        let started = std::time::Instant::now();
-        loop {
-            if let Ok(text) = std::fs::read_to_string(file)
-                && let [parent, child] = text.split_whitespace().collect::<Vec<_>>()[..]
-            {
-                return (parent.parse().unwrap(), child.parse().unwrap());
-            }
-            assert!(started.elapsed() < std::time::Duration::from_secs(5));
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-    }
-
-    #[test]
-    fn stop_kills_the_reader_and_everything_it_started() {
-        let folder = tempfile_dir("stop");
-        let file = folder.join("pids");
-        let mut player = Player { child: None };
-        player.play(stand_in(&file), "Hallo".into());
-        let (parent, child) = pids(&file);
-        assert!(player.playing());
-        player.stop();
-        assert!(!player.playing());
-        assert!(gone_soon(parent), "the reader still runs");
-        assert!(gone_soon(child), "what it started still runs");
-    }
-
-    #[test]
-    fn a_new_reading_ends_the_one_before() {
-        let folder = tempfile_dir("replace");
-        let (first, second) = (folder.join("first"), folder.join("second"));
-        let mut player = Player { child: None };
-        player.play(stand_in(&first), "Eins".into());
-        let (parent, child) = pids(&first);
-        player.play(stand_in(&second), "Zwei".into());
-        assert!(gone_soon(parent) && gone_soon(child));
-        let (next, _) = pids(&second);
-        assert!(alive(next) && player.playing());
-        player.stop();
-    }
-
-    fn tempfile_dir(name: &str) -> std::path::PathBuf {
-        let folder = std::env::temp_dir().join(format!(
-            "hex-speech-test-{name}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&folder).unwrap();
-        folder
-    }
-
     #[test]
     fn markdown_is_not_read_out() {
         assert_eq!(
             speakable("## Result\n**Done**, see `notes.txt`.\n```sh\nls\n```"),
             "Result\nDone, see notes.txt.\nls"
         );
+    }
+
+    #[test]
+    fn a_chosen_voice_wins_and_else_the_language_picks() {
+        let voices = voices::named(vec![
+            voices::Listed {
+                id: "anna".into(),
+                name: "Anna".into(),
+                locale: "de-DE".into(),
+                quality: Quality::Default,
+            },
+            voices::Listed {
+                id: "petra".into(),
+                name: "Petra".into(),
+                locale: "de-DE".into(),
+                quality: Quality::Premium,
+            },
+            voices::Listed {
+                id: "ava".into(),
+                name: "Ava".into(),
+                locale: "en-US".into(),
+                quality: Quality::Enhanced,
+            },
+        ]);
+        let request = |text: &str, chosen: Option<&str>| Request {
+            id: 1,
+            text: text.into(),
+            chosen: chosen.map(str::to_owned),
+        };
+        let picked = |request| pick(&request, &voices).map(|voice| voice.id.clone());
+        assert_eq!(
+            picked(request("Die Datei ist hier.", None)).as_deref(),
+            Some("petra")
+        );
+        assert_eq!(
+            picked(request("The file is here.", None)).as_deref(),
+            Some("ava")
+        );
+        assert_eq!(
+            picked(request("The file is here.", Some("Anna"))).as_deref(),
+            Some("anna")
+        );
+        // A voice no longer installed: the language picks.
+        assert_eq!(
+            picked(request("Die Datei ist hier.", Some("Gone"))).as_deref(),
+            Some("petra")
+        );
+    }
+
+    /// Reads one short German sentence through the real output, then cuts
+    /// a second one mid-way. Plays sound: run alone, by name.
+    #[test]
+    #[ignore = "plays audio"]
+    fn live_speak_then_stop_mid_sentence() {
+        let installed = voices_with_languages();
+        let best = automatic_voice("Hallo, ich bin dein Assistent.");
+        eprintln!(
+            "{} voices; German: {best:?}; better: {:?}",
+            installed.len(),
+            better_voice_available("de")
+        );
+        let started = Instant::now();
+        speak("Hallo, ich bin dein Assistent.", None);
+        let engine = shared().playback().busy();
+        assert!(engine && speaking());
+        while speaking_since().is_none() {
+            assert!(started.elapsed() < Duration::from_secs(10), "never played");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let first_audio = started.elapsed();
+        let mut loudest: f32 = 0.0;
+        while speaking() {
+            loudest = loudest.max(level().unwrap_or_default());
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        eprintln!(
+            "first audio after {} ms, read in {} ms, loudest level {loudest:.3}",
+            first_audio.as_millis(),
+            started.elapsed().as_millis()
+        );
+        assert!(loudest > 0.01, "nothing audible was measured");
+        assert_eq!(level(), None);
+
+        speak(
+            "Dieser zweite Satz ist absichtlich ziemlich lang, damit er mitten im Lesen abgebrochen werden kann.",
+            None,
+        );
+        while level().is_none_or(|level| level < 0.01) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_millis(600));
+        let stopping = Instant::now();
+        stop();
+        let stopped = stopping.elapsed();
+        assert!(!speaking());
+        assert_eq!(level(), None);
+        assert_eq!(speaking_since(), None);
+        eprintln!("stop() returned in {} µs", stopped.as_micros());
+        assert!(stopped < Duration::from_millis(50));
+        // What the device still had fades within its buffer.
+        std::thread::sleep(Duration::from_millis(50));
+        let shared = super::started().unwrap();
+        assert!(shared.level() < 0.001, "still sounding: {}", shared.level());
     }
 }

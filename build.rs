@@ -73,6 +73,8 @@ fn main() {
         &["FoundationModels"],
     );
     println!("cargo:rustc-link-arg=-Wl,-weak_framework,FoundationModels");
+    // AVSpeechSynthesizer reads assistant answers aloud (AVFAudio, above).
+    compile_swift_bridge("speech_output", "HEXSpeechOutputBridge", &[]);
     compile_swift_bridge("calendar", "HEXCalendarBridge", &[]);
     println!("cargo:rustc-link-lib=framework=EventKit");
     // The assistant's job notifications (UNUserNotificationCenter; works
