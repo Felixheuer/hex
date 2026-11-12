@@ -943,11 +943,15 @@ pub fn job_rules(workspace: &std::path::Path, browser: bool, unrestricted: bool)
         },
     );
     rules.push_str(team::RULES);
+    rules.push_str(APPS_RULES);
     if browser && !crate::assistant::browser::signed_in() {
         rules.push_str("The hidden browser isn't signed in to any account. If the job needs Gmail, Google Sheets, or another account, include in your one question that the person should take their logins over from Chrome or sign in by hand in Hex's settings (Accounts) and answer when done.\n");
     }
     rules
 }
+
+/// How a job does the everyday things fastest and most reliably.
+pub const APPS_RULES: &str = "\nEveryday apps: messages (WhatsApp, Telegram, Slack) go fastest and most reliably through their web apps in a signedIn browser (web.whatsapp.com), not the desktop app; check each recipient's exact name before sending, and send only what the person's request names. Spreadsheets: build the .xlsx file in your workspace; open it in Excel or Numbers only to show it or when the person's own file must change. Code: work in a folder in your workspace (git clone there), run its tests before you say it works, and push or open a pull request only when the request asks for it; give the link. Rebuilding a website: screenshot the original and your version at the same window size and compare them with hex_compare_images until they match. Always end with the links and files the person needs.\n";
 
 /// Starts `job`'s backend ahead of its question (`service::prewarm`).
 pub fn prewarm(job: &Job) {

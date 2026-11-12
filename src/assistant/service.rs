@@ -1132,11 +1132,20 @@ impl Runner {
         let mut monitor = false;
         {
             let mut state = self.state();
+            // A job whose helpers are queued or working mostly waits for
+            // them: it holds no slot, or leads holding every slot would
+            // wait for helpers that never start (`agent::team`).
+            let leading: Vec<ConversationId> = state
+                .tasks
+                .iter()
+                .filter_map(|task| task.parent.clone())
+                .collect();
             let running = |lane: Lane, state: &State| {
                 state
                     .tasks
                     .iter()
                     .filter(|task| task.running && task.lane() == lane)
+                    .filter(|task| !leading.contains(&task.status.conversation))
                     .count()
             };
             let mut background = running(Lane::Background, &state);

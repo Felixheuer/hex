@@ -562,6 +562,51 @@ fn a_job_leads_helpers_that_work_in_its_folder_and_stop_with_it() {
 }
 
 #[test]
+fn leads_waiting_for_helpers_hold_no_slot() {
+    use crate::assistant::agent::handoff::Job as Part;
+    use crate::assistant::agent::team::Ask;
+    // Two slots, both taken by jobs that then start helpers: the helpers
+    // still start (the leads wait for them).
+    let world = World::new(2);
+    let runner = world.runner();
+    let leads: Vec<_> = ["one", "two"]
+        .into_iter()
+        .map(|text| runner.submit(request(text, Origin::Background)))
+        .collect();
+    for lead in &leads {
+        world.wait_for("each lead", started(lead));
+    }
+    for (n, lead) in leads.iter().enumerate() {
+        world.team_asks.lock().unwrap().push(Ask {
+            lead: lead.clone(),
+            nonce: format!("n{n}"),
+            jobs: vec![Part {
+                title: format!("Part {n}"),
+                task: format!("helper task {n}"),
+            }],
+        });
+    }
+    world.wait_until("both answers", || {
+        world.team_answers.lock().unwrap().len() == 2
+    });
+    let helpers: Vec<String> = world
+        .team_answers
+        .lock()
+        .unwrap()
+        .iter()
+        .flat_map(|(_, result)| result.clone().unwrap())
+        .map(|member| member.id)
+        .collect();
+    for helper in &helpers {
+        world.wait_for("each helper to start", started(helper));
+    }
+    for id in leads.iter().chain(&helpers) {
+        runner.cancel(id);
+        world.wait_for("the end", ended(id));
+    }
+}
+
+#[test]
 fn tight_memory_holds_queued_jobs_until_it_eases() {
     let world = World::new(10);
     world.pressure.store(2, Ordering::Release);

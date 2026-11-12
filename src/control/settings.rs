@@ -792,9 +792,18 @@ mod tests {
         let rules = rules();
         let mut settings = AppSettings::default();
         settings.assistant.enabled = true;
+        // Each system's default: ⌃⌥Esc on macOS and Windows, Ctrl+Alt+Q on
+        // Linux (where desktops keep Ctrl+Alt+Esc).
         assert_eq!(
             get(&settings, "assistant.stop_all_hotkey").unwrap()[0].value,
-            Value::String("control+option+esc".into())
+            Value::String(
+                if cfg!(target_os = "linux") {
+                    "control+option+q"
+                } else {
+                    "control+option+esc"
+                }
+                .into()
+            )
         );
         let change = apply(
             &settings,

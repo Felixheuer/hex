@@ -338,7 +338,7 @@ fn card<S: 'static>(
                 .color(p.faint()),
         );
     }
-    let step = task.step.clone().map(|step| {
+    let step = card_step(task).map(|step| {
         text(step)
             .key("job-step")
             .truncate()
@@ -436,6 +436,17 @@ fn team_row(p: Paint, helpers: &[&Task]) -> El {
         )
 }
 
+/// A card's second line: the plan step it's on, as the job wrote its plan
+/// (in the person's language), with how far it is ("3/7 · Preise
+/// vergleichen"); before it has a plan, its latest action.
+pub(crate) fn card_step(task: &Task) -> Option<String> {
+    if let (Some(at), Some((done, all))) = (task.current_step(), task.progress()) {
+        let title = task.plan.get(at).map(|step| step.title.trim())?;
+        return Some(format!("{}/{all} · {title}", (done + 1).min(all)));
+    }
+    task.step.clone()
+}
+
 /// What a screen reader says for a card: its title, whether it waits, and
 /// its step.
 fn card_label(task: &Task) -> String {
@@ -443,7 +454,7 @@ fn card_label(task: &Task) -> String {
     if task.phase == Phase::Queued {
         label = format!("{label}, {}", tr("Queued"));
     }
-    if let Some(step) = &task.step {
+    if let Some(step) = card_step(task) {
         label = format!("{label}: {step}");
     }
     label
@@ -630,6 +641,36 @@ mod tests {
         assert_eq!(thumbs(3), (3, 0));
         assert_eq!(thumbs(4), (4, 0));
         assert_eq!(thumbs(12), (4, 8));
+    }
+
+    #[test]
+    fn a_card_says_the_plan_step_it_s_on_in_the_plan_s_words() {
+        use crate::assistant::types::PlanStep;
+        let board = board_with(1, false);
+        let mut task = board.tasks[0].clone();
+        task.step = Some("Clicking “Accept” in Chrome".into());
+        assert_eq!(
+            card_step(&task).as_deref(),
+            Some("Clicking “Accept” in Chrome")
+        );
+        task.plan = vec![
+            PlanStep {
+                title: "Lieferanten finden".into(),
+                done: true,
+            },
+            PlanStep {
+                title: "Preise vergleichen".into(),
+                done: false,
+            },
+            PlanStep {
+                title: "Tabelle schicken".into(),
+                done: false,
+            },
+        ];
+        assert_eq!(
+            card_step(&task).as_deref(),
+            Some("2/3 · Preise vergleichen")
+        );
     }
 
     #[test]

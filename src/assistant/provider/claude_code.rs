@@ -248,6 +248,12 @@ fn arguments_with(run: &Run, sandboxed: bool) -> Vec<String> {
             "dontAsk"
         },
         "--strict-mcp-config",
+        // Only the person's own settings and Hex's (`--settings`): never
+        // a project's `.claude/settings*.json`, which a job could write into
+        // its own workspace (its working folder) to widen its sandbox's
+        // network or run commands of its own.
+        "--setting-sources",
+        "user",
     ]
     .map(str::to_owned)
     .into();
@@ -540,6 +546,12 @@ mod tests {
         };
         let plain = arguments(&run);
         assert!(!plain.iter().any(|arg| arg.contains("mcpServers")));
+        assert!(
+            plain
+                .windows(2)
+                .any(|pair| pair == ["--setting-sources", "user"]),
+            "never a project's settings, which a job could write"
+        );
         assert!(plain.windows(2).any(|pair| pair == ["--resume", "abc"]));
         assert!(
             plain

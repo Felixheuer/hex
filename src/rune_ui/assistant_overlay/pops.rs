@@ -16,8 +16,9 @@ const NEW: Duration = Duration::from_millis(2600);
 const STEP: Duration = Duration::from_millis(2400);
 /// ✓ and the answer's first line, then it dissolves.
 const DONE: Duration = Duration::from_secs(4);
-/// ✗ and why, as long as a failure notice.
-const FAILED: Duration = Duration::from_secs(6);
+/// ✗ and why: long enough to be seen by someone who looked away, since a
+/// job that failed unnoticed costs hours (a press opens it in Chats).
+const FAILED: Duration = Duration::from_secs(10 * 60);
 /// Bubbles up at once; an older one makes way.
 pub(crate) const MAX_POPS: usize = 3;
 
@@ -112,8 +113,15 @@ impl Pops {
             text,
             leaves,
         });
-        let extra = self.items.len().saturating_sub(MAX_POPS);
-        self.items.drain(..extra);
+        // Too many: the oldest make way, failures last.
+        while self.items.len() > MAX_POPS {
+            let oldest = self
+                .items
+                .iter()
+                .position(|pop| pop.kind != PopKind::Failed)
+                .unwrap_or(0);
+            self.items.remove(oldest);
+        }
     }
 
     /// Takes down `task`'s bubbles; whether any were up.
@@ -210,6 +218,41 @@ mod tests {
         assert_eq!(board.pops.next_expiry(), Some(gone));
         assert!(board.expire(gone));
         assert!(board.pops.items.is_empty());
+    }
+
+    #[test]
+    fn a_failure_stays_and_is_the_last_to_make_way() {
+        let t0 = Instant::now();
+        let mut board = Board::default();
+        board.apply(&started("x", Origin::Background), None, t0);
+        board.apply(
+            &Event::Failed {
+                conversation: "x".into(),
+                message: "The site refused the login".into(),
+            },
+            None,
+            t0,
+        );
+        for id in ["a", "b", "c", "d"] {
+            board.apply(&started(id, Origin::Background), None, t0);
+        }
+        assert!(
+            board
+                .pops
+                .items
+                .iter()
+                .any(|pop| pop.kind == PopKind::Failed),
+            "new jobs don't push a failure out"
+        );
+        assert!(
+            !board.expire(t0 + Duration::from_secs(60))
+                || board
+                    .pops
+                    .items
+                    .iter()
+                    .any(|pop| pop.kind == PopKind::Failed)
+        );
+        assert!(board.orb_shows(), "the orb stays while it shows");
     }
 
     #[test]
