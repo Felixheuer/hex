@@ -907,7 +907,7 @@ fn mcp_error(events: &[Value]) -> Option<String> {
 
 /// The model OpenCode used last (`~/.local/state/opencode/model.json`),
 /// which a private server doesn't otherwise know.
-fn opencode_recent_model() -> Option<String> {
+pub fn opencode_recent_model() -> Option<String> {
     let state = std::env::var_os("XDG_STATE_HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)

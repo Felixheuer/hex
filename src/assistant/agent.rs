@@ -215,15 +215,16 @@ fn prepare(
 ) -> Result<Run, String> {
     let settings = &job.settings;
     let desktop = if settings.control_desktop {
-        let executable = provider::agent_desktop().ok_or(
-            "agent-desktop isn't installed, so the assistant can't use apps. Install it in Labs › Assistant, or turn off “Use apps”.",
-        )?;
-        Some(Desktop {
-            executable,
-            session: job.desktop_session.clone(),
-            agent_id: job.agent_id.clone(),
-            headed: settings.physical_input,
-        })
+        Some(
+            Desktop::new(
+                job.desktop_session.clone(),
+                job.agent_id.clone(),
+                settings.physical_input,
+            )
+            .ok_or(
+                "agent-desktop isn't installed, so the assistant can't use apps. Install it in Labs › Assistant, or turn off “Use apps”.",
+            )?,
+        )
     } else {
         None
     };
@@ -361,7 +362,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>) -> String {
             desktop.agent_id
         ));
     }
-    if let Some(guide) = guide(&desktop.executable) {
+    if let Some(guide) = guide(desktop.executable()) {
         prompt.push_str("\nagent-desktop's guide:\n\n");
         prompt.push_str(guide);
     }
@@ -375,7 +376,7 @@ fn guide(executable: &std::path::Path) -> Option<&'static str> {
     GUIDE
         .get_or_init(|| {
             let read = |args: &[&str]| -> Option<String> {
-                let output = crate::desktop::background_process::command(executable)
+                let output = crate::assistant::backends::agent_command(executable)
                     .args(args)
                     .stdin(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())

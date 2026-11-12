@@ -176,7 +176,12 @@ impl Hooks {
             start_session: Box::new(desktop_session::start),
             end_session: Box::new(desktop_session::end),
             style_agent: Box::new(desktop_session::style),
-            speak: Box::new(super::speech::speak),
+            speak: Box::new(|text, voice| {
+                let voice = voice
+                    .map(str::to_owned)
+                    .or_else(|| super::speech::automatic_voice(text));
+                super::speech::speak(text, voice.as_deref());
+            }),
             stop_speaking: Box::new(super::speech::stop),
         }
     }
@@ -639,7 +644,7 @@ mod desktop_session {
 
     fn agent_desktop(args: &[&str]) -> Option<Value> {
         let executable = crate::assistant::provider::agent_desktop()?;
-        let output = crate::desktop::background_process::command(executable)
+        let output = crate::assistant::backends::agent_command(executable)
             .args(args)
             .stdin(Stdio::null())
             .stderr(Stdio::null())

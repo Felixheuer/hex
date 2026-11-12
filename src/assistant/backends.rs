@@ -26,7 +26,9 @@ use color_eyre::{Result, eyre::eyre};
 
 use crate::app_settings::AssistantBackend;
 
-pub use check::{Check, CheckResult, CheckState, Fix, apply_fix, self_test, self_tests};
+pub use check::{
+    Check, CheckResult, CheckState, Fix, apply_fix, opencode_recent_model, self_test, self_tests,
+};
 
 /// One agent found on this computer.
 #[derive(Clone, Debug, Eq, PartialEq)]

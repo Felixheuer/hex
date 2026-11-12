@@ -12,52 +12,13 @@ use serde_json::{Value, json};
 
 use super::desktop::Describer;
 use super::mcp::{Called, Client};
-use super::{Control, Finished, Report, Run};
+use super::{Control, DESKTOP_TOOLS, Finished, Report, Run};
 use crate::assistant::types::{Message, Role};
 
 const URL: &str = "https://api.anthropic.com/v1/messages";
 const VERSION: &str = "2026-10-21";
 const MAX_STEPS: usize = 40;
 const MAX_TOKENS: u32 = 16_000;
-/// The desktop tools the model gets: enough to see, act, and wait, without
-/// the session, cursor, trace, and guide tools.
-const TOOLS: &[&str] = &[
-    "desktop_snapshot",
-    "desktop_find",
-    "desktop_screenshot",
-    "desktop_get",
-    "desktop_is",
-    "desktop_click",
-    "desktop_double_click",
-    "desktop_right_click",
-    "desktop_type",
-    "desktop_set_value",
-    "desktop_clear",
-    "desktop_focus",
-    "desktop_select",
-    "desktop_toggle",
-    "desktop_check",
-    "desktop_uncheck",
-    "desktop_expand",
-    "desktop_collapse",
-    "desktop_scroll",
-    "desktop_scroll_to",
-    "desktop_press",
-    "desktop_hover",
-    "desktop_drag",
-    "desktop_mouse_click",
-    "desktop_launch",
-    "desktop_close_app",
-    "desktop_list_apps",
-    "desktop_list_windows",
-    "desktop_list_displays",
-    "desktop_focus_window",
-    "desktop_list_surfaces",
-    "desktop_clipboard_get",
-    "desktop_clipboard_set",
-    "desktop_list_notifications",
-    "desktop_wait",
-];
 
 pub(super) fn run(
     run: &Run,
@@ -253,7 +214,7 @@ fn tool_definitions(client: &mut Client) -> Result<Vec<Value>> {
     let mut tools: Vec<Value> = client
         .tools()?
         .into_iter()
-        .filter(|tool| TOOLS.contains(&tool.name.as_str()))
+        .filter(|tool| DESKTOP_TOOLS.contains(&tool.name.as_str()))
         .map(|tool| json!({"name": tool.name, "description": tool.description, "input_schema": tool.schema}))
         .collect();
     if let Some(last) = tools.last_mut() {
@@ -284,7 +245,7 @@ fn run_tools(
             report(item);
         }
         let called = match desktop.as_deref_mut() {
-            Some(client) if TOOLS.contains(&name) => client.call(name, &input),
+            Some(client) if DESKTOP_TOOLS.contains(&name) => client.call(name, &input),
             _ => Err(eyre!("there is no tool “{name}”")),
         };
         let result = match called {

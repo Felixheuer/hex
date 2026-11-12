@@ -10,7 +10,7 @@ use color_eyre::{Result, eyre::eyre};
 use serde_json::Value;
 
 use super::desktop::Describer;
-use super::{Control, Finished, Process, Report, Run, Stdin, WITHHELD_TOOLS};
+use super::{Control, DESKTOP_TOOLS, Finished, Process, Report, Run, Stdin};
 use crate::app_settings::AssistantBackend;
 
 pub(super) fn run(
@@ -48,31 +48,16 @@ fn arguments(run: &Run) -> Vec<String> {
         args.extend(["--image".into(), image.display().to_string()]);
     }
     args.extend(["--json".into(), "--skip-git-repo-check".into()]);
-    let mut config = vec![
+    let config = vec![
         r#"sandbox_mode="read-only""#.to_owned(),
         r#"approval_policy="never""#.to_owned(),
         format!("developer_instructions={}", toml_string(&run.system)),
     ];
-    if let Some(desktop) = &run.desktop {
-        let (program, mcp_args) = desktop.mcp_command();
-        let server = "mcp_servers.agent-desktop";
-        config.push(format!("{server}.command={}", toml_string(&program)));
-        config.push(format!("{server}.args={}", toml_list(&mcp_args)));
-        let env: Vec<String> = desktop
-            .env()
-            .into_iter()
-            .map(|(key, value)| format!("{key}={}", toml_string(&value)))
-            .collect();
-        config.push(format!("{server}.env={{{}}}", env.join(",")));
-        config.push(format!(r#"{server}.default_tools_approval_mode="approve""#));
-        let withheld: Vec<String> = WITHHELD_TOOLS
-            .iter()
-            .map(|tool| (*tool).to_owned())
-            .collect();
-        config.push(format!("{server}.disabled_tools={}", toml_list(&withheld)));
-    }
     for value in config {
         args.extend(["-c".into(), value]);
+    }
+    if let Some(desktop) = &run.desktop {
+        args.extend(desktop.server.codex_args(DESKTOP_TOOLS));
     }
     if let Some(model) = run
         .model
@@ -88,10 +73,6 @@ fn arguments(run: &Run) -> Vec<String> {
 /// A TOML basic string: JSON's escapes are a subset of TOML's.
 fn toml_string(text: &str) -> String {
     serde_json::to_string(text).unwrap_or_else(|_| "\"\"".into())
-}
-
-fn toml_list(items: &[String]) -> String {
-    serde_json::to_string(items).unwrap_or_else(|_| "[]".into())
 }
 
 /// `codex exec --json` events, read line by line.
@@ -229,12 +210,7 @@ mod tests {
             image: Some("/tmp/shot.png".into()),
             resume: Some("thread-1".into()),
             history: Vec::new(),
-            desktop: Some(Desktop {
-                executable: "/opt/homebrew/bin/agent-desktop".into(),
-                session: None,
-                agent_id: "hex-1".into(),
-                headed: false,
-            }),
+            desktop: Some(Desktop::fixture(None, "hex-1")),
             workdir: std::env::temp_dir(),
             quick: false,
         };
@@ -246,8 +222,10 @@ mod tests {
         assert_eq!(args.last().unwrap(), "-");
         assert!(args.contains(&r#"developer_instructions="Line one\n\"quoted\"""#.to_owned()));
         assert!(args.contains(&r#"mcp_servers.agent-desktop.args=["mcp"]"#.to_owned()));
-        assert!(args.contains(
-            &r#"mcp_servers.agent-desktop.env={AGENT_DESKTOP_AGENT_ID="hex-1"}"#.to_owned()
+        assert!(args.iter().any(
+            |arg| arg.starts_with("mcp_servers.agent-desktop.enabled_tools=")
+                && arg.contains("desktop_click")
+                && !arg.contains("desktop_session_end")
         ));
         assert!(args.contains(
             &r#"mcp_servers.agent-desktop.default_tools_approval_mode="approve""#.to_owned()

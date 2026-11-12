@@ -28,12 +28,14 @@ use std::time::Duration;
 use color_eyre::{Result, eyre::eyre};
 
 use crate::app_settings::AssistantBackend;
+use crate::assistant::backends::McpServer;
 use crate::assistant::types::{Message, TaskWindow};
 
 /// The agent-desktop a task may use, and who it is there.
 #[derive(Clone, Debug)]
 pub struct Desktop {
-    pub executable: PathBuf,
+    /// `agent-desktop mcp` with this task's flags (`backends::mcp_server`).
+    pub server: McpServer,
     /// The Agent mode multi-agent session, when one is running.
     pub session: Option<String>,
     /// This task's id within the session; its own cursor.
@@ -43,17 +45,38 @@ pub struct Desktop {
 }
 
 impl Desktop {
-    /// The global flags for every agent-desktop call this task makes.
-    pub fn flags(&self) -> Vec<String> {
-        let mut flags = Vec::new();
-        if let Some(session) = &self.session {
-            flags.extend(["--session".to_owned(), session.clone()]);
-            flags.extend(["--agent-id".to_owned(), self.agent_id.clone()]);
+    /// A task's agent-desktop at a made-up path, for tests.
+    #[cfg(test)]
+    pub fn fixture(session: Option<&str>, agent_id: &str) -> Self {
+        let mut args = vec!["mcp".to_owned()];
+        args.extend(flags(session, agent_id, false));
+        Self {
+            server: McpServer {
+                command: "/opt/homebrew/bin/agent-desktop".into(),
+                args,
+                path_env: "/usr/bin:/bin".into(),
+            },
+            session: session.map(str::to_owned),
+            agent_id: agent_id.to_owned(),
+            headed: false,
         }
-        if self.headed {
-            flags.push("--headed".into());
-        }
-        flags
+    }
+
+    /// agent-desktop for a task, if it is installed.
+    pub fn new(session: Option<String>, agent_id: String, headed: bool) -> Option<Self> {
+        let flags = flags(session.as_deref(), &agent_id, headed);
+        let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
+        Some(Self {
+            server: crate::assistant::backends::mcp_server(&flags)?,
+            session,
+            agent_id,
+            headed,
+        })
+    }
+
+    /// The agent-desktop executable.
+    pub fn executable(&self) -> &Path {
+        &self.server.command
     }
 
     /// The environment that names the session and agent, for every process
@@ -65,13 +88,20 @@ impl Desktop {
         }
         env
     }
+}
 
-    /// `agent-desktop [flags] mcp`, as a program and its arguments.
-    pub fn mcp_command(&self) -> (String, Vec<String>) {
-        let mut args = self.flags();
-        args.push("mcp".into());
-        (self.executable.display().to_string(), args)
+/// agent-desktop's flags for a task: its session and agent id, and
+/// `--headed` when physical input is allowed.
+pub fn flags(session: Option<&str>, agent_id: &str, headed: bool) -> Vec<String> {
+    let mut flags = Vec::new();
+    if let Some(session) = session {
+        flags.extend(["--session".to_owned(), session.to_owned()]);
+        flags.extend(["--agent-id".to_owned(), agent_id.to_owned()]);
     }
+    if headed {
+        flags.push("--headed".into());
+    }
+    flags
 }
 
 /// agent-desktop's MCP tools a task never gets: they manage the shared
@@ -90,6 +120,46 @@ pub const WITHHELD_TOOLS: &[&str] = &[
     "desktop_mouse_down",
     "desktop_mouse_up",
     "desktop_permissions",
+];
+
+/// The desktop tools a task gets where the backend takes an allowlist
+/// (Codex, the Claude API): enough to see, act, and wait.
+pub const DESKTOP_TOOLS: &[&str] = &[
+    "desktop_snapshot",
+    "desktop_find",
+    "desktop_screenshot",
+    "desktop_get",
+    "desktop_is",
+    "desktop_click",
+    "desktop_double_click",
+    "desktop_right_click",
+    "desktop_type",
+    "desktop_set_value",
+    "desktop_clear",
+    "desktop_focus",
+    "desktop_select",
+    "desktop_toggle",
+    "desktop_check",
+    "desktop_uncheck",
+    "desktop_expand",
+    "desktop_collapse",
+    "desktop_scroll",
+    "desktop_scroll_to",
+    "desktop_press",
+    "desktop_hover",
+    "desktop_drag",
+    "desktop_mouse_click",
+    "desktop_launch",
+    "desktop_close_app",
+    "desktop_list_apps",
+    "desktop_list_windows",
+    "desktop_list_displays",
+    "desktop_focus_window",
+    "desktop_list_surfaces",
+    "desktop_clipboard_get",
+    "desktop_clipboard_set",
+    "desktop_list_notifications",
+    "desktop_wait",
 ];
 
 /// One task for a backend.
@@ -216,88 +286,27 @@ pub fn session_key(backend: AssistantBackend) -> &'static str {
     }
 }
 
-/// The executable for `backend`: what setup found, else a search of PATH and
-/// the folders installers use.
+/// The executable for `backend`, as `backends` finds it.
 pub fn executable(backend: AssistantBackend) -> Result<PathBuf> {
-    let program = match backend {
-        AssistantBackend::ClaudeCode => "claude",
-        AssistantBackend::Codex => "codex",
-        AssistantBackend::OpenCode => "opencode",
-        AssistantBackend::ClaudeApi => return Err(eyre!("the Claude API has no executable")),
-    };
-    crate::assistant::backends::executable(backend)
-        .or_else(|| find_program(program))
-        .ok_or_else(|| {
-            eyre!(
-                "{} isn't installed on this Mac, or Hex can't find it. Install it, or choose another agent in Labs › Assistant.",
-                name(backend)
-            )
-        })
+    crate::assistant::backends::executable(backend).ok_or_else(|| {
+        eyre!(
+            "{} isn't installed on this Mac, or Hex can't find it. Install it, or choose another agent in Labs › Assistant.",
+            name(backend)
+        )
+    })
 }
 
-/// agent-desktop, as setup found it or on PATH.
+/// agent-desktop's executable, if installed.
 pub fn agent_desktop() -> Option<PathBuf> {
-    crate::assistant::backends::agent_desktop()
-        .path
-        .or_else(|| find_program("agent-desktop"))
+    crate::assistant::backends::mcp_server(&[]).map(|server| server.command)
 }
 
-/// `program` on PATH, in `~/.local/bin`, or where Homebrew puts it.
-pub fn find_program(program: &str) -> Option<PathBuf> {
-    search_path()
-        .into_iter()
-        .map(|dir| dir.join(program))
-        .find(|path| {
-            path.metadata()
-                .is_ok_and(|meta| meta.is_file() && is_executable(&meta))
-        })
-}
-
-fn search_path() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
-        .map(|path| std::env::split_paths(&path).collect())
-        .unwrap_or_default();
-    if let Some(home) = crate::app_paths::home_dir() {
-        dirs.push(home.join(".local/bin"));
-        dirs.push(home.join(".opencode/bin"));
-        dirs.push(home.join(".bun/bin"));
-    }
-    dirs.extend(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"].map(PathBuf::from));
-    let mut unique = Vec::new();
-    for dir in dirs {
-        if !unique.contains(&dir) {
-            unique.push(dir);
-        }
-    }
-    unique
-}
-
-#[cfg(unix)]
-fn is_executable(meta: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    meta.permissions().mode() & 0o111 != 0
-}
-
-#[cfg(not(unix))]
-fn is_executable(_meta: &std::fs::Metadata) -> bool {
-    true
-}
-
-/// A command for `executable` in `workdir`, its PATH led by the
-/// executable's own folder (a Node-based CLI finds its `node` there) and the
-/// usual install folders, and the desktop's session in its environment.
+/// A command for `executable` in `workdir`, with the environment Hex gives
+/// agents (`backends::agent_command`: its PATH finds `node` and
+/// agent-desktop) and the task's desktop session.
 pub fn command(executable: &Path, workdir: &Path, desktop: Option<&Desktop>) -> Command {
-    let mut command = crate::desktop::background_process::command(executable);
+    let mut command = crate::assistant::backends::agent_command(executable);
     command.current_dir(workdir);
-    let mut dirs: Vec<PathBuf> = executable
-        .parent()
-        .map(Path::to_path_buf)
-        .into_iter()
-        .collect();
-    dirs.extend(search_path());
-    if let Ok(path) = std::env::join_paths(dirs) {
-        command.env("PATH", path);
-    }
     for (key, value) in desktop.map(Desktop::env).unwrap_or_default() {
         command.env(key, value);
     }
@@ -530,20 +539,11 @@ mod tests {
 
     #[test]
     fn desktop_flags_name_the_session_only_when_there_is_one() {
-        let mut desktop = Desktop {
-            executable: "/opt/homebrew/bin/agent-desktop".into(),
-            session: None,
-            agent_id: "hex-1".into(),
-            headed: false,
-        };
-        assert!(desktop.flags().is_empty());
-        desktop.session = Some("s1".into());
-        desktop.headed = true;
+        assert!(flags(None, "hex-1", false).is_empty());
         assert_eq!(
-            desktop.flags(),
+            flags(Some("s1"), "hex-1", true),
             ["--session", "s1", "--agent-id", "hex-1", "--headed"]
         );
-        assert_eq!(desktop.mcp_command().1.last().unwrap(), "mcp");
     }
 
     #[cfg(unix)]

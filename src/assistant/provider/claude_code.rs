@@ -17,7 +17,7 @@ use super::desktop::Describer;
 use super::{Control, Finished, Process, Report, Run, Stdin, WITHHELD_TOOLS};
 use crate::app_settings::AssistantBackend;
 
-const SERVER: &str = "agent-desktop";
+const SERVER: &str = crate::assistant::backends::MCP_NAME;
 
 pub(super) fn run(
     run: &Run,
@@ -68,15 +68,7 @@ fn arguments(run: &Run) -> Vec<String> {
     args.extend(["--system-prompt".into(), run.system.clone()]);
     let mut allowed = vec!["WebSearch".to_owned(), "WebFetch".to_owned()];
     if let Some(desktop) = &run.desktop {
-        let (program, mcp_args) = desktop.mcp_command();
-        let env: serde_json::Map<String, Value> = desktop
-            .env()
-            .into_iter()
-            .map(|(key, value)| (key, Value::String(value)))
-            .collect();
-        let config =
-            json!({"mcpServers": {SERVER: {"command": program, "args": mcp_args, "env": env}}});
-        args.extend(["--mcp-config".into(), config.to_string()]);
+        args.extend(["--mcp-config".into(), desktop.server.claude_config()]);
         allowed.push(format!("mcp__{SERVER}"));
         let withheld: Vec<String> = WITHHELD_TOOLS
             .iter()
@@ -334,24 +326,13 @@ mod tests {
                 .windows(2)
                 .any(|pair| pair == ["--allowedTools", "WebSearch,WebFetch"])
         );
-        run.desktop = Some(Desktop {
-            executable: "/opt/homebrew/bin/agent-desktop".into(),
-            session: Some("s1".into()),
-            agent_id: "hex-2".into(),
-            headed: false,
-        });
+        run.desktop = Some(Desktop::fixture(Some("s1"), "hex-2"));
         let args = arguments(&run);
         let config = &args[args.iter().position(|arg| arg == "--mcp-config").unwrap() + 1];
         let config: Value = serde_json::from_str(config).unwrap();
         assert_eq!(
             config.pointer("/mcpServers/agent-desktop/args").unwrap(),
-            &json!(["--session", "s1", "--agent-id", "hex-2", "mcp"])
-        );
-        assert_eq!(
-            config
-                .pointer("/mcpServers/agent-desktop/env/AGENT_DESKTOP_AGENT_ID")
-                .unwrap(),
-            "hex-2"
+            &json!(["mcp", "--session", "s1", "--agent-id", "hex-2"])
         );
         assert!(
             args.windows(2)

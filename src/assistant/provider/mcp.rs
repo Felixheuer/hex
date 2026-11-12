@@ -33,8 +33,8 @@ pub struct Client {
 impl Client {
     /// Starts the server for `desktop` and completes the MCP handshake.
     pub fn start(desktop: &Desktop, workdir: &std::path::Path, control: &Control) -> Result<Self> {
-        let mut command = super::command(&desktop.executable, workdir, Some(desktop));
-        command.args(desktop.mcp_command().1);
+        let mut command = super::command(desktop.executable(), workdir, Some(desktop));
+        command.args(&desktop.server.args);
         let process = Process::spawn(command, Stdin::Keep, control)?;
         let mut client = Self {
             process,

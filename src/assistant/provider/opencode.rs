@@ -65,12 +65,17 @@ fn arguments(run: &Run) -> Vec<String> {
     if let Some(session) = &run.resume {
         args.extend(["--session".into(), session.clone()]);
     }
+    // A private server doesn't know the person's model; without one it
+    // falls back to a free model and its limits.
     if let Some(model) = run
         .model
         .as_deref()
-        .filter(|model| !model.trim().is_empty())
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(str::to_owned)
+        .or_else(crate::assistant::backends::opencode_recent_model)
     {
-        args.extend(["--model".into(), model.trim().to_owned()]);
+        args.extend(["--model".into(), model]);
     }
     if let Some(image) = &run.image {
         args.extend(["--file".into(), image.display().to_string()]);
@@ -93,16 +98,7 @@ fn config(run: &Run) -> Value {
         "tools": tools,
     }}});
     if let Some(desktop) = &run.desktop {
-        let (program, args) = desktop.mcp_command();
-        let mut command = vec![program];
-        command.extend(args);
-        let environment: Map<String, Value> = desktop
-            .env()
-            .into_iter()
-            .map(|(key, value)| (key, Value::String(value)))
-            .collect();
-        config["mcp"] = json!({"agent-desktop": {
-            "type": "local", "command": command, "environment": environment, "enabled": true}});
+        config["mcp"] = desktop.server.opencode_config();
     }
     config
 }
