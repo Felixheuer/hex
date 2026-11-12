@@ -386,6 +386,27 @@ pub fn frame_among(
     Some((x, y, width, height))
 }
 
+/// The frontmost ordinary window of app `pid` among CoreGraphics' on-screen
+/// windows (front to back), as agent-desktop names it (`w-<number>`): the
+/// Here lane's window.
+pub fn front_window_among(
+    windows: &[scrawl_capture::windows::RawWindow],
+    pid: i32,
+    app: &str,
+) -> Option<crate::assistant::TaskWindow> {
+    let found = windows.iter().find(|candidate| {
+        candidate.pid == pid
+            && candidate.layer == 0
+            && candidate.alpha > 0.0
+            && candidate.bounds[2] > 1.0
+            && candidate.bounds[3] > 1.0
+    })?;
+    Some(crate::assistant::TaskWindow {
+        app: app.to_owned(),
+        window_id: Some(format!("w-{}", found.id)),
+    })
+}
+
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
@@ -444,13 +465,16 @@ mod macos {
             ),
             None => (None, None),
         };
+        let window = front.as_ref().and_then(|(pid, name, _)| {
+            let windows = objc2::rc::autoreleasepool(|_| scrawl_capture::windows::raw_windows());
+            super::front_window_among(&windows, *pid, name)
+        });
         Context {
             screenshot: None,
             selected_text,
             frontmost_app: front.map(|(_, name, _)| name),
             window_title,
-            // The guard engineer fills this (the Here lane's window).
-            window: None,
+            window,
         }
     }
 
@@ -603,6 +627,23 @@ mod tests {
         let mut hidden = raw(9, "Notes", [0.0, 0.0, 400.0, 300.0], 0);
         hidden.alpha = 0.0;
         assert_eq!(frame_among(&[hidden], &task("Notes", None)), None);
+    }
+
+    #[test]
+    fn the_window_in_front_is_named_as_agent_desktop_names_it() {
+        let mut other = raw(5, "Notes", [0.0, 39.0, 400.0, 300.0], 0);
+        other.pid = 2;
+        let windows = [
+            raw(24, "Mail", [0.0, 0.0, 1800.0, 24.0], 24),
+            other,
+            raw(7, "Mail", [100.0, 39.0, 900.0, 700.0], 0),
+            raw(8, "Mail", [300.0, 200.0, 900.0, 700.0], 0),
+        ];
+        assert_eq!(
+            front_window_among(&windows, 1, "Mail"),
+            Some(task("Mail", Some("w-7")))
+        );
+        assert_eq!(front_window_among(&windows, 3, "Gone"), None);
     }
 
     /// Live, read-only: the menu bar sits at the top of the primary display,

@@ -46,6 +46,14 @@ pub enum AssistantCommand {
     /// Save the Anthropic API key read from standard input in the Keychain
     /// (an empty input deletes it).
     Key,
+    /// The guard's MCP server for one task (Hex gives it to each task's
+    /// agent in place of agent-desktop): `--spec` is the task's JSON spec or
+    /// a file holding it.
+    #[command(hide = true)]
+    Mcp {
+        #[arg(long)]
+        spec: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -109,6 +117,7 @@ pub fn run(command: AssistantCommand) -> u8 {
         }
         AssistantCommand::Show { id } => show(&id).map(|()| true),
         AssistantCommand::Key => key().map(|()| true),
+        AssistantCommand::Mcp { spec } => super::guard::serve(&spec).map(|()| true),
     };
     match result {
         Ok(true) => 0,

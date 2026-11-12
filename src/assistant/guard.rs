@@ -17,10 +17,28 @@
 //! - **Take over.** While a task is paused its actions wait; when handed back
 //!   its next result tells it to look again before acting.
 //!
+//! `hex assistant mcp --spec <json or file>` serves it (`server`); the spec
+//! is [`WireSpec`] as JSON. `mcp_server` gives a task's agent that command.
+//!
 //! OWNER: guard.
+
+mod child;
+mod policy;
+mod proxy;
+mod server;
+mod state;
+#[cfg(test)]
+mod tests;
+
+use std::path::{Path, PathBuf};
+
+use color_eyre::eyre::{Result, eyre};
+use serde::{Deserialize, Serialize};
 
 use crate::assistant::backends::McpServer;
 use crate::assistant::types::{ConversationId, Lane, TaskWindow};
+
+pub use policy::CLAIM_TOOL;
 
 /// What the guard needs to know about one task; passed to its MCP server.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -38,10 +56,137 @@ pub struct TaskSpec {
     pub blocked_apps: Vec<String>,
 }
 
-/// The MCP server a task's agent should get in place of agent-desktop.
+/// A [`TaskSpec`] as `hex assistant mcp --spec` reads it (JSON).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct WireSpec {
+    pub task: String,
+    /// `"here"` or `"background"`.
+    pub lane: Lane,
+    pub agent_id: String,
+    #[serde(default)]
+    pub session: Option<String>,
+    #[serde(default)]
+    pub here_window: Option<WireWindow>,
+    #[serde(default)]
+    pub physical_input: bool,
+    #[serde(default)]
+    pub blocked_apps: Vec<String>,
+    /// agent-desktop's executable; `agent-desktop` on `PATH` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_desktop: Option<PathBuf>,
+    /// The guard's folder; `<support>/assistant` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_dir: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct WireWindow {
+    pub app: String,
+    #[serde(default)]
+    pub window_id: Option<String>,
+}
+
+impl WireSpec {
+    pub fn new(spec: &TaskSpec) -> Self {
+        Self {
+            task: spec.task.clone(),
+            lane: spec.lane,
+            agent_id: spec.agent_id.clone(),
+            session: spec.session.clone(),
+            here_window: spec.here_window.as_ref().map(|window| WireWindow {
+                app: window.app.clone(),
+                window_id: window.window_id.clone(),
+            }),
+            physical_input: spec.physical_input,
+            blocked_apps: spec.blocked_apps.clone(),
+            agent_desktop: None,
+            state_dir: None,
+        }
+    }
+
+    /// `text` as JSON, or the JSON file it names.
+    pub fn parse(text: &str) -> Result<Self> {
+        let json = if text.trim_start().starts_with('{') {
+            text.to_owned()
+        } else {
+            std::fs::read_to_string(text)
+                .map_err(|error| eyre!("can't read the spec {text}: {error}"))?
+        };
+        serde_json::from_str(&json).map_err(|error| eyre!("the spec isn't valid: {error}"))
+    }
+}
+
+/// The MCP server a task's agent should get in place of agent-desktop:
+/// this executable's `assistant mcp --spec <json>` (inside Hex.app, the
+/// bundle's binary). `None` when agent-desktop isn't installed.
+///
+/// The spec names agent-desktop and the guard's folder as this process
+/// found them, so the guard agrees with Hex even when an agent starts its
+/// MCP servers with an environment of its own.
 pub fn mcp_server(spec: &TaskSpec) -> Option<McpServer> {
-    let _ = spec;
-    None
+    let desktop = crate::assistant::backends::mcp_server(&[])?;
+    let hex = std::env::current_exe().ok()?;
+    let store = state::Store::standard()?;
+    Some(server_for(spec, &hex, &desktop, store.root()))
+}
+
+fn server_for(spec: &TaskSpec, hex: &Path, desktop: &McpServer, state_dir: &Path) -> McpServer {
+    let mut wire = WireSpec::new(spec);
+    wire.agent_desktop = Some(desktop.command.clone());
+    wire.state_dir = Some(state_dir.to_path_buf());
+    McpServer {
+        command: hex.to_path_buf(),
+        args: vec![
+            "assistant".into(),
+            "mcp".into(),
+            "--spec".into(),
+            serde_json::to_string(&wire).unwrap_or_default(),
+        ],
+        path_env: desktop.path_env.clone(),
+    }
+}
+
+/// Runs `hex assistant mcp --spec <spec>` until the agent disconnects.
+pub fn serve(spec: &str) -> Result<()> {
+    let wire = WireSpec::parse(spec)?;
+    let store = match &wire.state_dir {
+        Some(dir) => state::Store::new(dir),
+        None => state::Store::standard().ok_or_else(|| eyre!("no application support folder"))?,
+    };
+    store.sweep();
+    let program = wire
+        .agent_desktop
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("agent-desktop"));
+    let flags = crate::assistant::provider::flags(
+        wire.session.as_deref(),
+        &wire.agent_id,
+        wire.physical_input,
+    );
+    let desktop = child::AgentDesktop::new(program, flags);
+    let pid = std::process::id();
+    let guard = proxy::Guard::new(config(&wire), store.clone(), pid, desktop);
+    let served = server::serve(guard);
+    // This process's leases lapse when it ends; free them now.
+    for lease in store.held_by(&wire.task) {
+        if lease.pid == pid {
+            store.release(&wire.task, &lease.window_id);
+        }
+    }
+    served
+}
+
+fn config(wire: &WireSpec) -> proxy::Config {
+    proxy::Config {
+        task: wire.task.clone(),
+        lane: wire.lane,
+        here_window: wire.here_window.as_ref().map(|window| TaskWindow {
+            app: window.app.clone(),
+            window_id: window.window_id.clone(),
+        }),
+        physical_input: wire.physical_input,
+        blocked_apps: wire.blocked_apps.clone(),
+    }
 }
 
 /// One window a task holds.
@@ -54,20 +199,53 @@ pub struct Lease {
 
 /// Every live lease, for outlines and the task stack.
 pub fn leases() -> Vec<Lease> {
-    Vec::new()
+    state::Store::standard()
+        .map(|store| leases_in(&store))
+        .unwrap_or_default()
+}
+
+fn leases_in(store: &state::Store) -> Vec<Lease> {
+    store
+        .leases()
+        .into_iter()
+        .map(|lease| Lease {
+            task: lease.task,
+            window: TaskWindow {
+                app: lease.app,
+                window_id: Some(lease.window_id),
+            },
+            since_ms: lease.since_ms,
+        })
+        .collect()
 }
 
 /// Gives up every lease `task` holds (it ended).
 pub fn release_all(task: &str) {
-    let _ = task;
+    if let Some(store) = state::Store::standard() {
+        store.release_all(task);
+    }
 }
 
 /// Pauses (taken over) or resumes (handed back) `task`'s desktop actions.
+/// While paused its guard holds each action; the first result after a
+/// resume tells it to look again.
 pub fn set_paused(task: &str, paused: bool) {
-    let _ = (task, paused);
+    if let Some(store) = state::Store::standard() {
+        store.set_paused(task, paused, crate::desktop::events::now_ms());
+    }
 }
 
 /// The task moving the real pointer or pressing real keys right now.
 pub fn hands_off() -> Option<ConversationId> {
-    None
+    state::Store::standard()?.hands_off()
+}
+
+/// Clears what tasks of an earlier run left behind: leases and hands-off
+/// markers of processes that have ended, and pause markers. Call once when
+/// the assistant starts (only while `assistant::enabled`).
+pub fn startup() {
+    if let Some(store) = state::Store::standard() {
+        store.sweep();
+        store.clear_paused();
+    }
 }
