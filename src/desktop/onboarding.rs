@@ -644,11 +644,7 @@ pub fn classify_tccutil_reset(code: Option<i32>, stderr: &str) -> TccResetOutcom
 /// Fallback bundle identifier when `NSBundle.mainBundle.bundleIdentifier` is
 /// unavailable (such as a loose binary).
 pub fn default_mac_bundle_id(test_build: Option<&str>) -> &'static str {
-    if test_build == Some("1") {
-        "anomaly.hex.test"
-    } else {
-        "anomaly.hex"
-    }
+    crate::app_paths::Variant::from_env(test_build, option_env!("HEX_DEV_BUILD")).bundle_id()
 }
 
 /// How long after returning from System Settings an asked permission must stay

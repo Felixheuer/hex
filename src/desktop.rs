@@ -1,5 +1,7 @@
 pub(crate) mod activity;
 pub(crate) mod background_process;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) mod copies;
 #[cfg_attr(any(target_os = "linux", target_os = "windows"), allow(dead_code))]
 pub(crate) mod events;
 pub(crate) mod file_dialog;

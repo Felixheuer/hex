@@ -246,19 +246,27 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|error| error.into_inner())
 }
 
-/// Asks a running 2.3.1 or Swift Hex to quit once this Hex is ready to
-/// listen, so the two never answer the same shortcut. The old app stays
-/// installed.
+/// Asks a running 2.3.1 or Swift Hex, and the other of Live and Dev
+/// (`app_paths::Variant::rival`), to quit once this Hex is ready to listen,
+/// so two never answer the same shortcut or hold the microphone. The other
+/// app stays installed; starting it again quits this one.
 fn quit_legacy_hex() {
+    let rival = crate::app_paths::variant()
+        .rival()
+        .map(crate::app_paths::Variant::bundle_id);
     objc2::rc::autoreleasepool(|_| {
-        for bundle_id in crate::desktop::onboarding::LEGACY_MAC_BUNDLE_IDS {
+        for bundle_id in crate::desktop::onboarding::LEGACY_MAC_BUNDLE_IDS
+            .iter()
+            .copied()
+            .chain(rival)
+        {
             for app in objc2_app_kit::NSRunningApplication::runningApplicationsWithBundleIdentifier(
                 &NSString::from_str(bundle_id),
             ) {
                 if app.terminate() {
-                    tracing::info!(bundle_id, "asked the old Hex to quit");
+                    tracing::info!(bundle_id, "asked the other Hex to quit");
                 } else {
-                    tracing::warn!(bundle_id, "the old Hex did not agree to quit");
+                    tracing::warn!(bundle_id, "the other Hex did not agree to quit");
                 }
             }
         }

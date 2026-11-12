@@ -12,20 +12,112 @@ pub fn is_local_build() -> bool {
     option_env!("HEX_LOCAL_BUILD") == Some("1")
 }
 
+/// Which macOS app this build is. Each keeps its name, bundle id, URL
+/// scheme, data, settings, and user config apart, so they install side by
+/// side and never touch each other's permissions:
+/// - **Live**: `Hex.app` (`anomaly.hex`), the published Pilot release that
+///   updates itself;
+/// - **Dev**: `Hex Dev.app` (`anomaly.hex.dev`, `HEX_DEV_BUILD=1`), the one
+///   development build `scripts/install-fork.sh` installs, never updating;
+/// - **Test**: `Hex Test.app` (`anomaly.hex.test`, `HEX_TEST_BUILD=1`), the
+///   ad-hoc signed CI test app.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Variant {
+    Live,
+    Dev,
+    Test,
+}
+
+impl Variant {
+    /// The variant `HEX_TEST_BUILD` / `HEX_DEV_BUILD` (as compiled in) name.
+    pub const fn from_env(test_build: Option<&str>, dev_build: Option<&str>) -> Self {
+        if matches!(test_build, Some(value) if value.len() == 1 && value.as_bytes()[0] == b'1') {
+            Self::Test
+        } else if matches!(dev_build, Some(value) if value.len() == 1 && value.as_bytes()[0] == b'1')
+        {
+            Self::Dev
+        } else {
+            Self::Live
+        }
+    }
+
+    /// The app's name, as menus and Finder show it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Live => "Hex",
+            Self::Dev => "Hex Dev",
+            Self::Test => "Hex Test",
+        }
+    }
+
+    pub const fn bundle_id(self) -> &'static str {
+        match self {
+            Self::Live => "anomaly.hex",
+            Self::Dev => "anomaly.hex.dev",
+            Self::Test => "anomaly.hex.test",
+        }
+    }
+
+    /// Its folder under Application Support and `~/.config`, which is also
+    /// its URL scheme (`hex-dev://…`).
+    pub const fn folder(self) -> &'static str {
+        match self {
+            Self::Live => "hex",
+            Self::Dev => "hex-dev",
+            Self::Test => "hex-test",
+        }
+    }
+
+    pub const fn scheme(self) -> &'static str {
+        self.folder()
+    }
+
+    /// Where its finished meetings go under Documents.
+    pub const fn meetings_folder(self) -> &'static str {
+        match self {
+            Self::Live => "Hex Meetings",
+            Self::Dev => "Hex Dev Meetings",
+            Self::Test => "Hex Test Meetings",
+        }
+    }
+
+    /// The other app that listens to the same shortcuts and microphone:
+    /// Live and Dev take turns (the one starting quits the other); Test
+    /// runs beside either.
+    pub const fn rival(self) -> Option<Self> {
+        match self {
+            Self::Live => Some(Self::Dev),
+            Self::Dev => Some(Self::Live),
+            Self::Test => None,
+        }
+    }
+}
+
+/// This build's variant; always Live off macOS.
+pub fn variant() -> Variant {
+    if cfg!(target_os = "macos") {
+        Variant::from_env(option_env!("HEX_TEST_BUILD"), option_env!("HEX_DEV_BUILD"))
+    } else {
+        Variant::Live
+    }
+}
+
 /// Whether this is a macOS `Hex Test.app` build (`HEX_TEST_BUILD=1`), which
 /// keeps its data, settings, and user config apart from the installed Hex.
 pub fn is_macos_test_build() -> bool {
-    cfg!(target_os = "macos") && option_env!("HEX_TEST_BUILD") == Some("1")
+    variant() == Variant::Test
 }
 
-/// The name menus show, so a test build running beside Hex reads as itself.
+/// Whether this is the macOS `Hex Dev.app` build (`HEX_DEV_BUILD=1`).
+pub fn is_macos_dev_build() -> bool {
+    variant() == Variant::Dev
+}
+
+/// The name menus show, so a Dev or Test build running beside Hex reads as
+/// itself.
 #[cfg(target_os = "macos")]
 pub fn app_name() -> &'static str {
-    if is_macos_test_build() {
-        "Hex Test"
-    } else {
-        "Hex"
-    }
+    variant().name()
 }
 
 pub fn support_dir() -> Result<PathBuf> {
@@ -34,12 +126,7 @@ pub fn support_dir() -> Result<PathBuf> {
     }
     let data =
         dirs::data_dir().ok_or_else(|| eyre!("application data directory is unavailable"))?;
-    let folder = if is_macos_test_build() {
-        "hex-test"
-    } else {
-        "hex"
-    };
-    Ok(data.join(folder))
+    Ok(data.join(variant().folder()))
 }
 
 pub fn logs_dir() -> Result<PathBuf> {
@@ -185,10 +272,12 @@ pub fn personal_commands_workspace() -> Result<PathBuf> {
     user_config_dir()
 }
 
-/// The per-user config folder holding `hex.config.ts` on every OS: `~/.config/hex`, or `~/.config/hex-test` for `Hex Test.app`.
+/// The per-user config folder holding `hex.config.ts` on every OS:
+/// `~/.config/hex`, or `~/.config/hex-dev` / `hex-test` for `Hex Dev.app` /
+/// `Hex Test.app`.
 fn user_config_dir() -> Result<PathBuf> {
     let home = home_dir().ok_or_else(|| eyre!("home directory is unavailable"))?;
-    Ok(user_config_dir_in(&home, is_macos_test_build()))
+    Ok(user_config_dir_in(&home, variant()))
 }
 
 /// The home folder. On Windows `USERPROFILE` names it, as `HOME` does
@@ -237,9 +326,8 @@ pub fn document_dir() -> Option<PathBuf> {
     dirs::document_dir()
 }
 
-fn user_config_dir_in(home: &std::path::Path, test_build: bool) -> PathBuf {
-    home.join(".config")
-        .join(if test_build { "hex-test" } else { "hex" })
+fn user_config_dir_in(home: &std::path::Path, variant: Variant) -> PathBuf {
+    home.join(".config").join(variant.folder())
 }
 
 #[cfg(test)]
@@ -303,12 +391,42 @@ mod tests {
     fn each_build_has_its_own_config_folder() {
         let home = std::path::Path::new("/Users/alex");
         assert_eq!(
-            user_config_dir_in(home, false),
+            user_config_dir_in(home, Variant::Live),
             home.join(".config").join("hex")
         );
         assert_eq!(
-            user_config_dir_in(home, true),
+            user_config_dir_in(home, Variant::Dev),
+            home.join(".config").join("hex-dev")
+        );
+        assert_eq!(
+            user_config_dir_in(home, Variant::Test),
             home.join(".config").join("hex-test")
         );
+    }
+
+    #[test]
+    fn each_variant_has_its_own_name_id_scheme_and_folders() {
+        assert_eq!(Variant::from_env(None, None), Variant::Live);
+        assert_eq!(Variant::from_env(None, Some("1")), Variant::Dev);
+        assert_eq!(Variant::from_env(Some("1"), Some("1")), Variant::Test);
+        assert_eq!(Variant::from_env(Some("0"), Some("0")), Variant::Live);
+        let all = [Variant::Live, Variant::Dev, Variant::Test];
+        let distinct = |f: fn(Variant) -> &'static str| {
+            let mut seen: Vec<&str> = all.iter().map(|v| f(*v)).collect();
+            seen.sort_unstable();
+            seen.dedup();
+            seen.len() == all.len()
+        };
+        assert!(distinct(Variant::name));
+        assert!(distinct(Variant::bundle_id));
+        assert!(distinct(Variant::scheme));
+        assert!(distinct(Variant::meetings_folder));
+        assert_eq!(Variant::Dev.name(), "Hex Dev");
+        assert_eq!(Variant::Dev.bundle_id(), "anomaly.hex.dev");
+        assert_eq!(Variant::Dev.scheme(), "hex-dev");
+        // Live and Dev take turns; Test runs beside either.
+        assert_eq!(Variant::Live.rival(), Some(Variant::Dev));
+        assert_eq!(Variant::Dev.rival(), Some(Variant::Live));
+        assert_eq!(Variant::Test.rival(), None);
     }
 }
