@@ -208,10 +208,16 @@ pub fn serve(spec: &str) -> Result<()> {
         wire.physical_input,
     );
     let screen: Box<dyn screen::Screen> = match wire.windows {
+        #[cfg(target_os = "macos")]
         WindowSource::CoreGraphics => {
             screen::CoreGraphics::warm();
             Box::new(screen::CoreGraphics)
         }
+        #[cfg(not(target_os = "macos"))]
+        WindowSource::CoreGraphics => Box::new(screen::Native(child::AgentDesktop::new(
+            program.clone(),
+            Vec::new(),
+        ))),
         WindowSource::AgentDesktop => Box::new(screen::Listed(child::AgentDesktop::new(
             program.clone(),
             Vec::new(),

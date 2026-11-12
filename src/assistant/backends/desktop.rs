@@ -52,9 +52,16 @@ pub fn grants(data: &Value) -> Option<Grants> {
         let state = permissions.get(name)?.get("state")?.as_str()?;
         Some(state == "granted")
     };
+    // Windows asks no grant, and Linux's AT-SPI only says whether it runs:
+    // there a permission agent-desktop doesn't report stands granted.
+    let unreported = !cfg!(target_os = "macos");
     Some(Grants {
-        accessibility: granted("accessibility")?,
-        screen_recording: granted("screen_recording").unwrap_or(false),
+        accessibility: match granted("accessibility") {
+            Some(granted) => granted,
+            None if unreported => true,
+            None => return None,
+        },
+        screen_recording: granted("screen_recording").unwrap_or(unreported),
     })
 }
 
