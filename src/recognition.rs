@@ -918,6 +918,11 @@ pub fn listen(
                 feedback::play(Tone::DictationStart);
             }
         }
+        // A dictation recording keeps announcements waiting, level by
+        // level each time round, so no missed edge leaves it on or off.
+        crate::assistant::interaction::dictation_listening(
+            hotkeys.any_recording() && !hotkeys.action_recording(),
+        );
         // Only once every queued edge is handled, so a release already seen
         // ends the press first.
         if !hotkey_capture_suspended && input_monitor.pending_events().oldest().is_none() {
