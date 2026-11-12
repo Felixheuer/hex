@@ -106,7 +106,20 @@ pub(super) fn voice_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
             std::cmp::Reverse(voices::quality(voice)),
         )
     });
-    let mut labels = vec![tr("System voice").to_owned()];
+    // Once Hex's own voice is here, only its presets are offered: the
+    // system voices still read what it can't (another language, a
+    // failure), without crowding the list.
+    let hex_voices = voices
+        .iter()
+        .any(|voice| crate::assistant::speech::neural::preset(voice).is_some());
+    if hex_voices {
+        voices.retain(|voice| crate::assistant::speech::neural::preset(voice).is_some());
+    }
+    let offset = usize::from(!hex_voices);
+    let mut labels = Vec::new();
+    if !hex_voices {
+        labels.push(tr("System voice").to_owned());
+    }
     labels.extend(voices.iter().map(|voice| voice_label(voice)));
     let selected = ui
         .settings
@@ -114,7 +127,7 @@ pub(super) fn voice_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
         .voice
         .as_deref()
         .and_then(|voice| voices.iter().position(|known| known == voice))
-        .map_or(0, |index| index + 1);
+        .map_or(0, |index| index + offset);
     let picker = quiet_select(
         ui,
         p,
@@ -125,7 +138,7 @@ pub(super) fn voice_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
         selected,
         move |ui, chosen| {
             let voice = chosen
-                .checked_sub(1)
+                .checked_sub(offset)
                 .and_then(|index| voices.get(index).cloned());
             ui.update(|settings| settings.assistant.voice = voice);
         },

@@ -6,7 +6,7 @@
 //! | While …                     | … happens                          | then                                                        |
 //! |-----------------------------|------------------------------------|-------------------------------------------------------------|
 //! | Hex reads aloud             | a hold or a dictation becomes real | quiet at once, the rest of that answer dropped; inbox questions stay |
-//! | Hex reads aloud             | the person talks over it           | it stops; their words are the next request (barge-in)       |
+//! | Hex reads aloud             | the person talks over it           | it pauses; their words drop the answer and ask, nothing or Hex's own voice resumes it (barge-in) |
 //! | anything                    | Escape or a spoken „Stopp“         | Here tasks and the reading stop                             |
 //! | anything                    | Stop all                           | every task and the reading stop                             |
 //! | conversation mode listening | a key or a hold                    | its capture closes first                                    |

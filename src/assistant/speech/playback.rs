@@ -22,6 +22,9 @@ const FIRST_AUDIO_SAY: Duration = Duration::from_secs(10);
 const FIRST_AUDIO_NEURAL: Duration = Duration::from_secs(20);
 /// A sentence whose audio stopped coming this long ago is over.
 const STALL: Duration = Duration::from_secs(10);
+/// A reading paused for a barge-in that neither resumes nor is taken over
+/// within this long is dropped.
+pub const PAUSE_LIMIT: Duration = Duration::from_secs(8);
 
 /// What makes a sentence's audio.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -51,6 +54,9 @@ struct Utterance {
     /// The engine sent all of it.
     done: bool,
     samples: VecDeque<f32>,
+    /// What of it already played, so a pause can read it again from the
+    /// start of the sentence.
+    played: Vec<f32>,
     trim: Trim,
 }
 
@@ -59,6 +65,8 @@ struct Utterance {
 pub struct Playback {
     queue: VecDeque<Utterance>,
     since: Option<Instant>,
+    /// Paused for a barge-in since then: nothing plays, nothing is dropped.
+    paused: Option<Instant>,
 }
 
 impl Playback {
@@ -71,6 +79,7 @@ impl Playback {
             last_audio: None,
             done: false,
             samples: VecDeque::new(),
+            played: Vec::new(),
             trim: Trim::default(),
         });
     }
@@ -100,6 +109,14 @@ impl Playback {
     /// Fills `out` with what plays next, silence where nothing is ready.
     /// Returns how many samples were real audio.
     pub fn pull(&mut self, out: &mut [f32], now: Instant) -> usize {
+        if let Some(paused) = self.paused {
+            if now.duration_since(paused) > PAUSE_LIMIT {
+                tracing::info!("barge-in: dropped (paused too long)");
+                self.stop();
+            }
+            out.fill(0.0);
+            return 0;
+        }
         let mut written = 0;
         while written < out.len() {
             let Some(front) = self.queue.front_mut() else {
@@ -119,6 +136,7 @@ impl Playback {
                 .zip(front.samples.drain(..count))
             {
                 *slot = sample;
+                front.played.push(sample);
             }
             written += count;
         }
@@ -156,6 +174,40 @@ impl Playback {
     pub fn stop(&mut self) {
         self.queue.clear();
         self.since = None;
+        self.paused = None;
+    }
+
+    /// Holds the reading for a barge-in: nothing plays until [`resume`] or
+    /// [`stop`], and the sentence being read starts over when it resumes.
+    /// Whether anything was being read.
+    ///
+    /// [`resume`]: Self::resume
+    /// [`stop`]: Self::stop
+    pub fn pause(&mut self, now: Instant) -> bool {
+        if self.queue.is_empty() {
+            return false;
+        }
+        if self.paused.is_none() {
+            self.paused = Some(now);
+            if let Some(front) = self.queue.front_mut() {
+                let played = std::mem::take(&mut front.played);
+                for sample in played.into_iter().rev() {
+                    front.samples.push_front(sample);
+                }
+            }
+        }
+        true
+    }
+
+    /// Reads on after a pause, from the start of the sentence it cut.
+    /// Whether it was paused.
+    pub fn resume(&mut self) -> bool {
+        self.paused.take().is_some()
+    }
+
+    /// Whether the reading is paused for a barge-in.
+    pub fn paused(&self) -> bool {
+        self.paused.is_some()
     }
 
     /// Something is being read or waits its turn.
@@ -401,5 +453,58 @@ mod tests {
             playback.expire(now + Duration::from_secs(21)),
             vec![request(2)]
         );
+    }
+
+    fn audio(len: usize, value: f32) -> Vec<f32> {
+        vec![value; len]
+    }
+
+    #[test]
+    fn a_pause_holds_the_reading_and_resume_reads_the_cut_sentence_again() {
+        let now = Instant::now();
+        let mut playback = Playback::default();
+        playback.add(request(1), Engine::Neural, now);
+        playback.add(request(2), Engine::Neural, now);
+        playback.feed(Engine::Neural, 1, &audio(100, 0.5), true, now);
+        playback.feed(Engine::Neural, 2, &audio(50, 0.25), true, now);
+        let mut out = vec![0.0; 40];
+        assert_eq!(playback.pull(&mut out, now), 40);
+        assert!(playback.pause(now));
+        assert!(playback.paused());
+        assert!(playback.busy(), "a paused reading still counts as speaking");
+        // Paused: silence, nothing taken.
+        assert_eq!(playback.pull(&mut out, now), 0);
+        assert!(out.iter().all(|sample| *sample == 0.0));
+        assert!(playback.resume());
+        // The first sentence again from its start: all 100 samples, then the
+        // second sentence.
+        let mut all = vec![0.0; 200];
+        assert_eq!(playback.pull(&mut all, now), 150);
+        assert!(all[..100].iter().all(|sample| *sample == 0.5));
+        assert!(all[100..150].iter().all(|sample| *sample == 0.25));
+    }
+
+    #[test]
+    fn a_pause_taken_over_drops_the_answer_and_a_long_one_drops_itself() {
+        let now = Instant::now();
+        let mut playback = Playback::default();
+        playback.add(request(1), Engine::Say, now);
+        playback.feed(Engine::Say, 1, &audio(100, 0.5), true, now);
+        assert!(playback.pause(now));
+        playback.stop();
+        assert!(!playback.busy() && !playback.paused());
+
+        playback.add(request(2), Engine::Say, now);
+        playback.feed(Engine::Say, 2, &audio(100, 0.5), true, now);
+        assert!(playback.pause(now));
+        let mut out = vec![0.0; 10];
+        assert_eq!(playback.pull(&mut out, now + PAUSE_LIMIT / 2), 0);
+        assert!(playback.busy());
+        assert_eq!(
+            playback.pull(&mut out, now + PAUSE_LIMIT + Duration::from_secs(1)),
+            0
+        );
+        assert!(!playback.busy(), "paused too long: dropped");
+        assert!(!playback.pause(now), "nothing to pause");
     }
 }
