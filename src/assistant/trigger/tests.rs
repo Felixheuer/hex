@@ -440,3 +440,29 @@ fn a_cancelled_press_arms_nothing() {
     assert_eq!(gesture.release(at(150)), None);
     assert_eq!(gesture.press(at(200)), start(false));
 }
+
+/// A press made before setup records nothing however it ends; once a
+/// question is under way, a cancel ends its capture and asks nothing.
+/// (Windows and Linux: macOS's listener carries its events out itself.)
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn the_listeners_events_follow_the_setup() {
+    let at = |ms: u64| CaptureInstant::ZERO + Duration::from_millis(ms);
+    for event in [Event::Finish, Event::Cancel, Event::DoubleTap] {
+        let mut asking = Asking {
+            setup_press: Some(at(0)),
+            ..Asking::default()
+        };
+        assert!(
+            matches!(asking.take(event, at(50)), Step::Done),
+            "{event:?}"
+        );
+        assert!(!asking.setting_up());
+    }
+    let mut asking = Asking {
+        question: Some(Question::press(false, nothing)),
+        ..Asking::default()
+    };
+    assert!(matches!(asking.take(Event::Cancel, at(80)), Step::Cancel));
+    assert!(asking.question.is_none());
+}

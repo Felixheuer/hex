@@ -172,6 +172,8 @@ impl Backend {
             options
                 .second_dictation
                 .map(|key| (Shortcut::SecondDictation, key)),
+            options.action.map(|key| (Shortcut::Action, key)),
+            options.stop_all.map(|key| (Shortcut::StopAll, key)),
         ];
         for (shortcut, key) in requested.into_iter().flatten() {
             let mouse = mouse_button(&key.key);
@@ -211,6 +213,8 @@ impl Backend {
         self.mark_ready(DesktopShortcuts::Registered);
 
         let lock_bits = u16::from(ModMask::LOCK) | u16::from(grabs.num_lock);
+        // A key event's held modifiers, without the lock bits.
+        let lock_mask = 0xff & !lock_bits;
         let mut keys = X11Keys {
             detectable_repeat: enable_detectable_auto_repeat(&connection),
             ..X11Keys::default()
@@ -225,7 +229,12 @@ impl Backend {
             let mut inputs = keys.expire(Instant::now());
             if let Some(event) = connection.poll_for_event()? {
                 match event {
-                    Event::KeyPress(event) if event.detail == grabs.escape => {
+                    // A grabbed chord on Escape (Stop all tasks) is that
+                    // shortcut's, never Escape's.
+                    Event::KeyPress(event)
+                        if event.detail == grabs.escape
+                            && !grabs.holds(event.detail, u16::from(event.state) & lock_mask) =>
+                    {
                         escape_down = true;
                         let mask = u16::from(event.state) & 0xff & !lock_bits;
                         // Drawing takes Escape first; it stops only that.
@@ -237,7 +246,9 @@ impl Backend {
                             },
                         );
                     }
-                    Event::KeyRelease(event) if event.detail == grabs.escape => {
+                    Event::KeyRelease(event)
+                        if event.detail == grabs.escape && !grabs.grabbed(event.detail) =>
+                    {
                         escape_down = false;
                     }
                     Event::KeyPress(event)
@@ -271,6 +282,9 @@ impl Backend {
                     Event::KeyRelease(event) => {
                         if grabs.cancel.is_some_and(|key| key.code == event.detail) {
                             cancel_down = false;
+                        }
+                        if event.detail == grabs.escape {
+                            escape_down = false;
                         }
                         for grab in grabs
                             .keys
@@ -317,13 +331,17 @@ impl Backend {
                 dispatcher.input(input);
             }
             dispatcher.commands();
-            // Escape is Hex's only while Annotate draws or, as Toggle's
-            // cancel key, while a recording runs, and until its release so
-            // the release never reaches the app. Grabbing before the flush
-            // holds the key before dictation hears that recording started.
+            // Escape is Hex's only while Annotate draws, while the assistant
+            // holds it (a Here task runs or speaks, nothing records), or, as
+            // Toggle's cancel key, while a recording runs, and until its
+            // release so the release never reaches the app. Grabbing before
+            // the flush holds the key before dictation hears that recording
+            // started.
             let wants_cancel = dispatcher.state.wants_cancel();
-            let wants_escape =
-                annotate_drawing() || escape_down || (wants_cancel && cancel_on_escape);
+            let wants_escape = annotate_drawing()
+                || escape_down
+                || (wants_cancel && cancel_on_escape)
+                || (dispatcher.state.idle() && crate::assistant::trigger::escape_claimed());
             if wants_escape && grabs.escape_grabbed.is_empty() {
                 let available = grabs.grab_escape()?;
                 if !available && !escape_taken {
@@ -516,6 +534,21 @@ impl X11Grabs<'_> {
             variants,
         });
         Ok(())
+    }
+
+    /// Whether a press of `code` with `mask` (lock bits cleared) is one of
+    /// the shortcuts' grabbed keys.
+    pub(super) fn holds(&self, code: u8, mask: u16) -> bool {
+        self.keys
+            .iter()
+            .any(|grab| !grab.mouse && grab.code == code && grab.mask == mask)
+    }
+
+    /// Whether `code` is a grabbed shortcut's key, with any modifiers.
+    pub(super) fn grabbed(&self, code: u8) -> bool {
+        self.keys
+            .iter()
+            .any(|grab| !grab.mouse && grab.code == code)
     }
 
     /// Returns false when another client holds Escape.

@@ -22,6 +22,8 @@ use crate::desktop::host::{DesktopGrantedShortcut, DesktopShortcut, DesktopShort
 use crate::dictation::DictationFlavour;
 use crate::linux::session::LinuxSession;
 
+#[path = "input/assistant.rs"]
+mod assistant;
 #[path = "input/x11.rs"]
 mod x11;
 pub(crate) use x11::{Keymap, MouseCapture, connect_x11};
@@ -288,6 +290,20 @@ pub(crate) enum HotkeyEvent {
     Capture,
     /// It came up: a tap stops the recording, a hold stops drawing.
     CaptureUp,
+    /// The assistant's Action shortcut went down, starting a capture it
+    /// owns (`DictationFlavour::Assistant`); `after_tap` when a tap came just
+    /// before. Its release is a `Finish`, or a `DoubleTap`.
+    Ask {
+        after_tap: bool,
+    },
+    /// The second of two taps of the Action shortcut came up: its capture
+    /// ends unheard and the task list shows or hides.
+    DoubleTap,
+    /// The assistant's Stop all tasks shortcut.
+    StopAll,
+    /// Escape while the assistant held it (X11): stop the Here tasks and
+    /// speech.
+    StopHere,
 }
 
 /// What a `hex` command asks of the running listener. Each one is
@@ -348,6 +364,10 @@ pub(crate) struct HotkeyOptions {
     /// Toggle mode's cancel shortcut, which Hex takes only while a
     /// recording runs; `None` in Hold mode, which has no cancel.
     pub(crate) cancel: Option<LinuxHotkey>,
+    /// The assistant's Action shortcut and Stop all tasks, while the
+    /// assistant is on and each is bound.
+    pub(crate) action: Option<LinuxHotkey>,
+    pub(crate) stop_all: Option<LinuxHotkey>,
 }
 
 /// Whether Annotate draws now, so Escape is Hex's (it stops drawing).
@@ -427,7 +447,7 @@ pub(crate) struct ShortcutKeys(Arc<Mutex<HeldKeys>>);
 #[derive(Debug, Default)]
 struct HeldKeys {
     /// Modifier shortcuts pressed without their release, by [`Shortcut::index`].
-    held: u8,
+    held: u16,
     last: Option<Instant>,
 }
 
@@ -588,10 +608,14 @@ enum Shortcut {
     TerminalPaste,
     /// Labs › Second dictation shortcut.
     SecondDictation,
+    /// The assistant's Action shortcut.
+    Action,
+    /// The assistant's Stop all tasks.
+    StopAll,
 }
 
 impl Shortcut {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 9] = [
         Self::Dictation,
         Self::PasteLast,
         Self::TypedText,
@@ -599,6 +623,8 @@ impl Shortcut {
         Self::RawDictation,
         Self::TerminalPaste,
         Self::SecondDictation,
+        Self::Action,
+        Self::StopAll,
     ];
 
     fn index(self) -> usize {
@@ -613,7 +639,8 @@ impl Shortcut {
             Self::RawDictation => Some(DictationFlavour::Raw),
             Self::TerminalPaste => Some(DictationFlavour::TerminalPaste),
             Self::SecondDictation => Some(DictationFlavour::Second),
-            Self::PasteLast | Self::TypedText | Self::Capture => None,
+            Self::Action => Some(DictationFlavour::Assistant),
+            Self::PasteLast | Self::TypedText | Self::Capture | Self::StopAll => None,
         }
     }
 
@@ -624,6 +651,7 @@ impl Shortcut {
             DictationFlavour::Raw => Self::RawDictation,
             DictationFlavour::TerminalPaste => Self::TerminalPaste,
             DictationFlavour::Second => Self::SecondDictation,
+            DictationFlavour::Assistant => Self::Action,
         }
     }
 
@@ -637,6 +665,8 @@ impl Shortcut {
             Self::RawDictation => ("raw-dictation", "Dictate without processing"),
             Self::TerminalPaste => ("terminal-paste", "Terminal paste shortcut"),
             Self::SecondDictation => ("second-dictation", "Second dictation shortcut"),
+            Self::Action => ("assistant-action", "Action shortcut"),
+            Self::StopAll => ("assistant-stop-all", "Stop all tasks"),
         }
     }
 }
@@ -689,8 +719,10 @@ struct ShortcutState {
     repeating: bool,
     /// The shortcut that owns the capture (or the last one): dictation,
     /// Dictate without processing, Labs › Terminal paste, or Labs › Second
-    /// dictation.
+    /// dictation, or the assistant's Action shortcut.
     flavour: DictationFlavour,
+    /// The assistant's Action shortcut and Stop all tasks.
+    assistant: assistant::AssistantKeys,
 }
 
 impl ShortcutState {
@@ -708,6 +740,7 @@ impl ShortcutState {
             down: false,
             repeating: false,
             flavour: DictationFlavour::Normal,
+            assistant: assistant::AssistantKeys::default(),
         }
     }
 
@@ -719,7 +752,9 @@ impl ShortcutState {
     /// only while something records, so the key stays with every app
     /// otherwise.
     fn wants_cancel(&self) -> bool {
-        self.cancels && matches!(self.capture, Capture::Held { .. } | Capture::Locked)
+        self.cancels
+            && !self.flavour.assistant()
+            && matches!(self.capture, Capture::Held { .. } | Capture::Locked)
     }
 
     /// Whatever records ends unfinished: the backend lost track of the
@@ -728,6 +763,7 @@ impl ShortcutState {
         let active = matches!(self.capture, Capture::Held { .. } | Capture::Locked);
         self.capture = Capture::Idle;
         self.last_release = None;
+        self.assistant.cancel();
         active.then_some(HotkeyEvent::Cancel)
     }
 
@@ -782,7 +818,10 @@ impl ShortcutState {
     }
 
     fn stop_dictation(&mut self) -> Option<HotkeyEvent> {
-        if !matches!(self.capture, Capture::Held { .. } | Capture::Locked) {
+        // Only the Action shortcut's release asks its question.
+        if self.flavour.assistant()
+            || !matches!(self.capture, Capture::Held { .. } | Capture::Locked)
+        {
             return None;
         }
         self.capture = Capture::Idle;
@@ -794,9 +833,22 @@ impl ShortcutState {
         match input {
             // Escape while Annotate draws stops drawing, never the recording,
             // and it ends no dictation (#786).
+            // Else, while the assistant holds it, it stops the Here task and
+            // the answer read aloud.
             Input::Escape => {
-                #[cfg(hex_capture)]
-                crate::capture_host::exit_drawing();
+                if annotate_drawing() {
+                    #[cfg(hex_capture)]
+                    crate::capture_host::exit_drawing();
+                    return None;
+                }
+                (self.idle() && crate::assistant::trigger::escape_claimed())
+                    .then_some(HotkeyEvent::StopHere)
+            }
+            Input::Pressed(Shortcut::Action) => self.action_pressed(now),
+            Input::Released(Shortcut::Action) => self.action_released(now),
+            Input::Pressed(Shortcut::StopAll) => self.assistant.stop_all(now),
+            Input::Released(Shortcut::StopAll) => {
+                self.assistant.stop_all_released();
                 None
             }
             Input::Lost => {
@@ -1261,6 +1313,11 @@ impl Backend {
                 .second_dictation
                 .as_ref()
                 .map(|key| (Shortcut::SecondDictation, key)),
+            options.action.as_ref().map(|key| (Shortcut::Action, key)),
+            options
+                .stop_all
+                .as_ref()
+                .map(|key| (Shortcut::StopAll, key)),
         ];
         let desktop_assigns = crate::linux::portal::desktop_assigns_triggers();
         let mut shortcuts = Vec::new();

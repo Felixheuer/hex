@@ -32,6 +32,8 @@ pub(crate) struct LinuxIndicator {
     /// Submitted dictations still being transcribed or pasted, oldest first.
     jobs: VecDeque<u64>,
     next_job: u64,
+    /// The capture about to start asks the assistant: sent after its start.
+    asking: Option<bool>,
 }
 
 impl LinuxIndicator {
@@ -50,6 +52,7 @@ impl LinuxIndicator {
             recording: false,
             jobs: VecDeque::new(),
             next_job: 0,
+            asking: None,
         };
         indicator.send(HudEvent::Reset);
         indicator
@@ -72,6 +75,9 @@ impl LinuxIndicator {
     pub(crate) fn update(&mut self, recording: bool, pending: usize) {
         if recording && !self.recording {
             self.send(HudEvent::Started);
+            if let Some(agent) = self.asking.take() {
+                self.send(HudEvent::Asking { agent });
+            }
         }
         let submitted = pending > self.jobs.len();
         while pending > self.jobs.len() {
@@ -91,6 +97,20 @@ impl LinuxIndicator {
             }
         }
         self.recording = recording;
+    }
+
+    /// The capture just started asks the assistant (a new Background task
+    /// when `agent`): the HUD wears its colours from its start on.
+    pub(crate) fn asking(&mut self, agent: bool) {
+        self.asking = Some(agent);
+    }
+
+    /// The capture under way ended unheard, as a short tap's does (the
+    /// Action shortcut's double tap): the HUD goes without a cancel.
+    pub(crate) fn discard(&mut self) {
+        if std::mem::take(&mut self.recording) {
+            self.send(HudEvent::Discarded);
+        }
     }
 
     /// The oldest submitted dictation finished: pasted, or failed with why.

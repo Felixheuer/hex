@@ -142,6 +142,15 @@ impl Asking {
         }
     }
 
+    /// Whether the question under way is a new Background task (`Some(true)`)
+    /// or asks Here, for the HUD; `None` while none is.
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn background(&self) -> Option<bool> {
+        self.question
+            .as_ref()
+            .map(|question| question.lane() == Lane::Background)
+    }
+
     /// Whether the press under way went down before setup and records
     /// nothing.
     pub(crate) fn setting_up(&self) -> bool {
@@ -195,6 +204,82 @@ impl Asking {
     pub(crate) fn drop_question(&mut self) {
         self.question = None;
         self.setup_press = None;
+    }
+}
+
+/// One of the Action shortcut's events, as a Windows or Linux listener
+/// hands it to [`Asking::take`].
+#[cfg(not(target_os = "macos"))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Event {
+    /// The Action shortcut went down, after a tap or not.
+    Ask { after_tap: bool },
+    /// It came up.
+    Finish,
+    /// The listener lost its keys, or `hex dictation cancel`.
+    Cancel,
+    /// The second of two taps came up.
+    DoubleTap,
+    /// The Stop all tasks shortcut.
+    StopAll,
+    /// Escape while the assistant held it.
+    StopHere,
+}
+
+/// What a listener does with its capture after [`Asking::take`].
+#[cfg(not(target_os = "macos"))]
+#[derive(Debug)]
+pub(crate) enum Step {
+    /// Nothing: the assistant took it all, or the press records nothing.
+    Done,
+    /// Start the capture, as the Action shortcut's.
+    Start,
+    /// Finish the capture; its transcript answers this reply.
+    Finish(PrintReply),
+    /// End the capture as a cancel does.
+    Cancel,
+    /// End the capture unheard, as a short tap's (the double tap, whose
+    /// task list already showed or hid).
+    Discard,
+}
+
+#[cfg(not(target_os = "macos"))]
+impl Asking {
+    /// Takes one of the Action shortcut's events at `at`, and says what the
+    /// listener still does with the capture.
+    pub(crate) fn take(&mut self, event: Event, at: CaptureInstant) -> Step {
+        match event {
+            Event::StopAll => {
+                stop_all();
+                Step::Done
+            }
+            Event::StopHere => {
+                stop_here();
+                Step::Done
+            }
+            Event::Ask { after_tap } => match self.start(after_tap, at) {
+                Start::Setup => Step::Done,
+                Start::Record { .. } => Step::Start,
+            },
+            // Nothing recorded; only a hold opens the setup.
+            Event::Finish if self.setting_up() => {
+                self.finish(at);
+                Step::Done
+            }
+            Event::Cancel | Event::DoubleTap if self.setting_up() => {
+                self.drop_question();
+                Step::Done
+            }
+            Event::Finish => self.finish(at).map_or(Step::Done, Step::Finish),
+            Event::Cancel => {
+                self.drop_question();
+                Step::Cancel
+            }
+            Event::DoubleTap => {
+                self.double_tap();
+                Step::Discard
+            }
+        }
     }
 }
 
