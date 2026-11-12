@@ -1,12 +1,25 @@
-//! macOS notifications for Background jobs (`assistant.notifications`): a
-//! job finished, failed, or asks something. Inside the bundled, signed
-//! Hex.app they go through UNUserNotificationCenter (the
-//! `assistant_notifications` Swift bridge), and clicking one opens Chats on
-//! its conversation. Outside a bundle (a `hex` binary run from a terminal)
-//! they fall back to `osascript`'s `display notification`, which can't open
-//! anything when clicked.
+//! Notifications for Background jobs (`assistant.notifications`): a job
+//! finished, failed, or asks something. Clicking one opens Chats on its
+//! conversation.
+//!
+//! - macOS: inside the bundled, signed Hex.app they go through
+//!   UNUserNotificationCenter (the `assistant_notifications` Swift bridge),
+//!   whose click opens a `hex://chats?id=…` link. Outside a bundle (a `hex`
+//!   binary run from a terminal) they fall back to `osascript`'s `display
+//!   notification`, which can't open anything when clicked.
+//! - Windows: a toast under Hex's AppUserModelID ([`windows`]).
+//! - Linux: `org.freedesktop.Notifications` over D-Bus ([`linux`]).
+//!
+//! On Windows and Linux a click calls what [`set_on_click`] registered.
 //!
 //! OWNER: brain.
+
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(any(test, not(target_os = "macos")))]
+mod payload;
+#[cfg(target_os = "windows")]
+mod windows;
 
 /// What a notification says.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -67,11 +80,45 @@ pub fn show(note: &Note) {
             Err(error) => tracing::warn!(%error, "couldn't show a notification"),
         }
     }
-    #[cfg(not(target_os = "macos"))]
-    let _ = note;
+    #[cfg(target_os = "windows")]
+    windows::show(note);
+    #[cfg(target_os = "linux")]
+    linux::show(note);
+}
+
+/// What a click on a notification calls, with its conversation id.
+#[cfg(not(target_os = "macos"))]
+type OnClick = Box<dyn Fn(&str) + Send + Sync>;
+
+#[cfg(not(target_os = "macos"))]
+static ON_CLICK: std::sync::RwLock<Option<OnClick>> = std::sync::RwLock::new(None);
+
+/// Registers what a click on a notification does (opening Chats on that
+/// conversation): called with the conversation's id, on a thread of the
+/// notification system's. macOS opens a `hex://chats` link instead.
+#[cfg(not(target_os = "macos"))]
+pub fn set_on_click(open: impl Fn(&str) + Send + Sync + 'static) {
+    *ON_CLICK.write().unwrap_or_else(|error| error.into_inner()) = Some(Box::new(open));
+}
+
+/// A notification of `conversation` was clicked.
+#[cfg(not(target_os = "macos"))]
+fn clicked(conversation: &str) {
+    match ON_CLICK
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_ref()
+    {
+        Some(open) => open(conversation),
+        None => tracing::debug!(
+            conversation,
+            "a notification was clicked; nothing opens chats"
+        ),
+    }
 }
 
 /// `text` as an AppleScript string literal.
+#[cfg(any(test, target_os = "macos"))]
 fn applescript(text: &str) -> String {
     let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
     format!("\"{escaped}\"")

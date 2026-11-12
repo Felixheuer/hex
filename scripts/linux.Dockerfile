@@ -1,7 +1,7 @@
 # The Linux build environment of scripts/check-other-os (the native
 # libraries the Linux check needed in CI), for checking and testing the Linux
 # build from a Mac.
-FROM rust:1-bookworm
+FROM rust:1-trixie
 RUN apt-get update && apt-get install -y --no-install-recommends \
       clang cmake pkg-config python3 libasound2-dev libssl-dev libgtk-3-dev \
       libxkbcommon-x11-dev libx11-xcb-dev libfontconfig1-dev libfreetype-dev \

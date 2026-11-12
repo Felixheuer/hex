@@ -47,7 +47,7 @@ linux() {
         echo "Waiting for another Linux check ($lock)…" >&2
         sleep 15
     done
-    trap 'rmdir "$lock"' EXIT
+    trap "rmdir '$lock'" EXIT
     docker build -q -t hex-linux-check -f scripts/linux.Dockerfile scripts >/dev/null
     local command=(cargo clippy --locked --bin hex --tests -- -D warnings)
     if [[ "${1:-}" == test ]]; then

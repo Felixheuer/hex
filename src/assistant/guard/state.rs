@@ -357,7 +357,8 @@ pub fn running(pid: u32, started: Option<u64>) -> bool {
         }
 }
 
-/// When process `pid` started, in µs since 1970 (`proc_pidinfo`).
+/// When process `pid` started, in µs since 1970 (`proc_pidinfo` on macOS,
+/// `/proc` on Linux, `GetProcessTimes` on Windows).
 pub fn started_us(pid: u32) -> Option<u64> {
     #[cfg(target_os = "macos")]
     {
@@ -371,11 +372,59 @@ pub fn started_us(pid: u32) -> Option<u64> {
         };
         (wrote == size).then(|| info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     {
-        let _ = pid;
-        None
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let boot = std::fs::read_to_string("/proc/stat").ok()?;
+        // SAFETY: Reads a constant of the system's.
+        let ticks = u64::try_from(unsafe { libc::sysconf(libc::_SC_CLK_TCK) }).ok()?;
+        linux_started_us(&stat, &boot, ticks)
     }
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::Foundation::{CloseHandle, FILETIME};
+        use windows_sys::Win32::System::Threading::{
+            GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        let zero = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
+        // SAFETY: Opens `pid` for queries only, reads its times into locals,
+        // and closes the handle.
+        let read = unsafe {
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if process.is_null() {
+                return None;
+            }
+            let read = GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user);
+            CloseHandle(process);
+            read
+        };
+        // FILETIME counts 100 ns since 1601.
+        const UNIX_EPOCH_100NS: u64 = 116_444_736_000_000_000;
+        let since_1601 =
+            (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime);
+        (read != 0).then(|| since_1601.saturating_sub(UNIX_EPOCH_100NS) / 10)
+    }
+}
+
+/// When a process started, in µs since 1970, from its `/proc/<pid>/stat`
+/// (field 22: clock ticks after boot) and `/proc/stat`'s `btime` (boot, in
+/// seconds since 1970), at `ticks` a second.
+#[cfg(any(test, target_os = "linux"))]
+pub(super) fn linux_started_us(stat: &str, boot: &str, ticks: u64) -> Option<u64> {
+    // The name in parentheses may hold spaces: count after its end.
+    let after_name = &stat[stat.rfind(')')? + 1..];
+    let start_ticks: u64 = after_name.split_whitespace().nth(19)?.parse().ok()?;
+    let boot_seconds: u64 = boot
+        .lines()
+        .find_map(|line| line.strip_prefix("btime "))?
+        .trim()
+        .parse()
+        .ok()?;
+    (ticks > 0).then(|| boot_seconds * 1_000_000 + start_ticks * 1_000_000 / ticks)
 }
 
 /// Whether process `pid` is running.
@@ -392,8 +441,26 @@ pub fn alive(pid: u32) -> bool {
         let found = unsafe { libc::kill(pid, 0) } == 0;
         found || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        true
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        /// What GetExitCodeProcess answers while the process runs.
+        const STILL_ACTIVE: u32 = 259;
+        let mut code = 0_u32;
+        // SAFETY: Opens `pid` for queries only, reads its exit code into a
+        // local, and closes the handle.
+        unsafe {
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid as u32);
+            if process.is_null() {
+                // Gone, or not ours to ask (then it runs).
+                return std::io::Error::last_os_error().raw_os_error() == Some(5);
+            }
+            let read = GetExitCodeProcess(process, &mut code);
+            CloseHandle(process);
+            read == 0 || code == STILL_ACTIVE
+        }
     }
 }

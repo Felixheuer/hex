@@ -72,6 +72,33 @@ pub(crate) fn capture(read_page: bool) -> ContextSnapshot {
     }
 }
 
+/// The focused window for the assistant: its application (as [`capture`]
+/// names it), title, and process, without reading its page.
+pub(crate) struct Focused {
+    pub(crate) application: Option<String>,
+    pub(crate) title: Option<String>,
+    pub(crate) pid: Option<u32>,
+}
+
+pub(crate) fn focused() -> Option<Focused> {
+    let window = if crate::linux::session::LinuxSession::detect().is_wayland() {
+        wayland_focused_window()
+    } else {
+        x11_focused_window()
+    }?;
+    let application = window
+        .app_id
+        .as_deref()
+        .and_then(crate::application_catalog::desktop_application_name)
+        .or_else(|| window.pid.and_then(process_name))
+        .or_else(|| window.app_id.as_deref().map(str::to_lowercase));
+    Some(Focused {
+        application,
+        title: window.title,
+        pid: window.pid,
+    })
+}
+
 fn x11_focused_window() -> Option<FocusedWindow> {
     let (connection, screen) = x11rb::connect(None).ok()?;
     let root = connection.setup().roots.get(screen)?.root;

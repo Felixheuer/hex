@@ -21,8 +21,10 @@
 //!   its next result tells it to look again before acting.
 //!
 //! Windows on screen, and the one in front, are read in the guard's process
-//! from CoreGraphics (`screen`, under a millisecond), so agent-desktop runs
-//! only the task's own calls. Hex adds `desktop_claim_window`,
+//! (`screen`: CoreGraphics on macOS, the window list on Windows, under a
+//! millisecond), so agent-desktop runs only the task's own calls. On Linux,
+//! where only agent-desktop makes its window ids, its `list-windows` is
+//! asked. Hex adds `desktop_claim_window`,
 //! `hex_installed_apps`, and `hex_open_app` to agent-desktop's tools.
 //!
 //! `hex assistant mcp --spec <json or file>` serves it (`server`); the spec
@@ -102,9 +104,11 @@ pub struct WireSpec {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WindowSource {
-    /// CoreGraphics, in the guard's process: a few milliseconds.
+    /// In the guard's process (`screen::Native`): a few milliseconds. On
+    /// Linux, agent-desktop's `list-windows` all the same.
     #[default]
-    CoreGraphics,
+    #[serde(alias = "core_graphics")]
+    Native,
     /// agent-desktop's `list-windows` (a few hundred milliseconds), for
     /// tests with a stand-in agent-desktop.
     AgentDesktop,
@@ -208,9 +212,12 @@ pub fn serve(spec: &str) -> Result<()> {
         wire.physical_input,
     );
     let screen: Box<dyn screen::Screen> = match wire.windows {
-        WindowSource::CoreGraphics => {
-            screen::CoreGraphics::warm();
-            Box::new(screen::CoreGraphics)
+        WindowSource::Native if cfg!(target_os = "linux") => Box::new(screen::Listed(
+            child::AgentDesktop::new(program.clone(), Vec::new()),
+        )),
+        WindowSource::Native => {
+            screen::Native::warm();
+            Box::new(screen::Native)
         }
         WindowSource::AgentDesktop => Box::new(screen::Listed(child::AgentDesktop::new(
             program.clone(),

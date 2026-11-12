@@ -16,21 +16,22 @@ use zbus::{Connection, OwnedObjectPath, OwnedVariant};
 const REGISTRY: &str = "org.a11y.atspi.Registry";
 const ROOT: &str = "/org/a11y/atspi/accessible/root";
 const NULL: &str = "/org/a11y/atspi/null";
-const ACCESSIBLE: &str = "org.a11y.atspi.Accessible";
+pub(crate) const ACCESSIBLE: &str = "org.a11y.atspi.Accessible";
 const STATE_ACTIVE: u32 = 1;
-const STATE_SHOWING: u32 = 25;
+pub(crate) const STATE_SHOWING: u32 = 25;
 const ROLE_DOCUMENT_WEB: u32 = 95;
-const MATCH_ALL: i32 = 1;
-const MATCH_ANY: i32 = 2;
-const SORT_CANONICAL: u32 = 1;
+pub(crate) const MATCH_ALL: i32 = 1;
+pub(crate) const MATCH_ANY: i32 = 2;
+pub(crate) const SORT_CANONICAL: u32 = 1;
 const CALL_TIMEOUT: Duration = Duration::from_millis(150);
 const DEADLINE: Duration = Duration::from_millis(400);
 
-type Reference = (String, OwnedObjectPath);
+/// An accessible object: its bus name and path.
+pub(crate) type Reference = (String, OwnedObjectPath);
 
 /// An AT-SPI collection match rule: states, attributes, roles, and
 /// interfaces, each with its match type, then whether to invert.
-type MatchRule = (
+pub(crate) type MatchRule = (
     Vec<i32>,
     i32,
     HashMap<String, String>,
@@ -62,19 +63,20 @@ pub(crate) fn focused_window(hint: &WindowHint) -> Option<AccessibleWindow> {
     if hint.pid.is_none() && hint.title.is_none() {
         return None;
     }
+    within(DEADLINE, read_window(hint)).flatten()
+}
+
+/// Runs `read` on a runtime of its own, for at most `deadline`.
+pub(crate) fn within<T>(deadline: Duration, read: impl Future<Output = T>) -> Option<T> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .ok()?;
-    runtime.block_on(async {
-        tokio::time::timeout(DEADLINE, read_window(hint))
-            .await
-            .ok()
-            .flatten()
-    })
+    runtime.block_on(async { tokio::time::timeout(deadline, read).await.ok() })
 }
 
-async fn read_window(hint: &WindowHint) -> Option<AccessibleWindow> {
+/// The accessibility bus, `None` without one.
+pub(crate) async fn bus() -> Option<Connection> {
     let session = Connection::session().await.ok()?;
     let address: String = call(
         &session,
@@ -85,30 +87,50 @@ async fn read_window(hint: &WindowHint) -> Option<AccessibleWindow> {
         &(),
     )
     .await?;
-    let bus = zbus::connection::Builder::address(address.as_str())
+    zbus::connection::Builder::address(address.as_str())
         .build()
         .await
-        .ok()?;
-    let applications: Vec<Reference> =
-        call(&bus, REGISTRY, ROOT, ACCESSIBLE, "GetChildren", &()).await?;
-    let candidates = futures_util::future::join_all(
-        applications
-            .iter()
-            .map(|(name, root)| matching_window(&bus, name, root, hint)),
-    )
-    .await;
-    // An application can keep reporting a window active after focus moved
-    // to a window it doesn't own, so activity only breaks ties.
-    let window = candidates
-        .iter()
-        .flatten()
-        .find(|window| window.active)
-        .or_else(|| candidates.iter().flatten().next())?;
+        .ok()
+}
+
+async fn read_window(hint: &WindowHint) -> Option<AccessibleWindow> {
+    let bus = bus().await?;
+    let window = find_window(&bus, hint).await?;
     let url = page_url(&bus, &window.reference).await;
     Some(AccessibleWindow {
         pid: window.pid,
         url,
     })
+}
+
+/// The accessible top-level window matching `hint` (the active one when
+/// several do), and its process.
+pub(crate) async fn window_matching(
+    bus: &Connection,
+    hint: &WindowHint,
+) -> Option<(Reference, Option<u32>)> {
+    find_window(bus, hint)
+        .await
+        .map(|window| (window.reference, window.pid))
+}
+
+async fn find_window(bus: &Connection, hint: &WindowHint) -> Option<Candidate> {
+    let applications: Vec<Reference> =
+        call(bus, REGISTRY, ROOT, ACCESSIBLE, "GetChildren", &()).await?;
+    let candidates = futures_util::future::join_all(
+        applications
+            .iter()
+            .map(|(name, root)| matching_window(bus, name, root, hint)),
+    )
+    .await;
+    // An application can keep reporting a window active after focus moved
+    // to a window it doesn't own, so activity only breaks ties.
+    let mut candidates: Vec<Candidate> = candidates.into_iter().flatten().collect();
+    let index = candidates
+        .iter()
+        .position(|window| window.active)
+        .or_else(|| (!candidates.is_empty()).then_some(0))?;
+    Some(candidates.swap_remove(index))
 }
 
 struct Candidate {
@@ -163,7 +185,7 @@ async fn matching_window(
     matched
 }
 
-async fn process_id(bus: &Connection, name: &str) -> Option<u32> {
+pub(crate) async fn process_id(bus: &Connection, name: &str) -> Option<u32> {
     call(
         bus,
         "org.freedesktop.DBus",
@@ -175,7 +197,11 @@ async fn process_id(bus: &Connection, name: &str) -> Option<u32> {
     .await
 }
 
-async fn accessible_name(bus: &Connection, name: &str, path: &OwnedObjectPath) -> Option<String> {
+pub(crate) async fn accessible_name(
+    bus: &Connection,
+    name: &str,
+    path: &OwnedObjectPath,
+) -> Option<String> {
     let value: OwnedVariant = call(
         bus,
         name,
@@ -232,13 +258,13 @@ fn document_rule() -> MatchRule {
 }
 
 /// AT-SPI's bit-array encoding of one member across `WORDS` 32-bit words.
-fn bitset<const WORDS: usize>(member: u32) -> Vec<i32> {
+pub(crate) fn bitset<const WORDS: usize>(member: u32) -> Vec<i32> {
     let mut words = vec![0_i32; WORDS];
     words[(member / 32) as usize] = (1_u32 << (member % 32)).cast_signed();
     words
 }
 
-fn has_state(states: &[u32], state: u32) -> bool {
+pub(crate) fn has_state(states: &[u32], state: u32) -> bool {
     states
         .get((state / 32) as usize)
         .is_some_and(|word| word & (1 << (state % 32)) != 0)
@@ -254,7 +280,7 @@ fn web_url(attributes: &HashMap<String, String>) -> Option<Url> {
         .find(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
 }
 
-async fn call<B, R>(
+pub(crate) async fn call<B, R>(
     bus: &Connection,
     destination: &str,
     path: &str,

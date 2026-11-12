@@ -12,7 +12,11 @@ pub enum Quality {
     Enhanced,
     /// The largest, most natural download ("Premium").
     Premium,
-    /// The person's own Personal Voice, which Hex may use.
+    /// The person's own Personal Voice, which Hex may use (macOS).
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(dead_code, reason = "only macOS has Personal Voices")
+    )]
     Personal,
 }
 
@@ -126,6 +130,7 @@ pub fn named(listed: Vec<Listed>) -> Vec<Voice> {
 /// where a name can hold spaces and parentheses
 /// (`Eddy (Deutsch (Deutschland)) de_DE    # …`). Names stay as `say` knows
 /// them, so they work with `say -v`.
+#[cfg(any(test, target_os = "macos"))]
 pub fn parse_voices(output: &str) -> Vec<Voice> {
     output
         .lines()
@@ -301,17 +306,50 @@ pub fn resolve<'a>(chosen: &str, language: Option<&str>, voices: &'a [Voice]) ->
         })
 }
 
-/// A voice worth downloading.
+/// A voice worth getting.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VoiceHint {
     /// As System Settings › Accessibility › Spoken Content lists it
-    /// (`Petra (Premium)`).
+    /// (`Petra (Premium)`); on Windows and Linux, what to get
+    /// (`a Piper voice`).
     pub name: String,
     /// `de`, `en`, …
     pub language: String,
-    /// About how much it downloads.
+    /// About how much it downloads (0 when unknown).
     pub size_mb: u32,
+    /// What to tell the person, in English for `tr()`: why, and where to
+    /// get it.
+    pub advice: &'static str,
 }
+
+/// The OS whose voices are hinted at.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum System {
+    Mac,
+    Windows,
+    Linux,
+}
+
+impl System {
+    /// The OS Hex runs on.
+    pub const THIS: System = if cfg!(target_os = "windows") {
+        System::Windows
+    } else if cfg!(target_os = "linux") {
+        System::Linux
+    } else {
+        System::Mac
+    };
+}
+
+/// The advice for each case, as the UI shows it.
+pub const MAC_ADVICE: &str =
+    "Premium voices sound far more natural. Download one in System Settings";
+pub const WINDOWS_ADVICE: &str =
+    "No voice reads this language yet. Add one in Settings › Time & language › Speech";
+pub const LINUX_MISSING_ADVICE: &str =
+    "No voice reads this language yet. Install Piper with a voice for it, or espeak-ng";
+pub const LINUX_PIPER_ADVICE: &str =
+    "Piper voices sound far more natural. Install Piper with a voice for this language";
 
 /// The voice to download for each language, its quality, and its download
 /// size, from macOS 26's voice catalogue
@@ -335,22 +373,44 @@ const RECOMMENDED: [(&str, &str, Quality, u32); 16] = [
     ("hi", "Neel", Quality::Premium, 841),
 ];
 
-/// The download that would read `language` better than every installed
-/// voice of it, if there is one.
-pub fn better_voice_for(language: &str, voices: &[Voice]) -> Option<VoiceHint> {
+/// The voice that would read `language` better than every installed voice
+/// of it on `system`, if there is one: on macOS the Premium (or Enhanced)
+/// download; on Windows a voice when none reads the language; on Linux a
+/// Piper voice when only espeak-ng's (or none) does.
+pub fn better_voice_for(system: System, language: &str, voices: &[Voice]) -> Option<VoiceHint> {
     let language = split_locale(language).0;
-    let (_, name, quality, size_mb) = RECOMMENDED.iter().find(|(code, ..)| *code == language)?;
     let installed = voices
         .iter()
         .filter(|voice| voice.language().eq_ignore_ascii_case(&language))
         .map(|voice| voice.quality)
-        .max()
-        .unwrap_or_default();
-    (installed < *quality).then(|| VoiceHint {
-        name: format!("{name} ({})", quality.label().unwrap_or_default()),
-        language,
-        size_mb: *size_mb,
-    })
+        .max();
+    let hint = |name: String, size_mb, advice| VoiceHint {
+        name,
+        language: language.clone(),
+        size_mb,
+        advice,
+    };
+    match system {
+        System::Mac => {
+            let (_, name, quality, size_mb) =
+                RECOMMENDED.iter().find(|(code, ..)| *code == language)?;
+            (installed.unwrap_or_default() < *quality).then(|| {
+                hint(
+                    format!("{name} ({})", quality.label().unwrap_or_default()),
+                    *size_mb,
+                    MAC_ADVICE,
+                )
+            })
+        }
+        System::Windows => installed
+            .is_none()
+            .then(|| hint("a Windows voice".into(), 0, WINDOWS_ADVICE)),
+        System::Linux => match installed {
+            None => Some(hint("a Piper voice".into(), 60, LINUX_MISSING_ADVICE)),
+            Some(Quality::Default) => Some(hint("a Piper voice".into(), 60, LINUX_PIPER_ADVICE)),
+            Some(_) => None,
+        },
+    }
 }
 
 #[cfg(test)]
@@ -557,26 +617,50 @@ Thomas              fr_FR    # Bonjour, je m’appelle Thomas.
     fn a_better_download_is_suggested_until_one_is_installed() {
         let defaults = parse_voices(SAY_LIST);
         assert_eq!(
-            better_voice_for("de", &defaults),
+            better_voice_for(System::Mac, "de", &defaults),
             Some(VoiceHint {
                 name: "Petra (Premium)".into(),
                 language: "de".into(),
-                size_mb: 487
+                size_mb: 487,
+                advice: MAC_ADVICE,
             })
         );
         assert_eq!(
-            better_voice_for("en-US", &defaults).map(|hint| hint.name),
+            better_voice_for(System::Mac, "en-US", &defaults).map(|hint| hint.name),
             Some("Ava (Premium)".into())
         );
         let voices = engine_voices();
-        assert_eq!(better_voice_for("de_DE", &voices), None);
+        assert_eq!(better_voice_for(System::Mac, "de_DE", &voices), None);
         // Enhanced English is installed; Premium is still better.
         assert_eq!(
-            better_voice_for("en", &voices).map(|hint| hint.size_mb),
+            better_voice_for(System::Mac, "en", &voices).map(|hint| hint.size_mb),
             Some(479)
         );
-        assert_eq!(better_voice_for("xx", &voices), None);
+        assert_eq!(better_voice_for(System::Mac, "xx", &voices), None);
         let spanish = named(vec![listed("j", "Jorge", "es-ES", Quality::Enhanced)]);
-        assert_eq!(better_voice_for("es", &spanish), None);
+        assert_eq!(better_voice_for(System::Mac, "es", &spanish), None);
+    }
+
+    #[test]
+    fn windows_and_linux_hint_where_to_get_a_voice() {
+        let installed = named(vec![
+            listed("espeak:de", "German", "de", Quality::Default),
+            listed("piper:/en.onnx", "Lessac", "en_US", Quality::Enhanced),
+        ]);
+        let hint = |system, language| better_voice_for(system, language, &installed);
+        assert_eq!(hint(System::Windows, "de"), None);
+        assert_eq!(
+            hint(System::Windows, "fr").map(|hint| hint.advice),
+            Some(WINDOWS_ADVICE)
+        );
+        assert_eq!(
+            hint(System::Linux, "de").map(|hint| hint.advice),
+            Some(LINUX_PIPER_ADVICE)
+        );
+        assert_eq!(hint(System::Linux, "en-US"), None);
+        assert_eq!(
+            hint(System::Linux, "fr").map(|hint| hint.advice),
+            Some(LINUX_MISSING_ADVICE)
+        );
     }
 }

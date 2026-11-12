@@ -15,7 +15,8 @@ const SENTENCE_GAP: usize = RATE as usize * 120 / 1000;
 /// How long the speech engine may take to send a sentence's first audio
 /// before `say` reads it instead.
 const FIRST_AUDIO_ENGINE: Duration = Duration::from_secs(3);
-/// `say` writes a whole sentence before any of it plays.
+/// `say` (and Windows' and Linux's engines) write a whole sentence before
+/// any of it plays.
 const FIRST_AUDIO_SAY: Duration = Duration::from_secs(10);
 /// A sentence whose audio stopped coming this long ago is over.
 const STALL: Duration = Duration::from_secs(10);
@@ -23,9 +24,18 @@ const STALL: Duration = Duration::from_secs(10);
 /// What makes a sentence's audio.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Engine {
-    /// AVSpeechSynthesizer, through the Swift bridge.
+    /// AVSpeechSynthesizer, through the Swift bridge (macOS).
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(
+            dead_code,
+            reason = "macOS's engine; the handover to `Say` is tested everywhere"
+        )
+    )]
     Bridge,
-    /// `/usr/bin/say`, writing a file.
+    /// The engine that writes each sentence whole ([`super::writer`]):
+    /// `/usr/bin/say` on macOS, the system's voices on Windows, Piper or
+    /// espeak-ng on Linux.
     Say,
 }
 

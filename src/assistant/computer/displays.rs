@@ -1,11 +1,18 @@
-//! The displays, as agent-desktop names them (`list-displays`' ids are
-//! CoreGraphics display ids), in global points: top-left origin at the
-//! primary display's top-left corner, y down, so a display above or left of
-//! the primary one has negative coordinates. Which one the person works on
-//! (the one holding the focused window), and which one Background tasks'
-//! windows go to (the agents' display).
+//! The displays, in global coordinates: top-left origin at the primary
+//! display's top-left corner, y down, so a display above or left of the
+//! primary one has negative coordinates. Which one the person works on (the
+//! one holding the focused window), and which one Background tasks' windows
+//! go to (the agents' display).
+//!
+//! - macOS: points; ids are CoreGraphics display ids, as agent-desktop's
+//!   `list-displays` names them.
+//! - Windows: physical pixels; ids are their places ("1" is the primary).
+//! - Linux: root pixels (RandR) on X11, the logical layout (xdg-output) on
+//!   Wayland; ids are their places.
 
+#[cfg(target_os = "macos")]
 use std::collections::HashMap;
+#[cfg(target_os = "macos")]
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -43,22 +50,25 @@ impl Display {
 }
 
 /// Every display, the primary first, with the one the person works on
-/// marked. Cheap (CoreGraphics and Accessibility, a millisecond or so);
-/// names come from AppKit on the main thread, else from a cache filled in
-/// the background.
+/// marked. Cheap (a millisecond or so). On macOS names come from AppKit on
+/// the main thread, else from a cache filled in the background.
 pub fn displays() -> Vec<Display> {
     #[cfg(target_os = "macos")]
-    {
-        let mut displays = macos::read();
-        let focused = macos::focused_window_frame();
-        let pointer = scrawl_capture::screens::pointer().map(|[x, y]| (x, y));
-        mark_focus(&mut displays, focused, pointer);
-        displays
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        Vec::new()
-    }
+    let (mut displays, focused, pointer) = (
+        macos::read(),
+        macos::focused_window_frame(),
+        scrawl_capture::screens::pointer().map(|[x, y]| (x, y)),
+    );
+    #[cfg(target_os = "windows")]
+    let (mut displays, (focused, pointer)) = (
+        super::windows::read_displays(),
+        super::windows::focus_hints(),
+    );
+    #[cfg(target_os = "linux")]
+    let (mut displays, (focused, pointer)) =
+        (super::linux::read_displays(), super::linux::focus_hints());
+    mark_focus(&mut displays, focused, pointer);
+    displays
 }
 
 /// Marks the display holding most of `window` (the focused window) as the
@@ -216,9 +226,12 @@ pub fn describe(displays: &[Display], agents: Option<&Display>) -> Option<String
 }
 
 /// Display names by id, as last read from AppKit or `system_profiler`.
+#[cfg(target_os = "macos")]
 static NAMES: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+#[cfg(target_os = "macos")]
 static ASKING: Mutex<bool> = Mutex::new(false);
 
+#[cfg(target_os = "macos")]
 fn name_of(id: &str) -> Option<String> {
     NAMES
         .lock()
@@ -228,6 +241,7 @@ fn name_of(id: &str) -> Option<String> {
         .cloned()
 }
 
+#[cfg(target_os = "macos")]
 fn remember_names(names: impl IntoIterator<Item = (String, String)>) {
     NAMES
         .lock()
@@ -237,6 +251,7 @@ fn remember_names(names: impl IntoIterator<Item = (String, String)>) {
 }
 
 /// The names in `system_profiler SPDisplaysDataType -json`, by display id.
+#[cfg(any(test, target_os = "macos"))]
 pub fn profiler_names(json: &str) -> Vec<(String, String)> {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
         return Vec::new();
@@ -268,6 +283,7 @@ pub fn profiler_names(json: &str) -> Vec<(String, String)> {
 
 /// Asks `system_profiler` for the names on a thread of its own (half a
 /// second), once at a time.
+#[cfg(target_os = "macos")]
 fn learn_names() {
     {
         let mut asking = ASKING.lock().unwrap_or_else(|error| error.into_inner());
