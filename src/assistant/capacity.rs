@@ -203,7 +203,10 @@ mod tests {
         assert!(!background_room(10, 10, Pressure::Normal));
         assert!(background_room(10, 1, Pressure::Warning));
         assert!(!background_room(10, 2, Pressure::Warning));
-        assert!(background_room(10, 0, Pressure::Critical), "one always runs");
+        assert!(
+            background_room(10, 0, Pressure::Critical),
+            "one always runs"
+        );
         assert!(!background_room(10, 1, Pressure::Critical));
         assert!(background_room(0, 0, Pressure::Normal), "a limit of 0 is 1");
     }
@@ -213,9 +216,18 @@ mod tests {
         let info = |available: u64| {
             format!("MemTotal:       16000000 kB\nMemFree: 1 kB\nMemAvailable:   {available} kB\n")
         };
-        assert_eq!(pressure_of_meminfo(&info(8_000_000)), Some(Pressure::Normal));
-        assert_eq!(pressure_of_meminfo(&info(1_500_000)), Some(Pressure::Warning));
-        assert_eq!(pressure_of_meminfo(&info(500_000)), Some(Pressure::Critical));
+        assert_eq!(
+            pressure_of_meminfo(&info(8_000_000)),
+            Some(Pressure::Normal)
+        );
+        assert_eq!(
+            pressure_of_meminfo(&info(1_500_000)),
+            Some(Pressure::Warning)
+        );
+        assert_eq!(
+            pressure_of_meminfo(&info(500_000)),
+            Some(Pressure::Critical)
+        );
         assert_eq!(pressure_of_meminfo("nonsense"), None);
     }
 

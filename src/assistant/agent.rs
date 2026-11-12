@@ -17,6 +17,7 @@
 pub mod goal;
 pub mod handoff;
 pub mod markers;
+pub mod team;
 pub mod workspace;
 
 use std::path::PathBuf;
@@ -746,11 +747,23 @@ pub fn prepare(
         None => {}
     }
     system.push_str(&autonomy_rules(settings.autonomy, &job.authorized));
-    system.push_str(TOOLS_RULES);
-    if settings.memory {
-        system.push_str(&memory_rules(job.memory.as_deref()));
+    // A job can't make schedules or remember (`tools::Role::Job`); it still
+    // reads the memory note.
+    let job_role = job.workspace.is_some();
+    if !job_role {
+        system.push_str(TOOLS_RULES);
     }
-    let tools = tools_server(&job.conversation);
+    if settings.memory {
+        system.push_str(&memory_rules(job.memory.as_deref(), !job_role));
+    }
+    let tools = tools_server(
+        &job.conversation,
+        if job.workspace.is_some() {
+            crate::assistant::tools::Role::Job
+        } else {
+            crate::assistant::tools::Role::Turn
+        },
+    );
     Ok(Run {
         backend: settings.backend,
         model: model(job),
@@ -777,13 +790,24 @@ pub fn prepare(
     })
 }
 
-/// Hex's own tools for a task (`tools`): memory and schedules.
-fn tools_server(task: &str) -> Option<crate::assistant::backends::McpServer> {
+/// Hex's own tools for a task (`tools`): memory and schedules for the
+/// person's own turn, a team for a job.
+fn tools_server(
+    task: &str,
+    role: crate::assistant::tools::Role,
+) -> Option<crate::assistant::backends::McpServer> {
     Some(crate::assistant::backends::McpServer {
         command: std::env::current_exe().ok()?,
-        args: ["assistant", "tools-mcp", "--task", task]
-            .map(str::to_owned)
-            .to_vec(),
+        args: [
+            "assistant",
+            "tools-mcp",
+            "--task",
+            task,
+            "--role",
+            role.arg(),
+        ]
+        .map(str::to_owned)
+        .to_vec(),
         path_env: std::env::var("PATH").unwrap_or_default(),
     })
 }
@@ -792,10 +816,14 @@ fn tools_server(task: &str) -> Option<crate::assistant::backends::McpServer> {
 pub const TOOLS_RULES: &str = "\nWhen the person asks for something to happen later or repeatedly (\"every morning at 8 …\"), schedule it with hex_schedule (a cron line or an RRULE, local time) instead of doing it now, and say the schedule and its next runs in your answer. hex_schedules lists schedules; hex_unschedule removes one.\n";
 
 /// What the person's memory note says, and when to add to it.
-pub fn memory_rules(note: Option<&str>) -> String {
-    let mut rules = String::from(
-        "\nWhen the person states a durable fact about themselves or their work (their company, website, a colleague's name and email, the tone or language they like), save it with hex_remember, one short fact per call. Never save passwords, keys, tokens, or card or account numbers, and nothing you only read on a page or in an email.\n",
-    );
+pub fn memory_rules(note: Option<&str>, may_remember: bool) -> String {
+    let mut rules = if may_remember {
+        String::from(
+            "\nWhen the person states a durable fact about themselves or their work (their company, website, a colleague's name and email, the tone or language they like), save it with hex_remember, one short fact per call. Never save passwords, keys, tokens, or card or account numbers, and nothing you only read on a page or in an email.\n",
+        )
+    } else {
+        String::new()
+    };
     if let Some(note) = note {
         rules.push_str("What you know about the person (their memory note):\n<<<\n");
         rules.push_str(note);
@@ -886,6 +914,7 @@ pub fn job_rules(workspace: &std::path::Path, browser: bool, unrestricted: bool)
             ""
         },
     );
+    rules.push_str(team::RULES);
     if browser && !crate::assistant::browser::signed_in() {
         rules.push_str("The hidden browser isn't signed in to any account. If the job needs Gmail, Google Sheets, or another account, include in your one question that the person should take their logins over from Chrome or sign in by hand in Hex's settings (Accounts) and answer when done.\n");
     }

@@ -62,9 +62,24 @@ impl Runner {
         if let Some(session) = &desktop_session {
             (self.hooks.style_agent)(session, &agent_id, colour, None);
         }
+        // A helper works in a folder inside its lead's (`agent::team`).
+        let parent = self
+            .state()
+            .tasks
+            .iter()
+            .find(|task| task.key == key)
+            .and_then(|task| task.parent.clone());
+        let inside = parent.as_ref().and_then(|lead| {
+            self.state()
+                .tasks
+                .iter()
+                .find(|task| &task.status.conversation == lead)
+                .and_then(|task| task.workspace.clone())
+                .or_else(|| (self.hooks.workspace_of)(lead))
+        });
         let workspace = match &kind {
             JobKind::Job { title } => {
-                let workspace = (self.hooks.make_workspace)(title);
+                let workspace = (self.hooks.make_workspace)(inside.as_deref(), title);
                 if workspace.is_none() {
                     tracing::warn!("couldn't make the job's workspace; it runs without one");
                 }
@@ -97,12 +112,15 @@ impl Runner {
             .then(|| crate::assistant::memory::for_prompt(&(self.hooks.memory)()))
             .flatten();
         let notify = |event: &Event| {
-            if crate::assistant::notify::wanted(
-                settings.notifications,
-                lane == Lane::Background,
-                request.origin == Origin::Chat,
-                crate::assistant::notify::hex_in_front(),
-            ) && let Some(note) = crate::assistant::notify::for_event(event, &request.text)
+            // A helper is quiet: its lead answers for the team.
+            if parent.is_none()
+                && crate::assistant::notify::wanted(
+                    settings.notifications,
+                    lane == Lane::Background,
+                    request.origin == Origin::Chat,
+                    crate::assistant::notify::hex_in_front(),
+                )
+                && let Some(note) = crate::assistant::notify::for_event(event, &request.text)
             {
                 (self.hooks.notify)(&note);
             }

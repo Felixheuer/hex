@@ -211,9 +211,14 @@ fn the_prompt_explains_the_autonomy_mode_and_memory() {
     assert!(
         kept.contains("Shell commands run sandboxed") && kept.contains("save emails as drafts")
     );
-    let memory = memory_rules(Some("- Company: blabla.com"));
+    let memory = memory_rules(Some("- Company: blabla.com"), true);
     assert!(memory.contains("hex_remember"));
     assert!(memory.contains("<<<\n- Company: blabla.com\n>>>"));
+    // A job reads the note but can't add to it.
+    let read_only = memory_rules(Some("- Company: blabla.com"), false);
+    assert!(!read_only.contains("hex_remember"));
+    assert!(read_only.contains("- Company: blabla.com"));
+    assert!(kept.contains("hex_team_start"), "a job may lead a team");
     let mut confirm = job("Ja, schick sie", Origin::Background, Context::default());
     confirm.kind = JobKind::Confirm {
         question: "Shall I send the 3 emails?".into(),

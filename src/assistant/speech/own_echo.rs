@@ -142,7 +142,10 @@ fn cut_reading(said: &[String], transcript: &str) -> String {
 fn spans(text: &str) -> Vec<(String, usize, usize)> {
     let mut out = Vec::new();
     let mut start = None;
-    for (index, c) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
+    for (index, c) in text
+        .char_indices()
+        .chain(std::iter::once((text.len(), ' ')))
+    {
         match (c.is_alphanumeric(), start) {
             (true, None) => start = Some(index),
             (false, Some(from)) => {
@@ -203,7 +206,10 @@ mod tests {
         );
         // Their question reuses the answer's words: still theirs.
         assert_eq!(
-            cut_reading(&reading, "Hamburg ist mit rund 1,9 Millionen. Und in Berlin?"),
+            cut_reading(
+                &reading,
+                "Hamburg ist mit rund 1,9 Millionen. Und in Berlin?"
+            ),
             "Und in Berlin?"
         );
         // Only Hex's voice: nothing left, a false alarm.

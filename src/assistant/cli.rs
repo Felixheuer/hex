@@ -93,6 +93,10 @@ pub enum AssistantCommand {
     ToolsMcp {
         #[arg(long)]
         task: String,
+        /// `job` for a background job (team tools; no memory, schedules,
+        /// or hand-off), `turn` (the default) for a question or a chat.
+        #[arg(long, default_value = "turn")]
+        role: String,
     },
     /// The guard's MCP server for one task (Hex gives it to each task's
     /// agent in place of agent-desktop): `--spec` is the task's JSON spec or
@@ -234,7 +238,14 @@ pub fn run(command: AssistantCommand) -> u8 {
         AssistantCommand::TakeOver { id } => send(&id, remote::Verb::TakeOver),
         AssistantCommand::HandBack { id } => send(&id, remote::Verb::HandBack),
         AssistantCommand::Schedules { command } => schedules(command),
-        AssistantCommand::ToolsMcp { task } => super::tools::serve(&task).map(|()| true),
+        AssistantCommand::ToolsMcp { task, role } => {
+            let role = if role == "job" {
+                super::tools::Role::Job
+            } else {
+                super::tools::Role::Turn
+            };
+            super::tools::serve(&task, role).map(|()| true)
+        }
         AssistantCommand::Conversations => {
             list();
             Ok(true)

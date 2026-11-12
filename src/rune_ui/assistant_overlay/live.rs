@@ -837,8 +837,14 @@ mod tests {
             },
         );
         // A card's first four browsers stream slowly; the fifth on is "+2".
-        assert_eq!(rate_of(&registry, "carded", "hex-carded_0"), Rate::Background);
-        assert_eq!(rate_of(&registry, "carded", "hex-carded_3"), Rate::Background);
+        assert_eq!(
+            rate_of(&registry, "carded", "hex-carded_0"),
+            Rate::Background
+        );
+        assert_eq!(
+            rate_of(&registry, "carded", "hex-carded_3"),
+            Rate::Background
+        );
         assert_eq!(rate_of(&registry, "carded", "hex-carded_4"), Rate::Idle);
         // A job folded into the count line streams nothing until it shows.
         assert_eq!(rate_of(&registry, "folded", "hex-folded"), Rate::Idle);

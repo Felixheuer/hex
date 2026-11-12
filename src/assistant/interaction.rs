@@ -188,9 +188,7 @@ fn update(change: impl Fn(Reasons) -> Reasons) {
         match REASONS.compare_exchange_weak(now, next, Ordering::AcqRel, Ordering::Acquire) {
             Ok(_) => {
                 REFRESHED_MS.store(crate::assistant::store::now_ms(), Ordering::Release);
-                crate::assistant::service::set_listening(
-                    Reasons(next).shown().holds_speech_back(),
-                );
+                crate::assistant::service::set_listening(Reasons(next).shown().holds_speech_back());
                 return;
             }
             Err(actual) => now = actual,
@@ -225,14 +223,23 @@ mod tests {
         let shown = |steps: &[(&str, Listening, bool)]| after(steps).shown();
         assert_eq!(shown(&[("conversation", FollowUp, true)]), FollowUp);
         assert_eq!(
-            shown(&[("conversation", FollowUp, true), ("conversation", Hearing, true)]),
+            shown(&[
+                ("conversation", FollowUp, true),
+                ("conversation", Hearing, true)
+            ]),
             Hearing
         );
         assert_eq!(
-            shown(&[("conversation", Hearing, true), ("conversation", Off, false)]),
+            shown(&[
+                ("conversation", Hearing, true),
+                ("conversation", Off, false)
+            ]),
             Off
         );
-        assert_eq!(shown(&[("hold", Hold, true), ("conversation", Off, false)]), Hold);
+        assert_eq!(
+            shown(&[("hold", Hold, true), ("conversation", Off, false)]),
+            Hold
+        );
         assert_eq!(
             shown(&[("hold", Hold, true), ("conversation", FollowUp, true)]),
             Hold
@@ -274,7 +281,11 @@ mod tests {
         ]);
         assert_eq!(reasons.shown(), Dictation);
         assert_eq!(
-            after(&[("dictation", Dictation, true), ("dictation", Dictation, false)]).shown(),
+            after(&[
+                ("dictation", Dictation, true),
+                ("dictation", Dictation, false)
+            ])
+            .shown(),
             Off
         );
     }

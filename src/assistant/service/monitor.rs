@@ -57,6 +57,17 @@ impl Runner {
         }
         self.check_hands_off(&here);
         self.check_plans();
+        // Jobs asking for helpers (`agent::team`).
+        for ask in (self.hooks.team_asks)() {
+            let ours = self
+                .state()
+                .tasks
+                .iter()
+                .any(|task| task.status.conversation == ask.lead);
+            if ours {
+                self.start_team(&ask);
+            }
+        }
         // Queued tasks held back by tight memory start once it eases.
         if self.state().tasks.iter().any(|task| !task.running) {
             self.pump();

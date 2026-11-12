@@ -297,7 +297,11 @@ pub fn report() -> String {
             d.outcome,
             d.route,
             d.needed * 20,
-            if d.echo_judged { "echo judged" } else { "margin" },
+            if d.echo_judged {
+                "echo judged"
+            } else {
+                "margin"
+            },
             d.level_db.map_or("?".into(), |db| format!("{db:.0}")),
             d.playback_db.map_or("?".into(), |db| format!("{db:.0}")),
         ));
@@ -323,7 +327,10 @@ mod tests {
         let up = learn(start, Route::Speakers, Outcome::FalseAlarm);
         assert_eq!(up.frames(Route::Speakers), 28);
         assert_eq!(up.speaker_margin_db, 7.0);
-        assert_eq!(up.headphone_frames, start.headphone_frames, "routes learn apart");
+        assert_eq!(
+            up.headphone_frames, start.headphone_frames,
+            "routes learn apart"
+        );
         let down = learn(up, Route::Speakers, Outcome::TookOver);
         assert!(down.speaker_frames < up.speaker_frames);
         assert!(down.speaker_frames > start.speaker_frames);
@@ -389,7 +396,11 @@ mod tests {
         settle(Outcome::FalseAlarm);
         assert_eq!(thresholds().frames(Route::Speakers), 28);
         settle(Outcome::FalseAlarm);
-        assert_eq!(thresholds().frames(Route::Speakers), 28, "once per barge-in");
+        assert_eq!(
+            thresholds().frames(Route::Speakers),
+            28,
+            "once per barge-in"
+        );
         assert!(report().contains("FalseAlarm on Speakers"));
         reset();
     }

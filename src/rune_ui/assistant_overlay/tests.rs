@@ -857,7 +857,11 @@ fn a_press_on_the_count_keeps_every_card_open() {
     rt.settle_all();
     rt.frame(0.0);
     assert_eq!(count_prefix(&rt, "job-job"), 5, "pinned open");
-    assert_eq!(count(&rt, "jobs-line-list"), 1, "the list stays a press away");
+    assert_eq!(
+        count(&rt, "jobs-line-list"),
+        1,
+        "the list stays a press away"
+    );
 }
 
 /// Renders the overlays to `HEX_ASSISTANT_SNAPS/assistant-*.png` in both
@@ -947,7 +951,11 @@ fn snapshots() {
             let mut rt = runtime(state, orb::view, orb::SIZE, dark);
             rt.settle_all();
             let (w, h) = px(orb::SIZE);
-            save(name, orb::SIZE, crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h));
+            save(
+                name,
+                orb::SIZE,
+                crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h),
+            );
         }
         // The whole desk at 1×: 2560 × 2609 pixels.
         let mut two = crate::rune_ui::offscreen::runtime(

@@ -405,6 +405,10 @@ type Speak = dyn Fn(&str, Option<&str>) + Send + Sync;
 type Hook<T> = Box<dyn Fn() -> T + Send + Sync>;
 type OnTask<R = ()> = Box<dyn Fn(&str) -> R + Send + Sync>;
 type TaskHook = OnTask;
+/// Makes a job's workspace for its title, inside a folder (a helper's, in
+/// its lead's) or in the jobs' own root.
+type MakeWorkspace =
+    dyn Fn(Option<&std::path::Path>, &str) -> Option<std::path::PathBuf> + Send + Sync;
 type Pause = dyn Fn(&str, bool) + Send + Sync;
 type BringForward = dyn Fn(&str, &[TaskWindow]) + Send + Sync;
 type Settle = dyn Fn(&str, Ended, &str) + Send + Sync;
@@ -456,7 +460,7 @@ pub(crate) struct Hooks {
     /// Requests from other Hex processes (`remote`).
     pub requests: Hook<Vec<(String, remote::Verb)>>,
     /// Makes a new job's workspace for its title.
-    pub make_workspace: OnTask<Option<std::path::PathBuf>>,
+    pub make_workspace: Box<MakeWorkspace>,
     /// A conversation's workspace, if it is a job.
     pub workspace_of: OnTask<Option<std::path::PathBuf>>,
     /// Writes a message into a conversation beside the task that may be
@@ -477,7 +481,17 @@ pub(crate) struct Hooks {
     /// How tight memory is now: queued Background tasks wait while it is
     /// (`capacity::background_room`).
     pub pressure: Hook<super::capacity::Pressure>,
+    /// Jobs' requests to start helpers (`agent::team`), taken once.
+    pub team_asks: Hook<Vec<agent::team::Ask>>,
+    /// Answers a request: the helpers started, or why not.
+    pub team_answer: Box<TeamAnswer>,
+    /// Every event, for the helpers' records.
+    pub team_event: Box<dyn Fn(&Event) + Send + Sync>,
+    /// The lead a conversation helps, if it's a helper (after a restart).
+    pub lead_of: OnTask<Option<ConversationId>>,
 }
+
+type TeamAnswer = dyn Fn(&agent::team::Ask, Result<Vec<agent::team::Member>, String>) + Send + Sync;
 
 impl Hooks {
     /// The real ones: the backends, the saved settings, agent-desktop, the
@@ -524,8 +538,11 @@ impl Hooks {
             requests: Box::new(move || {
                 remote::take_new(&mut seen.lock().unwrap_or_else(|error| error.into_inner()))
             }),
-            make_workspace: Box::new(|title| {
-                let root = agent::workspace::root()?;
+            make_workspace: Box::new(|inside, title| {
+                let root = match inside {
+                    Some(folder) => folder.to_path_buf(),
+                    None => agent::workspace::root()?,
+                };
                 agent::workspace::create(&root, title, store::now_ms())
                     .inspect_err(|error| tracing::warn!(%error, "no workspace for the job"))
                     .ok()
@@ -546,6 +563,22 @@ impl Hooks {
             notify: Box::new(super::notify::show),
             due_schedules: Box::new(super::schedules::take_due),
             pressure: Box::new(super::capacity::pressure),
+            team_asks: Box::new(|| {
+                agent::team::root()
+                    .map(|root| agent::team::pending(&root))
+                    .unwrap_or_default()
+            }),
+            team_answer: Box::new(|ask, result| {
+                if let Some(root) = agent::team::root() {
+                    agent::team::answer(&root, ask, result);
+                }
+            }),
+            team_event: Box::new(|event| {
+                if let Some(root) = agent::team::root() {
+                    agent::team::on_event(&root, event);
+                }
+            }),
+            lead_of: Box::new(agent::team::lead_of),
             classify_reply: Box::new(|question, title, said| {
                 let (_, settings) = current_settings();
                 (settings.backend == AssistantBackend::ClaudeApi).then_some(())?;
@@ -663,6 +696,9 @@ struct Task {
     request: Request,
     /// The person's own words this task may be authorized from (`Said`).
     said: Option<String>,
+    /// The job it helps (`agent::team`): it works in a folder inside that
+    /// job's, stays quiet (the lead answers), and stops with it.
+    parent: Option<ConversationId>,
     status: TaskStatus,
     control: Arc<Control>,
     agent_id: String,
@@ -740,6 +776,7 @@ impl Runner {
     /// Tells every subscriber, after noting a step or window on its task and
     /// reading a Here answer aloud as it streams.
     fn emit(self: &Arc<Self>, event: &Event) {
+        (self.hooks.team_event)(event);
         match event {
             Event::Step {
                 conversation,
@@ -945,7 +982,15 @@ impl Runner {
                 Said::Words(words) => Some(words),
                 Said::Nobody => None,
             };
-            self.push_task(&mut state, request, kind, key, new_conversation, voice, said);
+            self.push_task(
+                &mut state,
+                request,
+                kind,
+                key,
+                new_conversation,
+                voice,
+                said,
+            );
             id
         };
         for key in stop {
@@ -995,6 +1040,7 @@ impl Runner {
         said: Option<String>,
     ) {
         let id = request.conversation.clone().unwrap_or_default();
+        let id_for_parent = id.clone();
         let key = key.unwrap_or_else(|| self.next.fetch_add(1, Ordering::Relaxed));
         let used: Vec<u8> = state.tasks.iter().map(|task| task.status.colour).collect();
         let colour = (0..8u8)
@@ -1037,6 +1083,7 @@ impl Runner {
             reply: None,
             authorized_line: None,
             said,
+            parent: (self.hooks.lead_of)(&id_for_parent),
         });
     }
 
@@ -1139,12 +1186,101 @@ impl Runner {
         ))
     }
 
+    /// Starts the helpers a job asked for (`agent::team`), and answers it.
+    pub(crate) fn start_team(self: &Arc<Self>, ask: &agent::team::Ask) {
+        let now = self.now();
+        let result = {
+            let mut state = self.state();
+            self.team_members(&mut state, ask, now)
+        };
+        let started = result.as_ref().is_ok_and(|members| !members.is_empty());
+        if let Err(why) = &result {
+            tracing::info!(lead = ask.lead, why, "a team request was refused");
+        }
+        (self.hooks.team_answer)(ask, result);
+        if started {
+            self.refresh_mode();
+            self.pump();
+        }
+    }
+
+    fn team_members(
+        &self,
+        state: &mut State,
+        ask: &agent::team::Ask,
+        now: u64,
+    ) -> Result<Vec<agent::team::Member>, String> {
+        let lead = state
+            .tasks
+            .iter()
+            .find(|task| task.status.conversation == ask.lead && task.running)
+            .ok_or("Only a running background job can start helpers.")?;
+        if lead.workspace.is_none() {
+            return Err("Only a background job can start helpers; do it yourself.".into());
+        }
+        if lead.parent.is_some() {
+            return Err("A helper can't start helpers of its own: do this part yourself.".into());
+        }
+        let said = lead.said.clone();
+        let working = state
+            .tasks
+            .iter()
+            .filter(|task| task.parent.as_deref() == Some(ask.lead.as_str()))
+            .count();
+        if working + ask.jobs.len() > agent::team::MAX_AT_ONCE {
+            return Err(format!(
+                "At most {} helpers work at once and {working} still do: wait for some (hex_team_status with wait_seconds) or start fewer.",
+                agent::team::MAX_AT_ONCE
+            ));
+        }
+        let mut members = Vec::new();
+        for job in &ask.jobs {
+            let id = store::new_id();
+            let request = Request {
+                conversation: Some(id.clone()),
+                text: job.task.clone(),
+                origin: Origin::Background,
+                context: Context::default(),
+            };
+            // A helper's task is the lead's words: it is authorized from the
+            // person's request that led to the lead (`Said`).
+            self.push_task(
+                state,
+                request,
+                JobKind::Job {
+                    title: job.title.clone(),
+                },
+                None,
+                true,
+                false,
+                said.clone(),
+            );
+            if let Some(task) = state.tasks.last_mut() {
+                task.parent = Some(ask.lead.clone());
+            }
+            members.push(agent::team::Member {
+                id,
+                title: job.title.clone(),
+                task: job.task.clone(),
+                state: agent::team::State::Queued,
+                step: None,
+                answer: None,
+                started_ms: now,
+            });
+        }
+        Ok(members)
+    }
+
     pub(crate) fn cancel(self: &Arc<Self>, conversation: &str) {
+        // Its helpers stop with it.
         let keys: Vec<u64> = self
             .state()
             .tasks
             .iter()
-            .filter(|task| task.status.conversation == conversation)
+            .filter(|task| {
+                task.status.conversation == conversation
+                    || task.parent.as_deref() == Some(conversation)
+            })
             .map(|task| task.key)
             .collect();
         for key in keys {

@@ -441,7 +441,10 @@ mod tests {
     #[test]
     fn many_jobs_fold_into_one_line() {
         let board = board_with(7, false);
-        assert_eq!(layout(&running(&board.tasks), false, false), Layout::Line(7));
+        assert_eq!(
+            layout(&running(&board.tasks), false, false),
+            Layout::Line(7)
+        );
     }
 
     #[test]

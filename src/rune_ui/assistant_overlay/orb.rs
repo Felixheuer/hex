@@ -225,7 +225,11 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
             + GAP
             + jobs::LINE_H
             + GAP
-            + if asking.is_some() { QUESTION_ROOM + GAP } else { 0.0 }
+            + if asking.is_some() {
+                QUESTION_ROOM + GAP
+            } else {
+                0.0
+            }
             + (bubbles.len() - usize::from(asking.is_some())) as f32 * (BUBBLE_H + GAP);
         let room = jobs::Room {
             down: grow.down,
