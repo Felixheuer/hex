@@ -11,9 +11,14 @@
 # only type-checks, so the C++ library (and the Vulkan SDK it needs) is never
 # built. Linux runs in Docker (scripts/linux.Dockerfile), building into a
 # Docker volume, so its tests run there too, away from this Mac's audio.
+#
+# Every checkout (worktrees too) shares one Windows target directory, in the
+# main checkout, and one Linux volume; Linux runs one at a time, since the
+# Docker VM's memory holds one build.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+main="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
 
 windows() {
     command -v cargo-xwin >/dev/null || {
@@ -22,11 +27,12 @@ windows() {
     }
     local llvm
     llvm="$(brew --prefix llvm)/bin"
-    local stub=target/other-os/transcribe-stub
+    local target="$main/target/other-os"
+    local stub="$target/transcribe-stub"
     mkdir -p "$stub/lib"
     echo '{"shared":false,"libraries":[]}' >"$stub/lib/transcribe-link.json"
     rustup target add x86_64-pc-windows-msvc >/dev/null
-    PATH="$llvm:$PATH" TRANSCRIBE_DIR="$PWD/$stub" CARGO_TARGET_DIR=target/other-os \
+    PATH="$llvm:$PATH" TRANSCRIBE_DIR="$stub" CARGO_TARGET_DIR="$target" \
         cargo xwin clippy --locked --target x86_64-pc-windows-msvc --bin hex --tests \
         -- -D warnings
 }
@@ -36,13 +42,19 @@ linux() {
         echo "Start Docker Desktop first." >&2
         exit 1
     }
+    local lock=/tmp/hex-linux-check.lock
+    until mkdir "$lock" 2>/dev/null; do
+        echo "Waiting for another Linux check ($lock)…" >&2
+        sleep 15
+    done
+    trap 'rmdir "$lock"' EXIT
     docker build -q -t hex-linux-check -f scripts/linux.Dockerfile scripts >/dev/null
     local command=(cargo clippy --locked --bin hex --tests -- -D warnings)
     if [[ "${1:-}" == test ]]; then
         shift
         command=(cargo nextest run --locked --bin hex --no-tests=warn "$@")
     fi
-    docker run --rm -t \
+    docker run --rm \
         -v "$PWD:/hex" \
         -v hex-linux-target:/target \
         -v hex-linux-cargo:/usr/local/cargo/registry \
