@@ -396,13 +396,24 @@ pub fn name(backend: AssistantBackend) -> &'static str {
     }
 }
 
-/// The key a conversation saves `backend`'s session under.
-pub fn session_key(backend: AssistantBackend) -> &'static str {
-    match backend {
+/// The key a conversation saves `backend`'s session under for `lane`.
+///
+/// Each lane keeps its own: a session carries its lane's rules and tools
+/// (a Background one its hidden browsers and "never the window in front", a
+/// Here one only that window), so a hold that continues a Background
+/// conversation open in Chats must not resume its session, nor a typed
+/// follow-up a Here one. The other lane's turn starts a new session that is
+/// told the conversation so far.
+pub fn session_key(backend: AssistantBackend, lane: crate::assistant::Lane) -> String {
+    let backend = match backend {
         AssistantBackend::ClaudeCode => "claude_code",
         AssistantBackend::Codex => "codex",
         AssistantBackend::OpenCode => "open_code",
         AssistantBackend::ClaudeApi => "claude_api",
+    };
+    match lane {
+        crate::assistant::Lane::Background => backend.to_owned(),
+        crate::assistant::Lane::Here => format!("{backend}.here"),
     }
 }
 
@@ -680,5 +691,23 @@ mod tests {
         let (status, _) = process.finish(&control);
         assert!(!status.unwrap().success());
         assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn each_lane_keeps_its_own_session() {
+        use crate::assistant::Lane;
+        assert_eq!(
+            session_key(AssistantBackend::ClaudeCode, Lane::Background),
+            "claude_code",
+            "saved Background sessions keep resuming"
+        );
+        assert_eq!(
+            session_key(AssistantBackend::ClaudeCode, Lane::Here),
+            "claude_code.here"
+        );
+        assert_ne!(
+            session_key(AssistantBackend::Codex, Lane::Here),
+            session_key(AssistantBackend::Codex, Lane::Background)
+        );
     }
 }

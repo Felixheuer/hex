@@ -177,7 +177,8 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
     emit(Event::ConversationsChanged);
 
     let backend = job.settings.backend;
-    let key = provider::session_key(backend);
+    let key = provider::session_key(backend, job.request.origin.lane());
+    let key = key.as_str();
     let resume = stored.sessions.get(key).cloned();
     let mut run = match prepare(job, &history, resume.clone(), image) {
         Ok(run) => run,
@@ -188,7 +189,7 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
     emit(Event::Thinking {
         conversation: id.clone(),
     });
-    let mut result = run_backend(&run, control, id, emit, &mut seen, store, &mut stored);
+    let mut result = run_backend(&run, key, control, id, emit, &mut seen, store, &mut stored);
     // A saved session the backend no longer has: start a new one that is
     // told the conversation so far.
     if let Err(error) = &result
@@ -202,7 +203,7 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
         run.resume = None;
         stored.sessions.remove(key);
         run.prompt = prompt(job, &history, true);
-        result = run_backend(&run, control, id, emit, &mut seen, store, &mut stored);
+        result = run_backend(&run, key, control, id, emit, &mut seen, store, &mut stored);
     }
     let actions = std::mem::take(&mut seen.actions);
     if control.steered() {
@@ -306,8 +307,10 @@ fn keep_reply(
 
 /// Runs the backend once, turning its reports into events, and saves its
 /// session the moment it has one, so a restart can resume it.
+#[allow(clippy::too_many_arguments)]
 fn run_backend(
     run: &Run,
+    key: &str,
     control: &Control,
     id: &ConversationId,
     emit: &mut dyn FnMut(Event),
@@ -315,7 +318,6 @@ fn run_backend(
     store: &Store,
     stored: &mut Stored,
 ) -> color_eyre::Result<provider::Finished> {
-    let key = provider::session_key(run.backend);
     let mut report = |report: Report| match report {
         Report::Thinking => emit(Event::Thinking {
             conversation: id.clone(),
@@ -646,7 +648,10 @@ pub fn prewarm(job: &Job) {
         .and_then(|stored| {
             stored
                 .sessions
-                .get(provider::session_key(job.settings.backend))
+                .get(&provider::session_key(
+                    job.settings.backend,
+                    job.request.origin.lane(),
+                ))
                 .cloned()
         });
     match prepare(job, &[], resume, None) {
