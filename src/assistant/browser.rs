@@ -22,6 +22,7 @@
 //!
 //! OWNER: browser.
 
+pub mod consent;
 mod proxy;
 pub mod sessions;
 
@@ -182,6 +183,51 @@ pub fn close(task: &str) {
             });
         }
     });
+}
+
+/// Reads a session's page through agent-browser, for [`consent`].
+pub(crate) struct PageProbe {
+    pub path: PathBuf,
+}
+
+impl consent::Probe for PageProbe {
+    fn inspect(&self, session: &str, focus: Option<&str>) -> Option<consent::Inspection> {
+        if let Some(selector) = focus {
+            call(&self.path, session, &["focus", selector]).ok()?;
+        }
+        let data = call(&self.path, session, &["eval", consent::INSPECT]).ok()?;
+        serde_json::from_value(data.get("result")?.clone()).ok()
+    }
+
+    fn label(&self, session: &str, selector: &str) -> Option<String> {
+        let read = |args: &[&str], key: &str| {
+            call(&self.path, session, args)
+                .ok()?
+                .get(key)?
+                .as_str()
+                .map(|text| text.trim().to_owned())
+                .filter(|text| !text.is_empty())
+        };
+        read(&["get", "attr", selector, "aria-label"], "value")
+            .or_else(|| read(&["get", "text", selector], "text"))
+            .or_else(|| read(&["get", "attr", selector, "value"], "value"))
+    }
+}
+
+/// The autonomy mode (Settings, read fresh) and what `task` may do.
+pub(crate) fn policy(task: &str) -> consent::Policy {
+    let task = task.to_owned();
+    Box::new(move || {
+        let mode = crate::app_settings::assistant_runtime()
+            .map(|(_, settings)| settings.autonomy)
+            .or_else(|| {
+                crate::app_settings::AppSettings::read()
+                    .ok()
+                    .map(|settings| settings.assistant.autonomy)
+            })
+            .unwrap_or_default();
+        (mode, crate::assistant::autonomy::read(&task))
+    })
 }
 
 /// `task`'s browsers that agent-browser has open.
