@@ -201,6 +201,13 @@ pub enum Fix {
     OpenSettings(Permission),
     /// Run it again (a timeout, a hiccup).
     Retry,
+    /// Hex runs translocated: drop the download mark from the original and
+    /// open that (`desktop::permission_doctor`).
+    RepairHex,
+    /// Remove the other copies of Hex that confuse its permissions.
+    RemoveCopies,
+    /// A permission is granted but needs a fresh process.
+    RestartHex,
 }
 
 impl Fix {
@@ -218,6 +225,9 @@ impl Fix {
             Self::GuidePermissions => "Grant permissions".into(),
             Self::OpenSettings(permission) => format!("Open {} settings", permission.name()),
             Self::Retry => "Try again".into(),
+            Self::RepairHex => "Repair Hex".into(),
+            Self::RemoveCopies => "Remove other copies".into(),
+            Self::RestartHex => "Restart Hex".into(),
         }
     }
 }
@@ -284,7 +294,31 @@ pub fn self_tests(
 }
 
 fn hex_permissions(check: Check) -> CheckResult {
+    // First what keeps any grant from reaching this copy of Hex.
+    #[cfg(target_os = "macos")]
+    if let Some(finding) = crate::desktop::permission_doctor::diagnose() {
+        use crate::desktop::permission_doctor::{Finding, message};
+        tracing::info!(?finding, "the permission doctor found a problem");
+        let fix = match finding {
+            Finding::Translocated { .. } => Some(Fix::RepairHex),
+            Finding::OtherCopies(_) => Some(Fix::RemoveCopies),
+            Finding::NotInstalled { .. } => None,
+        };
+        return CheckResult::failed(check, message(&finding), fix);
+    }
     let permissions = computer::permissions_now();
+    #[cfg(hex_capture)]
+    if permissions.accessibility
+        && !permissions.screen_recording
+        && crate::capture_host::screen_access_now()
+            == crate::capture_host::ScreenAccess::NeedsRestart
+    {
+        return CheckResult::failed(
+            check,
+            crate::desktop::permission_doctor::NEEDS_RESTART,
+            Some(Fix::RestartHex),
+        );
+    }
     match (permissions.accessibility, permissions.screen_recording) {
         (true, true) => CheckResult::passed(check, "Accessibility and Screen Recording are on"),
         (false, _) => CheckResult::failed(

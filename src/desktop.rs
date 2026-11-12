@@ -16,6 +16,8 @@ pub(crate) mod login_item;
 pub(crate) mod onboarding;
 pub(crate) mod opencode_catalog;
 pub(crate) mod opencode_service;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) mod permission_doctor;
 #[cfg(target_os = "macos")]
 pub(crate) mod permission_guide;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]

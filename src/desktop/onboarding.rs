@@ -1081,6 +1081,21 @@ pub fn spawn_relaunch() -> bool {
         .is_ok()
 }
 
+/// Opens `bundle` (another copy of Hex, such as the original of a
+/// translocated one) once this process has exited.
+#[cfg(target_os = "macos")]
+pub fn spawn_open_after_exit(bundle: &Path) -> bool {
+    Command::new("/bin/sh")
+        .args(relaunch_arguments(
+            std::process::id(),
+            bundle,
+            std::env::vars_os(),
+        ))
+        .spawn()
+        .inspect_err(|error| tracing::error!(%error, "could not schedule opening Hex"))
+        .is_ok()
+}
+
 /// `/bin/sh` arguments that wait for `pid` to exit, then open `bundle` with
 /// the forwarded environment. Waiting keeps the relaunched copy from racing
 /// the instance lock; `open` without -n leaves a single copy.

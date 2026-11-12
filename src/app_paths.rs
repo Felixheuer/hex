@@ -102,12 +102,6 @@ pub fn variant() -> Variant {
     }
 }
 
-/// Whether this is a macOS `Hex Test.app` build (`HEX_TEST_BUILD=1`), which
-/// keeps its data, settings, and user config apart from the installed Hex.
-pub fn is_macos_test_build() -> bool {
-    variant() == Variant::Test
-}
-
 /// Whether this is the macOS `Hex Dev.app` build (`HEX_DEV_BUILD=1`).
 pub fn is_macos_dev_build() -> bool {
     variant() == Variant::Dev

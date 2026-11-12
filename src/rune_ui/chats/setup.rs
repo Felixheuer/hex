@@ -340,6 +340,9 @@ pub(in crate::rune_ui) fn fix_label(fix: Fix) -> String {
         Fix::OpenSettings(Permission::Accessibility) => tr("Open Accessibility…").into(),
         Fix::OpenSettings(Permission::ScreenRecording) => tr("Open Screen Recording…").into(),
         Fix::Retry => tr("Try again").into(),
+        Fix::RepairHex => tr("Repair Hex").into(),
+        Fix::RemoveCopies => tr("Remove other copies").into(),
+        Fix::RestartHex => tr("Restart Hex").into(),
         // A fix added after this page was written, in its own words.
         #[allow(unreachable_patterns)]
         _ => fix.label(),
