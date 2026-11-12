@@ -232,14 +232,14 @@ fn through(
                 "mcp": server.opencode_config_as(MCP_NAME),
                 "tools": { "*": false, tool.as_str(): true },
             });
-            command.env("OPENCODE_CONFIG_CONTENT", config.to_string());
+            let model = crate::assistant::backends::providers::opencode_check(
+                &mut command,
+                settings,
+                config,
+            );
             command.args(["run", "--standalone", "--format", "json", "--archived"]);
-            if let Some(model) = settings
-                .opencode_model
-                .clone()
-                .or_else(super::opencode_recent_model)
-            {
-                command.args(["--model", &model]);
+            if let Some(model) = &model {
+                command.args(["--model", model]);
             }
             command.arg(open_prompt(&tool, &page.url));
         }

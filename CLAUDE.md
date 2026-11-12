@@ -18,3 +18,12 @@ for the section you need instead of reading it whole.
   using it. Read-only desktop checks only.
 - This is a fork: commit and push to `Felixheuer/hex`, never to
   `anomalyco/hex`. Its default branch is `dev`; there is no `main`.
+- Installing on this Mac: `scripts/install-fork.sh` builds, signs with the
+  Apple Development certificate (so macOS permissions survive rebuilds),
+  and installs `/Applications/Hex.app`. `scripts/update-fork.sh` pulls
+  `origin/dev` and reinstalls; `scripts/sync-upstream.sh [--merge]` brings
+  in anomalyco's `dev` on a `sync/upstream-<date>` branch first.
+- The fork has no CI: `.github/workflows` is removed and GitHub Actions is
+  turned off for the repository. Where AGENTS.md or docs mention workflows,
+  CI, golden artifacts from `check-linux.yml`, or release jobs, they describe
+  upstream. Verify locally instead (filtered tests, `scripts/check`).

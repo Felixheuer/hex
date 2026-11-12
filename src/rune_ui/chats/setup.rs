@@ -219,6 +219,7 @@ pub(in crate::rune_ui) fn fix_label(fix: Fix) -> String {
         Fix::InstallAgentBrowser => tr("Install agent-browser").into(),
         Fix::InstallLightpanda => tr("Install Lightpanda").into(),
         Fix::SignIn(_) => tr("Sign in…").into(),
+        Fix::UseApiKey(_) => tr("Use an API key…").into(),
         Fix::StartOpenCode => tr("Start OpenCode").into(),
         Fix::AddApiKey => tr("Add API key").into(),
         Fix::GuidePermissions => tr("Grant permissions…").into(),

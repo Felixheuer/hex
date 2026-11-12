@@ -350,6 +350,7 @@ pub fn apply_fix_with(fix: Fix, mut progress: impl FnMut(&str)) -> Result<()> {
         Fix::InstallAgentDesktop => install(Tool::AgentDesktop, progress),
         Fix::InstallAgentBrowser => install(Tool::AgentBrowser, progress),
         Fix::InstallLightpanda => install(Tool::Lightpanda, progress),
+        Fix::UseApiKey(backend) => super::providers::use_api_key(backend, progress),
         Fix::SignIn(backend) => {
             sign_in(backend)?;
             progress(&format!(
