@@ -570,13 +570,13 @@ fn key() -> Result<()> {
     let mut key = String::new();
     std::io::stdin().read_line(&mut key)?;
     super::credentials::set_api_key(&key)?;
-    println!(
-        "{}",
-        if key.trim().is_empty() {
-            "The saved API key was deleted."
-        } else {
-            "The API key is saved in the Keychain."
-        }
-    );
+    if key.trim().is_empty() {
+        println!("The saved API key was deleted.");
+    } else {
+        println!(
+            "The API key is saved in the {}.",
+            super::credentials::store::store_name(super::backends::os::Os::HERE)
+        );
+    }
     Ok(())
 }
