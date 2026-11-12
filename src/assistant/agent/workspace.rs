@@ -64,6 +64,14 @@ fn clean(title: &str) -> String {
 }
 
 /// The local date of `now_ms`, `YYYY-MM-DD`.
+#[cfg(windows)]
+fn date(now_ms: u64) -> String {
+    let local = crate::assistant::schedules::local(now_ms);
+    format!("{:04}-{:02}-{:02}", local.year, local.month, local.day)
+}
+
+/// The local date of `now_ms`, `YYYY-MM-DD`.
+#[cfg(not(windows))]
 fn date(now_ms: u64) -> String {
     let seconds = now_ms / 1000;
     #[cfg(unix)]

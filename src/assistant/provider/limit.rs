@@ -10,7 +10,7 @@
 //! - OpenCode: a provider error such as "Rate limit exceeded" with status 429.
 //! - The Claude API: HTTP 429 with `retry-after` seconds.
 //!
-//! A reset time with a zone name ("Europe/Berlin") is read as this Mac's
+//! A reset time with a zone name ("Europe/Berlin") is read as this computer's
 //! local time: the agents print the person's own zone.
 
 use std::sync::OnceLock;
@@ -26,7 +26,7 @@ pub struct Limit {
     pub until_ms: Option<u64>,
 }
 
-/// The limit `message` reports, now, on this Mac's clock and zone.
+/// The limit `message` reports, now, on this computer's clock and zone.
 pub fn detect(message: &str) -> Option<Limit> {
     detect_at(
         message,
@@ -36,7 +36,7 @@ pub fn detect(message: &str) -> Option<Limit> {
 }
 
 /// The limit `message` reports, `now_ms` being now and `offset_s` this
-/// Mac's offset from UTC.
+/// computer's offset from UTC.
 pub fn detect_at(message: &str, now_ms: u64, offset_s: i64) -> Option<Limit> {
     if !is_limit(message) {
         return None;
@@ -222,21 +222,9 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
-/// This Mac's offset from UTC now, in seconds.
+/// This computer's offset from UTC now, in seconds.
 fn local_offset_seconds() -> i64 {
-    #[cfg(unix)]
-    {
-        let seconds = (super::super::store::now_ms() / 1000) as libc::time_t;
-        // SAFETY: a zeroed `tm` is valid; `localtime_r` writes only into it.
-        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-        // SAFETY: both pointers are valid for the call.
-        if unsafe { libc::localtime_r(&seconds, &mut tm) }.is_null() {
-            return 0;
-        }
-        tm.tm_gmtoff
-    }
-    #[cfg(not(unix))]
-    0
+    crate::assistant::schedules::local_offset_seconds(super::super::store::now_ms()).unwrap_or(0)
 }
 
 #[cfg(test)]
