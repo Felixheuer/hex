@@ -70,6 +70,7 @@ fn orb_state(board: Board, expanded: bool) -> Orb {
         peek: false,
         grow: orb::Grow::default(),
         answer_key: fixture::ANSWER_KEY.into(),
+        voice: None,
         actions: orb::Actions {
             list: stack::Actions {
                 stop: |_, _| {},
@@ -94,6 +95,7 @@ fn bubble_state(bubble: Option<super::board::Bubble>) -> BubbleOverlay {
         speaking: false,
         setup: None,
         answer_key: fixture::ANSWER_KEY.into(),
+        level: None,
         actions: bubble::Actions {
             dismiss: |_| {},
             open: |_, _| {},

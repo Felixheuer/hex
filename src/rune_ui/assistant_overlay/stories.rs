@@ -116,6 +116,7 @@ fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
                     grow: orb::Grow::default(),
                     still: cx.system_reduced_motion(),
                     answer_key: fixture::ANSWER_KEY.into(),
+                    voice: None,
                 },
                 orb::Actions {
                     list: stack::Actions {
@@ -246,6 +247,7 @@ fn bubble_view(state: &BubbleStory, cx: &mut Cx<BubbleStory>) -> El {
             bubble::Voice {
                 speaking: state.speaking,
                 still: cx.system_reduced_motion(),
+                level: None,
             },
             fixture::ANSWER_KEY,
             actions,

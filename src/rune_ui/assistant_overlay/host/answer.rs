@@ -24,6 +24,8 @@ const BUBBLE_OUT: Duration = Duration::from_millis(260);
 const SETUP_SHOWS: Duration = Duration::from_secs(7);
 /// Esc's key code.
 const ESCAPE: u16 = 53;
+/// How often the pulse follows a measured voice.
+const VOICE_TICK: Duration = Duration::from_millis(33);
 
 pub(super) fn bubble_event(state: &mut BubbleOverlay, event: &Event, tx: &mut Tx) -> bool {
     let now = Instant::now();
@@ -103,8 +105,27 @@ fn settle_bubble(state: &mut BubbleOverlay, tx: &mut Tx, now: Instant) -> bool {
         return false;
     }
     let speaking = crate::assistant::speech::speaking();
-    let voice_changed = state.speaking != speaking;
+    let level = speaking
+        .then(crate::assistant::speech::level)
+        .flatten()
+        .map(bubble::pulse);
+    let voice_changed = state.speaking != speaking || state.level != level;
     state.speaking = speaking;
+    if state.level != level {
+        state.level = level;
+        // The orb pulses with the same voice.
+        if let Some(overlays) = OVERLAYS.get() {
+            overlays.orb.update_if(move |orb, _| {
+                let changed = orb.voice != level;
+                orb.voice = level;
+                changed && orb.shown
+            });
+        }
+    }
+    if level.is_some() {
+        // Follow the voice: about 30 times a second while it's measured.
+        tx.wake_after(VOICE_TICK);
+    }
     let Some(bubble) = state.bubble.as_mut() else {
         return voice_changed;
     };

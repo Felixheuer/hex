@@ -272,6 +272,7 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
                 bubble::Voice {
                     speaking: desk.speaking,
                     still,
+                    level: None,
                 },
                 fixture::ANSWER_KEY,
                 actions,
@@ -308,6 +309,7 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
                     grow,
                     still,
                     answer_key: fixture::ANSWER_KEY.into(),
+                    voice: None,
                 },
                 Desk::actions(),
             )),

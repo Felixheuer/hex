@@ -389,6 +389,16 @@ impl Hud {
         if matches!(&event, HudEvent::Started) {
             self.shown.store(false, Ordering::Release);
         }
+        // The assistant's conversation mode: its overlays draw listening
+        // until speech starts or it gives up.
+        #[cfg(target_os = "macos")]
+        let listening = match &event {
+            HudEvent::Listening => Some(true),
+            HudEvent::Started | HudEvent::Discarded | HudEvent::Cancelled | HudEvent::Reset => {
+                Some(false)
+            }
+            _ => None,
+        };
         let starts = matches!(&event, HudEvent::Started);
         let meter = matches!(&event, HudEvent::Meter { .. });
         self.model.handle(event, Instant::now(), self.reduce);
@@ -405,6 +415,10 @@ impl Hud {
                 .asking()
                 .filter(|_| self.model.status() == Some("Recording")),
         );
+        #[cfg(target_os = "macos")]
+        if let Some(on) = listening {
+            crate::rune_ui::assistant_overlay::listening(on);
+        }
     }
 
     #[cfg(not(target_os = "macos"))]

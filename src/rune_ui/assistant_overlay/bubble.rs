@@ -62,6 +62,8 @@ pub(crate) struct BubbleOverlay {
     pub(crate) shown: bool,
     /// Its answer is being read aloud.
     pub(crate) speaking: bool,
+    /// How loud the reading sounds now (0 to 1), when it can be measured.
+    pub(crate) level: Option<f32>,
     /// "Finish setting up the assistant first" shows instead, until then.
     pub(crate) setup: Option<std::time::Instant>,
     /// The Action shortcut's keys, for "Hold ⌘ to answer".
@@ -86,6 +88,7 @@ pub(crate) fn view(state: &BubbleOverlay, cx: &mut Cx<BubbleOverlay>) -> El {
     let voice_now = Voice {
         speaking: state.speaking,
         still: cx.system_reduced_motion(),
+        level: state.level,
     };
     let flying = state.bubble.as_ref().is_some_and(|b| b.escalated);
     let shown = if !state.shown {
@@ -171,12 +174,20 @@ pub(crate) fn setup_card<S: 'static>(p: Paint, actions: Actions<S>) -> El {
         )
 }
 
-/// Whether the answer is read aloud now, and whether to hold its pulse
-/// still (Reduce motion).
+/// Whether the answer is read aloud now, how loud (`speech::level`, when it
+/// can be measured), and whether to hold its pulse still (Reduce motion).
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Voice {
     pub(crate) speaking: bool,
     pub(crate) still: bool,
+    pub(crate) level: Option<f32>,
+}
+
+/// A voice level (linear, 0 to 1) as the pulse shows it: louder speech
+/// grows it, quickly at first (speech sits low on a linear scale), in
+/// twentieths so a steady voice doesn't redraw.
+pub(crate) fn pulse(level: f32) -> f32 {
+    (level.clamp(0.0, 1.0).sqrt() * 20.0).round() / 20.0
 }
 
 /// The card grows out of the HUD's side with a little overshoot, and
@@ -197,13 +208,19 @@ fn grow(below: bool) -> Transition {
     ))
 }
 
-/// A small glow that pulses while the answer is read aloud.
-fn voice(p: Paint, still: bool) -> El {
+/// A small glow that pulses while the answer is read aloud: with the
+/// voice's level when it can be measured, else on a speaking rhythm.
+fn voice(p: Paint, voice: Voice) -> El {
     let (lead, trail) = palette::frame(p.k.dark);
+    let size = voice.level.map_or(10.0, |level| 7.0 + 9.0 * pulse(level));
     let glow = el()
         .key("voice")
-        .size(10.0, 10.0)
-        .radius(5.0)
+        .size(16.0, 16.0)
+        .center()
+        .child(
+            el().key("voice-dot")
+                .size(size, size)
+                .radius(size / 2.0)
         .gradient(lead, trail)
         .box_shadow(rune::Shadow {
             x: 0.0,
@@ -213,8 +230,10 @@ fn voice(p: Paint, still: bool) -> El {
             color: lead.alpha(0.6),
             inset: false,
         })
+                .opacity(voice.level.map_or(1.0, |level| 0.45 + 0.55 * pulse(level))),
+        )
         .a11y_hidden();
-    if still {
+    if voice.still || voice.level.is_some() {
         glow
     } else {
         glow.looping(LoopSpec::opacity(VOICE_PULSE, 0.0, 0.35, 1.0))
@@ -244,7 +263,7 @@ pub(crate) fn card<S: 'static>(
                 .grow(1.0)
                 .min_w(0.0),
         )
-        .children(voice_now.speaking.then(|| voice(p, voice_now.still)));
+        .children(voice_now.speaking.then(|| voice(p, voice_now)));
     let body: Vec<El> = match bubble.phase {
         BubblePhase::Thinking => vec![working(p, tr("Thinking…"), "thinking")],
         BubblePhase::Working => {

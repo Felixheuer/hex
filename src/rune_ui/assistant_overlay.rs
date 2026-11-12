@@ -42,6 +42,7 @@ mod hands;
 mod hint;
 #[cfg(target_os = "macos")]
 mod host;
+mod listening;
 mod markdown;
 #[cfg(test)]
 mod multi;
@@ -60,7 +61,7 @@ mod tests;
 mod when;
 
 #[cfg(target_os = "macos")]
-pub(crate) use host::{ask_hint, install, set_open_chats, set_open_setup, setup_needed};
+pub(crate) use host::{ask_hint, install, listening, set_open_chats, set_open_setup, setup_needed};
 
 /// A task's colour, for Chats' running tasks.
 pub(super) use palette::task as task_colour;
