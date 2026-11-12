@@ -203,13 +203,6 @@ pub fn speaking() -> bool {
     started().is_some_and(|shared| shared.playback().busy())
 }
 
-/// When the audio playing now started; `None` while nothing plays. Stays
-/// put across sentences queued back to back.
-#[allow(dead_code, reason = "for echo handling in conversation mode")]
-pub fn speaking_since() -> Option<Instant> {
-    started().and_then(|shared| shared.playback().since())
-}
-
 /// How loud the answer being read sounds now: the linear RMS (0 to 1) of
 /// the last 30 ms the output played, or `None` while nothing plays.
 /// Barge-in on speakers needs it (`recognition::conversation`); cheap
@@ -364,12 +357,18 @@ pub fn automatic_voice(text: &str) -> Option<String> {
     .map(|voice| voice.name.clone())
 }
 
+/// When the audio playing now started; `None` while nothing plays. Stays
+/// put across sentences queued back to back.
+#[cfg(test)]
+fn speaking_since() -> Option<Instant> {
+    started().and_then(|shared| shared.playback().since())
+}
+
 /// The voice to get for `language` (`de`, `en-US`) when every installed
 /// one of it sounds worse, or none reads it: its name, about how big it is,
 /// and where to get it ([`VoiceHint::advice`]: System Settings on macOS,
 /// Settings › Time & language › Speech on Windows, Piper or espeak-ng on
 /// Linux). `None` when the best is installed.
-#[allow(dead_code, reason = "for the assistant's setup and Settings")]
 pub fn better_voice_available(language: &str) -> Option<VoiceHint> {
     voices::better_voice_for(voices::System::THIS, language, &voices_with_languages())
 }
@@ -378,7 +377,6 @@ pub fn better_voice_available(language: &str) -> Option<VoiceHint> {
 /// Content on macOS (System Voice › Manage Voices…), Settings › Time &
 /// language › Speech on Windows, and Piper's voice downloads on Linux (with
 /// the folder they go in made).
-#[allow(dead_code, reason = "for the assistant's setup and Settings")]
 pub fn open_voice_settings() {
     #[cfg(target_os = "windows")]
     windows::open_voice_settings();

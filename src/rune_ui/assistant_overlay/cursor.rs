@@ -54,12 +54,6 @@ pub(crate) fn cursor_image(colour: u8) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-/// Where the arrow's tip is in the image, in points from its top-left.
-#[allow(dead_code)] // For agent-desktop, once it takes a hotspot.
-pub(crate) fn cursor_hotspot() -> (f32, f32) {
-    (TIP[0], TIP[1])
-}
-
 fn file(dir: &Path, index: u8) -> PathBuf {
     dir.join(format!("cursor-{index}-v{VERSION}.png"))
 }
