@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libxkbcommon-x11-dev libx11-xcb-dev libfontconfig1-dev libfreetype-dev \
       libxcursor-dev libxi-dev libxrandr-dev libopenblas-dev libvulkan-dev \
       glslc libshaderc-dev libdbus-1-dev xvfb xauth jq dbus-x11 \
+      mesa-vulkan-drivers \
     && rm -rf /var/lib/apt/lists/*
 RUN rustup component add rustfmt clippy \
     && cargo install --locked cargo-nextest

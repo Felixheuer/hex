@@ -60,6 +60,7 @@ linux() {
         -v hex-linux-target:/target \
         -v hex-linux-cargo:/usr/local/cargo/registry \
         -e CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-6}" \
+        -e HEX_UPDATE_GOLDENS \
         hex-linux-check \
         xvfb-run -a dbus-run-session -- "${command[@]}"
 }
