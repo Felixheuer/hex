@@ -311,6 +311,8 @@ pub(super) fn sheet(ui: &Ui, p: Paint) -> Option<El> {
         );
     Some(
         el().key("schedule-sheet")
+            // A scrim, not a control: the sheet's own buttons close it too.
+            .role("none")
             .absolute(0.0, 0.0)
             .w_full()
             .h_full()
