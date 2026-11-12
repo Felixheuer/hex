@@ -54,7 +54,8 @@ linux() {
         shift
         command=(cargo nextest run --locked --bin hex --no-tests=warn "$@")
     fi
-    docker run --rm \
+    # --init: xvfb-run waits for a signal that never reaches PID 1.
+    docker run --rm --init \
         -v "$PWD:/hex" \
         -v hex-linux-target:/target \
         -v hex-linux-cargo:/usr/local/cargo/registry \
