@@ -17,6 +17,9 @@ const SENTENCE_GAP: usize = RATE as usize * 120 / 1000;
 const FIRST_AUDIO_ENGINE: Duration = Duration::from_secs(3);
 /// `say` writes a whole sentence before any of it plays.
 const FIRST_AUDIO_SAY: Duration = Duration::from_secs(10);
+/// Hex's voice loads its model with the first sentence and makes each one
+/// whole: past this, `say` reads it instead.
+const FIRST_AUDIO_NEURAL: Duration = Duration::from_secs(20);
 /// A sentence whose audio stopped coming this long ago is over.
 const STALL: Duration = Duration::from_secs(10);
 
@@ -27,6 +30,8 @@ pub enum Engine {
     Bridge,
     /// `/usr/bin/say`, writing a file.
     Say,
+    /// Hex's own voice (`neural`), a sentence at a time.
+    Neural,
 }
 
 /// A sentence to read.
@@ -134,6 +139,19 @@ impl Playback {
         written
     }
 
+    /// Hands sentence `id` from `from` to `to` (Hex's voice couldn't make
+    /// it): its request, to be asked of `to`, or `None` when it's no longer
+    /// queued with `from`.
+    pub fn reassign(&mut self, id: u64, from: Engine, to: Engine, now: Instant) -> Option<Request> {
+        let utterance = self.queue.iter_mut().find(|utterance| {
+            utterance.request.id == id && utterance.engine == from && !utterance.done
+        })?;
+        utterance.engine = to;
+        utterance.asked = now;
+        utterance.last_audio = None;
+        Some(utterance.request.clone())
+    }
+
     /// Drops everything queued and playing.
     pub fn stop(&mut self) {
         self.queue.clear();
@@ -168,6 +186,11 @@ impl Playback {
                     match utterance.engine {
                         Engine::Bridge if engine_failed || waited > FIRST_AUDIO_ENGINE => {
                             engine_failed = true;
+                            utterance.engine = Engine::Say;
+                            utterance.asked = now;
+                            moved.push(utterance.request.clone());
+                        }
+                        Engine::Neural if waited > FIRST_AUDIO_NEURAL => {
                             utterance.engine = Engine::Say;
                             utterance.asked = now;
                             moved.push(utterance.request.clone());
@@ -353,5 +376,30 @@ mod tests {
         assert!((rms(&[0.5, -0.5]) - 0.5).abs() < 1e-6);
         assert!((rms(&[0.0, 1.0, 0.0, 1.0]) - 0.5_f32.sqrt()).abs() < 1e-6);
         assert_eq!(rms(&[]), 0.0);
+    }
+
+    #[test]
+    fn hex_voice_sentences_go_to_another_engine_when_it_fails_or_stays_quiet() {
+        let now = Instant::now();
+        let mut playback = Playback::default();
+        playback.add(request(1), Engine::Neural, now);
+        playback.add(request(2), Engine::Neural, now);
+        // It failed on sentence 1: the system engine reads it.
+        assert_eq!(
+            playback.reassign(1, Engine::Neural, Engine::Bridge, now),
+            Some(request(1))
+        );
+        assert_eq!(
+            playback.reassign(1, Engine::Neural, Engine::Bridge, now),
+            None
+        );
+        playback.feed(Engine::Bridge, 1, &[0.4; 4], true, now);
+        assert_eq!(pull(&mut playback, 4, now), (vec![0.4; 4], 4));
+        // Sentence 2 never came: `say` reads it.
+        assert!(playback.expire(now + Duration::from_secs(5)).is_empty());
+        assert_eq!(
+            playback.expire(now + Duration::from_secs(21)),
+            vec![request(2)]
+        );
     }
 }

@@ -17,6 +17,7 @@
 #[cfg(target_os = "macos")]
 mod bridge;
 mod language;
+pub mod neural;
 mod output;
 mod playback;
 mod say;
@@ -110,7 +111,11 @@ pub fn queue(text: &str, voice: Option<&str>) {
         text,
         chosen: voice.map(str::to_owned),
     };
-    let engine = engine();
+    let engine = if neural_plan(&request).is_some() {
+        Engine::Neural
+    } else {
+        engine()
+    };
     let shared = shared();
     shared
         .playback()
@@ -139,6 +144,20 @@ fn ask(engine: Engine, request: &Request) {
         }
         #[cfg(not(target_os = "macos"))]
         Engine::Bridge => {}
+        Engine::Neural => match neural_plan(request) {
+            Some((preset, language)) => {
+                tracing::debug!(preset, language, "reading aloud with Hex's voice");
+                neural::speak(
+                    request.id,
+                    &request.text,
+                    language,
+                    preset,
+                    playback::RATE,
+                    from_neural,
+                );
+            }
+            None => from_neural(request.id, None, true),
+        },
         Engine::Say => {
             let voices = say_voices();
             let voice = pick(request, &voices).map(|voice| voice.id.clone());
@@ -182,6 +201,7 @@ pub fn stop() {
         return;
     };
     shared.stop();
+    neural::stop();
     #[cfg(target_os = "macos")]
     if ENGINE_STARTED.load(Ordering::Acquire) {
         bridge::stop();
@@ -291,6 +311,39 @@ extern "C" fn from_bridge(id: u64, samples: *const f32, count: usize, done: bool
     }
 }
 
+/// Hex's voice for `request`, when it was chosen, is installed, and reads
+/// the sentence's language (the system's when the sentence doesn't tell):
+/// its preset and language.
+fn neural_plan(request: &Request) -> Option<(&'static str, &'static str)> {
+    let chosen = request.chosen.as_deref()?;
+    neural::preset(chosen)?;
+    let system = language::system_language();
+    let language = language_of(&request.text).unwrap_or(&system);
+    neural::plan(Some(chosen), Some(language), neural::files::installed())
+}
+
+/// Hex's voice made a piece of sentence `id` (`done` with its last), or
+/// couldn't make it: then the system engine reads it.
+fn from_neural(id: u64, audio: Option<Vec<f32>>, done: bool) {
+    let Some(shared) = started() else {
+        return;
+    };
+    let now = Instant::now();
+    if let Some(audio) = audio {
+        shared
+            .playback()
+            .feed(Engine::Neural, id, &audio, done, now);
+        return;
+    }
+    let fallback = engine();
+    let request = shared
+        .playback()
+        .reassign(id, Engine::Neural, fallback, now);
+    if let Some(request) = request {
+        ask(fallback, &request);
+    }
+}
+
 fn from_say(id: u64, audio: Option<Vec<f32>>) {
     if let Some(shared) = started() {
         shared.playback().feed(
@@ -303,12 +356,12 @@ fn from_say(id: u64, audio: Option<Vec<f32>>) {
     }
 }
 
-/// The installed voices' names, for Settings.
+/// The installed voices' names, for Settings: Hex's own first, once
+/// downloaded, then the system's.
 pub fn voices() -> Vec<String> {
-    voices_with_languages()
-        .into_iter()
-        .map(|voice| voice.name)
-        .collect()
+    let mut names = neural::voices();
+    names.extend(voices_with_languages().into_iter().map(|voice| voice.name));
+    names
 }
 
 /// The installed voices with their languages and quality: the speech

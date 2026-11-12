@@ -131,6 +131,143 @@ Notice supplied with the files:
 
 The weights are provided as-is, without warranties, as the licence states.
 
+## Supertonic 3 (Hex voice)
+
+Supertonic 3 by Supertone Inc., the neural voice Settings › Assistant offers as
+"Hex voice". BigScience Open RAIL-M License (dated August 18, 2022). Hex
+downloads its ONNX files and voice styles, pinned by SHA-256, from
+https://huggingface.co/supertone-oss-archive/supertonic-3/tree/aafc6e32416a594460b32413efc49d7fe4ce6d46
+only when the person chooses to; it does not ship the weights. The license
+file is downloaded with them and kept beside them
+(`models/supertonic-3/LICENSE`).
+
+License: https://huggingface.co/supertone-oss-archive/supertonic-3/blob/aafc6e32416a594460b32413efc49d7fe4ce6d46/LICENSE
+
+Paragraph 5 of the license requires everyone who uses the model through Hex
+to comply with its use-based restrictions, reproduced here:
+
+```text
+Attachment A are considered Use-based restrictions.
+Therefore You cannot use the Model and the Derivatives of the Model for the specified restricted uses. You
+may use the Model subject to this License, including only for lawful purposes and in accordance with the
+License. Use may include creating any content with, finetuning, updating, running, training, evaluating and/or
+reparametrizing the Model. You shall require all of Your users who use the Model or a Derivative of the Model
+to comply with the terms of this paragraph (paragraph 5).
+
+6. The Output You Generate. Except as set forth herein, Licensor claims no rights in the Output You
+generate using the Model. You are accountable for the Output you generate and its subsequent uses. No
+use of the output can contravene any provision as stated in the License.
+
+Section IV: OTHER PROVISIONS
+
+7. Updates and Runtime Restrictions. To the maximum extent permitted by law, Licensor reserves the
+right to restrict (remotely or otherwise) usage of the Model in violation of this License, update the Model
+through electronic means, or modify the Output of the Model based on updates. You shall undertake
+reasonable efforts to use the latest version of the Model.
+
+8. Trademarks and related. Nothing in this License permits You to make use of Licensors’ trademarks,
+trade names, logos or to otherwise suggest endorsement or misrepresent the relationship between the
+parties; and any rights not expressly granted herein are reserved by the Licensors.
+
+9. Disclaimer of Warranty. Unless required by applicable law or agreed to in writing, Licensor provides
+the Model and the Complementary Material (and each Contributor provides its Contributions) on an "AS
+IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied,
+including, without limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT,
+MERCHANTABILITY , or FITNESS FOR A PARTICULAR PURPOSE. You are solely responsible for
+determining the appropriateness of using or redistributing the Model, Derivatives of the Model, and the
+Complementary Material and assume any risks associated with Your exercise of permissions under this
+License.
+
+10. Limitation of Liability. In no event and under no legal theory, whether in tort (including negligence),
+contract, or otherwise, unless required by applicable law (such as deliberate and grossly negligent acts) or
+agreed to in writing, shall any Contributor be liable to You for damages, including any direct, indirect,
+special, incidental, or consequential damages of any character arising as a result of this License or out of
+the use or inability to use the Model and the Complementary Material (including but not limited to
+damages for loss of goodwill, work stoppage, computer failure or malfunction, or any and all other
+commercial damages or losses), even if such Contributor has been advised of the possibility of such
+damages.
+
+11. Accepting Warranty or Additional Liability. While redistributing the Model, Derivatives of the
+Model and the Complementary Material thereof, You may choose to offer, and charge a fee for, acceptance
+of support, warranty, indemnity, or other liability obligations and/or rights consistent with this License.
+However, in accepting such obligations, You may act only on Your own behalf and on Your sole
+responsibility, not on behalf of any other Contributor, and only if You agree to indemnify, defend, and
+hold each Contributor harmless for any liability incurred by, or claims asserted against, such Contributor
+by reason of your accepting any such warranty or additional liability.
+
+12. If any provision of this License is held to be invalid, illegal or unenforceable, the remaining
+provisions shall be unaffected thereby and remain valid as if such provision had not been set forth herein.
+
+END OF TERMS AND CONDITIONS
+
+Attachment A
+
+Use Restrictions
+
+You agree not to use the Model or Derivatives of the Model:
+(a) In any way that violates any applicable national, federal, state, local or international law
+or regulation;
+(b) For the purpose of exploiting, harming or attempting to exploit or harm minors in any
+way;
+(c) To generate or disseminate verifiably false information and/or content with the purpose of
+harming others;
+(d) To generate or disseminate personal identifiable information that can be used to harm an
+individual;
+(e) To generate or disseminate information and/or content (e.g. images, code, posts, articles),
+and place the information and/or content in any context (e.g. bot generating tweets)
+without expressly and intelligibly disclaiming that the information and/or content is
+machine generated;
+(f) To defame, disparage or otherwise harass others;
+(g) To impersonate or attempt to impersonate (e.g. deepfakes) others without their consent;
+(h) For fully automated decision making that adversely impacts an individual’s legal rights or
+otherwise creates or modifies a binding, enforceable obligation;
+(i) For any use intended to or which has the effect of discriminating against or harming
+individuals or groups based on online or offline social behavior or known or predicted
+personal or personality characteristics;
+(j) To exploit any of the vulnerabilities of a specific group of persons based on their age,
+social, physical or mental characteristics, in order to materially distort the behavior of a
+person pertaining to that group in a manner that causes or is likely to cause that person or
+another person physical or psychological harm;
+(k) For any use intended to or which has the effect of discriminating against individuals or
+groups based on legally protected characteristics or categories;
+(l) To provide medical advice and medical results interpretation;
+(m) To generate or disseminate information for the purpose to be used for administration of
+justice, law enforcement, immigration or asylum processes, such as predicting an
+individual will commit fraud/crime commitment (e.g. by text profiling, drawing causal
+relationships between assertions made in documents, indiscriminate and
+arbitrarily-targeted use).
+```
+
+The weights are provided "as is", without warranties, as the license states.
+
+Hex's inference and text front end (`src/assistant/speech/neural/model.rs`,
+`src/assistant/speech/neural/text.rs`) are ported from Supertone's example
+code (https://github.com/supertone-inc/supertonic, `rust/src/helper.rs`):
+
+```text
+MIT License
+
+Copyright (c) 2025 Supertone Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## Wayland Input Method Protocol
 
 `src/linux/protocols/input-method-unstable-v2.xml` is the upstream
