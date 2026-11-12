@@ -1,192 +1,81 @@
-//! The assistant's setup: shown when Labs › Assistant turns on before it was
-//! ever finished, and again from Chats. Each step is checked live: the
-//! agents found on this Mac (one chosen to answer), agent-desktop, the
-//! permissions Hex and agent-desktop need, self-tests that send real
-//! requests through them, and one spoken question through the Action
-//! shortcut. A step shows ✓ only after its check ran and saw it work;
-//! Finish waits for every step that applies.
+//! The assistant's onboarding: a full-window flow in the first run's kit,
+//! started when Labs › Assistant turns on before it was ever finished, and
+//! again from Chats. Page by page it makes sure an agent answers (chosen,
+//! installed, signed in), that Hex and agent-desktop have every permission
+//! (each missing one opens its exact System Settings page with Hex's
+//! floating guide, and the page waits until macOS reports the grant), runs
+//! the live self-tests until they're green, and ends with one real spoken
+//! question through the Action shortcut.
+//!
+//! Nothing shows as working until its check ran and saw it work. Continue
+//! waits for a page's checks; Later moves on and leaves that page marked
+//! unfinished. Finish waits for an agent that answers and can use
+//! agent-desktop.
 
 use std::time::{Duration, Instant};
 
-use color_eyre::eyre::{Result, bail, eyre};
-
 use super::super::platform::PlatformRequest;
-use super::{BACKENDS, Job, Ui, backend_name};
+use super::{Job, Ui};
 use crate::app_settings::AssistantBackend;
-use crate::assistant::backends::{self, AgentDesktop, Found};
-use crate::assistant::computer::Permissions;
+use crate::assistant::backends::{AgentDesktop, Check, CheckResult, CheckState, Fix, Found};
+use crate::assistant::computer::{Permission, Permissions};
 use crate::assistant::{ConversationId, Event, Origin};
 use crate::desktop::i18n::{tr, tr_fill};
 use crate::desktop::onboarding::{PermissionAction, PermissionKind, PermissionState};
 
+/// How often a page that waits on macOS reads the grants again.
+const RECHECK: Duration = Duration::from_millis(1500);
 
-/// How often the sheet reads agent-desktop and the permissions again while
-/// it shows, so a grant in System Settings turns green on its own.
-const RECHECK: Duration = Duration::from_secs(2);
+/// The flow's pages, in order.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::rune_ui) enum Page {
+    Welcome,
+    Agent,
+    Permissions,
+    Desktop,
+    Checks,
+    Try,
+}
 
-/// Where a check stands.
+impl Page {
+    pub(in crate::rune_ui) const ALL: [Page; 6] = [
+        Page::Welcome,
+        Page::Agent,
+        Page::Permissions,
+        Page::Desktop,
+        Page::Checks,
+        Page::Try,
+    ];
+
+    fn index(self) -> usize {
+        Self::ALL.iter().position(|page| *page == self).unwrap_or(0)
+    }
+
+    fn next(self) -> Option<Page> {
+        Self::ALL.get(self.index() + 1).copied()
+    }
+
+    fn previous(self) -> Option<Page> {
+        self.index().checked_sub(1).map(|index| Self::ALL[index])
+    }
+}
+
+/// Where a row stands.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::rune_ui) enum State {
-    /// Not checked yet, or waiting on an earlier step.
+    /// Not checked yet.
     #[default]
     Pending,
     Checking,
+    /// Asked macOS (or the person); waiting for it to turn on.
+    Waiting,
     /// Checked, and it works.
     Passed,
     /// Checked, and it doesn't.
     Failed,
-    /// Doesn't apply with these settings.
-    Skipped,
 }
 
-/// A check's state and what it saw, for a person.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(in crate::rune_ui) struct Status {
-    pub(in crate::rune_ui) state: State,
-    pub(in crate::rune_ui) detail: String,
-}
-
-impl Status {
-    fn new(state: State, detail: impl Into<String>) -> Self {
-        Self {
-            state,
-            detail: detail.into(),
-        }
-    }
-    pub(in crate::rune_ui) fn pending(detail: impl Into<String>) -> Self {
-        Self::new(State::Pending, detail)
-    }
-    pub(in crate::rune_ui) fn checking(detail: impl Into<String>) -> Self {
-        Self::new(State::Checking, detail)
-    }
-    pub(in crate::rune_ui) fn passed(detail: impl Into<String>) -> Self {
-        Self::new(State::Passed, detail)
-    }
-    pub(in crate::rune_ui) fn failed(detail: impl Into<String>) -> Self {
-        Self::new(State::Failed, detail)
-    }
-    pub(in crate::rune_ui) fn skipped(detail: impl Into<String>) -> Self {
-        Self::new(State::Skipped, detail)
-    }
-    /// Whether Finish may go ahead past it.
-    fn settled(&self) -> bool {
-        matches!(self.state, State::Passed | State::Skipped)
-    }
-}
-
-/// One self-test. Each sends a real request through the pieces a task uses;
-/// `run` blocks (it runs on its own thread) and returns what it saw, or why
-/// it failed, for a person.
-pub(in crate::rune_ui) struct SetupCheck {
-    pub(in crate::rune_ui) id: &'static str,
-    /// Shown through `tr`.
-    pub(in crate::rune_ui) title: &'static str,
-    /// It needs agent-desktop, so it's skipped while Operate apps is off.
-    pub(in crate::rune_ui) needs_desktop: bool,
-    pub(in crate::rune_ui) run: fn(AssistantBackend) -> Result<String>,
-}
-
-/// The self-tests, in the order they run. Until the hands' checks land in
-/// `backends`, each body checks what it can and otherwise fails, so nothing
-/// shows ✓ untested.
-pub(in crate::rune_ui) const SELF_TESTS: [SetupCheck; 4] = [
-    SetupCheck {
-        id: "backend-answers",
-        title: "The agent answers",
-        needs_desktop: false,
-        run: backend_answers,
-    },
-    SetupCheck {
-        id: "desktop-runs",
-        title: "agent-desktop runs from Hex",
-        needs_desktop: true,
-        run: desktop_runs,
-    },
-    SetupCheck {
-        id: "desktop-reads",
-        title: "agent-desktop reads the screen",
-        needs_desktop: true,
-        run: desktop_reads,
-    },
-    SetupCheck {
-        id: "agent-reaches-desktop",
-        title: "The agent reaches agent-desktop",
-        needs_desktop: true,
-        run: agent_reaches_desktop,
-    },
-];
-
-fn not_yet() -> color_eyre::Report {
-    eyre!(tr("This check isn't in this build yet"))
-}
-
-/// The chosen agent answers a one-word prompt with "OK".
-/// Integration: `backends::check_backend(backend)`.
-fn backend_answers(backend: AssistantBackend) -> Result<String> {
-    if backend != AssistantBackend::ClaudeApi && backends::executable(backend).is_none() {
-        bail!(tr_fill("{} isn't installed", backend_name(backend)));
-    }
-    Err(not_yet())
-}
-
-/// agent-desktop starts from inside Hex (its environment, its sandbox).
-/// Integration: `backends::check_agent_desktop()`.
-fn desktop_runs(_: AssistantBackend) -> Result<String> {
-    let path = backends::agent_desktop()
-        .path
-        .ok_or_else(|| eyre!(tr("agent-desktop isn't installed")))?;
-    let output = std::process::Command::new(&path).arg("--version").output()?;
-    let said = |bytes: &[u8]| String::from_utf8_lossy(bytes).trim().to_owned();
-    if !output.status.success() {
-        bail!(said(&output.stderr));
-    }
-    Ok(said(&output.stdout))
-}
-
-/// A read-only round trip: agent-desktop lists the frontmost app's window.
-/// Integration: `backends::check_desktop_read()`.
-fn desktop_reads(_: AssistantBackend) -> Result<String> {
-    Err(not_yet())
-}
-
-/// The agent calls agent-desktop over MCP and reports what it saw.
-/// Integration: `backends::check_agent_mcp(backend)`.
-fn agent_reaches_desktop(_: AssistantBackend) -> Result<String> {
-    Err(not_yet())
-}
-
-/// The sheet's checks as they stand.
-#[derive(Default)]
-pub(in crate::rune_ui) struct SetupSheet {
-    pub(in crate::rune_ui) detecting: bool,
-    pub(in crate::rune_ui) desktop: Option<AgentDesktop>,
-    pub(in crate::rune_ui) desktop_checking: bool,
-    pub(in crate::rune_ui) permissions: Option<Permissions>,
-    pub(in crate::rune_ui) permissions_checking: bool,
-    pub(in crate::rune_ui) installing: bool,
-    pub(in crate::rune_ui) install_error: Option<String>,
-    pub(in crate::rune_ui) tests: [Status; 4],
-    pub(in crate::rune_ui) tests_ran: bool,
-    pub(in crate::rune_ui) shortcut: Status,
-    /// The quick question the shortcut step is following.
-    pub(in crate::rune_ui) asked: Option<ConversationId>,
-    checked_at: Option<Instant>,
-}
-
-impl SetupSheet {
-    pub(super) fn new() -> Self {
-        Self {
-            shortcut: Status::pending(tr("Waiting for your question")),
-            ..Self::default()
-        }
-    }
-
-    fn tests_running(&self) -> bool {
-        self.tests.iter().any(|test| test.state == State::Checking)
-    }
-}
-
-/// Which permission a row asks for.
+/// A permission the assistant needs.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::rune_ui) enum Grant {
     Microphone,
@@ -197,13 +86,13 @@ pub(in crate::rune_ui) enum Grant {
 }
 
 impl Grant {
-    pub(in crate::rune_ui) const ALL: [Grant; 5] = [
+    pub(in crate::rune_ui) const HEX: [Grant; 3] = [
         Grant::Microphone,
         Grant::Accessibility,
         Grant::ScreenRecording,
-        Grant::DesktopAccessibility,
-        Grant::DesktopScreenRecording,
     ];
+    pub(in crate::rune_ui) const DESKTOP: [Grant; 2] =
+        [Grant::DesktopAccessibility, Grant::DesktopScreenRecording];
 
     pub(in crate::rune_ui) fn key(self) -> &'static str {
         match self {
@@ -214,101 +103,62 @@ impl Grant {
             Grant::DesktopScreenRecording => "grant-desktop-screen-recording",
         }
     }
+}
 
-    pub(in crate::rune_ui) fn name(self) -> &'static str {
-        match self {
-            Grant::Microphone => tr("Microphone"),
-            Grant::Accessibility | Grant::DesktopAccessibility => tr("Accessibility"),
-            Grant::ScreenRecording | Grant::DesktopScreenRecording => tr("Screen Recording"),
-        }
-    }
+/// The flow's state.
+pub(in crate::rune_ui) struct SetupFlow {
+    pub(in crate::rune_ui) page: Page,
+    /// Pages left with Later, still unfinished.
+    pub(in crate::rune_ui) later: Vec<Page>,
+    pub(in crate::rune_ui) detecting: bool,
+    pub(in crate::rune_ui) desktop: Option<AgentDesktop>,
+    pub(in crate::rune_ui) desktop_checking: bool,
+    /// Hex's own Accessibility and Screen Recording, read afresh.
+    pub(in crate::rune_ui) permissions: Option<Permissions>,
+    pub(in crate::rune_ui) permissions_checking: bool,
+    /// Grants whose Allow was pressed and that aren't on yet.
+    pub(in crate::rune_ui) asked: Vec<Grant>,
+    /// A fix running now (installing, starting OpenCode), and the last
+    /// one's failure.
+    pub(in crate::rune_ui) fixing: Option<Fix>,
+    pub(in crate::rune_ui) fix_error: Option<String>,
+    /// The self-tests' results for the chosen agent, in order.
+    pub(in crate::rune_ui) checks: Vec<CheckResult>,
+    pub(in crate::rune_ui) checks_running: bool,
+    /// The agent the checks ran against.
+    pub(in crate::rune_ui) checked_backend: Option<AssistantBackend>,
+    /// The try-it question: heard, then answered.
+    pub(in crate::rune_ui) asked_question: Option<ConversationId>,
+    pub(in crate::rune_ui) heard: Option<String>,
+    pub(in crate::rune_ui) answer: Option<Result<String, String>>,
+    checked_at: Option<Instant>,
+}
 
-    /// Whose permission it is.
-    pub(in crate::rune_ui) fn owner(self) -> &'static str {
-        match self {
-            Grant::Microphone | Grant::Accessibility | Grant::ScreenRecording => "Hex",
-            Grant::DesktopAccessibility | Grant::DesktopScreenRecording => "agent-desktop",
-        }
-    }
-
-    /// Hex's own permission kind, for its guide.
-    pub(in crate::rune_ui) fn kind(self) -> Option<PermissionKind> {
-        match self {
-            Grant::Microphone => Some(PermissionKind::Microphone),
-            Grant::Accessibility => Some(PermissionKind::Accessibility),
-            Grant::ScreenRecording => Some(PermissionKind::ScreenRecording),
-            Grant::DesktopAccessibility | Grant::DesktopScreenRecording => None,
+impl Default for SetupFlow {
+    fn default() -> Self {
+        Self {
+            page: Page::Welcome,
+            later: Vec::new(),
+            detecting: false,
+            desktop: None,
+            desktop_checking: false,
+            permissions: None,
+            permissions_checking: false,
+            asked: Vec::new(),
+            fixing: None,
+            fix_error: None,
+            checks: Vec::new(),
+            checks_running: false,
+            checked_backend: None,
+            asked_question: None,
+            heard: None,
+            answer: None,
+            checked_at: None,
         }
     }
 }
 
-/// Every step's status, from the sheet's checks and the live settings.
-pub(in crate::rune_ui) struct Report {
-    pub(in crate::rune_ui) agents: Status,
-    pub(in crate::rune_ui) desktop: Status,
-    pub(in crate::rune_ui) grants: Vec<(Grant, Status)>,
-    pub(in crate::rune_ui) tests: Vec<Status>,
-    pub(in crate::rune_ui) shortcut: Status,
-}
-
-impl Report {
-    /// Whether every step that applies works.
-    pub(in crate::rune_ui) fn ready(&self) -> bool {
-        self.agents.settled()
-            && self.desktop.settled()
-            && self.grants.iter().all(|(_, status)| status.settled())
-            && self.tests.iter().all(Status::settled)
-            && self.shortcut.settled()
-    }
-
-    /// How many of the five steps work.
-    pub(in crate::rune_ui) fn done(&self) -> usize {
-        [
-            self.agents.settled(),
-            self.desktop.settled(),
-            self.grants.iter().all(|(_, status)| status.settled()),
-            self.tests.iter().all(Status::settled),
-            self.shortcut.settled(),
-        ]
-        .into_iter()
-        .filter(|done| *done)
-        .count()
-    }
-
-    pub(in crate::rune_ui) fn permissions(&self) -> Status {
-        combine(self.grants.iter().map(|(_, status)| status))
-    }
-
-    pub(in crate::rune_ui) fn checks(&self) -> Status {
-        combine(self.tests.iter())
-    }
-}
-
-/// A step's status from its rows': failed if any failed, checking if any
-/// is, passed once all are settled, else pending.
-fn combine<'a>(rows: impl Iterator<Item = &'a Status>) -> Status {
-    let mut rows = rows.peekable();
-    if rows.peek().is_none() {
-        return Status::default();
-    }
-    let all: Vec<&Status> = rows.collect();
-    let state = if all.iter().any(|row| row.state == State::Failed) {
-        State::Failed
-    } else if all.iter().any(|row| row.state == State::Checking) {
-        State::Checking
-    } else if all.iter().all(|row| row.settled()) {
-        if all.iter().all(|row| row.state == State::Skipped) {
-            State::Skipped
-        } else {
-            State::Passed
-        }
-    } else {
-        State::Pending
-    };
-    Status::new(state, String::new())
-}
-
-/// The agent chosen in `found`, if it was looked for.
+/// The chosen agent as found, once looked for.
 pub(in crate::rune_ui) fn chosen(ui: &Ui) -> Option<&Found> {
     let backend = ui.settings.assistant.backend;
     ui.chats
@@ -319,229 +169,317 @@ pub(in crate::rune_ui) fn chosen(ui: &Ui) -> Option<&Found> {
         .find(|found| found.backend == backend)
 }
 
-fn hex_permission(state: PermissionState) -> Status {
-    match state {
-        PermissionState::Ready => Status::passed(tr("Allowed")),
-        PermissionState::NeedsRestart => Status::failed(tr("Turns on when Hex restarts")),
-        PermissionState::NeedsRequest | PermissionState::NeedsSettings => {
-            Status::failed(tr("Not allowed yet"))
+/// What would make `found` ready.
+pub(in crate::rune_ui) fn fix_for(found: &Found) -> Option<Fix> {
+    if found.ready {
+        return None;
+    }
+    Some(match (found.backend, found.path.is_some()) {
+        (AssistantBackend::ClaudeApi, _) => Fix::AddApiKey,
+        (backend, false) => Fix::Install(backend),
+        (AssistantBackend::OpenCode, true) => Fix::StartOpenCode,
+        (backend, true) => Fix::SignIn(backend),
+    })
+}
+
+/// A fix's button, translated.
+pub(in crate::rune_ui) fn fix_label(fix: Fix) -> String {
+    match fix {
+        Fix::Install(backend) => tr_fill("Install {}", super::backend_name(backend)),
+        Fix::InstallAgentDesktop => tr("Install agent-desktop").into(),
+        Fix::SignIn(_) => tr("Sign in…").into(),
+        Fix::StartOpenCode => tr("Start OpenCode").into(),
+        Fix::AddApiKey => tr("Add API key").into(),
+        Fix::GuidePermissions => tr("Grant permissions…").into(),
+        Fix::OpenSettings(Permission::Accessibility) => tr("Open Accessibility…").into(),
+        Fix::OpenSettings(Permission::ScreenRecording) => tr("Open Screen Recording…").into(),
+        Fix::Retry => tr("Try again").into(),
+    }
+}
+
+/// A self-test's row title, translated.
+pub(in crate::rune_ui) fn check_title(check: Check) -> String {
+    match check {
+        Check::HexPermissions => tr("Hex can read the screen and selected text").into(),
+        Check::Answers(backend) => tr_fill("{} answers", super::backend_name(backend)),
+        Check::DesktopPermissions => {
+            tr("agent-desktop has Accessibility and Screen Recording").into()
+        }
+        Check::DesktopRoundTrip => tr("agent-desktop reads apps and windows").into(),
+        Check::DesktopThroughAgent(backend) => {
+            tr_fill("{} can use agent-desktop", super::backend_name(backend))
         }
     }
 }
 
-pub(in crate::rune_ui) fn report(ui: &Ui, sheet: &SetupSheet) -> Report {
-    let assistant = &ui.settings.assistant;
-    let agents = match (&ui.chats.settings.found, chosen(ui)) {
-        (_, _) if sheet.detecting => Status::checking(tr("Looking for agents…")),
-        (None, _) => Status::pending(""),
-        (Some(_), Some(found)) if found.ready => Status::passed(tr_fill(
-            "{} answers",
-            &match &found.version {
-                Some(version) => format!("{} {version}", backend_name(found.backend)),
-                None => backend_name(found.backend).to_owned(),
-            },
-        )),
-        (Some(_), Some(found)) => Status::failed(
-            found
-                .note
-                .clone()
-                .unwrap_or_else(|| tr_fill("{} isn't ready", backend_name(found.backend))),
-        ),
-        (Some(_), None) => Status::failed(tr_fill(
-            "{} isn't on this Mac",
-            backend_name(assistant.backend),
-        )),
-    };
-    let desktop = if !assistant.control_desktop {
-        Status::skipped(tr("Not needed while Operate apps is off"))
-    } else if sheet.installing {
-        Status::checking(tr("Installing with Homebrew…"))
-    } else if let Some(error) = &sheet.install_error {
-        Status::failed(error.clone())
-    } else {
-        match &sheet.desktop {
-            None if sheet.desktop_checking => Status::checking(tr("Looking for agent-desktop…")),
-            None => Status::pending(""),
-            Some(found) => match (&found.path, &found.version) {
-                (Some(_), Some(version)) => Status::passed(tr_fill("Version {}", version)),
-                (Some(path), None) => Status::passed(path.display().to_string()),
-                (None, _) => Status::failed(tr("Not installed")),
-            },
-        }
-    };
-    let grants = Grant::ALL
-        .into_iter()
-        .map(|grant| (grant, grant_status(ui, sheet, grant)))
-        .collect();
-    let tests = SELF_TESTS
-        .iter()
-        .zip(&sheet.tests)
-        .map(|(check, status)| {
-            if check.needs_desktop && !assistant.control_desktop {
-                Status::skipped(tr("Not needed while Operate apps is off"))
-            } else if status.state == State::Pending && !sheet.tests_ran {
-                Status::pending("")
-            } else {
-                status.clone()
-            }
-        })
-        .collect();
-    let shortcut = if assistant.action_hotkey.is_none() {
-        Status::failed(tr("No Action shortcut is set. Choose one in General"))
-    } else {
-        sheet.shortcut.clone()
-    };
-    Report {
-        agents,
-        desktop,
-        grants,
-        tests,
-        shortcut,
-    }
-}
-
-fn grant_status(ui: &Ui, sheet: &SetupSheet, grant: Grant) -> Status {
-    let assistant = &ui.settings.assistant;
-    let permissions = &ui.platform.permissions;
+/// Whether macOS reports `grant` on; `None` until it was read.
+fn granted(ui: &Ui, flow: &SetupFlow, grant: Grant) -> Option<bool> {
+    let hex = |state: PermissionState| Some(state == PermissionState::Ready);
     match grant {
-        Grant::Microphone => hex_permission(permissions.microphone),
-        Grant::Accessibility => hex_permission(permissions.accessibility),
-        Grant::ScreenRecording => {
-            if !assistant.include_screenshot {
-                return Status::skipped(tr("Not needed without screenshots"));
-            }
-            match sheet.permissions {
-                None if sheet.permissions_checking => Status::checking(""),
-                None => Status::pending(""),
-                Some(read) if read.screen_recording => Status::passed(tr("Allowed")),
-                Some(_) => Status::failed(tr("Not allowed yet")),
-            }
-        }
-        Grant::DesktopAccessibility | Grant::DesktopScreenRecording => {
-            if !assistant.control_desktop {
-                return Status::skipped(tr("Not needed while Operate apps is off"));
-            }
-            match &sheet.desktop {
-                None if sheet.desktop_checking => Status::checking(""),
-                None => Status::pending(""),
-                Some(found) if found.path.is_none() => {
-                    Status::pending(tr("Install agent-desktop first"))
-                }
-                Some(found) => {
-                    let allowed = if grant == Grant::DesktopAccessibility {
-                        found.accessibility
-                    } else {
-                        found.screen_recording
-                    };
-                    if allowed {
-                        Status::passed(tr("Allowed"))
-                    } else {
-                        Status::failed(tr("Not allowed yet"))
-                    }
-                }
-            }
-        }
+        Grant::Microphone => hex(ui.platform.permissions.microphone),
+        Grant::Accessibility => hex(ui.platform.permissions.accessibility),
+        Grant::ScreenRecording => flow.permissions.map(|read| read.screen_recording),
+        Grant::DesktopAccessibility => flow
+            .desktop
+            .as_ref()
+            .filter(|found| found.path.is_some())
+            .map(|found| found.accessibility),
+        Grant::DesktopScreenRecording => flow
+            .desktop
+            .as_ref()
+            .filter(|found| found.path.is_some())
+            .map(|found| found.screen_recording),
     }
 }
 
-/// Starts the sheet's first checks.
-pub(super) fn start(ui: &mut Ui) {
+/// How `grant`'s row stands.
+pub(in crate::rune_ui) fn grant_state(ui: &Ui, flow: &SetupFlow, grant: Grant) -> State {
+    match granted(ui, flow, grant) {
+        Some(true) => State::Passed,
+        _ if flow.asked.contains(&grant) => State::Waiting,
+        Some(false) => State::Failed,
+        None if flow.permissions_checking || flow.desktop_checking => State::Checking,
+        None => State::Pending,
+    }
+}
+
+/// Whether macOS wants Hex restarted before `grant` applies.
+pub(in crate::rune_ui) fn needs_restart(ui: &Ui, grant: Grant) -> bool {
+    let state = match grant {
+        Grant::Microphone => ui.platform.permissions.microphone,
+        Grant::Accessibility => ui.platform.permissions.accessibility,
+        _ => return false,
+    };
+    state == PermissionState::NeedsRestart
+}
+
+/// The checks Finish waits for: the agent answers and can use
+/// agent-desktop (for the Claude API, Hex runs agent-desktop itself).
+pub(in crate::rune_ui) fn required(backend: AssistantBackend) -> [Check; 2] {
+    let desktop = if backend == AssistantBackend::ClaudeApi {
+        Check::DesktopRoundTrip
+    } else {
+        Check::DesktopThroughAgent(backend)
+    };
+    [Check::Answers(backend), desktop]
+}
+
+fn passed(flow: &SetupFlow, check: Check) -> bool {
+    flow.checks
+        .iter()
+        .any(|result| result.check == check && result.state == CheckState::Ok)
+}
+
+/// Whether `page`'s checks all work now.
+pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bool {
+    let backend = ui.settings.assistant.backend;
+    match page {
+        Page::Welcome => true,
+        Page::Agent => chosen(ui).is_some_and(|found| found.ready),
+        Page::Permissions => Grant::HEX
+            .iter()
+            .all(|grant| grant_state(ui, flow, *grant) == State::Passed),
+        Page::Desktop => {
+            flow.desktop.as_ref().is_some_and(|found| found.path.is_some())
+                && Grant::DESKTOP
+                    .iter()
+                    .all(|grant| grant_state(ui, flow, *grant) == State::Passed)
+        }
+        Page::Checks => {
+            flow.checked_backend == Some(backend)
+                && !flow.checks.is_empty()
+                && flow.checks.iter().all(CheckResult::ok)
+        }
+        Page::Try => matches!(flow.answer, Some(Ok(_))),
+    }
+}
+
+/// Whether Finish may finish: the chosen agent answers and can use
+/// agent-desktop, checked just now.
+pub(in crate::rune_ui) fn can_finish(ui: &Ui, flow: &SetupFlow) -> bool {
+    let backend = ui.settings.assistant.backend;
+    flow.checked_backend == Some(backend)
+        && required(backend).iter().all(|check| passed(flow, *check))
+}
+
+/// Opens the flow at its start, and starts looking.
+pub(in crate::rune_ui) fn open(ui: &mut Ui) {
+    ui.chats.setup = Some(SetupFlow::default());
     detect(ui);
     recheck(ui);
 }
 
-/// Looks for the agents again.
+/// Looks for the agents again (after an install or a sign-in).
 pub(in crate::rune_ui) fn detect(ui: &mut Ui) {
-    if let Some(sheet) = ui.chats.setup.as_mut() {
-        sheet.detecting = true;
+    if let Some(flow) = ui.chats.setup.as_mut() {
+        flow.detecting = true;
     }
     ui.chats.jobs.run(Job::Detect);
 }
 
 /// Reads agent-desktop and Hex's permissions again.
 fn recheck(ui: &mut Ui) {
-    let Some(sheet) = ui.chats.setup.as_mut() else {
+    let Some(flow) = ui.chats.setup.as_mut() else {
         return;
     };
-    sheet.checked_at = Some(Instant::now());
-    if !sheet.desktop_checking && !sheet.installing {
-        sheet.desktop_checking = true;
+    flow.checked_at = Some(Instant::now());
+    let desktop = !flow.desktop_checking && flow.fixing.is_none();
+    let permissions = !flow.permissions_checking;
+    flow.desktop_checking |= desktop;
+    flow.permissions_checking |= permissions;
+    if desktop {
         ui.chats.jobs.run(Job::Desktop);
     }
-    let Some(sheet) = ui.chats.setup.as_mut() else {
-        return;
-    };
-    if !sheet.permissions_checking {
-        sheet.permissions_checking = true;
+    if permissions {
         ui.chats.jobs.run(Job::Permissions);
     }
 }
 
-/// Installs agent-desktop with Homebrew.
-pub(in crate::rune_ui) fn install(ui: &mut Ui) {
-    let Some(sheet) = ui.chats.setup.as_mut() else {
+/// Moves to `page`; arriving at Checks runs them.
+pub(in crate::rune_ui) fn go(ui: &mut Ui, page: Page) {
+    let Some(flow) = ui.chats.setup.as_mut() else {
         return;
     };
-    if sheet.installing {
+    flow.page = page;
+    flow.fix_error = None;
+    let stale = flow.checked_backend != Some(ui.settings.assistant.backend);
+    if page == Page::Checks && (flow.checks.is_empty() || stale) {
+        run_checks(ui);
+    }
+}
+
+/// Continue: the next page, once this one works.
+pub(in crate::rune_ui) fn advance(ui: &mut Ui) {
+    let Some(flow) = ui.chats.setup.as_ref() else {
+        return;
+    };
+    let page = flow.page;
+    if !page_done(ui, flow, page) {
         return;
     }
-    sheet.installing = true;
-    sheet.install_error = None;
-    ui.chats.jobs.run(Job::Install);
+    if let Some(flow) = ui.chats.setup.as_mut() {
+        flow.later.retain(|later| *later != page);
+    }
+    if let Some(next) = page.next() {
+        go(ui, next);
+    }
+}
+
+/// Later: the next page, this one left unfinished.
+pub(in crate::rune_ui) fn later(ui: &mut Ui) {
+    let Some(flow) = ui.chats.setup.as_mut() else {
+        return;
+    };
+    let page = flow.page;
+    if !flow.later.contains(&page) {
+        flow.later.push(page);
+    }
+    match page.next() {
+        Some(next) => go(ui, next),
+        None => close(ui),
+    }
+}
+
+pub(in crate::rune_ui) fn back(ui: &mut Ui) {
+    if let Some(previous) = ui.chats.setup.as_ref().and_then(|flow| flow.page.previous()) {
+        go(ui, previous);
+    }
 }
 
 /// Runs the self-tests against the chosen agent.
-pub(in crate::rune_ui) fn run_tests(ui: &mut Ui) {
-    let control_desktop = ui.settings.assistant.control_desktop;
+pub(in crate::rune_ui) fn run_checks(ui: &mut Ui) {
     let backend = ui.settings.assistant.backend;
-    let Some(sheet) = ui.chats.setup.as_mut() else {
+    let settings = ui.settings.assistant.clone();
+    let Some(flow) = ui.chats.setup.as_mut() else {
         return;
     };
-    if sheet.tests_running() {
+    if flow.checks_running {
         return;
     }
-    sheet.tests_ran = true;
-    for (status, check) in sheet.tests.iter_mut().zip(&SELF_TESTS) {
-        *status = if check.needs_desktop && !control_desktop {
-            Status::skipped("")
-        } else {
-            Status::checking("")
-        };
-    }
-    ui.chats.jobs.run(Job::SelfTests {
-        backend,
-        desktop: control_desktop,
-    });
+    flow.checks_running = true;
+    flow.checked_backend = Some(backend);
+    flow.checks = Check::for_backend(backend)
+        .into_iter()
+        .map(|check| CheckResult {
+            check,
+            state: CheckState::Pending,
+            detail: String::new(),
+            fix: None,
+            took: Duration::ZERO,
+        })
+        .collect();
+    ui.chats.jobs.run(Job::SelfTests(settings));
 }
 
-/// Asks for a permission: Hex's through its guide, agent-desktop's through
-/// its own.
+/// Asks for a permission: Hex's open their System Settings page with
+/// Hex's floating guide, agent-desktop's open its own guide. The row waits
+/// until macOS reports it on.
 pub(in crate::rune_ui) fn allow(ui: &mut Ui, grant: Grant) {
-    let state = match grant {
-        Grant::Microphone => ui.platform.permissions.microphone,
-        Grant::Accessibility => ui.platform.permissions.accessibility,
-        _ => PermissionState::NeedsSettings,
-    };
-    let action = match (grant.kind(), state) {
-        (None, _) => {
-            ui.chats.jobs.run(Job::Guide);
+    if let Some(flow) = ui.chats.setup.as_mut()
+        && !flow.asked.contains(&grant)
+    {
+        flow.asked.push(grant);
+    }
+    if needs_restart(ui, grant) {
+        ui.ask(PlatformRequest::Permission(PermissionAction::Restart));
+        return;
+    }
+    match grant {
+        Grant::Microphone => {
+            let action = match ui.platform.permissions.microphone {
+                PermissionState::NeedsRequest => PermissionAction::RequestMicrophone,
+                _ => PermissionAction::ShowGuide(PermissionKind::Microphone),
+            };
+            ui.ask(PlatformRequest::Permission(action));
+        }
+        Grant::Accessibility => ui.ask(PlatformRequest::Permission(PermissionAction::ShowGuide(
+            PermissionKind::Accessibility,
+        ))),
+        Grant::ScreenRecording => {
+            ui.chats
+                .jobs
+                .run(Job::Fix(Fix::OpenSettings(Permission::ScreenRecording)));
+        }
+        Grant::DesktopAccessibility | Grant::DesktopScreenRecording => {
+            ui.chats.jobs.run(Job::Fix(Fix::GuidePermissions));
+        }
+    }
+    recheck(ui);
+}
+
+/// Does what a failed row offers.
+pub(in crate::rune_ui) fn apply(ui: &mut Ui, fix: Fix) {
+    match fix {
+        Fix::AddApiKey => {
+            go(ui, Page::Agent);
             return;
         }
-        (Some(_), PermissionState::NeedsRestart) => PermissionAction::Restart,
-        (Some(PermissionKind::Microphone), PermissionState::NeedsRequest) => {
-            PermissionAction::RequestMicrophone
+        Fix::Retry => {
+            run_checks(ui);
+            return;
         }
-        (Some(kind), _) => PermissionAction::ShowGuide(kind),
-    };
-    ui.ask(PlatformRequest::Permission(action));
+        Fix::OpenSettings(Permission::Accessibility) => return allow(ui, Grant::Accessibility),
+        Fix::OpenSettings(Permission::ScreenRecording) => {
+            return allow(ui, Grant::ScreenRecording);
+        }
+        _ => {}
+    }
+    if let Some(flow) = ui.chats.setup.as_mut() {
+        if flow.fixing.is_some() {
+            return;
+        }
+        flow.fixing = Some(fix);
+        flow.fix_error = None;
+    }
+    ui.chats.jobs.run(Job::Fix(fix));
 }
 
 /// Finish: setup is done, and Chats shows.
 pub(in crate::rune_ui) fn finish(ui: &mut Ui, tx: &mut rune::Tx) {
-    let Some(sheet) = ui.chats.setup.as_ref() else {
+    let Some(flow) = ui.chats.setup.as_ref() else {
         return;
     };
-    if !report(ui, sheet).ready() {
+    if !can_finish(ui, flow) {
         return;
     }
     if ui.update(|settings| settings.assistant.setup_done = true) {
@@ -554,109 +492,121 @@ pub(in crate::rune_ui) fn close(ui: &mut Ui) {
     ui.chats.setup = None;
 }
 
-/// Follows the quick question the shortcut step waits for.
+/// Follows the try-it question.
 pub(super) fn event(ui: &mut Ui, event: &Event) -> bool {
-    let Some(sheet) = ui.chats.setup.as_mut() else {
+    let Some(flow) = ui.chats.setup.as_mut() else {
         return false;
     };
     match event {
         Event::Queued {
             conversation,
             origin: Origin::ActionShortcut,
-            ..
+            question,
         }
         | Event::Started {
             conversation,
             origin: Origin::ActionShortcut,
-            ..
+            question,
         } => {
-            sheet.asked = Some(conversation.clone());
-            sheet.shortcut = Status::checking(tr("Heard you. Waiting for the answer…"));
+            flow.asked_question = Some(conversation.clone());
+            flow.heard = Some(question.clone());
+            flow.answer = None;
         }
         Event::Answer {
             conversation,
             origin: Origin::ActionShortcut,
             text,
-        } if sheet.asked.as_ref().is_none_or(|asked| asked == conversation) => {
-            sheet.asked = None;
-            let line = text.lines().find(|line| !line.trim().is_empty()).unwrap_or_default();
-            let short: String = line.chars().take(90).collect();
-            sheet.shortcut = Status::passed(tr_fill("It answered: {}", short.trim()));
+        } if flow
+            .asked_question
+            .as_ref()
+            .is_none_or(|asked| asked == conversation) =>
+        {
+            flow.asked_question = None;
+            flow.answer = Some(Ok(text.trim().to_owned()));
         }
         Event::Failed {
             conversation,
             message,
-        } if sheet.asked.as_ref() == Some(conversation) => {
-            sheet.asked = None;
-            sheet.shortcut = Status::failed(message.clone());
+        } if flow.asked_question.as_ref() == Some(conversation) => {
+            flow.asked_question = None;
+            flow.answer = Some(Err(message.clone()));
         }
-        Event::Cancelled { conversation } if sheet.asked.as_ref() == Some(conversation) => {
-            sheet.asked = None;
-            sheet.shortcut = Status::pending(tr("Waiting for your question"));
+        Event::Cancelled { conversation } if flow.asked_question.as_ref() == Some(conversation) => {
+            flow.asked_question = None;
+            flow.heard = None;
         }
         _ => return false,
     }
     true
 }
 
-/// A job's answer, for the sheet.
+/// A job's answer, for the flow.
 pub(super) fn receive(ui: &mut Ui, done: super::Done) {
     use super::Done;
-    if let Done::Installed(Ok(())) = done {
-        // Installed: read it again, sheet or not.
-        if let Some(sheet) = ui.chats.setup.as_mut() {
-            sheet.installing = false;
-            sheet.install_error = None;
-            sheet.desktop = None;
-        }
-        recheck(ui);
-        return;
-    }
-    let Some(sheet) = ui.chats.setup.as_mut() else {
+    let fixed = matches!(done, Done::Fixed(..));
+    let Some(flow) = ui.chats.setup.as_mut() else {
         return;
     };
     match done {
-        Done::Detected(_) => sheet.detecting = false,
+        Done::Detected(_) => flow.detecting = false,
         Done::Desktop(found) => {
-            sheet.desktop_checking = false;
-            sheet.desktop = Some(found);
+            flow.desktop_checking = false;
+            flow.desktop = Some(found);
+            forget_granted(ui);
         }
         Done::Permissions(read) => {
-            sheet.permissions_checking = false;
-            sheet.permissions = Some(read);
+            flow.permissions_checking = false;
+            flow.permissions = Some(read);
+            forget_granted(ui);
         }
-        Done::Installed(Err(error)) => {
-            sheet.installing = false;
-            sheet.install_error = Some(error);
-        }
-        Done::TestStarted(index) => {
-            if let Some(status) = sheet.tests.get_mut(index) {
-                *status = Status::checking(tr("Checking…"));
+        Done::Check(result) => {
+            if let Some(slot) = flow.checks.iter_mut().find(|slot| slot.check == result.check) {
+                *slot = result;
             }
         }
-        Done::Test(index, result) => {
-            if let Some(status) = sheet.tests.get_mut(index) {
-                *status = match result {
-                    Ok(saw) => Status::passed(saw),
-                    Err(why) => Status::failed(why),
-                };
+        Done::ChecksDone => flow.checks_running = false,
+        Done::Fixed(fix, result) => {
+            if flow.fixing == Some(fix) {
+                flow.fixing = None;
+            }
+            if let Err(error) = result {
+                flow.fix_error = Some(error);
             }
         }
-        Done::Installed(Ok(())) | Done::KeySaved(_) | Done::Voices(_) => {}
+        Done::KeySaved(_) | Done::Voices(_) => {}
+    }
+    if fixed {
+        // Installed, started, or signed in: look again.
+        detect(ui);
+        recheck(ui);
     }
 }
 
-/// Reads the live checks again every few seconds while the sheet shows.
+/// Granted rows stop waiting.
+fn forget_granted(ui: &mut Ui) {
+    let Some(flow) = ui.chats.setup.as_ref() else {
+        return;
+    };
+    let granted: Vec<Grant> = flow
+        .asked
+        .iter()
+        .copied()
+        .filter(|grant| granted(ui, flow, *grant) == Some(true))
+        .collect();
+    if let Some(flow) = ui.chats.setup.as_mut() {
+        flow.asked.retain(|grant| !granted.contains(grant));
+    }
+}
+
+/// Reads the grants again every moment while a page waits on them.
 pub(super) fn poll(ui: &mut Ui, tx: &mut rune::Tx) -> bool {
-    let Some(sheet) = ui.chats.setup.as_ref() else {
+    let Some(flow) = ui.chats.setup.as_ref() else {
         return false;
     };
-    if !ui.chats.live() {
+    if !ui.chats.live() || !matches!(flow.page, Page::Permissions | Page::Desktop) {
         return false;
     }
-    let due = sheet
-        .checked_at
-        .is_none_or(|at| at.elapsed() >= RECHECK);
+    let due = flow.checked_at.is_none_or(|at| at.elapsed() >= RECHECK);
     if due {
         recheck(ui);
     }
@@ -667,20 +617,18 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut rune::Tx) -> bool {
 /// The agents a scene finds: Claude Code and Codex ready, OpenCode not
 /// running, no API key.
 pub(in crate::rune_ui) fn fixture_found() -> Vec<Found> {
-    BACKENDS
+    super::BACKENDS
         .iter()
         .map(|backend| {
             let (version, ready, note) = match backend {
                 AssistantBackend::ClaudeCode => (Some("2.4.1"), true, None),
-                AssistantBackend::Codex => (Some("0.91.0"), true, None),
-                AssistantBackend::OpenCode => {
-                    (Some("1.12.3"), false, Some("Its service isn't running"))
-                }
+                AssistantBackend::Codex => (Some("0.91.0"), false, Some("Not signed in")),
+                AssistantBackend::OpenCode => (None, false, Some("Not installed")),
                 AssistantBackend::ClaudeApi => (None, false, Some("No API key saved")),
             };
             Found {
                 backend: *backend,
-                path: version.map(|_| format!("/opt/homebrew/bin/{}", backend_name(*backend)).into()),
+                path: version.map(|_| format!("/opt/homebrew/bin/{backend:?}").into()),
                 version: version.map(str::to_owned),
                 ready,
                 note: note.map(str::to_owned),
@@ -689,42 +637,64 @@ pub(in crate::rune_ui) fn fixture_found() -> Vec<Found> {
         .collect()
 }
 
-/// The sheet for scenes: part way (`done` false), or every check passed.
-pub(in crate::rune_ui) fn fixture(ui: &mut Ui, done: bool) {
+/// The flow for scenes, at `page`, with the checks part way.
+pub(in crate::rune_ui) fn fixture(ui: &mut Ui, page: Page, all_passed: bool) {
     ui.chats.settings.found = Some(fixture_found());
-    let mut sheet = SetupSheet::new();
-    sheet.desktop = Some(AgentDesktop {
-        path: Some("/opt/homebrew/bin/agent-desktop".into()),
-        version: Some("0.4.2".into()),
-        accessibility: true,
-        screen_recording: done,
-    });
-    sheet.permissions = Some(Permissions {
-        accessibility: true,
-        screen_recording: true,
-    });
-    sheet.tests_ran = true;
-    sheet.tests = if done {
-        [
-            Status::passed("Claude Code answered “OK” in 2.1 s"),
-            Status::passed("agent-desktop 0.4.2"),
-            Status::passed("Read 14 elements in Finder"),
-            Status::passed("Claude Code listed Finder's window"),
-        ]
-    } else {
-        [
-            Status::passed("Claude Code answered “OK” in 2.1 s"),
-            Status::passed("agent-desktop 0.4.2"),
-            Status::failed("agent-desktop can't record the screen yet"),
-            Status::checking(tr("Checking…")),
-        ]
-    };
-    sheet.shortcut = if done {
-        Status::passed("It answered: It's 9:41 PM in Tokyo.")
-    } else {
-        Status::pending(tr("Waiting for your question"))
-    };
     ui.platform.permissions.microphone = PermissionState::Ready;
     ui.platform.permissions.accessibility = PermissionState::Ready;
-    ui.chats.setup = Some(sheet);
+    let backend = ui.settings.assistant.backend;
+    let result = |check: Check, state: CheckState, detail: &str, fix: Option<Fix>| CheckResult {
+        check,
+        state,
+        detail: detail.into(),
+        fix,
+        took: Duration::ZERO,
+    };
+    let checks = if all_passed {
+        vec![
+            result(Check::HexPermissions, CheckState::Ok, "Read Finder's window and the selection", None),
+            result(Check::Answers(backend), CheckState::Ok, "Replied “OK” in 2.1 s", None),
+            result(Check::DesktopPermissions, CheckState::Ok, "Accessibility and Screen Recording are on", None),
+            result(Check::DesktopRoundTrip, CheckState::Ok, "Listed 9 apps and 14 windows", None),
+            result(Check::DesktopThroughAgent(backend), CheckState::Ok, "Called desktop_status in 6.4 s", None),
+        ]
+    } else {
+        vec![
+            result(Check::HexPermissions, CheckState::Ok, "Read Finder's window and the selection", None),
+            result(Check::Answers(backend), CheckState::Ok, "Replied “OK” in 2.1 s", None),
+            result(
+                Check::DesktopPermissions,
+                CheckState::Failed,
+                "agent-desktop has no Screen Recording",
+                Some(Fix::GuidePermissions),
+            ),
+            result(Check::DesktopRoundTrip, CheckState::Running, "", None),
+            result(Check::DesktopThroughAgent(backend), CheckState::Pending, "", None),
+        ]
+    };
+    ui.chats.setup = Some(SetupFlow {
+        page,
+        later: if all_passed { Vec::new() } else { vec![Page::Desktop] },
+        desktop: Some(AgentDesktop {
+            path: Some("/opt/homebrew/bin/agent-desktop".into()),
+            version: Some("0.4.2".into()),
+            accessibility: true,
+            screen_recording: all_passed,
+        }),
+        permissions: Some(Permissions {
+            accessibility: true,
+            screen_recording: all_passed,
+        }),
+        asked: if all_passed {
+            Vec::new()
+        } else {
+            vec![Grant::ScreenRecording]
+        },
+        checks,
+        checks_running: !all_passed,
+        checked_backend: Some(backend),
+        heard: all_passed.then(|| "What time is it in Tokyo?".into()),
+        answer: all_passed.then(|| Ok("It's 9:41 PM in Tokyo.".into())),
+        ..SetupFlow::default()
+    });
 }

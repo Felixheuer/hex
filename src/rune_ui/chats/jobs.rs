@@ -1,7 +1,7 @@
-//! Work the setup sheet and Settings start that can block (finding the
-//! agents, asking agent-desktop, installing it, the self-tests, the
-//! Keychain), run on their own threads; their answers wake the window and
-//! land in the next poll. In scenes and tests nothing runs: each job is
+//! Work the setup flow and Settings start that blocks (finding the agents,
+//! asking agent-desktop, installing, the self-tests, the Keychain, the
+//! voices) runs on its own thread; each answer wakes the window and lands
+//! in the next poll. In scenes and tests nothing runs: each job is
 //! recorded, and a test answers it with [`Jobs::finish`].
 
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -9,30 +9,25 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use rune::Waker;
 
 use super::Ui;
-use super::setup::SELF_TESTS;
-use crate::app_settings::AssistantBackend;
-use crate::assistant::backends::{AgentDesktop, Found};
+use crate::app_settings::AssistantSettings;
+use crate::assistant::backends::{AgentDesktop, CheckResult, Fix, Found};
 use crate::assistant::computer::Permissions;
 
 /// Something to find out or do off the window's thread.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(in crate::rune_ui) enum Job {
-    /// Which agents this Mac has (`backends::detect`).
+    /// Which agents this Mac has, looked for afresh (`backends::detect`).
     Detect,
     /// agent-desktop and its permissions (`backends::agent_desktop`).
     Desktop,
-    /// Hex's own Accessibility and Screen Recording (`computer::permissions`).
+    /// Hex's own Accessibility and Screen Recording, read afresh.
     Permissions,
-    /// `brew install agent-desktop`.
-    Install,
-    /// System Settings at agent-desktop's missing permission.
-    Guide,
-    /// The self-tests, in order, against this backend; those that need
-    /// agent-desktop only with `desktop`.
-    SelfTests {
-        backend: AssistantBackend,
-        desktop: bool,
-    },
+    /// What a failed check or row offers (`backends::apply_fix`). Opening
+    /// Hex's own System Settings guide runs on the window's thread, where
+    /// the guide can show.
+    Fix(Fix),
+    /// The self-tests for these settings' agent, in order.
+    SelfTests(AssistantSettings),
     /// Saves the Claude API key in the Keychain (empty deletes it).
     SaveKey(String),
     /// The installed voices.
@@ -42,16 +37,16 @@ pub(in crate::rune_ui) enum Job {
 }
 
 /// A job's answer.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(in crate::rune_ui) enum Done {
     Detected(Vec<Found>),
     Desktop(AgentDesktop),
     Permissions(Permissions),
-    Installed(Result<(), String>),
-    /// Self-test `index` started.
-    TestStarted(usize),
-    /// Self-test `index` finished: what it saw, or why it failed.
-    Test(usize, Result<String, String>),
+    /// A fix ran: done, or why not.
+    Fixed(Fix, Result<(), String>),
+    /// A self-test started (`Running`) or ended.
+    Check(CheckResult),
+    ChecksDone,
     KeySaved(Result<(), String>),
     Voices(Vec<String>),
 }
@@ -88,6 +83,15 @@ impl Jobs {
             self.asked.push(job);
             return;
         };
+        if let Job::Fix(fix @ Fix::OpenSettings(_)) = job {
+            // Hex's floating guide shows only from the main thread.
+            let result = crate::assistant::backends::apply_fix(fix);
+            let _ = self
+                .sender
+                .send(Done::Fixed(fix, result.map_err(|error| format!("{error:#}"))));
+            waker();
+            return;
+        }
         let sender = self.sender.clone();
         let spawned = std::thread::Builder::new()
             .name("hex-assistant-setup".into())
@@ -118,22 +122,20 @@ impl Jobs {
 fn perform(job: Job, send: &dyn Fn(Done)) {
     use crate::assistant::{backends, computer, credentials, speech};
     match job {
-        Job::Detect => send(Done::Detected(backends::detect())),
+        Job::Detect => {
+            backends::refresh();
+            send(Done::Detected(backends::detect()));
+        }
         Job::Desktop => send(Done::Desktop(backends::agent_desktop())),
-        Job::Permissions => send(Done::Permissions(computer::permissions())),
-        Job::Install => send(Done::Installed(
-            backends::install_agent_desktop().map_err(|error| format!("{error:#}")),
+        Job::Permissions => send(Done::Permissions(computer::permissions_now())),
+        Job::Fix(fix) => send(Done::Fixed(
+            fix,
+            backends::apply_fix(fix).map_err(|error| format!("{error:#}")),
         )),
-        Job::Guide => backends::guide_permissions(),
-        Job::SelfTests { backend, desktop } => {
-            for (index, check) in SELF_TESTS.iter().enumerate() {
-                if check.needs_desktop && !desktop {
-                    continue;
-                }
-                send(Done::TestStarted(index));
-                let result = (check.run)(backend).map_err(|error| format!("{error:#}"));
-                send(Done::Test(index, result));
-            }
+        Job::SelfTests(settings) => {
+            let checks = backends::Check::for_backend(settings.backend);
+            backends::self_tests(&checks, &settings, |result| send(Done::Check(result.clone())));
+            send(Done::ChecksDone);
         }
         Job::SaveKey(key) => send(Done::KeySaved(
             credentials::set_api_key(&key).map_err(|error| format!("{error:#}")),
@@ -156,7 +158,7 @@ pub(super) fn poll(ui: &mut Ui) -> bool {
     changed
 }
 
-/// One answer, wherever it shows: the setup sheet, and Settings' lists.
+/// One answer, wherever it shows: the setup flow, and Settings' lists.
 pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
     match &done {
         Done::Detected(found) => ui.chats.settings.found = Some(found.clone()),
@@ -165,7 +167,7 @@ pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
             ui.chats.settings.key.clear();
             ui.chats.settings.key_error = None;
             // Ready follows the saved key.
-            ui.chats.jobs.run(Job::Detect);
+            super::setup::detect(ui);
         }
         Done::KeySaved(Err(error)) => ui.chats.settings.key_error = Some(error.clone()),
         _ => {}
