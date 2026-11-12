@@ -2606,10 +2606,12 @@ fn add_term_scrolls_the_new_row_into_view() {
 }
 
 /// The wheel scrolls a term list longer than the sheet, wherever the
-/// pointer is over it: on a row's field or between rows (#906).
+/// pointer is over it: on a row's field or between rows (#906). The window
+/// is tall enough to show General's Vocabulary row without scrolling the
+/// pane; the 75 terms still overflow the sheet.
 #[test]
 fn the_wheel_scrolls_a_long_term_list() {
-    let mut rt = runtime("portal", true, (900.0, 480.0));
+    let mut rt = runtime("portal", true, (900.0, 640.0));
     rt.state.settings.vocabulary = (0..75)
         .map(|index| crate::dictation::vocabulary::VocabularyEntry {
             term: format!("term {index}"),
