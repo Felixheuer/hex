@@ -398,8 +398,7 @@ impl Conversation {
                     (Output::Speakers, Some(_)) => SPEAKER_BARGE_IN_FRAMES,
                     _ => BARGE_IN_FRAMES,
                 };
-                (self.count(voice) >= needed)
-                    .then(|| self.hearing(conversation, Step::BargeIn))
+                (self.count(voice) >= needed).then(|| self.hearing(conversation, Step::BargeIn))
             }
             Phase::Listening { .. } if self.other_audio => None,
             Phase::Listening { conversation, .. } => {

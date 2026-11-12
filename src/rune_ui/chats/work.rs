@@ -41,12 +41,53 @@ fn words(text: &str) -> impl Iterator<Item = &str> {
 }
 
 /// The folder a finished job's answer names: the first absolute or
-/// home-relative path, or the folder of the first file it names.
+/// home-relative path, or the folder of the first file it names. Job
+/// folders are named after their request, with spaces ("2026-11-12 Hex
+/// selbst testen"), so the longest run of words from the path's start
+/// that is a folder on this Mac wins over the first word alone.
 pub(super) fn folder_in(text: &str) -> Option<String> {
-    let path = words(text).find(|word| {
+    folder_in_with(text, &|path| {
+        std::path::Path::new(&expand_home(path)).is_dir()
+    })
+}
+
+fn expand_home(path: &str) -> String {
+    match path.strip_prefix("~/") {
+        Some(rest) => crate::app_paths::home_dir()
+            .map(|home| home.join(rest).to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_owned()),
+        None => path.to_owned(),
+    }
+}
+
+/// [`folder_in`] with `is_dir` telling which paths are folders.
+fn folder_in_with(text: &str, is_dir: &dyn Fn(&str) -> bool) -> Option<String> {
+    let starts_path = |word: &str| {
         word.starts_with("~/")
             || (word.starts_with('/') && word.len() > 1 && word[1..].contains('/'))
-    })?;
+    };
+    // The longest existing folder from the path's first word on, spaces
+    // included (up to the end of its line).
+    for line in text.lines() {
+        let words: Vec<&str> = line.split(' ').collect();
+        if let Some(start) = words.iter().position(|word| {
+            starts_path(word.trim_start_matches(['(', '`', '"', '\u{201e}', '\u{201c}']))
+        }) {
+            for end in (start + 1..=words.len()).rev() {
+                let candidate = words[start..end]
+                    .join(" ")
+                    .trim_start_matches(['(', '`', '"', '\u{201e}', '\u{201c}'])
+                    .trim_end_matches(['.', ',', ';', ':', ')', '`', '"', '\u{201c}', '\u{201d}'])
+                    .trim_end_matches('/')
+                    .to_owned();
+                if is_dir(&candidate) {
+                    return Some(candidate + "/");
+                }
+            }
+            break;
+        }
+    }
+    let path = words(text).find(|word| starts_path(word))?;
     if path.ends_with('/') {
         return Some(path.trim_end_matches('/').to_owned() + "/");
     }
@@ -58,11 +99,16 @@ pub(super) fn folder_in(text: &str) -> Option<String> {
     Some(format!("{path}/"))
 }
 
-/// The links an answer names, once each.
+/// The links an answer names that are its results (a Google Sheet or Doc
+/// the job made), once each. Sources it cites stay links in the text: a
+/// button for every search hit says nothing.
 pub(super) fn links_in(text: &str) -> Vec<String> {
     let mut links: Vec<String> = Vec::new();
     for word in words(text) {
+        let word = word.trim_end_matches(['.', ',', ';', ')', ']']);
+        let word = word.rsplit("](").next().unwrap_or(word);
         if (word.starts_with("https://") || word.starts_with("http://"))
+            && word.contains("docs.google.com/")
             && !links.iter().any(|known| known == word)
         {
             links.push(word.to_owned());
@@ -585,5 +631,25 @@ mod tests {
             Some(None)
         );
         assert_eq!(sign_in_for("Which 50 suppliers?"), None);
+    }
+
+    #[test]
+    fn a_job_folder_with_spaces_is_found_whole() {
+        let folder = "/Users/felix/Documents/Hex/2026-11-12 Hex selbst testen und Lücken notieren";
+        let answer = format!("Alles liegt im Ordner {folder}.");
+        let is_dir = |path: &str| path == folder;
+        assert_eq!(
+            folder_in_with(&answer, &is_dir).as_deref(),
+            Some(format!("{folder}/").as_str())
+        );
+    }
+
+    #[test]
+    fn only_result_links_get_buttons() {
+        let answer = "Quellen: https://www.obelink.nl/x und https://coolblue.nl/y. Tabelle: https://docs.google.com/spreadsheets/d/abc";
+        assert_eq!(
+            links_in(answer),
+            ["https://docs.google.com/spreadsheets/d/abc"]
+        );
     }
 }
