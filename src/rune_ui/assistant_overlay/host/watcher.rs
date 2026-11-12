@@ -173,7 +173,7 @@ impl Watcher {
                 self.displays_read = None;
             }
             self.frames(frame);
-            self.outlines(&outlined);
+            self.outlines(&outlined, frame);
             self.ask_guard(live);
             if (frame || live) && self.followed.is_none_or(|at| at.elapsed() >= DISPLAY_POLL) {
                 self.followed = Some(Instant::now());
@@ -327,15 +327,18 @@ impl Watcher {
     /// Moves each live task window's outline to where its window is now: in
     /// one piece per display it spans, and none for a window on no display
     /// (one left where an unplugged display was).
-    fn outlines(&mut self, outlined: &[Outlined]) {
+    fn outlines(&mut self, outlined: &[Outlined], frame_on: bool) {
         let Some(overlays) = OVERLAYS.get() else {
             return;
         };
         if !outlined.is_empty() {
             self.read_displays();
         }
-        // Each outline's pieces now.
+        // Each outline's pieces now: one outline per window, none for a
+        // window the screen frame already runs along (`outline::redundant`).
         let mut wanted: Vec<Piece<'_>> = Vec::new();
+        let mut drawn: Vec<[f64; 4]> = Vec::new();
+        let screens: Vec<[f64; 4]> = self.displays.iter().map(|screen| screen.frame).collect();
         for item in outlined {
             let Some(window) = super::window_frame(&item.window, &self.displays)
                 .filter(|(_, _, w, h)| *w >= 1.0 && *h >= 1.0)
@@ -350,6 +353,10 @@ impl Watcher {
             {
                 continue;
             }
+            if outline::redundant(window_rect, &drawn, &screens, frame_on) {
+                continue;
+            }
+            drawn.push(window_rect);
             let top = display_top(&self.displays, window);
             let (rect, label) = outline::rect(window, top);
             let full = rect.map(f64::from);

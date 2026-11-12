@@ -186,6 +186,50 @@ pub(crate) fn drawn(p: Paint, outline: &Outline, x: f32, y: f32) -> El {
     }
 }
 
+/// How much two window rects (x, y, width, height) overlap: the shared
+/// area over the smaller one's, 0 to 1.
+fn shared(a: [f64; 4], b: [f64; 4]) -> f64 {
+    let x = a[0].max(b[0]);
+    let y = a[1].max(b[1]);
+    let right = (a[0] + a[2]).min(b[0] + b[2]);
+    let bottom = (a[1] + a[3]).min(b[1] + b[3]);
+    if right <= x || bottom <= y {
+        return 0.0;
+    }
+    let smaller = (a[2] * a[3]).min(b[2] * b[3]);
+    if smaller <= 0.0 {
+        return 0.0;
+    }
+    (right - x) * (bottom - y) / smaller
+}
+
+/// Whether `window` fills `display`: its edges within a few points of the
+/// display's (the top may leave room for the menu bar).
+fn fills(window: [f64; 4], display: [f64; 4]) -> bool {
+    const SIDE: f64 = 16.0;
+    const TOP: f64 = 48.0;
+    window[0] <= display[0] + SIDE
+        && window[1] <= display[1] + TOP
+        && window[0] + window[2] >= display[0] + display[2] - SIDE
+        && window[1] + window[3] >= display[1] + display[3] - SIDE
+}
+
+/// Whether an outline around `window` would only double what's drawn: a
+/// window already outlined (`drawn`: the same window named twice, or two
+/// tasks in one window) gets one outline, the first's; and while the screen
+/// frame shows, a window filling its display gets none, since the frame
+/// already runs along its edges.
+pub(crate) fn redundant(
+    window: [f64; 4],
+    drawn: &[[f64; 4]],
+    displays: &[[f64; 4]],
+    frame_on: bool,
+) -> bool {
+    const SAME: f64 = 0.9;
+    drawn.iter().any(|other| shared(window, *other) >= SAME)
+        || frame_on && displays.iter().any(|display| fills(window, *display))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,5 +254,32 @@ mod tests {
             rect_inside,
             [-PAD, -1060.0 - PAD, 1200.0 + 2.0 * PAD, 900.0 + 2.0 * PAD]
         );
+    }
+
+    #[test]
+    fn one_outline_per_window_and_none_along_the_frame() {
+        let display = [0.0, 0.0, 1800.0, 1169.0];
+        let mail = [100.0, 80.0, 900.0, 700.0];
+        // The same window named twice, or a second task in it: one outline.
+        assert!(redundant(mail, &[mail], &[display], false));
+        assert!(redundant(
+            [104.0, 82.0, 896.0, 698.0],
+            &[mail],
+            &[display],
+            false
+        ));
+        // Two windows side by side: both outlined.
+        assert!(!redundant(
+            [1000.0, 80.0, 700.0, 700.0],
+            &[mail],
+            &[display],
+            false
+        ));
+        // A window filling the display doubles the screen frame's edge…
+        let full = [0.0, 37.0, 1800.0, 1132.0];
+        assert!(redundant(full, &[], &[display], true));
+        // …but is outlined while no frame shows.
+        assert!(!redundant(full, &[], &[display], false));
+        assert!(!redundant(mail, &[], &[display], true));
     }
 }

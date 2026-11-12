@@ -466,6 +466,19 @@ fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
         );
     }
     let live = orb.board.tasks.iter().any(|task| task.phase.live());
+    // Working tasks' browsers stream in the background from the start, so
+    // their previews show at once.
+    let working: Vec<String> = orb
+        .board
+        .tasks
+        .iter()
+        .filter(|task| task.phase.live())
+        .map(|task| task.id.clone())
+        .collect();
+    super::live::track(&working);
+    // The frame follows the board as well as the service's `ModeChanged`:
+    // an event missed or late never leaves it off while a task works.
+    watcher::set_frame(orb.board.working() || crate::assistant::service::frame_shown());
     watcher::publish(outlined, live);
     enlarged::follow(&orb.board);
     set_hands(hands.map(|task| task.id));
