@@ -909,12 +909,15 @@ pub(super) const SCENES: &[Scene] = &[
     ("mac-assistant-setup-restart", |ui| {
         mac_chats(ui, chats::fixture::Scene::Restart)
     }),
+    #[cfg(target_os = "macos")]
     ("mac-assistant-setup-desktop", |ui| {
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Desktop))
     }),
+    #[cfg(target_os = "macos")]
     ("mac-assistant-setup-browser", |ui| {
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Browser))
     }),
+    #[cfg(target_os = "macos")]
     ("mac-assistant-setup-browser-sign-in", |ui| {
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Browser));
         ui.chats.settings.sign_in_editor = true;
@@ -922,6 +925,7 @@ pub(super) const SCENES: &[Scene] = &[
         ui.chats.settings.saved_sites = vec!["portal.example.org".into()];
         ui.chats.settings.signed_in = true;
     }),
+    #[cfg(target_os = "macos")]
     ("mac-assistant-setup-permission-repair", |ui| {
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Desktop));
         ui.platform.permissions.accessibility =
@@ -929,6 +933,7 @@ pub(super) const SCENES: &[Scene] = &[
         ui.platform
             .note_stale(crate::desktop::onboarding::PermissionKind::Accessibility);
     }),
+    #[cfg(target_os = "macos")]
     ("mac-assistant-setup-screen-restart", |ui| {
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Desktop));
         ui.platform.scrawl = Some(platform::ScrawlView {
@@ -937,6 +942,7 @@ pub(super) const SCENES: &[Scene] = &[
             ..Default::default()
         });
     }),
+    #[cfg(target_os = "macos")]
     ("mac-assistant-setup-checks", |ui| {
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Checks))
     }),
@@ -1051,6 +1057,7 @@ fn chats_on(ui: &mut Ui, os: Os, scene: chats::fixture::Scene) {
 }
 
 /// The macOS window with the assistant on, at a Chats `scene`.
+#[cfg(target_os = "macos")]
 fn mac_chats(ui: &mut Ui, scene: chats::fixture::Scene) {
     *ui = mac_fixture();
     ui.settings.meetings.enabled = false;

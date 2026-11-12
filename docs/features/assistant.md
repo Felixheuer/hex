@@ -406,8 +406,7 @@ cookies or tokens, and do not import the person's normal browser profile.
 Available checks: `onboarding_polish_*`,
 `a_selected_sign_in_site_opens_once_and_failed_saves_can_be_retried`,
 `stale_assistant_grants_use_the_running_apps_permission_repair`, the browser
-URL/storage unit tests, and six assistant setup scenes in Linux's light/dark
-goldens. These fixture checks do not establish a real website login or
+URL/storage unit tests, and the named macOS assistant setup scenes. These fixture checks do not establish a real website login or
 that macOS granted a live app access; the native permission checks remain
 authoritative and are never forced green by the window.
 

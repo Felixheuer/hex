@@ -355,6 +355,18 @@ const PATHS: &[(&str, &str)] = &[
         "Window/Assistant setup/agent-browser",
     ),
     (
+        "mac-assistant-setup-browser-sign-in",
+        "Window/Assistant setup/Website sign-in",
+    ),
+    (
+        "mac-assistant-setup-permission-repair",
+        "Window/Assistant setup/Repair a permission",
+    ),
+    (
+        "mac-assistant-setup-screen-restart",
+        "Window/Assistant setup/Screen permission restart",
+    ),
+    (
         "mac-assistant-setup-checks",
         "Window/Assistant setup/Self-tests",
     ),
