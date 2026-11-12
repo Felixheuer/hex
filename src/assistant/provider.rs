@@ -192,8 +192,11 @@ pub const DESKTOP_TOOLS: &[&str] = &[
     "desktop_clipboard_set",
     "desktop_list_notifications",
     "desktop_wait",
-    // The guard's own: take a free window (Background lane).
+    // The guard's own: take a free window (Background lane), see what's
+    // installed, and open an app in a window of the task's own.
     crate::assistant::guard::CLAIM_TOOL,
+    "hex_installed_apps",
+    "hex_open_app",
 ];
 
 /// One task for a backend.
