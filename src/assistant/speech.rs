@@ -1,12 +1,18 @@
 //! Reading answers aloud on this computer, with the best voice installed
 //! for the answer's language.
 //!
-//! macOS's speech engine (AVSpeechSynthesizer, through the Swift bridge in
-//! `src/speech_output.swift`) writes each sentence to audio, which Hex
-//! plays itself ([`output`]): so sentences follow each other without the
-//! engine's long pauses, a stop is heard at once, and [`level`] measures
-//! what plays. Where the engine can't answer (nothing serves the main
-//! thread, as in tests), `/usr/bin/say` writes the audio instead ([`say`]).
+//! An engine writes each sentence to audio, which Hex plays itself
+//! ([`output`]): so sentences follow each other without the engine's long
+//! pauses, a stop is heard at once, and [`level`] measures what plays.
+//!
+//! - macOS: the speech engine (AVSpeechSynthesizer, through the Swift
+//!   bridge in `src/speech_output.swift`); where it can't answer (nothing
+//!   serves the main thread, as in tests), `/usr/bin/say` writes the audio
+//!   instead ([`say`]).
+//! - Windows: the system's voices (`Windows.Media.SpeechSynthesis`,
+//!   [`windows`]).
+//! - Linux: Piper's voices, else espeak-ng's, else speech-dispatcher reads
+//!   by itself ([`linux`]).
 //!
 //! The person's chosen voice wins. Otherwise the answer's language picks:
 //! their Personal Voice when Hex may use it, then Premium, then Enhanced
@@ -16,11 +22,20 @@
 
 #[cfg(target_os = "macos")]
 mod bridge;
+#[cfg(any(test, not(target_os = "macos")))]
+mod catalog;
 mod language;
+#[cfg(target_os = "linux")]
+mod linux;
 mod output;
 mod playback;
+#[cfg(target_os = "macos")]
 mod say;
 mod voices;
+mod wav;
+#[cfg(target_os = "windows")]
+mod windows;
+mod writer;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -33,14 +48,18 @@ pub use voices::{Quality, Voice, VoiceHint};
 
 /// AVSpeechUtterance's rate (0.5 is its normal): a little brisker, as people
 /// talk to an assistant.
+#[cfg(target_os = "macos")]
 const ENGINE_RATE: f32 = 0.53;
 /// How long the main queue may take to answer before `say` reads instead.
+#[cfg(target_os = "macos")]
 const MAIN_TIMEOUT_MS: i32 = 250;
 /// How long the speech engine is left alone after it failed to answer.
 const ENGINE_REST: Duration = Duration::from_secs(60);
 /// How long an answered main queue counts as answering.
+#[cfg(target_os = "macos")]
 const MAIN_FRESH: Duration = Duration::from_secs(5);
 /// How long a voice list is kept (voices can be downloaded meanwhile).
+#[cfg(target_os = "macos")]
 const VOICES_FRESH: Duration = Duration::from_secs(60);
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -125,7 +144,7 @@ fn ask(engine: Engine, request: &Request) {
         #[cfg(target_os = "macos")]
         Engine::Bridge => {
             let voices = engine_voices();
-            let voice = pick(request, &voices);
+            let voice = pick(&request.text, request.chosen.as_deref(), &voices);
             tracing::debug!(
                 voice = voice.map_or("system", |voice| voice.name.as_str()),
                 "reading aloud"
@@ -139,32 +158,22 @@ fn ask(engine: Engine, request: &Request) {
         }
         #[cfg(not(target_os = "macos"))]
         Engine::Bridge => {}
-        Engine::Say => {
-            let voices = say_voices();
-            let voice = pick(request, &voices).map(|voice| voice.id.clone());
-            tracing::debug!(
-                voice = voice.as_deref().unwrap_or("system"),
-                "reading aloud with say"
-            );
-            say::speak(
-                say::Job {
-                    id: request.id,
-                    text: request.text.clone(),
-                    voice,
-                },
-                from_say,
-            );
-        }
+        Engine::Say => writer::speak(
+            writer::Job {
+                id: request.id,
+                text: request.text.clone(),
+                chosen: request.chosen.clone(),
+            },
+            from_writer,
+        ),
     }
 }
 
-/// The voice for `request`: the one asked for, if installed, else the best
-/// for its language.
-fn pick<'a>(request: &Request, voices: &'a [Voice]) -> Option<&'a Voice> {
-    let language = language_of(&request.text);
-    request
-        .chosen
-        .as_deref()
+/// The voice for `text`: `chosen`, if installed, else the best for its
+/// language.
+fn pick<'a>(text: &str, chosen: Option<&str>, voices: &'a [Voice]) -> Option<&'a Voice> {
+    let language = language_of(text);
+    chosen
         .and_then(|chosen| voices::resolve(chosen, language, voices))
         .or_else(|| {
             let system = language::system_language();
@@ -186,7 +195,7 @@ pub fn stop() {
     if ENGINE_STARTED.load(Ordering::Acquire) {
         bridge::stop();
     }
-    say::stop();
+    writer::stop();
 }
 
 /// Whether something is being read now, or waits its turn.
@@ -291,7 +300,7 @@ extern "C" fn from_bridge(id: u64, samples: *const f32, count: usize, done: bool
     }
 }
 
-fn from_say(id: u64, audio: Option<Vec<f32>>) {
+fn from_writer(id: u64, audio: Option<Vec<f32>>) {
     if let Some(shared) = started() {
         shared.playback().feed(
             Engine::Say,
@@ -311,8 +320,9 @@ pub fn voices() -> Vec<String> {
         .collect()
 }
 
-/// The installed voices with their languages and quality: the speech
-/// engine's, or `say`'s where the engine lists none.
+/// The installed voices with their languages and quality: on macOS the
+/// speech engine's, or `say`'s where the engine lists none. Cheap after
+/// the first call (Linux looks for what's installed in the background).
 pub fn voices_with_languages() -> Vec<Voice> {
     #[cfg(target_os = "macos")]
     {
@@ -321,7 +331,7 @@ pub fn voices_with_languages() -> Vec<Voice> {
             return voices;
         }
     }
-    say_voices()
+    writer::voices()
 }
 
 /// AVSpeechSynthesizer's voices, named for Settings.
@@ -339,30 +349,6 @@ fn engine_voices() -> Vec<Voice> {
     voices
 }
 
-/// `say -v '?'`, read once.
-fn say_voices() -> Vec<Voice> {
-    static VOICES: OnceLock<Vec<Voice>> = OnceLock::new();
-    VOICES
-        .get_or_init(|| {
-            if !cfg!(target_os = "macos") {
-                return Vec::new();
-            }
-            let output = crate::desktop::background_process::command("/usr/bin/say")
-                .args(["-v", "?"])
-                .stdin(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .output();
-            match output {
-                Ok(output) => voices::parse_voices(&String::from_utf8_lossy(&output.stdout)),
-                Err(error) => {
-                    tracing::warn!(%error, "could not list the voices");
-                    Vec::new()
-                }
-            }
-        })
-        .clone()
-}
-
 /// The voice [`speak`] reads `text` with when none is chosen: the best
 /// installed voice of the text's language (the system's language when the
 /// text doesn't tell), or `None` when there is none and the system voice
@@ -378,18 +364,26 @@ pub fn automatic_voice(text: &str) -> Option<String> {
     .map(|voice| voice.name.clone())
 }
 
-/// The voice to download for `language` (`de`, `en-US`) when every
-/// installed one of it sounds worse: its name in System Settings, and about
-/// how big it is. `None` when the best is installed.
+/// The voice to get for `language` (`de`, `en-US`) when every installed
+/// one of it sounds worse, or none reads it: its name, about how big it is,
+/// and where to get it ([`VoiceHint::advice`]: System Settings on macOS,
+/// Settings › Time & language › Speech on Windows, Piper or espeak-ng on
+/// Linux). `None` when the best is installed.
 #[allow(dead_code, reason = "for the assistant's setup and Settings")]
 pub fn better_voice_available(language: &str) -> Option<VoiceHint> {
-    voices::better_voice_for(language, &voices_with_languages())
+    voices::better_voice_for(voices::System::THIS, language, &voices_with_languages())
 }
 
-/// Opens System Settings › Accessibility › Spoken Content, where voices
-/// are downloaded (System Voice › Manage Voices…).
+/// Opens where voices are added: System Settings › Accessibility › Spoken
+/// Content on macOS (System Voice › Manage Voices…), Settings › Time &
+/// language › Speech on Windows, and Piper's voice downloads on Linux (with
+/// the folder they go in made).
 #[allow(dead_code, reason = "for the assistant's setup and Settings")]
 pub fn open_voice_settings() {
+    #[cfg(target_os = "windows")]
+    windows::open_voice_settings();
+    #[cfg(target_os = "linux")]
+    linux::open_voice_settings();
     #[cfg(target_os = "macos")]
     {
         let opened = [
@@ -458,27 +452,19 @@ mod tests {
                 quality: Quality::Enhanced,
             },
         ]);
-        let request = |text: &str, chosen: Option<&str>| Request {
-            id: 1,
-            text: text.into(),
-            chosen: chosen.map(str::to_owned),
-        };
-        let picked = |request| pick(&request, &voices).map(|voice| voice.id.clone());
+        let picked = |text, chosen| pick(text, chosen, &voices).map(|voice| voice.id.clone());
         assert_eq!(
-            picked(request("Die Datei ist hier.", None)).as_deref(),
+            picked("Die Datei ist hier.", None).as_deref(),
             Some("petra")
         );
+        assert_eq!(picked("The file is here.", None).as_deref(), Some("ava"));
         assert_eq!(
-            picked(request("The file is here.", None)).as_deref(),
-            Some("ava")
-        );
-        assert_eq!(
-            picked(request("The file is here.", Some("Anna"))).as_deref(),
+            picked("The file is here.", Some("Anna")).as_deref(),
             Some("anna")
         );
         // A voice no longer installed: the language picks.
         assert_eq!(
-            picked(request("Die Datei ist hier.", Some("Gone"))).as_deref(),
+            picked("Die Datei ist hier.", Some("Gone")).as_deref(),
             Some("petra")
         );
     }
