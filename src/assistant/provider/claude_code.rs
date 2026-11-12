@@ -36,7 +36,7 @@ pub(super) fn run(
     let key = warm_key(run);
     if let Some(process) = warm::take(&key, run.resume.as_deref()) {
         tracing::debug!("the assistant uses a Claude Code that is already running");
-        control.track(process.child.id());
+        control.track(&process.tree);
         if let Some(result) = turn(process, &input, run, &key, control, report, true) {
             return result;
         }
@@ -136,34 +136,93 @@ fn turn(
 /// in its workspace, and subagents for parallel batches.
 const JOB_TOOLS: &[&str] = &["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Task"];
 
+/// Whether Claude Code can sandbox a job's shell here: Seatbelt on macOS,
+/// bubblewrap (`bwrap`) and `socat` on Linux; it has no sandbox on Windows.
+/// The error says what's missing, for the self-test.
+pub(crate) fn sandbox() -> std::result::Result<(), String> {
+    if cfg!(target_os = "macos") {
+        return Ok(());
+    }
+    if cfg!(windows) {
+        return Err("Claude Code has no sandbox on Windows".into());
+    }
+    let find = crate::assistant::backends::search::find;
+    let missing: Vec<&str> = ["bwrap", "socat"]
+        .into_iter()
+        .filter(|program| find(program).is_none())
+        .collect();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Claude Code's sandbox needs bubblewrap and socat; {} {} missing \
+             (install the bubblewrap and socat packages)",
+            missing.join(" and "),
+            if missing.len() == 1 { "is" } else { "are" }
+        ))
+    }
+}
+
 /// `--settings`: hooks off; for a job, its file tools allowed only inside
-/// the workspace, and its shell sandboxed (writes only in the workspace,
-/// which is the working folder; the network only to install Python
-/// packages) and run without asking.
-fn settings(run: &Run) -> String {
+/// the workspace, and (when `sandboxed`) its shell sandboxed (writes only
+/// in the workspace, which is the working folder; the network only to
+/// install Python packages) and run without asking. Without a sandbox the
+/// job has no shell at all ([`arguments_with`]).
+fn settings(run: &Run, sandboxed: bool) -> String {
     let Some(workspace) = &run.workspace else {
         return r#"{"disableAllHooks":true}"#.into();
     };
     // `//` starts an absolute path in a permission rule.
-    let scope = format!("/{}/**", workspace.display());
+    let scope = format!("/{}/**", rule_path(&workspace.to_string_lossy()));
     let allow: Vec<String> = ["Read", "Write", "Edit", "Glob", "Grep"]
         .iter()
         .map(|tool| format!("{tool}({scope})"))
         .collect();
-    json!({
+    let mut settings = json!({
         "disableAllHooks": true,
         "permissions": {"allow": allow},
-        "sandbox": {
+    });
+    settings["sandbox"] = if sandboxed {
+        json!({
             "enabled": true,
             "autoAllowBashIfSandboxed": true,
             "allowUnsandboxedCommands": false,
             "network": {"allowedDomains": ["pypi.org", "files.pythonhosted.org"]},
-        },
-    })
-    .to_string()
+        })
+    } else {
+        json!({"enabled": false})
+    };
+    if !sandboxed {
+        settings["permissions"]["deny"] = json!(["Bash"]);
+    }
+    settings.to_string()
+}
+
+/// A path as Claude Code matches it in a permission rule: as it is on
+/// Unix; on Windows in POSIX form, `C:\Users\p` → `/c/Users/p`.
+fn rule_path(path: &str) -> String {
+    let path = path.strip_prefix(r"\\?\").unwrap_or(path);
+    let bytes = path.as_bytes();
+    let drive = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+    if !drive {
+        return path.replace('\\', "/");
+    }
+    let rest = path[2..].replace('\\', "/");
+    format!(
+        "/{}/{}",
+        path[..1].to_ascii_lowercase(),
+        rest.trim_start_matches('/')
+    )
 }
 
 fn arguments(run: &Run) -> Vec<String> {
+    let sandboxed = run.workspace.is_some() && sandbox().is_ok();
+    arguments_with(run, sandboxed)
+}
+
+/// The arguments for `run`; without a sandbox a job gets no shell (its file
+/// tools stay scoped to the workspace).
+fn arguments_with(run: &Run, sandboxed: bool) -> Vec<String> {
     let mut args: Vec<String> = [
         "-p",
         "--input-format",
@@ -178,12 +237,20 @@ fn arguments(run: &Run) -> Vec<String> {
     ]
     .map(str::to_owned)
     .into();
-    args.extend(["--settings".into(), settings(run)]);
+    args.extend(["--settings".into(), settings(run, sandboxed)]);
     let mut tools = vec!["WebSearch".to_owned(), "WebFetch".to_owned()];
     let mut allowed = tools.clone();
     if let Some(workspace) = &run.workspace {
-        tools.extend(JOB_TOOLS.iter().map(|tool| (*tool).to_owned()));
-        allowed.extend(["Bash".to_owned(), "Task".to_owned()]);
+        tools.extend(
+            JOB_TOOLS
+                .iter()
+                .filter(|tool| sandboxed || **tool != "Bash")
+                .map(|tool| (*tool).to_owned()),
+        );
+        if sandboxed {
+            allowed.push("Bash".to_owned());
+        }
+        allowed.push("Task".to_owned());
         args.extend(["--add-dir".into(), workspace.display().to_string()]);
     }
     args.extend(["--tools".into(), tools.join(",")]);
@@ -491,7 +558,7 @@ mod tests {
         );
         assert!(!plain.iter().any(|arg| arg.contains("sandbox")));
         run.workspace = Some("/Users/p/Documents/Hex/2026-11-12 Job".into());
-        let args = arguments(&run);
+        let args = arguments_with(&run, true);
         assert!(args.windows(2).any(|pair| pair
             == [
                 "--tools",
@@ -511,6 +578,36 @@ mod tests {
         );
         assert_eq!(settings["sandbox"]["enabled"], true);
         assert_eq!(settings["sandbox"]["allowUnsandboxedCommands"], false);
+    }
+
+    #[test]
+    fn without_a_sandbox_a_job_has_no_shell() {
+        let mut run = Run::fixture(AssistantBackend::ClaudeCode);
+        run.workspace = Some("/home/p/Documents/Hex/2026-11-12 Job".into());
+        let args = arguments_with(&run, false);
+        assert!(args.windows(2).any(|pair| pair
+            == [
+                "--tools",
+                "WebSearch,WebFetch,Read,Write,Edit,Glob,Grep,Task"
+            ]));
+        let allowed = &args[args.iter().position(|arg| arg == "--allowedTools").unwrap() + 1];
+        assert_eq!(allowed, "WebSearch,WebFetch,Task");
+        let settings: Value = serde_json::from_str(
+            &args[args.iter().position(|arg| arg == "--settings").unwrap() + 1],
+        )
+        .unwrap();
+        assert_eq!(settings["sandbox"]["enabled"], false);
+        assert_eq!(settings["permissions"]["deny"], json!(["Bash"]));
+    }
+
+    #[test]
+    fn windows_paths_become_posix_in_permission_rules() {
+        assert_eq!(
+            rule_path(r"C:\Users\p\Documents\Hex\2026-11-12 Job"),
+            "/c/Users/p/Documents/Hex/2026-11-12 Job"
+        );
+        assert_eq!(rule_path(r"\\?\D:\Jobs"), "/d/Jobs");
+        assert_eq!(rule_path("/home/p/Job"), "/home/p/Job");
     }
 
     #[test]

@@ -505,14 +505,11 @@ fn codex_login_with_key(path: &std::path::Path, key: &str) -> Result<()> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
+    super::run::own_group(&mut command, true);
     let mut child = command
         .spawn()
         .map_err(|error| eyre!("Codex didn't start: {error}"))?;
+    let tree = super::run::Tree::of(&child);
     if let Some(mut stdin) = child.stdin.take() {
         writeln!(stdin, "{key}")?;
     }
@@ -531,7 +528,7 @@ fn codex_login_with_key(path: &std::path::Path, key: &str) -> Result<()> {
             ));
         }
         if std::time::Instant::now() >= deadline {
-            super::run::kill_group(&mut child);
+            tree.kill_with(&mut child);
             return Err(eyre!("Codex took too long to sign in with the key"));
         }
         std::thread::sleep(Duration::from_millis(50));

@@ -37,6 +37,7 @@ use color_eyre::{Result, eyre::eyre};
 
 use crate::app_settings::AssistantBackend;
 use crate::assistant::backends::McpServer;
+use crate::assistant::backends::run::{self, Tree};
 use crate::assistant::types::{Message, TaskWindow};
 
 /// The desktop tool a task may use, and who it is there.
@@ -294,7 +295,7 @@ pub struct Control {
     steered: AtomicBool,
     /// Stopped by Hex for this reason (it ran too long): a failure.
     failure: Mutex<Option<String>>,
-    groups: Mutex<Vec<u32>>,
+    groups: Mutex<Vec<Tree>>,
 }
 
 impl Control {
@@ -344,13 +345,13 @@ impl Control {
             .clone()
     }
 
-    fn track(&self, pid: u32) {
+    fn track(&self, tree: &Tree) {
         self.groups
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .push(pid);
+            .push(tree.clone());
         if self.cancelled() {
-            end_group(pid);
+            end_group(tree.clone());
         }
     }
 
@@ -358,7 +359,7 @@ impl Control {
         self.groups
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .retain(|group| *group != pid);
+            .retain(|group| group.pid() != pid);
     }
 }
 
@@ -405,12 +406,19 @@ pub fn session_key(backend: AssistantBackend) -> &'static str {
     }
 }
 
+/// Whether Claude Code can sandbox a job's shell on this computer; why not
+/// when it can't (a job then gets no shell).
+pub fn claude_code_sandbox() -> std::result::Result<(), String> {
+    claude_code::sandbox()
+}
+
 /// The executable for `backend`, as `backends` finds it.
 pub fn executable(backend: AssistantBackend) -> Result<PathBuf> {
     crate::assistant::backends::executable(backend).ok_or_else(|| {
         eyre!(
-            "{} isn't installed on this Mac, or Hex can't find it. Install it, or choose another agent in Chats › Settings.",
-            name(backend)
+            "{} isn't installed on this {}, or Hex can't find it. Install it, or choose another agent in Chats › Settings.",
+            name(backend),
+            crate::assistant::agent::computer_name()
         )
     })
 }
@@ -445,6 +453,8 @@ pub enum Stdin {
 /// end kept for errors.
 pub struct Process {
     child: Child,
+    /// It and what it started (its MCP servers), for Cancel.
+    tree: Tree,
     stdin: Option<std::process::ChildStdin>,
     stdout: Option<BufReader<std::process::ChildStdout>>,
     stderr: Arc<Mutex<VecDeque<String>>>,
@@ -457,11 +467,9 @@ impl Process {
         if control.cancelled() {
             return Err(eyre!("cancelled"));
         }
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            command.process_group(0);
-        }
+        // Not tied to this thread: a prewarmed agent outlives the one that
+        // started it.
+        run::own_group(&mut command, false);
         command
             .stdin(if matches!(stdin, Stdin::Null) {
                 Stdio::null()
@@ -474,7 +482,8 @@ impl Process {
         let mut child = command
             .spawn()
             .map_err(|error| eyre!("couldn't start {}: {error}", show(&program)))?;
-        control.track(child.id());
+        let tree = Tree::of(&child);
+        control.track(&tree);
         let mut kept = None;
         match (stdin, child.stdin.take()) {
             (Stdin::Write(data), Some(mut pipe)) => {
@@ -501,6 +510,7 @@ impl Process {
         let stdout = child.stdout.take().map(BufReader::new);
         Ok(Self {
             child,
+            tree,
             stdin: kept,
             stdout,
             stderr,
@@ -597,27 +607,16 @@ fn show(program: &OsString) -> String {
         .unwrap_or_else(|| program.to_string_lossy().into_owned())
 }
 
-/// Sends SIGTERM to process group `group`, then SIGKILL a moment later.
-fn end_group(group: u32) {
+/// Asks `tree` to stop (SIGTERM on Unix), then kills it a moment later. On
+/// Windows its job ends at once.
+fn end_group(tree: Tree) {
+    tree.terminate();
     #[cfg(unix)]
-    {
-        let Ok(group) = i32::try_from(group) else {
-            return;
-        };
-        // SAFETY: kill only sends a signal to the group the task started.
-        unsafe {
-            libc::kill(-group, libc::SIGTERM);
-        }
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(1500));
-            // SAFETY: as above; a group that already ended makes this a no-op.
-            unsafe {
-                libc::kill(-group, libc::SIGKILL);
-            }
-        });
-    }
-    #[cfg(not(unix))]
-    let _ = group;
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(1500));
+        // A group that already ended makes this a no-op.
+        tree.kill();
+    });
 }
 
 /// Standard base64 of `data`, for images sent inline.

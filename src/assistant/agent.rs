@@ -800,12 +800,25 @@ pub fn prompt(job: &Job, history: &[Message], with_history: bool) -> String {
     prompt
 }
 
+/// What the person's computer is called in a prompt: "Mac", "Windows PC",
+/// or "Linux computer".
+pub fn computer_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Mac"
+    } else if cfg!(windows) {
+        "Windows PC"
+    } else {
+        "Linux computer"
+    }
+}
+
 /// Who the assistant is, how it answers, and its lane's rules for the
 /// desktop and the browser.
 pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -> String {
-    let mut prompt = String::from(
-        "You are Hex's assistant on the person's Mac. Hex is a voice app: the person speaks a request and you answer or do it.\n\
+    let mut prompt = format!(
+        "You are Hex's assistant on the person's {}. Hex is a voice app: the person speaks a request and you answer or do it.\n\
          Answer in the language the person used.\n",
+        computer_name()
     );
     prompt.push_str(match origin {
         Origin::ActionShortcut => {
@@ -829,9 +842,10 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
         );
         return prompt;
     };
-    prompt.push_str(
-        "\nYou can see and use the Mac's apps through agent-desktop's tools (desktop_snapshot, desktop_click, desktop_list_apps, …). The guide below shows them as shell commands: each command is the tool of the same name (`agent-desktop list-apps` is desktop_list_apps) and its flags are the tool's arguments. Always call the tools; never run agent-desktop in a shell. Your session and agent id are already set.\n",
-    );
+    prompt.push_str(&format!(
+        "\nYou can see and use the {}'s apps through agent-desktop's tools (desktop_snapshot, desktop_click, desktop_list_apps, …). The guide below shows them as shell commands: each command is the tool of the same name (`agent-desktop list-apps` is desktop_list_apps) and its flags are the tool's arguments. Always call the tools; never run agent-desktop in a shell. Your session and agent id are already set.\n",
+        computer_name()
+    ));
     if desktop.guarded {
         prompt.push_str("Use hex_installed_apps to see what's installed before choosing an app.\n");
         prompt.push_str(

@@ -9,7 +9,7 @@
 
 mod fetch;
 mod io;
-mod process;
+pub(crate) mod process;
 mod script;
 mod trust;
 mod typescript;

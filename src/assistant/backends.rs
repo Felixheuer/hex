@@ -33,7 +33,9 @@ use crate::app_settings::AssistantBackend;
 pub use check::{
     Check, CheckResult, CheckState, Fix, opencode_recent_model, self_test, self_tests,
 };
-pub use install::{Installers, Plan, Step, Tool, apply_fix, apply_fix_with, install_command, plan};
+pub use install::{
+    Installers, Os, Plan, Step, Tool, apply_fix, apply_fix_with, install_command, plan,
+};
 pub use providers::{
     Provider, agent_env_for, has_provider_key, merge_config, opencode_model,
     opencode_provider_config, parse_models, provider, providers, set_provider_key,
@@ -230,7 +232,11 @@ pub fn parse_version(text: &str) -> Option<String> {
 fn claude_signed_in(path: &Path) -> (bool, Option<String>) {
     let mut command = agent_command(path);
     command.args(["auth", "status"]);
-    let sign_in = "Run `claude` once in Terminal to sign in";
+    let sign_in = if cfg!(target_os = "macos") {
+        "Run `claude` once in Terminal to sign in"
+    } else {
+        "Run `claude` once in a terminal to sign in"
+    };
     match run::bounded(command, QUICK) {
         Ok(ran) => match claude_logged_in(&ran.stdout) {
             Some(true) => (true, None),
@@ -254,7 +260,11 @@ pub fn claude_logged_in(output: &str) -> Option<bool> {
 fn codex_signed_in(path: &Path) -> (bool, Option<String>) {
     let mut command = agent_command(path);
     command.args(["login", "status"]);
-    let sign_in = "Run `codex login` once in Terminal to sign in";
+    let sign_in = if cfg!(target_os = "macos") {
+        "Run `codex login` once in Terminal to sign in"
+    } else {
+        "Run `codex login` once in a terminal to sign in"
+    };
     match run::bounded(command, QUICK) {
         Ok(ran) if ran.success() && codex_logged_in(&format!("{}\n{}", ran.stdout, ran.stderr)) => {
             (true, None)
@@ -283,10 +293,61 @@ pub fn agent_env() -> Vec<(String, String)> {
         .collect();
     let path = search::path_value(&extra);
     let mut env: Vec<(String, String)> = std::env::vars()
-        .filter(|(key, _)| key != "PATH" && !is_session_marker(key))
+        .filter(|(key, _)| !key.eq_ignore_ascii_case("PATH") && !is_session_marker(key))
         .collect();
     env.push(("PATH".into(), path));
+    #[cfg(windows)]
+    for (key, fallback) in WINDOWS_DEFAULTS {
+        if !env.iter().any(|(have, _)| have.eq_ignore_ascii_case(key)) {
+            env.push(((*key).into(), (*fallback).into()));
+        }
+    }
     env
+}
+
+/// What a Windows program can't start without (Node needs `SystemRoot`,
+/// npm's shims `ComSpec` and `PATHEXT`), with a default for each in case
+/// Hex was started without them.
+#[cfg(windows)]
+const WINDOWS_DEFAULTS: &[(&str, &str)] = &[
+    ("SystemRoot", r"C:\Windows"),
+    ("ComSpec", r"C:\Windows\System32\cmd.exe"),
+    ("PATHEXT", ".COM;.EXE;.BAT;.CMD"),
+];
+
+/// Besides `PATH`, the variables of Hex's own an MCP server an agent starts
+/// gets: on Windows the ones a program needs to start and find the
+/// person's folders (agents pass a server only a few of their own).
+pub fn mcp_env_extra() -> Vec<(String, String)> {
+    #[cfg(windows)]
+    {
+        const KEEP: &[&str] = &[
+            "SystemRoot",
+            "SystemDrive",
+            "windir",
+            "PATHEXT",
+            "ComSpec",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "USERPROFILE",
+            "USERNAME",
+            "HOMEDRIVE",
+            "HOMEPATH",
+            "TEMP",
+            "TMP",
+            "ProgramData",
+            "ProgramFiles",
+        ];
+        KEEP.iter()
+            .filter_map(|key| {
+                std::env::var(key)
+                    .ok()
+                    .map(|value| ((*key).to_owned(), value))
+            })
+            .collect()
+    }
+    #[cfg(not(windows))]
+    Vec::new()
 }
 
 /// What a parent agent sets for its own children; a task Hex starts is not
@@ -314,8 +375,9 @@ fn is_session_marker(key: &str) -> bool {
 }
 
 /// A command for `program` with [`agent_env`], that never shows a window.
+/// A Windows npm shim runs as what it wraps ([`search::launch`]).
 pub fn agent_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
-    let mut command = crate::desktop::background_process::command(program);
+    let mut command = search::command(Path::new(program.as_ref()));
     command.env_clear().envs(agent_env());
     command
 }
@@ -458,12 +520,37 @@ impl McpServer {
     /// The server's entry in a Claude Code `mcpServers` map, for a config
     /// with several servers.
     pub fn claude_entry(&self) -> serde_json::Value {
+        let (command, args) = self.launch();
         serde_json::json!({
             "type": "stdio",
-            "command": self.command,
-            "args": self.args,
-            "env": { "PATH": self.path_env },
+            "command": command,
+            "args": args,
+            "env": self.env(),
         })
+    }
+
+    /// The program and arguments that start the server: a Windows npm shim
+    /// as the program it wraps ([`search::launch`]), since agents start
+    /// servers without a shell.
+    pub fn launch(&self) -> (String, Vec<String>) {
+        let (program, lead) = search::launch(&self.command);
+        let args = lead
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .chain(self.args.iter().cloned())
+            .collect();
+        (program.to_string_lossy().into_owned(), args)
+    }
+
+    /// The server's environment: its `PATH`, and on Windows what a program
+    /// needs to start ([`mcp_env_extra`]).
+    pub fn env(&self) -> serde_json::Map<String, serde_json::Value> {
+        let mut env = serde_json::Map::new();
+        env.insert("PATH".into(), self.path_env.clone().into());
+        for (key, value) in mcp_env_extra() {
+            env.insert(key, value.into());
+        }
+        env
     }
 
     /// `-c` overrides for `codex exec` that add the server, with only
@@ -477,15 +564,15 @@ impl McpServer {
     pub fn codex_args_as(&self, name: &str, tools: &[&str]) -> Vec<String> {
         let key = format!("mcp_servers.{name}");
         let toml = |value: serde_json::Value| value.to_string();
+        let (command, server_args) = self.launch();
         let mut args = vec![
-            format!(
-                "{key}.command={}",
-                toml(self.command.to_string_lossy().into())
-            ),
-            format!("{key}.args={}", toml(self.args.clone().into())),
-            format!("{key}.env.PATH={}", toml(self.path_env.clone().into())),
-            format!("{key}.default_tools_approval_mode=\"approve\""),
+            format!("{key}.command={}", toml(command.into())),
+            format!("{key}.args={}", toml(server_args.into())),
         ];
+        for (variable, value) in self.env() {
+            args.push(format!("{key}.env.{variable}={}", toml(value)));
+        }
+        args.push(format!("{key}.default_tools_approval_mode=\"approve\""));
         if !tools.is_empty() {
             args.push(format!(
                 "{key}.enabled_tools={}",
@@ -505,13 +592,14 @@ impl McpServer {
 
     /// [`Self::opencode_config`] with the server under `name`.
     pub fn opencode_config_as(&self, name: &str) -> serde_json::Value {
-        let mut command = vec![self.command.to_string_lossy().into_owned()];
-        command.extend(self.args.iter().cloned());
+        let (program, args) = self.launch();
+        let mut command = vec![program];
+        command.extend(args);
         serde_json::json!({
             name: {
                 "type": "local",
                 "command": command,
-                "environment": { "PATH": self.path_env },
+                "environment": self.env(),
             }
         })
     }
