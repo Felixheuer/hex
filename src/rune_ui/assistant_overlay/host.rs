@@ -303,6 +303,8 @@ fn on_event(event: &Event) {
 /// the Action shortcut). Any thread; nothing while no Background task is
 /// listed.
 pub(crate) fn toggle_tasks() {
+    // The onboarding's tutorial checks the double-tap here.
+    crate::rune_ui::assistant_tasks_opened();
     if let Some(overlays) = OVERLAYS.get() {
         overlays.orb.update(|orb, _| toggle(orb));
     }

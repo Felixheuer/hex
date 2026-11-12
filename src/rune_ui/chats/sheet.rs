@@ -11,19 +11,19 @@ mod shortcut;
 mod try_it;
 
 pub(super) use browser::sign_in_button;
+pub(super) use desktop::install_failure;
 
-use rune::{Align, El, Tx, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant, RadioItem, Spinner, TextInput, glyphs};
+use rune::{Align, El, col, el, icon, row, text};
+use rune_kit::{Button, ButtonVariant, Spinner, glyphs};
 
 use super::super::controls::{Paint, PushSize, pulsing_dot};
 use super::super::icons::{GLOBE, MIC, SPARKLES};
 use super::super::onboarding_kit::{LEAD, Motion, arrives, keys, title_font};
 use super::setup::{
-    self, Page, SetupFlow, chosen, fix_for, fix_label, page_done,
+    self, Page, SetupFlow, page_done,
 };
-use super::{BACKENDS, Ui, backend_name};
-use crate::app_settings::AssistantBackend;
-use crate::assistant::backends::{CheckState, Fix};
+use super::Ui;
+use crate::assistant::backends::CheckState;
 use crate::desktop::i18n::{tr, tr_fill};
 
 const TOP_BAR: f32 = 48.0;
@@ -507,153 +507,25 @@ fn welcome(ui: &Ui, p: Paint) -> El {
     )
 }
 
-/// The agents found; the chosen one answers. Each that isn't ready offers
-/// its fix.
+/// Who answers: the agent picker (one action per agent, a suggestion when
+/// nothing is installed, OpenCode on your own key).
 fn agent(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
-    let chosen_backend = ui.settings.assistant.backend;
-    let found = ui.chats.settings.found.as_deref();
-    let mut rows = Vec::new();
-    for (index, backend) in BACKENDS.iter().enumerate() {
-        let entry = found.and_then(|found| found.iter().find(|entry| entry.backend == *backend));
-        let description = match entry {
-            None => String::new(),
-            Some(entry) if entry.ready => entry
-                .version
-                .as_ref()
-                .map(|version| tr_fill("Version {}", version))
-                .unwrap_or_else(|| tr("Ready").to_owned()),
-            Some(entry) => entry
-                .note
-                .clone()
-                .unwrap_or_else(|| tr("Not ready").to_owned()),
-        };
-        let pick = *backend;
-        let radio = RadioItem::new(backend_name(*backend), *backend == chosen_backend)
-            .description(description)
-            .on_select_tx(move |ui: &mut Ui, tx: &mut Tx| {
-                tx.instant();
-                ui.update(|settings| settings.assistant.backend = pick);
-            })
-            .build(p.k)
-            .key("radio")
-            .grow(1.0)
-            .shrink();
-        let control = match entry {
-            None if flow.detecting => spinner(p, "looking"),
-            None => el().key("none"),
-            Some(entry) if entry.ready => done_pill(p, "ready", tr("Ready")),
-            Some(entry) => match fix_for(entry) {
-                Some(fix @ Fix::Install(_)) if flow.fixing == Some(fix) => row()
-                    .key("installing")
-                    .gap(6.0)
-                    .center_y()
-                    .child(
-                        text(
-                            flow.fix_log
-                                .last()
-                                .cloned()
-                                .unwrap_or_else(|| tr("Installing…").to_owned()),
-                        )
-                        .key("label")
-                        .font(p.k.ty.small)
-                        .color(p.muted())
-                        .max_w(200.0)
-                        .truncate(),
-                    )
-                    .child(spinner(p, "fixing")),
-                Some(fix) if flow.fixing == Some(fix) => spinner(p, "fixing"),
-                Some(Fix::AddApiKey) => el().key("none"),
-                Some(fix) => push(
-                    p,
-                    "fix",
-                    &fix_label(fix),
-                    *backend == chosen_backend,
-                    move |ui: &mut Ui| setup::apply(ui, fix),
-                ),
-                None => el().key("none"),
-            },
-        };
-        rows.push(
-            row()
-                .key(format!("agent{index}"))
-                .role("none")
-                .min_h(ROW_H)
-                .mx(4.0)
-                .px(12.0)
-                .py(10.0)
-                .gap(12.0)
-                .center_y()
-                .radius(p.k.radius.md)
-                .hover(p.k.c.hover)
-                .on_press_tx(move |ui: &mut Ui, tx: &mut Tx| {
-                    tx.instant();
-                    ui.update(|settings| settings.assistant.backend = pick);
-                })
-                .child(radio)
-                .child(control),
-        );
-    }
-    if chosen_backend == AssistantBackend::ClaudeApi && !chosen(ui).is_some_and(|found| found.ready)
-    {
-        rows.push(key_row(ui, p));
-    }
-    // An install that failed shows what it printed last, and the command
-    // to run in Terminal instead.
-    let note = match (&flow.fix_error, &ui.chats.settings.key_error) {
-        (Some(error), _) => Some(desktop::install_failure(
-            p,
-            error,
-            flow.fix_command.as_deref(),
-        )),
-        (None, Some(error)) => Some(note(p, error)),
-        (None, None) => None,
-    };
-    let lead_copy = if flow.detecting && found.is_none() {
+    let lead_copy = if flow.detecting && ui.chats.settings.found.is_none() {
         tr("Looking for the agents on this Mac…")
+    } else if super::agents::nothing_installed(ui) {
+        tr("Nothing is installed yet. One click sets up the one we suggest, or use your own API key.")
     } else {
-        tr("It runs on this Mac, signed in with your own account. Claude Code is the default.")
+        tr("It runs on this Mac, signed in with your own account or key.")
     };
     page(
         p,
         "agent",
         tr("Choose who answers"),
         lead(p, lead_copy),
-        Some(rows_card(p, "agent-card", rows)),
-        note,
+        Some(card(p, "agent-card").child(super::agent_picker::picker(ui, p))),
+        None,
         actions(p, setup::page_done(ui, flow, Page::Agent), true),
     )
-}
-
-/// The Claude API key, saved to the Keychain.
-fn key_row(ui: &Ui, p: Paint) -> El {
-    let state = &ui.chats.settings;
-    row()
-        .key("api-key")
-        .px(16.0)
-        .py(10.0)
-        .gap(8.0)
-        .center_y()
-        .child(
-            TextInput::new(&state.key)
-                .secure()
-                .placeholder(tr("Claude API key"))
-                .label(tr("Claude API key"))
-                .width(None)
-                .on_edit(|ui: &mut Ui| &mut ui.chats.settings.key)
-                .on_submit(|ui: &mut Ui, _| super::settings::save_key(ui))
-                .invalid(state.key_error.is_some())
-                .build(p.k)
-                .key("api-key-field")
-                .grow(1.0)
-                .shrink(),
-        )
-        .child(push(
-            p,
-            "save-api-key",
-            tr("Save"),
-            true,
-            super::settings::save_key,
-        ))
 }
 
 fn note(p: Paint, copy: &str) -> El {

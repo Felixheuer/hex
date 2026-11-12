@@ -15,7 +15,7 @@ use super::super::Menu;
 use super::super::controls::{CardRow, Paint, described_row, section, setting_row, toggle_row};
 use super::super::general::quiet_select;
 use super::super::lists::small_button;
-use super::{BACKENDS, Job, Ui, backend_name};
+use super::{BACKENDS, Job, Ui};
 use crate::app_settings::{AssistantBackend, AssistantSettings};
 use crate::assistant::backends::Found;
 use crate::assistant::browser::AgentBrowser;
@@ -48,6 +48,10 @@ pub(in crate::rune_ui) struct SettingsState {
     pub(in crate::rune_ui) blocked: TextEdit,
     /// agent-browser, once read.
     pub(in crate::rune_ui) browser: Option<AgentBrowser>,
+    /// The connected displays, read when Settings or the onboarding opens.
+    pub(in crate::rune_ui) displays: Vec<super::display_shim::Display>,
+    /// The agent picker's setups and key panels.
+    pub(in crate::rune_ui) agents: super::agents::Agents,
     /// The engine clean browsers run, once read.
     pub(in crate::rune_ui) engine: Option<crate::assistant::browser::Engine>,
     /// Lightpanda installs from Settings now.
@@ -99,6 +103,7 @@ pub(super) fn opened(ui: &mut Ui) {
             TextEdit::new(saved_model(&ui.settings.assistant, backend));
     }
     ui.chats.settings.model_typed = None;
+    super::displays::read(ui);
     ui.chats.jobs.run(Job::Detect);
     ui.chats.jobs.run(Job::Browser);
     ui.chats.jobs.run(Job::RunningApps);
@@ -139,17 +144,9 @@ pub(super) fn save_key(ui: &mut Ui) {
 
 pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
     let assistant = &ui.settings.assistant;
-    let mut agent: Vec<CardRow> = vec![
-        setting_row(
-            p,
-            "assistant-backend",
-            tr("Agent"),
-            Some(tr(
-                "Answers and does the tasks, signed in with your own account",
-            )),
-            backend_select(ui, p, layer),
-        )
-        .into(),
+    let agent: Vec<CardRow> = vec![
+        // The onboarding's agent picker: switch agents or keys here.
+        super::agent_picker::picker(ui, p).px(4.0).into(),
         setting_row(
             p,
             "assistant-model",
@@ -159,9 +156,6 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         )
         .into(),
     ];
-    if assistant.backend == AssistantBackend::ClaudeApi {
-        agent.push(key_row(ui, p).into());
-    }
     let mut voice = vec![toggle_row(
         p,
         "assistant-speak",
@@ -237,6 +231,7 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
             .into(),
         );
     }
+    desktop.push(super::displays::settings_row(ui, p, layer).into());
     desktop.push(
         toggle_row(
             p,
@@ -288,34 +283,6 @@ pub(super) fn page(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
         .children(page_rows(ui, p, layer))
 }
 
-fn backend_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
-    let found = ui.chats.settings.found.as_deref();
-    let labels: Vec<String> = BACKENDS
-        .iter()
-        .map(|backend| {
-            let name = backend_name(*backend);
-            match found.and_then(|found| found.iter().find(|entry| entry.backend == *backend)) {
-                Some(entry) if !entry.ready => tr_fill("{} (not ready)", name),
-                _ => name.to_owned(),
-            }
-        })
-        .collect();
-    quiet_select(
-        ui,
-        p,
-        Menu::Pick("assistant-backend"),
-        "assistant-backend-control".to_owned(),
-        tr("Agent"),
-        labels,
-        index(ui.settings.assistant.backend),
-        |ui, chosen| {
-            flush(ui);
-            ui.update(|settings| settings.assistant.backend = BACKENDS[chosen]);
-        },
-        layer,
-    )
-}
-
 fn model_field(ui: &Ui, p: Paint) -> El {
     let backend = ui.settings.assistant.backend;
     let slot = index(backend);
@@ -332,46 +299,6 @@ fn model_field(ui: &Ui, p: Paint) -> El {
         .on_change(|ui: &mut Ui, _| ui.chats.settings.model_typed = Some(Instant::now()))
         .build(p.k)
         .key("assistant-model-field")
-}
-
-/// The Claude API key: a secure field and Save; the key goes to the
-/// Keychain, never to settings.
-pub(super) fn key_row(ui: &Ui, p: Paint) -> El {
-    let state = &ui.chats.settings;
-    let description = match &state.key_error {
-        Some(error) => (error.clone(), p.danger()),
-        None => (
-            tr("Kept in your Keychain, never in Hex's settings").to_owned(),
-            p.muted(),
-        ),
-    };
-    described_row(
-        p,
-        "assistant-api-key",
-        tr("API key"),
-        Some(description),
-        row()
-            .key("key-controls")
-            .gap(8.0)
-            .center_y()
-            .child(
-                TextInput::new(&state.key)
-                    .secure()
-                    .placeholder("sk-ant-…")
-                    .label(tr("API key"))
-                    .width(Some(180.0))
-                    .on_edit(|ui: &mut Ui| &mut ui.chats.settings.key)
-                    .on_submit(|ui: &mut Ui, _| save_key(ui))
-                    .build(p.k)
-                    .key("api-key-field"),
-            )
-            .child(small_button(
-                p,
-                "save-api-key",
-                tr("Save"),
-                |ui: &mut Ui, _| save_key(ui),
-            )),
-    )
 }
 
 fn voice_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {

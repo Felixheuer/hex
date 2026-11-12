@@ -399,6 +399,62 @@ fn job_plan() -> Vec<crate::assistant::PlanStep> {
     .collect()
 }
 
+/// The onboarding's agent page in `state`.
+fn agent_page(ui: &mut super::Ui, state: AgentPage) {
+    use crate::app_settings::AssistantBackend;
+    super::setup::fixture(ui, super::setup::Page::Agent, false);
+    let found = ui.chats.settings.found.get_or_insert_with(Vec::new);
+    for entry in found.iter_mut() {
+        match state {
+            AgentPage::Ready => {
+                entry.ready = true;
+                entry.note = None;
+                if entry.backend != AssistantBackend::ClaudeApi {
+                    entry.path = Some(format!("/opt/homebrew/bin/{:?}", entry.backend).into());
+                    entry.version.get_or_insert_with(|| "1.0.0".into());
+                }
+            }
+            AgentPage::Nothing => {
+                entry.ready = false;
+                entry.path = None;
+                entry.version = None;
+            }
+            AgentPage::OwnKey if entry.backend == AssistantBackend::OpenCode => {
+                entry.ready = true;
+                entry.note = None;
+                entry.path = Some("/opt/homebrew/bin/opencode".into());
+                entry.version = Some("2.2.6".into());
+            }
+            AgentPage::OwnKey | AgentPage::Installing => {}
+        }
+    }
+    if state == AgentPage::OwnKey {
+        ui.settings.assistant.backend = AssistantBackend::OpenCode;
+        ui.settings.assistant.opencode_model = Some("deepseek/deepseek-chat".into());
+    }
+    let agents = &mut ui.chats.settings.agents;
+    match state {
+        AgentPage::OwnKey => {
+            agents.byok = Some(super::agents::Byok {
+                provider: 0,
+                model: 0,
+                key: rune::TextEdit::new("sk-0f3c9e2b7a5d41c8"),
+                verifying: false,
+                result: Some(Ok("deepseek/deepseek-chat".into())),
+            });
+        }
+        AgentPage::Installing => {
+            ui.settings.assistant.backend = AssistantBackend::Codex;
+            agents.working = Some(AssistantBackend::Codex);
+            agents.log = vec![
+                "==> Downloading codex 0.91.0".into(),
+                "==> Pouring codex--0.91.0.arm64_sequoia.bottle.tar.gz".into(),
+            ];
+        }
+        AgentPage::Ready | AgentPage::Nothing => {}
+    }
+}
+
 /// The running task's turn so far, as its events left it.
 pub(in crate::rune_ui) fn running_turn() -> super::Turn {
     super::Turn {
@@ -416,6 +472,19 @@ pub(in crate::rune_ui) fn running_turn() -> super::Turn {
         answers: Vec::new(),
         started_ms: crate::history::now_ms() - 3 * MINUTE,
     }
+}
+
+/// The agent page's states, for scenes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::rune_ui) enum AgentPage {
+    /// Every agent ready.
+    Ready,
+    /// Nothing installed: the suggestion.
+    Nothing,
+    /// OpenCode's own-key panel, DeepSeek's key verified.
+    OwnKey,
+    /// Codex installing.
+    Installing,
 }
 
 /// Which Chats scene to set up.
@@ -451,6 +520,8 @@ pub(in crate::rune_ui) enum Scene {
     Resumed,
     /// Accessibility applies only after a restart: one button does it.
     Restart,
+    /// The agent page in each of its states.
+    Agent(AgentPage),
 }
 
 /// Sets `ui` up for a Chats scene: the Lab on, with fake conversations.
@@ -486,6 +557,7 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
     };
     let mut pane = super::ChatsPane::fixture(store);
     pane.images.fixture();
+    pane.settings.displays = super::display_shim::fixture();
     // The scene shows what it set up, not what following would pick.
     pane.follow.was_showing = true;
     match scene {
@@ -495,7 +567,8 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
         | Scene::NewInHex
         | Scene::Merged
         | Scene::Resumed
-        | Scene::Restart => {
+        | Scene::Restart
+        | Scene::Agent(_) => {
             pane.turns.insert("reply-to-maya".into(), running_turn());
             pane.select("rename-screenshots".into());
         }
@@ -634,6 +707,7 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
                 flow.desktop = None;
             }
         }
+        Scene::Agent(state) => agent_page(ui, state),
         Scene::Restart => {
             super::setup::fixture(ui, super::setup::Page::Desktop, false);
             ui.platform.permissions.accessibility =

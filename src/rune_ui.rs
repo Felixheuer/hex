@@ -17,7 +17,6 @@ pub(crate) mod capture_capsule;
 mod chats;
 /// The HUD's task list opened by a double-tap: the assistant tutorial's
 /// third gesture. The overlay calls it.
-#[allow(unused_imports)]
 pub(crate) use chats::tasks_opened as assistant_tasks_opened;
 mod controls;
 #[cfg(target_os = "macos")]

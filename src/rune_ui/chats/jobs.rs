@@ -10,7 +10,7 @@ use rune::Waker;
 
 use super::Ui;
 use super::shortcut::{self, Conflict};
-use crate::app_settings::{AppSettings, AssistantSettings, HotkeySlot};
+use crate::app_settings::{AppSettings, AssistantBackend, AssistantSettings, HotkeySlot};
 use crate::assistant::backends::{AgentDesktop, CheckResult, Fix, Found};
 use crate::assistant::browser::{AgentBrowser, Engine};
 use crate::assistant::computer::Permissions;
@@ -51,6 +51,19 @@ pub(in crate::rune_ui) enum Job {
     ForgetSignIn,
     /// The apps running now, for Settings' blocked apps.
     RunningApps,
+    /// Sets up an agent in one go: installs, starts or signs in, and checks
+    /// that it answers (`agents::set_up`).
+    SetUpAgent(AssistantBackend, Box<AssistantSettings>),
+    /// OpenCode on the person's own key: installs it when `install`, checks
+    /// the key with the model, and saves it.
+    OwnKey {
+        provider: String,
+        key: String,
+        model: String,
+        install: bool,
+    },
+    /// Codex on an OpenAI key instead of a sign-in.
+    CodexKey(String),
 }
 
 /// A job's answer.
@@ -82,6 +95,15 @@ pub(in crate::rune_ui) enum Done {
     SignIn(bool, Result<(), String>),
     /// The regular apps running now, by name.
     RunningApps(Vec<String>),
+    /// A line of an agent's setup.
+    AgentProgress(AssistantBackend, String),
+    /// A failed setup's command, to run in Terminal instead.
+    AgentCommand(Option<String>),
+    /// An agent's setup ended: it answers, or why not.
+    AgentSetUp(AssistantBackend, Result<(), String>),
+    /// The own key works (OpenCode's `provider/model`), or why not.
+    OwnKey(Result<String, String>),
+    CodexKey(Result<(), String>),
 }
 
 pub(in crate::rune_ui) struct Jobs {
@@ -155,6 +177,9 @@ impl Jobs {
 /// Does `job`, sending what it found.
 fn perform(job: Job, send: &dyn Fn(Done)) {
     use crate::assistant::{backends, browser, computer, credentials, speech};
+    if super::agents::perform(&job, send) {
+        return;
+    }
     match job {
         Job::Detect => {
             backends::refresh();
@@ -216,6 +241,7 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             send(Done::Browser(browser::agent_browser(), browser::signed_in(), browser::clean_engine()));
         }
         Job::RunningApps => send(Done::RunningApps(running_apps())),
+        Job::SetUpAgent(..) | Job::OwnKey { .. } | Job::CodexKey(_) => {}
     }
 }
 
@@ -258,6 +284,9 @@ pub(super) fn poll(ui: &mut Ui) -> bool {
 
 /// One answer, wherever it shows: the setup flow, and Settings' lists.
 pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
+    if super::agents::receive(ui, &done) {
+        return;
+    }
     match &done {
         Done::Detected(found) => ui.chats.settings.found = Some(found.clone()),
         Done::Voices(voices) => ui.chats.settings.voices = Some(voices.clone()),

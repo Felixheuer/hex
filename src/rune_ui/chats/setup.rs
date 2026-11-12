@@ -416,6 +416,7 @@ pub(in crate::rune_ui) fn open(ui: &mut Ui) {
 /// Opens the flow at `page`, looking at everything afresh.
 pub(in crate::rune_ui) fn open_at(ui: &mut Ui, page: Page) {
     ui.chats.setup = Some(SetupFlow::default());
+    super::displays::read(ui);
     detect(ui);
     recheck(ui);
     browser::read(ui);
@@ -801,7 +802,12 @@ pub(super) fn receive(ui: &mut Ui, done: super::Done) {
         | Done::Browser(..)
         | Done::SignIn(..)
         | Done::BrowserCheck(_)
-        | Done::BrowserChecked => {}
+        | Done::BrowserChecked
+        | Done::AgentProgress(..)
+        | Done::AgentCommand(_)
+        | Done::AgentSetUp(..)
+        | Done::OwnKey(_)
+        | Done::CodexKey(_) => {}
     }
     if browser_installed {
         browser::installed(ui);

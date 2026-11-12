@@ -1688,7 +1688,10 @@ mod tests {
         #[cfg(hex_capture)]
         include_str!("../rune_ui/captures.rs"),
         include_str!("../rune_ui/chats.rs"),
+        include_str!("../rune_ui/chats/agent_picker.rs"),
+        include_str!("../rune_ui/chats/agents.rs"),
         include_str!("../rune_ui/chats/composer.rs"),
+        include_str!("../rune_ui/chats/displays.rs"),
         include_str!("../rune_ui/chats/events.rs"),
         include_str!("../rune_ui/chats/jobs.rs"),
         include_str!("../rune_ui/chats/list.rs"),

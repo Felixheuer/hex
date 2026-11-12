@@ -100,7 +100,7 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
 
 /// An install that failed: the end of what it printed, and its command to
 /// run in Terminal instead.
-pub(super) fn install_failure(p: Paint, error: &str, command: Option<&str>) -> El {
+pub(in crate::rune_ui) fn install_failure(p: Paint, error: &str, command: Option<&str>) -> El {
     let tail: Vec<&str> = error.lines().rev().take(4).collect();
     let tail = tail.into_iter().rev().collect::<Vec<_>>().join("\n");
     col()
@@ -205,6 +205,8 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                 .map(|grant| grant_row(ui, flow, p, *grant, Some(*grant) == first_missing)),
         );
     }
+    // With two or more displays: which one agents work on (optional).
+    rows.extend(super::super::displays::onboarding_row(ui, p));
     let resumed = flow.resumed.then(|| {
         text(tr("Hex restarted. Checking again where you left off…"))
             .key("resumed")

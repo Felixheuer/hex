@@ -14,7 +14,6 @@ static TASKS_OPENED: AtomicU64 = AtomicU64::new(0);
 
 /// The HUD's expanded task list opened from a double-tap of the Action
 /// shortcut. The overlay calls it; the tutorial's third step watches it.
-#[allow(dead_code)] // The overlay calls it once integrated.
 pub(crate) fn tasks_opened() {
     TASKS_OPENED.fetch_add(1, Ordering::Relaxed);
 }

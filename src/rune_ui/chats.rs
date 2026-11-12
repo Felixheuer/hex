@@ -10,7 +10,12 @@
 //! to it (`connect`); before that, and in every scene and test, it works on
 //! an in-memory [`fixture::Store`] and never touches the service.
 
+mod agent_picker;
+mod agents;
+mod backends_shim;
 mod composer;
+mod display_shim;
+mod displays;
 mod events;
 mod follow;
 pub(super) mod fixture;

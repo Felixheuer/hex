@@ -711,6 +711,86 @@ fn the_assistant_pages_continue_the_voice_first_run_before_hex_is_ready() {
 }
 
 #[test]
+fn with_nothing_installed_one_button_sets_up_the_suggested_agent() {
+    let mut rt = scene("mac-assistant-setup-agent-none");
+    assert!(shows(&rt, "Recommended: Claude Code"));
+    tap(&mut rt, "set-up-recommended");
+    assert!(rt.state.chats.jobs.asked.iter().any(|job| matches!(
+        job,
+        Job::SetUpAgent(AssistantBackend::ClaudeCode, _)
+    )));
+    assert_eq!(
+        rt.state.chats.settings.agents.working,
+        Some(AssistantBackend::ClaudeCode)
+    );
+    // Its lines show as it goes, and the row turns Ready when it answers.
+    answer(
+        &mut rt,
+        Done::AgentProgress(AssistantBackend::ClaudeCode, "Downloading Claude Code".into()),
+    );
+    assert!(shows(&rt, "Downloading Claude Code"));
+    answer(&mut rt, Done::AgentSetUp(AssistantBackend::ClaudeCode, Ok(())));
+    assert_eq!(rt.state.chats.settings.agents.working, None);
+}
+
+#[test]
+fn your_own_key_installs_opencode_checks_the_key_and_saves_the_model() {
+    let mut rt = scene("mac-assistant-setup-agent-none");
+    tap(&mut rt, "use-own-key");
+    assert!(shows(&rt, "Your own API key"));
+    tap(&mut rt, "provider-deepseek");
+    rt.state
+        .chats
+        .settings
+        .agents
+        .byok
+        .as_mut()
+        .unwrap()
+        .key = TextEdit::new("sk-deepseek-123456");
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "verify-key");
+    assert!(rt.state.chats.jobs.asked.iter().any(|job| matches!(
+        job,
+        Job::OwnKey { provider, install: true, .. } if provider == "deepseek"
+    )));
+    answer(&mut rt, Done::OwnKey(Ok("deepseek/deepseek-chat".into())));
+    assert_eq!(rt.state.settings.assistant.backend, AssistantBackend::OpenCode);
+    assert_eq!(
+        rt.state.settings.assistant.opencode_model.as_deref(),
+        Some("deepseek/deepseek-chat")
+    );
+    assert!(shows(&rt, "Works. OpenCode answers with deepseek/deepseek-chat"));
+}
+
+#[test]
+fn codex_offers_an_openai_key_instead_of_a_sign_in() {
+    let mut rt = scene("mac-assistant-setup-agent");
+    tap(&mut rt, "codex-use-key");
+    rt.state.chats.settings.agents.codex_key = Some(TextEdit::new("sk-openai-123"));
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "codex-use");
+    assert!(
+        rt.state
+            .chats
+            .jobs
+            .asked
+            .contains(&Job::CodexKey("sk-openai-123".into()))
+    );
+}
+
+#[test]
+fn the_display_row_shows_only_with_two_displays() {
+    let mut rt = scene("mac-assistant-setup-desktop");
+    assert!(rt.find("agent-display").is_some(), "two displays in scenes");
+    rt.state.chats.settings.displays.truncate(1);
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(rt.find("agent-display").is_none());
+}
+
+#[test]
 fn page_names_round_trip_for_the_saved_progress() {
     for page in Page::ALL {
         assert_eq!(Page::named(page.name()), Some(page));

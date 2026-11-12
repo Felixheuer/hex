@@ -793,6 +793,34 @@ pub(super) const SCENES: &[Scene] = &[
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Agent))
     }),
     #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-agent-ready", |ui| {
+        mac_chats(
+            ui,
+            chats::fixture::Scene::Agent(chats::fixture::AgentPage::Ready),
+        )
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-agent-none", |ui| {
+        mac_chats(
+            ui,
+            chats::fixture::Scene::Agent(chats::fixture::AgentPage::Nothing),
+        )
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-agent-own-key", |ui| {
+        mac_chats(
+            ui,
+            chats::fixture::Scene::Agent(chats::fixture::AgentPage::OwnKey),
+        )
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-agent-installing", |ui| {
+        mac_chats(
+            ui,
+            chats::fixture::Scene::Agent(chats::fixture::AgentPage::Installing),
+        )
+    }),
+    #[cfg(target_os = "macos")]
     ("mac-assistant-setup-new", |ui| {
         mac_chats(ui, chats::fixture::Scene::NewInHex)
     }),
