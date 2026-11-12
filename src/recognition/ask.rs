@@ -188,11 +188,19 @@ impl Asker {
                 // discarded before the hold is real (`intend`).
                 let include_screenshot =
                     crate::app_settings::applied_assistant().include_screenshot;
-                self.question = Some(Question::press(crate::assistant::agent_mode(), move || {
+                let agent = crate::assistant::agent_mode();
+                self.question = Some(Question::press(agent, move || {
                     crate::assistant::computer::context_async(include_screenshot)
                 }));
                 let accepted = handle(action, context, events)?;
-                if !accepted {
+                if accepted {
+                    // The HUD wears the assistant's colours (and in Agent
+                    // mode says "New task"), so a question never looks
+                    // like a dictation.
+                    indicator.send(
+                        crate::dictation::indicator::DictationIndicatorEvent::Asking { agent },
+                    );
+                } else {
                     self.question = None;
                 }
                 Ok(accepted)

@@ -283,6 +283,32 @@ fn snapshots() {
             desk::SIZE,
             crate::rune_ui::offscreen::draw(&gpu, &mut desk_rt, w, h),
         );
+        let mut holding = runtime(
+            Desk {
+                holding: true,
+                ..Desk::settled()
+            },
+            desk::view,
+            desk::SIZE,
+            dark,
+        );
+        save(
+            "desktop-new-task",
+            desk::SIZE,
+            crate::rune_ui::offscreen::draw(&gpu, &mut holding, w, h),
+        );
+        let mut hint_rt = runtime(
+            super::hint::Hint,
+            super::hint::view,
+            super::hint::SIZE,
+            dark,
+        );
+        let (hw, hh) = px(super::hint::SIZE);
+        save(
+            "hint",
+            super::hint::SIZE,
+            backdrop(&gpu, &mut hint_rt, hw, hh, dark),
+        );
         let mut stack_rt = runtime(
             stack_state(fixture::board()),
             stack::view,
@@ -305,6 +331,14 @@ fn snapshots() {
                 Some(fixture::bubble_ended(
                     "What changed in the release notes?",
                     Some(fixture::LONG_ANSWER),
+                    None,
+                )),
+            ),
+            (
+                "bubble-markdown",
+                Some(fixture::bubble_ended(
+                    "How do I free up disk space?",
+                    Some(fixture::MARKDOWN_ANSWER),
                     None,
                 )),
             ),

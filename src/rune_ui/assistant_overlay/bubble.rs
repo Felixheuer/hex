@@ -10,11 +10,15 @@ use rune_kit::{Button, ButtonVariant, ControlSize, Spinner};
 
 use super::super::controls::Paint;
 use super::board::{Bubble, BubblePhase};
+use crate::desktop::i18n::tr;
 
 /// The overlay: a readable measure, and room for about ten lines.
 pub(crate) const SIZE: (f32, f32) = (440.0, 340.0);
-/// The answer's most lines before "…".
-const ANSWER_LINES: usize = 10;
+/// About ten lines of answer; past it the answer is cut with "…" and the
+/// rest is in Chats.
+const ANSWER_CHARS: usize = 560;
+/// The answer's tallest, should a short answer still run long (a list).
+const ANSWER_MAX_H: f32 = 236.0;
 /// The error's most lines.
 const ERROR_LINES: usize = 4;
 /// Room around the card inside the overlay.
@@ -78,7 +82,7 @@ pub(crate) fn card<S: 'static>(p: Paint, bubble: &Bubble, actions: Actions<S>) -
         .font(p.k.ty.small)
         .color(p.faint());
     let body: Vec<El> = match bubble.phase {
-        BubblePhase::Thinking => vec![working(p, "Thinking…", "thinking")],
+        BubblePhase::Thinking => vec![working(p, tr("Thinking…"), "thinking")],
         BubblePhase::Working => {
             let (last, earlier) = bubble
                 .steps
@@ -92,13 +96,14 @@ pub(crate) fn card<S: 'static>(p: Paint, bubble: &Bubble, actions: Actions<S>) -
                 .collect()
         }
         BubblePhase::Answering | BubblePhase::Answered => vec![
-            text(bubble.answer.trim().to_owned())
-                .key("answer")
-                .wrap()
-                .max_lines(ANSWER_LINES)
-                .font(p.k.ty.ui)
-                .color(p.text())
-                .selectable(false),
+            el().key("answer")
+                .w_full()
+                .max_h(ANSWER_MAX_H)
+                .clip_rounded(0.0)
+                .child(super::markdown::view(
+                    p,
+                    &clip_answer(bubble.answer.trim(), ANSWER_CHARS),
+                )),
         ],
         BubblePhase::Failed => vec![
             row()
@@ -128,7 +133,7 @@ pub(crate) fn card<S: 'static>(p: Paint, bubble: &Bubble, actions: Actions<S>) -
     let id = bubble.conversation.clone();
     let footer = bubble.over().then(|| {
         row().key("footer").w_full().justify_end().child(
-            Button::new("Open in Chats")
+            Button::new(tr("Open in Chats"))
                 .variant(ButtonVariant::GhostMuted)
                 .control_size(ControlSize::Small)
                 .on_press(move |s: &mut S| open(s, &id))
@@ -204,4 +209,52 @@ fn done_step(p: Paint, line: &str, index: usize) -> El {
                 .color(p.faint())
                 .min_w(0.0),
         )
+}
+
+/// `answer` (Markdown) cut to about `max` characters: at the last line
+/// break that fits, else the last word, then "…". Never inside a code
+/// span or a bold run left open: their markers are dropped from the cut.
+pub(crate) fn clip_answer(answer: &str, max: usize) -> String {
+    if answer.chars().count() <= max {
+        return answer.to_owned();
+    }
+    let head: String = answer.chars().take(max).collect();
+    let cut = head
+        .rfind('\n')
+        .filter(|at| *at > max / 2)
+        .or_else(|| head.rfind(' '))
+        .unwrap_or(head.len());
+    let mut clipped = head[..cut]
+        .trim_end_matches([' ', ',', ';', ':', '.', '\n'])
+        .to_owned();
+    // An odd number of a marker leaves its run open past the cut.
+    for marker in ["**", "`"] {
+        if clipped.matches(marker).count() % 2 == 1
+            && let Some(at) = clipped.rfind(marker)
+        {
+            clipped.replace_range(at..at + marker.len(), "");
+        }
+    }
+    clipped + "…"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clip_answer;
+
+    #[test]
+    fn a_long_answer_is_cut_at_a_line_or_word_without_open_markup() {
+        assert_eq!(clip_answer("Short.", 20), "Short.");
+        assert_eq!(clip_answer("one two three four five", 12), "one two…");
+        let list = "- first item here\n- second item here\n- third item";
+        assert_eq!(
+            clip_answer(list, 40),
+            "- first item here\n- second item here…"
+        );
+        let bold = "Use **this very long bold phrase that keeps going** now";
+        let cut = clip_answer(bold, 30);
+        assert_eq!(cut.matches("**").count() % 2, 0, "{cut}");
+        let code = "Run `cargo build --locked --release` to build";
+        assert_eq!(clip_answer(code, 24).matches('`').count() % 2, 0);
+    }
 }

@@ -35,6 +35,13 @@ pub enum DictationIndicatorEvent {
     /// until the next `Reset`.
     DemoVoice,
     Started,
+    /// Labs › Assistant: the capture just started asks the assistant
+    /// rather than dictating (the Action shortcut), a new Agent mode task
+    /// when `agent`. Sent right after `Started`; the HUD wears the
+    /// assistant's colours until the next `Started` or `Reset`.
+    Asking {
+        agent: bool,
+    },
     Meter {
         average: f32,
         // Dot scope follows `average`; the window's meters read
@@ -236,6 +243,8 @@ pub struct IndicatorModel {
     demo_voice: Option<f32>,
     /// Since an event, until a step finds everything settled out of sight.
     active: bool,
+    /// The capture asks the assistant (`Asking`): Agent mode's when `true`.
+    asking: Option<bool>,
 }
 
 impl IndicatorModel {
@@ -254,7 +263,15 @@ impl IndicatorModel {
             loudness: SILENT,
             demo_voice: None,
             active: false,
+            asking: None,
         }
+    }
+
+    /// Whether the capture asks the assistant: `Some(true)` for a new Agent
+    /// mode task, `Some(false)` for a quick question, `None` for dictation.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn asking(&self) -> Option<bool> {
+        self.asking
     }
 
     /// Whether the HUD wants frames: from an event until a step finds it
@@ -300,6 +317,7 @@ impl IndicatorModel {
                 self.completion_pending = false;
                 self.loudness = SILENT;
                 self.demo_voice = None;
+                self.asking = None;
             }
             DictationIndicatorEvent::ConfigureDotScope(tuning) => {
                 self.tuning = tuning;
@@ -318,6 +336,10 @@ impl IndicatorModel {
                 self.loudness = SILENT;
                 self.stage = Stage::Recording;
                 self.scope.restart(reduce);
+                self.asking = None;
+            }
+            DictationIndicatorEvent::Asking { agent } => {
+                self.asking = Some(agent);
             }
             DictationIndicatorEvent::Meter { average, .. } => {
                 self.loudness = dot_scope::loudness(average);
@@ -440,8 +462,10 @@ impl IndicatorModel {
             },
         );
         self.active = visible || !self.scope.settled();
+        let mut pose = self.scope.pose();
+        pose.ask = if self.asking.is_some() { 1.0 } else { 0.0 };
         DotFrame {
-            pose: self.scope.pose(),
+            pose,
             tuning: self.scope.tuning(),
             columns: self.scope.columns(),
             rows: self.scope.rows(),

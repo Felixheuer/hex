@@ -489,9 +489,62 @@ pub(crate) fn shorten(text: &str) -> String {
     clip(line, lines.next().is_some(), LINE_CHARS)
 }
 
-/// The first non-empty line of an answer or error, shortened.
+/// The first non-empty line of an answer or error as plain text (its
+/// Markdown marks gone), shortened.
 pub(crate) fn first_line(text: &str) -> String {
-    shorten(text)
+    let line = text
+        .lines()
+        .map(plain)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default();
+    let more = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .nth(1)
+        .is_some();
+    clip(&line, more, LINE_CHARS)
+}
+
+/// One Markdown line as a person reads it: no heading, list, or quote
+/// marker, no bold, italic, or code marks, and a link's text without its
+/// address.
+pub(crate) fn plain(line: &str) -> String {
+    let mut line = line.trim();
+    line = line.trim_start_matches('#').trim_start();
+    line = line.trim_start_matches('>').trim_start();
+    for bullet in ["- ", "* ", "+ "] {
+        if let Some(rest) = line.strip_prefix(bullet) {
+            line = rest;
+        }
+    }
+    if let Some((number, rest)) = line.split_once(". ")
+        && !number.is_empty()
+        && number.chars().all(|c| c.is_ascii_digit())
+    {
+        line = rest;
+    }
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    // Links: `[text](address)` reads as `text`.
+    while let Some(open) = rest.find('[') {
+        let Some(close) = rest[open..].find("](").map(|at| open + at) else {
+            break;
+        };
+        let Some(end) = rest[close..].find(')').map(|at| close + at) else {
+            break;
+        };
+        out.push_str(&rest[..open]);
+        out.push_str(&rest[open + 1..close]);
+        rest = &rest[end + 1..];
+    }
+    out.push_str(rest);
+    out.replace("**", "")
+        .replace("__", "")
+        .replace('`', "")
+        .replace(['*'], "")
+        .trim()
+        .to_owned()
 }
 
 fn clip(line: &str, more: bool, max: usize) -> String {
@@ -697,6 +750,21 @@ mod tests {
         );
         board.apply(&started(5, Origin::AgentMode, "e"), Some(11), t0);
         assert_eq!(board.tasks[4].colour, 11 % COLOURS);
+    }
+
+    #[test]
+    fn a_finished_line_reads_without_its_markdown() {
+        assert_eq!(first_line("## **Booked** a table"), "Booked a table");
+        assert_eq!(
+            first_line("- Run `cargo build`\n- then test"),
+            "Run cargo build…"
+        );
+        assert_eq!(
+            first_line("See [the menu](https://nopa.com) *tonight*"),
+            "See the menu tonight"
+        );
+        assert_eq!(first_line("1. First step"), "First step");
+        assert_eq!(plain("> quoted"), "quoted");
     }
 
     #[test]
