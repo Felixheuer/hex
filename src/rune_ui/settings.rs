@@ -409,6 +409,8 @@ pub(super) fn conflicts(
         ShortcutTarget::SecondDictation => HotkeySlot::SecondDictation,
         #[cfg(target_os = "macos")]
         ShortcutTarget::ExtraDictation(index) => HotkeySlot::ExtraDictation(index),
+        #[cfg(target_os = "macos")]
+        ShortcutTarget::Action => HotkeySlot::Action,
         #[cfg(any(target_os = "windows", target_os = "linux"))]
         ShortcutTarget::TerminalPaste => HotkeySlot::TerminalPaste,
         #[cfg(target_os = "macos")]
@@ -454,6 +456,8 @@ pub(super) fn binding(settings: &AppSettings, target: ShortcutTarget) -> Option<
             .get(index)?
             .binding
             .as_ref(),
+        #[cfg(target_os = "macos")]
+        ShortcutTarget::Action => settings.assistant.action_hotkey.as_ref(),
         #[cfg(any(target_os = "windows", target_os = "linux"))]
         ShortcutTarget::TerminalPaste => settings.terminal_paste_hotkey.as_ref(),
         #[cfg(target_os = "macos")]
@@ -480,6 +484,8 @@ pub(super) fn set_binding(
         #[cfg(all(hex_capture, target_os = "macos"))]
         ShortcutTarget::CaptureReplay => settings.capture.replay_hotkey = Some(binding),
         ShortcutTarget::SecondDictation => settings.second_dictation_hotkey = Some(binding),
+        #[cfg(target_os = "macos")]
+        ShortcutTarget::Action => settings.assistant.action_hotkey = Some(binding),
         #[cfg(target_os = "macos")]
         ShortcutTarget::ExtraDictation(index) => {
             // A row removed while its recorder commits keeps the rest.
@@ -1046,6 +1052,8 @@ pub(super) fn hotkey_key(target: ShortcutTarget) -> &'static str {
             .get(index)
             .copied()
             .unwrap_or("extra-dictation-hotkey"),
+        #[cfg(target_os = "macos")]
+        ShortcutTarget::Action => "action-hotkey",
         #[cfg(target_os = "macos")]
         ShortcutTarget::Screenshot => "screenshot-hotkey",
         #[cfg(target_os = "macos")]

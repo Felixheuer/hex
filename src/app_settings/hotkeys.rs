@@ -1282,6 +1282,14 @@ impl AppSettings {
         {
             others.push(second.clone());
         }
+        // Labs › Assistant's Action shortcut (macOS), while its Lab is on.
+        if slot != HotkeySlot::Action
+            && cfg!(target_os = "macos")
+            && crate::assistant::enabled(self)
+            && let Some(action) = &self.assistant.action_hotkey
+        {
+            others.push(action.clone());
+        }
         if cfg!(target_os = "macos") && self.labs.more_dictation_shortcuts {
             for (index, row) in self.extra_dictation_hotkeys.iter().enumerate() {
                 if slot != HotkeySlot::ExtraDictation(index)
@@ -1346,6 +1354,9 @@ pub struct RuntimeHotkeys {
     /// Each extra row's activation mode, folded to one its binding can
     /// trigger.
     pub extra_dictation_modes: [ExtraDictationMode; MAX_EXTRA_DICTATION_SHORTCUTS],
+    /// Labs › Assistant's Action shortcut (macOS), while the Lab is on and it
+    /// is bound and shares no key.
+    pub action: Option<RuntimeHotkey>,
     /// Toggle mode's cancel shortcut. Not among [`RuntimeHotkeys::all`]:
     /// Hex takes it only while a toggled recording runs.
     pub cancel: Option<RuntimeHotkey>,
@@ -1353,7 +1364,7 @@ pub struct RuntimeHotkeys {
 
 impl RuntimeHotkeys {
     /// Every shortcut Hex matches, for suppression and chord evidence.
-    pub fn all(self) -> [Option<RuntimeHotkey>; 8 + MAX_EXTRA_DICTATION_SHORTCUTS] {
+    pub fn all(self) -> [Option<RuntimeHotkey>; 9 + MAX_EXTRA_DICTATION_SHORTCUTS] {
         let named = [
             Some(self.dictation),
             self.paste_last,
@@ -1363,8 +1374,9 @@ impl RuntimeHotkeys {
             self.raw_dictation,
             self.typed_text,
             self.second_dictation,
+            self.action,
         ];
-        let mut all = [None; 8 + MAX_EXTRA_DICTATION_SHORTCUTS];
+        let mut all = [None; 9 + MAX_EXTRA_DICTATION_SHORTCUTS];
         all[..named.len()].copy_from_slice(&named);
         all[named.len()..].copy_from_slice(&self.extra_dictation);
         all
@@ -1386,6 +1398,7 @@ impl Default for RuntimeHotkeys {
             extra_dictation: [None; MAX_EXTRA_DICTATION_SHORTCUTS],
             extra_dictation_modes: [ExtraDictationMode::HoldOrDoubleTap;
                 MAX_EXTRA_DICTATION_SHORTCUTS],
+            action: None,
             cancel: None,
         }
     }

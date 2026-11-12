@@ -501,6 +501,28 @@ options), `the_second_dictation_shortcut_needs_its_lab_and_its_own_keys`
 (cross-compiled only). Proof limits: no physical shortcut press on any OS, no
 real Wayland grant or X11 grab run, and no Windows hook run.
 
+### Action Shortcut (Labs › Assistant, macOS)
+
+While Labs › Assistant is on (`labs.assistant`), its Action shortcut
+(`assistant.action_hotkey`, right Command alone by default) records through
+the same microphone pipeline, HUD, and sounds as dictation, but its transcript
+asks the assistant instead of pasting ([labs.md](labs.md), Assistant):
+
+```ts
+Labs > Assistant > Action shortcut           // recognition::ask, Shortcut::Action
+├── Press -> capture starts at once; the desktop is read off the key path
+├── Hold, release -> processed like a paste (TranscriptionTarget::Assistant)
+│   ├── never pasted, copied, kept for Paste last, or saved to History
+│   └── assistant::submit: a quick question, or an Agent mode task
+├── Short tap, chord (R⌘+C), or silence -> discarded, nothing asked
+├── Double tap (two taps, 300 ms) -> Agent mode on or off, no lock
+├── Escape -> stops a running quick question and its speech; taken only then
+└── Lab off, unbound, or sharing a key -> nothing matched or suppressed
+```
+
+The shortcut that started a capture owns it: dictation and the Action
+shortcut stand down while the other records.
+
 ### Copy Recent Dictation (Labs, macOS)
 
 Paste Last Dictation reaches only the newest dictation. With Labs › Copy

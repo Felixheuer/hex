@@ -55,6 +55,8 @@ Feature             Pane  Toggle (settings.json, hex settings)   On: what it doe
 ├── Copy dictation only no labs.copy_only (macOS, Windows)    a dictation goes to the clipboard and is never pasted; Paste last dictation still pastes (#629)
 ├── Return to app   no    labs.return_to_app           (macOS)   a dictation pastes into the app it started in, switching back to it first when another app came forward
 ├── Print-only CLI dictation no labs.print_start        (macOS)   hex dictation start --print answers with the transcript however the recording ends; never pasted or copied
+├── Assistant        no    labs.assistant + assistant.action_hotkey (macOS) hold the Action shortcut (right ⌘ alone by default) to ask by voice;
+│                                        double-tap it for Agent mode; Escape stops a quick question and its speech; General shows its recorder while on
 ├── Spoken formatting no labs.spoken_formatting      spoken "new line"/"line break", "new paragraph", "open/close quote", "quote … unquote" become line breaks and quotation marks; Spanish "nuevo párrafo", "nueva línea", "abre/cierra comillas", … too (#630, #1040)
 ├── Spoken symbols  no    labs.spoken_symbols          spoken "hashtag", "underscore", "comma", … become symbols joined to their words: "#release", "my_variable", "done, thanks"; Spanish "arroba", "guion bajo", "coma", … too (#678, #1040)
 ├── Remove filler words no labs.filler_words          English dictations lose um, umm, uh, uhh, erm, er, ah, with no model (#631)
@@ -1159,6 +1161,69 @@ and `without_the_lab_double_tap_only_stays_off_for_a_lone_modifier` in
 [labs.rs](../../src/labs.rs). Not yet observed: a real double-tap on Option
 or Globe on a Mac; the `mac-labs` and `mac-labs-link` goldens change with the
 new row, and `windows-labs` stays as it was.
+
+Assistant (`assistant`, macOS): the Action shortcut. While the Lab is on,
+General shows an "Action shortcut" recorder under Shortcut
+(`assistant.action_hotkey`, right Command alone by default, clearable, with
+Restore default; also `hex settings set assistant.action_hotkey
+right-command`). The gate is `AppSettings::active_action_hotkey`: the Lab on,
+bound, and sharing no key with another active shortcut; only then does
+`RuntimeHotkeys::action` carry it and the listener (`recognition::Hotkeys`)
+run a `Shortcut::Action` machine. Off or unbound, nothing is matched,
+suppressed, or checked for it, and no key or Escape is taken. Recording
+another shortcut refuses its keys while the Lab is on, and it refuses
+theirs; one that overlaps when the Lab turns on or settings load (the
+dictation shortcut moved onto right Command while the Lab was off) is
+unbound (`repair_action_shortcut`).
+
+The machine is the dictation shortcut's (`DictationHotkey`), always in
+Hold with double-tap on and `set_double_tap_gesture`, whatever the
+dictation shortcut's mode. A press starts a capture at once, with the
+dictation HUD, the provisional start tone, chord and short-tap discards, and
+the chord breaker; right Command with another key (⌘C) is the app's chord
+and discards it, and the key reaches the app. The release finishes it as
+`TranscriptionTarget::Assistant`: processed like a paste (vocabulary, modes,
+replacements), then handed to the question, never pasted, copied, kept for
+Paste last dictation, or saved to History (the conversation keeps it).
+Outside Agent mode it submits
+`Request { conversation: assistant::focus(follow_up_seconds), origin:
+ActionShortcut, context }`, with `context` read by
+`assistant::computer::context(include_screenshot)` on its own thread as the
+key goes down, before the HUD changes the screen; in Agent mode
+(`assistant::agent_mode()` at the press) `Request { conversation: None,
+origin: AgentMode, context: Context::default() }`. A silent, short, or
+discarded capture asks nothing. Two complete taps (the second released
+within 300 ms of the first release, each shorter than the hold threshold)
+end as `HotkeyAction::DoubleTap`: the second tap's capture is discarded,
+`assistant::set_agent_mode(!agent_mode())` runs, and the success sound plays
+turning it on, the cancel sound turning it off. A hold followed by a quick
+tap never pairs. The machine that starts a capture owns it, so dictation and
+the Action shortcut stand down while the other records; `hex dictation
+stop` refuses while a question records (`cancel` still discards it); a
+microphone loss mid-question fails it instead of salvaging a copy.
+
+Escape belongs to the assistant only while a quick question
+(`Origin::ActionShortcut`) runs or waits, or an answer is read aloud
+(`speech::speaking()`), and nothing records: the tap then keeps it from the
+app (`guards::assistant_claims_escape`), and it runs `assistant::cancel` for
+each quick question and `speech::stop()`. Agent mode's tasks keep running
+(each has its own stop). Checks: `holding_the_action_shortcut_records_and_its_release_asks`,
+`a_double_tap_is_a_gesture_and_a_tap_asks_nothing`,
+`right_command_with_a_key_is_a_normal_chord`,
+`the_action_shortcut_and_dictation_never_share_a_capture`, and
+`without_its_machine_right_command_does_nothing` in
+[recognition/hotkeys.rs](../../src/recognition/hotkeys.rs);
+`a_hold_asks_with_its_mode_settled_at_the_press`, `no_words_ask_nothing`, and
+`the_transcript_submits_and_a_dropped_reply_asks_nothing` in
+[recognition/ask.rs](../../src/recognition/ask.rs);
+`escape_is_the_assistants_only_while_it_is_busy` in
+[recognition/guards.rs](../../src/recognition/guards.rs);
+`an_assistant_question_is_only_answered_never_pasted_or_kept` in
+[parakeet.rs](../../src/parakeet.rs);
+`the_action_shortcut_needs_its_lab_and_its_own_keys` in
+[app_settings.rs](../../src/app_settings.rs). Not yet observed: a real press
+on a Mac, the recorder row's rendering (macOS only, so no golden changes),
+or Escape against a running question.
 
 Sort and filter models (`picker-sort-filter`, issue 645, every OS): while
 on, the speech model picker's Every model view shows one row between its
