@@ -892,6 +892,7 @@ pub fn listen(
             // rather than on every provisional press. A tap this loop never
             // sees that way asks when it finishes instead.
             context.intend();
+            asker.intend();
             if microphone_policy.release_while_idle {
                 feedback::play(Tone::DictationStart);
             }

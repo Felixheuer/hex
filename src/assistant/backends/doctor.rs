@@ -52,9 +52,21 @@ pub fn run(doctor: Doctor) -> color_eyre::Result<()> {
 
     if let Some(file) = &doctor.context {
         let started = std::time::Instant::now();
-        let context = computer::context(true);
+        let quick = computer::quick_context();
         println!(
-            "context(true) in {} ms: app={:?} window={:?} selected={:?}",
+            "quick_context() in {} ms: app={:?}",
+            started.elapsed().as_millis(),
+            quick.frontmost_app
+        );
+        let started = std::time::Instant::now();
+        let handle = computer::context_async(true);
+        println!(
+            "context_async(true) returned in {} µs",
+            started.elapsed().as_micros()
+        );
+        let context = handle.wait(std::time::Duration::from_secs(5));
+        println!(
+            "  waited for it: {} ms: app={:?} window={:?} selected={:?}",
             started.elapsed().as_millis(),
             context.frontmost_app,
             context.window_title,
