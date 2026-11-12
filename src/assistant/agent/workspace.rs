@@ -17,7 +17,7 @@ pub const REPORT: &str = "report.md";
 
 /// `~/Documents/Hex`.
 pub fn root() -> Option<PathBuf> {
-    Some(dirs::document_dir()?.join("Hex"))
+    Some(crate::app_paths::document_dir()?.join("Hex"))
 }
 
 /// Creates a new workspace for `title` under `root`, named
@@ -41,13 +41,15 @@ pub fn create(root: &Path, title: &str, now_ms: u64) -> Result<PathBuf> {
     Err(eyre!("too many workspaces named “{name}”"))
 }
 
-/// `title` as a folder name: no path separators or leading dots, at most
-/// 60 characters.
+/// `title` as a folder name on every system: no path separators, leading
+/// dots, or characters Windows refuses (`< > " | ? *`), no trailing dots or
+/// spaces, not a name Windows reserves (`CON`, `NUL`, `COM1`…), at most 60
+/// characters.
 fn clean(title: &str) -> String {
     let cleaned: String = title
         .chars()
         .map(|c| {
-            if matches!(c, '/' | ':' | '\\') || c.is_control() {
+            if matches!(c, '/' | ':' | '\\' | '<' | '>' | '"' | '|' | '?' | '*') || c.is_control() {
                 ' '
             } else {
                 c
@@ -55,33 +57,50 @@ fn clean(title: &str) -> String {
         })
         .collect();
     let cleaned = crate::assistant::store::shorten(cleaned.trim_start_matches('.'), 60);
-    let cleaned = cleaned.trim_end_matches('…').trim();
+    let cleaned = cleaned
+        .trim_end_matches('…')
+        .trim()
+        .trim_end_matches(['.', ' '])
+        .trim();
     if cleaned.is_empty() {
-        "Job".into()
-    } else {
-        cleaned.to_owned()
+        return "Job".into();
     }
+    if reserved(cleaned) {
+        return format!("{cleaned} job");
+    }
+    cleaned.to_owned()
+}
+
+/// A name Windows keeps for a device, with or without an extension.
+fn reserved(name: &str) -> bool {
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or(name)
+        .trim_end()
+        .to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ["COM", "LPT"].iter().any(|device| {
+            stem.strip_prefix(device).is_some_and(|digit| {
+                matches!(
+                    digit,
+                    "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                )
+            })
+        })
 }
 
 /// The local date of `now_ms`, `YYYY-MM-DD`.
 fn date(now_ms: u64) -> String {
-    let seconds = now_ms / 1000;
-    #[cfg(unix)]
-    {
-        let seconds = seconds as libc::time_t;
-        // SAFETY: a zeroed `tm` is valid; `localtime_r` writes only into it.
-        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-        // SAFETY: both pointers are valid for the call.
-        if !unsafe { libc::localtime_r(&seconds, &mut tm) }.is_null() {
-            return format!(
-                "{:04}-{:02}-{:02}",
-                tm.tm_year + 1900,
-                tm.tm_mon + 1,
-                tm.tm_mday
-            );
-        }
+    if let Some(tm) = crate::assistant::schedules::local_tm(now_ms) {
+        return format!(
+            "{:04}-{:02}-{:02}",
+            tm.tm_year + 1900,
+            tm.tm_mon + 1,
+            tm.tm_mday
+        );
     }
-    let days = (seconds / 86_400) as i64;
+    let days = (now_ms / 1000 / 86_400) as i64;
     format!("day {days}")
 }
 
@@ -138,6 +157,18 @@ mod tests {
         assert!(second.to_string_lossy().ends_with(" 2"));
         assert!(create(&root, "../..", now).unwrap().starts_with(&root));
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_workspace_name_is_valid_on_windows_too() {
+        assert_eq!(clean(r#"What? "Q3" <draft> | a*b"#), "What Q3 draft a b");
+        assert_eq!(clean("Notes..."), "Notes");
+        assert_eq!(clean("Plan. "), "Plan");
+        assert_eq!(clean("con"), "con job");
+        assert_eq!(clean("COM1"), "COM1 job");
+        assert_eq!(clean("nul.txt"), "nul.txt job");
+        assert_eq!(clean("Console"), "Console");
+        assert_eq!(clean("???"), "Job");
     }
 
     #[test]

@@ -5,8 +5,18 @@
 //! fnm puts a per-shell "multishell" directory first on PATH that is gone
 //! once that shell closes; it is a link to an alias (`aliases/default`), and
 //! that alias is what Hex keeps.
+//!
+//! On Windows there is no login shell to ask: the PATH comes from the
+//! registry (the machine's, then the person's, as a new terminal gets it),
+//! names are looked up with their extensions (`.exe` first, never the
+//! extensionless shell script npm also writes), and an npm `.cmd` shim is
+//! run as the `node.exe <script>` (or the `.exe`) it wraps ([`launch`]):
+//! Rust refuses, or would have `cmd.exe` mangle, arguments with newlines or
+//! quotes for a batch file, and agents get just such arguments.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -49,14 +59,22 @@ pub fn forget() {
     *SHELL.lock().unwrap_or_else(|error| error.into_inner()) = None;
 }
 
-/// The person's login shell: `$SHELL`, else their account's, else zsh.
+/// The person's login shell: `$SHELL`, else their account's, else the
+/// system's usual one (zsh on macOS, else bash, else sh).
+#[cfg(unix)]
 fn login_shell() -> PathBuf {
     let usable = |shell: &PathBuf| shell.is_absolute() && shell.exists();
+    let fallback = if cfg!(target_os = "macos") {
+        &["/bin/zsh", "/bin/bash", "/bin/sh"][..]
+    } else {
+        &["/bin/bash", "/usr/bin/bash", "/bin/sh"][..]
+    };
     std::env::var_os("SHELL")
         .map(PathBuf::from)
         .filter(usable)
         .or_else(|| account_shell().filter(usable))
-        .unwrap_or_else(|| PathBuf::from("/bin/zsh"))
+        .or_else(|| fallback.iter().map(PathBuf::from).find(usable))
+        .unwrap_or_else(|| PathBuf::from("/bin/sh"))
 }
 
 #[cfg(unix)]
@@ -74,11 +92,86 @@ fn account_shell() -> Option<PathBuf> {
     }
 }
 
-#[cfg(not(unix))]
-fn account_shell() -> Option<PathBuf> {
-    None
+/// Windows: the PATH a new terminal would get (machine, then user, from
+/// the registry), then Hex's own. Names are found in [`dirs`].
+#[cfg(windows)]
+fn ask_shell() -> Shell {
+    let mut path = registry_path();
+    if let Some(own) = std::env::var_os("PATH") {
+        path.extend(std::env::split_paths(&own));
+    }
+    path.retain(|dir| dir.is_absolute());
+    Shell {
+        path,
+        found: Vec::new(),
+    }
 }
 
+#[cfg(windows)]
+fn registry_path() -> Vec<PathBuf> {
+    use winreg::RegKey;
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    let read = |root, key: &str| -> Option<String> {
+        RegKey::predef(root)
+            .open_subkey(key)
+            .ok()?
+            .get_value::<String, _>("Path")
+            .ok()
+    };
+    let lookup = |name: &str| std::env::var(name).ok();
+    [
+        read(
+            HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+        ),
+        read(HKEY_CURRENT_USER, "Environment"),
+    ]
+    .into_iter()
+    .flatten()
+    .flat_map(|value| {
+        expand(&value, lookup)
+            .split(';')
+            .map(str::trim)
+            .filter(|dir| !dir.is_empty())
+            .map(PathBuf::from)
+            .collect::<Vec<_>>()
+    })
+    .collect()
+}
+
+/// `%NAME%` in a registry value replaced by `lookup(NAME)`; unknown names
+/// stay as written.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn expand(value: &str, lookup: impl Fn(&str) -> Option<String>) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(start) = rest.find('%') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        match after.find('%') {
+            Some(end) if end > 0 => {
+                let name = &after[..end];
+                match lookup(name) {
+                    Some(found) => out.push_str(&found),
+                    None => {
+                        out.push('%');
+                        out.push_str(name);
+                        out.push('%');
+                    }
+                }
+                rest = &after[end + 1..];
+            }
+            _ => {
+                out.push('%');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+#[cfg(unix)]
 fn ask_shell() -> Shell {
     let shell = login_shell();
     let names = NAMES.join(" ");
@@ -190,8 +283,55 @@ pub fn known_dirs(home: &Path, fnm_dir: Option<&Path>) -> Vec<PathBuf> {
         home.join(".cargo/bin"),
         home.join(".deno/bin"),
         PathBuf::from("/opt/local/bin"),
+        // Linux: Linuxbrew, pnpm, snaps.
+        PathBuf::from("/home/linuxbrew/.linuxbrew/bin"),
+        home.join(".linuxbrew/bin"),
+        home.join(".local/share/pnpm"),
+        home.join("Library/pnpm"),
+        PathBuf::from("/snap/bin"),
     ]);
     dirs
+}
+
+/// Windows: where installers put these tools, from the environment's
+/// folders (`lookup`): npm's global folder, WinGet's links, the native
+/// Claude Code installer's `.local\bin`, Bun, Scoop, pnpm, Volta, fnm's and
+/// nvm-windows' current Node, Node's own installer, then System32.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn windows_known_dirs(lookup: impl Fn(&str) -> Option<String>) -> Vec<PathBuf> {
+    let var = |name: &str| {
+        lookup(name)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+    };
+    let profile = var("USERPROFILE");
+    let appdata = var("APPDATA");
+    let local = var("LOCALAPPDATA");
+    let program_files = var("ProgramFiles");
+    let system_root = var("SystemRoot").unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+    let under = |base: &Option<PathBuf>, rest: &str| base.as_ref().map(|base| base.join(rest));
+    let fnm_dir = var("FNM_DIR").or_else(|| under(&appdata, "fnm"));
+    [
+        under(&appdata, "npm"),
+        under(&local, r"Microsoft\WinGet\Links"),
+        under(&program_files, r"WinGet\Links"),
+        under(&profile, r".local\bin"),
+        under(&profile, r".bun\bin"),
+        under(&profile, r".opencode\bin"),
+        under(&profile, r"scoop\shims"),
+        under(&local, "pnpm"),
+        under(&local, r"Volta\bin"),
+        fnm_dir.map(|dir| dir.join(r"aliases\default")),
+        var("NVM_SYMLINK"),
+        under(&program_files, "nodejs"),
+        under(&profile, r".cargo\bin"),
+        Some(system_root.join("System32")),
+        Some(system_root.clone()),
+        Some(system_root.join(r"System32\WindowsPowerShell\v1.0")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 /// nvm's installed Node versions' `bin`, newest first.
@@ -227,17 +367,12 @@ fn home() -> Option<PathBuf> {
 /// directories that exist, each once.
 pub fn dirs() -> Vec<PathBuf> {
     let shell = shell();
-    let home = home().unwrap_or_else(|| PathBuf::from("/"));
-    let fnm_dir = std::env::var_os("FNM_DIR").map(PathBuf::from);
-    let system = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(PathBuf::from);
     let mut out: Vec<PathBuf> = Vec::new();
     let all = shell
         .path
         .iter()
         .map(|dir| stable(dir, read_link))
-        .chain(known_dirs(&home, fnm_dir.as_deref()))
-        .chain(nvm_dirs(&home))
-        .chain(system);
+        .chain(install_dirs());
     for dir in all {
         if !out.contains(&dir) && dir.is_dir() {
             out.push(dir);
@@ -246,8 +381,73 @@ pub fn dirs() -> Vec<PathBuf> {
     out
 }
 
+#[cfg(unix)]
+fn install_dirs() -> Vec<PathBuf> {
+    let home = home().unwrap_or_else(|| PathBuf::from("/"));
+    let fnm_dir = std::env::var_os("FNM_DIR").map(PathBuf::from);
+    let mut dirs = known_dirs(&home, fnm_dir.as_deref());
+    dirs.extend(nvm_dirs(&home));
+    dirs.extend(["/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(PathBuf::from));
+    dirs
+}
+
+#[cfg(windows)]
+fn install_dirs() -> Vec<PathBuf> {
+    windows_known_dirs(|name| std::env::var(name).ok())
+}
+
+/// The executable `name`: where the login shell finds it (made stable),
+/// else the first of [`dirs`] that has it. On Windows, `name.exe` (or
+/// `.com`) anywhere on [`dirs`] comes before an npm `name.cmd` shim.
+#[cfg(windows)]
+pub fn find(name: &str) -> Option<PathBuf> {
+    let dirs = dirs();
+    if Path::new(name).extension().is_some() {
+        return dirs
+            .iter()
+            .map(|dir| dir.join(name))
+            .find(|path| is_executable(path));
+    }
+    windows_extensions().iter().find_map(|group| {
+        dirs.iter().find_map(|dir| {
+            group
+                .iter()
+                .map(|extension| dir.join(format!("{name}{extension}")))
+                .find(|path| is_executable(path))
+        })
+    })
+}
+
+/// The extensions tried, in groups: programs, then batch files. From
+/// PATHEXT, less scripts Hex can't start as a program.
+#[cfg(windows)]
+fn windows_extensions() -> [Vec<String>; 2] {
+    let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+    let listed: Vec<String> = pathext
+        .split(';')
+        .map(|extension| extension.trim().to_ascii_lowercase())
+        .collect();
+    let pick = |wanted: &[&str]| {
+        wanted
+            .iter()
+            .filter(|extension| listed.iter().any(|listed| listed == *extension))
+            .map(|extension| (*extension).to_owned())
+            .collect::<Vec<_>>()
+    };
+    let mut programs = pick(&[".exe", ".com"]);
+    if programs.is_empty() {
+        programs.push(".exe".into());
+    }
+    let mut scripts = pick(&[".cmd", ".bat"]);
+    if scripts.is_empty() {
+        scripts.push(".cmd".into());
+    }
+    [programs, scripts]
+}
+
 /// The executable `name`: where the login shell finds it (made stable),
 /// else the first of [`dirs`] that has it.
+#[cfg(unix)]
 pub fn find(name: &str) -> Option<PathBuf> {
     let shell = shell();
     shell
@@ -288,7 +488,88 @@ pub fn path_value(extra: &[PathBuf]) -> String {
     }
     std::env::join_paths(dirs)
         .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".into())
+        .unwrap_or_else(|_| {
+            if cfg!(windows) {
+                std::env::var("PATH").unwrap_or_default()
+            } else {
+                "/usr/bin:/bin:/usr/sbin:/sbin".into()
+            }
+        })
+}
+
+/// What actually runs `path`: the program and the arguments that go before
+/// the caller's. Itself, except a Windows npm (or pnpm) `.cmd` shim, which
+/// becomes the `.exe` it wraps or `node.exe <its script>`.
+pub fn launch(path: &Path) -> (PathBuf, Vec<OsString>) {
+    #[cfg(windows)]
+    if let Some(launch) = unshim(path) {
+        return launch;
+    }
+    (path.to_owned(), Vec::new())
+}
+
+/// A command that runs `path` ([`launch`]) and never shows a window.
+pub fn command(path: &Path) -> Command {
+    let (program, lead) = launch(path);
+    let mut command = crate::desktop::background_process::command(program);
+    command.args(lead);
+    command
+}
+
+#[cfg(windows)]
+fn unshim(path: &Path) -> Option<(PathBuf, Vec<OsString>)> {
+    let extension = path.extension()?.to_string_lossy().to_ascii_lowercase();
+    if extension != "cmd" && extension != "bat" {
+        return None;
+    }
+    let meta = std::fs::metadata(path).ok()?;
+    if meta.len() > 64 * 1024 {
+        return None;
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    let target = path.parent()?.join(shim_target(&text)?);
+    if !target.is_file() {
+        return None;
+    }
+    let is_exe = target
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"));
+    if is_exe {
+        return Some((target, Vec::new()));
+    }
+    let beside = path.parent()?.join("node.exe");
+    let node = if beside.is_file() {
+        beside
+    } else {
+        find("node").filter(|node| {
+            node.extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+        })?
+    };
+    Some((node, vec![target.into_os_string()]))
+}
+
+/// The script (or program) a `cmd-shim` batch file runs, relative to the
+/// shim's folder: the last `"%dp0%\…"` (or `"%~dp0\…"`) path in it that
+/// isn't `node.exe`. `None` for a batch file that isn't a shim.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn shim_target(text: &str) -> Option<String> {
+    text.split('"')
+        .filter_map(|piece| {
+            let lower = piece.to_ascii_lowercase();
+            ["%dp0%", "%~dp0"]
+                .iter()
+                .find(|prefix| lower.starts_with(*prefix))
+                .map(|prefix| piece[prefix.len()..].trim_start_matches(['\\', '/']))
+        })
+        .filter(|rest| {
+            !rest.is_empty()
+                && !rest.eq_ignore_ascii_case("node.exe")
+                && !rest.eq_ignore_ascii_case("node")
+                && !rest.contains('%')
+        })
+        .last()
+        .map(str::to_owned)
 }
 
 #[cfg(test)]
@@ -399,6 +680,89 @@ mod tests {
             "/Users/f/Library/Application Support/fnm/aliases/default/bin",
         ] {
             assert!(dirs.contains(&PathBuf::from(dir)), "{dir} is missing");
+        }
+    }
+
+    #[test]
+    fn known_dirs_cover_linuxbrew_pnpm_and_snaps() {
+        let dirs = known_dirs(Path::new("/home/f"), None);
+        for dir in [
+            "/home/linuxbrew/.linuxbrew/bin",
+            "/home/f/.local/share/pnpm",
+            "/snap/bin",
+            "/home/f/.npm-global/bin",
+        ] {
+            assert!(dirs.contains(&PathBuf::from(dir)), "{dir} is missing");
+        }
+    }
+
+    #[test]
+    fn windows_known_dirs_come_from_the_environment() {
+        let env = |name: &str| {
+            Some(
+                match name {
+                    "USERPROFILE" => r"C:\Users\f",
+                    "APPDATA" => r"C:\Users\f\AppData\Roaming",
+                    "LOCALAPPDATA" => r"C:\Users\f\AppData\Local",
+                    "ProgramFiles" => r"C:\Program Files",
+                    "SystemRoot" => r"C:\Windows",
+                    _ => return None,
+                }
+                .to_owned(),
+            )
+        };
+        let dirs: Vec<String> = windows_known_dirs(env)
+            .iter()
+            .map(|dir| dir.to_string_lossy().replace('/', "\\"))
+            .collect();
+        for dir in [
+            r"C:\Users\f\AppData\Roaming\npm",
+            r"C:\Users\f\AppData\Local\Microsoft\WinGet\Links",
+            r"C:\Users\f\.local\bin",
+            r"C:\Users\f\.bun\bin",
+            r"C:\Users\f\AppData\Roaming\fnm\aliases\default",
+            r"C:\Program Files\nodejs",
+            r"C:\Windows\System32",
+        ] {
+            assert!(dirs.iter().any(|known| known == dir), "{dir} is missing");
+        }
+    }
+
+    #[test]
+    fn registry_values_expand_known_names_only() {
+        let lookup = |name: &str| (name == "USERPROFILE").then(|| r"C:\Users\f".to_owned());
+        assert_eq!(
+            expand(r"%USERPROFILE%\.bun\bin;%NOPE%\x;50%", lookup),
+            r"C:\Users\f\.bun\bin;%NOPE%\x;50%"
+        );
+    }
+
+    #[test]
+    fn an_npm_shim_names_the_script_it_runs() {
+        let npm = "@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\n\
+            SETLOCAL\r\nCALL :find_dp0\r\n\r\nIF EXIST \"%dp0%\\node.exe\" (\r\n  \
+            SET \"_prog=%dp0%\\node.exe\"\r\n) ELSE (\r\n  SET \"_prog=node\"\r\n  \
+            SET PATHEXT=%PATHEXT:;.JS;=;%\r\n)\r\n\r\nendLocal & goto #_undefined_# 2>NUL || \
+            title %COMSPEC% & \"%_prog%\"  \"%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js\" %*\r\n";
+        assert_eq!(
+            shim_target(npm).as_deref(),
+            Some(r"node_modules\@openai\codex\bin\codex.js")
+        );
+        let exe =
+            "@ECHO off\r\n\"%~dp0\\node_modules\\agent-desktop\\bin\\agent-desktop.exe\"   %*\r\n";
+        assert_eq!(
+            shim_target(exe).as_deref(),
+            Some(r"node_modules\agent-desktop\bin\agent-desktop.exe")
+        );
+        assert_eq!(shim_target("@echo off\r\necho hi\r\n"), None);
+    }
+
+    #[test]
+    fn a_program_runs_as_itself_off_windows() {
+        let (program, lead) = launch(Path::new("/usr/local/bin/codex"));
+        assert_eq!(program, PathBuf::from("/usr/local/bin/codex"));
+        if cfg!(unix) {
+            assert!(lead.is_empty());
         }
     }
 

@@ -5,9 +5,11 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Stdio};
 
 use serde_json::{Map, Value, json};
+
+use crate::assistant::backends::run;
 
 /// What the guard forwards to; a fake in tests.
 pub trait Desktop: Send {
@@ -32,6 +34,7 @@ pub struct AgentDesktop {
 
 struct Running {
     child: Child,
+    tree: run::Tree,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
 }
@@ -56,18 +59,25 @@ impl AgentDesktop {
             return Ok(());
         }
         self.running = None;
-        let mut child = Command::new(&self.program)
+        let mut command = crate::assistant::backends::search::command(&self.program);
+        command
             .args(&self.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::inherit());
+        // Its own tree, ended with it (agent-desktop's helpers too); not
+        // tied to this thread, which may hand the guard on.
+        run::own_group(&mut command, false);
+        let mut child = command
             .spawn()
             .map_err(|error| format!("agent-desktop didn't start: {error}"))?;
+        let tree = run::Tree::of(&child);
         let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
             return Err("agent-desktop didn't start".into());
         };
         self.running = Some(Running {
             child,
+            tree,
             stdin,
             stdout: BufReader::new(stdout),
         });
@@ -155,8 +165,7 @@ impl Desktop for AgentDesktop {
 impl Drop for AgentDesktop {
     fn drop(&mut self) {
         if let Some(mut running) = self.running.take() {
-            let _ = running.child.kill();
-            let _ = running.child.wait();
+            running.tree.kill_with(&mut running.child);
         }
     }
 }

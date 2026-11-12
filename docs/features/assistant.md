@@ -275,3 +275,59 @@ the tests in [rune_ui/chats/tests.rs](../../src/rune_ui/chats/tests.rs),
 [status_item.rs](../../src/macos_rune/status_item.rs); scenes `mac-chats*`
 and `mac-assistant-setup*` (macOS only, so no golden changes). Not yet
 observed: the live service, real grants, or a real question on a Mac.
+
+## Agents on Linux and Windows
+
+The agent backends (Claude Code, Codex, OpenCode, agent-desktop,
+agent-browser) run the same way on every OS; what differs:
+
+- **Process trees** (`backends/run.rs` `own_group`/`Tree`): Unix puts each
+  agent in its own process group (on Linux a helper Hex waits for also gets
+  `PR_SET_PDEATHSIG`); Windows puts it in a Job Object (shared with
+  `personal_commands/process.rs`) that Cancel, steering, and a failure end
+  at once, and that ends everything if Hex dies. A normal exit releases the
+  job, so a daemon an agent left on purpose (agent-browser's) keeps running,
+  as on Unix.
+- **Finding programs** (`backends/search.rs`): Linux asks the login shell
+  (bash, else sh, when `$SHELL` is unset) and adds Linuxbrew, pnpm, snaps,
+  and `~/.npm-global/bin`. Windows has no shell to ask: the PATH comes from
+  the registry (machine, then user, `%VAR%` expanded), plus npm's
+  `%APPDATA%\npm`, WinGet's links, `%USERPROFILE%\.local\bin`, Bun, Scoop,
+  pnpm, Volta, fnm, nvm-windows, `%ProgramFiles%\nodejs`, and System32.
+  `name.exe` beats an npm `name.cmd` shim, and a shim runs as the
+  `node.exe <script>` (or `.exe`) it wraps (`search::launch`), in Hex's own
+  commands and in the MCP server configs given to agents, because batch
+  files can't take the newlines and quotes in the agents' arguments. MCP
+  servers get `SystemRoot`, `PATHEXT`, `ComSpec`, `APPDATA`, `LOCALAPPDATA`,
+  `USERPROFILE`, and the other variables Windows programs need besides PATH.
+- **Installs** (`backends/install.rs`, `Os`): macOS is unchanged
+  (Homebrew, npm, script). Linux uses Claude Code's native script, then npm
+  (into `~/.local` when npm is the system's), then the project's script,
+  then a Linuxbrew formula. Windows uses `winget install
+  Anthropic.ClaudeCode`, else npm (`@openai/codex`, `@opencode/cli`,
+  `agent-desktop`, `agent-browser`), else the project's PowerShell script.
+  Lightpanda has no Windows build: its install and self-test are hidden
+  there. "Copy install command" quotes for PowerShell on Windows and joins
+  with `;`. Sign-in opens Terminal on macOS, the desktop's terminal on Linux
+  (`xdg-terminal-exec`, `x-terminal-emulator`, GNOME Terminal, Konsole, …),
+  and a console window on Windows.
+- **Sandboxes**: Claude Code's job shell is sandboxed on macOS and, with
+  bubblewrap and socat installed, on Linux. Without a sandbox (Windows, or
+  Linux without them) a job gets no shell (`Bash` denied, file tools still
+  scoped to the workspace), and the self-test says so. Windows permission
+  rules use Claude Code's `//c/Users/...` form. Codex uses its unelevated
+  Windows sandbox.
+- **Liveness and time**: process start times come from `/proc` on Linux and
+  `GetProcessTimes` on Windows; liveness from `OpenProcess` +
+  `GetExitCodeProcess` on Windows, so conversations no longer look
+  interrupted there. Local time uses `localtime_s` on Windows
+  (`schedules::local_tm`). Job folders live in `app_paths::document_dir()`
+  and their names avoid what Windows refuses.
+- **Guard**: on Linux and Windows Ctrl counts as ⌘ for the consequential
+  shortcuts, and Delete / Shift+Delete in Explorer, Nautilus, Dolphin (and
+  the other file managers), Ctrl+Enter in Outlook or Thunderbird count too.
+  On Linux a desktop-permissions failure checks the AT-SPI bus
+  (`org.a11y.Bus`) and asks for at-spi2-core when it's missing.
+
+Not yet observed on a real Linux desktop or Windows PC: installs, sign-in
+windows, the shim launch, job objects, or the agents' sandboxes.

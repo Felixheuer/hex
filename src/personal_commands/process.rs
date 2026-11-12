@@ -403,7 +403,7 @@ impl ProcessTree {
 }
 
 #[cfg(windows)]
-mod windows_job {
+pub(crate) mod windows_job {
     use std::os::windows::io::AsRawHandle;
     use std::process::Child;
 
@@ -460,6 +460,24 @@ mod windows_job {
         pub fn terminate(&self) {
             // SAFETY: the handle is open until drop.
             unsafe { TerminateJobObject(self.0, 1) };
+        }
+
+        /// Lets the job's processes outlive this handle (a daemon a program
+        /// left running); a Hex that stops without dropping it still ends
+        /// them.
+        pub fn release(&self) {
+            let limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION =
+                // SAFETY: the structure is plain data; zero clears every limit.
+                unsafe { std::mem::zeroed() };
+            // SAFETY: `limits` is the structure this information class reads.
+            unsafe {
+                SetInformationJobObject(
+                    self.0,
+                    JobObjectExtendedLimitInformation,
+                    (&raw const limits).cast(),
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                )
+            };
         }
     }
 

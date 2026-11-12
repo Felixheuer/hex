@@ -349,6 +349,7 @@ mod tests {
   esac
 done"#;
 
+    #[cfg(unix)]
     #[test]
     fn the_wrapper_relays_a_task_through_a_fake_agent_browser() {
         let mut server = Command::new("/bin/sh");

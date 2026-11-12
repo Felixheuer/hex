@@ -357,7 +357,9 @@ pub fn running(pid: u32, started: Option<u64>) -> bool {
         }
 }
 
-/// When process `pid` started, in µs since 1970 (`proc_pidinfo`).
+/// When process `pid` started, in µs since 1970: `proc_pidinfo` on macOS,
+/// `/proc/<pid>/stat` and the boot time on Linux, `GetProcessTimes` on
+/// Windows. The same process always gives the same value.
 pub fn started_us(pid: u32) -> Option<u64> {
     #[cfg(target_os = "macos")]
     {
@@ -371,11 +373,46 @@ pub fn started_us(pid: u32) -> Option<u64> {
         };
         (wrote == size).then(|| info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        if pid == 0 {
+            return None;
+        }
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let boot = std::fs::read_to_string("/proc/stat").ok()?;
+        // SAFETY: sysconf only reads a constant.
+        let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        linux_started_us(&stat, &boot, u64::try_from(ticks).ok()?)
+    }
+    #[cfg(windows)]
+    {
+        windows::started_us(pid)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         let _ = pid;
         None
     }
+}
+
+/// The start time in a `/proc/<pid>/stat` line (its 22nd field, in clock
+/// ticks since boot) plus `btime` from `/proc/stat`, in µs since 1970.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn linux_started_us(stat: &str, proc_stat: &str, ticks_per_second: u64) -> Option<u64> {
+    // The command name, in parentheses, may hold spaces and parentheses.
+    let after_name = &stat[stat.rfind(')')? + 1..];
+    // Fields from the 3rd (state) on: the start time is the 22nd field.
+    let start_ticks: u64 = after_name.split_whitespace().nth(19)?.parse().ok()?;
+    let boot_seconds: u64 = proc_stat
+        .lines()
+        .find_map(|line| line.strip_prefix("btime "))?
+        .trim()
+        .parse()
+        .ok()?;
+    if ticks_per_second == 0 {
+        return None;
+    }
+    Some(boot_seconds * 1_000_000 + start_ticks * 1_000_000 / ticks_per_second)
 }
 
 /// Whether process `pid` is running.
@@ -392,8 +429,102 @@ pub fn alive(pid: u32) -> bool {
         let found = unsafe { libc::kill(pid, 0) } == 0;
         found || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        windows::alive(pid as u32)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         true
+    }
+}
+
+#[cfg(windows)]
+mod windows {
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_ACCESS_DENIED, FILETIME, GetLastError, HANDLE, STILL_ACTIVE,
+    };
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    /// An open process handle, closed on drop.
+    struct Process(HANDLE);
+
+    impl Process {
+        fn open(pid: u32) -> Option<Self> {
+            // SAFETY: plain call; a null handle means it failed.
+            let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+            (!handle.is_null()).then_some(Self(handle))
+        }
+    }
+
+    impl Drop for Process {
+        fn drop(&mut self) {
+            // SAFETY: the handle is open and closed only here.
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    /// Running: it opens and has no exit code yet. One Hex may not open
+    /// (another user's) exists too.
+    pub fn alive(pid: u32) -> bool {
+        let Some(process) = Process::open(pid) else {
+            // SAFETY: reads this thread's last error.
+            return unsafe { GetLastError() } == ERROR_ACCESS_DENIED;
+        };
+        let mut code = 0_u32;
+        // SAFETY: the handle is open; `code` is written.
+        let read = unsafe { GetExitCodeProcess(process.0, &mut code) } != 0;
+        read && code == STILL_ACTIVE as u32
+    }
+
+    /// Its creation time, in µs since 1970.
+    pub fn started_us(pid: u32) -> Option<u64> {
+        let process = Process::open(pid)?;
+        let zero = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
+        // SAFETY: the handle is open; each FILETIME is written.
+        let read = unsafe {
+            GetProcessTimes(process.0, &mut created, &mut exited, &mut kernel, &mut user)
+        } != 0;
+        if !read {
+            return None;
+        }
+        // 100 ns ticks since 1601.
+        let ticks = (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime);
+        (ticks / 10).checked_sub(11_644_473_600_000_000)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_linux_start_time_is_boot_time_plus_its_ticks() {
+        let stat = "4242 (my (odd) name) S 1 4242 4242 0 -1 4194560 100 0 0 0 1 2 0 0 20 0 1 0 \
+                    12345 1000 10 18446744073709551615 0 0 0 0 0 0 0 0 0 0 0 0 17 3 0 0 0 0 0";
+        let proc_stat = "cpu  1 2 3\nbtime 1794470000\nprocesses 99\n";
+        assert_eq!(
+            linux_started_us(stat, proc_stat, 100),
+            Some(1_794_470_000_000_000 + 123_450_000)
+        );
+        assert_eq!(linux_started_us("garbage", proc_stat, 100), None);
+    }
+
+    #[test]
+    fn this_process_is_alive_and_keeps_its_start_time() {
+        let pid = std::process::id();
+        assert!(alive(pid));
+        if cfg!(any(target_os = "macos", target_os = "linux", windows)) {
+            let started = started_us(pid);
+            assert!(started.is_some());
+            assert_eq!(started, started_us(pid));
+            assert!(running(pid, started));
+        }
     }
 }
