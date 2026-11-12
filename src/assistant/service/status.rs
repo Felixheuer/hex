@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use super::{Origin, Request, Runner, TaskState};
+use super::{JobKind, Origin, Request, Runner, TaskState};
 use crate::assistant::agent::goal;
 use crate::assistant::types::{ConversationId, Event};
 
@@ -68,6 +68,42 @@ pub fn asks_for_status(text: &str, titles: &[String]) -> bool {
             .iter()
             .any(|word| lower.contains(word))
             || names_one(lower, titles).is_some())
+}
+
+/// Whether `text`, said inside a job's own conversation, asks how it is
+/// doing: there "wie weit bist du?" needs no job's name.
+pub fn asks_how_it_goes(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    let lower = lower.trim().trim_end_matches(['?', '.', '!']).trim();
+    if lower.is_empty() || lower.split_whitespace().count() > 8 {
+        return false;
+    }
+    const ASKS: &[&str] = &[
+        "wie weit",
+        "wie lange noch",
+        "wie lange dauert",
+        "was machst du",
+        "was tust du",
+        "woran arbeitest du",
+        "bist du fertig",
+        "bist du schon fertig",
+        "status",
+        "fortschritt",
+        "wie sieht's aus",
+        "wie siehts aus",
+        "wie sieht es aus",
+        "wie läuft",
+        "how far",
+        "how long",
+        "what are you doing",
+        "what are you working on",
+        "are you done",
+        "done yet",
+        "progress",
+        "how is it going",
+        "how's it going",
+    ];
+    ASKS.iter().any(|phrase| lower.contains(phrase))
 }
 
 /// The job whose title `lower` names (a word of four letters or more).
@@ -163,7 +199,117 @@ fn duration(ms: u64, german: bool) -> String {
     }
 }
 
+/// What was said in a job's conversation while the job is there.
+enum InJob {
+    /// It asks how the job is doing: that job, and its folder.
+    Status(Job, Option<std::path::PathBuf>),
+    /// Said while the job waits for its turn: added to its request.
+    Added,
+}
+
+/// Whether `text` is German, or tells nothing on a German Mac.
+pub(super) fn said_in_german(text: &str) -> bool {
+    let language = crate::assistant::speech::language_of(text);
+    language == Some("de")
+        || language.is_none() && crate::assistant::speech::system_language() == "de"
+}
+
 impl Runner {
+    /// A message in the conversation of a job that is queued or works:
+    /// "wie weit bist du?" is answered at once from the job's plan, in that
+    /// conversation, without stopping the job; anything else said while the
+    /// job still waits for its turn is added to its request (a working job
+    /// is steered as usual: `None`). Both are written into the conversation
+    /// where they were said (`Hooks::note`), with Hex's reply.
+    pub(super) fn in_job(self: &Arc<Self>, request: &Request) -> Option<ConversationId> {
+        let conversation = request.conversation.clone()?;
+        let now = self.now();
+        let found = {
+            let mut state = self.state();
+            let task = state.tasks.iter_mut().find(|task| {
+                task.status.conversation == conversation
+                    && task.status.state != TaskState::NeedsInput
+                    && (task.workspace.is_some() || matches!(task.kind, JobKind::Job { .. }))
+            })?;
+            if asks_how_it_goes(&request.text)
+                || asks_for_status(&request.text, std::slice::from_ref(&task.status.title))
+            {
+                InJob::Status(
+                    Job {
+                        title: task.status.title.clone(),
+                        state: task.status.state,
+                        elapsed_ms: now.saturating_sub(task.started_ms),
+                        done: task.plan.iter().filter(|step| step.done).count(),
+                        steps: task.plan.len(),
+                        gaps: None,
+                    },
+                    task.workspace.clone(),
+                )
+            } else if !task.running {
+                task.request.text = format!(
+                    "{}\n\n{}",
+                    task.request.text.trim_end(),
+                    request.text.trim()
+                );
+                InJob::Added
+            } else {
+                return None;
+            }
+        };
+        let german = said_in_german(&request.text);
+        self.note(
+            &conversation,
+            crate::assistant::types::Role::User,
+            &request.text,
+        );
+        let reply = match found {
+            InJob::Status(mut job, workspace) => {
+                job.gaps = workspace
+                    .and_then(|workspace| {
+                        std::fs::read_to_string(workspace.join(goal::CHECK_FILE)).ok()
+                    })
+                    .filter(|check| check.trim() != "verified");
+                line(std::slice::from_ref(&job), &request.text, german)
+            }
+            InJob::Added => if german {
+                "Notiert, das nehme ich mit dazu, sobald ich anfange."
+            } else {
+                "Noted, I'll take that in when I start."
+            }
+            .to_owned(),
+        };
+        self.note(
+            &conversation,
+            crate::assistant::types::Role::Assistant,
+            &reply,
+        );
+        self.emit(&Event::ConversationsChanged);
+        if request.origin != Origin::Chat {
+            self.voice.announce(
+                self,
+                super::voice::Priority::Answer,
+                &conversation,
+                "",
+                &reply,
+            );
+        }
+        Some(conversation)
+    }
+
+    /// Writes one text message into `conversation` beside its task.
+    pub(super) fn note(&self, conversation: &str, role: crate::assistant::types::Role, text: &str) {
+        (self.hooks.note)(
+            conversation,
+            crate::assistant::types::Message {
+                role,
+                parts: vec![crate::assistant::types::Part::Text {
+                    text: text.trim().to_owned(),
+                }],
+                at_ms: crate::assistant::store::now_ms(),
+            },
+        );
+    }
+
     /// Answers a hold that asks how the jobs are doing (`asks_for_status`),
     /// spoken and shown in the bubble; `None` when it asks something else.
     pub(super) fn status_reply(self: &Arc<Self>, request: &Request) -> Option<ConversationId> {
@@ -202,9 +348,7 @@ impl Runner {
                 .ok()
                 .filter(|check| check.trim() != "verified");
         }
-        let german = crate::assistant::speech::language_of(&request.text) == Some("de")
-            || crate::assistant::speech::language_of(&request.text).is_none()
-                && crate::assistant::speech::system_language() == "de";
+        let german = said_in_german(&request.text);
         let text = line(&jobs, &request.text, german);
         let conversation = crate::assistant::store::new_id();
         self.emit(&Event::Started {
