@@ -785,6 +785,7 @@ impl AppSettings {
         );
         crate::labs::apply(&self.labs);
         screenshots::apply_screenshots(self);
+        assistant::apply_assistant(self);
         #[cfg(hex_capture)]
         {
             *CAPTURE_SETTINGS

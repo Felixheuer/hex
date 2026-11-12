@@ -9,22 +9,22 @@
 //! OWNER: hands (with `computer`).
 
 use std::io::Write;
-use std::process::{Child, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 
 const SAY: &str = "/usr/bin/say";
 
-static SPEAKING: Mutex<Option<Child>> = Mutex::new(None);
+static PLAYER: Mutex<Player> = Mutex::new(Player { child: None });
 
-/// Starts reading `text` aloud with `voice` (`None`: the system voice, or a
-/// voice of the text's language when that differs from the system's),
-/// stopping anything already being read. Returns at once.
+/// Starts reading `text` aloud with `voice`, stopping anything already
+/// being read. `None` picks by the answer's own language
+/// ([`automatic_voice`]): the system voice for text in the system's
+/// language, else an installed voice of the text's language. Returns at
+/// once.
 pub fn speak(text: &str, voice: Option<&str>) {
     let text = speakable(text);
-    let mut speaking = SPEAKING.lock().unwrap_or_else(|error| error.into_inner());
-    if let Some(mut child) = speaking.take() {
-        end(&mut child);
-    }
+    let mut player = PLAYER.lock().unwrap_or_else(|error| error.into_inner());
+    player.stop();
     if text.is_empty() {
         return;
     }
@@ -35,60 +35,87 @@ pub fn speak(text: &str, voice: Option<&str>) {
     }
     // The text goes in on stdin, so one that starts with "-" is never an
     // option.
-    command
-        .args(["-f", "-"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => {
-            tracing::warn!(%error, "could not start reading aloud");
-            return;
-        }
-    };
-    if let Some(mut stdin) = child.stdin.take() {
-        let spawned = std::thread::Builder::new()
-            .name("hex-assistant-say".into())
-            .spawn(move || {
-                // A stop before it's all written ends the pipe; that's fine.
-                let _ = stdin.write_all(text.as_bytes());
-            });
-        if let Err(error) = spawned {
-            tracing::warn!(%error, "could not hand the text to say");
-        }
-    }
+    command.args(["-f", "-"]);
     tracing::debug!(
         voice = voice.as_deref().unwrap_or("system"),
         "reading aloud"
     );
-    *speaking = Some(child);
+    player.play(command, text);
 }
 
-/// Stops reading aloud.
+/// Stops reading aloud: `say` and anything it started are killed.
 pub fn stop() {
-    let mut speaking = SPEAKING.lock().unwrap_or_else(|error| error.into_inner());
-    if let Some(mut child) = speaking.take() {
-        end(&mut child);
-    }
-}
-
-fn end(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
+    PLAYER
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .stop();
 }
 
 /// Whether something is being read now.
 pub fn speaking() -> bool {
-    let mut speaking = SPEAKING.lock().unwrap_or_else(|error| error.into_inner());
-    match speaking.as_mut().map(Child::try_wait) {
-        Some(Ok(None)) => true,
-        Some(_) => {
-            // Done: reap it.
-            *speaking = None;
-            false
+    PLAYER
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .playing()
+}
+
+/// One reading-aloud process at a time, in a process group of its own so a
+/// stop ends everything it started. The seam the tests drive with a stand-in
+/// for `say`.
+struct Player {
+    child: Option<Child>,
+}
+
+impl Player {
+    /// Stops what plays, then starts `command`, handing it `text` on stdin.
+    fn play(&mut self, mut command: Command, text: String) {
+        self.stop();
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
         }
-        None => false,
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                tracing::warn!(%error, "could not start reading aloud");
+                return;
+            }
+        };
+        if let Some(mut stdin) = child.stdin.take() {
+            let spawned = std::thread::Builder::new()
+                .name("hex-assistant-say".into())
+                .spawn(move || {
+                    // A stop before it's all written ends the pipe; that's fine.
+                    let _ = stdin.write_all(text.as_bytes());
+                });
+            if let Err(error) = spawned {
+                tracing::warn!(%error, "could not hand the text to say");
+            }
+        }
+        self.child = Some(child);
+    }
+
+    fn stop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            crate::assistant::backends::run::kill_group(&mut child);
+        }
+    }
+
+    fn playing(&mut self) -> bool {
+        match self.child.as_mut().map(Child::try_wait) {
+            Some(Ok(None)) => true,
+            Some(_) => {
+                // Done: reap it.
+                self.child = None;
+                false
+            }
+            None => false,
+        }
     }
 }
 
@@ -448,6 +475,87 @@ Thomas              fr_FR    # Bonjour, je m’appelle Thomas.
             best_voice("en", &voices).as_deref(),
             Some("Flo (Englisch (USA))")
         );
+    }
+
+    fn alive(pid: i32) -> bool {
+        // SAFETY: Signal 0 only asks whether the process exists.
+        unsafe { libc::kill(pid, 0) == 0 }
+    }
+
+    fn gone_soon(pid: i32) -> bool {
+        let started = std::time::Instant::now();
+        while alive(pid) && started.elapsed() < std::time::Duration::from_secs(5) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        !alive(pid)
+    }
+
+    /// A stand-in for `say` that reads its text and starts a child of its
+    /// own, telling us both pids.
+    fn stand_in(pids: &std::path::Path) -> Command {
+        let mut command = Command::new("/bin/sh");
+        command.args([
+            "-c",
+            &format!(
+                "sleep 60 & echo $$ $! > '{}'; cat > /dev/null; wait",
+                pids.display()
+            ),
+        ]);
+        command
+    }
+
+    fn pids(file: &std::path::Path) -> (i32, i32) {
+        let started = std::time::Instant::now();
+        loop {
+            if let Ok(text) = std::fs::read_to_string(file)
+                && let [parent, child] = text.split_whitespace().collect::<Vec<_>>()[..]
+            {
+                return (parent.parse().unwrap(), child.parse().unwrap());
+            }
+            assert!(started.elapsed() < std::time::Duration::from_secs(5));
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn stop_kills_the_reader_and_everything_it_started() {
+        let folder = tempfile_dir("stop");
+        let file = folder.join("pids");
+        let mut player = Player { child: None };
+        player.play(stand_in(&file), "Hallo".into());
+        let (parent, child) = pids(&file);
+        assert!(player.playing());
+        player.stop();
+        assert!(!player.playing());
+        assert!(gone_soon(parent), "the reader still runs");
+        assert!(gone_soon(child), "what it started still runs");
+    }
+
+    #[test]
+    fn a_new_reading_ends_the_one_before() {
+        let folder = tempfile_dir("replace");
+        let (first, second) = (folder.join("first"), folder.join("second"));
+        let mut player = Player { child: None };
+        player.play(stand_in(&first), "Eins".into());
+        let (parent, child) = pids(&first);
+        player.play(stand_in(&second), "Zwei".into());
+        assert!(gone_soon(parent) && gone_soon(child));
+        let (next, _) = pids(&second);
+        assert!(alive(next) && player.playing());
+        player.stop();
+    }
+
+    fn tempfile_dir(name: &str) -> std::path::PathBuf {
+        let folder = std::env::temp_dir().join(format!(
+            "hex-speech-test-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&folder).unwrap();
+        folder
     }
 
     #[test]

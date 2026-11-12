@@ -3,8 +3,10 @@
 //! Its machine (`Shortcut::Action`) records exactly as dictation does: the
 //! same microphone, HUD, sounds, chord discards, and short-tap discards. A
 //! press settles what it will ask: in Agent mode a new task; otherwise a quick
-//! question with the desktop as it looked at the press, read on its own
-//! thread before the HUD changes the screen. The release hands the clip to
+//! question with the desktop read on its own thread once the hold is real
+//! (past the hold threshold with no other key), so a ⌘C chord reads
+//! nothing; the screenshot leaves out Hex's own windows, the HUD included.
+//! The release hands the clip to
 //! transcription as `TranscriptionTarget::Assistant`, processed like a paste
 //! but never pasted, copied, kept for Paste last dictation, or saved to
 //! History; its own thread then submits the words. Silence, a discard, or a
@@ -13,11 +15,11 @@
 //! running quick question and its speech, and Hex takes Escape from the app in
 //! front only while one runs or speaks.
 
-use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use color_eyre::Result;
 
+use crate::assistant::computer::ContextHandle;
 use crate::assistant::{Context, ConversationId, Origin, Request};
 use crate::audio::CaptureInstant;
 use crate::control::{ControlReply, PrintReply, PrintedTranscript};
@@ -36,38 +38,45 @@ use super::{DictationSink, FinishResult};
 /// drops its reply long before this.
 const TRANSCRIPT_WAIT: Duration = Duration::from_secs(300);
 
-/// How long a quick question waits for the desktop read at its press, which
-/// has usually finished while the person spoke. Past it, it asks without.
+/// How long a quick question waits for the desktop read its hold started,
+/// which has usually finished while the person spoke. Past it, it asks with
+/// what has arrived (the Accessibility part) and drops the rest.
 const CONTEXT_WAIT: Duration = Duration::from_secs(3);
+
+/// Starts a desktop read on its own thread (`computer::context_async`).
+type ReadDesktop = Box<dyn FnOnce() -> ContextHandle + Send>;
 
 /// What one press of the Action shortcut asks, settled as it goes down.
 pub(super) struct Question {
     agent: bool,
-    /// The desktop at the press (quick questions only).
-    context: Option<Receiver<Context>>,
+    /// How to read the desktop, until the hold is real (quick questions).
+    read: Option<ReadDesktop>,
+    /// The read under way; dropping it cancels it and frees its screenshot.
+    context: Option<ContextHandle>,
 }
 
 impl Question {
     /// Settles a press: a task in Agent mode, else a quick question that
-    /// reads the desktop with `read_desktop` on its own thread, so the key
-    /// path never waits for it.
+    /// reads the desktop with `read_desktop` once [`Question::intend`] says
+    /// the hold is real. Nothing is read at the press itself.
     pub(super) fn press(
         agent: bool,
-        read_desktop: impl FnOnce() -> Context + Send + 'static,
+        read_desktop: impl FnOnce() -> ContextHandle + Send + 'static,
     ) -> Self {
-        let context = (!agent).then(|| {
-            let (sender, receiver) = mpsc::sync_channel(1);
-            let spawned = std::thread::Builder::new()
-                .name("hex-assistant-context".into())
-                .spawn(move || {
-                    let _ = sender.send(read_desktop());
-                });
-            if let Err(error) = spawned {
-                tracing::warn!(%error, "could not read the desktop for a question");
-            }
-            receiver
-        });
-        Self { agent, context }
+        let read = (!agent).then(|| Box::new(read_desktop) as ReadDesktop);
+        Self {
+            agent,
+            read,
+            context: None,
+        }
+    }
+
+    /// The hold passed the hold threshold without another key: start
+    /// reading the desktop (once; never in Agent mode).
+    pub(super) fn intend(&mut self) {
+        if let Some(read) = self.read.take() {
+            self.context = Some(read());
+        }
     }
 
     /// The request `text` makes, or none when nothing was said. A quick
@@ -90,9 +99,12 @@ impl Question {
                 context: Context::default(),
             }
         } else {
-            let context = self
+            // A hold the loop never saw become real reads now.
+            let mut question = self;
+            question.intend();
+            let context = question
                 .context
-                .and_then(|context| context.recv_timeout(CONTEXT_WAIT).ok())
+                .map(|context| context.wait(CONTEXT_WAIT))
                 .unwrap_or_default();
             Request {
                 conversation: focus(),
@@ -172,11 +184,12 @@ impl Asker {
         };
         match action {
             HotkeyAction::Start => {
-                // Read before the HUD appears; dropped if the start is refused.
+                // Reads nothing yet: a chord (⌘C) or a short tap is
+                // discarded before the hold is real (`intend`).
                 let include_screenshot =
                     crate::app_settings::applied_assistant().include_screenshot;
                 self.question = Some(Question::press(crate::assistant::agent_mode(), move || {
-                    crate::assistant::computer::context(include_screenshot)
+                    crate::assistant::computer::context_async(include_screenshot)
                 }));
                 let accepted = handle(action, context, events)?;
                 if !accepted {
@@ -188,6 +201,7 @@ impl Asker {
                 let page = context.finish(events)?;
                 let question = self.question.take().unwrap_or(Question {
                     agent: crate::assistant::agent_mode(),
+                    read: None,
                     context: None,
                 });
                 let follow_up = crate::app_settings::applied_assistant().follow_up_seconds;
@@ -227,6 +241,14 @@ impl Asker {
                 self.question = None;
                 handle(action, context, events)
             }
+        }
+    }
+
+    /// The press became real (held past the hold threshold with no other
+    /// key): a quick question starts reading the desktop now.
+    pub(super) fn intend(&mut self) {
+        if let Some(question) = self.question.as_mut() {
+            question.intend();
         }
     }
 
@@ -309,12 +331,18 @@ fn finish_question(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc;
 
-    fn read(text: &str) -> Context {
-        Context {
+    fn read(text: &str) -> ContextHandle {
+        let context = Context {
             frontmost_app: Some(text.into()),
             ..Context::default()
-        }
+        };
+        ContextHandle::start(move |reading| reading.quick(context))
+    }
+
+    fn nothing() -> ContextHandle {
+        ContextHandle::start(|_| {})
     }
 
     /// A quick question continues the focused conversation with the desktop
@@ -339,11 +367,36 @@ mod tests {
         assert_eq!(task.context.frontmost_app, None);
     }
 
+    /// A press reads nothing until the hold is real, and a press discarded
+    /// before then (a ⌘C chord) never reads at all.
+    #[test]
+    fn the_desktop_is_read_only_once_the_hold_is_real() {
+        let (started, reads) = std::sync::mpsc::channel();
+        let counted = move |sender: std::sync::mpsc::Sender<()>| {
+            move || {
+                let _ = sender.send(());
+                read("Mail")
+            }
+        };
+        drop(Question::press(false, counted(started.clone())));
+        assert!(reads.try_recv().is_err(), "a chord read the desktop");
+
+        let mut question = Question::press(false, counted(started));
+        assert!(reads.try_recv().is_err(), "the press read the desktop");
+        question.intend();
+        question.intend();
+        assert_eq!(reads.try_iter().count(), 1);
+        let asked = question
+            .request("What is this?", || None)
+            .expect("a question");
+        assert_eq!(asked.context.frontmost_app.as_deref(), Some("Mail"));
+    }
+
     /// Silence asks nothing.
     #[test]
     fn no_words_ask_nothing() {
         assert!(
-            Question::press(false, Context::default)
+            Question::press(false, nothing)
                 .request("  \n", || None)
                 .is_none()
         );
@@ -360,8 +413,7 @@ mod tests {
                 let _ = sender.send(request);
             }
         };
-        let reply =
-            Question::press(false, Context::default).ask(|| None, submit(submitted.clone()));
+        let reply = Question::press(false, nothing).ask(|| None, submit(submitted.clone()));
         reply.send(PrintedTranscript::Text("Summarize this page".into()));
         let request = asked
             .recv_timeout(Duration::from_secs(5))
@@ -369,11 +421,11 @@ mod tests {
         assert_eq!(request.origin, Origin::ActionShortcut);
         assert_eq!(request.text, "Summarize this page");
 
-        drop(Question::press(true, Context::default).ask(|| None, submit(submitted.clone())));
-        Question::press(false, Context::default)
+        drop(Question::press(true, nothing).ask(|| None, submit(submitted.clone())));
+        Question::press(false, nothing)
             .ask(|| None, submit(submitted.clone()))
             .send(PrintedTranscript::NoSpeech);
-        Question::press(true, Context::default)
+        Question::press(true, nothing)
             .ask(|| None, submit(submitted))
             .send(PrintedTranscript::Text("   ".into()));
         assert!(asked.recv_timeout(Duration::from_millis(200)).is_err());

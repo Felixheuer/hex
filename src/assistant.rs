@@ -25,6 +25,7 @@
 
 pub mod agent;
 pub mod backends;
+pub mod cli;
 pub mod computer;
 pub mod credentials;
 pub mod provider;

@@ -186,6 +186,13 @@ pub enum ControlCli {
         #[command(subcommand)]
         command: Option<crate::labs::LabsCommand>,
     },
+    /// Labs › Assistant: ask one question here and print what happens, or
+    /// list saved conversations.
+    #[command(hide = true)]
+    Assistant {
+        #[command(subcommand)]
+        command: crate::assistant::cli::AssistantCommand,
+    },
     /// Replaced by `hex labs`.
     #[command(hide = true)]
     Experiments {
@@ -575,6 +582,7 @@ pub fn run(command: ControlCli) -> u8 {
             }
         }),
         ControlCli::Labs { command } => report(crate::labs::run(command.as_ref())),
+        ControlCli::Assistant { command } => crate::assistant::cli::run(command),
         ControlCli::Experiments { .. } => report(crate::labs::run_retired_experiments()),
         ControlCli::Annotate { command } => capture(command),
     }
