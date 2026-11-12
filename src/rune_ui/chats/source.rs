@@ -1,0 +1,156 @@
+//! Where the Chats pane reads conversations and sends requests: the
+//! assistant service once the window connects, else the in-memory
+//! [`fixture::Store`] (scenes, tests, a window not yet connected).
+
+use super::fixture;
+use crate::assistant::{
+    Context, Conversation, ConversationId, ConversationSummary, Request, TaskState, TaskStatus,
+    TaskWindow,
+};
+
+pub(super) enum Source {
+    /// Scenes, tests, and a window that hasn't connected yet.
+    Fixture(fixture::Store),
+    /// The assistant service.
+    Live,
+}
+
+impl Source {
+    pub(super) fn conversations(&self) -> Vec<ConversationSummary> {
+        match self {
+            Self::Fixture(store) => store.conversations(),
+            Self::Live => crate::assistant::conversations(),
+        }
+    }
+
+    pub(super) fn conversation(&self, id: &str) -> Option<Conversation> {
+        match self {
+            Self::Fixture(store) => store.conversation(id),
+            Self::Live => crate::assistant::conversation(id),
+        }
+    }
+
+    pub(super) fn tasks(&self) -> Vec<TaskStatus> {
+        match self {
+            Self::Fixture(store) => store.tasks.clone(),
+            Self::Live => crate::assistant::tasks(),
+        }
+    }
+
+    pub(super) fn submit(&mut self, request: Request) -> ConversationId {
+        match self {
+            Self::Fixture(store) => store.submit(request),
+            Self::Live => crate::assistant::submit(request),
+        }
+    }
+
+    pub(super) fn cancel(&mut self, id: &str) {
+        match self {
+            Self::Fixture(store) => store.cancelled.push(id.to_owned()),
+            Self::Live => crate::assistant::cancel(id),
+        }
+    }
+
+    /// Stops every task (the header's Stop all).
+    pub(super) fn stop_all(&mut self, ids: Vec<ConversationId>) {
+        match self {
+            Self::Fixture(store) => store.cancelled.extend(ids),
+            Self::Live => crate::assistant::service::stop_all(),
+        }
+    }
+
+    pub(super) fn delete(&mut self, id: &str) {
+        match self {
+            Self::Fixture(store) => store.delete(id),
+            Self::Live => crate::assistant::delete(id),
+        }
+    }
+
+    pub(super) fn set_focus(&mut self, id: Option<ConversationId>) {
+        match self {
+            Self::Fixture(store) => store.focus = id,
+            Self::Live => crate::assistant::set_focus(id),
+        }
+    }
+
+    /// The person takes `id` over (`paused`) or hands it back.
+    pub(super) fn take_over(&mut self, id: &str, paused: bool) {
+        match self {
+            Self::Fixture(store) => {
+                store.taken_over.push((id.to_owned(), paused));
+                for task in store.tasks.iter_mut().filter(|task| task.conversation == id) {
+                    task.state = if paused {
+                        TaskState::Paused
+                    } else {
+                        TaskState::Running
+                    };
+                }
+            }
+            Self::Live if paused => crate::assistant::service::take_over(id),
+            Self::Live => crate::assistant::service::hand_back(id),
+        }
+    }
+
+    /// Continues an interrupted conversation; its id once it runs again.
+    pub(super) fn resume(&mut self, id: &str) -> Option<ConversationId> {
+        match self {
+            Self::Fixture(store) => {
+                store.resumed.push(id.to_owned());
+                Some(id.to_owned())
+            }
+            Self::Live => crate::assistant::service::resume_interrupted(id),
+        }
+    }
+
+    /// What a Here question typed in Chats is about: the frontmost window
+    /// that isn't Hex's own (Chats is in front while it's typed).
+    pub(super) fn here_context(&self) -> Context {
+        match self {
+            Self::Fixture(_) => Context {
+                frontmost_app: Some("Safari".into()),
+                window_title: Some("Hex — Voice to text".into()),
+                window: Some(TaskWindow {
+                    app: "Safari".into(),
+                    window_id: Some("w-42".into()),
+                }),
+                ..Context::default()
+            },
+            Self::Live => live_here_context(),
+        }
+    }
+}
+
+/// [`crate::assistant::computer::quick_context`], with the window in front
+/// of Hex's own as the Here lane's window.
+fn live_here_context() -> Context {
+    let mut context = crate::assistant::computer::quick_context();
+    #[cfg(target_os = "macos")]
+    {
+        let own = std::process::id() as i32;
+        let windows = objc2::rc::autoreleasepool(|_| scrawl_capture::windows::raw_windows());
+        let front = windows.into_iter().find(|window| {
+            window.pid != own
+                && window.layer == 0
+                && window.alpha > 0.0
+                && window.bounds[2] > 1.0
+                && window.bounds[3] > 1.0
+        });
+        if let Some(front) = front {
+            let hex_in_front = context
+                .frontmost_app
+                .as_deref()
+                .is_none_or(|app| app == crate::app_paths::app_name() || app == front.owner);
+            if hex_in_front {
+                // What Accessibility read was Hex's own window.
+                context.selected_text = None;
+                context.frontmost_app = Some(front.owner.clone());
+                context.window_title = (!front.title.is_empty()).then(|| front.title.clone());
+            }
+            context.window = Some(TaskWindow {
+                app: front.owner,
+                window_id: Some(format!("w-{}", front.id)),
+            });
+        }
+    }
+    context
+}

@@ -973,11 +973,9 @@ impl Pump {
                 }
             }
             StatusItemAction::OpenMeetings => show(&self.window, Destination::Meetings(None)),
-            // Labs › Assistant: Chats, and Agent mode on or off.
+            // Labs › Assistant: Chats, and Stop all tasks.
             StatusItemAction::OpenChats => show(&self.window, Destination::Chats(None)),
-            StatusItemAction::ToggleAgentMode => {
-                crate::assistant::set_agent_mode(!crate::assistant::agent_mode());
-            }
+            StatusItemAction::StopAllTasks => crate::assistant::service::stop_all(),
             // Labs › Pause from menu bar: only keyboard shortcuts stop; the
             // menu's own actions keep working. The row says Resume Hex while
             // a resume waits, and choosing it again leaves it waiting.

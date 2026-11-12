@@ -9,9 +9,11 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use rune::Waker;
 
 use super::Ui;
+use super::browser_shim;
 use super::shortcut::{self, Conflict};
 use crate::app_settings::{AppSettings, AssistantSettings, HotkeySlot};
 use crate::assistant::backends::{AgentDesktop, CheckResult, Fix, Found};
+use crate::assistant::browser::AgentBrowser;
 use crate::assistant::computer::Permissions;
 
 /// Something to find out or do off the window's thread.
@@ -37,6 +39,14 @@ pub(in crate::rune_ui) enum Job {
     Voices,
     /// Reads a line aloud with this voice.
     Speak(Option<String>),
+    /// agent-browser and its own browser (`browser::agent_browser`).
+    Browser,
+    /// Installs agent-browser and its browser (`browser::install`).
+    InstallBrowser,
+    /// The browser's self-tests for these settings' agent.
+    BrowserChecks(Box<AssistantSettings>),
+    /// The apps running now, for Settings' blocked apps.
+    RunningApps,
 }
 
 /// A job's answer.
@@ -54,6 +64,13 @@ pub(in crate::rune_ui) enum Done {
     Conflicts(Vec<(HotkeySlot, Conflict)>),
     KeySaved(Result<(), String>),
     Voices(Vec<String>),
+    Browser(AgentBrowser),
+    BrowserInstalled(Result<(), String>),
+    /// A browser self-test started (`Running`) or ended.
+    BrowserCheck(browser_shim::CheckResult),
+    BrowserChecked,
+    /// The regular apps running now, by name.
+    RunningApps(Vec<String>),
 }
 
 pub(in crate::rune_ui) struct Jobs {
@@ -163,6 +180,39 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             crate::desktop::i18n::tr("Hi, I'm your assistant. Ask me anything."),
             voice.as_deref(),
         ),
+        Job::Browser => send(Done::Browser(crate::assistant::browser::agent_browser())),
+        Job::InstallBrowser => send(Done::BrowserInstalled(
+            crate::assistant::browser::install().map_err(|error| format!("{error:#}")),
+        )),
+        Job::BrowserChecks(settings) => super::setup::browser::perform_checks(&settings, send),
+        Job::RunningApps => send(Done::RunningApps(running_apps())),
+    }
+}
+
+/// The regular (Dock) apps running now, by name, sorted, without Hex.
+fn running_apps() -> Vec<String> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::{NSApplicationActivationPolicy, NSWorkspace};
+        let own = std::process::id() as i32;
+        let mut names: Vec<String> = objc2::rc::autoreleasepool(|_| {
+            NSWorkspace::sharedWorkspace()
+                .runningApplications()
+                .iter()
+                .filter(|app| {
+                    app.activationPolicy() == NSApplicationActivationPolicy::Regular
+                        && app.processIdentifier() != own
+                })
+                .filter_map(|app| app.localizedName().map(|name| name.to_string()))
+                .collect()
+        });
+        names.sort_by_key(|name| name.to_lowercase());
+        names.dedup();
+        names
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Vec::new()
     }
 }
 
@@ -181,6 +231,8 @@ pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
     match &done {
         Done::Detected(found) => ui.chats.settings.found = Some(found.clone()),
         Done::Voices(voices) => ui.chats.settings.voices = Some(voices.clone()),
+        Done::RunningApps(apps) => ui.chats.settings.running = Some(apps.clone()),
+        Done::Browser(found) => ui.chats.settings.browser = Some(found.clone()),
         Done::KeySaved(Ok(())) => {
             ui.chats.settings.key.clear();
             ui.chats.settings.key_error = None;

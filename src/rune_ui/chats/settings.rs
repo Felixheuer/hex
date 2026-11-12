@@ -1,6 +1,10 @@
 //! Chats › Settings: the agent that answers and its model, the Claude API
-//! key, reading answers aloud, how far tasks may act on the desktop, the
-//! follow-up window, and how many tasks run at once.
+//! key, reading answers aloud, how far tasks may act on the desktop (real
+//! input in the window in front, the hidden browser, blocked apps), the
+//! follow-up window, how many tasks run at once and for how long, and Stop
+//! all's shortcut (`lanes`).
+
+mod lanes;
 
 use std::time::Instant;
 
@@ -14,6 +18,7 @@ use super::super::lists::small_button;
 use super::{BACKENDS, Job, Ui, backend_name};
 use crate::app_settings::{AssistantBackend, AssistantSettings};
 use crate::assistant::backends::Found;
+use crate::assistant::browser::AgentBrowser;
 use crate::desktop::i18n::{tr, tr_fill};
 
 /// Follow-up windows offered, in seconds; 0 always starts a new conversation.
@@ -37,6 +42,14 @@ pub(in crate::rune_ui) struct SettingsState {
     /// The Claude API key as typed; cleared once saved.
     pub(in crate::rune_ui) key: TextEdit,
     pub(in crate::rune_ui) key_error: Option<String>,
+    /// The apps running now, once listed, to block one.
+    pub(in crate::rune_ui) running: Option<Vec<String>>,
+    /// An app to block, as typed.
+    pub(in crate::rune_ui) blocked: TextEdit,
+    /// agent-browser, once read.
+    pub(in crate::rune_ui) browser: Option<AgentBrowser>,
+    /// Whether the agents' Space works on this Mac.
+    pub(in crate::rune_ui) space_available: bool,
 }
 
 fn index(backend: AssistantBackend) -> usize {
@@ -79,7 +92,10 @@ pub(super) fn opened(ui: &mut Ui) {
             TextEdit::new(saved_model(&ui.settings.assistant, backend));
     }
     ui.chats.settings.model_typed = None;
+    ui.chats.settings.space_available = crate::assistant::space::available();
     ui.chats.jobs.run(Job::Detect);
+    ui.chats.jobs.run(Job::Browser);
+    ui.chats.jobs.run(Job::RunningApps);
     if ui.chats.settings.voices.is_none() {
         ui.chats.jobs.run(Job::Voices);
     }
@@ -183,17 +199,21 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
             p.muted(),
         ))
     };
-    let mut desktop = vec![toggle_row(
-        p,
-        "assistant-control-desktop",
-        tr("Operate apps"),
-        tr("Tasks click, type, and read apps through agent-desktop"),
-        assistant.control_desktop,
-        |ui: &mut Ui| {
-            ui.update(|settings| settings.assistant.control_desktop ^= true);
-        },
-    )];
+    let mut desktop: Vec<CardRow> = vec![
+        toggle_row(
+            p,
+            "assistant-control-desktop",
+            tr("Operate apps"),
+            tr("Tasks click, type, and read apps through agent-desktop"),
+            assistant.control_desktop,
+            |ui: &mut Ui| {
+                ui.update(|settings| settings.assistant.control_desktop ^= true);
+            },
+        )
+        .into(),
+    ];
     if assistant.control_desktop {
+        desktop.push(lanes::here_input_row(ui, p));
         desktop.push(
             super::super::controls::pressable_row(
                 described_row(
@@ -207,20 +227,25 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
             )
             .on_press(|ui: &mut Ui| {
                 ui.update(|settings| settings.assistant.physical_input ^= true);
-            }),
+            })
+            .into(),
         );
     }
-    desktop.push(toggle_row(
-        p,
-        "assistant-screenshot",
-        tr("Send a screenshot"),
-        tr("A quick question includes the screen the pointer is on"),
-        assistant.include_screenshot,
-        |ui: &mut Ui| {
-            ui.update(|settings| settings.assistant.include_screenshot ^= true);
-        },
-    ));
-    let tasks = vec![
+    desktop.push(
+        toggle_row(
+            p,
+            "assistant-screenshot",
+            tr("Send a screenshot"),
+            tr("A quick question includes the screen the pointer is on"),
+            assistant.include_screenshot,
+            |ui: &mut Ui| {
+                ui.update(|settings| settings.assistant.include_screenshot ^= true);
+            },
+        )
+        .into(),
+    );
+    let mut tasks = vec![
+        lanes::stop_all_row(ui, p),
         setting_row(
             p,
             "assistant-follow-up",
@@ -238,11 +263,15 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
             parallel_select(ui, p, layer),
         ),
     ];
+    tasks.extend(lanes::task_rows(ui, p, layer));
     vec![
         section(p, "assistant-agent", tr("Agent"), agent),
         section(p, "assistant-voice-section", tr("Answers"), voice),
-        section(p, "assistant-desktop", tr("Desktop"), desktop),
         section(p, "assistant-tasks", tr("Tasks"), tasks),
+        section(p, "assistant-desktop", tr("Desktop"), desktop),
+        lanes::web_section(ui, p),
+        lanes::blocked_section(ui, p, layer),
+        lanes::experimental_section(ui, p),
     ]
 }
 

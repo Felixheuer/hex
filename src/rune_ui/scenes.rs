@@ -767,6 +767,14 @@ pub(super) const SCENES: &[Scene] = &[
         mac_chats(ui, chats::fixture::Scene::Settings)
     }),
     #[cfg(target_os = "macos")]
+    ("mac-chats-tasks", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Tasks)
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-chats-interrupted", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Interrupted)
+    }),
+    #[cfg(target_os = "macos")]
     ("mac-assistant-setup", |ui| {
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Welcome))
     }),
@@ -775,12 +783,28 @@ pub(super) const SCENES: &[Scene] = &[
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Agent))
     }),
     #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-permissions", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Permissions))
+    ("mac-assistant-setup-new", |ui| {
+        mac_chats(ui, chats::fixture::Scene::NewInHex)
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-resumed", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Resumed)
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-merged", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Merged)
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-restart", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Restart)
     }),
     #[cfg(target_os = "macos")]
     ("mac-assistant-setup-desktop", |ui| {
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Desktop))
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-browser", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Browser))
     }),
     #[cfg(target_os = "macos")]
     ("mac-assistant-setup-checks", |ui| {

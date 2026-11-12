@@ -2,21 +2,28 @@
 //! until the window connects (scenes, tests), and the scenes' fake
 //! conversations, tasks, and setup results.
 
+use std::collections::HashMap;
+
 use crate::assistant::{
-    Conversation, ConversationId, ConversationSummary, Message, Origin, Part, Request, Role,
-    TaskState, TaskStatus,
+    Conversation, ConversationId, ConversationSummary, Message, Origin, Outcome, Part, Request,
+    Role, TaskState, TaskStatus,
 };
 
 /// Conversations, tasks, and what the pane asked of them.
 #[derive(Default)]
 pub(in crate::rune_ui) struct Store {
     pub(in crate::rune_ui) conversations: Vec<Conversation>,
+    /// How each conversation's last request ended; Answered when unnamed.
+    pub(in crate::rune_ui) outcomes: HashMap<ConversationId, Outcome>,
     pub(in crate::rune_ui) tasks: Vec<TaskStatus>,
-    pub(in crate::rune_ui) agent_mode: bool,
     /// Every request submitted, in order.
     pub(in crate::rune_ui) submitted: Vec<Request>,
     pub(in crate::rune_ui) cancelled: Vec<ConversationId>,
     pub(in crate::rune_ui) deleted: Vec<ConversationId>,
+    /// Take over (`true`) and Hand back (`false`), in order.
+    pub(in crate::rune_ui) taken_over: Vec<(ConversationId, bool)>,
+    /// Conversations resumed after Hex quit while they ran.
+    pub(in crate::rune_ui) resumed: Vec<ConversationId>,
     /// The conversation last named as the one showing.
     pub(in crate::rune_ui) focus: Option<ConversationId>,
 }
@@ -37,7 +44,11 @@ impl Store {
                     .last()
                     .map(|message| message.text().lines().next().unwrap_or_default().to_owned())
                     .unwrap_or_default(),
-                outcome: crate::assistant::Outcome::Answered,
+                outcome: self
+                    .outcomes
+                    .get(&conversation.id)
+                    .copied()
+                    .unwrap_or_default(),
             })
             .collect();
         rows.sort_by_key(|row| std::cmp::Reverse(row.updated_ms));
@@ -218,8 +229,37 @@ pub(in crate::rune_ui) fn store(now: u64) -> Store {
             ),
         ],
     );
+    let downloads = conversation(
+        "sort-downloads",
+        "Sort my Downloads folder",
+        Origin::Background,
+        now - 50 * MINUTE,
+        vec![
+            message(
+                Role::User,
+                now - 58 * MINUTE,
+                vec![text(
+                    "Sort my Downloads folder into Invoices, Screenshots, and Installers",
+                )],
+            ),
+            message(
+                Role::Assistant,
+                now - 50 * MINUTE,
+                vec![
+                    action("Opened Finder"),
+                    action("Made the folder “Invoices”"),
+                    action("Moved 12 invoices into “Invoices”"),
+                ],
+            ),
+        ],
+    );
+    let outcomes = HashMap::from([
+        ("book-table".to_owned(), Outcome::Failed),
+        ("sort-downloads".to_owned(), Outcome::Interrupted),
+    ]);
     Store {
-        conversations: vec![reply, rename, regex, weather, failed],
+        conversations: vec![reply, rename, downloads, regex, weather, failed],
+        outcomes,
         tasks: vec![TaskStatus {
             conversation: "reply-to-maya".into(),
             origin: Origin::Background,
@@ -229,8 +269,60 @@ pub(in crate::rune_ui) fn store(now: u64) -> Store {
             windows: Vec::new(),
             colour: 2,
         }],
-        agent_mode: true,
         ..Store::default()
+    }
+}
+
+/// Tasks in every state beside the running one: one taken over, one
+/// waiting on a usage limit, one queued.
+fn mixed_tasks(store: &mut Store, now: u64) {
+    let task = |id: &str, title: &str, state, step: Option<&str>, colour| TaskStatus {
+        conversation: id.into(),
+        origin: Origin::Background,
+        title: title.into(),
+        state,
+        step: step.map(str::to_owned),
+        windows: Vec::new(),
+        colour,
+    };
+    store.tasks.extend([
+        task(
+            "expenses",
+            "File the October expenses",
+            TaskState::Paused,
+            Some("Filling in the report in Numbers"),
+            4,
+        ),
+        task(
+            "pr-summary",
+            "Summarize this week's pull requests",
+            TaskState::Waiting {
+                until_ms: now + 3 * MINUTE + 12_000,
+            },
+            None,
+            3,
+        ),
+        task(
+            "coffee",
+            "Order more coffee beans",
+            TaskState::Queued,
+            None,
+            0,
+        ),
+    ]);
+    for (id, title) in [
+        ("expenses", "File the October expenses"),
+        ("pr-summary", "Summarize this week's pull requests"),
+        ("coffee", "Order more coffee beans"),
+    ] {
+        store.conversations.push(conversation(
+            id,
+            title,
+            Origin::Background,
+            now - MINUTE,
+            vec![message(Role::User, now - MINUTE, vec![text(title)])],
+        ));
+        store.outcomes.insert(id.into(), Outcome::Running);
     }
 }
 
@@ -247,6 +339,7 @@ pub(in crate::rune_ui) fn running_turn() -> super::Turn {
             "Typing the reply in Mail".into(),
         ],
         answer: String::new(),
+        steered: Vec::new(),
     }
 }
 
@@ -255,8 +348,13 @@ pub(in crate::rune_ui) fn running_turn() -> super::Turn {
 pub(in crate::rune_ui) enum Scene {
     /// The list, a finished conversation with steps, and a running task.
     Conversation,
-    /// The running task's transcript, its answer streaming.
+    /// The running task's transcript, its answer streaming, with a message
+    /// sent while it worked.
     Running,
+    /// Tasks running, taken over, waiting on a usage limit, and queued.
+    Tasks,
+    /// A conversation Hex quit in the middle of, with Resume.
+    Interrupted,
     /// No conversations yet.
     Empty,
     Settings,
@@ -264,36 +362,79 @@ pub(in crate::rune_ui) enum Scene {
     Setup(super::setup::Page),
     /// The onboarding's last page with every check passed.
     SetupDone,
+    /// The onboarding as "New in Hex", for someone who set Hex up before.
+    NewInHex,
+    /// Continuing the voice first run.
+    Merged,
+    /// Reopened after a restart on the permissions page, checking again.
+    Resumed,
+    /// Accessibility applies only after a restart: one button does it.
+    Restart,
 }
 
 /// Sets `ui` up for a Chats scene: the Lab on, with fake conversations.
 pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
     let now = crate::history::now_ms();
     ui.settings.labs.assistant = true;
-    ui.settings.assistant.setup_done = !matches!(scene, Scene::Setup(_) | Scene::SetupDone);
+    ui.settings.assistant.setup_done = matches!(
+        scene,
+        Scene::Conversation
+            | Scene::Running
+            | Scene::Empty
+            | Scene::Settings
+            | Scene::Tasks
+            | Scene::Interrupted
+    );
     ui.pane = super::Pane::Chats;
-    let store = if scene == Scene::Empty {
-        Store::default()
-    } else {
-        store(now)
+    let store = match scene {
+        Scene::Empty => Store::default(),
+        Scene::Tasks => {
+            let mut store = store(now);
+            mixed_tasks(&mut store, now);
+            store
+        }
+        _ => store(now),
     };
     let mut pane = super::ChatsPane::fixture(store);
     pane.images.fixture();
+    // The scene shows what it set up, not what following would pick.
+    pane.follow.was_showing = true;
     match scene {
-        Scene::Conversation | Scene::Setup(_) | Scene::SetupDone => {
+        Scene::Conversation
+        | Scene::Setup(_)
+        | Scene::SetupDone
+        | Scene::NewInHex
+        | Scene::Merged
+        | Scene::Resumed
+        | Scene::Restart => {
             pane.turns.insert("reply-to-maya".into(), running_turn());
             pane.select("rename-screenshots".into());
         }
         Scene::Running => {
             let mut turn = running_turn();
             turn.phase = super::Phase::Answering;
+            turn.steered = vec!["Also ask if she wants the projector".into()];
             turn.answer = "I wrote the reply:\n\n> Hi Maya, Thursday at 3 works for me. See you then!\n\nIt's".into();
             pane.turns.insert("reply-to-maya".into(), turn);
             pane.select("reply-to-maya".into());
         }
+        Scene::Tasks => {
+            pane.turns.insert("reply-to-maya".into(), running_turn());
+            pane.holds.insert(
+                "pr-summary".into(),
+                super::Hold::Waiting {
+                    until_ms: now + 3 * MINUTE + 12_000,
+                    reason: "Claude Code's usage limit".into(),
+                },
+            );
+            pane.select("expenses".into());
+        }
+        Scene::Interrupted => {
+            pane.turns.insert("reply-to-maya".into(), running_turn());
+            pane.select("sort-downloads".into());
+        }
         Scene::Empty => {
             pane.tasks.clear();
-            pane.agent_mode = false;
         }
         Scene::Settings => {
             pane.view = super::View::Settings;
@@ -310,6 +451,34 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
     match scene {
         Scene::Setup(page) => super::setup::fixture(ui, page, false),
         Scene::SetupDone => super::setup::fixture(ui, super::setup::Page::Try, true),
+        Scene::NewInHex | Scene::Merged => {
+            super::setup::fixture(ui, super::setup::Page::Welcome, false);
+            if let Some(flow) = ui.chats.setup.as_mut() {
+                flow.new_in_hex = scene == Scene::NewInHex;
+                flow.merged = scene == Scene::Merged;
+            }
+        }
+        Scene::Resumed => {
+            super::setup::fixture(ui, super::setup::Page::Desktop, false);
+            if let Some(flow) = ui.chats.setup.as_mut() {
+                flow.resumed = true;
+                flow.asked.clear();
+                flow.permissions = Some(crate::assistant::computer::Permissions {
+                    accessibility: true,
+                    screen_recording: true,
+                });
+                flow.desktop_checking = true;
+                flow.desktop = None;
+            }
+        }
+        Scene::Restart => {
+            super::setup::fixture(ui, super::setup::Page::Desktop, false);
+            ui.platform.permissions.accessibility =
+                crate::desktop::onboarding::PermissionState::NeedsRestart;
+            if let Some(flow) = ui.chats.setup.as_mut() {
+                flow.asked = vec![super::setup::Grant::Accessibility];
+            }
+        }
         _ => {}
     }
 }

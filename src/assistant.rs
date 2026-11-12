@@ -49,3 +49,10 @@ use crate::app_settings::AppSettings;
 pub fn enabled(settings: &AppSettings) -> bool {
     crate::labs::Feature::Assistant.on(settings)
 }
+
+/// Whether the assistant is on and its onboarding finished: until then,
+/// Chats offers to finish setting it up instead of a chat.
+/// (Stub for the lead's contract; the lead owns it at integration.)
+pub fn ready(settings: &AppSettings) -> bool {
+    enabled(settings) && settings.assistant.setup_done
+}
