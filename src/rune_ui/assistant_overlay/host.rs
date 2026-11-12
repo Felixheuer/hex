@@ -486,14 +486,25 @@ pub(crate) fn ask_hint(asking: Option<bool>) {
     }
 }
 
-/// The Action shortcut's keys as a person reads them ("⌘"), for "Hold ⌘
-/// to answer".
+/// The Action shortcut's keys as a person reads them ("⌘" on macOS,
+/// "Ctrl+Shift+Space" elsewhere), for "Hold ⌘ to answer".
 fn answer_key() -> String {
+    let keys = |binding: crate::app_settings::HotkeyBinding| {
+        binding
+            .keycaps()
+            .join(if cfg!(target_os = "macos") { "" } else { "+" })
+    };
     crate::app_settings::assistant_runtime()
         .and_then(|(_, settings)| settings.action_hotkey)
-        .map(|binding| binding.keycaps().join(""))
+        .map(keys)
         .filter(|keys| !keys.is_empty())
-        .unwrap_or_else(|| "⌘".into())
+        .unwrap_or_else(|| {
+            if cfg!(target_os = "macos") {
+                "⌘".into()
+            } else {
+                keys(crate::app_settings::HotkeyBinding::action_default())
+            }
+        })
 }
 
 /// Whether the assistant is on and set up.
