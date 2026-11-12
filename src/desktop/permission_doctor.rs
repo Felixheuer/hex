@@ -176,14 +176,35 @@ pub fn repair(finding: &Finding) -> color_eyre::Result<bool> {
         }
         Finding::OtherCopies(others) => {
             for path in others {
-                std::fs::remove_dir_all(path)
-                    .map_err(|error| eyre!("couldn't remove {}: {error}", path.display()))?;
+                match std::fs::remove_dir_all(path) {
+                    // Gone already (a release build moved on): nothing to do.
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => bail!("couldn't remove {}: {error}", path.display()),
+                    Ok(()) => {}
+                }
+                forget_registration(path);
             }
             Ok(false)
         }
         Finding::NotInstalled { .. } => {
             bail!("Move Hex to Applications in Finder, then open it from there")
         }
+    }
+}
+
+/// Tells LaunchServices to forget the bundle at `path`, so a removed copy
+/// stops counting as one of Hex's.
+#[cfg(target_os = "macos")]
+fn forget_registration(path: &Path) {
+    const LSREGISTER: &str = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+    if let Err(error) = std::process::Command::new(LSREGISTER)
+        .arg("-u")
+        .arg(path)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+    {
+        tracing::warn!(%error, path = %path.display(), "couldn't unregister a removed copy");
     }
 }
 
