@@ -1,5 +1,6 @@
-//! The agent loop: sends the conversation and the desktop tools to the
-//! provider, performs each tool call through `computer`, and repeats until
-//! the model answers, the step limit is hit, or the request is cancelled.
+//! One task from start to end: builds its prompt (the question, a quick
+//! question's context, agent-desktop's guide, its agent id and session),
+//! runs it on the chosen backend (`provider`), reports steps and windows,
+//! and saves the conversation.
 //!
 //! OWNER: brain.

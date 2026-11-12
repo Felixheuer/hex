@@ -242,29 +242,39 @@ pub(super) const KEYS: &[Key] = &[
     optional(
         "assistant.action_hotkey",
         Kind::Json,
-        "Labs: hold to ask the assistant by voice; right command by default; none turns it \
-         off (macOS, with labs.assistant)",
+        "Labs: hold to ask the assistant by voice, double-tap for Agent mode; right command \
+         by default; none turns it off (macOS, with labs.assistant)",
     ),
     key(
-        "assistant.provider",
-        Kind::Choice(&["claude", "open_code"]),
-        "Labs: the model that answers the assistant: claude (Anthropic API key in the \
-         Keychain) or open_code (the OpenCode service on this computer) (macOS)",
+        "assistant.backend",
+        Kind::Choice(&["claude_code", "codex", "open_code", "claude_api"]),
+        "Labs: the agent that answers and acts: claude_code, codex, open_code, or claude_api \
+         (an Anthropic key in the Keychain) (macOS)",
     ),
-    key(
-        "assistant.claude_model",
+    optional(
+        "assistant.claude_code_model",
         Kind::Text,
-        "Labs: the Claude model the assistant uses, claude-sonnet-5-5 by default (macOS)",
+        "Labs: the model Claude Code uses for the assistant; none is its default (macOS)",
+    ),
+    optional(
+        "assistant.codex_model",
+        Kind::Text,
+        "Labs: the model Codex uses for the assistant; none is its default (macOS)",
     ),
     optional(
         "assistant.opencode_model",
         Kind::Text,
-        "Labs: OpenCode's provider/model for the assistant; none uses OpenCode's default (macOS)",
+        "Labs: OpenCode's provider/model for the assistant; none is its default (macOS)",
+    ),
+    key(
+        "assistant.claude_api_model",
+        Kind::Text,
+        "Labs: the Claude model the API backend uses, claude-sonnet-5-5 by default (macOS)",
     ),
     key(
         "assistant.speak_answers",
         Kind::Bool,
-        "Labs: the assistant reads Action shortcut answers aloud (macOS)",
+        "Labs: the assistant reads quick answers aloud (macOS)",
     ),
     optional(
         "assistant.voice",
@@ -274,18 +284,33 @@ pub(super) const KEYS: &[Key] = &[
     key(
         "assistant.control_desktop",
         Kind::Bool,
-        "Labs: the assistant may click, type, and open apps without asking (macOS)",
+        "Labs: assistant tasks may operate apps through agent-desktop (macOS)",
+    ),
+    key(
+        "assistant.physical_input",
+        Kind::Bool,
+        "Labs: assistant tasks may also move the real pointer and press real keys (macOS)",
     ),
     key(
         "assistant.include_screenshot",
         Kind::Bool,
-        "Labs: the Action shortcut sends a screenshot of the screen with the question (macOS)",
+        "Labs: a quick question sends a screenshot of the screen with it (macOS)",
     ),
     key(
         "assistant.follow_up_seconds",
         Kind::Integer { min: 0, max: 600 },
-        "Labs: an Action press this soon after an answer continues that conversation; 0 \
-         always starts a new one (macOS)",
+        "Labs: a hold this soon after a quick answer continues that conversation; 0 always \
+         starts a new one (macOS)",
+    ),
+    key(
+        "assistant.max_parallel",
+        Kind::Integer { min: 1, max: 64 },
+        "Labs: at most this many assistant tasks run at once; later ones wait (macOS)",
+    ),
+    key(
+        "assistant.setup_done",
+        Kind::Bool,
+        "Labs: the assistant's setup sheet was finished (macOS)",
     ),
     key(
         "show_dock_icon",

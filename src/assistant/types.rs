@@ -59,9 +59,12 @@ impl Message {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Origin {
-    /// Held the Action shortcut and spoke: the answer goes to the HUD and is
-    /// read aloud.
+    /// Held the Action shortcut outside Agent mode: a quick question. The
+    /// answer shows in the HUD's bubble and is read aloud.
     ActionShortcut,
+    /// Held the Action shortcut in Agent mode: a task that runs beside the
+    /// others, listed in the HUD's task stack; not read aloud.
+    AgentMode,
     /// Typed in Chats: the answer shows there and is not read aloud.
     Chat,
 }
@@ -88,7 +91,8 @@ pub struct ConversationSummary {
     pub preview: String,
 }
 
-/// What the desktop looked like when the question was asked.
+/// What the desktop looked like when the question was asked (quick
+/// questions; Agent mode tasks look for themselves).
 #[derive(Clone, Debug, Default)]
 pub struct Context {
     /// The screen the pointer is on, as PNG (see `computer::Screenshot`).
@@ -111,11 +115,49 @@ pub struct Request {
     pub context: Context,
 }
 
-/// What a running request reports, in order: `Started`, any number of
-/// `Thinking`/`Step`/`AnswerDelta`, then exactly one of `Answer`, `Failed`,
-/// or `Cancelled`. Every event names its conversation.
+/// A window a task is working in, for its outline on screen.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TaskWindow {
+    pub app: String,
+    /// agent-desktop's window id, when the task named one.
+    pub window_id: Option<String>,
+}
+
+/// One task as the HUD's stack and Chats show it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TaskStatus {
+    pub conversation: ConversationId,
+    pub origin: Origin,
+    /// The question, shortened.
+    pub title: String,
+    pub state: TaskState,
+    /// The latest step, as a person reads it.
+    pub step: Option<String>,
+    pub windows: Vec<TaskWindow>,
+    /// Its own colour index (0..8) for its cursor, outline, and stack row.
+    pub colour: u8,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TaskState {
+    /// Waiting for a free slot (`max_parallel`).
+    Queued,
+    Running,
+}
+
+/// What a running request reports, in order: `Started` (after any
+/// `Queued`), any number of `Thinking`/`Step`/`Window`/`AnswerDelta`, then
+/// exactly one of `Answer`, `Failed`, or `Cancelled`. Every event but
+/// `ConversationsChanged` and `ModeChanged` names its conversation; several
+/// conversations' events interleave while tasks run in parallel.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
+    /// Accepted, waiting for a free slot.
+    Queued {
+        conversation: ConversationId,
+        origin: Origin,
+        question: String,
+    },
     Started {
         conversation: ConversationId,
         origin: Origin,
@@ -143,23 +185,32 @@ pub enum Event {
         conversation: ConversationId,
         message: String,
     },
+    /// Started working in a window (its outline appears).
+    Window {
+        conversation: ConversationId,
+        window: TaskWindow,
+    },
     Cancelled { conversation: ConversationId },
     /// The stored list changed (a new, renamed, or deleted conversation).
     ConversationsChanged,
+    /// Agent mode turned on or off (the screen frame follows).
+    ModeChanged { on: bool },
 }
 
 impl Event {
     /// Its conversation, if it has one.
     pub fn conversation(&self) -> Option<&ConversationId> {
         match self {
-            Self::Started { conversation, .. }
+            Self::Queued { conversation, .. }
+            | Self::Window { conversation, .. }
+            | Self::Started { conversation, .. }
             | Self::Thinking { conversation }
             | Self::Step { conversation, .. }
             | Self::AnswerDelta { conversation, .. }
             | Self::Answer { conversation, .. }
             | Self::Failed { conversation, .. }
             | Self::Cancelled { conversation } => Some(conversation),
-            Self::ConversationsChanged => None,
+            Self::ConversationsChanged | Self::ModeChanged { .. } => None,
         }
     }
 
