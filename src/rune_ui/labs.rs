@@ -31,19 +31,20 @@ pub(super) static LABS_ICON: Icon = Icon {
 };
 
 /// The main sidebar's panes, in order: General, Output, History, then the
-/// features turned on (Meetings and Voice Filter from Labs, Annotate in dev
-/// builds).
+/// features turned on (Chats, Meetings, and Voice Filter from Labs, Annotate
+/// in dev builds).
 pub(super) fn main_panes(ui: &Ui) -> Vec<Pane> {
     let mut panes = vec![Pane::General, Pane::Output, Pane::History];
     #[cfg(hex_capture)]
     let optional = [
+        Pane::Chats,
         Pane::Captures,
         Pane::Meetings,
         Pane::Annotate,
         Pane::VoiceFilter,
     ];
     #[cfg(not(hex_capture))]
-    let optional = [Pane::Meetings, Pane::VoiceFilter];
+    let optional = [Pane::Chats, Pane::Meetings, Pane::VoiceFilter];
     panes.extend(optional.into_iter().filter(|pane| pane.shown(ui)));
     panes
 }
@@ -534,6 +535,12 @@ fn rows(ui: &Ui) -> Vec<Row> {
             tr("Print-only CLI dictation"),
             tr("Let hex dictation start --print answer with the transcript when it ends"),
         ));
+        rows.push(row(
+            Feature::Assistant,
+            None,
+            tr("Assistant"),
+            tr("Add an Action shortcut and Chats: ask by voice, hear the answer, and let the assistant use your Mac"),
+        ));
     }
     // macOS's shortcut machine takes a shortcut without a key.
     if caps.os == super::platform::Os::Macos {
@@ -981,6 +988,7 @@ fn row_key(lab: Lab) -> &'static str {
         Feature::SpeakersOnly => "lab-speakers-only",
         Feature::KeepMicrophoneOpen => "lab-keep-microphone-open",
         Feature::PrintStart => "lab-print-start",
+        Feature::Assistant => "lab-assistant",
     }
 }
 
@@ -1021,6 +1029,10 @@ fn flip(ui: &mut Ui, lab: Lab) {
         // Hex hears the browser through System Audio Recording.
         Feature::PauseBrowser if on && !ui.platform.system_audio => {
             ui.ask(super::platform::PlatformRequest::SystemAudio);
+        }
+        // The assistant's setup checks everything it needs, once.
+        Feature::Assistant if on && !ui.settings.assistant.setup_done => {
+            super::chats::open_setup(ui);
         }
         _ => {}
     }
@@ -1184,4 +1196,10 @@ fn keep_microphone_open_for(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
         },
         layer,
     )
+}
+
+/// A lab switch flipped as its card does, for tests.
+#[cfg(test)]
+pub(super) fn flip_for_test(ui: &mut Ui, feature: Feature) {
+    flip(ui, Lab::Feature(feature));
 }

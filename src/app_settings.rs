@@ -17,6 +17,7 @@ use crate::transcription::models::{TranscriptionModelId, TranscriptionSelection}
 
 #[cfg(hex_capture)]
 mod capture;
+mod assistant;
 mod dictation_processing;
 mod extra_shortcuts;
 mod hotkeys;
@@ -35,6 +36,7 @@ pub use capture::*;
 pub use dictation_processing::{
     DictationMode, DictationPostProcessing, DictationProcessingSettings,
 };
+pub use assistant::*;
 pub use extra_shortcuts::*;
 pub use hotkeys::*;
 pub use labs::*;
@@ -326,6 +328,8 @@ pub struct AppSettings {
     pub labs: LabsSettings,
     /// Labs › Screenshots' shortcut and folder (macOS).
     pub screenshots: ScreenshotSettings,
+    /// Labs › Assistant's shortcut, model, and voice (macOS).
+    pub assistant: AssistantSettings,
     /// Start listening when Hex opens (Windows and Linux, where the
     /// listener can be off).
     pub enable_on_launch: bool,
@@ -454,6 +458,7 @@ impl Default for AppSettings {
             experimental: ExperimentalSettings::default(),
             labs: LabsSettings::default(),
             screenshots: ScreenshotSettings::default(),
+            assistant: AssistantSettings::default(),
             enable_on_launch: true,
             paste_with_shift: false,
             gnome_keyboard_shortcuts: false,
@@ -780,6 +785,7 @@ impl AppSettings {
         );
         crate::labs::apply(&self.labs);
         screenshots::apply_screenshots(self);
+        assistant::apply_assistant(self);
         #[cfg(hex_capture)]
         {
             *CAPTURE_SETTINGS
@@ -1036,6 +1042,7 @@ impl AppSettings {
                     .map(HotkeyBinding::runtime)
             }),
             extra_dictation_modes: std::array::from_fn(|index| self.extra_dictation_mode(index)),
+            action: self.active_action_hotkey().map(HotkeyBinding::runtime),
             cancel: self.active_cancel_hotkey().map(HotkeyBinding::runtime),
         }
     }
@@ -1059,6 +1066,19 @@ impl AppSettings {
             .as_ref()
             .filter(|binding| cfg!(target_os = "macos") || binding.key.is_some())
             .filter(|binding| !self.hotkey_in_use(HotkeySlot::SecondDictation, binding))
+    }
+
+    /// Labs › Assistant's Action shortcut while it takes effect: macOS, the
+    /// Lab on, bound, and sharing no key with another active shortcut.
+    /// Otherwise Hex matches, suppresses, and checks nothing for it.
+    pub fn active_action_hotkey(&self) -> Option<&HotkeyBinding> {
+        if !cfg!(target_os = "macos") || !crate::assistant::enabled(self) {
+            return None;
+        }
+        self.assistant
+            .action_hotkey
+            .as_ref()
+            .filter(|binding| !self.hotkey_in_use(HotkeySlot::Action, binding))
     }
 
     /// Labs › Transform typed text's binding while it takes effect: Linux,
@@ -1158,6 +1178,15 @@ impl AppSettings {
             self.second_dictation_hotkey = None;
         }
         if self
+            .assistant
+            .action_hotkey
+            .as_ref()
+            .is_some_and(HotkeyBinding::is_bare_primary_click)
+        {
+            tracing::warn!("replaced a left-click Action shortcut with the default");
+            self.assistant.action_hotkey = Some(HotkeyBinding::action_default());
+        }
+        if self
             .terminal_paste_hotkey
             .as_ref()
             .is_some_and(HotkeyBinding::is_bare_primary_click)
@@ -1201,6 +1230,8 @@ pub enum HotkeySlot {
     SecondDictation,
     /// Labs › More dictation shortcuts (macOS): row `index`'s binding.
     ExtraDictation(usize),
+    /// Labs › Assistant's Action shortcut (macOS).
+    Action,
     /// Labs › Terminal paste shortcut (Windows, Linux).
     TerminalPaste,
     /// Toggle mode's cancel shortcut.
@@ -1358,6 +1389,20 @@ pub fn refresh_layout_hotkeys() {
     AppliedHotkeys::resolve_again(HOTKEYS.get_or_init(Default::default), |settings| {
         settings.map_or_else(RuntimeHotkeys::default, AppSettings::runtime_hotkeys)
     });
+}
+
+/// Labs › Assistant's options as last applied, for the listener's Action
+/// shortcut; the defaults until settings load.
+#[cfg(target_os = "macos")]
+pub fn applied_assistant() -> AssistantSettings {
+    HOTKEYS
+        .get_or_init(Default::default)
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .settings
+        .as_ref()
+        .map(|settings| settings.assistant.clone())
+        .unwrap_or_default()
 }
 
 pub fn runtime_hotkeys() -> RuntimeHotkeys {
@@ -1743,6 +1788,55 @@ mod tests {
         assert!(settings.hotkey_in_use(HotkeySlot::SecondDictation, &dictation));
         settings.second_dictation_hotkey = Some(dictation);
         assert_eq!(settings.runtime_hotkeys().second_dictation, None);
+    }
+
+    /// Labs › Assistant's Action shortcut: inert and unchecked while its Lab
+    /// is off; on, it runs (right Command by default), the other shortcuts
+    /// refuse its keys, it refuses theirs, and a saved overlap is unbound.
+    #[test]
+    fn the_action_shortcut_needs_its_lab_and_its_own_keys() {
+        let right_command = HotkeyBinding::action_default();
+        let mut settings = AppSettings::default();
+        assert_eq!(
+            settings.assistant.action_hotkey,
+            Some(right_command.clone())
+        );
+        assert_eq!(settings.runtime_hotkeys().action, None);
+        assert!(!settings.hotkey_in_use(HotkeySlot::Dictation, &right_command));
+        assert!(!settings.repair_action_shortcut());
+
+        settings.labs.assistant = true;
+        if !cfg!(target_os = "macos") {
+            assert_eq!(settings.runtime_hotkeys().action, None);
+            return;
+        }
+        assert_eq!(
+            settings.runtime_hotkeys().action,
+            Some(right_command.runtime())
+        );
+        assert!(
+            settings
+                .runtime_hotkeys()
+                .all()
+                .contains(&Some(right_command.runtime()))
+        );
+        assert!(settings.hotkey_in_use(HotkeySlot::Dictation, &right_command));
+        assert!(settings.hotkey_in_use(HotkeySlot::SecondDictation, &right_command));
+        let dictation = settings.dictation_hotkey.clone();
+        assert!(settings.hotkey_in_use(HotkeySlot::Action, &dictation));
+        assert!(!settings.repair_action_shortcut());
+
+        // The dictation shortcut moved onto right Command while the Lab was
+        // off: the Action shortcut stands down and is unbound on repair.
+        settings.dictation_hotkey = right_command.clone();
+        assert_eq!(settings.runtime_hotkeys().action, None);
+        assert_eq!(
+            settings.runtime_hotkeys().dictation,
+            right_command.runtime()
+        );
+        assert!(settings.repair_action_shortcut());
+        assert_eq!(settings.assistant.action_hotkey, None);
+        assert_eq!(settings.runtime_hotkeys().action, None);
     }
 
     /// A saved Screenshots record shortcut and Annotate's own capture

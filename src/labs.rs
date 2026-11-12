@@ -166,6 +166,7 @@ impl Feature {
             | Self::SpeakersOnly
             | Self::PauseMenu
             | Self::PrintStart
+            | Self::Assistant
             | Self::MoreDictationShortcuts => Audience::Everyone,
         }
     }
@@ -245,6 +246,7 @@ impl Feature {
             | Self::PauseMenu
             | Self::HistoryMultiSelect => 20261110,
             Self::KeepMicrophoneOpen | Self::PrintStart => 20261111,
+            Self::Assistant => 20261112,
         }
     }
 
@@ -317,6 +319,7 @@ impl Feature {
             | Self::DoubleTapModifiers
             | Self::PauseMenu
             | Self::PrintStart
+            | Self::Assistant
             | Self::MoreDictationShortcuts => cfg!(target_os = "macos"),
             Self::CopyOnly => cfg!(any(target_os = "macos", target_os = "windows")),
             Self::ReturnToApp => cfg!(target_os = "macos"),
@@ -449,6 +452,7 @@ impl Feature {
             Self::SpeakersOnly => "speakers-only",
             Self::PauseMenu => "pause-menu",
             Self::PrintStart => "print-start",
+            Self::Assistant => "assistant",
             Self::MoreDictationShortcuts => "more-dictation-shortcuts",
         }
     }
@@ -530,6 +534,7 @@ impl Feature {
             Self::SpeakersOnly => "labs.speakers_only",
             Self::PauseMenu => "labs.pause_menu",
             Self::PrintStart => "labs.print_start",
+            Self::Assistant => "labs.assistant",
             Self::MoreDictationShortcuts => "labs.more_dictation_shortcuts",
         }
     }
@@ -615,6 +620,7 @@ impl Feature {
             Self::SpeakersOnly => settings.labs.speakers_only,
             Self::PauseMenu => settings.labs.pause_menu,
             Self::PrintStart => settings.labs.print_start,
+            Self::Assistant => settings.labs.assistant,
             Self::MoreDictationShortcuts => settings.labs.more_dictation_shortcuts,
         }
     }
@@ -698,6 +704,7 @@ impl Feature {
             &mut labs.app_model_switching,
             &mut labs.pause_menu,
             &mut labs.print_start,
+            &mut labs.assistant,
             &mut labs.more_dictation_shortcuts,
         ]
     }
@@ -786,6 +793,12 @@ impl Feature {
             Self::SpeakersOnly => settings.labs.speakers_only = on,
             Self::PauseMenu => settings.labs.pause_menu = on,
             Self::PrintStart => settings.labs.print_start = on,
+            // On, an Action shortcut another shortcut took meanwhile is
+            // unbound rather than left dead.
+            Self::Assistant => {
+                settings.labs.assistant = on;
+                settings.repair_action_shortcut();
+            }
             Self::MoreDictationShortcuts => settings.labs.more_dictation_shortcuts = on,
             // Off, no shortcut keeps a key only the feature allows.
             Self::StandaloneSpecialKeys => {

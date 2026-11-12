@@ -191,6 +191,27 @@ impl AppSettings {
         }
     }
 
+    /// Labs › Assistant's Action shortcut never shares a key with another
+    /// active shortcut: while the Lab is on, one that does (the dictation
+    /// shortcut moved onto right Command while the Lab was off, say) is
+    /// unbound, so General shows an empty recorder rather than a shortcut
+    /// that does nothing. Off, it stays as saved. Returns whether it changed.
+    pub(crate) fn repair_action_shortcut(&mut self) -> bool {
+        if !cfg!(target_os = "macos") || !crate::assistant::enabled(self) {
+            return false;
+        }
+        let shared = self
+            .assistant
+            .action_hotkey
+            .as_ref()
+            .is_some_and(|binding| self.hotkey_in_use(super::HotkeySlot::Action, binding));
+        if shared {
+            tracing::info!("unbound the Action shortcut: another shortcut uses its keys");
+            self.assistant.action_hotkey = None;
+        }
+        shared
+    }
+
     /// Puts back every shortcut `matches`: dictation, Paste last dictation,
     /// and Annotate to their defaults, the optional ones unbound. Returns
     /// whether any changed.
@@ -224,6 +245,10 @@ impl AppSettings {
         }
         if self.terminal_paste_hotkey.as_ref().is_some_and(&matches) {
             self.terminal_paste_hotkey = None;
+            reset = true;
+        }
+        if self.assistant.action_hotkey.as_ref().is_some_and(&matches) {
+            self.assistant.action_hotkey = Some(HotkeyBinding::action_default());
             reset = true;
         }
         #[cfg(hex_capture)]

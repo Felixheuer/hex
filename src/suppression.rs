@@ -561,7 +561,12 @@ unsafe extern "C" fn physical_event_callback(
     // SAFETY: CoreGraphics supplied a valid event.
     let flags = unsafe { CGEventGetFlags(event) };
     let flags = crate::app_settings::normalized_modifier_flags(flags, physical_keys::snapshot());
-    if !is_chord_evidence(code, flags, crate::app_settings::runtime_hotkeys()) {
+    // A shortcut test (`recognition::shortcut_probe`) hears every press, so
+    // a key another app took before the session tap still shows it reached
+    // the keyboard.
+    if !is_chord_evidence(code, flags, crate::app_settings::runtime_hotkeys())
+        && !PROBING.load(Ordering::Acquire)
+    {
         return event;
     }
     // SAFETY: CoreGraphics supplied a valid event.
@@ -583,16 +588,28 @@ unsafe extern "C" fn physical_event_callback(
     event
 }
 
+/// Whether a shortcut test runs: the HID tap then reports every key press,
+/// Hex's own shortcuts included.
+static PROBING: AtomicBool = AtomicBool::new(false);
+
+/// Turns the HID tap's report of every key press on or off for a shortcut
+/// test (`recognition::shortcut_probe`).
+pub fn set_probing(on: bool) {
+    PROBING.store(on, Ordering::Release);
+}
+
 /// Whether a HID key press can reveal a chord Hex would otherwise miss.
 /// Escape ends no dictation, and Hex's own shortcuts act through their session events.
 fn is_chord_evidence(code: u16, flags: u64, hotkeys: RuntimeHotkeys) -> bool {
     // The Globe key's own event is the shortcut itself for the dictation
-    // shortcuts that can hold Fn: the main, second, raw, and extra ones. Any
-    // other shortcut's Fn chord is still evidence of one.
+    // shortcuts that can hold Fn: the main, second, raw, and extra ones, and
+    // Labs › Assistant's Action shortcut. Any other shortcut's Fn chord is
+    // still evidence of one.
     let own_globe_key = std::iter::once(hotkeys.dictation)
         .chain(hotkeys.second_dictation)
         .chain(hotkeys.raw_dictation)
         .chain(hotkeys.extra_dictation.into_iter().flatten())
+        .chain(hotkeys.action)
         .any(|binding| is_own_globe_key(code, binding));
     code != ESCAPE_KEY_CODE
         && !own_globe_key

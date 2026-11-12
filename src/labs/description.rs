@@ -208,6 +208,9 @@ impl Feature {
             Self::PrintStart => {
                 "Let hex dictation start --print hand the transcript to the command that started it, however the recording ends"
             }
+            Self::Assistant => {
+                "Add an Action shortcut and Chats: ask by voice, hear the answer, and let the assistant use your Mac"
+            }
         }
     }
 }

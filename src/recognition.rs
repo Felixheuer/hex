@@ -20,22 +20,24 @@ use crate::dictation::service::{
 };
 use crate::dictation::{DictationClip, Finish, POST_RELEASE_TAIL};
 use crate::feedback::{self, Tone};
-use crate::parakeet::{
-    DictationJobStage, DictationWorker, PasteKind, TranscriptionTarget, WorkerEvent,
-};
+use crate::parakeet::{DictationWorker, TranscriptionTarget, WorkerEvent};
 use crate::suppression::{DictationHotkey, DiscardCause, HotkeyAction, InputMonitor};
 
+mod ask;
 mod context_watch;
 mod guards;
 mod hotkeys;
 mod output;
+pub(crate) mod shortcut_probe;
 
 use context_watch::ContextWatch;
 use guards::{
     caps_lock_can_press, capture_boundary, capture_refusal, claims_escape, paste_last_refusal,
 };
 use hotkeys::{Hotkeys, Shortcut};
-use output::{finish_dictation, finish_dictation_with, interrupted_dictation};
+use output::{
+    finish_dictation, finish_dictation_with, handle_dictation_event, interrupted_dictation,
+};
 
 enum FinishResult {
     Discarded,
@@ -233,6 +235,8 @@ pub fn listen(
     let mut personal_commands = personal_host_enabled
         .then(|| crate::personal_commands::PersonalCommands::start(transformations.clone()))
         .flatten();
+    let mut asker = ask::Asker::default();
+    let _probe = shortcut_probe::Listening::start();
     let mut next_programmatic_id = 1_u64;
     let mut programmatic = None::<ProgrammaticDictation>;
     let mut programmatic_lost = None::<LostProgrammaticDictation>;
@@ -717,6 +721,7 @@ pub fn listen(
             transcription_revision = next_revision;
         }
         let hotkey_capture_suspended = crate::shortcut_pause::tick() || input.is_recovering();
+        shortcut_probe::tick(hotkeys.any_recording() || programmatic.is_some());
         if hotkeys.suspend_when(hotkey_capture_suspended) {
             handle_hotkey_action(
                 HotkeyAction::Cancel,
@@ -780,9 +785,9 @@ pub fn listen(
             let _acknowledge = input_monitor.acknowledge_after(observed);
             let input_event = observed.event;
             let capture_at = observed.capture_at;
-            // Escape included: it belongs to the owner app (closing a
-            // picker while a note records), which cancels through the API.
-            if programmatic.is_some() {
+            // Escape included: the owner app cancels through the API. A
+            // shortcut test takes every edge too, so its press starts nothing.
+            if programmatic.is_some() || shortcut_probe::observe(input_event, capture_at) {
                 hotkeys.track_key_state(input_event, capture_at);
                 continue;
             }
@@ -834,24 +839,41 @@ pub fn listen(
                 hotkeys.track_key_state(input_event, capture_at);
                 continue;
             }
+            asker.escape(input_event);
             for (shortcut, action) in hotkeys.process(input_event, capture_at) {
                 if action == HotkeyAction::Start {
                     hotkeys.raw_capture = shortcut == Shortcut::Raw;
                 }
                 let print = hotkeys.print_for(shortcut, action);
-                let accepted = handle_hotkey_action(
-                    action,
-                    hotkeys.raw_capture,
-                    print,
-                    capture_at,
-                    &input,
-                    &dictation_worker,
-                    &mut context,
-                    &input.device_name(),
-                    &mut events,
-                    indicator,
-                    microphone_policy.release_while_idle,
-                )?;
+                let release_while_idle = microphone_policy.release_while_idle;
+                let device = input.device_name();
+                let accepted = if shortcut == Shortcut::Action {
+                    asker.act(
+                        action,
+                        capture_at,
+                        &input,
+                        &dictation_worker,
+                        &mut context,
+                        &device,
+                        &mut events,
+                        indicator,
+                        release_while_idle,
+                    )?
+                } else {
+                    handle_hotkey_action(
+                        action,
+                        hotkeys.raw_capture,
+                        print,
+                        capture_at,
+                        &input,
+                        &dictation_worker,
+                        &mut context,
+                        &device,
+                        &mut events,
+                        indicator,
+                        release_while_idle,
+                    )?
+                };
                 if !accepted {
                     hotkeys.suspend(shortcut);
                 }
@@ -873,6 +895,7 @@ pub fn listen(
             // rather than on every provisional press. A tap this loop never
             // sees that way asks when it finishes instead.
             context.intend();
+            asker.intend();
             if microphone_policy.release_while_idle {
                 feedback::play(Tone::DictationStart);
             }
@@ -953,7 +976,12 @@ pub fn listen(
         let capture_escape = capture_host.is_some() && capture_shortcut.takes_escape();
         #[cfg(not(hex_capture))]
         let capture_escape = false;
-        input_monitor.set_takes_escape(claims_escape(programmatic.is_some(), capture_escape));
+        // Labs › Assistant takes it only while a quick question runs or speaks.
+        let free = programmatic.is_none() && !hotkeys.any_recording();
+        input_monitor.set_takes_escape(
+            claims_escape(programmatic.is_some(), capture_escape)
+                || asker.arm_escape(hotkeys.action.is_some(), free),
+        );
         // Toggle's cancel key is Hex's only while one of its shortcuts'
         // recordings runs; the listener ignores keys during a programmatic one.
         input_monitor.set_takes_cancel(programmatic.is_none() && hotkeys.any_recording());
@@ -1044,13 +1072,17 @@ pub fn listen(
                     let print = was_recording
                         .then(|| hotkeys.print_capture.take())
                         .flatten();
+                    // An Action question is never salvaged: it would be copied.
+                    let asking = hotkeys.action_recording();
                     hotkeys.suspend_all();
                     if was_recording {
                         // A recording shortcut keeps what it heard, copied
                         // instead of pasted; without a kept clip the previous
                         // failure stands.
                         let salvaged = match kept {
-                            Some(clip) if keep_hotkey => Some((clip, context.finish(&mut events)?)),
+                            Some(clip) if keep_hotkey && !asking => {
+                                Some((clip, context.finish(&mut events)?))
+                            }
                             kept => {
                                 programmatic_microphone_lost(
                                     programmatic.take(),
@@ -1271,7 +1303,10 @@ fn handle_hotkey_action(
             )
             .map(drop)
         }
-        HotkeyAction::Discard(_) | HotkeyAction::Cancel | HotkeyAction::CancelShortcut => {
+        HotkeyAction::Discard(_)
+        | HotkeyAction::DoubleTap
+        | HotkeyAction::Cancel
+        | HotkeyAction::CancelShortcut => {
             context.cancel();
             feedback::retract_start();
             #[cfg(hex_capture)]
@@ -1428,6 +1463,9 @@ fn control_dictation(
     release_while_idle: bool,
 ) -> Result<ControlReply> {
     let recording = hotkeys.any_recording();
+    if hotkeys.action_recording() && action != CaptureAction::Cancel {
+        return Ok(ask::busy_reply());
+    }
     let device = input.device_name();
     let start = match action {
         CaptureAction::Start => true,
@@ -1657,102 +1695,6 @@ fn emit_voice_state(
     Ok(())
 }
 
-fn handle_dictation_event(
-    event: WorkerEvent,
-    events: &mut EventLog,
-    indicator: DictationSink<'_>,
-) -> Result<()> {
-    match event {
-        WorkerEvent::Completed {
-            job_id,
-            result: Ok(text),
-            ..
-        } if text.trim().is_empty() => {
-            events.dictation(DictationPhase::Discarded, "")?;
-            indicator.send(DictationIndicatorEvent::JobCompleted {
-                job_id: job_id.value(),
-            });
-        }
-        WorkerEvent::Completed {
-            job_id,
-            target,
-            result: Ok(text),
-            processing,
-        } => {
-            let phase = match target {
-                TranscriptionTarget::Paste
-                | TranscriptionTarget::CopyOnlyPaste
-                | TranscriptionTarget::RawCopyOnlyPaste
-                | TranscriptionTarget::RawPaste => DictationPhase::Pasted,
-                TranscriptionTarget::Print | TranscriptionTarget::RawPrint => {
-                    DictationPhase::Printed
-                }
-                TranscriptionTarget::Service => return Ok(()),
-            };
-            feedback::play(Tone::DictationDone);
-            events.processed_dictation(phase, text, processing)?;
-            indicator.send(DictationIndicatorEvent::JobCompleted {
-                job_id: job_id.value(),
-            });
-        }
-        WorkerEvent::Completed {
-            job_id,
-            result: Err(error),
-            ..
-        } => {
-            tracing::error!(%error, "dictation failed");
-            feedback::play(Tone::Error);
-            events.dictation(DictationPhase::Failed(error.clone()), "")?;
-            indicator.send(DictationIndicatorEvent::JobFailed {
-                job_id: job_id.value(),
-                message: Some(error),
-            });
-        }
-        WorkerEvent::Stage { job_id, stage } => {
-            indicator.send(match stage {
-                DictationJobStage::Transcribing => DictationIndicatorEvent::Transcribing {
-                    job_id: job_id.value(),
-                },
-                DictationJobStage::Processing => DictationIndicatorEvent::Processing {
-                    job_id: job_id.value(),
-                },
-            });
-        }
-        WorkerEvent::Cancelled { job_id } => {
-            // A submitted job left the HUD's job set only when it completed
-            // or failed; tell both the HUD and the light that it is gone.
-            indicator.send(DictationIndicatorEvent::JobCancelled {
-                job_id: job_id.value(),
-            });
-        }
-        WorkerEvent::ModelFailed(error) => {
-            tracing::error!(%error, "dictation failed");
-            feedback::play(Tone::Error);
-            events.dictation(DictationPhase::Failed(error.clone()), "")?;
-            indicator.send(DictationIndicatorEvent::Failed {
-                message: Some(error),
-            });
-        }
-        WorkerEvent::Pasted {
-            kind,
-            result: Ok(text),
-        } => {
-            let phase = match kind {
-                PasteKind::LastTranscript => DictationPhase::Repasted,
-                PasteKind::MeetingDelta => DictationPhase::MeetingPasted,
-            };
-            events.dictation(phase, text)?;
-        }
-        WorkerEvent::Pasted {
-            result: Err(error), ..
-        } => {
-            feedback::play(Tone::Error);
-            events.dictation(DictationPhase::Failed(error), "")?;
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1786,6 +1728,7 @@ mod tests {
             raw: None,
             extra: std::array::from_fn(|_| None),
             caps_lock: DictationHotkey::new(base, false, RuntimeHotkey::default()),
+            action: None,
             raw_capture: false,
             print_capture: None,
             suspended: false,
@@ -1836,6 +1779,7 @@ mod tests {
             raw: None,
             extra: std::array::from_fn(|_| None),
             caps_lock: DictationHotkey::new(base, false, RuntimeHotkey::default()),
+            action: None,
             raw_capture: false,
             print_capture: None,
             suspended: false,
@@ -2086,6 +2030,7 @@ mod tests {
             raw: None,
             extra: std::array::from_fn(|_| None),
             caps_lock,
+            action: None,
             raw_capture: false,
             print_capture: None,
             suspended: false,

@@ -9,6 +9,8 @@ use std::sync::OnceLock;
 #[cfg(not(test))]
 use std::sync::atomic::{AtomicU8, Ordering};
 
+mod assistant;
+mod assistant_overlay;
 mod failures;
 mod french;
 mod labs;
@@ -350,6 +352,8 @@ pub(super) fn all_translations() -> impl Iterator<Item = &'static (&'static str,
         .chain(labs::TRANSLATIONS)
         .chain(failures::TRANSLATIONS)
         .chain(onboarding::TRANSLATIONS)
+        .chain(assistant::TRANSLATIONS)
+        .chain(assistant_overlay::TRANSLATIONS)
 }
 
 /// Columns: Polish, Chinese (Simplified), Japanese, German, Spanish, Ukrainian.
@@ -565,6 +569,14 @@ const TRANSLATIONS: &[(&str, [&str; 6])] = &[
     ("Add a space before a dictation pasted right after a word", ["Dodaje spację przed dyktowaniem wklejonym tuż po słowie", "在紧接单词粘贴的听写前添加空格", "単語の直後に貼り付ける音声入力の前にスペースを入れます", "Fügt ein Leerzeichen vor einem Diktat ein, das direkt nach einem Wort eingefügt wird", "Añade un espacio antes de un dictado pegado justo después de una palabra", "Додає пробіл перед диктуванням, вставленим одразу після слова"]),
     ("Sided modifier chords", ["Skróty ze stronami modyfikatorów", "区分左右的修饰键组合", "左右を区別する修飾キーの組み合わせ", "Modifikator-Kombinationen mit Seite", "Combinaciones de modificadores con lado", "Комбінації модифікаторів із боком"]),
     ("Record which side each modifier of a shortcut is on, such as Right ⌘ + Right ⌥", ["Zapisuje, po której stronie jest każdy modyfikator skrótu, np. prawy ⌘ + prawy ⌥", "录制快捷键中每个修饰键位于哪一侧，例如右 ⌘ + 右 ⌥", "ショートカットの各修飾キーが左右どちらかを記録します。例: 右 ⌘ + 右 ⌥", "Nimmt auf, auf welcher Seite jeder Modifikator eines Kürzels liegt, etwa rechte ⌘ + rechte ⌥", "Graba en qué lado está cada modificador de un atajo, como ⌘ derecha + ⌥ derecha", "Записує, з якого боку кожен модифікатор комбінації, наприклад правий ⌘ + правий ⌥"]),
+    ("macOS uses it for “{}”, so Hex may never see it", ["macOS używa go do „{}”, więc Hex może go nigdy nie zobaczyć", "macOS 将它用于“{}”，因此 Hex 可能收不到它", "macOS が「{}」に使っているため、Hex に届かないことがあります", "macOS verwendet es für „{}“, daher erreicht es Hex womöglich nie", "macOS lo usa para «{}», así que puede que nunca llegue a Hex", "macOS використовує його для «{}», тож Hex може його не отримати"]),
+    ("{} uses it too, so Hex may never see it", ["{} też go używa, więc Hex może go nigdy nie zobaczyć", "{} 也在使用它，因此 Hex 可能收不到它", "{} も使っているため、Hex に届かないことがあります", "{} verwendet es auch, daher erreicht es Hex womöglich nie", "{} también lo usa, así que puede que nunca llegue a Hex", "{} теж його використовує, тож Hex може його не отримати"]),
+    ("{} may use it too", ["{} też może go używać", "{} 也可能在使用它", "{} も使っている可能性があります", "{} verwendet es womöglich auch", "{} también podría usarlo", "{} теж може його використовувати"]),
+    ("Open Siri Settings", ["Otwórz ustawienia Siri", "打开 Siri 设置", "Siri 設定を開く", "Siri-Einstellungen öffnen", "Abrir ajustes de Siri", "Відкрити налаштування Siri"]),
+    ("Open {}", ["Otwórz {}", "打开 {}", "{} を開く", "{} öffnen", "Abrir {}", "Відкрити {}"]),
+    ("Choose another shortcut", ["Wybierz inny skrót", "选择其他快捷键", "別のショートカットを選ぶ", "Anderes Kürzel wählen", "Elegir otro atajo", "Вибрати іншу комбінацію"]),
+    ("Action shortcut", ["Skrót akcji", "操作快捷键", "アクションショートカット", "Aktionskürzel", "Atajo de acción", "Комбінація дії"]),
+    ("Hold to ask the assistant; double-tap for Agent mode", ["Przytrzymaj, aby zapytać asystenta; stuknij dwukrotnie, aby przełączyć tryb agenta", "按住向助手提问；连按两下切换代理模式", "長押しでアシスタントに質問、2回タップでエージェントモードを切り替え", "Halten, um den Assistenten zu fragen; zweimal tippen für den Agentenmodus", "Mantén pulsado para preguntar al asistente; toca dos veces para el modo agente", "Утримуйте, щоб запитати асистента; двічі торкніться для режиму агента"]),
     ("Dictates like the shortcut above", ["Dyktuje jak skrót powyżej", "与上方快捷键一样听写", "上のショートカットと同じように音声入力します", "Diktiert wie das Kürzel oben", "Dicta como el atajo de arriba", "Диктує як комбінація вище"]),
     ("Discards the recording", ["Odrzuca nagranie", "丢弃当前录音", "録音を破棄します", "Verwirft die Aufnahme", "Descarta la grabación", "Відкидає запис"]),
     ("Bind hex dictation cancel to a key in your desktop's keyboard shortcuts", ["Przypisz hex dictation cancel do klawisza w skrótach klawiszowych pulpitu", "在桌面的键盘快捷键中为 hex dictation cancel 绑定一个按键", "デスクトップのキーボードショートカットで hex dictation cancel をキーに割り当ててください", "Lege hex dictation cancel in den Tastenkürzeln deines Desktops auf eine Taste", "Asigna hex dictation cancel a una tecla en los atajos de teclado de tu escritorio", "Призначте hex dictation cancel клавішу в комбінаціях клавіш вашого робочого столу"]),
@@ -1637,6 +1649,7 @@ mod tests {
         include_str!("../rune_ui/explainer.rs"),
         include_str!("../rune_ui/fun.rs"),
         include_str!("../rune_ui/general.rs"),
+        include_str!("../rune_ui/general/conflicts.rs"),
         include_str!("../rune_ui/general/extra_shortcuts.rs"),
         include_str!("../rune_ui/general/search.rs"),
         include_str!("../rune_ui/history.rs"),
@@ -1674,6 +1687,14 @@ mod tests {
         include_str!("../rune_ui/screenshot_thumbnail/card.rs"),
         #[cfg(hex_capture)]
         include_str!("../rune_ui/captures.rs"),
+        include_str!("../rune_ui/chats.rs"),
+        include_str!("../rune_ui/chats/jobs.rs"),
+        include_str!("../rune_ui/chats/list.rs"),
+        include_str!("../rune_ui/chats/settings.rs"),
+        include_str!("../rune_ui/chats/setup.rs"),
+        include_str!("../rune_ui/chats/sheet.rs"),
+        include_str!("../rune_ui/chats/shortcut.rs"),
+        include_str!("../rune_ui/chats/transcript.rs"),
         #[cfg(hex_capture)]
         include_str!("../rune_ui/screenshot_thumbnail/editor.rs"),
         #[cfg(hex_capture)]
@@ -1719,6 +1740,9 @@ mod tests {
         include_str!("../windows/app.rs"),
         include_str!("../windows/rune.rs"),
         include_str!("../rune_hud.rs"),
+        include_str!("../rune_ui/assistant_overlay/bubble.rs"),
+        include_str!("../rune_ui/assistant_overlay/hint.rs"),
+        include_str!("../rune_ui/assistant_overlay/stack.rs"),
     ];
 
     /// The string literals passed to `tr`, `tr_fill`, and `tr_named`.

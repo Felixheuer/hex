@@ -498,6 +498,11 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     };
     let hud = crate::rune_hud::install(&mut app);
     crate::rune_ui::live_text::install(&mut app, crate::rune_hud::live_text_place);
+    // Labs › Assistant: the frame, window outlines, task stack, and quick
+    // answer; hidden, without windows, until the assistant reports work.
+    crate::rune_ui::assistant_overlay::install(&mut app);
+    // Its task stack and "Open in Chats" open the conversation in Chats.
+    crate::rune_ui::assistant_overlay::set_open_chats(|id| open_chat(Some(id.to_owned())));
     // The capture capsule, picker, and ink.
     #[cfg(hex_capture)]
     let capture_overlays =
@@ -776,6 +781,18 @@ fn show_update_check(window: &rune::AppHandle<Ui>) {
     show(window, Destination::Settings);
 }
 
+/// Opens the window on Chats at `conversation`, or a new chat with `None`
+/// (Labs › Assistant; nothing while it's off). Callable from any thread:
+/// the HUD's task stack opens a task's conversation this way.
+pub(crate) fn open_chat(conversation: Option<String>) {
+    with_window(|window| {
+        window.update(move |ui, tx| {
+            crate::rune_ui::show(ui, Destination::Chats(conversation), tx);
+            bring_window_forward();
+        });
+    });
+}
+
 /// Opens the window in front, from the main thread.
 pub(crate) fn bring_window_forward() {
     with_window(bring_forward);
@@ -862,6 +879,11 @@ impl Pump {
             );
             crate::macos_rune::status_item::update_software(&update_status());
             crate::macos_rune::status_item::update_pause();
+            crate::macos_rune::status_item::update_assistant(
+                self.runtime
+                    .published()
+                    .is_some_and(|published| crate::assistant::enabled(&published.settings)),
+            );
             self.meeting_menu_at = now + MEETING_MENU_REFRESH;
         }
     }
@@ -951,6 +973,11 @@ impl Pump {
                 }
             }
             StatusItemAction::OpenMeetings => show(&self.window, Destination::Meetings(None)),
+            // Labs › Assistant: Chats, and Agent mode on or off.
+            StatusItemAction::OpenChats => show(&self.window, Destination::Chats(None)),
+            StatusItemAction::ToggleAgentMode => {
+                crate::assistant::set_agent_mode(!crate::assistant::agent_mode());
+            }
             // Labs › Pause from menu bar: only keyboard shortcuts stop; the
             // menu's own actions keep working. The row says Resume Hex while
             // a resume waits, and choosing it again leaves it waiting.

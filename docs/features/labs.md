@@ -55,6 +55,8 @@ Feature             Pane  Toggle (settings.json, hex settings)   On: what it doe
 ├── Copy dictation only no labs.copy_only (macOS, Windows)    a dictation goes to the clipboard and is never pasted; Paste last dictation still pastes (#629)
 ├── Return to app   no    labs.return_to_app           (macOS)   a dictation pastes into the app it started in, switching back to it first when another app came forward
 ├── Print-only CLI dictation no labs.print_start        (macOS)   hex dictation start --print answers with the transcript however the recording ends; never pasted or copied
+├── Assistant        no    labs.assistant + assistant.action_hotkey (macOS) hold the Action shortcut (right ⌘ alone by default) to ask by voice;
+│                                        double-tap it for Agent mode; Escape stops a quick question and its speech; General shows its recorder while on
 ├── Spoken formatting no labs.spoken_formatting      spoken "new line"/"line break", "new paragraph", "open/close quote", "quote … unquote" become line breaks and quotation marks; Spanish "nuevo párrafo", "nueva línea", "abre/cierra comillas", … too (#630, #1040)
 ├── Spoken symbols  no    labs.spoken_symbols          spoken "hashtag", "underscore", "comma", … become symbols joined to their words: "#release", "my_variable", "done, thanks"; Spanish "arroba", "guion bajo", "coma", … too (#678, #1040)
 ├── Remove filler words no labs.filler_words          English dictations lose um, umm, uh, uhh, erm, er, ah, with no model (#631)
@@ -1159,6 +1161,167 @@ and `without_the_lab_double_tap_only_stays_off_for_a_lone_modifier` in
 [labs.rs](../../src/labs.rs). Not yet observed: a real double-tap on Option
 or Globe on a Mac; the `mac-labs` and `mac-labs-link` goldens change with the
 new row, and `windows-labs` stays as it was.
+
+Assistant (`assistant`, macOS): the Action shortcut. While the Lab is on,
+General shows an "Action shortcut" recorder under Shortcut
+(`assistant.action_hotkey`, right Command alone by default, clearable, with
+Restore default; also `hex settings set assistant.action_hotkey
+right-command`). The gate is `AppSettings::active_action_hotkey`: the Lab on,
+bound, and sharing no key with another active shortcut; only then does
+`RuntimeHotkeys::action` carry it and the listener (`recognition::Hotkeys`)
+run a `Shortcut::Action` machine. Off or unbound, nothing is matched,
+suppressed, or checked for it, and no key or Escape is taken. Recording
+another shortcut refuses its keys while the Lab is on, and it refuses
+theirs; one that overlaps when the Lab turns on or settings load (the
+dictation shortcut moved onto right Command while the Lab was off) is
+unbound (`repair_action_shortcut`).
+
+The machine is the dictation shortcut's (`DictationHotkey`), always in
+Hold with double-tap on and `set_double_tap_gesture`, whatever the
+dictation shortcut's mode. A press starts a capture at once, with the
+dictation HUD, the provisional start tone, chord and short-tap discards, and
+the chord breaker; right Command with another key (⌘C) is the app's chord
+and discards it, and the key reaches the app. The release finishes it as
+`TranscriptionTarget::Assistant`: processed like a paste (vocabulary, modes,
+replacements), then handed to the question, never pasted, copied, kept for
+Paste last dictation, or saved to History (the conversation keeps it).
+Outside Agent mode it submits
+`Request { conversation: assistant::focus(follow_up_seconds), origin:
+ActionShortcut, context }`, with `context` read by
+`assistant::computer::context(include_screenshot)` on its own thread as the
+key goes down, before the HUD changes the screen; in Agent mode
+(`assistant::agent_mode()` at the press) `Request { conversation: None,
+origin: AgentMode, context: Context::default() }`. A silent, short, or
+discarded capture asks nothing. Two complete taps (the second released
+within 300 ms of the first release, each shorter than the hold threshold)
+end as `HotkeyAction::DoubleTap`: the second tap's capture is discarded,
+`assistant::set_agent_mode(!agent_mode())` runs, and the success sound plays
+turning it on, the cancel sound turning it off. A hold followed by a quick
+tap never pairs. The machine that starts a capture owns it, so dictation and
+the Action shortcut stand down while the other records; `hex dictation
+stop` refuses while a question records (`cancel` still discards it); a
+microphone loss mid-question fails it instead of salvaging a copy.
+
+Whether the shortcuts can work (macOS, `shortcut_conflicts` and
+`recognition::shortcut_probe`). `shortcut_conflicts::conflicts(slot,
+settings)` checks a saved shortcut against what can take its keys first,
+each `Taken` (a saved setting names the same keys) or `Possible` (on or
+running, and commonly uses such keys):
+
+```ts
+conflicts(slot, settings) -> Vec<Conflict { source, certainty, name, description, fix }>
+├── macOS keyboard shortcuts (com.apple.symbolichotkeys)  // Taken; unsaved IDs on with defaults
+│   └── Spotlight ⌘ Space, input sources ⌃ Space, Mission Control, screenshots, …; others as "a macOS keyboard shortcut"
+├── 🌐 alone vs "Press 🌐 key to" (HIToolbox AppleFnUsageType)   // Taken; unsaved -> Possible
+├── Apple Dictation on + a lone ⌘, ⌃, or 🌐 pressed twice     // Possible: its shortcut isn't readable
+├── Siri on + a lone ⌘ pressed twice, or ⌘/⌥/🌐 Space held    // Possible; HotkeyTag 0 reads as off
+├── Raycast running: raycastGlobalHotkey ("Option-49")       // Taken when it matches; unreadable -> Possible on Space
+├── Karabiner-Elements installed: karabiner.json's selected profile
+│   ├── a simple modification of one of the keys            // Taken
+│   └── a complex rule from one of them                     // Possible
+└── running Superwhisper, Wispr Flow, MacWhisper, Spokenly (any shortcut),
+    Alfred (a chord on Space), BetterTouchTool, Hammerspoon, Keyboard Maestro (any)  // Possible
+```
+
+`shortcut_conflicts::cached` reads again at most every 3 s, for Settings.
+While the Lab is on, General shows each conflict under the dictation and
+Action shortcut rows (red when taken, muted when possible) with where it is
+fixed (Keyboard settings, Siri settings, or the app) and "Choose another
+shortcut"; no conflict, or the Lab off, draws nothing new. The screenshot
+Lab's check (`screenshots::system_shortcut`) reads the same symbolic hot
+keys. `shortcut_probe::start(slot, wait)` asks for a press: while it runs
+the listener hands every edge to it, not the shortcut machines (nothing
+records), and the HID tap reports every key press
+(`suppression::set_probing`), so it tells a press and release that reached
+Hex with exactly the keys and sides (`Works { held }`) from a key the
+keyboard saw but Hex's tap never got (`Swallowed`), the wrong modifiers or
+side (`WrongKeys`), a missing release (`NoRelease`), and nothing
+(`NothingReceived`). It refuses (`Unavailable`) without the listener, while
+Settings records a shortcut, or while a recording runs. Checks: the six
+fixture-plist tests in
+[shortcut_conflicts/tests.rs](../../src/shortcut_conflicts/tests.rs) and the
+four in [recognition/shortcut_probe.rs](../../src/recognition/shortcut_probe.rs).
+Not yet observed: Raycast's and Siri's saved formats on a Mac that has them
+set (neither is set on the development Mac), a real probe, or the notes'
+rendering.
+
+Escape belongs to the assistant only while a quick question
+(`Origin::ActionShortcut`) runs or waits, or an answer is read aloud
+(`speech::speaking()`), and nothing records: the tap then keeps it from the
+app (`guards::assistant_claims_escape`), and it runs `assistant::cancel` for
+each quick question and `speech::stop()`. Agent mode's tasks keep running
+(each has its own stop). Checks: `holding_the_action_shortcut_records_and_its_release_asks`,
+`a_double_tap_is_a_gesture_and_a_tap_asks_nothing`,
+`right_command_with_a_key_is_a_normal_chord`,
+`the_action_shortcut_and_dictation_never_share_a_capture`, and
+`without_its_machine_right_command_does_nothing` in
+[recognition/hotkeys.rs](../../src/recognition/hotkeys.rs);
+`a_hold_asks_with_its_mode_settled_at_the_press`, `no_words_ask_nothing`, and
+`the_transcript_submits_and_a_dropped_reply_asks_nothing` in
+[recognition/ask.rs](../../src/recognition/ask.rs);
+`escape_is_the_assistants_only_while_it_is_busy` in
+[recognition/guards.rs](../../src/recognition/guards.rs);
+`an_assistant_question_is_only_answered_never_pasted_or_kept` in
+[parakeet.rs](../../src/parakeet.rs);
+`the_action_shortcut_needs_its_lab_and_its_own_keys` in
+[app_settings.rs](../../src/app_settings.rs). Not yet observed: a real press
+on a Mac, the recorder row's rendering (macOS only, so no golden changes),
+or Escape against a running question.
+
+Assistant's window (`rune_ui/chats`, macOS): while the Lab is on, Chats joins
+the sidebar after History (`Pane::Chats`, `chats::available`), and the
+window leaves it for General when the Lab turns off. Its header switches
+Conversations and Settings, and shows the agent's name, Agent mode
+(`assistant::set_agent_mode`), and New chat. Conversations is a list and
+detail: the conversations grouped Today, Yesterday, Previous 7 days, and
+Older, searchable, each with how it was asked (microphone, Agent mode,
+keyboard) or, while it runs, a dot in its task's colour
+(`assistant_overlay::task_colour`) and its latest step; running and queued
+tasks sit in a strip above with Stop each and Stop all. The transcript
+shows questions as bubbles, answers as Markdown (`rune-kit`'s `markdown`
+feature; streaming while `AnswerDelta`s arrive), what the assistant did as
+muted steps (a run longer than four folds to its last step), screenshots as
+thumbnails that open the file, and errors; Delete chat… asks first. The
+composer sends `Request { origin: Chat, conversation: <shown> }` on Return
+(Shift-Return starts a line), and its button stops the shown request while
+it runs. The conversation showing is named with `assistant::set_focus`, and
+cleared when the pane, view, or window goes. Every `assistant::subscribe`
+event wakes the window. `hex://chats?id=<conversation>`,
+`hex://settings/chats`, the menu bar, and the HUD's task stack and "Open in
+Chats" (`assistant_overlay::set_open_chats` → `macos_rune::open_chat`) open
+it. Settings: the agent (and whether each is ready), its model, the Claude
+API key (Keychain only), Read answers aloud with its voice and Test voice,
+Operate apps, the real pointer and keyboard (with its warning), Send a
+screenshot, the follow-up window, Tasks at once (1 to 64), and Run setup….
+
+The assistant's onboarding (`chats/setup.rs`, drawn by `chats/sheet.rs` in
+the first run's type, card, and motion over the whole window) opens when
+the Lab turns on while `assistant.setup_done` is false, and from Run setup…
+or Chats' notice. Pages: Meet your assistant; Choose who answers (the
+agents `backends::detect` found, Claude Code by default, each with its fix:
+install, sign in, start OpenCode, or the API key); Hex's Microphone,
+Accessibility, and Screen Recording, each Allow opening its System Settings
+page with Hex's guide and waiting until macOS reports it on (read every
+1.5 s); agent-desktop, installed with Homebrew if missing, and its two
+permissions; the self-tests (`backends::self_tests`), run on arrival, with
+each failure's fix; the Action and dictation shortcuts, with what else takes
+them (`shortcut_conflicts::conflicts`, read again every 3 s, each with where
+it's fixed and, for the Action shortcut, Choose another…) and a live press
+test of each (`recognition::shortcut_probe`; ✓ only when the press and its
+release reached Hex, and a swallowed press names the app that took it), the
+page waiting for a free Action shortcut that works (`chats/shortcut.rs`
+adapts both); then the try-it: hold the Action shortcut and ask, with the
+double-tap Agent mode hint, waiting for one real spoken question, answered. A row shows ✓ only after its check saw
+it work. Continue waits for its page; Later moves on and marks it unfinished
+(amber in the progress marks). Finish waits until the chosen agent answers
+and can use agent-desktop, then sets `assistant.setup_done`. Menu bar: Agent
+Mode (checked while on) and Chats… show only while the Lab is on. Checks:
+the tests in [rune_ui/chats/tests.rs](../../src/rune_ui/chats/tests.rs),
+`reads_chats_links` in [deep_link.rs](../../src/rune_ui/deep_link.rs), and
+`the_assistant_rows_start_hidden_and_do_something` in
+[status_item.rs](../../src/macos_rune/status_item.rs); scenes `mac-chats*`
+and `mac-assistant-setup*` (macOS only, so no golden changes). Not yet
+observed: the live service, real grants, or a real question on a Mac.
 
 Sort and filter models (`picker-sort-filter`, issue 645, every OS): while
 on, the speech model picker's Every model view shows one row between its

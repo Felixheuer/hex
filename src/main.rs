@@ -11,6 +11,8 @@ mod accessibility;
 mod app_paths;
 #[cfg_attr(any(target_os = "linux", target_os = "windows"), allow(dead_code))]
 mod app_settings;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod assistant;
 #[cfg(target_os = "macos")]
 mod apple_intelligence;
 #[cfg(target_os = "macos")]
@@ -65,6 +67,8 @@ mod rune_hud;
 mod rune_ui;
 #[cfg(all(target_os = "macos", hex_capture))]
 mod screenshots;
+#[cfg(target_os = "macos")]
+mod shortcut_conflicts;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod shortcut_pause;
 #[cfg(target_os = "macos")]
@@ -221,6 +225,20 @@ enum DevCommand {
         #[command(subcommand)]
         command: VoiceFilterCommand,
     },
+    #[cfg(debug_assertions)]
+    /// Labs › Assistant: find the agents and agent-desktop, and run setup's
+    /// self-tests from this process.
+    AssistantDoctor {
+        /// Run every self-test (asks each installed agent a tiny prompt).
+        #[arg(long)]
+        checks: bool,
+        /// Capture a question's context, writing its screenshot to this PNG.
+        #[arg(long)]
+        context: Option<PathBuf>,
+        /// Read this text aloud.
+        #[arg(long)]
+        say: Option<String>,
+    },
 }
 
 #[cfg(target_os = "macos")]
@@ -373,6 +391,22 @@ fn main() -> Result<()> {
             output,
         );
     }
+    #[cfg(debug_assertions)]
+    if let Some(Command::Dev {
+        command:
+            DevCommand::AssistantDoctor {
+                checks,
+                context,
+                say,
+            },
+    }) = &cli.command
+    {
+        return assistant::backends::doctor::run(assistant::backends::doctor::Doctor {
+            checks: *checks,
+            context: context.clone(),
+            say: say.clone(),
+        });
+    }
     // A headless render (`hex app -- --snap …`) draws fixtures: no data
     // folder, log, lock, or settings, so it never touches the user's Hex.
     if let Some(Command::App { rune_args, .. }) = &cli.command
@@ -452,6 +486,7 @@ fn main() -> Result<()> {
                         return Ok(());
                     }
                     DevCommand::VoiceFilter { .. } => unreachable!("handled before startup"),
+                    DevCommand::AssistantDoctor { .. } => unreachable!("handled before startup"),
                 };
                 let reply = local_api::call_developer(&command)?;
                 if let DeveloperReply::Error { code, message } = &reply {

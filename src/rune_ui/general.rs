@@ -30,6 +30,11 @@ use crate::transcription::models as transcription_models;
 mod search;
 mod shortcuts;
 
+/// Labs › Assistant (macOS): what else takes the dictation and Action
+/// shortcuts' keys.
+#[cfg(target_os = "macos")]
+mod conflicts;
+
 /// Labs › More dictation shortcuts (macOS): General's extra shortcut rows.
 #[cfg(target_os = "macos")]
 mod extra_shortcuts;
@@ -76,6 +81,25 @@ pub(super) fn basics(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Opt
                     tr("Second dictation shortcut"),
                     ShortcutTarget::SecondDictation,
                     Some(tr("Dictates like the shortcut above")),
+                ),
+            );
+        }
+        // Labs › Assistant (macOS): the Action shortcut, held to ask and
+        // double-tapped for Agent mode.
+        #[cfg(target_os = "macos")]
+        if crate::assistant::enabled(&ui.settings) {
+            let purpose = tr("Hold to ask the assistant; double-tap for Agent mode");
+            rows.extend_described(
+                tr("Action shortcut"),
+                Some(purpose),
+                shortcut_rows(
+                    ui,
+                    p,
+                    "action-shortcut",
+                    &KEYBOARD,
+                    tr("Action shortcut"),
+                    ShortcutTarget::Action,
+                    Some(purpose),
                 ),
             );
         }

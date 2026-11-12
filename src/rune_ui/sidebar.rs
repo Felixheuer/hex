@@ -65,6 +65,9 @@ pub(super) enum Pane {
     /// Recorded calls and their settings, or the opt-in (macOS beta).
     Meetings,
     History,
+    /// The assistant's conversations, transcript, and settings (macOS,
+    /// while Labs › Assistant is on).
+    Chats,
     /// The shots and recordings Labs › Screenshots saved (macOS, while
     /// it's on).
     #[cfg(hex_capture)]
@@ -91,6 +94,7 @@ impl Pane {
         Pane::Modes,
         Pane::Meetings,
         Pane::History,
+        Pane::Chats,
         #[cfg(hex_capture)]
         Pane::Captures,
         #[cfg(hex_capture)]
@@ -105,6 +109,7 @@ impl Pane {
         match self {
             Pane::Modes | Pane::HudLab | Pane::Activity => false,
             Pane::Meetings => caps.meetings && meetings::available(ui),
+            Pane::Chats => chats::available(ui),
             // On from Labs (dev builds), or while its driver is installed.
             Pane::VoiceFilter => caps.fun && fun::running(ui),
             #[cfg(hex_capture)]
@@ -125,6 +130,7 @@ impl Pane {
             #[cfg(hex_capture)]
             Pane::Captures => tr("Captures"),
             Pane::Meetings => tr("Meetings"),
+            Pane::Chats => tr("Chats"),
             #[cfg(hex_capture)]
             Pane::Annotate => tr("Annotate"),
             Pane::VoiceFilter => tr("Voice Filter"),
@@ -142,6 +148,7 @@ impl Pane {
             #[cfg(hex_capture)]
             Pane::Captures => "nav-captures",
             Pane::Meetings => "nav-meetings",
+            Pane::Chats => "nav-chats",
             #[cfg(hex_capture)]
             Pane::Annotate => "nav-annotate",
             Pane::VoiceFilter => "nav-voice-filter",
@@ -159,6 +166,7 @@ impl Pane {
             #[cfg(hex_capture)]
             Pane::Captures => &captures::CAPTURES_ICON,
             Pane::Meetings => &MEETINGS_ICON,
+            Pane::Chats => &chats::CHATS_ICON,
             #[cfg(hex_capture)]
             Pane::Annotate => &SCRAWL_ICON,
             Pane::VoiceFilter => &VOICE_FILTER_ICON,

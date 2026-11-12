@@ -96,6 +96,9 @@ pub struct Pose {
     pub clock: f32,
     /// 1 once the dictation is done, else 0.
     pub done: f32,
+    /// 1 while the capture asks the assistant (Labs › Assistant), else 0:
+    /// the voice's colour becomes the assistant's.
+    pub ask: f32,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -528,6 +531,7 @@ impl Scope {
                 self.elapsed
             },
             done: if self.stage == Stage::Done { 1.0 } else { 0.0 },
+            ask: 0.0,
         }
     }
 
@@ -919,8 +923,8 @@ fn saturate(color: [f32; 3], amount: f32) -> [f32; 3] {
     color.map(|c| (luma + (c - luma) * amount).clamp(0.0, 1.0))
 }
 
-/// Warm pearl while recording, cooling to agent blue while processing, and
-/// coral on failure.
+/// Warm pearl while recording (periwinkle while asking the assistant),
+/// cooling to agent blue while processing, and coral on failure.
 pub fn palette(dark: bool, pose: &Pose, saturation: f32) -> Palette {
     let (you, you_core, agent, agent_core, coral, coral_core) = if dark {
         (
@@ -940,6 +944,18 @@ pub fn palette(dark: bool, pose: &Pose, saturation: f32) -> Palette {
             [0.9, 0.27, 0.21],
             [0.7, 0.18, 0.13],
         )
+    };
+    // The assistant's periwinkle: the screen frame's blue, leaning violet.
+    let (ask, ask_core) = if dark {
+        ([0.62, 0.62, 1.0], [0.86, 0.85, 1.0])
+    } else {
+        ([0.45, 0.42, 0.86], [0.31, 0.27, 0.72])
+    };
+    // A dictation (`ask` 0) keeps exactly its own colours.
+    let (you, you_core) = if pose.ask > 0.0 {
+        (mix3(you, ask, pose.ask), mix3(you_core, ask_core, pose.ask))
+    } else {
+        (you, you_core)
     };
     let base = mix3(mix3(you, agent, pose.cool), coral, pose.fail);
     let core = mix3(mix3(you_core, agent_core, pose.cool), coral_core, pose.fail);

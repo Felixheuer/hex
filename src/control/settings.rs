@@ -334,7 +334,8 @@ pub fn apply(
         | "screenshots.hotkey"
         | "screenshots.record_hotkey"
         | "capture.hotkey"
-        | "capture.replay_hotkey" => {
+        | "capture.replay_hotkey"
+        | "assistant.action_hotkey" => {
             let Kind::Shortcut(slot) = key.kind else {
                 unreachable!("shortcut keys have the shortcut kind");
             };
@@ -344,6 +345,7 @@ pub fn apply(
                 HotkeySlot::RawDictation => candidate.raw_dictation_hotkey.as_ref(),
                 HotkeySlot::TypedText => candidate.typed_text_hotkey.as_ref(),
                 HotkeySlot::SecondDictation => candidate.second_dictation_hotkey.as_ref(),
+                HotkeySlot::Action => candidate.assistant.action_hotkey.as_ref(),
                 // Each row of `extra_dictation_hotkeys` is validated from
                 // its own JSON list, not a shortcut key.
                 HotkeySlot::ExtraDictation(_) => None,
@@ -437,6 +439,10 @@ pub fn apply(
         }
         "labs.standalone_special_keys" => candidate.repair_special_keys(),
         "labs.section_key_alone" => candidate.repair_section_key(),
+        // On, an Action shortcut another shortcut took meanwhile is unbound.
+        "labs.assistant" => {
+            candidate.repair_action_shortcut();
+        }
         "labs.parakeet_ultra" if !candidate.labs.parakeet_ultra => {
             if let Some(why) = crate::labs::Feature::ParakeetUltra.off_refusal(settings) {
                 return Err(invalid(name, why));

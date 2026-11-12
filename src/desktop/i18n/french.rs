@@ -10,7 +10,14 @@ use std::sync::OnceLock;
 /// The French strings by their English source.
 pub(super) fn table() -> &'static HashMap<&'static str, &'static str> {
     static TABLE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
-    TABLE.get_or_init(|| TRANSLATIONS.iter().copied().collect())
+    TABLE.get_or_init(|| {
+        TRANSLATIONS
+            .iter()
+            .chain(super::assistant::FRENCH)
+            .chain(super::assistant_overlay::FRENCH)
+            .copied()
+            .collect()
+    })
 }
 
 #[rustfmt::skip]
@@ -262,6 +269,14 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("Add a space before a dictation pasted right after a word", "Ajoute une espace avant une dictée collée juste après un mot"),
     ("Sided modifier chords", "Combinaisons de modificateurs avec côté"),
     ("Record which side each modifier of a shortcut is on, such as Right ⌘ + Right ⌥", "Enregistre de quel côté se trouve chaque modificateur d'un raccourci, par exemple ⌘ droite + ⌥ droite"),
+    ("macOS uses it for “{}”, so Hex may never see it", "macOS l'utilise pour « {} », Hex risque donc de ne jamais le recevoir"),
+    ("{} uses it too, so Hex may never see it", "{} l'utilise aussi, Hex risque donc de ne jamais le recevoir"),
+    ("{} may use it too", "{} l'utilise peut-être aussi"),
+    ("Open Siri Settings", "Ouvrir les réglages Siri"),
+    ("Open {}", "Ouvrir {}"),
+    ("Choose another shortcut", "Choisir un autre raccourci"),
+    ("Action shortcut", "Raccourci d'action"),
+    ("Hold to ask the assistant; double-tap for Agent mode", "Maintenez pour interroger l'assistant ; touchez deux fois pour le mode agent"),
     ("Dictates like the shortcut above", "Dicte comme le raccourci ci-dessus"),
     ("Discards the recording", "Abandonne l'enregistrement"),
     ("Bind hex dictation cancel to a key in your desktop's keyboard shortcuts", "Associez hex dictation cancel à une touche dans les raccourcis clavier de votre bureau"),
