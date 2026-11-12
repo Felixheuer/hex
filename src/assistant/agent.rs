@@ -1003,7 +1003,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
     );
     match origin.lane() {
         Lane::Here => prompt.push_str(
-            "- Work only in the window in front, named in the message: read it, and act in it only if asked. Never touch any other window or app, and don't bring another one forward.\n",
+            "- Work only in the window in front, named in the message: read it, and act in it only if asked. Never touch any other window or app, and don't bring another one forward.\n- If the request needs anything beyond that window (open an app or a browser, another window, the web, files), never say you can't and never tell the person to do it themselves: hand it off at once with `HEX_JOB:` as described above, however small it is; a background job may open apps and browsers.\n",
         ),
         Lane::Background => prompt.push_str(&format!(
             "- You run beside the person and other agents, each with its own cursor; yours is agent “{}”. Work only in your own windows: open apps with hex_open_app, which gives you your own window, or claim a free window that is already open with desktop_claim_window (its window_id from desktop_list_windows). {}Never another task's windows: don't move, close, or type into them. The clipboard is Here-only: don't use it. Once you know a window's id, always pass it (--window-id / window_id), and don't bring windows to the front.\n\
