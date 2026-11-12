@@ -119,6 +119,7 @@ fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
                     still: cx.system_reduced_motion(),
                     answer_key: fixture::ANSWER_KEY.into(),
                     voice: None,
+                    hovered: None,
                 },
                 orb::Actions {
                     list: stack::Actions {
@@ -155,6 +156,10 @@ fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
                         toggle: |s: &mut OrbStory| s.open = !s.open,
                         dismiss: |s: &mut OrbStory, id| {
                             s.board.dismiss_question(id);
+                        },
+                        hover: |_, _, _| {},
+                        open_preview: |s: &mut OrbStory, task, session| {
+                            s.note = format!("Would open {session} of {task} live");
                         },
                     },
                     hover: |_, _| {},

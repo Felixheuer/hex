@@ -25,6 +25,7 @@
 pub mod consent;
 mod proxy;
 pub mod sessions;
+pub mod stream;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

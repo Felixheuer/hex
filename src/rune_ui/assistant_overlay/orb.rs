@@ -98,6 +98,8 @@ pub(crate) struct Orb {
     pub(crate) expanded: bool,
     /// The pointer rests on the orb: the list peeks open.
     pub(crate) peek: bool,
+    /// The task whose row the pointer rests on: its browsers stream live.
+    pub(crate) hovered: Option<String>,
     pub(crate) grow: Grow,
     /// The Action shortcut's keys, for "Hold ⌘ to answer".
     pub(crate) answer_key: String,
@@ -118,6 +120,8 @@ pub(crate) struct Look {
     pub(crate) answer_key: String,
     /// The voice reading an answer aloud, when it can be measured.
     pub(crate) voice: Option<f32>,
+    /// The task whose row the pointer rests on.
+    pub(crate) hovered: Option<String>,
 }
 
 pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
@@ -128,6 +132,7 @@ pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
         still: cx.system_reduced_motion(),
         answer_key: orb.answer_key.clone(),
         voice: orb.voice,
+        hovered: orb.hovered.clone(),
     };
     el().key("orb-root")
         .w_full()
@@ -148,8 +153,17 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
     }
     if look.open && !tasks.is_empty() {
         let max_h = SIZE.1 - 2.0 * INSET - ORB_H - GAP;
-        parts
-            .push(stack::sheet(p, &tasks, grow.down, max_h, actions.list).transition(unfold(grow)));
+        parts.push(
+            stack::sheet(
+                p,
+                &tasks,
+                grow.down,
+                max_h,
+                look.hovered.as_deref(),
+                actions.list,
+            )
+            .transition(unfold(grow)),
+        );
     } else {
         let mut bubbles: Vec<El> = board
             .questions()

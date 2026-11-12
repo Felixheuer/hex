@@ -162,6 +162,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             armed: None,
             expanded: false,
             peek: false,
+            hovered: None,
             grow: orb::Grow::default(),
             answer_key: answer_key(),
             voice: None,
@@ -176,8 +177,18 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
                     dismiss: |orb, id| {
                         orb.board.dismiss_question(id);
                     },
+                    hover: hover_task,
+                    open_preview: |_, task, session| {
+                        super::live::request_view(task, session);
+                        open_chats(task);
+                    },
                 },
-                hover: |orb, inside| orb.peek = inside && !orb.board.stack().is_empty(),
+                hover: |orb, inside| {
+                    orb.peek = inside && !orb.board.stack().is_empty();
+                    if !inside {
+                        hover_task(orb, "", false);
+                    }
+                },
                 drag: drag_orb,
             },
         },
@@ -244,6 +255,12 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         watcher::set_frame(true);
     }
     crate::assistant::subscribe(Box::new(on_event));
+    // A hovered task's browsers coming, going, or showing their first frame.
+    super::live::on_change(|| {
+        if let Some(overlays) = OVERLAYS.get() {
+            overlays.orb.update(|_, _| {});
+        }
+    });
     // The Action shortcut's double tap unfolds the list.
     crate::assistant::shortcut::set_toggle_tasks(toggle_tasks);
     // Displays coming, going, or moving: frames, outlines, and the HUD-side
@@ -333,10 +350,30 @@ pub(crate) fn toggle_tasks() {
 fn toggle(orb: &mut Orb) {
     if orb.board.stack().is_empty() {
         orb.expanded = false;
+        hover_task(orb, "", false);
         return;
     }
     orb.expanded = !(orb.expanded || orb.peek);
     orb.peek = false;
+    if !orb.expanded {
+        hover_task(orb, "", false);
+    }
+}
+
+/// The pointer came onto task `id`'s row in the list, or left it: its
+/// browsers stream live while it rests there.
+fn hover_task(orb: &mut Orb, id: &str, inside: bool) {
+    let hovered = if inside {
+        Some(id.to_owned())
+    } else if orb.hovered.as_deref() == Some(id) || id.is_empty() {
+        None
+    } else {
+        return;
+    };
+    if orb.hovered != hovered {
+        orb.hovered = hovered;
+        super::live::hover(orb.hovered.as_deref());
+    }
 }
 
 fn orb_event(orb: &mut Orb, event: &Event, tx: &mut Tx) -> bool {

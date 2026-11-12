@@ -136,6 +136,11 @@ scrawl-capture = { path = "crates/capture", default-features = false, features =
 pollster = "1.0.1"
 # Screenshot PNGs and the screenshot editor's export.
 png = "0.18"
+# The assistant's live browser previews: agent-browser streams JPEG frames
+# as base64 (`rune_ui::assistant_overlay::live`).
+base64 = "0.22.1"
+zune-core = "0.5.3"
+zune-jpeg = "0.5.15"
 # The local API's `/profile/vitals`; it reports nothing off macOS.
 procwatch = { git = "https://github.com/anomalyco/rune.git", rev = "a7cea1692a8ce68b1b63c46688c493bb94a8456d" }
 rune = { git = "https://github.com/anomalyco/rune.git", rev = "a7cea1692a8ce68b1b63c46688c493bb94a8456d", features = ["native-file-dialog", "macos-background-cursor"] }

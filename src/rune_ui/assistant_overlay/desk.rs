@@ -162,6 +162,10 @@ impl Desk {
                 dismiss: |desk, id| {
                     desk.board.dismiss_question(id);
                 },
+                hover: |_, _, _| {},
+                open_preview: |desk, task, session| {
+                    desk.note = format!("Would open {session} of {task} live");
+                },
             },
             hover: |_, _| {},
             drag: |_, _| {},
@@ -323,6 +327,7 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
                     still,
                     answer_key: fixture::ANSWER_KEY.into(),
                     voice: None,
+                    hovered: None,
                 },
                 Desk::actions(),
             )),
