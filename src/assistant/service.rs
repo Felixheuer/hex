@@ -151,6 +151,14 @@ pub fn set_spoken_announcements(on: bool) {
     voice::set_spoken_announcements(on);
 }
 
+/// Whether an answer is still being read aloud or is about to be: its
+/// sentences wait their turn, or more of it is still streaming. Together
+/// with `speech::speaking()` (what the engine plays or makes now), it tells
+/// conversation mode the reading isn't over between two sentences.
+pub fn reading_aloud() -> bool {
+    runner().voice.reading()
+}
+
 /// Whether questions and finished jobs are read aloud, for the overlay
 /// to chime when they aren't.
 pub fn spoken_announcements() -> bool {

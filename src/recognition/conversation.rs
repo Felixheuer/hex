@@ -11,8 +11,10 @@
 //!     │   └── a voice for 240 ms -> Step::BargeIn -> Hearing(c)
 //!     │       headphones: any speech; speakers: speech louder than the answer
 //!     │       itself (speech::level() + 6 dB), never without that level
-//!     └── the reading ends (or never starts within 1.5 s, or answers aren't
-//!         read aloud) -> Step::Listen -> Listening(c) for conversation_seconds
+//!     └── the reading ends (quiet for 400 ms: a gap between two sentences,
+//!         or a sentence still being made, isn't the end), or never starts
+//!         within 1.5 s, or answers aren't read aloud
+//!         -> Step::Listen -> Listening(c) for conversation_seconds
 //!         ├── speech for 160 ms -> Step::Heard -> Hearing(c)
 //!         └── nothing in time -> Step::Close -> Idle
 //! Hearing(c) -> 900 ms without speech, or 60 s -> Step::Finish(c) -> Idle
@@ -38,6 +40,10 @@ use crate::transcription::pause_segmenter::SpeechFrames;
 /// How long an answer may wait to start being read aloud before Hex counts
 /// it as shown only.
 const SPEAK_GRACE: Duration = Duration::from_millis(1_500);
+/// How long the reading must have stopped before it counts as over. Between
+/// two sentences (the next still streaming or being made) `speaking` drops
+/// for a moment; listening then would hear Hex's own next sentence.
+const READING_SETTLE: Duration = Duration::from_millis(400);
 /// Speech frames in a run that start a follow-up: 160 ms, the speech
 /// detector's shortest speech.
 const ONSET_FRAMES: u32 = 8;
@@ -103,6 +109,8 @@ enum Phase {
         spoke: bool,
         /// A capture listens under it for a barge-in.
         open: bool,
+        /// Since when nothing has been read, after something was.
+        quiet_since: Option<Instant>,
     },
     /// Listening hands-free for a follow-up until `until`.
     Listening {
@@ -224,10 +232,13 @@ impl Conversation {
             since: now,
             spoke: false,
             open,
+            quiet_since: None,
         };
     }
 
-    /// Moves on with time: `speaking` is whether Hex reads aloud now;
+    /// Moves on with time: `speaking` is whether Hex reads aloud now or
+    /// still has some of the answer to read (`speech::speaking()` or
+    /// `assistant::reading_aloud()`);
     /// `blocked`, whether something else owns the microphone or the
     /// assistant can't answer (a dictation, a meeting recording, setup).
     pub(super) fn tick(
@@ -254,9 +265,11 @@ impl Conversation {
                 since,
                 spoke,
                 open,
+                quiet_since,
             } => {
                 if speaking {
                     *spoke = true;
+                    *quiet_since = None;
                     if !options.barge_in || self.other_audio {
                         // Without barge-in nothing listens under an answer,
                         // not even a capture left open by the last one; nor
@@ -271,7 +284,12 @@ impl Conversation {
                     }
                     return None;
                 }
-                let over = *spoke || !options.spoken || now.duration_since(*since) >= SPEAK_GRACE;
+                let over = if *spoke {
+                    let quiet = *quiet_since.get_or_insert(now);
+                    now.duration_since(quiet) >= READING_SETTLE
+                } else {
+                    !options.spoken || now.duration_since(*since) >= SPEAK_GRACE
+                };
                 if !over {
                     return None;
                 }
@@ -461,8 +479,10 @@ mod tests {
             "no barge-in, no capture under the answer"
         );
         assert_eq!(machine.tick(after(start, 4_000), true, false, off), None);
+        // The reading must stay over for a moment: a gap isn't its end.
+        assert_eq!(machine.tick(after(start, 4_100), false, false, off), None);
         assert_eq!(
-            machine.tick(after(start, 4_100), false, false, off),
+            machine.tick(after(start, 4_500), false, false, off),
             Some(Step::Listen)
         );
         assert!(machine.is_open());
@@ -486,6 +506,58 @@ mod tests {
         assert_eq!(machine.tick(after(start, 70_000), false, false, off), None);
     }
 
+    /// A gap between two sentences (the next still streaming or being
+    /// made) is no end of the reading: Hex's own next sentence must not be
+    /// heard as the person's follow-up.
+    #[test]
+    fn a_gap_between_sentences_opens_no_listening() {
+        let start = Instant::now();
+        let mut machine = Conversation::default();
+        let off = Options {
+            barge_in: false,
+            ..ON
+        };
+        machine.answered("c1".into(), start);
+        assert_eq!(machine.tick(after(start, 100), true, false, off), None);
+        // 300 ms between sentence one and two: still the answer.
+        assert_eq!(machine.tick(after(start, 2_000), false, false, off), None);
+        assert_eq!(machine.tick(after(start, 2_300), false, false, off), None);
+        assert!(!machine.is_open());
+        assert_eq!(machine.tick(after(start, 2_350), true, false, off), None);
+        // The second sentence ends; only a lasting quiet ends the reading.
+        assert_eq!(machine.tick(after(start, 5_000), false, false, off), None);
+        assert_eq!(machine.tick(after(start, 5_390), false, false, off), None);
+        assert_eq!(
+            machine.tick(after(start, 5_400), false, false, off),
+            Some(Step::Listen)
+        );
+    }
+
+    /// The first sentence starts late (the voice is still made, or loads):
+    /// while the reading is pending (`reading_aloud`), `speaking` is true and
+    /// no listening opens under it.
+    #[test]
+    fn a_late_first_sentence_opens_no_listening() {
+        let start = Instant::now();
+        let mut machine = Conversation::default();
+        let off = Options {
+            barge_in: false,
+            ..ON
+        };
+        machine.answered("c1".into(), start);
+        // 2.5 s of the sentence being made, past the grace for an answer
+        // that is only shown.
+        for ms in [100, 1_000, 1_600, 2_500] {
+            assert_eq!(machine.tick(after(start, ms), true, false, off), None);
+        }
+        assert!(!machine.is_open());
+        assert_eq!(machine.tick(after(start, 6_000), false, false, off), None);
+        assert_eq!(
+            machine.tick(after(start, 6_400), false, false, off),
+            Some(Step::Listen)
+        );
+    }
+
     /// Nothing said in `conversation_seconds`: it quietly stops.
     #[test]
     fn listening_times_out_quietly() {
@@ -493,6 +565,7 @@ mod tests {
         let mut machine = Conversation::default();
         machine.answered("c1".into(), start);
         machine.tick(after(start, 10), true, false, ON);
+        machine.tick(after(start, 1_600), false, false, ON);
         assert_eq!(
             machine.tick(after(start, 2_000), false, false, ON),
             Some(Step::Listen)
@@ -652,6 +725,7 @@ mod tests {
         let mut machine = Conversation::default();
         machine.answered("c2".into(), start);
         machine.tick(after(start, 200), true, false, ON);
+        machine.tick(after(start, 2_600), false, false, ON);
         assert_eq!(
             machine.tick(after(start, 3_000), false, false, ON),
             Some(Step::Listen)
@@ -715,6 +789,7 @@ mod tests {
         );
         assert!(!machine.is_open());
         assert!(feed(&mut machine, speech(-10.0), 50, Output::Headphones, None).is_empty());
+        machine.tick(after(start, 2_600), false, false, off);
         assert_eq!(
             machine.tick(after(start, 3_000), false, false, off),
             Some(Step::Listen)
@@ -768,6 +843,7 @@ mod tests {
         machine.answered("c1".into(), start);
         machine.other_audio(true);
         assert_eq!(machine.tick(after(start, 10), true, false, ON), None);
+        assert_eq!(machine.tick(after(start, 1_600), false, false, ON), None);
         assert_eq!(machine.tick(after(start, 2_000), false, false, ON), None);
         assert!(!machine.is_active());
         assert!(!machine.is_open());
@@ -775,6 +851,7 @@ mod tests {
         machine.other_audio(false);
         machine.answered("c2".into(), start);
         machine.tick(after(start, 2_010), true, false, ON);
+        machine.tick(after(start, 3_600), false, false, ON);
         assert_eq!(
             machine.tick(after(start, 4_000), false, false, ON),
             Some(Step::Listen)
@@ -789,6 +866,7 @@ mod tests {
         let mut machine = Conversation::default();
         machine.answered("c1".into(), start);
         machine.tick(after(start, 10), true, false, ON);
+        machine.tick(after(start, 1_600), false, false, ON);
         assert_eq!(
             machine.tick(after(start, 2_000), false, false, ON),
             Some(Step::Listen)
@@ -826,6 +904,7 @@ mod tests {
         let mut hearing = Conversation::default();
         hearing.answered("c2".into(), start);
         hearing.tick(after(start, 10), true, false, ON);
+        hearing.tick(after(start, 1_600), false, false, ON);
         hearing.tick(after(start, 2_000), false, false, ON);
         assert_eq!(
             feed(&mut hearing, speech(-30.0), 8, Output::Speakers, None),

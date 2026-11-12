@@ -131,7 +131,9 @@ impl Talk {
             barge_in: settings.barge_in,
             spoken: settings.speak_answers,
         };
-        let speaking = crate::assistant::speech::speaking();
+        // Between two sentences the engine can be idle while more of the
+        // answer is still to come: the reading goes on until both are done.
+        let speaking = crate::assistant::speech::speaking() || crate::assistant::reading_aloud();
         // Music on the speakers would be heard as a follow-up; Core Audio
         // is only asked while conversation mode is under way.
         if self.machine.is_active() {

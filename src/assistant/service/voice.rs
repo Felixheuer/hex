@@ -147,6 +147,8 @@ struct State {
     queue: VecDeque<String>,
     /// Something of this answer was queued.
     started: bool,
+    /// The whole answer arrived (`finish`): no more of it will stream.
+    finished: bool,
     /// The voice for this answer, chosen from its first sentence.
     voice: Option<Option<String>>,
     /// The thread speaking the queue is running.
@@ -207,8 +209,21 @@ impl Voice {
             }
             state.queue.retain(|sentence| !sentence.is_empty());
             state.started = true;
+            state.finished = true;
         }
         self.speak_queue(runner);
+    }
+
+    /// Whether an answer is still being read here: sentences wait their
+    /// turn, the speaking thread is handing one over, or the answer started
+    /// streaming and more of it is still to come. The speech engine's own
+    /// queue only holds sentences already handed to it, so between two
+    /// sentences of a streamed or slowly made answer it can be empty while
+    /// the answer goes on; conversation mode must not take that gap for the
+    /// end of the reading.
+    pub(super) fn reading(&self) -> bool {
+        let state = self.state();
+        state.speaking || !state.queue.is_empty() || (state.started && !state.finished)
     }
 
     /// Forgets `conversation`'s answer (it failed or was stopped) without
