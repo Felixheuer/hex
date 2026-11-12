@@ -101,6 +101,56 @@ pub fn round_trip(check: Check) -> CheckResult {
     }
 }
 
+/// Lightpanda opens the check's page through agent-browser.
+pub fn light_round_trip(check: Check) -> CheckResult {
+    let path = match agent_browser(check) {
+        Ok(path) => path,
+        Err(failed) => return failed,
+    };
+    if browser::lightpanda().is_none() {
+        return CheckResult::failed(
+            check,
+            "Lightpanda isn't installed, so clean browsers run Chrome (about ten times the memory)",
+            Some(Fix::InstallLightpanda),
+        );
+    }
+    let page = Page::new();
+    let session = browser::session(&page.task);
+    let started = Instant::now();
+    let engine = ["--engine", "lightpanda"];
+    let opened = browser::call(
+        &path,
+        &session,
+        &[&engine[..], &["open", &page.url]].concat(),
+    );
+    let title = opened.and_then(|_| browser::call(&path, &session, &["get", "title"]));
+    browser::close(&page.task);
+    match title {
+        Ok(data) if data.get("title").and_then(Value::as_str) == Some(page.title.as_str()) => {
+            CheckResult::passed(
+                check,
+                format!(
+                    "Opened a page in Lightpanda in {:.1} s",
+                    started.elapsed().as_secs_f32()
+                ),
+            )
+        }
+        Ok(data) => CheckResult::failed(
+            check,
+            format!(
+                "Lightpanda read the wrong title: {}",
+                data.get("title").unwrap_or(&Value::Null)
+            ),
+            Some(Fix::Retry),
+        ),
+        Err(error) => CheckResult::failed(
+            check,
+            format!("Lightpanda couldn't open a page: {error}"),
+            Some(Fix::InstallLightpanda),
+        ),
+    }
+}
+
 /// The prompt that has an agent open the page with its own name for the
 /// tool and say the title.
 fn open_prompt(tool: &str, url: &str) -> String {

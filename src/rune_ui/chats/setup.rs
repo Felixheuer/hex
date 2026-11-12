@@ -265,6 +265,7 @@ pub(in crate::rune_ui) fn fix_label(fix: Fix) -> String {
         Fix::Install(backend) => tr_fill("Install {}", super::backend_name(backend)),
         Fix::InstallAgentDesktop => tr("Install agent-desktop").into(),
         Fix::InstallAgentBrowser => tr("Install agent-browser").into(),
+        Fix::InstallLightpanda => tr("Install Lightpanda").into(),
         Fix::SignIn(_) => tr("Sign in…").into(),
         Fix::StartOpenCode => tr("Start OpenCode").into(),
         Fix::AddApiKey => tr("Add API key").into(),
@@ -291,6 +292,7 @@ pub(in crate::rune_ui) fn check_title(check: Check) -> String {
             tr_fill("{} can use agent-desktop", super::backend_name(backend))
         }
         Check::BrowserRoundTrip => tr("agent-browser opens pages in hidden browsers").into(),
+        Check::LightBrowser => tr("Lightpanda reads pages in light browsers").into(),
         Check::BrowserThroughAgent(backend) => {
             tr_fill("{} can use agent-browser", super::backend_name(backend))
         }

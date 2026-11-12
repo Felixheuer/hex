@@ -84,12 +84,12 @@ pub(super) fn basics(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Opt
                 ),
             );
         }
-        // Labs › Assistant (macOS): the Action shortcut (hold to ask, tap
-        // then hold for a Background task, double-tap for the task list),
+        // Labs › Assistant (macOS): the Action shortcut (hold and say
+        // anything, the assistant decides; double-tap for the task list),
         // and Stop all tasks under it.
         #[cfg(target_os = "macos")]
         if crate::assistant::enabled(&ui.settings) {
-            let purpose = tr("Hold to ask; tap, then hold for a background task");
+            let purpose = tr("Hold and say anything; Hex decides");
             rows.extend_described(
                 tr("Action shortcut"),
                 Some(purpose),

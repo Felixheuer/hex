@@ -44,6 +44,9 @@ pub enum Check {
     /// The agent opens a page through Hex's browser tool over MCP and reads
     /// its title (for the Claude API, Hex does, as it does for its tasks).
     BrowserThroughAgent(AssistantBackend),
+    /// Lightpanda, the light engine for clean (research) browsers, opens a
+    /// page through agent-browser. Optional: without it they run Chrome.
+    LightBrowser,
 }
 
 impl Check {
@@ -60,7 +63,11 @@ impl Check {
             checks.push(Self::DesktopThroughAgent(backend));
         }
         if background_browser {
-            checks.extend([Self::BrowserRoundTrip, Self::BrowserThroughAgent(backend)]);
+            checks.extend([
+                Self::BrowserRoundTrip,
+                Self::LightBrowser,
+                Self::BrowserThroughAgent(backend),
+            ]);
         }
         checks
     }
@@ -81,6 +88,7 @@ impl Check {
             Self::BrowserThroughAgent(backend) => {
                 format!("{} can use agent-browser", name(backend))
             }
+            Self::LightBrowser => "Lightpanda reads pages in light browsers".into(),
         }
     }
 
@@ -94,6 +102,7 @@ impl Check {
                 vec![Self::Answers(backend), Self::DesktopPermissions]
             }
             Self::BrowserRoundTrip => Vec::new(),
+            Self::LightBrowser => vec![Self::BrowserRoundTrip],
             Self::BrowserThroughAgent(backend) => {
                 vec![Self::Answers(backend), Self::BrowserRoundTrip]
             }
@@ -107,7 +116,7 @@ impl Check {
             Self::Answers(_) => ANSWER_LIMIT,
             Self::DesktopPermissions | Self::DesktopRoundTrip => Duration::from_secs(45),
             Self::DesktopThroughAgent(_) => MCP_LIMIT,
-            Self::BrowserRoundTrip => browser::ROUND_TRIP_LIMIT,
+            Self::BrowserRoundTrip | Self::LightBrowser => browser::ROUND_TRIP_LIMIT,
             Self::BrowserThroughAgent(_) => browser::THROUGH_AGENT_LIMIT,
         }
     }
@@ -173,6 +182,8 @@ pub enum Fix {
     /// `brew install agent-browser`, then `agent-browser install` (its
     /// Chrome); a few minutes at most.
     InstallAgentBrowser,
+    /// Lightpanda's official installer (into `~/.local/bin`).
+    InstallLightpanda,
     /// Opens Terminal on the agent's sign-in (`claude`, `codex login`).
     SignIn(AssistantBackend),
     /// `opencode service start`.
@@ -194,6 +205,7 @@ impl Fix {
             Self::Install(backend) => format!("Install {}", name(backend)),
             Self::InstallAgentDesktop => "Install agent-desktop".into(),
             Self::InstallAgentBrowser => "Install agent-browser".into(),
+            Self::InstallLightpanda => "Install Lightpanda".into(),
             Self::SignIn(_) => "Sign in".into(),
             Self::StartOpenCode => "Start OpenCode".into(),
             Self::AddApiKey => "Add API key".into(),
@@ -214,6 +226,7 @@ pub fn self_test(check: Check, settings: &AssistantSettings) -> CheckResult {
         Check::DesktopRoundTrip => round_trip(check),
         Check::DesktopThroughAgent(backend) => through_agent(check, backend, settings),
         Check::BrowserRoundTrip => browser::round_trip(check),
+        Check::LightBrowser => browser::light_round_trip(check),
         Check::BrowserThroughAgent(backend) => browser::through_agent(check, backend, settings),
     };
     result.took = started.elapsed();
@@ -949,6 +962,7 @@ mod tests {
             Check::for_backend(AssistantBackend::Codex, true)[5..],
             [
                 Check::BrowserRoundTrip,
+                Check::LightBrowser,
                 Check::BrowserThroughAgent(AssistantBackend::Codex),
             ]
         );
