@@ -205,11 +205,28 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
             })
             .into_iter()
             .collect();
-        bubbles.extend(
-            tasks
-                .iter()
-                .filter_map(|task| standing(p, task, grow, actions.list)),
-        );
+        // Each task the person holds keeps its bubble (with Hand back);
+        // several waiting out a usage limit share one, so a limit that
+        // stops every job at once doesn't run past the panel.
+        let waiting: Vec<&Task> = tasks
+            .iter()
+            .filter(|task| matches!(task.phase, Phase::Waiting { .. }))
+            .collect();
+        if waiting.len() > 1 {
+            bubbles.extend(
+                tasks
+                    .iter()
+                    .filter(|task| !matches!(task.phase, Phase::Waiting { .. }))
+                    .filter_map(|task| standing(p, task, grow, actions.list)),
+            );
+            bubbles.push(all_waiting(p, &waiting).transition(pop_in(grow)));
+        } else {
+            bubbles.extend(
+                tasks
+                    .iter()
+                    .filter_map(|task| standing(p, task, grow, actions.list)),
+            );
+        }
         let running = jobs::running(&board.tasks);
         let layout = jobs::layout(&running, asking.is_some(), look.jobs_open);
         let carded: Vec<&str> = match &layout {
@@ -234,6 +251,7 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
         let room = jobs::Room {
             down: grow.down,
             max_h: (SIZE.1 - 2.0 * INSET - above).max(jobs::LINE_H * 4.0),
+            appear: pop_in(grow),
         };
         bubbles.extend(
             jobs::view(p, &running, &layout, room, actions.list, actions.jobs)
@@ -638,6 +656,42 @@ fn standing<S: 'static>(
         }
         .transition(pop_in(grow)),
     )
+}
+
+/// Several tasks waiting out a usage limit, as one bubble: how many, and
+/// when the first resumes.
+fn all_waiting(p: Paint, waiting: &[&Task]) -> El {
+    let first = waiting
+        .iter()
+        .filter_map(|task| match task.phase {
+            Phase::Waiting { until_ms } => Some(until_ms),
+            _ => None,
+        })
+        .min()
+        .unwrap_or_default();
+    let words = format!(
+        "{} · {}",
+        tr_fill("{} jobs wait for the limit", &waiting.len().to_string()),
+        tr_fill("resumes {}", &when::clock(first))
+    );
+    shell(p, "standing-waiting".into())
+        .pr(12.0)
+        .children(
+            waiting
+                .iter()
+                .take(6)
+                .map(|task| dot(task, palette::task(task.colour, p.k.dark), 8.0)),
+        )
+        .child(
+            text(words)
+                .key("standing-text")
+                .truncate()
+                .font(p.k.ty.small_medium)
+                .color(p.muted())
+                .min_w(0.0)
+                .shrink(),
+        )
+        .opacity(0.75)
 }
 
 /// A bubble popped about a task: what it says, with a press opening it in

@@ -104,6 +104,21 @@ pub(crate) fn minutes(since: Option<Instant>, now: Instant) -> Option<u64> {
     since.map(|since| (now.saturating_duration_since(since).as_secs() / 60).max(1))
 }
 
+/// `minutes` as a card says it: "12 min", "2 h 5 min", "3 d 4 h" (jobs run
+/// up to seven days).
+pub(crate) fn running_for(minutes: u64) -> String {
+    let (days, hours, rest) = (minutes / 1440, minutes / 60 % 24, minutes % 60);
+    let h = |hours: u64| tr_fill("{} h", &hours.to_string());
+    let min = |minutes: u64| tr_fill("{} min", &minutes.to_string());
+    match (days, hours, rest) {
+        (0, 0, rest) => min(rest),
+        (0, hours, 0) => h(hours),
+        (0, hours, rest) => format!("{} {}", h(hours), min(rest)),
+        (days, 0, _) => tr_fill("{} d", &days.to_string()),
+        (days, hours, _) => format!("{} {}", tr_fill("{} d", &days.to_string()), h(hours)),
+    }
+}
+
 /// Where the jobs unfold and how tall the unfolded cards may get.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Room {
@@ -112,6 +127,8 @@ pub(crate) struct Room {
     pub(crate) down: bool,
     /// The unfolded cards' greatest height; they scroll past it.
     pub(crate) max_h: f32,
+    /// How a card comes and goes.
+    pub(crate) appear: rune::Transition,
 }
 
 /// The cards (or the line) for `jobs`, as laid out.
@@ -131,7 +148,28 @@ pub(crate) fn view<S: 'static>(
     };
     match layout {
         Layout::None => Vec::new(),
-        Layout::Cards(ids) => cards(ids),
+        // One hover target for every card, as for the unfolded ones: the
+        // pointer resting on a card (to press a browser) keeps the cards,
+        // instead of the list peeking open over them.
+        Layout::Cards(ids) => {
+            let hover = line_actions.hover;
+            let mut cards: Vec<El> = cards(ids)
+                .into_iter()
+                .map(|card| card.transition(room.appear))
+                .collect();
+            if !room.down {
+                cards.reverse();
+            }
+            vec![
+                col()
+                    .key("jobs-cards")
+                    .gap(8.0)
+                    .hover_delays(UNFOLD_AFTER, FOLD_AFTER)
+                    .on_hover_change(move |s: &mut S, inside, _| hover(s, inside))
+                    .animate_layout()
+                    .children(cards),
+            ]
+        }
         Layout::Line(count) => vec![unfolding(
             p,
             line(p, jobs, *count, false, actions, line_actions),
@@ -222,9 +260,17 @@ fn card<S: 'static>(
                 .min_w(0.0)
                 .grow(1.0),
         );
-    if let Some(minutes) = minutes(task.since, Instant::now()) {
+    if task.phase == Phase::Queued {
+        // Not only the faint dot: waiting is said.
         head = head.child(
-            text(tr_fill("{} min", &minutes.to_string()))
+            text(tr("Queued"))
+                .key("job-queued")
+                .font(p.k.ty.small)
+                .color(p.faint()),
+        );
+    } else if let Some(minutes) = minutes(task.since, Instant::now()) {
+        head = head.child(
+            text(running_for(minutes))
                 .key("job-time")
                 .font(p.k.ty.small)
                 .color(p.faint()),
@@ -264,7 +310,7 @@ fn card<S: 'static>(
                     )
             }))
     });
-    col()
+    let card = col()
         .key(format!("job-{}", task.id))
         .w(CARD_W)
         .padding(10.0)
@@ -280,13 +326,27 @@ fn card<S: 'static>(
             color: rune::Color::BLACK.alpha(if p.k.dark { 0.4 } else { 0.12 }),
             inset: false,
         })
-        .role("group")
-        .label(task.title.clone())
+        .role("button")
+        .label(card_label(task))
         .hit()
         .on_press(move |s: &mut S| open(s, &id))
         .child(head)
         .children(step)
-        .children(browsers)
+        .children(browsers);
+    p.k.interactive(card)
+}
+
+/// What a screen reader says for a card: its title, whether it waits, and
+/// its step.
+fn card_label(task: &Task) -> String {
+    let mut label = task.title.clone();
+    if task.phase == Phase::Queued {
+        label = format!("{label}, {}", tr("Queued"));
+    }
+    if let Some(step) = &task.step {
+        label = format!("{label}: {step}");
+    }
+    label
 }
 
 /// One browser on a card, sharp from its thumbnail stream; a press opens it
@@ -470,6 +530,15 @@ mod tests {
         assert_eq!(thumbs(3), (3, 0));
         assert_eq!(thumbs(4), (4, 0));
         assert_eq!(thumbs(12), (4, 8));
+    }
+
+    #[test]
+    fn a_long_job_says_hours_and_days() {
+        assert_eq!(running_for(12), "12 min");
+        assert_eq!(running_for(60), "1 h");
+        assert_eq!(running_for(125), "2 h 5 min");
+        assert_eq!(running_for(3 * 1440), "3 d");
+        assert_eq!(running_for(4320 + 4 * 60 + 7), "3 d 4 h");
     }
 
     #[test]

@@ -847,6 +847,40 @@ fn resting_on_the_count_unfolds_every_job_s_card() {
 }
 
 #[test]
+fn resting_on_a_card_keeps_the_cards_so_a_browser_can_be_pressed() {
+    let mut rt = runtime(many_jobs_orb(2), orb::view, orb::SIZE, false);
+    assert_eq!(count_prefix(&rt, "job-job"), 2, "two jobs, two cards");
+    rest_on(&mut rt, "job-job1", 1.0);
+    rt.settle_all();
+    rt.frame(0.0);
+    assert!(rect(&rt, "sheet").is_none(), "the list stays folded");
+    assert_eq!(count_prefix(&rt, "job-job"), 2);
+}
+
+#[test]
+fn a_usage_limit_on_every_job_is_one_bubble() {
+    let mut board = fixture::many_jobs_board(6);
+    for n in 0..6 {
+        board.apply(
+            &Event::Waiting {
+                conversation: format!("job{n}"),
+                until_ms: 4_000_000_000_000 + n * 60_000,
+                reason: "Claude's usage limit".into(),
+            },
+            None,
+            std::time::Instant::now(),
+        );
+    }
+    let rt = runtime(orb_state(board, false), orb::view, orb::SIZE, false);
+    assert_eq!(count(&rt, "standing-waiting"), 1);
+    assert_eq!(count_prefix(&rt, "standing-job"), 0, "no bubble each");
+    for key in ["orb", "standing-waiting"] {
+        let r = rect(&rt, key).unwrap();
+        assert!(inside(r, orb::SIZE), "{key} {r:?}");
+    }
+}
+
+#[test]
 fn a_press_on_the_count_keeps_every_card_open() {
     let mut rt = runtime(many_jobs_orb(5), orb::view, orb::SIZE, false);
     state_press(&mut rt, "jobs-line-text");
