@@ -27,7 +27,10 @@ SIGN_ID="${HEX_CODESIGN_IDENTITY:-}"
 if [[ -z "$SIGN_ID" && -n "${HEX_TEAM_ID:-}" ]]; then
   SIGN_ID="$(security find-identity -v -p codesigning | awk -F'"' -v team="$HEX_TEAM_ID" '$2 ~ "^Developer ID Application: .*\\(" team "\\)$" { print $2; exit }')"
 fi
-if [[ -n "$SIGN_ID" ]]; then
+if [[ -n "$SIGN_ID" && "${HEX_ALLOW_DEVELOPMENT_SIGNING:-}" == 1 ]]; then
+  # scripts/install-fork.sh: Apple Development, nothing to notarize.
+  codesign --force --options runtime --timestamp=none --sign "$SIGN_ID" "$BUNDLE_DIR"
+elif [[ -n "$SIGN_ID" ]]; then
   codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$BUNDLE_DIR"
 else
   codesign --force --sign - "$BUNDLE_DIR"
