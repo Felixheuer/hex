@@ -26,6 +26,7 @@ use crate::suppression::{DictationHotkey, DiscardCause, HotkeyAction, InputMonit
 pub(crate) mod ask;
 mod context_watch;
 mod conversation;
+mod echo;
 mod guards;
 mod hotkeys;
 mod other_audio;

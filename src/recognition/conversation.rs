@@ -9,10 +9,14 @@
 //! └── answered(c) -> Answer(c)
 //!     ├── barge_in, and Hex reads it aloud -> Step::Watch: a capture opens, unshown
 //!     │   └── a voice for 240 ms -> Step::BargeIn -> Hearing(c)
-//!     │       headphones: any speech; speakers: speech louder than the answer
-//!     │       itself (speech::level() + 6 dB), never without that level
-//!     └── the reading ends (or never starts within 1.5 s, or answers aren't
-//!         read aloud) -> Step::Listen -> Listening(c) for conversation_seconds
+//!     │       headphones: any speech; speakers: speech the echo of Hex's
+//!     │       own voice doesn't explain (`echo`, from what Hex played), or,
+//!     │       until that has learnt the room, speech louder than the answer
+//!     │       itself (speech::level() + 6 dB)
+//!     └── the reading ends (quiet for 400 ms: a gap between two sentences,
+//!         or a sentence still being made, isn't the end), or never starts
+//!         within 1.5 s, or answers aren't read aloud
+//!         -> Step::Listen -> Listening(c) for conversation_seconds
 //!         ├── speech for 160 ms -> Step::Heard -> Hearing(c)
 //!         └── nothing in time -> Step::Close -> Idle
 //! Hearing(c) -> 900 ms without speech, or 60 s -> Step::Finish(c) -> Idle
@@ -38,6 +42,10 @@ use crate::transcription::pause_segmenter::SpeechFrames;
 /// How long an answer may wait to start being read aloud before Hex counts
 /// it as shown only.
 const SPEAK_GRACE: Duration = Duration::from_millis(1_500);
+/// How long the reading must have stopped before it counts as over. Between
+/// two sentences (the next still streaming or being made) `speaking` drops
+/// for a moment; listening then would hear Hex's own next sentence.
+const READING_SETTLE: Duration = Duration::from_millis(400);
 /// Speech frames in a run that start a follow-up: 160 ms, the speech
 /// detector's shortest speech.
 const ONSET_FRAMES: u32 = 8;
@@ -103,6 +111,8 @@ enum Phase {
         spoke: bool,
         /// A capture listens under it for a barge-in.
         open: bool,
+        /// Since when nothing has been read, after something was.
+        quiet_since: Option<Instant>,
     },
     /// Listening hands-free for a follow-up until `until`.
     Listening {
@@ -122,6 +132,10 @@ enum Phase {
 pub(super) struct Frame {
     pub(super) speech: bool,
     pub(super) level_db: f32,
+    /// Whether it holds more than the echo of Hex's own voice
+    /// (`echo::EchoGate`): `Some(true)` also when Hex played nothing lately;
+    /// `None` while it can't tell yet.
+    pub(super) over_echo: Option<bool>,
 }
 
 /// Cuts microphone audio into 20 ms frames and classifies them.
@@ -132,7 +146,15 @@ struct Ears {
 }
 
 impl Ears {
-    fn push(&mut self, samples: &[f32], rate: u32, mut each: impl FnMut(Frame)) {
+    /// `echo(frame, later)` judges a frame against Hex's own voice; `later`
+    /// is how many samples of this block arrived after the frame ended.
+    fn push(
+        &mut self,
+        samples: &[f32],
+        rate: u32,
+        echo: &mut dyn FnMut(&[f32], usize) -> Option<bool>,
+        mut each: impl FnMut(Frame),
+    ) {
         let size = (rate / FRAMES_PER_SECOND).max(1) as usize;
         let mut samples = samples;
         while !samples.is_empty() {
@@ -143,6 +165,7 @@ impl Ears {
                 each(Frame {
                     speech: self.speech.is_speech(&self.frame),
                     level_db: level_db(&self.frame),
+                    over_echo: echo(&self.frame, samples.len()),
                 });
                 self.frame.clear();
             }
@@ -224,10 +247,13 @@ impl Conversation {
             since: now,
             spoke: false,
             open,
+            quiet_since: None,
         };
     }
 
-    /// Moves on with time: `speaking` is whether Hex reads aloud now;
+    /// Moves on with time: `speaking` is whether Hex reads aloud now or
+    /// still has some of the answer to read (`speech::speaking()` or
+    /// `assistant::reading_aloud()`);
     /// `blocked`, whether something else owns the microphone or the
     /// assistant can't answer (a dictation, a meeting recording, setup).
     pub(super) fn tick(
@@ -254,9 +280,11 @@ impl Conversation {
                 since,
                 spoke,
                 open,
+                quiet_since,
             } => {
                 if speaking {
                     *spoke = true;
+                    *quiet_since = None;
                     if !options.barge_in || self.other_audio {
                         // Without barge-in nothing listens under an answer,
                         // not even a capture left open by the last one; nor
@@ -271,7 +299,12 @@ impl Conversation {
                     }
                     return None;
                 }
-                let over = *spoke || !options.spoken || now.duration_since(*since) >= SPEAK_GRACE;
+                let over = if *spoke {
+                    let quiet = *quiet_since.get_or_insert(now);
+                    now.duration_since(quiet) >= READING_SETTLE
+                } else {
+                    !options.spoken || now.duration_since(*since) >= SPEAK_GRACE
+                };
                 if !over {
                     return None;
                 }
@@ -291,20 +324,27 @@ impl Conversation {
 
     /// Microphone audio at `rate` from its open capture. `output` is where
     /// the answer plays; `playback_db`, how loud Hex reads it now (dBFS),
-    /// if known.
+    /// if known; `echo`, the judge of each frame against Hex's own voice
+    /// (see [`Frame::over_echo`]), asked only while an answer plays.
     pub(super) fn hear(
         &mut self,
         samples: &[f32],
         rate: u32,
         output: Output,
         playback_db: Option<f32>,
+        echo: &mut dyn FnMut(&[f32], usize) -> Option<bool>,
     ) -> Vec<Step> {
         let mut steps = Vec::new();
         if !self.is_open() {
             return steps;
         }
+        let judging = matches!(self.phase, Phase::Answer { .. }) && output == Output::Speakers;
+        let mut none = |_: &[f32], _: usize| None;
+        let echo: &mut dyn FnMut(&[f32], usize) -> Option<bool> =
+            if judging { echo } else { &mut none };
         let mut frames = Vec::new();
-        self.ears.push(samples, rate, |frame| frames.push(frame));
+        self.ears
+            .push(samples, rate, echo, |frame| frames.push(frame));
         for frame in frames {
             steps.extend(self.frame(frame, output, playback_db));
         }
@@ -341,9 +381,12 @@ impl Conversation {
                     return None;
                 }
                 let voice = frame.speech
-                    && match output {
-                        Output::Headphones => true,
-                        Output::Speakers => playback_db
+                    && match (output, frame.over_echo) {
+                        (Output::Headphones, _) => true,
+                        // The echo of Hex's voice taken out: the person.
+                        (Output::Speakers, Some(over)) => over,
+                        // Not learnt yet: only a voice clearly over Hex's.
+                        (Output::Speakers, None) => playback_db
                             .is_some_and(|playback| frame.level_db > playback + SPEAKER_MARGIN_DB),
                     };
                 let conversation = conversation.clone();
@@ -419,12 +462,14 @@ mod tests {
         Frame {
             speech: true,
             level_db,
+            over_echo: None,
         }
     }
 
     const QUIET: Frame = Frame {
         speech: false,
         level_db: -70.0,
+        over_echo: None,
     };
 
     /// Feeds `count` copies of `frame` and returns the steps they made.
@@ -461,8 +506,10 @@ mod tests {
             "no barge-in, no capture under the answer"
         );
         assert_eq!(machine.tick(after(start, 4_000), true, false, off), None);
+        // The reading must stay over for a moment: a gap isn't its end.
+        assert_eq!(machine.tick(after(start, 4_100), false, false, off), None);
         assert_eq!(
-            machine.tick(after(start, 4_100), false, false, off),
+            machine.tick(after(start, 4_500), false, false, off),
             Some(Step::Listen)
         );
         assert!(machine.is_open());
@@ -486,6 +533,118 @@ mod tests {
         assert_eq!(machine.tick(after(start, 70_000), false, false, off), None);
     }
 
+    /// A gap between two sentences (the next still streaming or being
+    /// made) is no end of the reading: Hex's own next sentence must not be
+    /// heard as the person's follow-up.
+    #[test]
+    fn a_gap_between_sentences_opens_no_listening() {
+        let start = Instant::now();
+        let mut machine = Conversation::default();
+        let off = Options {
+            barge_in: false,
+            ..ON
+        };
+        machine.answered("c1".into(), start);
+        assert_eq!(machine.tick(after(start, 100), true, false, off), None);
+        // 300 ms between sentence one and two: still the answer.
+        assert_eq!(machine.tick(after(start, 2_000), false, false, off), None);
+        assert_eq!(machine.tick(after(start, 2_300), false, false, off), None);
+        assert!(!machine.is_open());
+        assert_eq!(machine.tick(after(start, 2_350), true, false, off), None);
+        // The second sentence ends; only a lasting quiet ends the reading.
+        assert_eq!(machine.tick(after(start, 5_000), false, false, off), None);
+        assert_eq!(machine.tick(after(start, 5_390), false, false, off), None);
+        assert_eq!(
+            machine.tick(after(start, 5_400), false, false, off),
+            Some(Step::Listen)
+        );
+    }
+
+    /// The first sentence starts late (the voice is still made, or loads):
+    /// while the reading is pending (`reading_aloud`), `speaking` is true and
+    /// no listening opens under it.
+    #[test]
+    fn a_late_first_sentence_opens_no_listening() {
+        let start = Instant::now();
+        let mut machine = Conversation::default();
+        let off = Options {
+            barge_in: false,
+            ..ON
+        };
+        machine.answered("c1".into(), start);
+        // 2.5 s of the sentence being made, past the grace for an answer
+        // that is only shown.
+        for ms in [100, 1_000, 1_600, 2_500] {
+            assert_eq!(machine.tick(after(start, ms), true, false, off), None);
+        }
+        assert!(!machine.is_open());
+        assert_eq!(machine.tick(after(start, 6_000), false, false, off), None);
+        assert_eq!(
+            machine.tick(after(start, 6_400), false, false, off),
+            Some(Step::Listen)
+        );
+    }
+
+    /// On speakers, with the echo of Hex's voice taken out, the person
+    /// interrupts at a normal voice: no need to be louder than the answer.
+    #[test]
+    fn barge_in_on_speakers_with_the_echo_taken_out() {
+        let start = Instant::now();
+        let mut machine = Conversation::default();
+        machine.answered("c1".into(), start);
+        assert_eq!(
+            machine.tick(after(start, 100), true, false, ON),
+            Some(Step::Watch)
+        );
+        let echo_only = Frame {
+            over_echo: Some(false),
+            ..speech(-20.0)
+        };
+        let person = Frame {
+            over_echo: Some(true),
+            ..speech(-35.0)
+        };
+        // Hex's own voice, loud in the microphone: no barge-in, whatever its
+        // level against the answer's.
+        assert!(feed(&mut machine, echo_only, 100, Output::Speakers, Some(-60.0)).is_empty());
+        // The person, quieter than the answer: 240 ms interrupt.
+        assert!(feed(&mut machine, person, 11, Output::Speakers, Some(-12.0)).is_empty());
+        assert_eq!(
+            feed(&mut machine, person, 1, Output::Speakers, Some(-12.0)),
+            [Step::BargeIn]
+        );
+        assert!(machine.is_hearing());
+    }
+
+    /// The echo judge is only asked on speakers, under an answer.
+    #[test]
+    fn the_echo_is_judged_only_under_an_answer_on_speakers() {
+        let start = Instant::now();
+        let mut machine = Conversation::default();
+        machine.answered("c1".into(), start);
+        machine.tick(after(start, 100), true, false, ON);
+        let tone: Vec<f32> = (0..9_600).map(|i| 0.3 * (i as f32 * 0.06).sin()).collect();
+        let mut asked = 0;
+        machine.hear(
+            &tone,
+            48_000,
+            Output::Speakers,
+            Some(-12.0),
+            &mut |frame, _| {
+                asked += 1;
+                assert_eq!(frame.len(), 960);
+                Some(false)
+            },
+        );
+        assert_eq!(asked, 10);
+        let mut headphones = 0;
+        machine.hear(&tone, 48_000, Output::Headphones, None, &mut |_, _| {
+            headphones += 1;
+            None
+        });
+        assert_eq!(headphones, 0);
+    }
+
     /// Nothing said in `conversation_seconds`: it quietly stops.
     #[test]
     fn listening_times_out_quietly() {
@@ -493,6 +652,7 @@ mod tests {
         let mut machine = Conversation::default();
         machine.answered("c1".into(), start);
         machine.tick(after(start, 10), true, false, ON);
+        machine.tick(after(start, 1_600), false, false, ON);
         assert_eq!(
             machine.tick(after(start, 2_000), false, false, ON),
             Some(Step::Listen)
@@ -652,6 +812,7 @@ mod tests {
         let mut machine = Conversation::default();
         machine.answered("c2".into(), start);
         machine.tick(after(start, 200), true, false, ON);
+        machine.tick(after(start, 2_600), false, false, ON);
         assert_eq!(
             machine.tick(after(start, 3_000), false, false, ON),
             Some(Step::Listen)
@@ -715,6 +876,7 @@ mod tests {
         );
         assert!(!machine.is_open());
         assert!(feed(&mut machine, speech(-10.0), 50, Output::Headphones, None).is_empty());
+        machine.tick(after(start, 2_600), false, false, off);
         assert_eq!(
             machine.tick(after(start, 3_000), false, false, off),
             Some(Step::Listen)
@@ -729,7 +891,13 @@ mod tests {
         let mut machine = Conversation::default();
         assert!(
             machine
-                .hear(&[0.5; 4_800], 48_000, Output::Speakers, None)
+                .hear(
+                    &[0.5; 4_800],
+                    48_000,
+                    Output::Speakers,
+                    None,
+                    &mut |_, _| None
+                )
                 .is_empty()
         );
         machine.answered("c1".into(), start);
@@ -745,14 +913,14 @@ mod tests {
         let quiet = vec![0.0001_f32; 48_000 / 2];
         assert!(
             machine
-                .hear(&quiet, 48_000, Output::Speakers, None)
+                .hear(&quiet, 48_000, Output::Speakers, None, &mut |_, _| None)
                 .is_empty()
         );
         let tone: Vec<f32> = (0..48_000 / 2)
             .map(|i| 0.3 * (i as f32 * 0.05).sin())
             .collect();
         assert_eq!(
-            machine.hear(&tone, 48_000, Output::Speakers, None),
+            machine.hear(&tone, 48_000, Output::Speakers, None, &mut |_, _| None),
             [Step::Heard]
         );
         assert!((db(0.1) + 20.0).abs() < 0.01);
@@ -768,6 +936,7 @@ mod tests {
         machine.answered("c1".into(), start);
         machine.other_audio(true);
         assert_eq!(machine.tick(after(start, 10), true, false, ON), None);
+        assert_eq!(machine.tick(after(start, 1_600), false, false, ON), None);
         assert_eq!(machine.tick(after(start, 2_000), false, false, ON), None);
         assert!(!machine.is_active());
         assert!(!machine.is_open());
@@ -775,6 +944,7 @@ mod tests {
         machine.other_audio(false);
         machine.answered("c2".into(), start);
         machine.tick(after(start, 2_010), true, false, ON);
+        machine.tick(after(start, 3_600), false, false, ON);
         assert_eq!(
             machine.tick(after(start, 4_000), false, false, ON),
             Some(Step::Listen)
@@ -789,6 +959,7 @@ mod tests {
         let mut machine = Conversation::default();
         machine.answered("c1".into(), start);
         machine.tick(after(start, 10), true, false, ON);
+        machine.tick(after(start, 1_600), false, false, ON);
         assert_eq!(
             machine.tick(after(start, 2_000), false, false, ON),
             Some(Step::Listen)
@@ -826,6 +997,7 @@ mod tests {
         let mut hearing = Conversation::default();
         hearing.answered("c2".into(), start);
         hearing.tick(after(start, 10), true, false, ON);
+        hearing.tick(after(start, 1_600), false, false, ON);
         hearing.tick(after(start, 2_000), false, false, ON);
         assert_eq!(
             feed(&mut hearing, speech(-30.0), 8, Output::Speakers, None),

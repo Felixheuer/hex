@@ -151,6 +151,14 @@ pub fn set_spoken_announcements(on: bool) {
     voice::set_spoken_announcements(on);
 }
 
+/// Whether an answer is still being read aloud or is about to be: its
+/// sentences wait their turn, or more of it is still streaming. Together
+/// with `speech::speaking()` (what the engine plays or makes now), it tells
+/// conversation mode the reading isn't over between two sentences.
+pub fn reading_aloud() -> bool {
+    runner().voice.reading()
+}
+
 /// Whether questions and finished jobs are read aloud, for the overlay
 /// to chime when they aren't.
 pub fn spoken_announcements() -> bool {
@@ -787,14 +795,19 @@ impl Runner {
                 state.last_addressed = Some(conversation.clone());
                 return conversation.clone();
             }
-            if kind == JobKind::Ask && request.conversation.is_none() {
+            if kind == JobKind::Ask {
                 let running: Vec<TaskStatus> = state
                     .tasks
                     .iter()
                     .filter(|task| task.running)
                     .map(|task| task.status.clone())
                     .collect();
-                request.conversation = context::route(&request.text, &running);
+                // Words that name a running task ("bei der Shop-Aufgabe …")
+                // go to it, also from a follow-up of another conversation
+                // (said over an answer, or hands-free after it).
+                if let Some(named) = context::route(&request.text, &running) {
+                    request.conversation = Some(named);
+                }
             }
             let new_conversation = request.conversation.is_none();
             let mut id = request.conversation.clone().unwrap_or_else(store::new_id);

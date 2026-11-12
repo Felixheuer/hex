@@ -117,6 +117,13 @@ impl Reader {
         self.at = 0;
         self.fade = 0;
         self.shared.playback().pull(&mut self.chunk, Instant::now());
+        // What Hex plays, for conversation mode to tell its echo from the
+        // person (`recognition::echo`).
+        crate::audio::playback_reference::played(
+            &self.chunk,
+            RATE,
+            crate::audio::instant::CaptureInstant::now(),
+        );
         let level = self.window.push(&self.chunk);
         self.shared.level.store(level.to_bits(), Ordering::Release);
     }
