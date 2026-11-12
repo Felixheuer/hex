@@ -80,6 +80,100 @@ pub fn bounded(mut command: Command, limit: Duration) -> std::io::Result<Ran> {
     })
 }
 
+/// [`bounded`], handing each line of output to `line` as it comes (a
+/// progress bar's `\r`-separated updates count as lines), for an install's
+/// progress.
+pub fn streamed(
+    mut command: Command,
+    limit: Duration,
+    line: &mut dyn FnMut(&str),
+) -> std::io::Result<Ran> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let started = Instant::now();
+    let deadline = started + limit;
+    let mut child = command.spawn()?;
+    let (sender, lines) = mpsc::channel();
+    split_lines(child.stdout.take(), false, sender.clone());
+    split_lines(child.stderr.take(), true, sender);
+    let (mut stdout, mut stderr) = (String::new(), String::new());
+    let mut status = None;
+    let mut exited_at = None;
+    loop {
+        let wait = Duration::from_millis(50);
+        match lines.recv_timeout(wait) {
+            Ok((is_err, text)) => {
+                line(&text);
+                let all = if is_err { &mut stderr } else { &mut stdout };
+                all.push_str(&text);
+                all.push('\n');
+                continue;
+            }
+            // Both streams closed.
+            Err(mpsc::RecvTimeoutError::Disconnected) if status.is_some() => break,
+            Err(mpsc::RecvTimeoutError::Disconnected) => std::thread::sleep(wait),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+        }
+        if status.is_none() {
+            status = child.try_wait().ok().flatten();
+            if status.is_some() {
+                exited_at = Some(Instant::now());
+            }
+        }
+        let lingering = exited_at.is_some_and(|at| at.elapsed() > Duration::from_millis(500));
+        if lingering || (status.is_none() && Instant::now() >= deadline) {
+            break;
+        }
+    }
+    if status.is_none() || exited_at.is_some_and(|at| at.elapsed() > Duration::from_millis(500)) {
+        kill_group(&mut child);
+    }
+    Ok(Ran {
+        status,
+        stdout,
+        stderr,
+        took: started.elapsed(),
+    })
+}
+
+/// Reads `stream` on its own thread, sending each `\n`- or `\r`-ended,
+/// non-blank piece.
+fn split_lines(
+    stream: Option<impl Read + Send + 'static>,
+    is_err: bool,
+    lines: mpsc::Sender<(bool, String)>,
+) {
+    std::thread::spawn(move || {
+        let Some(mut stream) = stream else { return };
+        let mut pending = Vec::new();
+        let mut chunk = [0_u8; 4096];
+        let send = |bytes: &mut Vec<u8>| {
+            let text = String::from_utf8_lossy(bytes).trim().to_owned();
+            bytes.clear();
+            text.is_empty() || lines.send((is_err, text)).is_ok()
+        };
+        while let Ok(read @ 1..) = stream.read(&mut chunk) {
+            for &byte in &chunk[..read] {
+                if byte == b'\n' || byte == b'\r' {
+                    if !send(&mut pending) {
+                        return;
+                    }
+                } else {
+                    pending.push(byte);
+                }
+            }
+        }
+        send(&mut pending);
+    });
+}
+
 type Buffer = Arc<Mutex<Vec<u8>>>;
 
 fn reader(stream: Option<impl Read + Send + 'static>, done: mpsc::Sender<()>) -> Buffer {
@@ -168,6 +262,38 @@ mod tests {
         assert!(ran.success());
         assert_eq!(ran.stdout.trim(), "hi");
         assert!(ran.took < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn progress_comes_line_by_line_as_it_happens() {
+        let mut command = Command::new("/bin/sh");
+        command.args([
+            "-c",
+            "echo one; printf '10%%\\r50%%\\r'; echo err >&2; echo two",
+        ]);
+        let mut seen = Vec::new();
+        let ran = streamed(command, Duration::from_secs(5), &mut |line| {
+            seen.push(line.to_owned())
+        })
+        .unwrap();
+        assert!(ran.success());
+        seen.sort();
+        assert_eq!(seen, ["10%", "50%", "err", "one", "two"]);
+        assert_eq!(ran.last_words(), "err");
+    }
+
+    #[test]
+    fn a_streamed_command_is_killed_at_the_limit() {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "echo started; sleep 30"]);
+        let mut seen = Vec::new();
+        let ran = streamed(command, Duration::from_millis(300), &mut |line| {
+            seen.push(line.to_owned())
+        })
+        .unwrap();
+        assert!(ran.timed_out());
+        assert!(ran.took < Duration::from_secs(5));
+        assert_eq!(seen, ["started"]);
     }
 
     #[test]

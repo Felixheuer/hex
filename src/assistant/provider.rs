@@ -192,6 +192,8 @@ pub const DESKTOP_TOOLS: &[&str] = &[
     "desktop_clipboard_set",
     "desktop_list_notifications",
     "desktop_wait",
+    // The guard's own: take a free window (Background lane).
+    crate::assistant::guard::CLAIM_TOOL,
 ];
 
 /// One task for a backend.

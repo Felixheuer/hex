@@ -25,8 +25,9 @@ pub enum AssistantBackend {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default)]
 pub struct AssistantSettings {
-    /// Hold to ask (or, in Agent mode, to start another task); double-tap to
-    /// turn Agent mode on or off. Right Command by default.
+    /// Hold to ask about the window in front; tap then hold for a new
+    /// Background task; double-tap to show or hide the task list. Right
+    /// Command by default.
     pub action_hotkey: Option<HotkeyBinding>,
     pub backend: AssistantBackend,
     /// Each backend's model; `None` is that agent's own default.
@@ -51,13 +52,14 @@ pub struct AssistantSettings {
     /// A quick question sends a screenshot of the screen with it.
     pub include_screenshot: bool,
     /// A hold within this many seconds of a quick answer continues that
-    /// conversation; 0 always starts a new one. Agent mode always starts one.
+    /// conversation; 0 always starts a new one. A Background task always starts one.
     pub follow_up_seconds: u32,
     /// At most this many tasks run at once; later ones wait their turn.
     pub max_parallel: u32,
     /// The setup sheet (agents found, agent-desktop, permissions) was finished.
     pub setup_done: bool,
-    /// Stops every task at once: Control-Option-Escape by default.
+    /// Stops every task at once, and the speech: Control-Option-Escape by
+    /// default. Never Command-Option-Escape, which is macOS's Force Quit.
     pub stop_all_hotkey: Option<HotkeyBinding>,
     /// A Here task may move the real pointer and press real keys in the
     /// window in front (under a "Hands off" pill); off keeps it headless too.
@@ -128,6 +130,22 @@ impl HotkeyBinding {
         }
     }
 
+    /// macOS's Force Quit Applications, Command-Option-Escape, which no
+    /// shortcut of the assistant's may take.
+    pub fn force_quit() -> Self {
+        Self {
+            modifiers: HotkeyModifiers {
+                command: Some(ModifierSide::Either),
+                option: Some(ModifierSide::Either),
+                ..Default::default()
+            },
+            key: Some(HotkeyKey {
+                code: 53,
+                label: "Esc".into(),
+            }),
+        }
+    }
+
     /// The Action shortcut's default: hold right Command alone.
     pub fn action_default() -> Self {
         Self {
@@ -138,6 +156,37 @@ impl HotkeyBinding {
             key: None,
         }
     }
+}
+
+impl AppSettings {
+    /// Labs › Assistant's Stop all tasks shortcut while it takes effect:
+    /// macOS, the Lab on, bound, and sharing no key with another active
+    /// shortcut or Force Quit. Otherwise Hex matches and swallows nothing for
+    /// it.
+    pub fn active_stop_all_hotkey(&self) -> Option<&HotkeyBinding> {
+        if !cfg!(target_os = "macos") || !crate::assistant::enabled(self) {
+            return None;
+        }
+        self.assistant
+            .stop_all_hotkey
+            .as_ref()
+            .filter(|binding| binding.key.is_some())
+            .filter(|binding| !self.hotkey_in_use(HotkeySlot::StopAll, binding))
+    }
+}
+
+/// Whether the assistant is ready to ask (`assistant::ready`) as the
+/// settings were last applied, for the listener's Action shortcut; false
+/// until settings load.
+#[cfg(target_os = "macos")]
+pub fn applied_assistant_ready() -> bool {
+    HOTKEYS
+        .get_or_init(Default::default)
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .settings
+        .as_deref()
+        .is_some_and(crate::assistant::ready)
 }
 
 /// The assistant's settings as last applied, and whether its Lab is on, for
@@ -156,7 +205,7 @@ pub(super) fn apply_assistant(settings: &AppSettings) {
         .get_or_init(Default::default)
         .write()
         .unwrap_or_else(|error| error.into_inner()) = Some((
-        crate::labs::Feature::Assistant.on(settings),
+        crate::assistant::enabled(settings),
         settings.assistant.clone(),
     ));
 }

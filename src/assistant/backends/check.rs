@@ -8,6 +8,8 @@
 //! started by Hex (directly, or by an agent Hex started) acts with Hex's
 //! Accessibility and Screen Recording.
 
+mod browser;
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -36,11 +38,18 @@ pub enum Check {
     /// agent-desktop has Accessibility there too. Not for `ClaudeApi`, whose
     /// tasks Hex runs agent-desktop for itself.
     DesktopThroughAgent(AssistantBackend),
+    /// agent-browser opens a page in a hidden browser of its own, reads its
+    /// title, and closes it.
+    BrowserRoundTrip,
+    /// The agent opens a page through Hex's browser tool over MCP and reads
+    /// its title (for the Claude API, Hex does, as it does for its tasks).
+    BrowserThroughAgent(AssistantBackend),
 }
 
 impl Check {
-    /// The checks setup shows for `backend`, in order.
-    pub fn for_backend(backend: AssistantBackend) -> Vec<Self> {
+    /// The checks setup shows for `backend`, in order; the hidden browser's
+    /// when `background_browser` is on.
+    pub fn for_backend(backend: AssistantBackend, background_browser: bool) -> Vec<Self> {
         let mut checks = vec![
             Self::HexPermissions,
             Self::Answers(backend),
@@ -49,6 +58,9 @@ impl Check {
         ];
         if backend != AssistantBackend::ClaudeApi {
             checks.push(Self::DesktopThroughAgent(backend));
+        }
+        if background_browser {
+            checks.extend([Self::BrowserRoundTrip, Self::BrowserThroughAgent(backend)]);
         }
         checks
     }
@@ -65,6 +77,10 @@ impl Check {
             Self::DesktopThroughAgent(backend) => {
                 format!("{} can use agent-desktop", name(backend))
             }
+            Self::BrowserRoundTrip => "agent-browser opens pages in hidden browsers".into(),
+            Self::BrowserThroughAgent(backend) => {
+                format!("{} can use agent-browser", name(backend))
+            }
         }
     }
 
@@ -77,6 +93,10 @@ impl Check {
             Self::DesktopThroughAgent(backend) => {
                 vec![Self::Answers(backend), Self::DesktopPermissions]
             }
+            Self::BrowserRoundTrip => Vec::new(),
+            Self::BrowserThroughAgent(backend) => {
+                vec![Self::Answers(backend), Self::BrowserRoundTrip]
+            }
         }
     }
 
@@ -87,6 +107,8 @@ impl Check {
             Self::Answers(_) => ANSWER_LIMIT,
             Self::DesktopPermissions | Self::DesktopRoundTrip => Duration::from_secs(45),
             Self::DesktopThroughAgent(_) => MCP_LIMIT,
+            Self::BrowserRoundTrip => browser::ROUND_TRIP_LIMIT,
+            Self::BrowserThroughAgent(_) => browser::THROUGH_AGENT_LIMIT,
         }
     }
 }
@@ -148,6 +170,9 @@ pub enum Fix {
     Install(AssistantBackend),
     /// `brew install agent-desktop` (blocks for a minute or so).
     InstallAgentDesktop,
+    /// `brew install agent-browser`, then `agent-browser install` (its
+    /// Chrome); a few minutes at most.
+    InstallAgentBrowser,
     /// Opens Terminal on the agent's sign-in (`claude`, `codex login`).
     SignIn(AssistantBackend),
     /// `opencode service start`.
@@ -168,6 +193,7 @@ impl Fix {
         match self {
             Self::Install(backend) => format!("Install {}", name(backend)),
             Self::InstallAgentDesktop => "Install agent-desktop".into(),
+            Self::InstallAgentBrowser => "Install agent-browser".into(),
             Self::SignIn(_) => "Sign in".into(),
             Self::StartOpenCode => "Start OpenCode".into(),
             Self::AddApiKey => "Add API key".into(),
@@ -176,88 +202,6 @@ impl Fix {
             Self::Retry => "Try again".into(),
         }
     }
-}
-
-/// Does what `fix` offers. Blocks while installing; call it off the UI
-/// thread, except [`Fix::OpenSettings`], which shows Hex's guide only from
-/// the main thread. Run the check again afterwards.
-pub fn apply_fix(fix: Fix) -> Result<()> {
-    match fix {
-        Fix::Install(backend) => open_url(match backend {
-            AssistantBackend::ClaudeCode => "https://claude.com/product/claude-code",
-            AssistantBackend::Codex => "https://developers.openai.com/codex/cli",
-            AssistantBackend::OpenCode => "https://opencode.ai/v2/install",
-            AssistantBackend::ClaudeApi => "https://console.anthropic.com/settings/keys",
-        }),
-        Fix::InstallAgentDesktop => super::install_agent_desktop(),
-        Fix::SignIn(backend) => sign_in(backend),
-        Fix::StartOpenCode => {
-            let path = super::executable(AssistantBackend::OpenCode)
-                .ok_or_else(|| eyre!("OpenCode isn't installed"))?;
-            let mut command = agent_command(&path);
-            command.args(["service", "start"]);
-            let ran = run::bounded(command, Duration::from_secs(30))?;
-            if ran.success() {
-                Ok(())
-            } else {
-                Err(eyre!("OpenCode didn't start: {}", ran.last_words()))
-            }
-        }
-        Fix::AddApiKey | Fix::Retry => Ok(()),
-        Fix::GuidePermissions => {
-            super::guide_permissions();
-            Ok(())
-        }
-        Fix::OpenSettings(permission) => {
-            computer::open_settings(permission);
-            Ok(())
-        }
-    }
-}
-
-fn open_url(url: &str) -> Result<()> {
-    let status = crate::desktop::background_process::command("/usr/bin/open")
-        .arg(url)
-        .status()?;
-    status
-        .success()
-        .then_some(())
-        .ok_or_else(|| eyre!("Couldn't open {url}"))
-}
-
-/// Terminal, running the agent's sign-in: a `.command` file Terminal opens.
-fn sign_in(backend: AssistantBackend) -> Result<()> {
-    let path =
-        super::executable(backend).ok_or_else(|| eyre!("{} isn't installed", name(backend)))?;
-    let arguments = match backend {
-        AssistantBackend::ClaudeCode => "",
-        AssistantBackend::Codex => " login",
-        AssistantBackend::OpenCode => " auth login",
-        AssistantBackend::ClaudeApi => {
-            return Err(eyre!("The Claude API needs a key, not a sign-in"));
-        }
-    };
-    let folder = std::env::temp_dir().join("hex-assistant");
-    std::fs::create_dir_all(&folder)?;
-    let script = folder.join(format!("Sign in to {}.command", name(backend)));
-    let quoted = format!("'{}'", path.to_string_lossy().replace('\'', r"'\''"));
-    std::fs::write(
-        &script,
-        format!("#!/bin/zsh -l\nclear\nexec {quoted}{arguments}\n"),
-    )?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))?;
-    }
-    let status = crate::desktop::background_process::command("/usr/bin/open")
-        .args(["-a", "Terminal"])
-        .arg(&script)
-        .status()?;
-    status
-        .success()
-        .then_some(())
-        .ok_or_else(|| eyre!("Couldn't open Terminal"))
 }
 
 /// Runs `check` (seconds; up to [`Check::limit`]). Off the UI thread.
@@ -269,6 +213,8 @@ pub fn self_test(check: Check, settings: &AssistantSettings) -> CheckResult {
         Check::DesktopPermissions => desktop_permissions(check),
         Check::DesktopRoundTrip => round_trip(check),
         Check::DesktopThroughAgent(backend) => through_agent(check, backend, settings),
+        Check::BrowserRoundTrip => browser::round_trip(check),
+        Check::BrowserThroughAgent(backend) => browser::through_agent(check, backend, settings),
     };
     result.took = started.elapsed();
     tracing::info!(
@@ -990,7 +936,7 @@ mod tests {
     #[test]
     fn each_backend_gets_its_checks_with_their_prerequisites() {
         assert_eq!(
-            Check::for_backend(AssistantBackend::Codex),
+            Check::for_backend(AssistantBackend::Codex, false),
             [
                 Check::HexPermissions,
                 Check::Answers(AssistantBackend::Codex),
@@ -999,8 +945,26 @@ mod tests {
                 Check::DesktopThroughAgent(AssistantBackend::Codex),
             ]
         );
+        assert_eq!(
+            Check::for_backend(AssistantBackend::Codex, true)[5..],
+            [
+                Check::BrowserRoundTrip,
+                Check::BrowserThroughAgent(AssistantBackend::Codex),
+            ]
+        );
+        assert_eq!(
+            Check::BrowserThroughAgent(AssistantBackend::Codex).needs(),
+            [
+                Check::Answers(AssistantBackend::Codex),
+                Check::BrowserRoundTrip
+            ]
+        );
         assert!(
-            !Check::for_backend(AssistantBackend::ClaudeApi)
+            Check::for_backend(AssistantBackend::ClaudeApi, true)
+                .contains(&Check::BrowserThroughAgent(AssistantBackend::ClaudeApi))
+        );
+        assert!(
+            !Check::for_backend(AssistantBackend::ClaudeApi, true)
                 .contains(&Check::DesktopThroughAgent(AssistantBackend::ClaudeApi))
         );
         assert_eq!(

@@ -89,13 +89,28 @@ pub fn submit(request: Request) -> ConversationId {
     runner().submit(request)
 }
 
-/// Starts the backend for the next `lane` request while the person is still
-/// speaking: the trigger calls it the moment a hold becomes real, with the
-/// window in front for the Here lane. The next matching `submit` (same lane,
-/// same window, same follow-up conversation) finds the process and its MCP
-/// servers up. Cheap to call again; does nothing for backends that can't
+/// A hold of the Action shortcut just became real: starts the backend for
+/// the next `lane` request while the person is still speaking. Returns at
+/// once; for the Here lane it reads the window in front itself (a few
+/// milliseconds, off the caller's thread). The next matching `submit` (same
+/// lane, same window, same follow-up conversation) finds the process and its
+/// MCP servers up. Cheap to call again; does nothing for backends that can't
 /// start ahead (only Claude Code can) or while the assistant is off.
-pub fn prewarm(lane: Lane, window: Option<TaskWindow>) {
+pub fn prewarm(lane: Lane) {
+    std::thread::Builder::new()
+        .name("assistant-prewarm".into())
+        .spawn(move || {
+            let window = match lane {
+                Lane::Here => super::computer::quick_context().window,
+                Lane::Background => None,
+            };
+            runner().prewarm(lane, window);
+        })
+        .ok();
+}
+
+/// `prewarm` for a window the caller already knows (`hex assistant ask`).
+pub fn prewarm_for(lane: Lane, window: Option<TaskWindow>) {
     runner().prewarm(lane, window);
 }
 
@@ -235,8 +250,13 @@ static ADJUST: Mutex<Option<Adjust>> = Mutex::new(None);
 fn runner() -> &'static Arc<Runner> {
     static RUNNER: OnceLock<Arc<Runner>> = OnceLock::new();
     RUNNER.get_or_init(|| {
-        // Conversations a Hex that quit left running are interrupted.
+        // Conversations a Hex that quit left running are interrupted, and
+        // the guard forgets what ended tasks left (only in the app: a `hex
+        // assistant` command must not clear the app's pauses).
         std::thread::spawn(|| {
+            if !WITHOUT_LAB.load(Ordering::Acquire) && current_settings().0 {
+                super::guard::startup();
+            }
             if let Ok(store) = Store::open() {
                 let recovered = store.recover_interrupted();
                 if !recovered.is_empty() {
@@ -315,7 +335,9 @@ impl Hooks {
             pause: Box::new(super::guard::set_paused),
             release: Box::new(|task| {
                 super::guard::release_all(task);
-                super::browser::close(task);
+                // Closing the browser takes a moment; the task has ended.
+                let task = task.to_owned();
+                std::thread::spawn(move || super::browser::close(&task));
             }),
             hands_off: Box::new(super::guard::hands_off),
             bring_forward: Box::new(desktop_session::bring_forward),

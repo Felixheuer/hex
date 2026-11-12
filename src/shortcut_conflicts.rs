@@ -123,11 +123,12 @@ pub(crate) fn cached(slot: HotkeySlot, settings: &AppSettings) -> Vec<Conflict> 
 }
 
 /// `slot`'s saved shortcut, and whether it is used with a double tap (the
-/// Action shortcut's Agent mode; dictation's double-tap lock).
+/// Action shortcut's task list; dictation's double-tap lock).
 fn shortcut(slot: HotkeySlot, settings: &AppSettings) -> Option<(HotkeyBinding, bool)> {
     let binding = match slot {
         HotkeySlot::Dictation => Some(&settings.dictation_hotkey),
         HotkeySlot::Action => settings.assistant.action_hotkey.as_ref(),
+        HotkeySlot::StopAll => settings.assistant.stop_all_hotkey.as_ref(),
         HotkeySlot::SecondDictation => settings.second_dictation_hotkey.as_ref(),
         HotkeySlot::RawDictation => settings.raw_dictation_hotkey.as_ref(),
         HotkeySlot::PasteLast => settings.paste_last_hotkey.as_ref(),
@@ -135,6 +136,7 @@ fn shortcut(slot: HotkeySlot, settings: &AppSettings) -> Option<(HotkeyBinding, 
     }?;
     let double_tap = match slot {
         HotkeySlot::Action => true,
+        HotkeySlot::StopAll => false,
         _ => settings.double_tap_lock,
     };
     Some((binding.clone(), double_tap))

@@ -242,8 +242,9 @@ pub(super) const KEYS: &[Key] = &[
     optional(
         "assistant.action_hotkey",
         Kind::Shortcut(HotkeySlot::Action),
-        "Labs: hold to ask the assistant by voice, double-tap for Agent mode; right command \
-         by default; none turns it off (macOS, with labs.assistant)",
+        "Labs: hold to ask the assistant about the window in front, tap then hold for a \
+         background task, double-tap to show the task list; right command by default; none \
+         turns it off (macOS, with labs.assistant)",
     ),
     key(
         "assistant.backend",
@@ -315,8 +316,9 @@ pub(super) const KEYS: &[Key] = &[
     ),
     optional(
         "assistant.stop_all_hotkey",
-        Kind::Json,
-        "Labs: stops every assistant task at once; control+option+escape by default (macOS)",
+        Kind::Shortcut(HotkeySlot::StopAll),
+        "Labs: stops every assistant task and its speech at once; control+option+escape by \
+         default; none turns it off (macOS, with labs.assistant)",
     ),
     key(
         "assistant.here_physical_input",

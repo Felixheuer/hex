@@ -16,7 +16,7 @@ pub(super) fn claims_escape(programmatic: bool, capture_escape: bool) -> bool {
 /// Whether Hex takes Escape for Labs › Assistant: only while its Action
 /// shortcut is bound (the Lab on), nothing records or holds Escape
 /// otherwise (`free`), and a quick question runs or an answer is read aloud
-/// (`busy`, asked only then). Agent mode's tasks never claim it.
+/// (`busy`, asked only then). Background tasks never claim it.
 pub(super) fn assistant_claims_escape(
     bound: bool,
     free: bool,

@@ -75,6 +75,21 @@ pub enum AssistantCommand {
     TakeOver { id: String },
     /// Ask the running Hex to give a task back after `take-over`.
     HandBack { id: String },
+    /// The guard's MCP server for one task (Hex gives it to each task's
+    /// agent in place of agent-desktop): `--spec` is the task's JSON spec or
+    /// a file holding it.
+    #[command(hide = true)]
+    Mcp {
+        #[arg(long)]
+        spec: String,
+    },
+    /// A task's hidden browser as an MCP server on stdio (agent-browser's
+    /// own, pinned to the task's session). Started by the task's agent.
+    #[command(hide = true)]
+    BrowserMcp {
+        #[arg(long)]
+        task: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -159,6 +174,8 @@ pub fn run(command: AssistantCommand) -> u8 {
         }
         AssistantCommand::Show { id } => show(&id).map(|()| true),
         AssistantCommand::Key => key().map(|()| true),
+        AssistantCommand::Mcp { spec } => super::guard::serve(&spec).map(|()| true),
+        AssistantCommand::BrowserMcp { task } => super::browser::serve(&task).map(|()| true),
     };
     match result {
         Ok(true) => 0,
@@ -223,7 +240,7 @@ fn ask(ask: Ask) -> Result<bool> {
         ..Context::default()
     };
     if let Some(ahead) = ask.prewarm {
-        service::prewarm(lane, ask.window.clone());
+        service::prewarm_for(lane, ask.window.clone());
         std::thread::sleep(ahead);
     }
     let id = service::submit(Request {
@@ -236,7 +253,7 @@ fn ask(ask: Ask) -> Result<bool> {
     let mut answered = follow(&id, &events, speak);
     if let Some(then) = ask.then.filter(|_| answered) {
         if let Some(ahead) = ask.prewarm {
-            service::prewarm(lane, ask.window.clone());
+            service::prewarm_for(lane, ask.window.clone());
             std::thread::sleep(ahead);
         }
         let again = service::submit(Request {

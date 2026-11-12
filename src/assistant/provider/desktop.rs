@@ -24,8 +24,10 @@ pub fn command(tool: &str) -> Option<&str> {
 /// A hidden-browser call as a step: "Opening example.com in the browser".
 fn browser_step(tool: &str, args: &Value) -> Option<Report> {
     let name = tool
-        .strip_prefix("mcp__browser__")
-        .or_else(|| tool.strip_prefix("browser_"))?;
+        .strip_prefix("mcp__agent-browser__")
+        .or_else(|| tool.strip_prefix("agent-browser_"))
+        .or_else(|| tool.strip_prefix("agent_browser_"))
+        .or_else(|| tool.starts_with("browser_").then_some(tool))?;
     let host = text(args, "url").map(|url| {
         url::Url::parse(url)
             .ok()

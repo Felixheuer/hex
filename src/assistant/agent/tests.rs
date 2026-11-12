@@ -156,7 +156,8 @@ fn each_lane_gets_its_own_rules() {
     assert!(here.contains("speakable"));
     assert!(!here.contains("desktop_launch"));
     let background = system_prompt(Origin::Background, Some(&desktop), true);
-    assert!(background.contains("Open your own windows with desktop_launch, or claim a free one"));
+    assert!(background.contains("open one with desktop_launch"));
+    assert!(background.contains("desktop_claim_window"));
     assert!(background.contains("Never touch the person's window"));
     assert!(background.contains("Use the browser tools for anything on the web"));
     assert!(background.contains("agent “hex-7”"));

@@ -1,16 +1,16 @@
 //! A task's MCP servers in each backend's config format: its desktop tool
 //! under agent-desktop's name (the guard forwards agent-desktop's tools under
-//! the same names, so `desktop_*` reads the same either way), and its hidden
-//! browser under `browser`.
+//! the same names, plus `desktop_claim_window`, so `desktop_*` reads the same
+//! either way), and its hidden browser under `agent-browser`.
 
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 
 use super::{DESKTOP_TOOLS, Run, WITHHELD_TOOLS};
 use crate::assistant::backends::{MCP_NAME, McpServer};
 
-/// The hidden browser's server name; its tools are `mcp__browser__*`
-/// (Claude Code), `browser_*` (OpenCode), and their own names (Codex).
-pub const BROWSER: &str = "browser";
+/// The hidden browser's server name; its tools are `mcp__agent-browser__*`
+/// (Claude Code) and `agent-browser_*` (OpenCode).
+pub const BROWSER: &str = crate::assistant::browser::MCP_NAME;
 
 /// The servers `run` gets, by name.
 pub fn of(run: &Run) -> Vec<(&'static str, &McpServer)> {
@@ -24,7 +24,8 @@ pub fn of(run: &Run) -> Vec<(&'static str, &McpServer)> {
     servers
 }
 
-/// `claude --mcp-config <this> --strict-mcp-config`.
+/// `claude --mcp-config <this> --strict-mcp-config`: every server in one
+/// `mcpServers` map.
 pub fn claude_config(run: &Run) -> Option<String> {
     let servers = of(run);
     if servers.is_empty() {
@@ -32,17 +33,9 @@ pub fn claude_config(run: &Run) -> Option<String> {
     }
     let mut map = Map::new();
     for (name, server) in servers {
-        map.insert(
-            name.to_owned(),
-            json!({
-                "type": "stdio",
-                "command": server.command,
-                "args": server.args,
-                "env": { "PATH": server.path_env },
-            }),
-        );
+        map.insert(name.to_owned(), server.claude_entry());
     }
-    Some(json!({ "mcpServers": map }).to_string())
+    Some(serde_json::json!({ "mcpServers": map }).to_string())
 }
 
 /// Claude Code's allowed and withheld tools for `run`'s servers.
@@ -65,28 +58,13 @@ pub fn claude_tools(run: &Run) -> (Vec<String>, Vec<String>) {
 /// `-c` overrides that add `run`'s servers to `codex exec`, approved up
 /// front: the desktop with only `DESKTOP_TOOLS`, the browser with all of its.
 pub fn codex_args(run: &Run) -> Vec<String> {
-    let mut args = Vec::new();
-    for (name, server) in of(run) {
-        let key = format!("mcp_servers.{name}");
-        let toml = |value: Value| value.to_string();
-        let mut values = vec![
-            format!(
-                "{key}.command={}",
-                toml(server.command.to_string_lossy().into())
-            ),
-            format!("{key}.args={}", toml(server.args.clone().into())),
-            format!("{key}.env.PATH={}", toml(server.path_env.clone().into())),
-            format!("{key}.default_tools_approval_mode=\"approve\""),
-        ];
-        if name == MCP_NAME {
-            values.push(format!(
-                "{key}.enabled_tools={}",
-                toml(DESKTOP_TOOLS.to_vec().into())
-            ));
-        }
-        args.extend(values.into_iter().flat_map(|value| ["-c".to_owned(), value]));
-    }
-    args
+    of(run)
+        .into_iter()
+        .flat_map(|(name, server)| {
+            let tools: &[&str] = if name == MCP_NAME { DESKTOP_TOOLS } else { &[] };
+            server.codex_args_as(name, tools)
+        })
+        .collect()
 }
 
 /// The `mcp` entry of an OpenCode config, if `run` has servers.
@@ -97,16 +75,9 @@ pub fn opencode_config(run: &Run) -> Option<Value> {
     }
     let mut map = Map::new();
     for (name, server) in servers {
-        let mut command = vec![server.command.to_string_lossy().into_owned()];
-        command.extend(server.args.iter().cloned());
-        map.insert(
-            name.to_owned(),
-            json!({
-                "type": "local",
-                "command": command,
-                "environment": { "PATH": server.path_env },
-            }),
-        );
+        if let Value::Object(entry) = server.opencode_config_as(name) {
+            map.extend(entry);
+        }
     }
     Some(Value::Object(map))
 }
@@ -135,28 +106,31 @@ mod tests {
 
         let claude: Value = serde_json::from_str(&claude_config(&run).unwrap()).unwrap();
         assert_eq!(claude["mcpServers"]["agent-desktop"]["args"][2], "s1");
-        assert_eq!(claude["mcpServers"]["browser"]["args"][2], "t1");
+        assert_eq!(claude["mcpServers"]["agent-browser"]["args"][2], "t1");
         let (allowed, withheld) = claude_tools(&run);
-        assert_eq!(allowed, ["mcp__agent-desktop", "mcp__browser"]);
+        assert_eq!(allowed, ["mcp__agent-desktop", "mcp__agent-browser"]);
         assert!(withheld.contains(&"mcp__agent-desktop__desktop_session_end".to_owned()));
 
         let codex = codex_args(&run);
-        assert!(codex.contains(&r#"mcp_servers.browser.args=["mcp","--session","t1"]"#.to_owned()));
+        assert!(
+            codex.contains(&r#"mcp_servers.agent-browser.args=["mcp","--session","t1"]"#.to_owned())
+        );
         assert!(
             codex
                 .iter()
-                .any(|arg| arg.starts_with("mcp_servers.agent-desktop.enabled_tools="))
+                .any(|arg| arg.starts_with("mcp_servers.agent-desktop.enabled_tools=")
+                    && arg.contains("desktop_claim_window"))
         );
         assert!(
             !codex
                 .iter()
-                .any(|arg| arg.starts_with("mcp_servers.browser.enabled_tools="))
+                .any(|arg| arg.starts_with("mcp_servers.agent-browser.enabled_tools="))
         );
 
         let opencode = opencode_config(&run).unwrap();
         assert_eq!(
-            opencode["browser"]["command"],
-            json!(["/opt/homebrew/bin/agent-browser", "mcp", "--session", "t1"])
+            opencode["agent-browser"]["command"],
+            serde_json::json!(["/opt/homebrew/bin/agent-browser", "mcp", "--session", "t1"])
         );
         assert_eq!(opencode["agent-desktop"]["type"], "local");
     }

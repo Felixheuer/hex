@@ -577,7 +577,9 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
         "\nYou can see and use the Mac's apps through agent-desktop's tools (desktop_snapshot, desktop_click, desktop_list_apps, …). The guide below shows them as shell commands: each command is the tool of the same name (`agent-desktop list-apps` is desktop_list_apps) and its flags are the tool's arguments. Always call the tools; never run agent-desktop in a shell. Your session and agent id are already set.\n",
     );
     if desktop.guarded {
-        prompt.push_str("Every desktop action passes Hex's guard. If it refuses one (another task's window, a blocked app, the person's window), don't try to get around it: say what you couldn't do. If it says the person took over, wait for them and look again before acting.\n");
+        prompt.push_str(
+            "Every desktop action passes Hex's guard, which lets you act only in windows that are yours. A refusal comes back as a tool error with a code: NOT_YOUR_WINDOW (another task's window, or one you haven't launched or claimed), PERSON_IN_WINDOW (the person is working there), TAKEN_OVER (the person took this task over; look again before acting), POLICY_DENIED (a blocked app, or an action tasks may not do). Don't try to get around a refusal: choose another way, or say what you couldn't do.\n",
+        );
     }
     if desktop.headed {
         prompt.push_str("Physical input (--headed) is allowed, but prefer headless actions; use physical input only when no semantic action exists.\n");
@@ -595,7 +597,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
             "- Work only in the window in front, named in the message: read it, and act in it only if asked. Never touch any other window or app, and don't bring another one forward.\n",
         ),
         Lane::Background => prompt.push_str(&format!(
-            "- You run beside the person and other agents, each with its own cursor; yours is agent “{}”. Open your own windows with desktop_launch, or claim a free one. Never touch the person's window (the one in front) or another task's windows; never move, close, or type into them. Once you know a window's id, always pass it (--window-id / window_id), and don't bring windows to the front.\n\
+            "- You run beside the person and other agents, each with its own cursor; yours is agent “{}”. Work only in your own windows: open one with desktop_launch (it becomes yours), or take a free one that is already open with desktop_claim_window (its window_id from desktop_list_windows). Never touch the person's window (the one in front) or another task's windows; never move, close, or type into them. Once you know a window's id, always pass it (--window-id / window_id), and don't bring windows to the front.\n\
              - {}\n",
             desktop.agent_id,
             if browser {
