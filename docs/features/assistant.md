@@ -515,7 +515,12 @@ keeps the records current from the events. Helpers are authorized from the
 person's words that led to the lead, stay quiet (no spoken summary or
 notification), lead no team of their own, and stop with the lead. The orb
 shows a team as one card with its helpers summed up; resting on the cards
-shows each helper under its lead. A job's tools can't remember, schedule,
+shows each helper under its lead. `hex_team_tell` passes a change the
+person made on to one helper or all (each is steered at once). A helper's
+prompt names its lead and its part (`team::helper_rules`), and helpers stop
+when their lead ends. A quick question keeps a request whose parts build
+on each other in one job (`agent::ROUTING`), which then leads the team.
+A job's tools can't remember, schedule,
 unschedule, or hand off (`tools::Role::Job`), since it reads pages and files
 the person never saw.
 
@@ -530,7 +535,8 @@ startup, agent process groups an earlier Hex left running end
 resume.
 
 Every tool call of every task goes to `<assistant>/audit/<id>.jsonl`
-(secrets blanked; `hex assistant audit <id>`). A job's goal check runs with
+(secrets blanked; `hex assistant audit <id>`); a job that ends leaves it in
+its folder as `Hex-Protokoll.txt`. A job's goal check runs with
 the guard observing only (`WireSpec::observe_only`), browsers that never
 send (`browser-mcp --observe`), a sandboxed shell, and no Hex tools.
 `hex assistant barge-in [--reset]` shows the barge-in thresholds this Mac

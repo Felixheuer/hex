@@ -47,12 +47,15 @@ audits: voice, jobs architecture, overlays); "Gap" rows are open.
 |---|---|---|---|
 | A job runs | Frame, a card at the orb (title, step, time, live browsers), task in the list (Läuft) | Goal loop: `## Done when`, a read-only check (its guard observes only, its browsers never send, its shell is sandboxed), up to the 7-day budget | `agent::goal`, `agent::check` |
 | A big job ("50 Lieferanten vergleichen, Tabelle, Team informieren") | One card with its helpers summed up; hover shows each helper under it | The job leads a team: `hex_team_start` starts helpers (Background jobs in folders inside its own, at most 12 at once, quiet, stopped with it), `hex_team_status` waits for the next to finish; the lead does what depends on their results and answers once | `agent::team`, `Runner::start_team` |
+| One request whose parts build on each other ("recherchieren, Tabelle, Link per WhatsApp") | One job | ROUTING keeps dependent parts in one job (its task keeps every detail and the order); unrelated requests still become separate jobs | `agent::ROUTING`, `hex_start_jobs` |
+| The person changes the plan while helpers work | The lead passes it on | `hex_team_tell` steers a helper (or all) at once, authorized only from the person's words; a steered helper stays its lead's | `agent::team`, `Runner::team_tell` |
+| A helper | Does its part only | Its prompt names its lead and part, no helpers of its own (`team::helper_rules`); it stops when its lead ends | `agent::team` |
 | More than three jobs | One line „N Aufträge laufen“; resting on it unfolds every card (scrolling), a press keeps them | `jobs::Layout::All`, `LineActions` | `rune_ui/assistant_overlay/jobs.rs` |
 | Fifty jobs with many browsers | Only browsers a card shows stream | `live::Rate::Idle`, `live::cards` | `assistant_overlay/live.rs` |
 | Memory tight | Queued jobs wait, start by themselves later | `capacity::pressure` (macOS kernel pressure level) and `background_room` | `capacity.rs` |
 | Two jobs need the real mouse | One at a time | `guard::state::take_hands` (20 s wait, then BUSY) | `guard/state.rs` |
 | Hex crashed with jobs running | Old agents end, jobs resume clean | `provider::orphans::sweep`, interrupted jobs' browsers closed before resuming | `provider/orphans.rs` |
-| What did a job do? | Every tool call, secrets blanked | `<assistant>/audit/<id>.jsonl`, `hex assistant audit <id>` | `audit.rs` |
+| What did a job do? | Every tool call, secrets blanked; `Hex-Protokoll.txt` in its folder (listed in Chats' results) | `<assistant>/audit/<id>.jsonl`, `hex assistant audit <id>`, `audit::keep_in` | `audit.rs` |
 | A job needs something | Inbox bubble „<Aufgabe> fragt …“, read when nothing else plays | Hold answers; „später“ defers; „welche Fragen sind offen?“ reads them | `service/inbox.rs` |
 | "Wie weit ist der Shop?" (hold) | Spoken status | `status_reply` from plan, elapsed, gaps | `service/status.rs` |
 | Hold naming a running job | Goes to that job | `context::route` steers it | `service/context.rs` |
