@@ -223,6 +223,20 @@ enum DevCommand {
         #[command(subcommand)]
         command: VoiceFilterCommand,
     },
+    #[cfg(debug_assertions)]
+    /// Labs › Assistant: find the agents and agent-desktop, and run setup's
+    /// self-tests from this process.
+    AssistantDoctor {
+        /// Run every self-test (asks each installed agent a tiny prompt).
+        #[arg(long)]
+        checks: bool,
+        /// Capture a question's context, writing its screenshot to this PNG.
+        #[arg(long)]
+        context: Option<PathBuf>,
+        /// Read this text aloud.
+        #[arg(long)]
+        say: Option<String>,
+    },
 }
 
 #[cfg(target_os = "macos")]
@@ -375,6 +389,22 @@ fn main() -> Result<()> {
             output,
         );
     }
+    #[cfg(debug_assertions)]
+    if let Some(Command::Dev {
+        command:
+            DevCommand::AssistantDoctor {
+                checks,
+                context,
+                say,
+            },
+    }) = &cli.command
+    {
+        return assistant::backends::doctor::run(assistant::backends::doctor::Doctor {
+            checks: *checks,
+            context: context.clone(),
+            say: say.clone(),
+        });
+    }
     // A headless render (`hex app -- --snap …`) draws fixtures: no data
     // folder, log, lock, or settings, so it never touches the user's Hex.
     if let Some(Command::App { rune_args, .. }) = &cli.command
@@ -454,6 +484,7 @@ fn main() -> Result<()> {
                         return Ok(());
                     }
                     DevCommand::VoiceFilter { .. } => unreachable!("handled before startup"),
+                    DevCommand::AssistantDoctor { .. } => unreachable!("handled before startup"),
                 };
                 let reply = local_api::call_developer(&command)?;
                 if let DeveloperReply::Error { code, message } = &reply {
