@@ -132,6 +132,37 @@ fn turn(
     }))
 }
 
+/// Built-in tools a job gets beside web search and fetch: files and a shell
+/// in its workspace, and subagents for parallel batches.
+const JOB_TOOLS: &[&str] = &["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Task"];
+
+/// `--settings`: hooks off; for a job, its file tools allowed only inside
+/// the workspace, and its shell sandboxed (writes only in the workspace,
+/// which is the working folder; the network only to install Python
+/// packages) and run without asking.
+fn settings(run: &Run) -> String {
+    let Some(workspace) = &run.workspace else {
+        return r#"{"disableAllHooks":true}"#.into();
+    };
+    // `//` starts an absolute path in a permission rule.
+    let scope = format!("/{}/**", workspace.display());
+    let allow: Vec<String> = ["Read", "Write", "Edit", "Glob", "Grep"]
+        .iter()
+        .map(|tool| format!("{tool}({scope})"))
+        .collect();
+    json!({
+        "disableAllHooks": true,
+        "permissions": {"allow": allow},
+        "sandbox": {
+            "enabled": true,
+            "autoAllowBashIfSandboxed": true,
+            "allowUnsandboxedCommands": false,
+            "network": {"allowedDomains": ["pypi.org", "files.pythonhosted.org"]},
+        },
+    })
+    .to_string()
+}
+
 fn arguments(run: &Run) -> Vec<String> {
     let mut args: Vec<String> = [
         "-p",
@@ -143,16 +174,20 @@ fn arguments(run: &Run) -> Vec<String> {
         "--include-partial-messages",
         "--permission-mode",
         "dontAsk",
-        "--settings",
-        r#"{"disableAllHooks":true}"#,
         "--strict-mcp-config",
-        "--tools",
-        "WebSearch,WebFetch",
     ]
     .map(str::to_owned)
     .into();
+    args.extend(["--settings".into(), settings(run)]);
+    let mut tools = vec!["WebSearch".to_owned(), "WebFetch".to_owned()];
+    let mut allowed = tools.clone();
+    if let Some(workspace) = &run.workspace {
+        tools.extend(JOB_TOOLS.iter().map(|tool| (*tool).to_owned()));
+        allowed.extend(["Bash".to_owned(), "Task".to_owned()]);
+        args.extend(["--add-dir".into(), workspace.display().to_string()]);
+    }
+    args.extend(["--tools".into(), tools.join(",")]);
     args.extend(["--system-prompt".into(), run.system.clone()]);
-    let mut allowed = vec!["WebSearch".to_owned(), "WebFetch".to_owned()];
     if let Some(config) = super::servers::claude_config(run) {
         args.extend(["--mcp-config".into(), config]);
         let (servers, withheld) = super::servers::claude_tools(run);
@@ -443,6 +478,39 @@ mod tests {
             .unwrap()
             + 1];
         assert!(withheld.contains("mcp__agent-desktop__desktop_session_end"));
+    }
+
+    #[test]
+    fn a_job_gets_files_a_sandboxed_shell_and_subagents_in_its_workspace() {
+        let mut run = Run::fixture(AssistantBackend::ClaudeCode);
+        let plain = arguments(&run);
+        assert!(
+            plain
+                .windows(2)
+                .any(|pair| pair == ["--tools", "WebSearch,WebFetch"])
+        );
+        assert!(!plain.iter().any(|arg| arg.contains("sandbox")));
+        run.workspace = Some("/Users/p/Documents/Hex/2026-11-12 Job".into());
+        let args = arguments(&run);
+        assert!(args.windows(2).any(|pair| pair
+            == [
+                "--tools",
+                "WebSearch,WebFetch,Read,Write,Edit,Glob,Grep,Bash,Task"
+            ]));
+        let allowed = &args[args.iter().position(|arg| arg == "--allowedTools").unwrap() + 1];
+        assert_eq!(allowed, "WebSearch,WebFetch,Bash,Task");
+        let settings: Value = serde_json::from_str(
+            &args[args.iter().position(|arg| arg == "--settings").unwrap() + 1],
+        )
+        .unwrap();
+        assert!(
+            settings["permissions"]["allow"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("Write(//Users/p/Documents/Hex/2026-11-12 Job/**)"))
+        );
+        assert_eq!(settings["sandbox"]["enabled"], true);
+        assert_eq!(settings["sandbox"]["allowUnsandboxedCommands"], false);
     }
 
     #[test]

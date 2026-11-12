@@ -6,7 +6,16 @@
 //! steps and windows, and saves the conversation as it goes, so a restart
 //! finds it `Running` and offers to resume it.
 //!
+//! A Here or Chat agent that finds the request is a job says so
+//! (`markers`), and Hex continues it as a Background job: a planning turn
+//! first (`plan.md` in its own `workspace`), one batched question if it
+//! needs anything, then the work with file and shell tools scoped to that
+//! folder.
+//!
 //! OWNER: brain.
+
+pub mod markers;
+pub mod workspace;
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -35,6 +44,9 @@ pub struct Job {
     /// Other tasks running and recent conversations, for a new
     /// conversation's first prompt (`service::context`).
     pub digest: Option<String>,
+    /// A job's folder: its files, plan, and report. `None` for a quick
+    /// question or chat.
+    pub workspace: Option<PathBuf>,
 }
 
 /// Why this run of a conversation happens.
@@ -55,6 +67,10 @@ pub enum JobKind {
     AfterLimit,
     /// The same question again after Hex quit or crashed while it ran.
     Resume,
+    /// A job's first run: plan, ask what's missing, then do it.
+    Job { title: String },
+    /// The person answered the job's question (`request.text`).
+    Answer { question: String },
 }
 
 /// How a task ended.
@@ -70,6 +86,15 @@ pub enum Outcome {
     Limited {
         reason: String,
         until_ms: Option<u64>,
+    },
+    /// The job asks the person this and waits for the answer; the
+    /// conversation is kept running.
+    Question(String),
+    /// The request is a job: Hex continues it in the background. `reply` is
+    /// the short line said meanwhile ("On it: …").
+    Escalate {
+        title: String,
+        reply: String,
     },
 }
 
@@ -97,7 +122,12 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
     let mut stored = store
         .load(id)
         .unwrap_or_else(|| Stored::new(id, request.origin, &request.text));
-    let asks = matches!(job.kind, JobKind::Ask | JobKind::Steer { .. });
+    let asks = match &job.kind {
+        JobKind::Ask | JobKind::Steer { .. } | JobKind::Answer { .. } => true,
+        // A job started as one keeps its question; an escalated one has it.
+        JobKind::Job { .. } => stored.last_question().as_deref() != Some(request.text.trim()),
+        JobKind::AfterLimit | JobKind::Resume => false,
+    };
     // What came before this run's own message.
     let mut history = stored.conversation.messages.clone();
     let mut image = None;
@@ -123,6 +153,9 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
         history.pop();
     }
     stored.set_running();
+    if job.workspace.is_some() {
+        stored.workspace = job.workspace.clone();
+    }
     if let Err(error) = store.save(&stored) {
         return Outcome::Failed(format!("{error:#}"));
     }
@@ -190,6 +223,24 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
         );
         return finish(store, &mut stored, actions, Err(message), emit);
     }
+    if let Ok(text) = &result
+        && let Some(marker) = markers::parse(text)
+    {
+        match marker {
+            markers::Marker::Question(question) => {
+                keep_reply(store, &mut stored, actions, &question, emit);
+                return Outcome::Question(question);
+            }
+            markers::Marker::Job { title, reply } if job.workspace.is_none() => {
+                keep_reply(store, &mut stored, actions, &reply, emit);
+                return Outcome::Escalate { title, reply };
+            }
+            // Already a job: go on as if it had answered.
+            markers::Marker::Job { reply, .. } => {
+                return finish(store, &mut stored, actions, Ok(reply), emit);
+            }
+        }
+    }
     finish(store, &mut stored, actions, result, emit)
 }
 
@@ -199,6 +250,39 @@ struct Seen {
     /// Desktop actions done, as the transcript records them.
     actions: Vec<String>,
     streamed: bool,
+    /// Keeps markers out of the streamed answer.
+    gate: markers::Gate,
+}
+
+/// Saves what the assistant said while the conversation goes on (a job's
+/// question, or "On it" before a job): its actions and that text.
+fn keep_reply(
+    store: &Store,
+    stored: &mut Stored,
+    actions: Vec<String>,
+    text: &str,
+    emit: &mut dyn FnMut(Event),
+) {
+    let mut parts: Vec<Part> = actions
+        .into_iter()
+        .map(|description| Part::Action { description })
+        .collect();
+    if !text.trim().is_empty() {
+        parts.push(Part::Text {
+            text: text.trim().to_owned(),
+        });
+    }
+    if !parts.is_empty() {
+        stored.push(Message {
+            role: Role::Assistant,
+            parts,
+            at_ms: store::now_ms(),
+        });
+    }
+    if let Err(error) = store.save(stored) {
+        tracing::warn!(%error, "couldn't save the assistant's reply");
+    }
+    emit(Event::ConversationsChanged);
 }
 
 /// Runs the backend once, turning its reports into events, and saves its
@@ -232,10 +316,12 @@ fn run_backend(
         }),
         Report::Delta(text) => {
             seen.streamed = true;
-            emit(Event::AnswerDelta {
-                conversation: id.clone(),
-                text,
-            });
+            if let Some(text) = seen.gate.pass(&text) {
+                emit(Event::AnswerDelta {
+                    conversation: id.clone(),
+                    text,
+                });
+            }
         }
         Report::Session(session) => {
             if stored.sessions.get(key) != Some(&session) {
@@ -385,18 +471,27 @@ pub fn prepare(
     let browser = (settings.background_browser && lane == Lane::Background)
         .then(|| super::browser::mcp_server(&job.conversation))
         .flatten();
-    let workdir = workdir()
-        .map_err(|error| format!("Hex can't prepare the assistant's folder: {error:#}"))?;
+    let workdir = match &job.workspace {
+        Some(workspace) => workspace.clone(),
+        None => workdir()
+            .map_err(|error| format!("Hex can't prepare the assistant's folder: {error:#}"))?,
+    };
     let origin = job.request.origin;
     let continued = resume.is_none() && settings.backend != AssistantBackend::ClaudeApi;
     let keep_warm = (lane == Lane::Here
         && settings.backend == AssistantBackend::ClaudeCode
         && settings.follow_up_seconds > 0)
         .then(|| Duration::from_secs(settings.follow_up_seconds.into()));
+    let mut system = system_prompt(origin, desktop.as_ref(), browser.is_some());
+    match &job.workspace {
+        Some(workspace) => system.push_str(&job_rules(workspace, browser.is_some())),
+        None if origin != Origin::Background => system.push_str(ROUTING),
+        None => {}
+    }
     Ok(Run {
         backend: settings.backend,
         model: model(job),
-        system: system_prompt(origin, desktop.as_ref(), browser.is_some()),
+        system,
         prompt: prompt(job, history, continued),
         image,
         resume,
@@ -406,7 +501,38 @@ pub fn prepare(
         workdir,
         quick: lane == Lane::Here,
         keep_warm,
+        workspace: job.workspace.clone(),
     })
+}
+
+/// How a Here or Chat agent hands a job to Hex instead of doing it.
+pub const ROUTING: &str = "\nIf the request is a job rather than a quick question or a small action, don't start it. A job has several steps, many items, several apps or websites, research, or documents, or takes more than a minute or two. Reply with exactly two lines instead: first `HEX_JOB: <a short title, at most six words>`, then one or two short, speakable sentences in the person's language saying you're on it and what it covers, such as “On it: 50 suppliers, Gmail drafts, and a sheet. I'll ask what I need.” Hex then runs it in the background with every tool it needs.\n";
+
+/// A job's rules: its workspace, plan, one batched question, files, and
+/// what it may never do on its own.
+pub fn job_rules(workspace: &std::path::Path, browser: bool) -> String {
+    let mut rules = format!(
+        "\nThis is a job, running in the background while the person does other things. Find the fastest way to do all of it, then do it fully on your own.\n\
+         Your workspace is {ws} (your current folder). Keep every file of this job there: data, spreadsheets, documents, scripts. Use absolute paths inside it.\n\
+         1. Plan first: write {plan} in the workspace as a checklist (`- [ ] step`), each step naming its tool: the hidden browser for research and web apps (Gmail, Google Sheets, and other accounts through the browser's signed-in session), the desktop only for native apps (check which apps are installed before choosing one), and files and scripts in the workspace for spreadsheets, CSV, and documents. Say what runs in parallel, and run it in parallel: subagents (Task) for independent batches{parallel}. Tick each step (`- [x]`) as it finishes; Hex shows this plan to the person.\n\
+         2. Ask up front, once: if something essential is missing that you can't find out yourself (an email address, the tone or language of messages, the sender's name, which account), ask all of it in ONE message and stop: start your reply with the line `HEX_QUESTION:`, then the question in one or two speakable sentences. Never ask what you can look up. After the answer, go on without asking again unless something unexpected blocks you.\n\
+         3. Spreadsheets: write .xlsx with Python and openpyxl (if it's missing: `python3 -m venv .venv && .venv/bin/pip install openpyxl` in the workspace); if that fails, write CSV. Shell commands run sandboxed: they may write only in the workspace.\n\
+         4. Never send an email, post, buy, or delete anything unless the person explicitly said so: save emails as drafts. Share a document only with people the person named.\n\
+         5. Keep {report} in the workspace up to date: what you did, the results, file names, and links.\n\
+         6. At the end, answer with a short summary: what you did, the numbers (such as drafts saved), links (such as a sheet's URL), and the workspace path.\n",
+        ws = workspace.display(),
+        plan = workspace::PLAN,
+        report = workspace::REPORT,
+        parallel = if browser {
+            ", and several browser sessions when the browser tool offers named sessions"
+        } else {
+            ""
+        },
+    );
+    if browser && !crate::assistant::browser::signed_in() {
+        rules.push_str("The hidden browser isn't signed in to any account. If the job needs Gmail, Google Sheets, or another account, include in your one question that the person should sign in to it in Hex's browser (Chats has a Sign in button) and answer when done.\n");
+    }
+    rules
 }
 
 /// Starts `job`'s backend ahead of its question (`service::prewarm`).
@@ -539,6 +665,16 @@ pub fn prompt(job: &Job, history: &[Message], with_history: bool) -> String {
         }
         JobKind::Resume => {
             prompt.push_str(&format!("{RESUME_NOTE}\nThe task was: “{text}”"));
+        }
+        JobKind::Job { title } => {
+            prompt.push_str(&format!(
+                "Your job (“{title}”), as the person asked for it: {text}\nStart with the plan."
+            ));
+        }
+        JobKind::Answer { question } => {
+            prompt.push_str(&format!(
+                "You asked: “{question}”\nThe person answered: “{text}”\nGo on with the job."
+            ));
         }
     }
     prompt

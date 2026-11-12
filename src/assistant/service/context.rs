@@ -158,15 +158,146 @@ fn cue() -> &'static Regex {
     })
 }
 
+/// Whether a spoken request is plainly a job (several kinds of work, at
+/// length), so it goes to the background without a Here turn first. Kept
+/// strict: anything less clear is left to the Here agent (`agent::ROUTING`).
+pub fn looks_like_job(text: &str) -> bool {
+    const WORK: &[&str] = &[
+        "recherch",
+        "research",
+        "find",
+        "such",
+        "draft",
+        "entw",
+        "erstell",
+        "create",
+        "build",
+        "bau",
+        "schreib",
+        "write",
+        "dokument",
+        "document",
+        "teil",
+        "share",
+        "vergleich",
+        "compare",
+        "sammel",
+        "sammle",
+        "collect",
+        "sheet",
+        "tabelle",
+        "excel",
+        "spreadsheet",
+        "report",
+        "bericht",
+        "mail",
+        "liste",
+        "list",
+    ];
+    let words: Vec<String> = text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_lowercase)
+        .collect();
+    if words.len() < 15 {
+        return false;
+    }
+    let kinds = WORK
+        .iter()
+        .filter(|stem| words.iter().any(|word| word.starts_with(**stem)))
+        .count();
+    let many = words
+        .iter()
+        .any(|word| word.parse::<u32>().is_ok_and(|n| (5..=10_000).contains(&n)));
+    kinds >= 4 || (kinds >= 3 && many)
+}
+
+/// What Hex says when it sends a plainly long request to the background,
+/// in the request's language as far as a glance tells.
+pub fn on_it(text: &str) -> String {
+    const GERMAN: &[&str] = &[
+        "und", "die", "der", "das", "ich", "mir", "mein", "meine", "für", "mit", "bitte", "eine",
+    ];
+    let german = text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| GERMAN.contains(&word.to_lowercase().as_str()))
+        .count()
+        >= 2;
+    if german {
+        "Mach ich, im Hintergrund. Ich plane das und frage, was ich noch brauche.".into()
+    } else {
+        "On it, in the background. I'll plan it and ask what I need.".into()
+    }
+}
+
 /// `text`'s meaningful words, lowercased, without filler and task words.
 fn words(text: &str) -> HashSet<String> {
     const STOP: &[&str] = &[
-        "aufgabe", "aufgaben", "task", "tasks", "auftrag", "der", "die", "das", "den", "dem",
-        "des", "bei", "beim", "und", "oder", "mit", "für", "von", "auf", "aus", "ein", "eine",
-        "einen", "einer", "noch", "auch", "jetzt", "bitte", "mach", "mache", "machen", "nimm",
-        "stopp", "stop", "halt", "abbrechen", "lieber", "doch", "nicht", "the", "and", "for",
-        "with", "that", "this", "please", "now", "one", "job", "cancel", "also", "then", "into",
-        "ist", "sie", "ihr", "ihre", "ihn", "was", "wie", "you", "your", "can", "kannst", "du",
+        "aufgabe",
+        "aufgaben",
+        "task",
+        "tasks",
+        "auftrag",
+        "der",
+        "die",
+        "das",
+        "den",
+        "dem",
+        "des",
+        "bei",
+        "beim",
+        "und",
+        "oder",
+        "mit",
+        "für",
+        "von",
+        "auf",
+        "aus",
+        "ein",
+        "eine",
+        "einen",
+        "einer",
+        "noch",
+        "auch",
+        "jetzt",
+        "bitte",
+        "mach",
+        "mache",
+        "machen",
+        "nimm",
+        "stopp",
+        "stop",
+        "halt",
+        "abbrechen",
+        "lieber",
+        "doch",
+        "nicht",
+        "the",
+        "and",
+        "for",
+        "with",
+        "that",
+        "this",
+        "please",
+        "now",
+        "one",
+        "job",
+        "cancel",
+        "also",
+        "then",
+        "into",
+        "ist",
+        "sie",
+        "ihr",
+        "ihre",
+        "ihn",
+        "was",
+        "wie",
+        "you",
+        "your",
+        "can",
+        "kannst",
+        "du",
     ];
     text.split(|c: char| !c.is_alphanumeric())
         .map(str::to_lowercase)
@@ -209,7 +340,11 @@ mod tests {
     fn an_instruction_naming_one_task_goes_to_it() {
         let running = [
             task("mail", "Antworte Anna auf ihre Mail", "Mail"),
-            task("invoice", "Lade die Rechnung von Hetzner herunter", "Safari"),
+            task(
+                "invoice",
+                "Lade die Rechnung von Hetzner herunter",
+                "Safari",
+            ),
         ];
         assert_eq!(
             route("bei der Mail-Aufgabe nimm lieber Freitag", &running).as_deref(),
@@ -222,9 +357,34 @@ mod tests {
         // No word about a task: a new task, with the digest.
         assert_eq!(route("mach das auch für die andere Mail", &running), None);
         // Named twice over: ambiguous, a new task.
-        let twins = [task("a", "Mail an Anna", "Mail"), task("b", "Mail an Bob", "Mail")];
+        let twins = [
+            task("a", "Mail an Anna", "Mail"),
+            task("b", "Mail an Bob", "Mail"),
+        ];
         assert_eq!(route("bei der Mail-Aufgabe warte noch", &twins), None);
         assert_eq!(route("bei der Aufgabe warte", &[]), None);
+    }
+
+    #[test]
+    fn only_a_plainly_long_request_skips_the_here_turn() {
+        let business = "I'm building my business site blabla.com. Look at it, research 50 suppliers who could list their products there, draft 50 emails in Gmail, build an Excel sheet, document everything, and share it via Google Sheets with my colleague.";
+        assert!(looks_like_job(business));
+        assert!(looks_like_job(
+            "Recherchiere bitte 20 Lieferanten für Keramik, schreib mir eine Tabelle und einen kurzen Bericht dazu, und leg alles in einen Ordner"
+        ));
+        assert!(!looks_like_job("Wie spät ist es in Tokio?"));
+        assert!(!looks_like_job("Fasse diese Mail kurz zusammen"));
+        assert!(!looks_like_job(
+            "Can you write a short friendly reply to this mail saying that I will be there on Friday at ten"
+        ));
+        assert_eq!(
+            on_it(business),
+            "On it, in the background. I'll plan it and ask what I need."
+        );
+        assert!(
+            on_it("Recherchiere die Lieferanten und schreib mir eine Liste")
+                .starts_with("Mach ich")
+        );
     }
 
     #[test]
@@ -233,8 +393,18 @@ mod tests {
         let running = [task("mail", "Antworte Anna", "Mail")];
         let recent = [
             summary("mail", "Antworte Anna", Outcome::Running, now),
-            summary("q1", "Wie spät ist es in Tokio?", Outcome::Answered, now - 5 * 60_000),
-            summary("q2", "Rechnung suchen", Outcome::Failed, now - 2 * 60 * 60_000),
+            summary(
+                "q1",
+                "Wie spät ist es in Tokio?",
+                Outcome::Answered,
+                now - 5 * 60_000,
+            ),
+            summary(
+                "q2",
+                "Rechnung suchen",
+                Outcome::Failed,
+                now - 2 * 60 * 60_000,
+            ),
         ];
         let digest = digest(&running, &recent, now).unwrap();
         assert_eq!(
@@ -248,7 +418,14 @@ mod tests {
         );
         assert_eq!(super::digest(&[], &[], now), None);
         let many: Vec<_> = (0..40)
-            .map(|i| summary(&format!("c{i}"), &"lang ".repeat(30), Outcome::Answered, now))
+            .map(|i| {
+                summary(
+                    &format!("c{i}"),
+                    &"lang ".repeat(30),
+                    Outcome::Answered,
+                    now,
+                )
+            })
             .collect();
         let long = super::digest(&[], &many, now).unwrap();
         assert!(long.chars().count() <= MAX_CHARS);

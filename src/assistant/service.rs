@@ -35,7 +35,10 @@
 mod context;
 mod monitor;
 pub mod remote;
+mod run;
+mod session;
 mod voice;
+mod warm;
 
 use std::collections::VecDeque;
 use std::panic::AssertUnwindSafe;
@@ -50,7 +53,7 @@ use super::provider::{self, Control};
 use super::store::{self, Store};
 use super::types::{
     Context, Conversation, ConversationId, ConversationSummary, Event, Lane, Origin,
-    Outcome as Ended, Request, TaskState, TaskStatus, TaskWindow,
+    Outcome as Ended, PlanStep, Request, TaskState, TaskStatus, TaskWindow,
 };
 
 /// Called on a worker thread for every event; keep it quick (post to your
@@ -182,16 +185,15 @@ pub fn resume_interrupted(conversation: &str) -> Option<ConversationId> {
     runner().resume_interrupted(conversation)
 }
 
-/// The plan of a running or finished conversation, if it made one.
-pub fn plan(conversation: &str) -> Vec<crate::assistant::PlanStep> {
-    let _ = conversation;
-    Vec::new()
+/// The plan of a running or finished job (its `plan.md` checklist), if it
+/// made one.
+pub fn plan(conversation: &str) -> Vec<PlanStep> {
+    runner().plan(conversation)
 }
 
 /// The question a task is waiting on (`TaskState::NeedsInput`), if any.
 pub fn question(conversation: &str) -> Option<String> {
-    let _ = conversation;
-    None
+    runner().question(conversation)
 }
 
 /// Calls `subscriber` for every later event, until the process ends.
@@ -234,10 +236,11 @@ pub fn set_focus(id: Option<ConversationId>) {
     runner().state().focus = id;
 }
 
-/// The conversation the next Here request should continue: a Here task
-/// running now (it is steered), else the one Chats shows, else the last Here
-/// conversation answered within `follow_up_seconds`, else `None` (start a
-/// new one).
+/// The conversation the next Here request should continue: a task waiting
+/// for the person's answer (`NeedsInput`; the request is the answer), else a
+/// Here task running now (it is steered), else the one Chats shows, else the
+/// last Here conversation answered within `follow_up_seconds`, else `None`
+/// (start a new one).
 pub fn focus(follow_up_seconds: u32) -> Option<ConversationId> {
     runner().focus(follow_up_seconds)
 }
@@ -281,10 +284,14 @@ fn runner() -> &'static Arc<Runner> {
 }
 
 type Execute = dyn Fn(&Job, &Control, &mut dyn FnMut(Event)) -> Outcome + Send + Sync;
-type StyleAgent = dyn Fn(&str, &str, u8) + Send + Sync;
+type StyleAgent = dyn Fn(&str, &str, u8, Option<&str>) + Send + Sync;
 type Speak = dyn Fn(&str, Option<&str>) + Send + Sync;
 type Hook<T> = Box<dyn Fn() -> T + Send + Sync>;
-type TaskHook = Box<dyn Fn(&str) + Send + Sync>;
+type OnTask<R = ()> = Box<dyn Fn(&str) -> R + Send + Sync>;
+type TaskHook = OnTask;
+type Pause = dyn Fn(&str, bool) + Send + Sync;
+type BringForward = dyn Fn(&str, &[TaskWindow]) + Send + Sync;
+type Settle = dyn Fn(&str, Ended, &str) + Send + Sync;
 
 /// What the runner does in the world; tests replace each part.
 pub(crate) struct Hooks {
@@ -294,37 +301,42 @@ pub(crate) struct Hooks {
     /// Starts an agent-desktop multi-agent cursor session; its id.
     pub start_session: Hook<Option<String>>,
     pub end_session: TaskHook,
-    /// Gives agent `agent_id` in `session` its colour.
+    /// Gives agent `agent_id` in `session` its colour, and a label with its
+    /// current step.
     pub style_agent: Box<StyleAgent>,
     /// Starts reading text aloud with a voice (returns at once).
     pub speak: Box<Speak>,
     /// Whether something is being read aloud.
     pub speaking: Hook<bool>,
     /// The voice for an answer, from its first sentence, when none is set.
-    pub pick_voice: Box<dyn Fn(&str) -> Option<String> + Send + Sync>,
+    pub pick_voice: OnTask<Option<String>>,
     pub stop_speaking: Hook<()>,
     /// Unix ms now, and a pause: the runner's clock.
     pub now_ms: Hook<u64>,
     pub sleep: Box<dyn Fn(Duration) + Send + Sync>,
     /// Pauses or resumes a task's desktop actions (`guard::set_paused`).
-    pub pause: Box<dyn Fn(&str, bool) + Send + Sync>,
+    pub pause: Box<Pause>,
     /// A task ended: its window leases and browser go (`guard::release_all`,
     /// `browser::close`).
     pub release: TaskHook,
     /// The task moving the real pointer now (`guard::hands_off`).
     pub hands_off: Hook<Option<ConversationId>>,
     /// Brings a task's window forward (taken over).
-    pub bring_forward: Box<dyn Fn(&str, &[TaskWindow]) + Send + Sync>,
+    pub bring_forward: Box<BringForward>,
     /// Records how a conversation's request ended when its run didn't.
-    pub settle: Box<dyn Fn(&str, Ended, &str) + Send + Sync>,
+    pub settle: Box<Settle>,
     /// The latest stored conversations, newest first.
     pub recent: Hook<Vec<ConversationSummary>>,
     /// An interrupted conversation's lane and last question.
-    pub interrupted: Box<dyn Fn(&str) -> Option<(Origin, String)> + Send + Sync>,
+    pub interrupted: OnTask<Option<(Origin, String)>>,
     /// Starts a job's backend ahead of its question.
     pub prewarm: Box<dyn Fn(&Job) + Send + Sync>,
     /// Requests from other Hex processes (`remote`).
     pub requests: Hook<Vec<(String, remote::Verb)>>,
+    /// Makes a new job's workspace for its title.
+    pub make_workspace: OnTask<Option<std::path::PathBuf>>,
+    /// A conversation's workspace, if it is a job.
+    pub workspace_of: OnTask<Option<std::path::PathBuf>>,
 }
 
 impl Hooks {
@@ -335,9 +347,9 @@ impl Hooks {
         Self {
             execute: Box::new(agent::run),
             settings: Box::new(current_settings),
-            start_session: Box::new(desktop_session::start),
-            end_session: Box::new(desktop_session::end),
-            style_agent: Box::new(desktop_session::style),
+            start_session: Box::new(session::desktop_session::start),
+            end_session: Box::new(session::desktop_session::end),
+            style_agent: Box::new(session::desktop_session::style),
             speak: Box::new(super::speech::speak),
             speaking: Box::new(super::speech::speaking),
             pick_voice: Box::new(super::speech::automatic_voice),
@@ -352,7 +364,7 @@ impl Hooks {
                 std::thread::spawn(move || super::browser::close(&task));
             }),
             hands_off: Box::new(super::guard::hands_off),
-            bring_forward: Box::new(desktop_session::bring_forward),
+            bring_forward: Box::new(session::desktop_session::bring_forward),
             settle: Box::new(|id, outcome, message| {
                 if let Ok(store) = Store::open() {
                     store.settle(id, outcome, Some(message));
@@ -371,6 +383,15 @@ impl Hooks {
             prewarm: Box::new(agent::prewarm),
             requests: Box::new(move || {
                 remote::take_new(&mut seen.lock().unwrap_or_else(|error| error.into_inner()))
+            }),
+            make_workspace: Box::new(|title| {
+                let root = agent::workspace::root()?;
+                agent::workspace::create(&root, title, store::now_ms())
+                    .inspect_err(|error| tracing::warn!(%error, "no workspace for the job"))
+                    .ok()
+            }),
+            workspace_of: Box::new(|conversation| {
+                Store::open().ok()?.load(conversation)?.workspace
             }),
         }
     }
@@ -477,6 +498,19 @@ struct Task {
     held_since: Option<u64>,
     /// Its state before it was taken over.
     before_pause: TaskState,
+    /// It was asked by voice: its question and a job's answer are spoken.
+    voice: bool,
+    /// A job's folder, where its plan is read from.
+    workspace: Option<std::path::PathBuf>,
+    /// The desktop session its cursor is in, and the cursor's label.
+    session: Option<String>,
+    label: Option<String>,
+    /// A job's plan, and when its file last changed.
+    plan: Vec<PlanStep>,
+    plan_seen: Option<std::time::SystemTime>,
+    /// The question it waits on (`NeedsInput`), and the answer once given.
+    question: Option<String>,
+    reply: Option<String>,
 }
 
 impl Task {
@@ -520,12 +554,31 @@ impl Runner {
                 conversation,
                 description,
             } => {
+                let mut relabel = None;
                 if let Some(task) = running_task(&mut self.state(), conversation) {
                     task.status.step = Some(description.clone());
                     task.steps.push_back(description.clone());
                     while task.steps.len() > STEPS_KEPT {
                         task.steps.pop_front();
                     }
+                    let label = cursor_label(description);
+                    if let Some(session) = &task.session
+                        && task.label.as_deref() != Some(label.as_str())
+                    {
+                        task.label = Some(label.clone());
+                        relabel = Some((
+                            session.clone(),
+                            task.agent_id.clone(),
+                            task.status.colour,
+                            label,
+                        ));
+                    }
+                }
+                if let Some((session, agent, colour, label)) = relabel {
+                    let runner = Arc::clone(self);
+                    std::thread::spawn(move || {
+                        (runner.hooks.style_agent)(&session, &agent, colour, Some(&label));
+                    });
                 }
             }
             Event::Window {
@@ -578,9 +631,22 @@ impl Runner {
             return refuse("Finish setting up the assistant first (Settings › Assistant).");
         }
         let now = self.now();
+        let voice = request.origin != Origin::Chat;
         let mut stop = Vec::new();
+        let mut on_it = None;
         let id = {
             let mut state = self.state();
+            // The answer to a job's question.
+            if kind == JobKind::Ask
+                && let Some(conversation) = &request.conversation
+                && let Some(task) = state.tasks.iter_mut().find(|task| {
+                    task.status.conversation == *conversation
+                        && task.status.state == TaskState::NeedsInput
+                })
+            {
+                task.reply = Some(request.text.trim().to_owned());
+                return conversation.clone();
+            }
             if kind == JobKind::Ask && request.conversation.is_none() {
                 let running: Vec<TaskStatus> = state
                     .tasks
@@ -621,6 +687,23 @@ impl Runner {
                 };
                 target.control.steer();
             }
+            // A new Background request is a job; a new Here request that is
+            // plainly one goes straight to the background (others are
+            // routed by the Here agent itself, `agent::ROUTING`).
+            if kind == JobKind::Ask && new_conversation {
+                let plainly = request.origin == Origin::ActionShortcut
+                    && context::looks_like_job(&request.text);
+                if plainly {
+                    request.origin = Origin::Background;
+                    request.context.window = None;
+                    on_it = Some(context::on_it(&request.text));
+                }
+                if request.origin == Origin::Background {
+                    kind = JobKind::Job {
+                        title: store::shorten(&request.text, 48),
+                    };
+                }
+            }
             if request.origin.lane() == Lane::Here {
                 stop = state
                     .tasks
@@ -629,46 +712,74 @@ impl Runner {
                     .map(|task| task.key)
                     .collect();
             }
-            let key = key.unwrap_or_else(|| self.next.fetch_add(1, Ordering::Relaxed));
-            let used: Vec<u8> = state.tasks.iter().map(|task| task.status.colour).collect();
-            let colour = (0..8u8)
-                .find(|colour| !used.contains(colour))
-                .unwrap_or((key % 8) as u8);
-            state.tasks.push(Task {
-                key,
-                status: TaskStatus {
-                    conversation: id.clone(),
-                    origin: request.origin,
-                    title: store::shorten(&request.text, 60),
-                    state: TaskState::Queued,
-                    step: None,
-                    windows: Vec::new(),
-                    colour,
-                },
-                request: Request {
-                    conversation: Some(id.clone()),
-                    ..request
-                },
-                control: Control::new(),
-                agent_id: format!("hex-{key}"),
-                running: false,
-                announced: false,
-                kind,
-                new_conversation,
-                speak: false,
-                steps: VecDeque::new(),
-                deadline_ms: None,
-                held_since: None,
-                before_pause: TaskState::Running,
-            });
+            request.conversation = Some(id.clone());
+            self.push_task(&mut state, request, kind, key, new_conversation, voice);
             id
         };
         for key in stop {
             self.cancel_task(key);
         }
+        if let Some(line) = on_it {
+            self.emit(&Event::Escalated {
+                conversation: id.clone(),
+            });
+            if settings.speak_answers {
+                self.voice.finish(self, &id, &line);
+            }
+        }
         self.refresh_mode();
         self.pump();
         id
+    }
+
+    /// Adds a task for `request` (whose conversation is set) to the queue.
+    fn push_task(
+        &self,
+        state: &mut State,
+        request: Request,
+        kind: JobKind,
+        key: Option<u64>,
+        new_conversation: bool,
+        voice: bool,
+    ) {
+        let id = request.conversation.clone().unwrap_or_default();
+        let key = key.unwrap_or_else(|| self.next.fetch_add(1, Ordering::Relaxed));
+        let used: Vec<u8> = state.tasks.iter().map(|task| task.status.colour).collect();
+        let colour = (0..8u8)
+            .find(|colour| !used.contains(colour))
+            .unwrap_or((key % 8) as u8);
+        state.tasks.push(Task {
+            key,
+            status: TaskStatus {
+                conversation: id,
+                origin: request.origin,
+                title: store::shorten(&request.text, 60),
+                state: TaskState::Queued,
+                step: None,
+                windows: Vec::new(),
+                colour,
+            },
+            request,
+            control: Control::new(),
+            agent_id: format!("hex-{key}"),
+            running: false,
+            announced: false,
+            kind,
+            new_conversation,
+            speak: false,
+            voice,
+            steps: VecDeque::new(),
+            deadline_ms: None,
+            held_since: None,
+            before_pause: TaskState::Running,
+            workspace: None,
+            session: None,
+            label: None,
+            plan: Vec::new(),
+            plan_seen: None,
+            question: None,
+            reply: None,
+        });
     }
 
     /// Starts every queued task that has a free slot in its lane and whose
@@ -746,337 +857,10 @@ impl Runner {
         }
     }
 
-    fn run_task(self: &Arc<Self>, key: u64) {
-        let (_, settings) = (self.hooks.settings)();
-        let now = self.now();
-        let Some((request, control, agent_id, colour, kind, new_conversation)) = ({
-            let mut state = self.state();
-            state.tasks.iter_mut().find(|task| task.key == key).map(|task| {
-                task.speak = task.lane() == Lane::Here && settings.speak_answers;
-                task.deadline_ms = (settings.task_timeout_minutes > 0)
-                    .then(|| now + u64::from(settings.task_timeout_minutes) * 60_000);
-                (
-                    task.request.clone(),
-                    Arc::clone(&task.control),
-                    task.agent_id.clone(),
-                    task.status.colour,
-                    task.kind.clone(),
-                    task.new_conversation,
-                )
-            })
-        }) else {
-            return;
-        };
-        let conversation = request.conversation.clone().unwrap_or_default();
-        let lane = request.origin.lane();
-        self.emit(&Event::Started {
-            conversation: conversation.clone(),
-            origin: request.origin,
-            question: request.text.clone(),
-        });
-        let desktop_session = if settings.control_desktop {
-            self.session_for(lane)
-        } else {
-            None
-        };
-        if let Some(session) = &desktop_session {
-            (self.hooks.style_agent)(session, &agent_id, colour);
-        }
-        let digest = (new_conversation && kind == JobKind::Ask)
-            .then(|| self.digest(&conversation))
-            .flatten();
-        let mut job = Job {
-            conversation: conversation.clone(),
-            request: request.clone(),
-            settings: settings.clone(),
-            agent_id,
-            desktop_session,
-            kind,
-            digest,
-        };
-        let mut attempts = 0;
-        let outcome = loop {
-            let outcome = if control.cancelled() {
-                Outcome::Cancelled
-            } else {
-                std::panic::catch_unwind(AssertUnwindSafe(|| {
-                    (self.hooks.execute)(&job, &control, &mut |event| self.emit(&event))
-                }))
-                .unwrap_or_else(|_| {
-                    tracing::error!("an assistant task panicked");
-                    Outcome::Failed("The task stopped unexpectedly.".into())
-                })
-            };
-            let Outcome::Limited { reason, until_ms } = outcome else {
-                break outcome;
-            };
-            attempts += 1;
-            if until_ms.is_none() && attempts > BLIND_RETRIES {
-                break Outcome::Failed(format!("{reason} (still limited after {attempts} tries)"));
-            }
-            let until = until_ms.unwrap_or_else(|| self.now() + backoff(attempts));
-            self.wait_out(key, &conversation, &control, until, reason);
-            if control.cancelled() {
-                break Outcome::Cancelled;
-            }
-            job.kind = JobKind::AfterLimit;
-            job.digest = None;
-        };
-        let outcome = if control.steered() {
-            Outcome::Steered
-        } else if let (Some(reason), Outcome::Cancelled) = (control.failure(), &outcome) {
-            Outcome::Failed(reason)
-        } else if control.cancelled() {
-            Outcome::Cancelled
-        } else {
-            outcome
-        };
-        let steered = outcome == Outcome::Steered;
-        let now = self.now();
-        let (paused, hands_off, end_session) = {
-            let mut state = self.state();
-            let paused = state
-                .tasks
-                .iter()
-                .find(|task| task.key == key)
-                .is_some_and(|task| task.status.state == TaskState::Paused);
-            state.tasks.retain(|task| task.key != key);
-            if lane == Lane::Here && matches!(outcome, Outcome::Answer(_)) {
-                state.last_quick = Some((conversation.clone(), now));
-            }
-            let hands_off = (state.hands_off.as_deref() == Some(conversation.as_str())
-                && !steered)
-                .then(|| state.hands_off.take())
-                .flatten();
-            (paused, hands_off, self.session_to_end(&mut state))
-        };
-        if let Some(conversation) = hands_off {
-            self.emit(&Event::HandsOff {
-                conversation,
-                on: false,
-            });
-        }
-        if !steered {
-            if paused {
-                (self.hooks.pause)(&conversation, false);
-            }
-            (self.hooks.release)(&conversation);
-            let (ended, message) = match &outcome {
-                Outcome::Answer(_) => (Ended::Answered, ""),
-                Outcome::Failed(message) => (Ended::Failed, message.as_str()),
-                _ => (Ended::Cancelled, "Stopped."),
-            };
-            (self.hooks.settle)(&conversation, ended, message);
-        }
-        if let Some(session) = end_session {
-            (self.hooks.end_session)(&session);
-        }
-        match outcome {
-            Outcome::Answer(text) => {
-                if lane == Lane::Here && settings.speak_answers {
-                    self.voice.finish(self, &conversation, &text);
-                }
-                self.emit(&Event::Answer {
-                    conversation,
-                    origin: request.origin,
-                    text,
-                });
-            }
-            Outcome::Failed(message) => {
-                self.voice.drop_answer(&conversation);
-                self.emit(&Event::Failed {
-                    conversation,
-                    message,
-                });
-            }
-            Outcome::Cancelled => {
-                self.voice.drop_answer(&conversation);
-                self.emit(&Event::Cancelled { conversation });
-            }
-            Outcome::Steered | Outcome::Limited { .. } => {
-                self.voice.drop_answer(&conversation);
-            }
-        }
-        self.refresh_mode();
-        self.pump();
-    }
-
-    /// What else is going on, for a new conversation's first prompt.
-    fn digest(&self, conversation: &str) -> Option<String> {
-        let running: Vec<TaskStatus> = self
-            .state()
-            .tasks
-            .iter()
-            .filter(|task| task.status.conversation != conversation)
-            .map(|task| task.status.clone())
-            .collect();
-        let recent: Vec<ConversationSummary> = (self.hooks.recent)()
-            .into_iter()
-            .filter(|summary| summary.id != conversation)
-            .collect();
-        context::digest(&running, &recent, self.now())
-    }
-
-    /// The desktop session a task joins: the Background work's, waiting a
-    /// moment while it starts (a Here task doesn't wait).
-    fn session_for(&self, lane: Lane) -> Option<String> {
-        let started = Instant::now();
-        let mut state = self.state();
-        loop {
-            match &state.session {
-                Session::On(id) => return Some(id.clone()),
-                Session::Off => return None,
-                Session::Starting if lane == Lane::Here => return None,
-                Session::Starting => {
-                    let left = SESSION_WAIT.saturating_sub(started.elapsed());
-                    if left.is_zero() {
-                        return None;
-                    }
-                    state = self
-                        .session_changed
-                        .wait_timeout(state, left)
-                        .unwrap_or_else(|error| error.into_inner())
-                        .0;
-                }
-            }
-        }
-    }
-
-    /// The session to end now that no Background work is left and no task
-    /// remains.
-    fn session_to_end(&self, state: &mut State) -> Option<String> {
-        if state.background_on || !state.tasks.is_empty() {
-            return None;
-        }
-        match std::mem::take(&mut state.session) {
-            Session::On(id) => Some(id),
-            other => {
-                state.session = other;
-                None
-            }
-        }
-    }
-
-    /// Turns the frame on or off as Background work starts or ends, with the
-    /// desktop session around it (`Event::ModeChanged`).
-    fn refresh_mode(self: &Arc<Self>) {
-        let (_, settings) = (self.hooks.settings)();
-        let mut start = false;
-        let (on, end) = {
-            let mut state = self.state();
-            let busy = state
-                .tasks
-                .iter()
-                .any(|task| task.lane() == Lane::Background);
-            if busy == state.background_on {
-                return;
-            }
-            state.background_on = busy;
-            if busy && settings.control_desktop && state.session == Session::Off {
-                state.session = Session::Starting;
-                start = true;
-            }
-            (busy, self.session_to_end(&mut state))
-        };
-        if let Some(session) = end {
-            (self.hooks.end_session)(&session);
-        }
-        if start {
-            let runner = Arc::clone(self);
-            std::thread::spawn(move || {
-                let started = (runner.hooks.start_session)();
-                let end = {
-                    let mut state = runner.state();
-                    state.session = started.map_or(Session::Off, Session::On);
-                    runner.session_changed.notify_all();
-                    runner.session_to_end(&mut state)
-                };
-                if let Some(session) = end {
-                    (runner.hooks.end_session)(&session);
-                }
-            });
-        }
-        self.emit(&Event::ModeChanged { on });
-    }
-
-    pub(crate) fn prewarm(self: &Arc<Self>, lane: Lane, window: Option<TaskWindow>) {
-        let (enabled, settings) = (self.hooks.settings)();
-        if !enabled || !settings.setup_done || settings.backend != AssistantBackend::ClaudeCode {
-            return;
-        }
-        let now = self.now();
-        let (conversation, id, key, session) = {
-            let mut state = self.state();
-            let conversation = match lane {
-                Lane::Here => focus_in(&state, settings.follow_up_seconds, now),
-                Lane::Background => None,
-            };
-            // Speaking into a running task steers it: nothing to start.
-            if conversation.as_ref().is_some_and(|conversation| {
-                state
-                    .tasks
-                    .iter()
-                    .any(|task| task.status.conversation == *conversation)
-            }) {
-                return;
-            }
-            if state.warm.as_ref().is_some_and(|warm| {
-                warm.lane == lane
-                    && warm.conversation == conversation
-                    && warm.window == window
-                    && now.saturating_sub(warm.at_ms) < PREWARM_FOR_MS
-            }) {
-                return;
-            }
-            let session = match &state.session {
-                Session::On(id) => Some(id.clone()),
-                _ => None,
-            };
-            // A Background task joins a session that starts with it; its
-            // arguments can't be known ahead.
-            if lane == Lane::Background && settings.control_desktop && session.is_none() {
-                return;
-            }
-            let key = self.next.fetch_add(1, Ordering::Relaxed);
-            let id = conversation.clone().unwrap_or_else(store::new_id);
-            state.warm = Some(Warm {
-                lane,
-                conversation: conversation.clone(),
-                id: id.clone(),
-                key,
-                window: window.clone(),
-                at_ms: now,
-            });
-            (conversation, id, key, session)
-        };
-        let job = Job {
-            conversation: id,
-            request: Request {
-                conversation,
-                text: String::new(),
-                origin: match lane {
-                    Lane::Here => Origin::ActionShortcut,
-                    Lane::Background => Origin::Background,
-                },
-                context: Context {
-                    window,
-                    ..Context::default()
-                },
-            },
-            agent_id: format!("hex-{key}"),
-            desktop_session: session.filter(|_| settings.control_desktop),
-            settings,
-            kind: JobKind::Ask,
-            digest: None,
-        };
-        let runner = Arc::clone(self);
-        std::thread::Builder::new()
-            .name("assistant-prewarm".into())
-            .spawn(move || (runner.hooks.prewarm)(&job))
-            .ok();
-    }
-
-    pub(crate) fn resume_interrupted(self: &Arc<Self>, conversation: &str) -> Option<ConversationId> {
+    pub(crate) fn resume_interrupted(
+        self: &Arc<Self>,
+        conversation: &str,
+    ) -> Option<ConversationId> {
         let (origin, question) = (self.hooks.interrupted)(conversation)?;
         let origin = match origin {
             Origin::ActionShortcut => Origin::Background,
@@ -1159,15 +943,51 @@ impl Runner {
             .collect()
     }
 
+    pub(crate) fn question(&self, conversation: &str) -> Option<String> {
+        self.state()
+            .tasks
+            .iter()
+            .find(|task| task.status.conversation == conversation)
+            .and_then(|task| task.question.clone())
+    }
+
+    pub(crate) fn plan(&self, conversation: &str) -> Vec<PlanStep> {
+        let (plan, workspace) = {
+            let state = self.state();
+            match state
+                .tasks
+                .iter()
+                .find(|task| task.status.conversation == conversation)
+            {
+                Some(task) => (task.plan.clone(), task.workspace.clone()),
+                None => (Vec::new(), None),
+            }
+        };
+        if !plan.is_empty() {
+            return plan;
+        }
+        workspace
+            .or_else(|| (self.hooks.workspace_of)(conversation))
+            .map(|workspace| agent::workspace::plan(&workspace))
+            .unwrap_or_default()
+    }
+
     pub(crate) fn focus(&self, follow_up_seconds: u32) -> Option<ConversationId> {
         let now = self.now();
         focus_in(&self.state(), follow_up_seconds, now)
     }
 }
 
-/// `focus` on `state`: a running Here task, Chats' conversation, or the last
-/// Here answer within `follow_up_seconds`.
+/// `focus` on `state`: a task waiting for an answer, a running Here task,
+/// Chats' conversation, or the last Here answer within `follow_up_seconds`.
 fn focus_in(state: &State, follow_up_seconds: u32, now: u64) -> Option<ConversationId> {
+    if let Some(task) = state
+        .tasks
+        .iter()
+        .find(|task| task.status.state == TaskState::NeedsInput)
+    {
+        return Some(task.status.conversation.clone());
+    }
     if let Some(task) = state
         .tasks
         .iter()
@@ -1183,6 +1003,14 @@ fn focus_in(state: &State, follow_up_seconds: u32, now: u64) -> Option<Conversat
         .then(|| id.clone())
 }
 
+/// A step as the cursor's label: at most six words.
+fn cursor_label(step: &str) -> String {
+    step.split_whitespace()
+        .take(6)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn running_task<'a>(state: &'a mut State, conversation: &str) -> Option<&'a mut Task> {
     state
         .tasks
@@ -1194,96 +1022,6 @@ fn running_task<'a>(state: &'a mut State, conversation: &str) -> Option<&'a mut 
 /// minute, doubling, at most half an hour.
 fn backoff(attempt: u32) -> u64 {
     (60_000u64 << attempt.saturating_sub(1).min(5)).min(30 * 60_000)
-}
-
-/// The agent-desktop session around Background work: one multi-agent cursor
-/// session, every task its own agent (and cursor) in it.
-mod desktop_session {
-    use std::process::Stdio;
-
-    use serde_json::Value;
-
-    use crate::assistant::types::TaskWindow;
-
-    fn agent_desktop(args: &[&str]) -> Option<Value> {
-        let executable = crate::assistant::provider::agent_desktop()?;
-        let output = crate::assistant::backends::agent_command(executable)
-            .args(args)
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
-            .ok()?;
-        serde_json::from_slice(&output.stdout).ok()
-    }
-
-    /// `agent-desktop session start --cursor --multi-agent`; its id.
-    pub(super) fn start() -> Option<String> {
-        let reply = agent_desktop(&[
-            "session",
-            "start",
-            "--cursor",
-            "--multi-agent",
-            "--name",
-            "Hex background tasks",
-        ]);
-        let id = reply
-            .as_ref()
-            .and_then(|reply| reply.pointer("/data/session_id"))
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        if id.is_none() {
-            tracing::warn!(?reply, "agent-desktop didn't start a session for background tasks");
-        }
-        id
-    }
-
-    pub(super) fn end(session: &str) {
-        let _ = agent_desktop(&["session", "end", session]);
-    }
-
-    /// Gives the agent's cursor its task colour.
-    pub(super) fn style(session: &str, agent_id: &str, colour: u8) {
-        let accent = super::COLOURS[usize::from(colour) % super::COLOURS.len()];
-        let _ = agent_desktop(&[
-            "--session",
-            session,
-            "--agent-id",
-            agent_id,
-            "cursor-overlay",
-            "enable",
-            "--accent",
-            accent,
-        ]);
-    }
-
-    /// Brings the window `task` holds (its lease, else the last window it
-    /// named) forward: the person asked to take it over, so this one
-    /// physical change is theirs.
-    pub(super) fn bring_forward(task: &str, windows: &[TaskWindow]) {
-        let leased: Vec<TaskWindow> = crate::assistant::guard::leases()
-            .into_iter()
-            .filter(|lease| lease.task == task)
-            .map(|lease| lease.window)
-            .collect();
-        let window = leased
-            .iter()
-            .chain(windows.iter().rev())
-            .find(|window| window.window_id.is_some())
-            .or_else(|| leased.first().or(windows.last()))
-            .cloned();
-        let Some(window) = window else {
-            return;
-        };
-        std::thread::spawn(move || {
-            let reply = match &window.window_id {
-                Some(id) => agent_desktop(&["focus-window", "--window-id", id]),
-                None => agent_desktop(&["focus-window", "--app", &window.app]),
-            };
-            if reply.and_then(|reply| reply.get("ok").and_then(Value::as_bool)) != Some(true) {
-                tracing::warn!(app = window.app, "couldn't bring the task's window forward");
-            }
-        });
-    }
 }
 
 #[cfg(test)]

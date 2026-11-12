@@ -38,15 +38,17 @@ pub(super) fn run(
             let mut client = Client::start(server, run.desktop.as_ref(), &run.workdir, control)?;
             let (definitions, names) = tool_definitions(&mut client, name)?;
             tools.extend(definitions);
-            servers.push(Server { client, tools: names });
+            servers.push(Server {
+                client,
+                tools: names,
+            });
         }
         Ok(())
     })();
     if let Some(last) = tools.last_mut() {
         last["cache_control"] = json!({"type": "ephemeral"});
     }
-    let result =
-        started.and_then(|()| run_loop(run, &key, &tools, &mut servers, control, report));
+    let result = started.and_then(|()| run_loop(run, &key, &tools, &mut servers, control, report));
     for server in servers {
         server.client.close(control);
     }

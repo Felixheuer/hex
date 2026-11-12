@@ -39,10 +39,9 @@ fn browser_step(tool: &str, args: &Value) -> Option<Report> {
             format!("Opening {host} in the browser"),
             format!("Opened {host} in the browser"),
         ),
-        (name, None) if name.contains("snapshot") || name.contains("screenshot") => (
-            "Reading the page".to_owned(),
-            "Read the page".to_owned(),
-        ),
+        (name, None) if name.contains("snapshot") || name.contains("screenshot") => {
+            ("Reading the page".to_owned(), "Read the page".to_owned())
+        }
         _ => ("Working in the browser".to_owned(), String::new()),
     };
     Some(Report::Step { doing, done })

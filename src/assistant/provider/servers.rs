@@ -113,14 +113,13 @@ mod tests {
 
         let codex = codex_args(&run);
         assert!(
-            codex.contains(&r#"mcp_servers.agent-browser.args=["mcp","--session","t1"]"#.to_owned())
-        );
-        assert!(
             codex
-                .iter()
-                .any(|arg| arg.starts_with("mcp_servers.agent-desktop.enabled_tools=")
-                    && arg.contains("desktop_claim_window"))
+                .contains(&r#"mcp_servers.agent-browser.args=["mcp","--session","t1"]"#.to_owned())
         );
+        assert!(codex.iter().any(
+            |arg| arg.starts_with("mcp_servers.agent-desktop.enabled_tools=")
+                && arg.contains("desktop_claim_window")
+        ));
         assert!(
             !codex
                 .iter()

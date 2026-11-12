@@ -90,11 +90,18 @@ fn config(run: &Run) -> Value {
     for tool in WITHHELD_TOOLS {
         tools.insert(format!("agent-desktop_{tool}"), Value::Bool(false));
     }
+    // A job may edit and run commands in its workspace (the working
+    // folder); nothing outside it.
+    let permission = match run.workspace {
+        Some(_) => json!({"bash": "allow", "edit": "allow", "webfetch": "allow",
+            "external_directory": "deny"}),
+        None => json!({"bash": "deny", "edit": "deny", "webfetch": "allow"}),
+    };
     let mut config = json!({"agent": {AGENT: {
         "mode": "primary",
         "description": "Hex's assistant",
         "prompt": run.system,
-        "permission": {"bash": "deny", "edit": "deny", "webfetch": "allow"},
+        "permission": permission,
         "tools": tools,
     }}});
     if let Some(mcp) = super::servers::opencode_config(run) {

@@ -17,6 +17,7 @@ fn job(text: &str, origin: Origin, context: Context) -> Job {
         desktop_session: Some("S1".into()),
         kind: JobKind::Ask,
         digest: None,
+        workspace: None,
     }
 }
 
@@ -36,7 +37,11 @@ fn a_quick_question_carries_what_was_on_screen() {
         window_title: Some("Inbox".into()),
         window: Some(mail()),
     };
-    let prompt = prompt(&job("What's this?", Origin::ActionShortcut, context), &[], false);
+    let prompt = prompt(
+        &job("What's this?", Origin::ActionShortcut, context),
+        &[],
+        false,
+    );
     assert_eq!(
         prompt,
         "What the person has on screen as they ask:\nFrontmost app: Mail\nIts window: Inbox\nYour only window, the one in front: Mail (window id w-3)\nSelected text:\n<<<\nthe invoice total\n>>>\n\nThe person asks: What's this?"
@@ -73,7 +78,11 @@ fn a_new_session_is_told_the_conversation_so_far() {
 
 #[test]
 fn a_new_conversation_starts_with_what_else_is_going_on() {
-    let mut job = job("mach das auch für die andere Mail", Origin::Background, Context::default());
+    let mut job = job(
+        "mach das auch für die andere Mail",
+        Origin::Background,
+        Context::default(),
+    );
     job.digest = Some("Running now:\n- Reply to Anna (Mail): Typing".into());
     assert_eq!(
         prompt(&job, &[], true),

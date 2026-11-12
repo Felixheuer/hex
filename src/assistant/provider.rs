@@ -222,6 +222,9 @@ pub struct Run {
     /// Keep the backend's process for a follow-up this long after it
     /// answers (Claude Code only); `None` ends it.
     pub keep_warm: Option<Duration>,
+    /// A job's folder (also `workdir`): the backend gets file tools and a
+    /// sandboxed shell that may write only there.
+    pub workspace: Option<PathBuf>,
 }
 
 impl Run {
@@ -241,6 +244,7 @@ impl Run {
             workdir: std::env::temp_dir(),
             quick: false,
             keep_warm: None,
+            workspace: None,
         }
     }
 }

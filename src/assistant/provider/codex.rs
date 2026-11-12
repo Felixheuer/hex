@@ -48,11 +48,20 @@ fn arguments(run: &Run) -> Vec<String> {
         args.extend(["--image".into(), image.display().to_string()]);
     }
     args.extend(["--json".into(), "--skip-git-repo-check".into()]);
-    let config = vec![
-        r#"sandbox_mode="read-only""#.to_owned(),
+    // A job may write in its workspace (and reach the network, to install
+    // Python packages); anything else reads only.
+    let mut config = vec![
         r#"approval_policy="never""#.to_owned(),
         format!("developer_instructions={}", toml_string(&run.system)),
     ];
+    match &run.workspace {
+        Some(workspace) => {
+            args.extend(["-C".into(), workspace.display().to_string()]);
+            config.push(r#"sandbox_mode="workspace-write""#.into());
+            config.push("sandbox_workspace_write.network_access=true".into());
+        }
+        None => config.push(r#"sandbox_mode="read-only""#.into()),
+    }
     for value in config {
         args.extend(["-c".into(), value]);
     }

@@ -154,10 +154,7 @@ pub fn run(command: AssistantCommand) -> u8 {
             } else {
                 Origin::ActionShortcut
             },
-            window: window_app.map(|app| TaskWindow {
-                app,
-                window_id,
-            }),
+            window: window_app.map(|app| TaskWindow { app, window_id }),
             prewarm: prewarm.map(Duration::from_secs_f64),
             then,
             no_desktop,
@@ -234,13 +231,23 @@ fn ask(ask: Ask) -> Result<bool> {
     }));
     let _ = ctrlc::set_handler(service::stop_all);
     let lane = ask.origin.lane();
-    let context = Context {
-        frontmost_app: ask.window.as_ref().map(|window| window.app.clone()),
-        window: ask.window.clone(),
-        ..Context::default()
+    // A Here question is about the window in front, read as the Action
+    // shortcut reads it (Accessibility only, no screenshot).
+    let context = match &ask.window {
+        Some(window) => Context {
+            frontmost_app: Some(window.app.clone()),
+            window: Some(window.clone()),
+            ..Context::default()
+        },
+        None if lane == Lane::Here => super::computer::quick_context(),
+        None => Context::default(),
     };
+    let window = context.window.clone();
+    if let Some(window) = &window {
+        println!("[window in front] {} {:?}", window.app, window.window_id);
+    }
     if let Some(ahead) = ask.prewarm {
-        service::prewarm_for(lane, ask.window.clone());
+        service::prewarm_for(lane, window.clone());
         std::thread::sleep(ahead);
     }
     let id = service::submit(Request {
@@ -253,7 +260,7 @@ fn ask(ask: Ask) -> Result<bool> {
     let mut answered = follow(&id, &events, speak);
     if let Some(then) = ask.then.filter(|_| answered) {
         if let Some(ahead) = ask.prewarm {
-            service::prewarm_for(lane, ask.window.clone());
+            service::prewarm_for(lane, window.clone());
             std::thread::sleep(ahead);
         }
         let again = service::submit(Request {
@@ -292,13 +299,19 @@ fn follow(id: &str, events: &mpsc::Receiver<Event>, speak: bool) -> bool {
         match &event {
             Event::Paused { .. } => println!("[paused]"),
             Event::Resumed { .. } => println!("[resumed]"),
-            Event::Waiting { reason, until_ms, .. } => {
+            Event::Waiting {
+                reason, until_ms, ..
+            } => {
                 println!("[waiting until {until_ms}] {reason}")
             }
             Event::HandsOff { on, .. } => println!("[hands off] {on}"),
             Event::Plan { steps, .. } => {
                 for step in steps {
-                    println!("[plan] {} {}", if step.done { "✓" } else { "·" }, step.title);
+                    println!(
+                        "[plan] {} {}",
+                        if step.done { "✓" } else { "·" },
+                        step.title
+                    );
                 }
             }
             Event::Question { text, .. } => println!("[question] {text}"),

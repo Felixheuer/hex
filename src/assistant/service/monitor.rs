@@ -57,6 +57,7 @@ impl Runner {
             ));
         }
         self.check_hands_off(&here);
+        self.check_plans();
         for (target, verb) in (self.hooks.requests)() {
             let ours = target == remote::ALL
                 || self
@@ -76,6 +77,43 @@ impl Runner {
             }
         }
         true
+    }
+
+    /// Emits `Plan` when a job's `plan.md` changes.
+    fn check_plans(self: &Arc<Self>) {
+        let jobs: Vec<(u64, std::path::PathBuf, Option<std::time::SystemTime>)> = self
+            .state()
+            .tasks
+            .iter()
+            .filter_map(|task| Some((task.key, task.workspace.clone()?, task.plan_seen)))
+            .collect();
+        for (key, workspace, seen) in jobs {
+            let path = workspace.join(crate::assistant::agent::workspace::PLAN);
+            let Ok(modified) = std::fs::metadata(&path).and_then(|meta| meta.modified()) else {
+                continue;
+            };
+            if seen == Some(modified) {
+                continue;
+            }
+            let steps = crate::assistant::agent::workspace::plan(&workspace);
+            let changed = {
+                let mut state = self.state();
+                let Some(task) = state.tasks.iter_mut().find(|task| task.key == key) else {
+                    continue;
+                };
+                task.plan_seen = Some(modified);
+                (task.plan != steps).then(|| {
+                    task.plan = steps.clone();
+                    task.status.conversation.clone()
+                })
+            };
+            if let Some(conversation) = changed {
+                self.emit(&Event::Plan {
+                    conversation,
+                    steps,
+                });
+            }
+        }
     }
 
     /// Emits `HandsOff` as the guard's answer changes while Here tasks run.
@@ -168,7 +206,12 @@ impl Runner {
             }
             task.held_since.get_or_insert(now);
         }
-        tracing::info!(conversation, until, reason, "an assistant task waits out a limit");
+        tracing::info!(
+            conversation,
+            until,
+            reason,
+            "an assistant task waits out a limit"
+        );
         self.emit(&Event::Waiting {
             conversation: conversation.to_owned(),
             until_ms: until,
@@ -194,8 +237,9 @@ impl Runner {
     }
 }
 
-/// Moves `task`'s time limit on by the time it was held (paused or waiting).
-fn resume_clock(task: &mut Task, now: u64) {
+/// Moves `task`'s time limit on by the time it was held (paused, waiting,
+/// or asking).
+pub(super) fn resume_clock(task: &mut Task, now: u64) {
     if let Some(since) = task.held_since.take()
         && let Some(deadline) = task.deadline_ms.as_mut()
     {

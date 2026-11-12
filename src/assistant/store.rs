@@ -40,6 +40,9 @@ pub struct Stored {
     /// or crashed mid-task (`Interrupted`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
+    /// A job's folder (`agent::workspace`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<PathBuf>,
 }
 
 impl Stored {
@@ -58,6 +61,7 @@ impl Stored {
             sessions: BTreeMap::new(),
             outcome: Outcome::Answered,
             pid: None,
+            workspace: None,
         }
     }
 
@@ -521,7 +525,11 @@ mod tests {
         store.save(&done).unwrap();
 
         let outcomes = |store: &Store| -> Vec<(String, Outcome)> {
-            let mut list: Vec<_> = store.list().into_iter().map(|s| (s.id, s.outcome)).collect();
+            let mut list: Vec<_> = store
+                .list()
+                .into_iter()
+                .map(|s| (s.id, s.outcome))
+                .collect();
             list.sort_by(|a, b| a.0.cmp(&b.0));
             list
         };
@@ -547,7 +555,9 @@ mod tests {
         assert_eq!(live.outcome, Outcome::Cancelled);
         assert_eq!(
             live.conversation.messages.last().unwrap().parts,
-            [Part::Error { message: "Stopped.".into() }]
+            [Part::Error {
+                message: "Stopped.".into()
+            }]
         );
         let _ = fs::remove_dir_all(&store.dir);
     }

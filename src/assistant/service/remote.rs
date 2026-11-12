@@ -52,7 +52,10 @@ fn dir() -> Result<PathBuf> {
 /// Asks every running Hex to do `verb` to `target`, then clears the request
 /// after `linger`.
 pub fn send(target: &str, verb: Verb, linger: Duration) -> Result<()> {
-    if target != ALL && !target.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    if target != ALL
+        && !target
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
         color_eyre::eyre::bail!("“{target}” is not a conversation id");
     }

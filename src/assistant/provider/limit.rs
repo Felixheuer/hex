@@ -28,7 +28,11 @@ pub struct Limit {
 
 /// The limit `message` reports, now, on this Mac's clock and zone.
 pub fn detect(message: &str) -> Option<Limit> {
-    detect_at(message, super::super::store::now_ms(), local_offset_seconds())
+    detect_at(
+        message,
+        super::super::store::now_ms(),
+        local_offset_seconds(),
+    )
 }
 
 /// The limit `message` reports, `now_ms` being now and `offset_s` this
@@ -109,8 +113,8 @@ fn clock_reset(message: &str, now_ms: u64, offset_s: i64) -> Option<u64> {
             let month = month_number(name.as_str())?;
             let day: i64 = captures[2].parse().ok()?;
             let explicit = captures.get(3).and_then(|y| y.as_str().parse().ok());
-            let mut at = days_from_civil(explicit.unwrap_or(year), month, day) * 86_400
-                + second_of_day;
+            let mut at =
+                days_from_civil(explicit.unwrap_or(year), month, day) * 86_400 + second_of_day;
             if explicit.is_none() && at < now_local - 86_400 {
                 at = days_from_civil(year + 1, month, day) * 86_400 + second_of_day;
             }
@@ -268,7 +272,9 @@ mod tests {
                         .split(['-', ' ', ':'])
                         .map(|n| n.parse().unwrap())
                         .collect();
-                    Some(at(numbers[0], numbers[1], numbers[2], numbers[3], numbers[4]))
+                    Some(at(
+                        numbers[0], numbers[1], numbers[2], numbers[3], numbers[4],
+                    ))
                 }
             };
             assert_eq!(limit.until_ms, expected, "{message}");

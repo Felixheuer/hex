@@ -1,6 +1,7 @@
 //! The runner with a fake backend and a fake clock: lanes and queueing,
-//! steering, the frame and its desktop session, take over, timeouts, usage
-//! limits, cleanup on every end, follow-ups, and speech.
+//! steering, routing into jobs, plans and questions, the frame and its
+//! desktop session, take over, timeouts, usage limits, cleanup on every
+//! end, follow-ups, and speech.
 
 use std::collections::HashSet;
 use std::sync::atomic::AtomicU64;
@@ -22,6 +23,10 @@ enum Script {
     Panic,
     /// Streams these pieces of answer, then answers with all of them.
     Stream(Vec<&'static str>),
+    /// A Here or Chat run says it's a job; the job's run then waits.
+    Escalate,
+    /// A job writes its plan, asks this, then answers with the answer.
+    Ask(&'static str),
 }
 
 /// A fake world: tasks wait until their question is released or they are
@@ -40,9 +45,18 @@ struct World {
     recent: Mutex<Vec<ConversationSummary>>,
     interrupted: Mutex<Vec<(String, Origin, String)>>,
     requests: Mutex<Vec<(String, remote::Verb)>>,
+    /// Where job workspaces go.
+    workspaces: std::path::PathBuf,
 }
 
 const START: u64 = 1_000_000;
+static NEXT_WORLD: AtomicU64 = AtomicU64::new(0);
+
+impl Drop for World {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.workspaces);
+    }
+}
 
 impl World {
     fn new(max_parallel: u32) -> Arc<Self> {
@@ -66,6 +80,11 @@ impl World {
             recent: Mutex::default(),
             interrupted: Mutex::default(),
             requests: Mutex::default(),
+            workspaces: std::env::temp_dir().join(format!(
+                "hex-runner-{}-{}",
+                std::process::id(),
+                NEXT_WORLD.fetch_add(1, Ordering::Relaxed)
+            )),
         })
     }
 
@@ -101,6 +120,31 @@ impl World {
                     reason: "You've hit your session limit".into(),
                     until_ms,
                 };
+            }
+            Script::Escalate if job.workspace.is_none() => {
+                return Outcome::Escalate {
+                    title: "Supplier research".into(),
+                    reply: "On it: 50 suppliers and a sheet.".into(),
+                };
+            }
+            Script::Ask(question) => {
+                let workspace = job.workspace.clone().expect("a job has a workspace");
+                if let JobKind::Answer { .. } = job.kind {
+                    std::fs::write(
+                        workspace.join("plan.md"),
+                        "- [x] Ask the person\n- [x] Do it\n",
+                    )
+                    .unwrap();
+                    return Outcome::Answer(format!("done with {}", job.request.text));
+                }
+                std::fs::write(
+                    workspace.join("plan.md"),
+                    "# Plan\n- [x] Ask the person\n- [ ] Do it\n",
+                )
+                .unwrap();
+                // Long enough for the monitor to see the plan.
+                std::thread::sleep(Duration::from_millis(400));
+                return Outcome::Question(question.into());
             }
             Script::Stream(pieces) => {
                 for piece in &pieces {
@@ -153,8 +197,13 @@ impl World {
             world(self),
             world(self),
         );
-        let (recent, interrupted, prewarm, requests) =
-            (world(self), world(self), world(self), world(self));
+        let (recent, interrupted, prewarm, requests, workspaces) = (
+            world(self),
+            world(self),
+            world(self),
+            world(self),
+            world(self),
+        );
         let runner = Runner::new(Hooks {
             execute: Box::new(move |job, control, emit| execute.execute(job, control, emit)),
             settings: Box::new(move || {
@@ -168,8 +217,8 @@ impl World {
                 Some("S1".into())
             }),
             end_session: Box::new(move |id| end.log(format!("end session {id}"))),
-            style_agent: Box::new(move |session, agent, colour| {
-                style.log(format!("style {session} {agent} {colour}"));
+            style_agent: Box::new(move |session, agent, colour, label| {
+                style.log(format!("style {session} {agent} {colour} {label:?}"));
             }),
             speak: Box::new(move |text, _| speak.spoken.lock().unwrap().push(text.to_owned())),
             speaking: Box::new(|| false),
@@ -203,6 +252,11 @@ impl World {
                 ));
             }),
             requests: Box::new(move || std::mem::take(&mut *requests.requests.lock().unwrap())),
+            make_workspace: Box::new(move |title| {
+                crate::assistant::agent::workspace::create(&workspaces.workspaces, title, START)
+                    .ok()
+            }),
+            workspace_of: Box::new(|_| None),
         });
         let events = Arc::clone(self);
         runner.subscribe(Box::new(move |event| {
@@ -418,7 +472,10 @@ fn speaking_into_a_running_task_steers_it_in_the_same_conversation() {
             text: "answer to use Friday instead".into()
         }]
     );
-    assert_eq!(world.count(|event| matches!(event, Event::Started { .. })), 2);
+    assert_eq!(
+        world.count(|event| matches!(event, Event::Started { .. })),
+        2
+    );
 }
 
 #[test]
@@ -427,8 +484,13 @@ fn a_request_naming_a_running_task_is_routed_to_it() {
     let runner = world.runner();
     let mail = runner.submit(request("Antworte Anna auf ihre Mail", Origin::Background));
     let invoice = runner.submit(request("Lade die Hetzner Rechnung", Origin::Background));
-    world.wait_for("both", |events| started(&mail)(events) && started(&invoice)(events));
-    let routed = runner.submit(request("bei der Anna-Aufgabe nimm Freitag", Origin::ActionShortcut));
+    world.wait_for("both", |events| {
+        started(&mail)(events) && started(&invoice)(events)
+    });
+    let routed = runner.submit(request(
+        "bei der Anna-Aufgabe nimm Freitag",
+        Origin::ActionShortcut,
+    ));
     assert_eq!(routed, mail);
     world.wait_until("the steered run", || world.jobs.lock().unwrap().len() == 3);
     // Anything else starts a new task that knows what else is going on.
@@ -437,7 +499,10 @@ fn a_request_naming_a_running_task_is_routed_to_it() {
     world.wait_until("the new task", || world.jobs.lock().unwrap().len() == 4);
     let job = world.jobs.lock().unwrap()[3].clone();
     let digest = job.digest.unwrap();
-    assert!(digest.contains("“Lade die Hetzner Rechnung” (background)"), "{digest}");
+    assert!(
+        digest.contains("“Lade die Hetzner Rechnung” (background)"),
+        "{digest}"
+    );
     runner.cancel_all();
     world.wait_for("all to stop", |events| {
         [&mail, &invoice, &other].iter().all(|id| ended(id)(events))
@@ -460,7 +525,14 @@ fn the_frame_shows_while_background_work_runs_with_one_desktop_session() {
     world.wait_until("its job", || world.jobs.lock().unwrap().len() == 2);
     let job = world.jobs.lock().unwrap()[1].clone();
     assert_eq!(job.desktop_session.as_deref(), Some("S1"));
-    assert!(world.logged(&format!("style S1 {} 1", job.agent_id)));
+    assert!(world.logged(&format!("style S1 {} 1 None", job.agent_id)));
+    // Its cursor's label follows its steps.
+    world.wait_until("the label", || {
+        world.logged(&format!(
+            "style S1 {} 1 Some(\"Working on first\")",
+            job.agent_id
+        ))
+    });
 
     world.release("first");
     world.wait_for("the queued task", started(&queued));
@@ -481,7 +553,9 @@ fn the_frame_shows_while_background_work_runs_with_one_desktop_session() {
     world.wait_for("another", started(&more));
     runner.cancel_all();
     world.wait_for("it to stop", ended(&more));
-    world.wait_until("the frame off again", || world.modes() == [true, false, true, false]);
+    world.wait_until("the frame off again", || {
+        world.modes() == [true, false, true, false]
+    });
 }
 
 #[test]
@@ -576,7 +650,8 @@ fn a_task_running_too_long_fails_with_a_clear_message() {
     assert!(!ended(&id)(&world.events.lock().unwrap()));
     world.advance(31 * 60_000);
     world.wait_for("the timeout", ended(&id));
-    let message = "Stopped after 30 minutes: a task may run at most 30 minutes (Settings › Assistant).";
+    let message =
+        "Stopped after 30 minutes: a task may run at most 30 minutes (Settings › Assistant).";
     assert_eq!(
         world.finals(),
         [Event::Failed {
@@ -595,7 +670,9 @@ fn a_usage_limit_waits_for_its_reset_then_retries() {
     let runner = world.runner();
     let id = runner.submit(request("busy", Origin::Background));
     world.wait_for("the wait", |events| {
-        events.iter().any(|event| matches!(event, Event::Waiting { .. }))
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Waiting { .. }))
     });
     assert_eq!(
         runner.tasks()[0].state,
@@ -629,13 +706,18 @@ fn a_limit_without_a_reset_backs_off_and_stopping_while_waiting_cleans_up() {
     let runner = world.runner();
     let id = runner.submit(request("busy", Origin::Chat));
     world.wait_for("the wait", |events| {
-        events.iter().any(|event| {
-            matches!(event, Event::Waiting { until_ms, .. } if *until_ms == START + 60_000)
-        })
+        events.iter().any(
+            |event| matches!(event, Event::Waiting { until_ms, .. } if *until_ms == START + 60_000),
+        )
     });
     runner.cancel(&id);
     world.wait_for("the end", ended(&id));
-    assert_eq!(world.finals(), [Event::Cancelled { conversation: id.clone() }]);
+    assert_eq!(
+        world.finals(),
+        [Event::Cancelled {
+            conversation: id.clone()
+        }]
+    );
     assert!(world.logged(&format!("settle {id} Cancelled Stopped.")));
     assert!(world.logged(&format!("release {id}")));
     assert_eq!(backoff(1), 60_000);
@@ -717,7 +799,9 @@ fn a_here_answer_is_read_aloud_sentence_by_sentence() {
     let runner = world.runner();
     let id = runner.submit(request("time", Origin::ActionShortcut));
     world.wait_for("the answer", ended(&id));
-    world.wait_until("all of it spoken", || world.spoken.lock().unwrap().len() == 3);
+    world.wait_until("all of it spoken", || {
+        world.spoken.lock().unwrap().len() == 3
+    });
     assert_eq!(
         *world.spoken.lock().unwrap(),
         [
@@ -757,7 +841,12 @@ fn prewarm_reserves_the_next_requests_conversation_and_agent() {
     });
     runner.prewarm(Lane::Here, window.clone());
     world.wait_until("the prewarm", || {
-        world.log.lock().unwrap().iter().any(|line| line.starts_with("prewarm"))
+        world
+            .log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|line| line.starts_with("prewarm"))
     });
     let (id, agent) = {
         let state = runner.state();
@@ -822,4 +911,166 @@ fn nothing_runs_while_the_assistant_is_off_or_not_set_up() {
     );
     assert!(runner.tasks().is_empty());
     assert!(world.modes().is_empty());
+}
+
+#[test]
+fn a_here_request_that_is_a_job_continues_as_a_background_job() {
+    let world = World::new(8);
+    world.script("research suppliers", Script::Escalate);
+    let runner = world.runner();
+    let id = runner.submit(request("research suppliers", Origin::ActionShortcut));
+    world.wait_for("the escalation", |events| {
+        events.contains(&Event::Escalated {
+            conversation: id.clone(),
+        })
+    });
+    world.wait_until("the job's run", || world.jobs.lock().unwrap().len() == 2);
+    let job = world.jobs.lock().unwrap()[1].clone();
+    assert_eq!(job.conversation, id);
+    assert_eq!(job.request.origin, Origin::Background);
+    assert_eq!(
+        job.kind,
+        JobKind::Job {
+            title: "Supplier research".into()
+        }
+    );
+    let workspace = job.workspace.clone().unwrap();
+    assert!(workspace.to_string_lossy().ends_with(" Supplier research"));
+    assert!(workspace.is_dir());
+    // "On it" is said, the Here run says nothing final, and the frame is on.
+    assert_eq!(
+        *world.spoken.lock().unwrap(),
+        ["On it: 50 suppliers and a sheet."]
+    );
+    assert!(world.finals().is_empty());
+    assert_eq!(world.modes(), [true]);
+    assert!(world.logged(&format!("release {id}")));
+    world.release("research suppliers");
+    world.wait_for("the job's answer", ended(&id));
+    let Event::Answer { text, origin, .. } = &world.finals()[0] else {
+        panic!("{:?}", world.finals());
+    };
+    assert_eq!(*origin, Origin::Background);
+    assert!(
+        text.ends_with(&format!("Files: {}", workspace.display())),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_plainly_long_spoken_request_goes_straight_to_the_background() {
+    let world = World::new(8);
+    let runner = world.runner();
+    let business = "I'm building my business site blabla.com. Look at it, research 50 suppliers who could list their products there, draft 50 emails in Gmail, build an Excel sheet, document everything, and share it via Google Sheets with my colleague.";
+    let id = runner.submit(request(business, Origin::ActionShortcut));
+    assert!(world.events.lock().unwrap().contains(&Event::Escalated {
+        conversation: id.clone()
+    }));
+    world.wait_until("the job", || world.jobs.lock().unwrap().len() == 1);
+    let job = world.jobs.lock().unwrap()[0].clone();
+    assert!(matches!(job.kind, JobKind::Job { .. }));
+    assert_eq!(job.request.origin, Origin::Background);
+    world.wait_until("on it", || !world.spoken.lock().unwrap().is_empty());
+    assert!(world.spoken.lock().unwrap()[0].starts_with("On it, in the background."));
+    runner.cancel(&id);
+    world.wait_for("the end", ended(&id));
+}
+
+#[test]
+fn a_job_plans_asks_once_waits_and_goes_on_with_the_answer() {
+    let world = World::new(8);
+    world.script("supplier job", Script::Ask("Who is your colleague?"));
+    // The answer's run is the same job (the fake finds it by its text).
+    world.script(
+        "Anna, anna@example.com",
+        Script::Ask("Who is your colleague?"),
+    );
+    let runner = world.runner();
+    let id = runner.submit(request("supplier job", Origin::Background));
+    world.wait_for("the question", |events| {
+        events.contains(&Event::Question {
+            conversation: id.clone(),
+            text: "Who is your colleague?".into(),
+        })
+    });
+    assert_eq!(runner.tasks()[0].state, TaskState::NeedsInput);
+    assert_eq!(
+        runner.question(&id).as_deref(),
+        Some("Who is your colleague?")
+    );
+    // Spoken, as the job was asked by voice.
+    world.wait_until("the question read aloud", || {
+        world
+            .spoken
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|line| line == "Who is your colleague?")
+    });
+    world.wait_for("the plan", |events| {
+        events.contains(&Event::Plan {
+            conversation: id.clone(),
+            steps: vec![
+                PlanStep {
+                    title: "Ask the person".into(),
+                    done: true,
+                },
+                PlanStep {
+                    title: "Do it".into(),
+                    done: false,
+                },
+            ],
+        })
+    });
+    assert_eq!(runner.plan(&id).len(), 2);
+    // The next hold continues it: focus gives the waiting job first.
+    let here = runner.submit(request("quick", Origin::ActionShortcut));
+    world.wait_for("the Here task", started(&here));
+    assert_eq!(runner.focus(120), Some(id.clone()));
+    let mut answer = request("Anna, anna@example.com", Origin::ActionShortcut);
+    answer.conversation = runner.focus(120);
+    assert_eq!(runner.submit(answer), id);
+    world.wait_for("the job's answer", ended(&id));
+    assert_eq!(
+        world.finals()[0],
+        Event::Answer {
+            conversation: id.clone(),
+            origin: Origin::Background,
+            text: format!(
+                "done with Anna, anna@example.com\n\nFiles: {}",
+                world.jobs.lock().unwrap()[0]
+                    .workspace
+                    .clone()
+                    .unwrap()
+                    .display()
+            ),
+        }
+    );
+    let jobs = world.jobs.lock().unwrap().clone();
+    let resumed = jobs
+        .iter()
+        .find(|job| matches!(job.kind, JobKind::Answer { .. }))
+        .unwrap();
+    assert_eq!(
+        resumed.kind,
+        JobKind::Answer {
+            question: "Who is your colleague?".into()
+        }
+    );
+    assert_eq!(resumed.workspace, jobs[0].workspace);
+    runner.cancel(&here);
+    world.wait_for("the Here task to stop", ended(&here));
+}
+
+#[test]
+fn a_typed_chat_question_stays_a_chat_until_the_agent_says_it_is_a_job() {
+    let world = World::new(8);
+    let runner = world.runner();
+    let id = runner.submit(request("what's 2+2", Origin::Chat));
+    world.wait_until("the run", || world.jobs.lock().unwrap().len() == 1);
+    let job = world.jobs.lock().unwrap()[0].clone();
+    assert_eq!(job.kind, JobKind::Ask);
+    assert_eq!(job.workspace, None);
+    world.release("what's 2+2");
+    world.wait_for("the answer", ended(&id));
 }
