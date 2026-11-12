@@ -14,7 +14,7 @@ use crate::desktop::events::{
     DictationPhase, EventLog, TranscriptPhase, VoiceEvent, VoiceState, now_ms,
 };
 use crate::dictation::service::{DictationQueue, Effect, MICROPHONE_LOST, ServiceDictations};
-use crate::dictation::{DictationCapture, Finish, ReleaseWait};
+use crate::dictation::{DictationCapture, DictationFlavour, Finish, ReleaseWait};
 use crate::transcription::engine::{PendingTranscript, TranscriptionEngine};
 use crate::transcription::local_transcriber::LocalTranscriber;
 use crate::transcription::models::TranscriptionSelection;
@@ -107,6 +107,11 @@ pub struct WindowsDictationConfig {
     pub annotate_hotkey: Option<WindowsHotkey>,
     /// Toggle mode's cancel shortcut; none in Hold mode.
     pub cancel_hotkey: Option<WindowsHotkey>,
+    /// The assistant's Action shortcut, while the assistant is on and it is
+    /// bound to keys no other shortcut uses.
+    pub action_hotkey: Option<WindowsHotkey>,
+    /// The assistant's Stop all tasks shortcut, under the same rule.
+    pub stop_all_hotkey: Option<WindowsHotkey>,
     pub double_tap_lock: bool,
     pub double_tap_only: bool,
     pub shortcut_mode: crate::dictation::ShortcutMode,
@@ -168,6 +173,8 @@ impl WindowsDictationConfig {
                 .capture_on()
                 .then(|| WindowsHotkey::from(&settings.capture.hotkey)),
             cancel_hotkey: settings.active_cancel_hotkey().map(WindowsHotkey::from),
+            action_hotkey: settings.active_action_hotkey().map(WindowsHotkey::from),
+            stop_all_hotkey: settings.active_stop_all_hotkey().map(WindowsHotkey::from),
             double_tap_lock: settings.double_tap_lock,
             double_tap_only: settings.double_tap_only,
             shortcut_mode: settings.shortcut_mode,
@@ -331,6 +338,12 @@ pub fn run(
 
     let mut recording = false;
     let mut recording_flavour = crate::dictation::DictationFlavour::Normal;
+    // The question the Action shortcut's press in progress asks, settled at
+    // the press; its release hands it to the capture as the print reply.
+    let mut question: Option<crate::assistant::shortcut::Question> = None;
+    // An Action shortcut press while the assistant isn't set up: nothing
+    // records, and its release may open the setup.
+    let mut unready_press: Option<CaptureInstant> = None;
     let mut recording_feedback_started = false;
     // Whether this capture's start tone already played on its press.
     let mut start_tone_played = false;
@@ -620,7 +633,7 @@ pub fn run(
         // printing stop's reply rides with the capture it finishes.
         let mut print = None;
         while finishing.is_none()
-            && let Some((action, occurred_at, deliberate, flavour)) = next_action(
+            && let Some((action, occurred_at, deliberate, flavour, after_tap)) = next_action(
                 &hotkey,
                 &mut held_event,
                 commands.as_ref(),
@@ -652,6 +665,64 @@ pub fn run(
                         host.annotate_up(&timeline);
                     }
                 }
+                // The assistant's keys act here, off the hook's thread.
+                HotkeyAction::StopAll => crate::assistant::shortcut::stop_all(),
+                HotkeyAction::AssistantEscape => crate::assistant::shortcut::escape(),
+                // The assistant isn't set up: the press records nothing, and a
+                // hold (never a tap or a chord) opens the setup as it comes up.
+                HotkeyAction::Start
+                    if flavour == DictationFlavour::Assistant
+                        && !crate::app_settings::applied_assistant_ready() =>
+                {
+                    question = None;
+                    unready_press = Some(occurred_at);
+                }
+                HotkeyAction::Finish | HotkeyAction::Cancel | HotkeyAction::DoubleTap
+                    if flavour == DictationFlavour::Assistant && unready_press.is_some() =>
+                {
+                    let pressed = unready_press.take().expect("checked above");
+                    if action == HotkeyAction::Finish {
+                        crate::assistant::shortcut::unready_release(
+                            occurred_at
+                                .checked_duration_since(pressed)
+                                .unwrap_or_default(),
+                        );
+                    }
+                }
+                // The shortcut that starts a capture owns it: the Action
+                // shortcut never finishes a dictation, nor the dictation
+                // shortcuts (or `hex dictation stop`) a question; `hex
+                // dictation cancel` still discards one.
+                HotkeyAction::Finish | HotkeyAction::Cancel | HotkeyAction::DoubleTap
+                    if (recording || start_pending)
+                        && (flavour == DictationFlavour::Assistant)
+                            != (recording_flavour == DictationFlavour::Assistant)
+                        && !(deliberate && action == HotkeyAction::Cancel) => {}
+                // The Action shortcut's second quick tap: its capture ends
+                // unheard, as a short tap's does, and the task list shows or
+                // hides.
+                HotkeyAction::DoubleTap => {
+                    let discarded = recording || start_pending;
+                    if start_pending {
+                        start_pending = false;
+                    } else if recording {
+                        crate::feedback::retract_start();
+                        recording = false;
+                        recording_feedback_started = false;
+                        capture.cancel();
+                    }
+                    question = None;
+                    if discarded {
+                        audio_suppressor.restore();
+                        if let Some(indicator) = &indicator {
+                            indicator.send(crate::rune_hud::HudEvent::Discarded);
+                        }
+                        events.dictation(DictationPhase::Discarded, "")?;
+                        emit_current_state(&mut events, recording, pending, &device_label)?;
+                        release_microphone!();
+                    }
+                    crate::assistant::shortcut::double_tap();
+                }
                 // A failed stream keeps its backoff; the press asks for the
                 // microphone now, though it cannot capture until it opens.
                 HotkeyAction::Start
@@ -663,6 +734,10 @@ pub fn run(
                     if !recording && (audio_ready || (release_while_idle && !start_pending)) =>
                 {
                     recording_flavour = flavour;
+                    // Reads nothing yet: a chord (right Ctrl+C) or a short tap
+                    // is discarded before the hold is real.
+                    question = (flavour == DictationFlavour::Assistant)
+                        .then(|| crate::assistant::shortcut::press(after_tap));
                     if audio_ready {
                         capture.start_hotkey_at(
                             occurred_at,
@@ -670,8 +745,10 @@ pub fn run(
                         );
                         recording = true;
                         // A toggle press or a `hex` command is deliberate, so
-                        // it streams at once.
-                        recording_feedback_started = toggle_mode || deliberate;
+                        // it streams at once; the Action shortcut is always
+                        // held.
+                        recording_feedback_started =
+                            (toggle_mode && flavour != DictationFlavour::Assistant) || deliberate;
                         if recording_feedback_started {
                             audio_suppressor.suppress();
                         }
@@ -693,11 +770,18 @@ pub fn run(
                     }
                     if let Some(indicator) = &indicator {
                         indicator.send(crate::rune_hud::HudEvent::Started);
+                        // The HUD wears the assistant's colours (and after a
+                        // tap says "New task"), so a question never looks like
+                        // a dictation.
+                        if flavour == DictationFlavour::Assistant {
+                            indicator.send(crate::rune_hud::HudEvent::Asking { agent: after_tap });
+                        }
                     }
                     events.dictation(DictationPhase::Started, "")?;
                     emit_state(&mut events, VoiceState::Dictating, &device_label)?;
                 }
                 HotkeyAction::Finish | HotkeyAction::Cancel if start_pending => {
+                    question = None;
                     // Released before the opening microphone produced audio:
                     // nothing was captured, so treat it as a discard.
                     start_pending = false;
@@ -727,6 +811,7 @@ pub fn run(
                 HotkeyAction::Finish if recording => {
                     audio_suppressor.restore();
                     if !recording_feedback_started && capture.become_intentional(occurred_at) {
+                        intend(&mut question);
                         if !start_tone_played {
                             crate::feedback::play(crate::feedback::Tone::DictationStart);
                         }
@@ -739,13 +824,20 @@ pub fn run(
                     }
                     recording = false;
                     recording_feedback_started = false;
+                    // A question's words go to the assistant, never pasted.
+                    let reply = if recording_flavour == DictationFlavour::Assistant {
+                        question.take().map(crate::assistant::shortcut::reply)
+                    } else {
+                        print.take()
+                    };
                     finishing = Some(Finishing {
                         flavour: recording_flavour,
-                        print: print.take(),
+                        print: reply,
                         ..begin_finishing(&capture, occurred_at)
                     });
                 }
                 HotkeyAction::Cancel if recording => {
+                    question = None;
                     audio_suppressor.restore();
                     crate::feedback::retract_start();
                     if recording_feedback_started {
@@ -832,6 +924,19 @@ pub fn run(
         // latch-based sites never did.
         release_microphone!();
 
+        // Escape is the assistant's only while nothing records and a Here
+        // task runs or an answer is read aloud.
+        crate::windows::input::set_assistant_claims_escape(
+            crate::assistant::shortcut::claims_escape(
+                shortcuts.action_hotkey.is_some(),
+                !recording
+                    && !start_pending
+                    && finishing.is_none()
+                    && !service.is_active()
+                    && !timeline.wants_audio(),
+            ),
+        );
+
         let idle = !recording
             && !start_pending
             && finishing.is_none()
@@ -886,7 +991,8 @@ pub fn run(
                         );
                         recording = true;
                         // The released microphone is ready only now.
-                        recording_feedback_started = toggle_mode;
+                        recording_feedback_started =
+                            toggle_mode && recording_flavour != DictationFlavour::Assistant;
                         start_tone_played = recording_feedback_started;
                         if recording_feedback_started {
                             crate::feedback::play(crate::feedback::Tone::DictationStart);
@@ -930,7 +1036,13 @@ pub fn run(
                     if let Some(indicator) = &indicator {
                         indicator.meter(&samples);
                     }
-                    if capture.become_intentional(captured_through) && !recording_feedback_started {
+                    let became_intentional = capture.become_intentional(captured_through);
+                    // The hold is real: the question reads the desktop and
+                    // the assistant warms up, once.
+                    if became_intentional {
+                        intend(&mut question);
+                    }
+                    if became_intentional && !recording_feedback_started {
                         if !start_tone_played {
                             crate::feedback::play(crate::feedback::Tone::DictationStart);
                         }
@@ -964,6 +1076,7 @@ pub fn run(
                     );
                     service.lost(MICROPHONE_LOST);
                 } else if recording {
+                    question = None;
                     audio_suppressor.restore();
                     crate::feedback::retract_start();
                     recording_feedback_started = false;
@@ -1016,6 +1129,7 @@ pub fn run(
         }
     }
 
+    crate::windows::input::set_assistant_claims_escape(false);
     if recording || finishing.is_some() {
         capture.cancel();
         events.dictation(DictationPhase::Cancelled, "")?;
@@ -1048,6 +1162,9 @@ fn process_dictation_job(
 ) -> JobResult {
     let started = Instant::now();
     let printed = job.print.is_some();
+    // The Action shortcut's question: processed like a paste, then handed
+    // to its reply only.
+    let asks = job.flavour == crate::dictation::DictationFlavour::Assistant;
     // The context read starts now so the UIA walk overlaps inference.
     let reads_page = !job.flavour.raw()
         && mode_runtime
@@ -1091,8 +1208,9 @@ fn process_dictation_job(
         if text.trim().is_empty() {
             return Err("text replacements produced empty output".into());
         }
-        // A printed dictation is never pasted, and Paste Last skips it.
-        if !printed {
+        // A printed dictation is never pasted, and Paste Last skips it; nor
+        // is a question, whatever became of its reply.
+        if !printed && !asks {
             let paster = paster.as_mut().map_err(|error| format!("{error:#}"))?;
             // Labs › Copy dictation only, read as the output commits:
             // dictations go to the clipboard unpasted; Paste Last still pastes.
@@ -1109,7 +1227,8 @@ fn process_dictation_job(
                 .lock()
                 .unwrap_or_else(|error| error.into_inner()) = Some(text.clone());
         }
-        if let Some(history) = history {
+        // The assistant's conversation keeps a question, not History.
+        if let Some(history) = history.filter(|_| !asks) {
             let mut draft = crate::dictation::modes::history_draft(
                 raw_text,
                 &processed,
@@ -1239,8 +1358,9 @@ fn resolve_device_name(query: &str) -> Result<String> {
 
 /// The next shortcut event or `hex` command, as the action the loop takes,
 /// when it occurred, whether it was deliberate (a command records at once,
-/// like a toggle press), and the shortcut's flavour. A printing stop leaves
-/// its reply in `print`.
+/// like a toggle press), the shortcut's flavour, and whether an Action
+/// shortcut press followed a tap. A printing stop leaves its reply in
+/// `print`.
 fn next_action(
     hotkey: &WindowsHotkeyMonitor,
     held: &mut Option<crate::windows::input::HotkeyEvent>,
@@ -1253,6 +1373,7 @@ fn next_action(
     CaptureInstant,
     bool,
     crate::dictation::DictationFlavour,
+    bool,
 )> {
     if let Some(event) = held.take().or_else(|| hotkey.events.try_recv().ok()) {
         return Some((
@@ -1260,6 +1381,7 @@ fn next_action(
             event.occurred_at(captured_through),
             false,
             event.flavour,
+            event.after_tap,
         ));
     }
     let (action, flavour) = match commands?.try_recv().ok()? {
@@ -1289,7 +1411,17 @@ fn next_action(
             )
         }
     };
-    Some((action, captured_through, true, flavour))
+    Some((action, captured_through, true, flavour, false))
+}
+
+/// The Action shortcut's hold became real: its question starts reading the
+/// desktop, and the assistant warms its lane, once.
+fn intend(question: &mut Option<crate::assistant::shortcut::Question>) {
+    if let Some(question) = question
+        && question.intend()
+    {
+        crate::assistant::service::prewarm(question.lane());
+    }
 }
 
 /// Starts a client's dictation, which counts at once (no hold threshold),

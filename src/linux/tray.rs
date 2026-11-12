@@ -227,7 +227,12 @@ fn perform(host: &HostHandle, published: &Published, command: TrayCommand) {
         }
         TrayCommand::CopyLastMeeting => crate::meeting::runtime::copy_last_transcript()
             .map_err(|error| color_eyre::eyre::eyre!(error)),
-        TrayCommand::Show | TrayCommand::Quit => Ok(()),
+        // The assistant's items aren't in Linux's tray yet (`view` leaves
+        // them out).
+        TrayCommand::Show
+        | TrayCommand::Quit
+        | TrayCommand::OpenChats
+        | TrayCommand::StopAllTasks => Ok(()),
     };
     if let Err(error) = result {
         tracing::warn!(
