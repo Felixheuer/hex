@@ -90,6 +90,12 @@ pub enum AssistantCommand {
         #[arg(long)]
         task: String,
     },
+    /// Closes every hidden browser a task opened.
+    #[command(hide = true)]
+    BrowserClose {
+        #[arg(long)]
+        task: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -173,6 +179,10 @@ pub fn run(command: AssistantCommand) -> u8 {
         AssistantCommand::Key => key().map(|()| true),
         AssistantCommand::Mcp { spec } => super::guard::serve(&spec).map(|()| true),
         AssistantCommand::BrowserMcp { task } => super::browser::serve(&task).map(|()| true),
+        AssistantCommand::BrowserClose { task } => {
+            super::browser::close(&task);
+            Ok(true)
+        }
     };
     match result {
         Ok(true) => 0,

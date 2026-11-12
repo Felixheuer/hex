@@ -35,6 +35,8 @@ pub enum Tool {
     Agent(AssistantBackend),
     AgentDesktop,
     AgentBrowser,
+    /// The light engine for clean browsers.
+    Lightpanda,
 }
 
 impl Tool {
@@ -43,6 +45,7 @@ impl Tool {
             Self::Agent(backend) => name(backend),
             Self::AgentDesktop => "agent-desktop",
             Self::AgentBrowser => "agent-browser",
+            Self::Lightpanda => "Lightpanda",
         }
     }
 
@@ -52,16 +55,17 @@ impl Tool {
             Self::Agent(backend) => super::program(backend),
             Self::AgentDesktop => Some("agent-desktop"),
             Self::AgentBrowser => Some("agent-browser"),
+            Self::Lightpanda => Some("lightpanda"),
         }
     }
 
-    /// `brew install` arguments.
+    /// `brew install` arguments (none: not in Homebrew).
     fn brew(self) -> &'static [&'static str] {
         match self {
             Self::Agent(AssistantBackend::ClaudeCode) => &["--cask", "claude-code"],
             Self::Agent(AssistantBackend::Codex) => &["--cask", "codex"],
             Self::Agent(AssistantBackend::OpenCode) => &["anomalyco/tap/opencode-v2"],
-            Self::Agent(AssistantBackend::ClaudeApi) => &[],
+            Self::Agent(AssistantBackend::ClaudeApi) | Self::Lightpanda => &[],
             Self::AgentDesktop => &["agent-desktop"],
             Self::AgentBrowser => &["agent-browser"],
         }
@@ -73,7 +77,7 @@ impl Tool {
             Self::Agent(AssistantBackend::ClaudeCode) => Some("@anthropic-ai/claude-code"),
             Self::Agent(AssistantBackend::Codex) => Some("@openai/codex"),
             Self::Agent(AssistantBackend::OpenCode) => Some("@opencode/cli"),
-            Self::Agent(AssistantBackend::ClaudeApi) => None,
+            Self::Agent(AssistantBackend::ClaudeApi) | Self::Lightpanda => None,
             Self::AgentDesktop => Some("agent-desktop"),
             Self::AgentBrowser => Some("agent-browser"),
         }
@@ -91,6 +95,14 @@ impl Tool {
             Self::Agent(AssistantBackend::OpenCode) => {
                 Some("curl -fsSL https://opencode.ai/v2/install | bash")
             }
+            // Its installer checks the download's checksum (with jq, part
+            // of macOS since 15); given no version it takes the nightly, so
+            // it gets the latest release's tag.
+            Self::Lightpanda => Some(
+                "curl -fsSL https://pkg.lightpanda.io/install.sh | bash -s \"$(curl -fsSL \
+                 https://api.github.com/repos/lightpanda-io/browser/releases/latest | jq -r \
+                 .tag_name)\"",
+            ),
             _ => None,
         }
     }
@@ -102,6 +114,7 @@ impl Tool {
             Fix::Install(backend) => Some(Self::Agent(backend)),
             Fix::InstallAgentDesktop => Some(Self::AgentDesktop),
             Fix::InstallAgentBrowser => Some(Self::AgentBrowser),
+            Fix::InstallLightpanda => Some(Self::Lightpanda),
             _ => None,
         }
     }
@@ -205,7 +218,7 @@ pub fn plan(tool: Tool, here: &Installers) -> Plan {
             _ => Plan::Ready,
         };
     }
-    let package = if let Some(brew) = &here.brew {
+    let package = if let Some(brew) = here.brew.as_ref().filter(|_| !tool.brew().is_empty()) {
         let mut args = vec!["install"];
         args.extend(tool.brew());
         Step::new(brew.to_string_lossy(), &args)
@@ -336,6 +349,7 @@ pub fn apply_fix_with(fix: Fix, mut progress: impl FnMut(&str)) -> Result<()> {
         Fix::Install(backend) => install(Tool::Agent(backend), progress),
         Fix::InstallAgentDesktop => install(Tool::AgentDesktop, progress),
         Fix::InstallAgentBrowser => install(Tool::AgentBrowser, progress),
+        Fix::InstallLightpanda => install(Tool::Lightpanda, progress),
         Fix::SignIn(backend) => {
             sign_in(backend)?;
             progress(&format!(
@@ -533,6 +547,22 @@ mod tests {
         assert!(why.starts_with("Homebrew isn't installed"), "{why}");
         assert!(command.starts_with("/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""));
         assert!(command.ends_with("&& brew install agent-browser && agent-browser install"));
+    }
+
+    #[test]
+    fn lightpanda_always_uses_its_own_installer() {
+        for here in [here(true, true), here(false, false)] {
+            let steps = lines(plan(Tool::Lightpanda, &here));
+            assert_eq!(steps.len(), 1);
+            assert!(
+                steps[0].starts_with(
+                    "/bin/bash -c 'curl -fsSL https://pkg.lightpanda.io/install.sh | bash -s"
+                ),
+                "{steps:?}"
+            );
+            assert!(steps[0].contains("releases/latest"));
+        }
+        assert_eq!(Tool::of(Fix::InstallLightpanda), Some(Tool::Lightpanda));
     }
 
     #[test]

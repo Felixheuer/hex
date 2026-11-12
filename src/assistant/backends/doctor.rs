@@ -43,7 +43,11 @@ pub fn run(doctor: Doctor) -> color_eyre::Result<()> {
         .into_iter()
         .filter(|backend| *backend != crate::app_settings::AssistantBackend::ClaudeApi)
         .map(super::Tool::Agent)
-        .chain([super::Tool::AgentDesktop, super::Tool::AgentBrowser])
+        .chain([
+            super::Tool::AgentDesktop,
+            super::Tool::AgentBrowser,
+            super::Tool::Lightpanda,
+        ])
     {
         let plan = super::plan(tool, &super::Installers::here(tool));
         println!("install plan for {}: {plan:?}", tool.name());
@@ -118,7 +122,7 @@ pub fn run(doctor: Doctor) -> color_eyre::Result<()> {
                 super::Check::DesktopRoundTrip,
             ]
         };
-        checks.push(super::Check::BrowserRoundTrip);
+        checks.extend([super::Check::BrowserRoundTrip, super::Check::LightBrowser]);
         if doctor.browser {
             // Hex's own MCP path, as the Claude API's tasks use it, then
             // each agent that is ready (a tiny prompt each).
