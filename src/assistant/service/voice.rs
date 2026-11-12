@@ -77,6 +77,11 @@ pub(super) fn set_spoken_announcements(on: bool) {
     SPOKEN.store(on, Ordering::Release);
 }
 
+/// Whether questions and summaries are read aloud now.
+pub(super) fn spoken_announcements() -> bool {
+    SPOKEN.load(Ordering::Acquire)
+}
+
 /// The next line to read from `items`, taken out of it: the most urgent,
 /// oldest first; more than [`COLLAPSE_OVER`] finished jobs become one line
 /// ("Drei Aufgaben sind fertig: A, B und C.").

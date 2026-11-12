@@ -7,7 +7,7 @@
 use std::time::{Duration, Instant};
 
 use crate::assistant::{
-    ConversationId, Event, Origin, PlanStep, TaskState, TaskStatus, TaskWindow,
+    ConversationId, Event, Origin, PlanStep, TaskState, TaskStatus, TaskWindow, WaitingQuestion,
 };
 
 use super::palette::COLOURS;
@@ -243,6 +243,24 @@ pub(crate) struct Outlined {
     pub(crate) progress: Option<(usize, usize)>,
 }
 
+/// The question the orb's bubble shows: the inbox's active one.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Asking {
+    pub(crate) id: ConversationId,
+    /// Its task's title, for "… asks".
+    pub(crate) title: String,
+    pub(crate) question: String,
+    pub(crate) colour: u8,
+}
+
+/// The service's inbox as last told (`Event::QuestionsChanged`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct InboxView {
+    pub(crate) active: Option<WaitingQuestion>,
+    /// Questions behind the active one.
+    pub(crate) waiting: usize,
+}
+
 /// Every task the overlays know of, oldest first, and the bubbles that pop
 /// from the orb about them.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -251,6 +269,12 @@ pub(crate) struct Board {
     pub(crate) pops: Pops,
     /// Questions asked so far, to order them newest first.
     asked: u64,
+    /// The inbox, once the service told it; before that the newest question
+    /// stands for the active one.
+    pub(crate) inbox: Option<InboxView>,
+    /// The active question whose bubble the person put away (×); it comes
+    /// back when another becomes active.
+    hidden: Option<ConversationId>,
 }
 
 impl Board {
@@ -277,6 +301,8 @@ impl Board {
             tasks,
             pops: Pops::default(),
             asked: 0,
+            inbox: None,
+            hidden: None,
         }
     }
 
@@ -419,9 +445,21 @@ impl Board {
                 // The Here question continues as a Background task.
                 set(&mut task.origin, Origin::Background)
             }),
-            Event::ConversationsChanged
-            | Event::ModeChanged { .. }
-            | Event::QuestionsChanged { .. } => false,
+            Event::QuestionsChanged { active, waiting } => {
+                let view = InboxView {
+                    active: active.clone(),
+                    waiting: *waiting,
+                };
+                let id = |view: Option<&InboxView>| {
+                    view.and_then(|view| view.active.as_ref())
+                        .map(|active| active.conversation.clone())
+                };
+                if id(self.inbox.as_ref()) != id(Some(&view)) {
+                    self.hidden = None;
+                }
+                set(&mut self.inbox, Some(view))
+            }
+            Event::ConversationsChanged | Event::ModeChanged { .. } => false,
         }
     }
 
@@ -514,8 +552,58 @@ impl Board {
     /// Puts away `id`'s question bubble (it still waits for the answer);
     /// whether one was up.
     pub(crate) fn dismiss_question(&mut self, id: &str) -> bool {
+        if self.inbox.is_some() {
+            let active = self.active_question().is_some_and(|asking| asking.id == id);
+            if active {
+                self.hidden = Some(id.to_owned());
+            }
+            return active;
+        }
         self.task_mut(id)
             .is_some_and(|task| task.question.take().is_some())
+    }
+
+    /// The question the orb's bubble shows: the inbox's active one (a
+    /// Background task's), unless the person put it away; before the
+    /// service told the inbox, the newest question.
+    pub(crate) fn active_question(&self) -> Option<Asking> {
+        let asking = match &self.inbox {
+            Some(inbox) => {
+                let active = inbox.active.as_ref()?;
+                let task = self.task(&active.conversation);
+                if task.is_some_and(|task| task.origin != Origin::Background) {
+                    return None;
+                }
+                Asking {
+                    id: active.conversation.clone(),
+                    title: task.map_or_else(|| shorten(&active.title), |task| task.title.clone()),
+                    question: active.question.trim().to_owned(),
+                    colour: task.map_or(0, |task| task.colour),
+                }
+            }
+            None => {
+                let task = self
+                    .questions()
+                    .into_iter()
+                    .find(|task| task.origin == Origin::Background)?;
+                Asking {
+                    id: task.id.clone(),
+                    title: task.title.clone(),
+                    question: task.question.clone().unwrap_or_default(),
+                    colour: task.colour,
+                }
+            }
+        };
+        (self.hidden.as_deref() != Some(asking.id.as_str())).then_some(asking)
+    }
+
+    /// Every question waiting on the person, the active one included: the
+    /// orb's badge.
+    pub(crate) fn open_questions(&self) -> usize {
+        match &self.inbox {
+            Some(inbox) => inbox.waiting + usize::from(inbox.active.is_some()),
+            None => self.questions().len(),
+        }
     }
 
     pub(crate) fn task(&self, id: &str) -> Option<&Task> {

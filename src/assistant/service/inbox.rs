@@ -163,23 +163,6 @@ impl Runner {
                 Some(conversation)
             }
             Route::Defer => {
-                let now = self.now();
-                {
-                    let mut state = self.state();
-                    // Behind every other question, even within a millisecond.
-                    let last = state.tasks.iter().filter_map(|task| task.asked_ms).max();
-                    let now = last.map_or(now, |last| now.max(last + 1));
-                    if let Some(task) = state
-                        .tasks
-                        .iter_mut()
-                        .find(|task| task.status.conversation == conversation)
-                    {
-                        task.asked_ms = Some(now);
-                    }
-                    if state.last_addressed.as_deref() == Some(conversation.as_str()) {
-                        state.last_addressed = None;
-                    }
-                }
                 let line = if german {
                     "Okay, später."
                 } else {
@@ -187,10 +170,33 @@ impl Runner {
                 };
                 self.voice
                     .announce(self, Priority::Answer, &conversation, "", line);
-                self.questions_changed();
+                self.defer(&conversation);
                 Some(conversation)
             }
         }
+    }
+
+    /// Puts `conversation`'s question behind every other one, and brings
+    /// up the next (`Event::QuestionsChanged`).
+    pub(crate) fn defer(self: &Arc<Self>, conversation: &str) {
+        let now = self.now();
+        {
+            let mut state = self.state();
+            // Behind every other question, even within a millisecond.
+            let last = state.tasks.iter().filter_map(|task| task.asked_ms).max();
+            let now = last.map_or(now, |last| now.max(last + 1));
+            if let Some(task) = state
+                .tasks
+                .iter_mut()
+                .find(|task| task.status.conversation == conversation)
+            {
+                task.asked_ms = Some(now);
+            }
+            if state.last_addressed.as_deref() == Some(conversation) {
+                state.last_addressed = None;
+            }
+        }
+        self.questions_changed();
     }
 }
 
