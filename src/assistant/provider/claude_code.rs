@@ -379,6 +379,7 @@ impl Stream {
                         self.tools.insert(id.to_owned(), name.to_owned());
                     }
                     let input = block.get("input").cloned().unwrap_or(Value::Null);
+                    report(Report::tool(name, &input));
                     for item in self.describer.call(name, &input) {
                         report(item);
                     }

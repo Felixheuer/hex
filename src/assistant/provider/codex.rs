@@ -114,9 +114,21 @@ impl Stream {
                     report(Report::Session(thread.to_owned()));
                 }
             }
+            // Its shell commands and file changes, for the audit log.
+            Some("item.started")
+                if matches!(item_type, Some("command_execution" | "file_change")) =>
+            {
+                let input = item
+                    .get("command")
+                    .or_else(|| item.get("changes"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                report(Report::tool(item_type.unwrap_or_default(), &input));
+            }
             Some("item.started") if item_type == Some("mcp_tool_call") => {
                 let tool = item.get("tool").and_then(Value::as_str).unwrap_or_default();
                 let args = item.get("arguments").cloned().unwrap_or(Value::Null);
+                report(Report::tool(tool, &args));
                 for item in self.describer.call(tool, &args) {
                     report(item);
                 }

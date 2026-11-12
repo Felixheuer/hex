@@ -24,6 +24,12 @@ pub enum AssistantCommand {
         #[arg(long)]
         reset: bool,
     },
+    /// Every tool call a conversation's agent made (shell commands, files,
+    /// clicks, pages, messages), as a timeline.
+    Audit {
+        /// The conversation's id (`hex assistant conversations`).
+        id: String,
+    },
     /// Ask one question and print what happens until it's answered.
     Ask {
         text: String,
@@ -228,6 +234,10 @@ pub fn run(command: AssistantCommand) -> u8 {
         }),
         AssistantCommand::Resume { id } => resume(&id),
         AssistantCommand::StopAll => send(remote::ALL, remote::Verb::Stop),
+        AssistantCommand::Audit { id } => {
+            print!("{}", super::audit::report(&super::audit::read(&id)));
+            Ok(true)
+        }
         AssistantCommand::BargeIn { reset } => {
             if reset {
                 super::interaction::tuning::reset();

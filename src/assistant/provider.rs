@@ -291,6 +291,22 @@ pub enum Report {
     Delta(String),
     /// The backend's session id, to continue the conversation later.
     Session(String),
+    /// A tool the agent calls, for the audit log (`assistant::audit`): its
+    /// name and its arguments, compact with secrets blanked.
+    Tool {
+        name: String,
+        input: String,
+    },
+}
+
+impl Report {
+    /// A call of `name` with `input`, for the audit log.
+    pub fn tool(name: &str, input: &serde_json::Value) -> Self {
+        Self::Tool {
+            name: name.to_owned(),
+            input: crate::assistant::audit::compact(input),
+        }
+    }
 }
 
 /// How a backend finished.

@@ -310,6 +310,7 @@ fn run_tools(
             .and_then(Value::as_str)
             .unwrap_or_default();
         let input = block.get("input").cloned().unwrap_or_else(|| json!({}));
+        report(Report::tool(name, &input));
         for item in describer.call(name, &input) {
             report(item);
         }

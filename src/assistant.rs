@@ -27,6 +27,7 @@
 #![allow(unused_imports)]
 
 pub mod agent;
+pub mod audit;
 pub mod autonomy;
 pub mod backends;
 pub mod browser;

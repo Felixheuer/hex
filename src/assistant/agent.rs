@@ -586,6 +586,15 @@ fn run_backend(
                 });
             }
         }
+        Report::Tool { name, input } => crate::assistant::audit::record(
+            id,
+            &crate::assistant::audit::Entry {
+                at_ms: crate::assistant::store::now_ms(),
+                tool: name,
+                input,
+                check: seen.quiet,
+            },
+        ),
         Report::Session(session) => {
             if stored.sessions.get(key) != Some(&session) {
                 stored.sessions.insert(key.to_owned(), session);
