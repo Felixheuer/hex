@@ -464,8 +464,10 @@ fn welcome(ui: &Ui, p: Paint) -> El {
             p,
             "background",
             &SPARKLES,
-            &tr_fill("Tap, then hold {} for a background task", &shortcut),
-            tr("Many run at once in windows of their own, while a frame circles the screen"),
+            &tr_fill("Hold {} and give it a bigger job", &shortcut),
+            tr(
+                "It decides on its own to work in the background. Many jobs run at once while a frame circles the screen",
+            ),
             p.muted(),
             el().key("none"),
         ),

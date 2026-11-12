@@ -137,6 +137,7 @@ impl World {
                 return Outcome::Escalate {
                     title: "Supplier research".into(),
                     reply: "On it: 50 suppliers and a sheet.".into(),
+                    more: Vec::new(),
                 };
             }
             Script::Ask(question) => {

@@ -822,8 +822,11 @@ pub(crate) fn run(
                         HotkeyEvent::Ask { after_tap } => {
                             // Settles the lane; the desktop is read only
                             // once the hold is real.
-                            question = Some(ask::press(after_tap));
-                            (DictationFlavour::Assistant, Some(after_tap))
+                            // One gesture: the assistant decides what runs
+                            // in the background (`agent::ROUTING`).
+                            let _ = after_tap;
+                            question = Some(ask::press(false));
+                            (DictationFlavour::Assistant, Some(false))
                         }
                         HotkeyEvent::Start { flavour } => (flavour, None),
                         _ => unreachable!("only a start reaches here"),

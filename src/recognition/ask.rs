@@ -136,7 +136,12 @@ impl Asker {
                 // discarded before the hold is real (`intend`).
                 let include_screenshot =
                     crate::app_settings::applied_assistant().include_screenshot;
-                let background = press.after_tap;
+                // One gesture: a hold asks, and the assistant decides
+                // whether it answers, works in the background, or starts
+                // several jobs (`agent::ROUTING`). A tap before it changes
+                // nothing.
+                let background = false;
+                let _ = press.after_tap;
                 self.question = Some(Question::press(background, move || {
                     crate::assistant::computer::context_async(include_screenshot)
                 }));

@@ -1,6 +1,7 @@
-//! The onboarding's last page: the Action shortcut's three gestures, each
-//! tried for real and checked when it works. Hold asks about the window in
-//! front, tap then hold starts a Background task, and double-tap opens the
+//! The onboarding's last page: the Action shortcut, tried for real and
+//! checked when it works. A hold is the one way to ask: a quick question
+//! about the window in front is answered at once, and a bigger job goes to
+//! the background on the assistant's own decision. Double-tap opens the
 //! task list (optional: only the HUD sees it). Stop all's keys close it.
 
 use rune::{Align, El, Tx, col, el, icon, row, text};
@@ -138,7 +139,8 @@ fn here_row(ui: &Ui, p: Paint, tutorial: &Tutorial, current: bool) -> El {
     )
 }
 
-/// Tap, then hold: a Background task, done once it started.
+/// Hold with a bigger job: the assistant sends it to the background itself;
+/// done once a Background task started.
 fn background_row(ui: &Ui, p: Paint, tutorial: &Tutorial, current: bool) -> El {
     let (detail, control) = match &tutorial.background {
         Some(asked) => (
@@ -146,7 +148,7 @@ fn background_row(ui: &Ui, p: Paint, tutorial: &Tutorial, current: bool) -> El {
             done_pill(p, "started", tr("Started")),
         ),
         None => (
-            tr("For example “Find a free hour next week”. A frame circles the screen while it works")
+            tr("For example “Research the three best laptops”. It decides on its own to work in the background, with a frame around the screen")
                 .to_owned(),
             if current {
                 waiting_pill(p, "waiting", tr("Waiting"))
@@ -160,8 +162,8 @@ fn background_row(ui: &Ui, p: Paint, tutorial: &Tutorial, current: bool) -> El {
         p,
         "gesture-background",
         &SPARKLES,
-        tr("Tap, then hold"),
-        tr("and give it a task"),
+        tr("Hold"),
+        tr("and give it a bigger job"),
         &detail,
         p.muted(),
         control,
@@ -265,7 +267,7 @@ pub(super) fn try_it(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     page(
         p,
         "try",
-        tr("Try the three gestures"),
+        tr("Try it out"),
         text(tr("Each one is checked as you do it. Try them in any app."))
             .key("lead")
             .font(LEAD)

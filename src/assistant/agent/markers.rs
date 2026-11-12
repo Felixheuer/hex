@@ -2,7 +2,9 @@
 //! instead of answering:
 //!
 //! - `HEX_JOB: <title>` then a short spoken line: the request is a job, so
-//!   Hex continues it as a Background job (planning first).
+//!   Hex continues it as a Background job (planning first). More
+//!   `HEX_JOB: <title> | <the job>` lines right after it start further jobs
+//!   beside it, each in a conversation of its own.
 //! - `HEX_QUESTION:` then one batched question: the job needs the person's
 //!   answer before it goes on.
 //! - `HEX_CONFIRM: <category> <target>` then the question: Hex refused a
@@ -22,6 +24,8 @@ pub enum Marker {
     Job {
         title: String,
         reply: String,
+        /// Further jobs to start beside it: (title, what each does).
+        more: Vec<(String, String)>,
     },
     Question(String),
     Confirm {
@@ -34,15 +38,22 @@ pub enum Marker {
 pub fn parse(text: &str) -> Option<Marker> {
     let text = text.trim_start();
     if let Some(rest) = text.strip_prefix(JOB) {
-        let (title, reply) = rest.split_once('\n').unwrap_or((rest, ""));
-        let title = title.trim().trim_matches(['“', '”', '"']).trim();
+        let (first, mut reply) = rest.split_once('\n').unwrap_or((rest, ""));
+        let (title, _) = first.split_once('|').unwrap_or((first, ""));
+        let mut more = Vec::new();
+        while let Some(line) = reply.trim_start().strip_prefix(JOB) {
+            let (line, after) = line.split_once('\n').unwrap_or((line, ""));
+            if let Some((title, task)) = line.split_once('|')
+                && !task.trim().is_empty()
+            {
+                more.push((job_title(title), task.trim().to_owned()));
+            }
+            reply = after;
+        }
         return Some(Marker::Job {
-            title: if title.is_empty() {
-                "Job".into()
-            } else {
-                crate::assistant::store::shorten(title, 60)
-            },
+            title: job_title(title),
             reply: reply.trim().to_owned(),
+            more,
         });
     }
     if let Some(rest) = text.strip_prefix(CONFIRM) {
@@ -64,6 +75,15 @@ pub fn parse(text: &str) -> Option<Marker> {
     let rest = text.strip_prefix(QUESTION)?;
     let question = rest.trim();
     (!question.is_empty()).then(|| Marker::Question(question.to_owned()))
+}
+
+fn job_title(title: &str) -> String {
+    let title = title.trim().trim_matches(['“', '”', '"']).trim();
+    if title.is_empty() {
+        "Job".into()
+    } else {
+        crate::assistant::store::shorten(title, 60)
+    }
 }
 
 /// Holds back the start of each piece of streamed text until it can't be a
@@ -121,7 +141,24 @@ mod tests {
             parse("HEX_JOB: Supplier research\nOn it: 50 suppliers, Gmail drafts, and a sheet."),
             Some(Marker::Job {
                 title: "Supplier research".into(),
-                reply: "On it: 50 suppliers, Gmail drafts, and a sheet.".into()
+                reply: "On it: 50 suppliers, Gmail drafts, and a sheet.".into(),
+                more: Vec::new(),
+            })
+        );
+        assert_eq!(
+            parse(
+                "HEX_JOB: Mac mini prices | compare\nHEX_JOB: Einstein | Research Albert Einstein's life\nHEX_JOB: Weather | Find the weather in Berlin this weekend\nMach ich: drei Aufgaben laufen."
+            ),
+            Some(Marker::Job {
+                title: "Mac mini prices".into(),
+                reply: "Mach ich: drei Aufgaben laufen.".into(),
+                more: vec![
+                    ("Einstein".into(), "Research Albert Einstein's life".into()),
+                    (
+                        "Weather".into(),
+                        "Find the weather in Berlin this weekend".into()
+                    ),
+                ],
             })
         );
         assert_eq!(
