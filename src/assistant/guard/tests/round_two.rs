@@ -373,8 +373,8 @@ fn a_running_apps_bundle_is_found_from_its_executable() {
 #[cfg(target_os = "macos")]
 #[test]
 fn this_macs_apps_and_windows_are_read_in_milliseconds() {
-    use super::super::screen::CoreGraphics;
-    let mut screen = CoreGraphics;
+    use super::super::screen::Native;
+    let mut screen = Native;
     let started = std::time::Instant::now();
     let _ = screen.installed_apps();
     let first_apps = started.elapsed();

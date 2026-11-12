@@ -502,6 +502,10 @@ fn refs_are_found_in_recorded_snapshots() {
         policy::app_key("System\u{ad}einstellungen"),
         "systemeinstellungen"
     );
+    assert_eq!(
+        policy::app_key("Bitwarden.exe"),
+        policy::app_key("Bitwarden")
+    );
 }
 
 #[test]

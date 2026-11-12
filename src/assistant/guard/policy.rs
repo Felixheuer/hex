@@ -330,14 +330,20 @@ pub fn snapshot_ids(value: &Value, found: &mut Vec<String>) {
     }
 }
 
-/// An app name as compared: case, soft hyphens, and spacing don't count
-/// ("System\u{ad}einstellungen" is "Systemeinstellungen").
+/// An app name as compared: case, soft hyphens, spacing, and a Windows
+/// `.exe` don't count ("System\u{ad}einstellungen" is
+/// "Systemeinstellungen", "Bitwarden.exe" is "bitwarden").
 pub fn app_key(name: &str) -> String {
-    name.chars()
+    let key = name
+        .chars()
         .filter(|c| *c != '\u{ad}')
         .flat_map(char::to_lowercase)
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
-        .join(" ")
+        .join(" ");
+    match key.strip_suffix(".exe") {
+        Some(stem) if !stem.is_empty() => stem.to_owned(),
+        _ => key,
+    }
 }
