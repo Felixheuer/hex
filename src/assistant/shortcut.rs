@@ -152,6 +152,23 @@ pub(crate) struct Question {
     /// The question a job waited on when the key went down: a hold answers
     /// it only if the person could have heard or seen it by then.
     asked_at_press: Option<ConversationId>,
+    /// A press of the Action shortcut on Linux or Windows ([`press`]): once
+    /// real it quiets Hex and holds announcements back until it's let go
+    /// (macOS's listener does both itself; conversation mode's captures
+    /// never do).
+    hold: bool,
+    /// The hold's listening, while it's real; ends when dropped.
+    holding: Option<Holding>,
+}
+
+/// A hold's listening state (`interaction::hold_listening`): on while this
+/// lives.
+struct Holding;
+
+impl Drop for Holding {
+    fn drop(&mut self) {
+        crate::assistant::interaction::hold_listening(false);
+    }
 }
 
 impl Question {
@@ -172,6 +189,8 @@ impl Question {
             asked_at_press: crate::assistant::inbox()
                 .active
                 .map(|asked| asked.conversation),
+            hold: false,
+            holding: None,
         }
     }
 
@@ -190,6 +209,13 @@ impl Question {
     pub(crate) fn intend(&mut self) -> bool {
         if let Some(read) = self.read.take() {
             self.context = Some(read());
+        }
+        if self.hold && self.holding.is_none() {
+            crate::assistant::interaction::hold_listening(true);
+            if crate::assistant::speech::speaking() || crate::assistant::reading_aloud() {
+                crate::assistant::interaction::hush();
+            }
+            self.holding = Some(Holding);
         }
         !std::mem::replace(&mut self.real, true)
     }
@@ -260,10 +286,12 @@ impl Question {
     /// a dropped reply (a discard, a cancel, a failure) or no words asks
     /// nothing.
     pub(crate) fn ask(
-        self,
+        mut self,
         focus: impl FnOnce() -> Option<ConversationId> + Send + 'static,
         submit: impl FnOnce(Request) + Send + 'static,
     ) -> PrintReply {
+        // Released: the hold no longer listens.
+        drop(self.holding.take());
         let (reply, transcript) = PrintReply::channel();
         let spawned = std::thread::Builder::new()
             .name("hex-assistant-question".into())
@@ -403,9 +431,11 @@ pub(crate) fn press(after_tap: bool) -> Question {
     let include_screenshot = crate::app_settings::assistant_runtime()
         .map(|(_, settings)| settings.include_screenshot)
         .unwrap_or(true);
-    Question::press(after_tap, move || {
+    let mut question = Question::press(after_tap, move || {
         crate::assistant::computer::context_async(include_screenshot)
-    })
+    });
+    question.hold = true;
+    question
 }
 
 /// The reply a released question's transcription answers: its words go to
