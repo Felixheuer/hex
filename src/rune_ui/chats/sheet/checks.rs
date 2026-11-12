@@ -55,6 +55,7 @@ pub(super) fn result_row(
                         .key("title")
                         .font(p.k.ty.ui_medium)
                         .color(p.text())
+                        .wrap()
                         .a11y_hidden(),
                 )
                 .child(

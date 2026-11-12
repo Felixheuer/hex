@@ -509,6 +509,16 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
         }
         Scene::Tasks => {
             pane.turns.insert("reply-to-maya".into(), running_turn());
+            let mut expenses = super::Turn::new(
+                "File the October expenses".into(),
+                Origin::Background,
+                super::Phase::Working,
+            );
+            expenses.steps = vec![
+                "Opened Numbers".into(),
+                "Filling in the report in Numbers".into(),
+            ];
+            pane.turns.insert("expenses".into(), expenses);
             pane.holds.insert(
                 "pr-summary".into(),
                 super::Hold::Waiting {
@@ -587,6 +597,17 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
                 "Zoe".into(),
             ]);
             ui.settings.assistant.voice = Some("Ava (Premium)".into());
+            pane.settings.browser = Some(crate::assistant::browser::AgentBrowser {
+                path: Some("/opt/homebrew/bin/agent-browser".into()),
+                version: Some("0.9.3".into()),
+                browser_ready: true,
+            });
+            pane.settings.signed_in = true;
+            pane.settings.running = Some(
+                ["Finder", "Mail", "Messages", "Safari", "Slack"]
+                    .map(String::from)
+                    .to_vec(),
+            );
         }
     }
     ui.chats = pane;

@@ -10,7 +10,7 @@ use crate::assistant::{
 
 pub(super) enum Source {
     /// Scenes, tests, and a window that hasn't connected yet.
-    Fixture(fixture::Store),
+    Fixture(Box<fixture::Store>),
     /// The assistant service.
     Live,
 }

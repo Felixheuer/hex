@@ -208,7 +208,7 @@ impl Default for ChatsPane {
     fn default() -> Self {
         Self {
             view: View::Chats,
-            source: Source::Fixture(fixture::Store::default()),
+            source: Source::Fixture(Box::default()),
             inbox: Arc::default(),
             list: Vec::new(),
             listed: false,
@@ -247,7 +247,7 @@ impl ChatsPane {
     /// The pane over `store`, for scenes and tests.
     pub(super) fn fixture(store: fixture::Store) -> Self {
         let mut pane = Self {
-            source: Source::Fixture(store),
+            source: Source::Fixture(Box::new(store)),
             ..Self::default()
         };
         pane.reload();
@@ -258,7 +258,7 @@ impl ChatsPane {
     #[cfg(test)]
     pub(super) fn store(&self) -> Option<&fixture::Store> {
         match &self.source {
-            Source::Fixture(store) => Some(store),
+            Source::Fixture(store) => Some(store.as_ref()),
             Source::Live => None,
         }
     }

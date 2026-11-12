@@ -132,7 +132,7 @@ pub(super) fn browser(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             rows.push(row_of(
                 p,
                 "sign-in",
-                &super::KEY,
+                super::KEY,
                 tr("Sign in to sites (optional)"),
                 if signed_in {
                     tr("Tasks start signed in where you signed in")

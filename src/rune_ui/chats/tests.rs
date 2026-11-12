@@ -553,7 +553,7 @@ fn chats_shows_a_finish_setup_card_until_ready() {
 fn a_hold_before_setup_opens_the_onboarding_and_says_so() {
     let mut rt = chats();
     rt.state.settings.assistant.setup_done = false;
-    rt.update(|ui, tx| super::open_setup_from_hold(ui, tx));
+    rt.update(super::open_setup_from_hold);
     settle(&mut rt);
     assert!(rt.state.chats.setup.as_ref().unwrap().from_hold);
     assert!(shows(
@@ -676,6 +676,38 @@ fn a_failed_check_shows_its_fix_while_later_checks_still_run() {
         "the fix shows at once: {:?}",
         texts(&rt)
     );
+}
+
+#[test]
+fn the_assistant_pages_continue_the_voice_first_run_before_hex_is_ready() {
+    let mut state = Ui::with(AppSettings::default(), Service::Fixture(Vec::new()));
+    let (_, apply) = SCENES
+        .iter()
+        .find(|(scene, _)| *scene == "mac-onboarding-try")
+        .unwrap();
+    apply(&mut state);
+    state.settings.labs.assistant = true;
+    state.settings.assistant.setup_done = false;
+    let mut rt = runtime_for(state);
+    settle(&mut rt);
+    assert!(rt.state.chats.setup.is_none(), "the voice pages come first");
+    // The story reaches its end: it holds there, and the assistant's pages
+    // open over it.
+    rt.state.first_run.as_mut().unwrap().jump_to_ready();
+    rt.invalidate();
+    settle(&mut rt);
+    let flow = rt.state.chats.setup.as_ref().expect("the assistant's pages");
+    assert!(flow.merged);
+    assert!(shows(&rt, "Now, your assistant"));
+    assert!(!rt.state.first_run.as_ref().unwrap().ready_age().is_finite());
+    // Done (or left for later): "Hex is ready" ends both.
+    rt.update(|ui, _| super::setup::close(ui));
+    settle(&mut rt);
+    assert!(rt.state.chats.setup.is_none());
+    assert!(rt.state.first_run.as_ref().unwrap().ready_age().is_finite());
+    // It doesn't hold again.
+    settle(&mut rt);
+    assert!(rt.state.chats.setup.is_none());
 }
 
 #[test]

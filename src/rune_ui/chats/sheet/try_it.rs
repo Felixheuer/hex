@@ -90,7 +90,7 @@ fn gesture_row(
         )
         .child(control);
     if current {
-        gesture = gesture.fill(p.k.c.layer_01).radius(p.k.radius.md).mx(4.0);
+        gesture = gesture.fill(p.k.c.layer_01);
     }
     gesture
 }
