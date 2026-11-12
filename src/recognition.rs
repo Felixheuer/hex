@@ -785,9 +785,8 @@ pub fn listen(
             let _acknowledge = input_monitor.acknowledge_after(observed);
             let input_event = observed.event;
             let capture_at = observed.capture_at;
-            // Escape included: it belongs to the owner app (closing a
-            // picker while a note records), which cancels through the API.
-            // A shortcut test takes every edge too, so its press starts nothing.
+            // Escape included: the owner app cancels through the API. A
+            // shortcut test takes every edge too, so its press starts nothing.
             if programmatic.is_some() || shortcut_probe::observe(input_event, capture_at) {
                 hotkeys.track_key_state(input_event, capture_at);
                 continue;

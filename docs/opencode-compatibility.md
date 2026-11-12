@@ -23,9 +23,18 @@ new provider-backed validation must record its own CLI and server versions.
 
 ## Integration Contract
 
-Hex never runs an OpenCode executable, never starts or restarts the service,
-and never searches for or probes an installed CLI. It only talks to an already
-running service (`src/desktop/opencode_service.rs`):
+Hex's dictation processing never runs an OpenCode executable, never starts or
+restarts the service, and never searches for or probes an installed CLI. It
+only talks to an already running service (`src/desktop/opencode_service.rs`).
+
+The one exception is Labs › Assistant (off by default, macOS) with OpenCode
+chosen as its agent: each task runs `opencode run --standalone` with its own
+`OPENCODE_CONFIG_CONTENT` (a `hex` agent denied the shell and file edits, and
+agent-desktop as its MCP server), because the running service loads its MCP
+servers once and can't give one session its own agent-desktop agent id. The
+assistant's setup also finds the CLI (`src/assistant/backends`) and can run
+`opencode service start` when the person presses Start OpenCode. Everything
+below describes the dictation integration:
 
 - It reads the bounded registration `service.json` (the stable, beta and dev
   channels), then other channels' `service-<channel>.json`, in
