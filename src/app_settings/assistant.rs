@@ -108,6 +108,11 @@ pub struct AssistantSettings {
     pub barge_in: bool,
     /// macOS notifications when a job finishes, fails, or asks something.
     pub notifications: bool,
+    /// The computer doesn't go to sleep while a Background job works
+    /// (`desktop::keep_awake`); the display still may.
+    pub keep_awake: bool,
+    /// With `keep_awake`, the display stays on too.
+    pub keep_display_awake: bool,
 }
 
 impl Default for AssistantSettings {
@@ -155,6 +160,8 @@ impl Default for AssistantSettings {
             conversation_seconds: 8,
             barge_in: true,
             notifications: true,
+            keep_awake: true,
+            keep_display_awake: false,
         }
     }
 }

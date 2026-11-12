@@ -9,6 +9,8 @@ pub(crate) mod host;
 pub(crate) mod i18n;
 pub(crate) mod instance;
 #[cfg_attr(target_os = "linux", allow(dead_code))]
+pub(crate) mod keep_awake;
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 pub(crate) mod login_item;
 #[cfg_attr(any(target_os = "linux", target_os = "windows"), allow(dead_code))]
 pub(crate) mod onboarding;
