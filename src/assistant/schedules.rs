@@ -44,6 +44,11 @@ pub struct Schedule {
     /// otherwise come back on the same date next year).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub once: bool,
+    /// The person made it (Chats, `hex assistant schedules add`), so its
+    /// words may authorize sending or deleting; one an agent made with
+    /// `hex_schedule` (or saved before this was kept) asks first.
+    #[serde(default)]
+    pub by_person: bool,
 }
 
 impl Schedule {
@@ -64,17 +69,24 @@ pub fn list() -> Vec<Schedule> {
     dir().map(|dir| load(&dir)).unwrap_or_default()
 }
 
-/// Adds a schedule for `task` at `when`.
+/// Adds a schedule the person made for `task` at `when`.
 pub fn add(when: &str, task: &str, lane: Lane) -> Result<Schedule> {
-    add_with(when, task, lane, false)
+    add_with(when, task, lane, false, true)
 }
 
-/// Adds a schedule that runs at `when`'s next time only, then removes itself.
+/// Adds a schedule the person made that runs at `when`'s next time only,
+/// then removes itself.
 pub fn add_once(when: &str, task: &str, lane: Lane) -> Result<Schedule> {
-    add_with(when, task, lane, true)
+    add_with(when, task, lane, true, true)
 }
 
-fn add_with(when: &str, task: &str, lane: Lane, once: bool) -> Result<Schedule> {
+/// Adds a schedule an agent made (`hex_schedule`): its runs never take
+/// authorization from its words.
+pub fn add_by_agent(when: &str, task: &str, lane: Lane) -> Result<Schedule> {
+    add_with(when, task, lane, false, false)
+}
+
+fn add_with(when: &str, task: &str, lane: Lane, once: bool, by_person: bool) -> Result<Schedule> {
     let when = when.trim();
     let rule = Rule::parse(when)?;
     let now = store::now_ms();
@@ -94,6 +106,7 @@ fn add_with(when: &str, task: &str, lane: Lane, once: bool) -> Result<Schedule> 
         created_ms: now,
         last_run_ms: None,
         once,
+        by_person,
     };
     let added = schedule.clone();
     change(&dir()?, move |list| list.push(added))?;
@@ -644,6 +657,7 @@ mod tests {
             created_ms: NOW - 3 * 3_600_000,
             last_run_ms,
             once: false,
+            by_person: true,
         };
         // Three hours asleep: one run, not twelve.
         let list = [schedule(None)];

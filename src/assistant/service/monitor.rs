@@ -116,11 +116,12 @@ impl Runner {
                     && task.authorized_line.as_deref() != Some(line.as_str())
                 {
                     task.authorized_line = Some(line.clone());
-                    authorize.push((
-                        task.status.conversation.clone(),
-                        line,
-                        task.request.text.clone(),
-                    ));
+                    // Backed only by the person's own words: a task an
+                    // agent wrote (a hand-off, a team member, an agent's
+                    // schedule) backs nothing by itself (`Said`).
+                    if let Some(said) = task.said.clone() {
+                        authorize.push((task.status.conversation.clone(), line, said));
+                    }
                 }
                 (task.plan != steps).then(|| {
                     task.plan = steps.clone();

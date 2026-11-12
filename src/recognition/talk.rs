@@ -204,7 +204,12 @@ impl Talk {
                 self.open(input)?;
             }
             Step::Listen => {
-                if self.capture.is_none() {
+                // The capture that watched under the reading (barge-in)
+                // holds Hex's own voice: the follow-up starts afresh, its
+                // pre-roll keeping a first word said as the reading ended.
+                if self.capture.is_some() {
+                    self.reopen(input)?;
+                } else {
                     self.open(input)?;
                 }
                 if self.capture.is_some() {
@@ -295,6 +300,17 @@ impl Talk {
         Ok(())
     }
 
+    /// Starts its capture afresh: what the old one recorded is dropped.
+    fn reopen(&mut self, input: &DictationAudio) -> Result<()> {
+        if self.capture == Some(input.capture_generation())
+            && let Err(error) = input.cancel()
+        {
+            tracing::warn!(%error, "could not restart conversation mode's capture");
+        }
+        self.capture = None;
+        self.open(input)
+    }
+
     /// Closes its capture, if it is still its own, and hides what it showed.
     fn close(&mut self, input: &DictationAudio, indicator: DictationSink<'_>) {
         if self.capture == Some(input.capture_generation())
@@ -317,6 +333,7 @@ impl Talk {
         self.capture = None;
         self.shown = false;
         self.question = None;
+        self.barging = false;
         self.pending.clear();
     }
 }

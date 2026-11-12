@@ -61,6 +61,20 @@ use super::types::{
     Outcome as Ended, PlanStep, Request, TaskState, TaskStatus, TaskWindow,
 };
 
+/// Whose words a task's authorization (`autonomy::from_request`) may come
+/// from: only the person's own, never text an agent wrote (a hand-off's
+/// task, a team member's, a schedule an agent made), which a page or an
+/// email it read could have steered.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Said {
+    /// The request's text is the person's own words.
+    Request,
+    /// The person's words that led to this (agent-written) task.
+    Words(String),
+    /// Nothing the person said now: only what was authorized before.
+    Nobody,
+}
+
 /// Called on a worker thread for every event; keep it quick (post to your
 /// own thread or wake your loop).
 pub type Subscriber = Box<dyn Fn(&Event) + Send + Sync>;
@@ -647,6 +661,8 @@ struct Warm {
 struct Task {
     key: u64,
     request: Request,
+    /// The person's own words this task may be authorized from (`Said`).
+    said: Option<String>,
     status: TaskStatus,
     control: Arc<Control>,
     agent_id: String,
@@ -786,10 +802,15 @@ impl Runner {
     }
 
     pub(crate) fn submit(self: &Arc<Self>, request: Request) -> ConversationId {
-        self.submit_as(request, JobKind::Ask)
+        self.submit_as(request, JobKind::Ask, Said::Request)
     }
 
-    fn submit_as(self: &Arc<Self>, mut request: Request, mut kind: JobKind) -> ConversationId {
+    fn submit_as(
+        self: &Arc<Self>,
+        mut request: Request,
+        mut kind: JobKind,
+        said: Said,
+    ) -> ConversationId {
         let (enabled, settings) = (self.hooks.settings)();
         let refuse = |message: &str| {
             let id = request.conversation.clone().unwrap_or_else(store::new_id);
@@ -919,7 +940,12 @@ impl Runner {
                     .collect();
             }
             request.conversation = Some(id.clone());
-            self.push_task(&mut state, request, kind, key, new_conversation, voice);
+            let said = match said {
+                Said::Request => Some(request.text.clone()),
+                Said::Words(words) => Some(words),
+                Said::Nobody => None,
+            };
+            self.push_task(&mut state, request, kind, key, new_conversation, voice, said);
             id
         };
         for key in stop {
@@ -957,6 +983,7 @@ impl Runner {
     }
 
     /// Adds a task for `request` (whose conversation is set) to the queue.
+    #[allow(clippy::too_many_arguments)]
     fn push_task(
         &self,
         state: &mut State,
@@ -965,6 +992,7 @@ impl Runner {
         key: Option<u64>,
         new_conversation: bool,
         voice: bool,
+        said: Option<String>,
     ) {
         let id = request.conversation.clone().unwrap_or_default();
         let key = key.unwrap_or_else(|| self.next.fetch_add(1, Ordering::Relaxed));
@@ -1008,6 +1036,7 @@ impl Runner {
             asked_ms: None,
             reply: None,
             authorized_line: None,
+            said,
         });
     }
 
@@ -1106,6 +1135,7 @@ impl Runner {
                 context: Context::default(),
             },
             JobKind::Resume,
+            Said::Nobody,
         ))
     }
 
@@ -1182,12 +1212,23 @@ impl Runner {
             .into_iter()
             .map(|schedule| {
                 tracing::info!(id = schedule.id, "a scheduled job is due");
-                self.submit(Request {
-                    conversation: None,
-                    text: schedule.task,
-                    origin: Origin::Background,
-                    context: Context::default(),
-                })
+                // Only a schedule the person made authorizes from its words;
+                // one an agent made confirms what it would send or delete.
+                let said = if schedule.by_person {
+                    Said::Request
+                } else {
+                    Said::Nobody
+                };
+                self.submit_as(
+                    Request {
+                        conversation: None,
+                        text: schedule.task,
+                        origin: Origin::Background,
+                        context: Context::default(),
+                    },
+                    JobKind::Ask,
+                    said,
+                )
             })
             .collect()
     }

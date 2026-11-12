@@ -257,6 +257,10 @@ impl Question {
                     }
                     return;
                 };
+                // A capture that listened under the reading (a barge-in,
+                // conversation mode's window) heard Hex's voice before the
+                // person's: only what follows it is theirs.
+                let text = crate::assistant::speech::own_echo::without_own_words(&text);
                 if barged {
                     let after = barge_in::after_barge_in(
                         Some(&text),
@@ -270,7 +274,9 @@ impl Question {
                 // "Stopp" ends the speech (and the Here task), asking
                 // nothing; "Stopp alle Aufgaben" stops every task.
                 // Hex's own reading, heard back through the speakers.
-                if crate::assistant::speech::own_echo::heard_back(&text) {
+                if !text.chars().any(char::is_alphanumeric)
+                    || crate::assistant::speech::own_echo::heard_back(&text)
+                {
                     tracing::info!("dropped a question that was Hex's own voice");
                     return;
                 }

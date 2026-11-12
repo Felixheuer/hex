@@ -113,7 +113,7 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
                 Some("here") => Lane::Here,
                 _ => Lane::Background,
             };
-            let schedule = schedules::add(&text("when")?, &text("task")?, lane)
+            let schedule = schedules::add_by_agent(&text("when")?, &text("task")?, lane)
                 .map_err(|error| format!("{error:#}"))?;
             let next = schedules::next_runs(&schedule.when, 3)
                 .unwrap_or_default()

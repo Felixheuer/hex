@@ -155,6 +155,9 @@ struct State {
     speaking: bool,
     /// Bumped by `stop`, so a speaking thread knows it was stopped.
     generation: u64,
+    /// The answer a stop cut: the rest of it that still streams in is not
+    /// read, until that conversation asks again (`started`).
+    hushed: Option<String>,
 }
 
 impl Voice {
@@ -166,10 +169,14 @@ impl Voice {
     pub(super) fn feed(&self, runner: &Arc<Runner>, conversation: &str, text: &str) {
         {
             let mut state = self.state();
+            if state.hushed.as_deref() == Some(conversation) {
+                return;
+            }
             if state.conversation.as_deref() != Some(conversation) {
                 *state = State {
                     conversation: Some(conversation.to_owned()),
                     generation: state.generation + 1,
+                    hushed: state.hushed.take(),
                     ..State::default()
                 };
             }
@@ -191,11 +198,15 @@ impl Voice {
     pub(super) fn finish(&self, runner: &Arc<Runner>, conversation: &str, text: &str) {
         {
             let mut state = self.state();
+            if state.hushed.as_deref() == Some(conversation) {
+                return;
+            }
             if state.conversation.as_deref() != Some(conversation) || !state.started {
                 *state = State {
                     conversation: Some(conversation.to_owned()),
                     generation: state.generation + 1,
                     buffer: text.to_owned(),
+                    hushed: state.hushed.take(),
                     ..State::default()
                 };
                 while let Some(end) = sentence_end(&state.buffer) {
@@ -234,20 +245,36 @@ impl Voice {
             let generation = state.generation + 1;
             *state = State {
                 generation,
+                hushed: state.hushed.take(),
                 ..State::default()
             };
         }
     }
 
     /// Stops reading aloud and forgets the queue (lines waiting their turn
-    /// stay: a question still waits for its answer).
+    /// stay: a question still waits for its answer). The rest of the answer
+    /// being read, still streaming in, stays unread.
     pub(super) fn stop(&self) {
         let mut state = self.state();
         let generation = state.generation + 1;
+        let hushed = state
+            .conversation
+            .take()
+            .filter(|conversation| !conversation.starts_with("announce:"))
+            .or_else(|| state.hushed.take());
         *state = State {
             generation,
+            hushed,
             ..State::default()
         };
+    }
+
+    /// `conversation` asks again: its new answer is read.
+    pub(super) fn started(&self, conversation: &str) {
+        let mut state = self.state();
+        if state.hushed.as_deref() == Some(conversation) {
+            state.hushed = None;
+        }
     }
 
     fn pending(&self) -> MutexGuard<'_, Pending> {
@@ -324,13 +351,10 @@ impl Voice {
         }
     }
 
-    /// Nothing is read or waits to be read, and the person isn't speaking.
+    /// Nothing is read or waits to be read (an answer between two streamed
+    /// sentences is still being read), and the person isn't speaking.
     fn idle(&self, runner: &Runner) -> bool {
-        let quiet = {
-            let state = self.state();
-            !state.speaking && state.queue.is_empty()
-        };
-        quiet && !(runner.hooks.speaking)() && !listening(super::store::now_ms())
+        !self.reading() && !(runner.hooks.speaking)() && !listening(super::store::now_ms())
     }
 
     /// Starts the thread that speaks the queue, unless it runs.
@@ -372,11 +396,26 @@ impl Voice {
             if self.state().generation != generation {
                 continue;
             }
+            // Never into a hold or a dictation: an answer that arrives
+            // while the person talks to the microphone waits for them.
+            while person_talks() && self.state().generation == generation {
+                (runner.hooks.sleep)(PUMP_EVERY);
+            }
+            if self.state().generation != generation {
+                continue;
+            }
             // Queued behind what plays (`speak_next`), so sentences follow
             // each other with no gap and the next is handed over at once.
             (runner.hooks.speak)(&sentence, voice.as_deref());
         }
     }
+}
+
+/// The person holds the Action shortcut or dictates: the microphone would
+/// hear Hex. (Conversation mode's window waits for the reading itself.)
+fn person_talks() -> bool {
+    use crate::assistant::interaction::{Listening, listening};
+    matches!(listening(), Listening::Hold | Listening::Dictation)
 }
 
 /// Where the first finished sentence in `text` ends (after its punctuation

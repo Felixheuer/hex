@@ -20,7 +20,7 @@ impl Runner {
     pub(super) fn run_task(self: &Arc<Self>, key: u64) {
         let (_, settings) = (self.hooks.settings)();
         let now = self.now();
-        let Some((request, control, agent_id, colour, kind, new_conversation, voice)) = ({
+        let Some((request, control, agent_id, colour, kind, new_conversation, voice, said)) = ({
             let mut state = self.state();
             state
                 .tasks
@@ -39,6 +39,7 @@ impl Runner {
                         task.kind.clone(),
                         task.new_conversation,
                         task.voice,
+                        task.said.clone(),
                     )
                 })
         }) else {
@@ -46,6 +47,8 @@ impl Runner {
         };
         let conversation = request.conversation.clone().unwrap_or_default();
         let lane = request.origin.lane();
+        // An answer of it cut by a stop is over: this one is read.
+        self.voice.started(&conversation);
         self.emit(&Event::Started {
             conversation: conversation.clone(),
             origin: request.origin,
@@ -76,14 +79,17 @@ impl Runner {
         let digest = (new_conversation && matches!(kind, JobKind::Ask | JobKind::Job { .. }))
             .then(|| self.digest(&conversation))
             .flatten();
-        // What the person's own words allow (never what a task reads).
+        // What the person's own words allow (never what a task reads, nor
+        // a task an agent wrote: `Said`).
         let mut authorized = if new_conversation {
             Authorized::default()
         } else {
             (self.hooks.authorized)(&conversation)
         };
-        if settings.autonomy != Autonomy::Ask {
-            autonomy::merge(&mut authorized, autonomy::from_request(&request.text));
+        if settings.autonomy != Autonomy::Ask
+            && let Some(said) = &said
+        {
+            autonomy::merge(&mut authorized, autonomy::from_request(said));
         }
         (self.hooks.authorize)(&conversation, &authorized);
         let memory = settings
@@ -305,7 +311,9 @@ impl Runner {
                     },
                     None => request,
                 };
-                self.escalate(request, title, new_conversation, voice);
+                self.escalate(request, title, new_conversation, voice, said.clone());
+                // The other jobs' tasks are the agent's words: they are
+                // authorized from the person's request that led to them.
                 for (title, text) in more {
                     self.submit_as(
                         Request {
@@ -315,6 +323,7 @@ impl Runner {
                             context: Context::default(),
                         },
                         JobKind::Job { title },
+                        said.clone().map_or(super::Said::Nobody, super::Said::Words),
                     );
                 }
             }
@@ -338,6 +347,7 @@ impl Runner {
         title: String,
         new_conversation: bool,
         voice: bool,
+        said: Option<String>,
     ) {
         let conversation = request.conversation.clone().unwrap_or_default();
         let origin = match request.origin {
@@ -365,6 +375,7 @@ impl Runner {
                 None,
                 new_conversation,
                 voice,
+                said,
             );
         }
         self.refresh_mode();
