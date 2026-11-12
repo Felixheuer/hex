@@ -493,7 +493,8 @@ impl Board {
     pub(crate) fn stack(&self) -> Vec<Task> {
         self.tasks
             .iter()
-            .filter(|task| task.origin == Origin::Background)
+            // Every job, typed in Chats or not, as the cards show them.
+            .filter(|task| task.origin != Origin::ActionShortcut)
             .cloned()
             .collect()
     }
@@ -505,7 +506,7 @@ impl Board {
             || self
                 .tasks
                 .iter()
-                .any(|task| task.origin == Origin::Background)
+                .any(|task| task.origin != Origin::ActionShortcut)
     }
 
     /// Whether any task waits out a usage limit (its countdown ticks).
@@ -925,7 +926,7 @@ mod tests {
     }
 
     #[test]
-    fn the_stack_lists_background_tasks_and_outlines_cover_every_live_one() {
+    fn the_stack_lists_every_job_and_outlines_cover_every_live_one() {
         let t0 = Instant::now();
         let mut board = Board::default();
         board.apply(&started(1, Origin::Background, "a"), None, t0);
@@ -942,7 +943,8 @@ mod tests {
             );
         }
         let stack: Vec<_> = board.stack().into_iter().map(|t| t.id).collect();
-        assert_eq!(stack, [id(1)]);
+        // Jobs typed in Chats too (they get cards); quick questions don't.
+        assert_eq!(stack, [id(1), id(2)]);
         assert_eq!(board.outlined().len(), 3);
     }
 
