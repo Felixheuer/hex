@@ -152,9 +152,12 @@ impl Default for AssistantSettings {
 }
 
 impl HotkeyBinding {
-    /// Stop all tasks' default: Control-Option-Escape.
+    /// Stop all tasks' default: Control-Option-Escape on macOS,
+    /// Ctrl+Alt+Escape on Windows, and Ctrl+Alt+Q on Linux, where KDE's
+    /// Ctrl+Alt+Escape kills a window and the desktop portal refuses Escape.
     pub fn stop_all_default() -> Self {
-        Self {
+        #[cfg(target_os = "macos")]
+        let binding = Self {
             modifiers: HotkeyModifiers {
                 control: Some(ModifierSide::Either),
                 option: Some(ModifierSide::Either),
@@ -164,7 +167,12 @@ impl HotkeyBinding {
                 code: 53,
                 label: "Esc".into(),
             }),
-        }
+        };
+        #[cfg(target_os = "windows")]
+        let binding = Self::chord(HotkeyModifiers::control_option(), "escape");
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let binding = Self::chord(HotkeyModifiers::control_option(), "q");
+        binding
     }
 
     /// macOS's Force Quit Applications, Command-Option-Escape, which no
@@ -183,25 +191,39 @@ impl HotkeyBinding {
         }
     }
 
-    /// The Action shortcut's default: hold right Command alone.
+    /// The Action shortcut's default: hold right Command alone on macOS,
+    /// right Ctrl alone on Windows (right Alt is AltGr on many layouts, and
+    /// right Win opens Start), and Ctrl+Alt+A on Linux, whose shortcuts
+    /// always need a key (X11 grabs and the desktop portal take chords).
     pub fn action_default() -> Self {
-        Self {
+        #[cfg(target_os = "macos")]
+        let binding = Self {
             modifiers: HotkeyModifiers {
                 command: Some(ModifierSide::Right),
                 ..Default::default()
             },
             key: None,
-        }
+        };
+        #[cfg(target_os = "windows")]
+        let binding = Self {
+            modifiers: HotkeyModifiers {
+                control: Some(ModifierSide::Right),
+                ..Default::default()
+            },
+            key: None,
+        };
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let binding = Self::chord(HotkeyModifiers::control_option(), "a");
+        binding
     }
 }
 
 impl AppSettings {
-    /// The assistant's Stop all tasks shortcut while it takes effect:
-    /// macOS, the assistant on, bound, and sharing no key with another active
-    /// shortcut or Force Quit. Otherwise Hex matches and swallows nothing for
-    /// it.
+    /// The assistant's Stop all tasks shortcut while it takes effect: the
+    /// assistant on, bound, and sharing no key with another active shortcut
+    /// or Force Quit. Otherwise Hex matches and swallows nothing for it.
     pub fn active_stop_all_hotkey(&self) -> Option<&HotkeyBinding> {
-        if !cfg!(target_os = "macos") || !crate::assistant::enabled(self) {
+        if !crate::assistant::enabled(self) {
             return None;
         }
         self.assistant
@@ -215,7 +237,6 @@ impl AppSettings {
 /// Whether the assistant is ready to ask (`assistant::ready`) as the
 /// settings were last applied, for the listener's Action shortcut; false
 /// until settings load.
-#[cfg(target_os = "macos")]
 pub fn applied_assistant_ready() -> bool {
     HOTKEYS
         .get_or_init(Default::default)

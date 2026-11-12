@@ -198,7 +198,7 @@ impl AppSettings {
     /// a shortcut that does nothing. Off, they stay as saved. Returns
     /// whether either changed.
     pub(crate) fn repair_action_shortcut(&mut self) -> bool {
-        if !cfg!(target_os = "macos") || !crate::assistant::enabled(self) {
+        if !crate::assistant::enabled(self) {
             return false;
         }
         let shared = self
