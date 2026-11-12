@@ -38,8 +38,9 @@ pub mod store;
 pub mod types;
 
 pub use service::{
-    agent_mode, busy, cancel, cancel_all, conversation, conversations, delete, focus,
-    set_agent_mode, set_focus, submit, subscribe, tasks,
+    agent_mode, background_busy, busy, cancel, cancel_all, conversation, conversations, delete,
+    focus, hand_back, prewarm, resume_interrupted, set_agent_mode, set_focus, stop_all, submit,
+    subscribe, take_over, tasks,
 };
 pub use types::*;
 

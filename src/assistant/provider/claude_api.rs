@@ -1,6 +1,7 @@
 //! The Claude Messages API, with the key from the Keychain
 //! (`credentials::api_key`). Hex runs the tool loop itself: each turn's
-//! tool calls go to agent-desktop's own MCP server (`mcp`), their results go
+//! tool calls go to the task's MCP servers (`mcp`: its desktop tool and its
+//! browser, whichever offers the tool), their results go
 //! back in one user message, and the loop ends at an answer or after
 //! `MAX_STEPS` turns. The API keeps no session, so a conversation continues
 //! from its saved messages.
@@ -30,26 +31,39 @@ pub(super) fn run(
             "No Anthropic API key is saved. Add one in Labs › Assistant, or choose another agent."
         )
     })?;
-    let mut desktop = match &run.desktop {
-        Some(desktop) => Some(Client::start(desktop, &run.workdir, control)?),
-        None => None,
-    };
-    let tools = match desktop.as_mut() {
-        Some(client) => tool_definitions(client)?,
-        None => Vec::new(),
-    };
-    let result = run_loop(run, &key, &tools, desktop.as_mut(), control, report);
-    if let Some(client) = desktop {
-        client.close(control);
+    let mut servers = Vec::new();
+    let mut tools = Vec::new();
+    let started = (|| -> Result<()> {
+        for (name, server) in super::servers::of(run) {
+            let mut client = Client::start(server, run.desktop.as_ref(), &run.workdir, control)?;
+            let (definitions, names) = tool_definitions(&mut client, name)?;
+            tools.extend(definitions);
+            servers.push(Server { client, tools: names });
+        }
+        Ok(())
+    })();
+    if let Some(last) = tools.last_mut() {
+        last["cache_control"] = json!({"type": "ephemeral"});
+    }
+    let result =
+        started.and_then(|()| run_loop(run, &key, &tools, &mut servers, control, report));
+    for server in servers {
+        server.client.close(control);
     }
     result
+}
+
+/// One MCP server the loop calls, and the tools it offers.
+struct Server {
+    client: Client,
+    tools: Vec<String>,
 }
 
 fn run_loop(
     run: &Run,
     key: &str,
     tools: &[Value],
-    mut desktop: Option<&mut Client>,
+    servers: &mut [Server],
     control: &Control,
     report: &mut dyn FnMut(Report),
 ) -> Result<Finished> {
@@ -97,7 +111,7 @@ fn run_loop(
         messages.push(json!({"role": "assistant", "content": content}));
         match stop {
             "tool_use" => {
-                let results = run_tools(&content, desktop.as_deref_mut(), &mut describer, report)?;
+                let results = run_tools(&content, servers, &mut describer, report)?;
                 messages.push(json!({"role": "user", "content": results}));
             }
             // A long server-side turn paused: send the conversation again.
@@ -187,6 +201,11 @@ fn send(key: &str, body: &Value) -> Result<Value> {
         .send(body.to_string())
         .map_err(|error| eyre!("{}", crate::net::unreachable(URL, &error)))?;
     let status = response.status().as_u16();
+    let retry_after = response
+        .headers()
+        .get("retry-after")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok());
     let text = response
         .body_mut()
         .with_config()
@@ -201,32 +220,39 @@ fn send(key: &str, body: &Value) -> Result<Value> {
             .unwrap_or("no reason given");
         return Err(match status {
             401 => eyre!("The Claude API refused the API key: {why}"),
-            429 => eyre!("The Claude API is rate-limiting this key; try again shortly."),
+            429 | 529 => match retry_after {
+                Some(seconds) => eyre!(
+                    "The Claude API is rate-limiting this key ({status}); retry after {seconds} seconds."
+                ),
+                None => eyre!("The Claude API is rate-limiting this key ({status}): {why}"),
+            },
             _ => eyre!("The Claude API answered {status}: {why}"),
         });
     }
     Ok(value)
 }
 
-/// The desktop tools as API tool definitions, the last one marked for the
-/// prompt cache.
-fn tool_definitions(client: &mut Client) -> Result<Vec<Value>> {
-    let mut tools: Vec<Value> = client
+/// A server's tools as API tool definitions, and their names: the desktop's
+/// `DESKTOP_TOOLS`, every tool of the others.
+fn tool_definitions(client: &mut Client, server: &str) -> Result<(Vec<Value>, Vec<String>)> {
+    let desktop = server == crate::assistant::backends::MCP_NAME;
+    let offered: Vec<_> = client
         .tools()?
         .into_iter()
-        .filter(|tool| DESKTOP_TOOLS.contains(&tool.name.as_str()))
+        .filter(|tool| !desktop || DESKTOP_TOOLS.contains(&tool.name.as_str()))
+        .collect();
+    let names = offered.iter().map(|tool| tool.name.clone()).collect();
+    let tools = offered
+        .into_iter()
         .map(|tool| json!({"name": tool.name, "description": tool.description, "input_schema": tool.schema}))
         .collect();
-    if let Some(last) = tools.last_mut() {
-        last["cache_control"] = json!({"type": "ephemeral"});
-    }
-    Ok(tools)
+    Ok((tools, names))
 }
 
 /// Runs every tool call in `content` and returns their results, in order.
 fn run_tools(
     content: &[Value],
-    mut desktop: Option<&mut Client>,
+    servers: &mut [Server],
     describer: &mut Describer,
     report: &mut dyn FnMut(Report),
 ) -> Result<Vec<Value>> {
@@ -244,9 +270,12 @@ fn run_tools(
         for item in describer.call(name, &input) {
             report(item);
         }
-        let called = match desktop.as_deref_mut() {
-            Some(client) if DESKTOP_TOOLS.contains(&name) => client.call(name, &input),
-            _ => Err(eyre!("there is no tool “{name}”")),
+        let called = match servers
+            .iter_mut()
+            .find(|server| server.tools.iter().any(|tool| tool == name))
+        {
+            Some(server) => server.client.call(name, &input),
+            None => Err(eyre!("there is no tool “{name}”")),
         };
         let result = match called {
             Ok(Called { content, is_error }) => {

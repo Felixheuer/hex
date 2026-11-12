@@ -1,15 +1,18 @@
 //! `hex assistant` (hidden): runs one assistant task here, without the app,
-//! and prints its events as they come; lists and shows saved conversations.
-//! For trying backends end to end. It runs even while Labs › Assistant is
-//! off, because a person runs it on purpose.
+//! and prints its events as they come (with how long the first token and
+//! the first spoken sentence took); lists and shows saved conversations;
+//! resumes an interrupted one; and asks a running Hex to stop all tasks or
+//! to let the person take one over. For trying backends end to end. It runs
+//! even while the assistant is off, because a person runs it on purpose.
 
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use clap::{Subcommand, ValueEnum};
 use color_eyre::{Result, eyre::eyre};
 
-use super::service;
-use super::types::{Context, Event, Origin, Part, Request, Role};
+use super::service::{self, remote};
+use super::types::{Context, Event, Lane, Origin, Part, Request, Role, TaskWindow};
 use crate::app_settings::AssistantBackend;
 
 #[derive(Subcommand, Debug)]
@@ -23,12 +26,29 @@ pub enum AssistantCommand {
         /// The backend's model; the saved one by default.
         #[arg(long)]
         model: Option<String>,
-        /// Run it as an Agent mode task, in its own desktop session.
-        #[arg(long, conflicts_with = "chat")]
+        /// Its lane: `here` (the window in front; the default) or
+        /// `background` (its own windows, beside other tasks).
+        #[arg(long, value_enum, conflicts_with = "chat")]
+        lane: Option<LaneArg>,
+        /// Same as `--lane background`.
+        #[arg(long, conflicts_with_all = ["chat", "lane"])]
         agent: bool,
         /// Run it as a typed Chats message, not a quick question.
         #[arg(long)]
         chat: bool,
+        /// The Here lane's window: the app in front (agent-desktop's name).
+        #[arg(long)]
+        window_app: Option<String>,
+        /// The Here lane's window id (agent-desktop's).
+        #[arg(long, requires = "window_app")]
+        window_id: Option<String>,
+        /// Start the backend this many seconds before asking, as the
+        /// Action shortcut does while the person speaks.
+        #[arg(long, value_name = "SECONDS")]
+        prewarm: Option<f64>,
+        /// Then ask this follow-up in the same conversation.
+        #[arg(long, value_name = "TEXT")]
+        then: Option<String>,
         /// Don't let it use apps (no agent-desktop).
         #[arg(long)]
         no_desktop: bool,
@@ -46,6 +66,21 @@ pub enum AssistantCommand {
     /// Save the Anthropic API key read from standard input in the Keychain
     /// (an empty input deletes it).
     Key,
+    /// Continue a conversation Hex quit in the middle of, and print what
+    /// happens.
+    Resume { id: String },
+    /// Ask the running Hex to stop every assistant task.
+    StopAll,
+    /// Ask the running Hex to pause a task and bring its window forward.
+    TakeOver { id: String },
+    /// Ask the running Hex to give a task back after `take-over`.
+    HandBack { id: String },
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum LaneArg {
+    Here,
+    Background,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -83,8 +118,13 @@ pub fn run(command: AssistantCommand) -> u8 {
             text,
             backend,
             model,
+            lane,
             agent,
             chat,
+            window_app,
+            window_id,
+            prewarm,
+            then,
             no_desktop,
             speak,
             conversation,
@@ -92,17 +132,27 @@ pub fn run(command: AssistantCommand) -> u8 {
             text,
             backend: backend.map(Into::into),
             model,
-            origin: if agent {
+            origin: if agent || matches!(lane, Some(LaneArg::Background)) {
                 Origin::Background
             } else if chat {
                 Origin::Chat
             } else {
                 Origin::ActionShortcut
             },
+            window: window_app.map(|app| TaskWindow {
+                app,
+                window_id,
+            }),
+            prewarm: prewarm.map(Duration::from_secs_f64),
+            then,
             no_desktop,
             speak,
             conversation,
         }),
+        AssistantCommand::Resume { id } => resume(&id),
+        AssistantCommand::StopAll => send(remote::ALL, remote::Verb::Stop),
+        AssistantCommand::TakeOver { id } => send(&id, remote::Verb::TakeOver),
+        AssistantCommand::HandBack { id } => send(&id, remote::Verb::HandBack),
         AssistantCommand::Conversations => {
             list();
             Ok(true)
@@ -125,12 +175,15 @@ struct Ask {
     backend: Option<AssistantBackend>,
     model: Option<String>,
     origin: Origin,
+    window: Option<TaskWindow>,
+    prewarm: Option<Duration>,
+    then: Option<String>,
     no_desktop: bool,
     speak: bool,
     conversation: Option<String>,
 }
 
-/// Runs one task; whether it was answered.
+/// Runs one task (and its follow-up); whether it was answered.
 fn ask(ask: Ask) -> Result<bool> {
     service::allow_without_lab();
     let Ask {
@@ -151,6 +204,7 @@ fn ask(ask: Ask) -> Result<bool> {
                 AssistantBackend::OpenCode => settings.opencode_model = Some(model.clone()),
                 AssistantBackend::ClaudeApi => settings.claude_api_model = model.clone(),
             }
+            settings.here_model = Some(model.clone());
         }
         if no_desktop {
             settings.control_desktop = false;
@@ -161,23 +215,55 @@ fn ask(ask: Ask) -> Result<bool> {
     service::subscribe(Box::new(move |event| {
         let _ = sender.send(event.clone());
     }));
-    let _ = ctrlc::set_handler(service::cancel_all);
-    if ask.origin == Origin::Background {
-        service::set_agent_mode(true);
+    let _ = ctrlc::set_handler(service::stop_all);
+    let lane = ask.origin.lane();
+    let context = Context {
+        frontmost_app: ask.window.as_ref().map(|window| window.app.clone()),
+        window: ask.window.clone(),
+        ..Context::default()
+    };
+    if let Some(ahead) = ask.prewarm {
+        service::prewarm(lane, ask.window.clone());
+        std::thread::sleep(ahead);
     }
     let id = service::submit(Request {
         conversation: ask.conversation,
         text: ask.text,
         origin: ask.origin,
-        context: Context::default(),
+        context: context.clone(),
     });
     println!("conversation {id}");
+    let mut answered = follow(&id, &events, speak);
+    if let Some(then) = ask.then.filter(|_| answered) {
+        if let Some(ahead) = ask.prewarm {
+            service::prewarm(lane, ask.window.clone());
+            std::thread::sleep(ahead);
+        }
+        let again = service::submit(Request {
+            conversation: Some(id.clone()),
+            text: then,
+            origin: ask.origin,
+            context,
+        });
+        println!("follow-up {again}");
+        answered = follow(&again, &events, speak);
+    }
+    service::stop_all();
+    Ok(answered)
+}
+
+/// Prints `id`'s events until it ends, with timings; whether it was
+/// answered. When the answer is read aloud, waits for it to be read.
+fn follow(id: &str, events: &mpsc::Receiver<Event>, speak: bool) -> bool {
+    let started = Instant::now();
+    let mut first_token = None;
+    let mut first_speech = None;
     let mut answered = false;
     let mut mid_line = false;
     for event in events {
         if event
             .conversation()
-            .is_some_and(|conversation| *conversation != id)
+            .is_some_and(|conversation| conversation != id)
         {
             continue;
         }
@@ -189,7 +275,9 @@ fn ask(ask: Ask) -> Result<bool> {
         match &event {
             Event::Paused { .. } => println!("[paused]"),
             Event::Resumed { .. } => println!("[resumed]"),
-            Event::Waiting { reason, .. } => println!("[waiting] {reason}"),
+            Event::Waiting { reason, until_ms, .. } => {
+                println!("[waiting until {until_ms}] {reason}")
+            }
             Event::HandsOff { on, .. } => println!("[hands off] {on}"),
             Event::Queued { .. } => println!("[queued]"),
             Event::Started { origin, .. } => println!("[started] {origin:?}"),
@@ -200,6 +288,10 @@ fn ask(ask: Ask) -> Result<bool> {
                 None => println!("[window] {}", window.app),
             },
             Event::AnswerDelta { text, .. } => {
+                first_token.get_or_insert_with(|| started.elapsed());
+                if speak && first_speech.is_none() && super::speech::speaking() {
+                    first_speech = Some(started.elapsed());
+                }
                 if !mid_line {
                     print!("[delta] ");
                 }
@@ -208,6 +300,7 @@ fn ask(ask: Ask) -> Result<bool> {
                 mid_line = true;
             }
             Event::Answer { text, .. } => {
+                first_token.get_or_insert_with(|| started.elapsed());
                 println!("[answer] {text}");
                 answered = true;
             }
@@ -215,25 +308,64 @@ fn ask(ask: Ask) -> Result<bool> {
             Event::Cancelled { .. } => println!("[cancelled]"),
             Event::ConversationsChanged => println!("[saved]"),
             Event::ModeChanged { on } => {
-                println!("[agent mode {}]", if *on { "on" } else { "off" })
+                println!("[frame {}]", if *on { "on" } else { "off" })
             }
         }
         if event.is_final() {
             break;
         }
     }
-    if ask.origin == Origin::Background {
-        service::set_agent_mode(false);
+    if speak && answered {
+        // Wait for the reading to start and end.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while Instant::now() < deadline {
+            if super::speech::speaking() {
+                first_speech.get_or_insert_with(|| started.elapsed());
+            } else if first_speech.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
-    Ok(answered)
+    let ms = |time: Option<Duration>| {
+        time.map_or_else(|| "-".to_owned(), |time| format!("{} ms", time.as_millis()))
+    };
+    println!(
+        "[timing] first token {}, first spoken word {}, total {} ms",
+        ms(first_token),
+        ms(first_speech),
+        started.elapsed().as_millis()
+    );
+    answered
+}
+
+/// Resumes an interrupted conversation and prints what happens.
+fn resume(id: &str) -> Result<bool> {
+    service::allow_without_lab();
+    let (sender, events) = mpsc::channel();
+    service::subscribe(Box::new(move |event| {
+        let _ = sender.send(event.clone());
+    }));
+    let _ = ctrlc::set_handler(service::stop_all);
+    let id = service::resume_interrupted(id)
+        .ok_or_else(|| eyre!("“{id}” wasn't interrupted, or there is no such conversation"))?;
+    println!("conversation {id}");
+    Ok(follow(&id, &events, false))
+}
+
+/// Asks every running Hex to do `verb` to `target`.
+fn send(target: &str, verb: remote::Verb) -> Result<bool> {
+    remote::send(target, verb, Duration::from_secs(2))?;
+    println!("Asked the running Hex; a Hex that runs no such task does nothing.");
+    Ok(true)
 }
 
 fn list() {
     for summary in service::conversations() {
         println!(
-            "{}  {:<14} {}  {}",
+            "{}  {:<26} {}  {}",
             summary.id,
-            format!("{:?}", summary.origin),
+            format!("{:?}/{:?}", summary.origin, summary.outcome),
             summary.title,
             summary.preview
         );

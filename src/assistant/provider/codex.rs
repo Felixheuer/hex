@@ -10,7 +10,7 @@ use color_eyre::{Result, eyre::eyre};
 use serde_json::Value;
 
 use super::desktop::Describer;
-use super::{Control, DESKTOP_TOOLS, Finished, Process, Report, Run, Stdin};
+use super::{Control, Finished, Process, Report, Run, Stdin};
 use crate::app_settings::AssistantBackend;
 
 pub(super) fn run(
@@ -56,9 +56,7 @@ fn arguments(run: &Run) -> Vec<String> {
     for value in config {
         args.extend(["-c".into(), value]);
     }
-    if let Some(desktop) = &run.desktop {
-        args.extend(desktop.server.codex_args(DESKTOP_TOOLS));
-    }
+    args.extend(super::servers::codex_args(run));
     if let Some(model) = run
         .model
         .as_deref()
@@ -203,16 +201,11 @@ mod tests {
     #[test]
     fn arguments_resume_and_approve_agent_desktop() {
         let run = Run {
-            backend: AssistantBackend::Codex,
-            model: None,
             system: "Line one\n\"quoted\"".into(),
-            prompt: "hi".into(),
             image: Some("/tmp/shot.png".into()),
             resume: Some("thread-1".into()),
-            history: Vec::new(),
             desktop: Some(Desktop::fixture(None, "hex-1")),
-            workdir: std::env::temp_dir(),
-            quick: false,
+            ..Run::fixture(AssistantBackend::Codex)
         };
         let args = arguments(&run);
         assert_eq!(
