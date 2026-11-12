@@ -131,6 +131,9 @@ pub(crate) struct Task {
     /// When it started (or a follow-up started it again), as far as the
     /// overlays saw it: a job's card says how long it runs.
     pub(crate) since: Option<Instant>,
+    /// The job it helps (`assistant::agent::team`): its card goes under
+    /// that job's.
+    pub(crate) lead: Option<ConversationId>,
 }
 
 impl Task {
@@ -152,6 +155,7 @@ impl Task {
             plan: Vec::new(),
             ended: None,
             since: None,
+            lead: None,
         }
     }
 
@@ -364,6 +368,7 @@ impl Board {
                 let colour = colour.map_or_else(|| self.free_colour(), |c| c % COLOURS);
                 let mut task = Task::new(conversation.clone(), *origin, question, colour, phase);
                 task.since = Some(now);
+                task.lead = crate::assistant::agent::team::lead_of(conversation);
                 self.tasks.push(task);
                 true
             }

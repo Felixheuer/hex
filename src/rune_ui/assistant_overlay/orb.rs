@@ -254,9 +254,21 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
             appear: pop_in(grow),
         };
         bubbles.extend(
-            jobs::view(p, &running, &layout, room, actions.list, actions.jobs)
-                .into_iter()
-                .map(|card| card.transition(pop_in(grow))),
+            jobs::view(
+                p,
+                &running,
+                &board
+                    .tasks
+                    .iter()
+                    .filter(|task| task.lead.is_some())
+                    .collect::<Vec<_>>(),
+                &layout,
+                room,
+                actions.list,
+                actions.jobs,
+            )
+            .into_iter()
+            .map(|card| card.transition(pop_in(grow))),
         );
         // Unfolded, the cards take every bit of room; the pops wait.
         bubbles.extend(

@@ -881,6 +881,24 @@ fn a_usage_limit_on_every_job_is_one_bubble() {
 }
 
 #[test]
+fn helpers_fold_into_their_lead_s_card_and_unfold_under_it() {
+    let mut state = many_jobs_orb(0);
+    state.board = fixture::team_board(5);
+    let mut rt = runtime(state, orb::view, orb::SIZE, false);
+    assert_eq!(count(&rt, "job-lead"), 1, "the lead's card");
+    assert_eq!(count(&rt, "job-team"), 1, "with its helpers summed up");
+    assert_eq!(count_prefix(&rt, "helper-"), 0, "folded in");
+    rest_on(&mut rt, "job-lead", 0.6);
+    rt.settle_all();
+    rt.frame(0.0);
+    assert_eq!(count_prefix(&rt, "helper-"), 5, "each under its lead");
+    let lead = rect(&rt, "job-lead").unwrap();
+    let helper = rect(&rt, "job-helper0").unwrap();
+    assert!(helper[1] > lead[1], "below the lead's card");
+    assert!(helper[0] > lead[0], "set in");
+}
+
+#[test]
 fn a_press_on_the_count_keeps_every_card_open() {
     let mut rt = runtime(many_jobs_orb(5), orb::view, orb::SIZE, false);
     state_press(&mut rt, "jobs-line-text");
@@ -979,6 +997,19 @@ fn snapshots() {
                 },
             ),
         ];
+        for (name, open) in [("orb-team", false), ("orb-team-open", true)] {
+            let mut state = many_jobs_orb(0);
+            state.board = fixture::team_board(5);
+            state.jobs_pinned = open;
+            let mut rt = runtime(state, orb::view, orb::SIZE, dark);
+            rt.settle_all();
+            let (w, h) = px(orb::SIZE);
+            save(
+                name,
+                orb::SIZE,
+                crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h),
+            );
+        }
         for (name, open) in [("orb-many-jobs", false), ("orb-many-jobs-open", true)] {
             let mut state = many_jobs_orb(14);
             state.jobs_pinned = open;

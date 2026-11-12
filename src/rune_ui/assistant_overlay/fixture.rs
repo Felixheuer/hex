@@ -404,6 +404,41 @@ pub(crate) fn many_jobs_board(count: usize) -> Board {
     board
 }
 
+/// One job leading `helpers` helpers (`assistant::agent::team`), each at a
+/// supplier.
+pub(crate) fn team_board(helpers: usize) -> Board {
+    let now = Instant::now();
+    let mut board = Board::default();
+    board.apply(
+        &started(
+            "lead",
+            Origin::Background,
+            "50 Lieferanten vergleichen und Team informieren",
+        ),
+        None,
+        now,
+    );
+    board.apply(&step("lead", "Wartet auf 5 Helfer"), None, now);
+    for n in 0..helpers {
+        let id = format!("helper{n}");
+        board.apply(
+            &started(
+                &id,
+                Origin::Background,
+                &format!("Lieferanten {}–{}", n * 10 + 1, n * 10 + 10),
+            ),
+            None,
+            now,
+        );
+        board.apply(&step(&id, "Liest die Preisliste"), None, now);
+        if let Some(task) = board.tasks.iter_mut().find(|task| task.id == id) {
+            task.lead = Some("lead".into());
+        }
+    }
+    board.pops = Default::default();
+    board
+}
+
 /// The Here question in [`escalated_board`].
 pub(crate) const ESCALATED: &str = "downloads";
 pub(crate) const ESCALATED_QUESTION: &str = "Sort my Downloads folder into folders by type";

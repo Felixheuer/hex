@@ -34,6 +34,8 @@ const THUMB_W: f32 = 70.0;
 const THUMB_H: f32 = 44.0;
 /// The count line's height.
 pub(crate) const LINE_H: f32 = 30.0;
+/// How far a helper's card is set in under its lead's.
+const HELPER_INSET: f32 = 16.0;
 /// How long the pointer rests on the count line before every card unfolds,
 /// and how long it stays away before they fold back.
 pub(crate) const UNFOLD_AFTER: std::time::Duration = std::time::Duration::from_millis(60);
@@ -82,15 +84,52 @@ pub(crate) fn running(tasks: &[Task]) -> Vec<&Task> {
 
 /// How `jobs` (in the board's order, oldest first) show, with a question
 /// waiting or not, and with the count line unfolded (`all`) or not.
+///
+/// A job's helpers (`assistant::agent::team`) fold into their lead's card;
+/// unfolded, each comes right under its lead's.
 pub(crate) fn layout(jobs: &[&Task], question: bool, all: bool) -> Layout {
     let room = if question { MAX_CARDS - 1 } else { MAX_CARDS };
-    let newest_first = || jobs.iter().rev().map(|task| task.id.clone()).collect();
-    match jobs.len() {
+    let led = |task: &Task| {
+        task.lead
+            .as_ref()
+            .is_some_and(|lead| jobs.iter().any(|job| &job.id == lead))
+    };
+    let leads: Vec<&Task> = jobs
+        .iter()
+        .rev()
+        .copied()
+        .filter(|task| !led(task))
+        .collect();
+    let helpers = jobs.len() > leads.len();
+    let newest_first = || leads.iter().map(|task| task.id.clone()).collect();
+    // Each lead, then its helpers, newest first.
+    let with_helpers = || {
+        leads
+            .iter()
+            .flat_map(|lead| {
+                std::iter::once(lead.id.clone()).chain(
+                    jobs.iter()
+                        .rev()
+                        .filter(|task| task.lead.as_ref() == Some(&lead.id))
+                        .map(|task| task.id.clone()),
+                )
+            })
+            .collect()
+    };
+    match leads.len() {
         0 => Layout::None,
-        n if n > room && all => Layout::All(newest_first()),
-        n if n > room => Layout::Line(n),
+        n if all && (n > room || helpers) => Layout::All(with_helpers()),
+        n if n > room => Layout::Line(jobs.len()),
         _ => Layout::Cards(newest_first()),
     }
+}
+
+/// A lead's helpers as its card sums them up: how many, how many ended.
+fn helpers_of<'a>(team: &[&'a Task], lead: &str) -> Vec<&'a Task> {
+    team.iter()
+        .copied()
+        .filter(|task| task.lead.as_deref() == Some(lead))
+        .collect()
 }
 
 /// Of `count` browsers, how many show and how many more there are.
@@ -131,10 +170,13 @@ pub(crate) struct Room {
     pub(crate) appear: rune::Transition,
 }
 
-/// The cards (or the line) for `jobs`, as laid out.
+/// The cards (or the line) for `jobs`, as laid out. `team` is every helper
+/// on the board (any phase), for its lead's card.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn view<S: 'static>(
     p: Paint,
     jobs: &[&Task],
+    team: &[&Task],
     layout: &Layout,
     room: Room,
     actions: stack::Actions<S>,
@@ -143,7 +185,25 @@ pub(crate) fn view<S: 'static>(
     let cards = |ids: &[String]| -> Vec<El> {
         ids.iter()
             .filter_map(|id| jobs.iter().find(|task| &task.id == id))
-            .map(|task| card(p, task, &live::previews(&task.id), actions))
+            .map(|task| {
+                let helping = task.lead.as_ref().is_some_and(|lead| ids.contains(lead));
+                let card = card(
+                    p,
+                    task,
+                    &live::previews(&task.id),
+                    &helpers_of(team, &task.id),
+                    helping,
+                    actions,
+                );
+                if helping {
+                    // Under its lead's card, set in.
+                    el().key(format!("helper-{}", task.id))
+                        .pl(HELPER_INSET)
+                        .child(card)
+                } else {
+                    card
+                }
+            })
             .collect()
     };
     match layout {
@@ -162,7 +222,7 @@ pub(crate) fn view<S: 'static>(
             }
             vec![
                 col()
-                    .key("jobs-cards")
+                    .key("jobs-hover")
                     .gap(8.0)
                     .hover_delays(UNFOLD_AFTER, FOLD_AFTER)
                     .on_hover_change(move |s: &mut S, inside, _| hover(s, inside))
@@ -224,7 +284,7 @@ fn unfolding<S: 'static>(
         parts.reverse();
     }
     col()
-        .key("jobs-unfolding")
+        .key("jobs-hover")
         .gap(8.0)
         .min_h(0.0)
         .shrink()
@@ -239,6 +299,8 @@ fn card<S: 'static>(
     p: Paint,
     task: &Task,
     previews: &[std::sync::Arc<Preview>],
+    helpers: &[&Task],
+    helping: bool,
     actions: stack::Actions<S>,
 ) -> El {
     let c = &p.k.c;
@@ -310,9 +372,14 @@ fn card<S: 'static>(
                     )
             }))
     });
+    let team = (!helpers.is_empty()).then(|| team_row(p, helpers));
     let card = col()
         .key(format!("job-{}", task.id))
-        .w(CARD_W)
+        .w(if helping {
+            CARD_W - HELPER_INSET
+        } else {
+            CARD_W
+        })
         .padding(10.0)
         .gap(4.0)
         .radius(14.0)
@@ -332,8 +399,41 @@ fn card<S: 'static>(
         .on_press(move |s: &mut S| open(s, &id))
         .child(head)
         .children(step)
-        .children(browsers);
+        .children(browsers)
+        .children(team);
     p.k.interactive(card)
+}
+
+/// A lead's helpers on its card: a dot each and how many ended ("4 Helfer
+/// · 1 erledigt"); resting on the cards shows each one's own.
+fn team_row(p: Paint, helpers: &[&Task]) -> El {
+    let ended = helpers
+        .iter()
+        .filter(|task| matches!(task.phase, Phase::Done | Phase::Failed | Phase::Stopped))
+        .count();
+    let mut words = tr_fill("{} helpers", &helpers.len().to_string());
+    if ended > 0 {
+        words = format!("{words} · {}", tr_fill("{} done", &ended.to_string()));
+    }
+    row()
+        .key("job-team")
+        .gap(5.0)
+        .pt(2.0)
+        .center_y()
+        .role("group")
+        .label(words.clone())
+        .children(
+            helpers
+                .iter()
+                .take(10)
+                .map(|task| orb::dot(task, palette::task(task.colour, p.k.dark), 6.0)),
+        )
+        .child(
+            text(words)
+                .key("job-team-text")
+                .font(p.k.ty.small)
+                .color(p.muted()),
+        )
 }
 
 /// What a screen reader says for a card: its title, whether it waits, and
