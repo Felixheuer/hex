@@ -145,7 +145,7 @@ impl ChatsPane {
                 reload_list = true;
             }
             // The screen frame shows it; the strip follows the tasks.
-            Event::ModeChanged { .. } => {}
+            Event::ModeChanged { .. } | Event::QuestionsChanged { .. } => {}
         }
         if matches!(
             event,

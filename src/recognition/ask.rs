@@ -146,6 +146,9 @@ impl Asker {
                     crate::assistant::computer::context_async(include_screenshot)
                 }));
                 let accepted = handle(action, context, events)?;
+                // Questions and finished jobs wait to be read aloud while
+                // the person speaks.
+                crate::assistant::set_listening(accepted);
                 if accepted {
                     // The HUD wears the assistant's colours (and after a tap
                     // says "New task"), so a question never looks like a
@@ -161,6 +164,7 @@ impl Asker {
                 Ok(accepted)
             }
             HotkeyAction::Finish => {
+                crate::assistant::set_listening(false);
                 let page = context.finish(events)?;
                 let question = self
                     .question
@@ -185,6 +189,7 @@ impl Asker {
             // and the task list shows or hides.
             HotkeyAction::DoubleTap => {
                 self.question = None;
+                crate::assistant::set_listening(false);
                 handle(action, context, events)?;
                 toggle_tasks();
                 feedback::play(Tone::OnboardingSuccess);
@@ -192,6 +197,7 @@ impl Asker {
             }
             _ => {
                 self.question = None;
+                crate::assistant::set_listening(false);
                 handle(action, context, events)
             }
         }

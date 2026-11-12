@@ -24,6 +24,8 @@ mod opencode;
 pub mod servers;
 mod warm;
 
+pub use claude_api::classify_reply;
+
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read};

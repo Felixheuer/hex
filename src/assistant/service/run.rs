@@ -138,9 +138,7 @@ impl Runner {
                     job.kind = JobKind::AfterLimit;
                 }
                 Outcome::Question(question) => {
-                    if voice && settings.speak_answers {
-                        self.voice.finish(self, &conversation, &question);
-                    }
+                    // Read aloud when it becomes the inbox's active one.
                     notify(&Event::Question {
                         conversation: conversation.clone(),
                         text: question.clone(),
@@ -159,9 +157,6 @@ impl Runner {
                     job.request.context = Context::default();
                 }
                 Outcome::Confirm { category, question } => {
-                    if voice && settings.speak_answers {
-                        self.voice.finish(self, &conversation, &question);
-                    }
                     notify(&Event::Question {
                         conversation: conversation.clone(),
                         text: question.clone(),
@@ -242,9 +237,15 @@ impl Runner {
                     if lane == Lane::Here {
                         self.voice.finish(self, &conversation, &text);
                     } else if voice {
-                        // A job asked by voice: its spoken summary.
-                        self.voice
-                            .finish(self, &conversation, &spoken_summary(&text));
+                        // A job asked by voice: its spoken summary, in
+                        // turn after what plays (`voice::Priority`).
+                        self.voice.announce(
+                            self,
+                            super::voice::Priority::Summary,
+                            &conversation,
+                            &request.text,
+                            &spoken_summary(&text),
+                        );
                     }
                 }
                 let event = Event::Answer {
@@ -351,6 +352,7 @@ impl Runner {
         if let Some(task) = self.state().tasks.iter_mut().find(|task| task.key == key) {
             task.status.state = TaskState::NeedsInput;
             task.question = Some(question.clone());
+            task.asked_ms = Some(now);
             task.reply = None;
             task.held_since.get_or_insert(now);
         }
@@ -358,8 +360,14 @@ impl Runner {
             conversation: conversation.to_owned(),
             text: question,
         });
+        self.questions_changed();
         loop {
             if control.cancelled() {
+                if let Some(task) = self.state().tasks.iter_mut().find(|task| task.key == key) {
+                    task.question = None;
+                    task.asked_ms = None;
+                }
+                self.questions_changed();
                 return None;
             }
             let answer = {
@@ -369,10 +377,12 @@ impl Runner {
                 task.reply.take().inspect(|_| {
                     task.status.state = TaskState::Running;
                     task.question = None;
+                    task.asked_ms = None;
                     super::monitor::resume_clock(task, now);
                 })
             };
             if answer.is_some() {
+                self.questions_changed();
                 return answer;
             }
             (self.hooks.sleep)(Duration::from_millis(100));

@@ -231,7 +231,7 @@ pub fn on_it(text: &str) -> String {
 }
 
 /// `text`'s meaningful words, lowercased, without filler and task words.
-fn words(text: &str) -> HashSet<String> {
+pub(super) fn words(text: &str) -> HashSet<String> {
     const STOP: &[&str] = &[
         "aufgabe",
         "aufgaben",
