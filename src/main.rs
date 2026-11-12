@@ -11,6 +11,8 @@ mod accessibility;
 mod app_paths;
 #[cfg_attr(any(target_os = "linux", target_os = "windows"), allow(dead_code))]
 mod app_settings;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod assistant;
 #[cfg(target_os = "macos")]
 mod apple_intelligence;
 #[cfg(target_os = "macos")]

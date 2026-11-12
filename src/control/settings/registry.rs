@@ -239,6 +239,54 @@ pub(super) const KEYS: &[Key] = &[
         Kind::Path,
         "Labs: folder screenshots are saved to; none uses the Desktop (macOS)",
     ),
+    optional(
+        "assistant.action_hotkey",
+        Kind::Json,
+        "Labs: hold to ask the assistant by voice; right command by default; none turns it \
+         off (macOS, with labs.assistant)",
+    ),
+    key(
+        "assistant.provider",
+        Kind::Choice(&["claude", "open_code"]),
+        "Labs: the model that answers the assistant: claude (Anthropic API key in the \
+         Keychain) or open_code (the OpenCode service on this computer) (macOS)",
+    ),
+    key(
+        "assistant.claude_model",
+        Kind::Text,
+        "Labs: the Claude model the assistant uses, claude-sonnet-5-5 by default (macOS)",
+    ),
+    optional(
+        "assistant.opencode_model",
+        Kind::Text,
+        "Labs: OpenCode's provider/model for the assistant; none uses OpenCode's default (macOS)",
+    ),
+    key(
+        "assistant.speak_answers",
+        Kind::Bool,
+        "Labs: the assistant reads Action shortcut answers aloud (macOS)",
+    ),
+    optional(
+        "assistant.voice",
+        Kind::Text,
+        "Labs: the macOS voice that reads answers; none uses the system voice (macOS)",
+    ),
+    key(
+        "assistant.control_desktop",
+        Kind::Bool,
+        "Labs: the assistant may click, type, and open apps without asking (macOS)",
+    ),
+    key(
+        "assistant.include_screenshot",
+        Kind::Bool,
+        "Labs: the Action shortcut sends a screenshot of the screen with the question (macOS)",
+    ),
+    key(
+        "assistant.follow_up_seconds",
+        Kind::Integer { min: 0, max: 600 },
+        "Labs: an Action press this soon after an answer continues that conversation; 0 \
+         always starts a new one (macOS)",
+    ),
     key(
         "show_dock_icon",
         Kind::Bool,
@@ -651,6 +699,12 @@ pub(super) const KEYS: &[Key] = &[
         Kind::Bool,
         "Labs: `hex dictation start --print` records a dictation whose transcript goes to \
          that command, never pasted or copied, however the recording ends (macOS)",
+    ),
+    key(
+        "labs.assistant",
+        Kind::Bool,
+        "Labs: the Action shortcut asks the assistant by voice, Chats joins the sidebar, and \
+         the assistant may control the desktop (macOS)",
     ),
     key(
         "meetings.enabled",

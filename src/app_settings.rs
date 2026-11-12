@@ -17,6 +17,7 @@ use crate::transcription::models::{TranscriptionModelId, TranscriptionSelection}
 
 #[cfg(hex_capture)]
 mod capture;
+mod assistant;
 mod dictation_processing;
 mod extra_shortcuts;
 mod hotkeys;
@@ -35,6 +36,7 @@ pub use capture::*;
 pub use dictation_processing::{
     DictationMode, DictationPostProcessing, DictationProcessingSettings,
 };
+pub use assistant::*;
 pub use extra_shortcuts::*;
 pub use hotkeys::*;
 pub use labs::*;
@@ -326,6 +328,8 @@ pub struct AppSettings {
     pub labs: LabsSettings,
     /// Labs › Screenshots' shortcut and folder (macOS).
     pub screenshots: ScreenshotSettings,
+    /// Labs › Assistant's shortcut, model, and voice (macOS).
+    pub assistant: AssistantSettings,
     /// Start listening when Hex opens (Windows and Linux, where the
     /// listener can be off).
     pub enable_on_launch: bool,
@@ -454,6 +458,7 @@ impl Default for AppSettings {
             experimental: ExperimentalSettings::default(),
             labs: LabsSettings::default(),
             screenshots: ScreenshotSettings::default(),
+            assistant: AssistantSettings::default(),
             enable_on_launch: true,
             paste_with_shift: false,
             gnome_keyboard_shortcuts: false,

@@ -18,6 +18,7 @@ pub(super) fn name(group: Group) -> &'static str {
         Group::Annotate => tr("Annotate"),
         Group::Shortcuts => tr("Shortcuts"),
         Group::Models => tr("Models"),
+        Group::Assistant => tr("Assistant"),
     }
 }
 
@@ -61,5 +62,6 @@ pub(super) fn icon(group: Group) -> &'static Icon {
         Group::Annotate => &CAMERA,
         Group::Shortcuts => &KEYBOARD,
         Group::Models => &ZAP,
+        Group::Assistant => &ZAP,
     }
 }

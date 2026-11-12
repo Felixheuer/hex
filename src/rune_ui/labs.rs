@@ -534,6 +534,12 @@ fn rows(ui: &Ui) -> Vec<Row> {
             tr("Print-only CLI dictation"),
             tr("Let hex dictation start --print answer with the transcript when it ends"),
         ));
+        rows.push(row(
+            Feature::Assistant,
+            None,
+            tr("Assistant"),
+            tr("Add an Action shortcut and Chats: ask by voice, hear the answer, and let the assistant use your Mac"),
+        ));
     }
     // macOS's shortcut machine takes a shortcut without a key.
     if caps.os == super::platform::Os::Macos {
@@ -981,6 +987,7 @@ fn row_key(lab: Lab) -> &'static str {
         Feature::SpeakersOnly => "lab-speakers-only",
         Feature::KeepMicrophoneOpen => "lab-keep-microphone-open",
         Feature::PrintStart => "lab-print-start",
+        Feature::Assistant => "lab-assistant",
     }
 }
 

@@ -14,11 +14,13 @@ pub enum Group {
     Annotate,
     Shortcuts,
     Models,
+    /// The Action shortcut, Chats, and desktop control.
+    Assistant,
 }
 
 impl Group {
     /// In the order Labs lists them.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Dictation,
         Self::Output,
         Self::History,
@@ -26,6 +28,7 @@ impl Group {
         Self::Annotate,
         Self::Shortcuts,
         Self::Models,
+        Self::Assistant,
     ];
 
     /// Its stable id: `hex://labs?category=<id>` and `labs.groups` in
@@ -39,6 +42,7 @@ impl Group {
             Self::Annotate => "annotate",
             Self::Shortcuts => "shortcuts",
             Self::Models => "models",
+            Self::Assistant => "assistant",
         }
     }
 
@@ -124,6 +128,7 @@ impl Feature {
             | Self::PickerDownloaded
             | Self::ParakeetUltra
             | Self::TranscribeFiles => Group::Models,
+            Self::Assistant => Group::Assistant,
         }
     }
 }
