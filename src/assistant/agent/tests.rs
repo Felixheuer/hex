@@ -18,6 +18,8 @@ fn job(text: &str, origin: Origin, context: Context) -> Job {
         kind: JobKind::Ask,
         digest: None,
         workspace: None,
+        authorized: Default::default(),
+        memory: None,
     }
 }
 
@@ -176,6 +178,31 @@ fn each_lane_gets_its_own_rules() {
     assert!(quick.contains("no access to the desktop"));
     let chat = system_prompt(Origin::Chat, None, false);
     assert!(chat.contains("Markdown is fine"));
+}
+
+#[test]
+fn the_prompt_explains_the_autonomy_mode_and_memory() {
+    use crate::assistant::autonomy::{Authorized, Autonomy, Category};
+    let share = Authorized {
+        categories: [Category::Share].into(),
+        notes: vec!["only to max@example.com".into()],
+    };
+    let smart = autonomy_rules(Autonomy::Smart, &share);
+    assert!(smart.contains("you may only share without asking because the person asked for it (only to max@example.com)"), "{smart}");
+    assert!(smart.contains("HEX_CONFIRM: <category> <target>"));
+    let nothing = autonomy_rules(Autonomy::Smart, &Authorized::default());
+    assert!(nothing.contains("prepare (draft, save, fill in), nothing consequential"));
+    assert!(autonomy_rules(Autonomy::Ask, &Authorized::default()).contains("every send, delete"));
+    assert!(autonomy_rules(Autonomy::Yolo, &share).contains("drafts unless"));
+    let memory = memory_rules(Some("- Company: blabla.com"));
+    assert!(memory.contains("hex_remember"));
+    assert!(memory.contains("<<<\n- Company: blabla.com\n>>>"));
+    let mut confirm = job("Ja, schick sie", Origin::Background, Context::default());
+    confirm.kind = JobKind::Confirm {
+        question: "Shall I send the 3 emails?".into(),
+        allowed: true,
+    };
+    assert!(prompt(&confirm, &[], false).contains("That's a yes"));
 }
 
 #[test]

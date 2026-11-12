@@ -79,6 +79,8 @@ impl Runner {
             kind: JobKind::Ask,
             digest: None,
             workspace: None,
+            authorized: Default::default(),
+            memory: None,
         };
         let runner = Arc::clone(self);
         std::thread::Builder::new()

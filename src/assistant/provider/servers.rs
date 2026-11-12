@@ -21,6 +21,9 @@ pub fn of(run: &Run) -> Vec<(&'static str, &McpServer)> {
     if let Some(browser) = &run.browser {
         servers.push((BROWSER, browser));
     }
+    if let Some(tools) = &run.tools {
+        servers.push((crate::assistant::tools::NAME, tools));
+    }
     servers
 }
 

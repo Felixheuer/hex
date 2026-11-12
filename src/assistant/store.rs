@@ -392,7 +392,7 @@ fn valid_file(file: &str) -> bool {
 
 /// Writes `data` to a private temporary file beside `path`, then renames it
 /// over `path`.
-fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
     let temporary = path.with_extension(format!("tmp-{}", new_id()));
     let mut options = fs::OpenOptions::new();
     options.write(true).create_new(true);

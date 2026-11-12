@@ -87,6 +87,7 @@ impl Runner {
             .iter()
             .filter_map(|task| Some((task.key, task.workspace.clone()?, task.plan_seen)))
             .collect();
+        let mut authorize = Vec::new();
         for (key, workspace, seen) in jobs {
             let path = workspace.join(crate::assistant::agent::workspace::PLAN);
             let Ok(modified) = std::fs::metadata(&path).and_then(|meta| meta.modified()) else {
@@ -95,13 +96,29 @@ impl Runner {
             if seen == Some(modified) {
                 continue;
             }
-            let steps = crate::assistant::agent::workspace::plan(&workspace);
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            let steps = crate::assistant::agent::workspace::parse_plan(&text);
+            let authorized_line = text
+                .lines()
+                .map(str::trim)
+                .find(|line| line.starts_with("HEX_AUTHORIZED:"))
+                .map(str::to_owned);
             let changed = {
                 let mut state = self.state();
                 let Some(task) = state.tasks.iter_mut().find(|task| task.key == key) else {
                     continue;
                 };
                 task.plan_seen = Some(modified);
+                if let Some(line) = authorized_line
+                    && task.authorized_line.as_deref() != Some(line.as_str())
+                {
+                    task.authorized_line = Some(line.clone());
+                    authorize.push((
+                        task.status.conversation.clone(),
+                        line,
+                        task.request.text.clone(),
+                    ));
+                }
                 (task.plan != steps).then(|| {
                     task.plan = steps.clone();
                     task.status.conversation.clone()
@@ -112,6 +129,21 @@ impl Runner {
                     conversation,
                     steps,
                 });
+            }
+        }
+        // The planning turn's reading of what the request allows, kept only
+        // where the person's own words back it (Smart mode).
+        let (_, settings) = (self.hooks.settings)();
+        if settings.autonomy != crate::assistant::autonomy::Autonomy::Smart {
+            return;
+        }
+        for (conversation, line, request) in authorize {
+            let checked = crate::assistant::autonomy::validate(&line, &request);
+            let mut authorized = (self.hooks.authorized)(&conversation);
+            let before = authorized.clone();
+            crate::assistant::autonomy::merge(&mut authorized, checked);
+            if authorized != before {
+                (self.hooks.authorize)(&conversation, &authorized);
             }
         }
     }

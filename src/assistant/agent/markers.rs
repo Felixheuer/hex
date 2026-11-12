@@ -5,18 +5,26 @@
 //!   Hex continues it as a Background job (planning first).
 //! - `HEX_QUESTION:` then one batched question: the job needs the person's
 //!   answer before it goes on.
+//! - `HEX_CONFIRM: <category> <target>` then the question: Hex refused a
+//!   consequential action (`NEEDS_CONFIRMATION`) and the person's yes allows
+//!   that kind of action for the task (`autonomy`).
 //!
 //! They work the same on every backend (no tool needed), and `Gate` keeps
 //! them out of the streamed answer.
 
 const JOB: &str = "HEX_JOB:";
 const QUESTION: &str = "HEX_QUESTION:";
+const CONFIRM: &str = "HEX_CONFIRM:";
 
 /// What a reply asks of Hex.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Marker {
     Job { title: String, reply: String },
     Question(String),
+    Confirm {
+        category: crate::assistant::autonomy::Category,
+        question: String,
+    },
 }
 
 /// The marker `text` starts with, if any.
@@ -33,6 +41,22 @@ pub fn parse(text: &str) -> Option<Marker> {
             },
             reply: reply.trim().to_owned(),
         });
+    }
+    if let Some(rest) = text.strip_prefix(CONFIRM) {
+        let (head, question) = rest.split_once('\n').unwrap_or((rest, ""));
+        let category = head
+            .split_whitespace()
+            .next()
+            .and_then(crate::assistant::autonomy::Category::parse);
+        let question = question.trim();
+        return match category {
+            Some(category) if !question.is_empty() => Some(Marker::Confirm {
+                category,
+                question: question.to_owned(),
+            }),
+            // Without a category it is still a question to the person.
+            _ => (!question.is_empty()).then(|| Marker::Question(question.to_owned())),
+        };
     }
     let rest = text.strip_prefix(QUESTION)?;
     let question = rest.trim();
@@ -69,12 +93,13 @@ impl Gate {
         }
         self.held.push_str(delta);
         let start = self.held.trim_start();
-        if start.starts_with(JOB) || start.starts_with(QUESTION) {
+        if start.starts_with(JOB) || start.starts_with(QUESTION) || start.starts_with(CONFIRM) {
             self.marker = true;
             self.held.clear();
             return None;
         }
-        let could_be = JOB.starts_with(start) || QUESTION.starts_with(start);
+        let could_be =
+            JOB.starts_with(start) || QUESTION.starts_with(start) || CONFIRM.starts_with(start);
         if could_be {
             return None;
         }
@@ -101,6 +126,13 @@ mod tests {
             Some(Marker::Question(
                 "Who is your colleague, and in which language?".into()
             ))
+        );
+        assert_eq!(
+            parse("HEX_CONFIRM: send 3 emails to suppliers\nShall I send the three emails now?"),
+            Some(Marker::Confirm {
+                category: crate::assistant::autonomy::Category::Send,
+                question: "Shall I send the three emails now?".into()
+            })
         );
         assert_eq!(parse("It's 18:00 in Tokyo."), None);
         assert_eq!(parse("HEX_QUESTION:  "), None);

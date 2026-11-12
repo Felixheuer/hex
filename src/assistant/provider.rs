@@ -228,6 +228,13 @@ pub struct Run {
     /// A job's folder (also `workdir`): the backend gets file tools and a
     /// sandboxed shell that may write only there.
     pub workspace: Option<PathBuf>,
+    /// Hex's own tools (`assistant::tools`): memory and schedules.
+    pub tools: Option<McpServer>,
+    /// The backend's whole environment when it needs more than Hex's usual
+    /// one (OpenCode with a bring-your-own-key provider: the key by env).
+    pub backend_env: Option<Vec<(String, String)>>,
+    /// More OpenCode configuration (a bring-your-own-key provider).
+    pub provider_config: Option<serde_json::Value>,
 }
 
 impl Run {
@@ -248,6 +255,9 @@ impl Run {
             quick: false,
             keep_warm: None,
             workspace: None,
+            tools: None,
+            backend_env: None,
+            provider_config: None,
         }
     }
 }
