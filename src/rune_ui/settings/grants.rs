@@ -68,7 +68,8 @@ pub(in crate::rune_ui) fn portal_grant(
         ShortcutTarget::Screenshot
         | ShortcutTarget::ScreenshotRecord
         | ShortcutTarget::ExtraDictation(_)
-        | ShortcutTarget::Action => return None,
+        | ShortcutTarget::Action
+        | ShortcutTarget::StopAll => return None,
     };
     granted.iter().find(|shortcut| shortcut.name == name)
 }

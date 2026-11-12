@@ -335,7 +335,8 @@ pub fn apply(
         | "screenshots.record_hotkey"
         | "capture.hotkey"
         | "capture.replay_hotkey"
-        | "assistant.action_hotkey" => {
+        | "assistant.action_hotkey"
+        | "assistant.stop_all_hotkey" => {
             let Kind::Shortcut(slot) = key.kind else {
                 unreachable!("shortcut keys have the shortcut kind");
             };
@@ -346,6 +347,7 @@ pub fn apply(
                 HotkeySlot::TypedText => candidate.typed_text_hotkey.as_ref(),
                 HotkeySlot::SecondDictation => candidate.second_dictation_hotkey.as_ref(),
                 HotkeySlot::Action => candidate.assistant.action_hotkey.as_ref(),
+                HotkeySlot::StopAll => candidate.assistant.stop_all_hotkey.as_ref(),
                 // Each row of `extra_dictation_hotkeys` is validated from
                 // its own JSON list, not a shortcut key.
                 HotkeySlot::ExtraDictation(_) => None,
@@ -769,6 +771,10 @@ mod tests {
                     code: 0,
                     label: "Menu".into(),
                 }),
+                "escape" | "esc" => Ok(HotkeyKey {
+                    code: 53,
+                    label: "Esc".into(),
+                }),
                 name if name.chars().count() == 1 => Ok(HotkeyKey {
                     code: u16::from(name.as_bytes()[0]),
                     label: name.to_uppercase(),
@@ -777,6 +783,55 @@ mod tests {
             },
             rule: |_, _| Ok(()),
         }
+    }
+
+    /// `assistant.stop_all_hotkey` is a shortcut key: it reads back as one,
+    /// is set as one, and refuses Force Quit and another shortcut's keys.
+    #[test]
+    fn stop_all_is_a_shortcut_setting() {
+        let rules = rules();
+        let mut settings = AppSettings::default();
+        settings.labs.assistant = true;
+        assert_eq!(
+            get(&settings, "assistant.stop_all_hotkey").unwrap()[0].value,
+            Value::String("control+option+esc".into())
+        );
+        let change = apply(
+            &settings,
+            "assistant.stop_all_hotkey",
+            "control+shift+k",
+            &rules,
+        )
+        .expect("a free chord");
+        assert_eq!(
+            change.settings.assistant.stop_all_hotkey,
+            Some(parse_hotkey("control+shift+k", rules.key_named).unwrap())
+        );
+        let change = apply(&settings, "assistant.stop_all_hotkey", "none", &rules).unwrap();
+        assert_eq!(change.settings.assistant.stop_all_hotkey, None);
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        for taken in ["command+option+escape", "right-command"] {
+            assert_eq!(
+                apply(&settings, "assistant.stop_all_hotkey", taken, &rules)
+                    .unwrap_err()
+                    .code,
+                "shortcut-in-use",
+                "{taken}"
+            );
+        }
+        assert_eq!(
+            apply(
+                &settings,
+                "paste_last_hotkey",
+                "control+option+escape",
+                &rules
+            )
+            .unwrap_err()
+            .code,
+            "shortcut-in-use"
+        );
     }
 
     fn leaves(value: &Value, path: String, out: &mut Vec<String>) {

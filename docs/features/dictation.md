@@ -510,24 +510,43 @@ asks the assistant instead of pasting ([labs.md](labs.md), Assistant):
 
 ```ts
 Labs > Assistant > Action shortcut           // recognition::ask, Shortcut::Action
-├── Press -> capture starts at once; the desktop is read off the key path
-├── Hold, release -> processed like a paste (TranscriptionTarget::Assistant)
-│   ├── never pasted, copied, kept for Paste last, or saved to History
-│   └── assistant::submit: a quick question, or an Agent mode task
+├── Setup not finished (assistant::ready false) -> nothing recorded; a hold
+│   opens the setup at its saved page (ask::set_open_setup); a tap does nothing
+├── Hold -> Here (Origin::ActionShortcut): capture starts at once; once the
+│   hold is real the desktop is read off the key path and the lane prewarms
+│   ├── release -> processed like a paste (TranscriptionTarget::Assistant),
+│   │   never pasted, copied, kept for Paste last, or saved to History
+│   ├── assistant::submit, continuing assistant::focus (a running Here task
+│   │   first, which it steers); only words stop the answer being read aloud
+│   └── "im Hintergrund …", "in the background …", "nebenbei …",
+│       "parallel …", "Hintergrund: …" -> a Background task without those words
+├── Tap, then hold (second press within 300 ms, held past 300 ms)
+│   -> Background (Origin::Background): no conversation, no screenshot
+├── Double tap (two taps, 300 ms each) -> the HUD's task list shows or hides
+│   (ask::set_toggle_tasks), with a soft tone; no lock, nothing recorded
 ├── Short tap, chord (R⌘+C), or silence -> discarded, nothing asked
-├── Double tap (two taps, 300 ms) -> Agent mode on or off, no lock
-├── Escape -> stops a running quick question and its speech; taken only then
+├── Escape -> stops running Here tasks and the speech, never a Background
+│   task; taken from the app in front only while one runs or speaks
 └── Lab off, unbound, or sharing a key -> nothing matched or suppressed
+
+Labs > Assistant > Stop all tasks            // assistant.stop_all_hotkey, ⌃⌥Esc
+├── Press -> assistant::service::stop_all + speech::stop, cancel tone;
+│   swallowed from the app in front; repeats while held do nothing more
+└── Lab off, unbound, or sharing a key (any Hex shortcut, ⌘⌥Esc Force Quit)
+    -> nothing matched or swallowed
 ```
 
 The shortcut that started a capture owns it: dictation and the Action
 shortcut stand down while the other records.
 
-While the Lab is on, General also notes what else takes the dictation or
-Action shortcut's keys (macOS shortcuts, the 🌐 key, Apple Dictation, Siri,
-and apps such as Raycast or Karabiner-Elements), and setup can ask for a
-press to prove the shortcut reaches Hex (`recognition::shortcut_probe`); see
-[labs.md](labs.md), Assistant.
+While the Lab is on, General shows Stop all tasks under the Action shortcut
+(with Clear, and Restore default, since Escape ends the recorder), and notes
+what else takes the dictation, Action, or Stop all shortcut's keys (macOS
+shortcuts, the 🌐 key, Apple Dictation, Siri, and apps such as Raycast or
+Karabiner-Elements); setup can ask for a press to prove a shortcut reaches Hex
+(`recognition::shortcut_probe`); see [labs.md](labs.md), Assistant. Both are
+also set with `hex settings set assistant.action_hotkey right-command` and
+`hex settings set assistant.stop_all_hotkey control+option+escape`.
 
 ### Copy Recent Dictation (Labs, macOS)
 

@@ -146,7 +146,9 @@ pub struct DictationHotkey {
     cancel_in_any_mode: bool,
     /// A double tap is a gesture, not a lock: two complete taps report
     /// [`HotkeyAction::DoubleTap`] and leave the machine idle, and only a
-    /// tap (a press shorter than the hold threshold) arms the second.
+    /// tap (a press shorter than the hold threshold) arms the second. A
+    /// second press held past the hold threshold finishes as a hold
+    /// ([`DictationHotkey::follows_tap`] tells it apart).
     double_tap_gesture: bool,
     /// Labs › Tap or hold, read at each Toggle release: a press held past
     /// the hold threshold finishes on release instead of locking.
@@ -228,6 +230,20 @@ impl DictationHotkey {
 
     pub fn is_recording(&self) -> bool {
         matches!(self.state, State::Recording { .. } | State::Locked)
+    }
+
+    /// Whether the press recording now on a gesture machine followed a tap
+    /// within the double-tap window: released short, a double tap; held, a
+    /// tap then a hold.
+    pub fn follows_tap(&self) -> bool {
+        self.double_tap_gesture
+            && matches!(
+                self.state,
+                State::Recording {
+                    previous_release: Some(_),
+                    ..
+                }
+            )
     }
 
     /// Whether a double-tap gesture is in flight and still waiting for its
@@ -892,13 +908,14 @@ impl DictationHotkey {
                 None
             }
             // A gesture machine's second tap ends here: its capture is the
-            // caller's to discard, and nothing locks.
+            // caller's to discard, and nothing locks. Held past the hold
+            // threshold instead, it is a tap then a hold, and finishes.
             State::Recording {
-                previous_release: Some(released),
-                ..
+                previous_release: Some(_),
+                started_at,
             } if trigger_released
-                && now.duration_since(released) < DOUBLE_TAP_WINDOW
-                && self.double_tap_gesture =>
+                && self.double_tap_gesture
+                && now.duration_since(started_at) < MINIMUM_HOLD_DURATION =>
             {
                 self.state = State::IDLE;
                 Some(HotkeyAction::DoubleTap)
@@ -906,7 +923,10 @@ impl DictationHotkey {
             State::Recording {
                 previous_release: Some(released),
                 ..
-            } if trigger_released && now.duration_since(released) < DOUBLE_TAP_WINDOW => {
+            } if trigger_released
+                && !self.double_tap_gesture
+                && now.duration_since(released) < DOUBLE_TAP_WINDOW =>
+            {
                 self.state = State::Locked;
                 None
             }

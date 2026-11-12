@@ -63,6 +63,7 @@ pub(crate) fn start(slot: HotkeySlot, wait: Duration) -> Receiver<ProbeResult> {
     let binding = match slot {
         HotkeySlot::Dictation => Some(hotkeys.dictation),
         HotkeySlot::Action => hotkeys.action,
+        HotkeySlot::StopAll => hotkeys.stop_all,
         HotkeySlot::SecondDictation => hotkeys.second_dictation,
         HotkeySlot::RawDictation => hotkeys.raw_dictation,
         HotkeySlot::PasteLast => hotkeys.paste_last,

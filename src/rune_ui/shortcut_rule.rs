@@ -35,6 +35,12 @@ pub(crate) fn shortcut_rule(slot: HotkeySlot, binding: &HotkeyBinding) -> Result
         HotkeySlot::Action => ShortcutTarget::Action,
         #[cfg(not(target_os = "macos"))]
         HotkeySlot::Action => ShortcutTarget::Dictation,
+        // Labs › Assistant's Stop all tasks (macOS): a press, so it needs a
+        // key; elsewhere it never runs.
+        #[cfg(target_os = "macos")]
+        HotkeySlot::StopAll => ShortcutTarget::StopAll,
+        #[cfg(not(target_os = "macos"))]
+        HotkeySlot::StopAll => ShortcutTarget::PasteLast,
         #[cfg(target_os = "macos")]
         HotkeySlot::Screenshot => ShortcutTarget::Screenshot,
         #[cfg(target_os = "macos")]

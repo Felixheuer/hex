@@ -91,6 +91,13 @@ pub fn background_busy() -> bool {
     agent_mode()
 }
 
+/// A hold of the Action shortcut just became real: get ready to answer in
+/// `lane` (start its agent, warm its session) while the person speaks.
+/// Called on the listener's thread; return at once.
+pub fn prewarm(lane: super::types::Lane) {
+    let _ = lane;
+}
+
 /// The person takes `conversation` over: its desktop actions wait, and its
 /// window comes forward. `Event::Paused`.
 pub fn take_over(conversation: &str) {

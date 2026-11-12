@@ -15,6 +15,7 @@ pub(super) fn rows(ui: &Ui, p: Paint, key: &str, target: ShortcutTarget) -> Vec<
     let slot = match target {
         ShortcutTarget::Dictation => HotkeySlot::Dictation,
         ShortcutTarget::Action => HotkeySlot::Action,
+        ShortcutTarget::StopAll => HotkeySlot::StopAll,
         _ => return Vec::new(),
     };
     crate::shortcut_conflicts::cached(slot, &ui.settings)
