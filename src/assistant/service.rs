@@ -681,6 +681,9 @@ pub(crate) struct Runner {
 #[derive(Default)]
 pub(crate) struct State {
     tasks: Vec<Task>,
+    /// Steers a lead asked for its helpers (helper, words, the person's
+    /// words behind the lead), waiting to be delivered (`team_tell`).
+    told: Vec<(ConversationId, String, Option<String>)>,
     /// Background work is queued, running, waiting, or paused (the desktop
     /// session runs around it; `background_busy`).
     background_on: bool,
@@ -952,6 +955,7 @@ impl Runner {
             let new_conversation = request.conversation.is_none();
             let mut id = request.conversation.clone().unwrap_or_else(store::new_id);
             let mut key = None;
+            let mut steered_parent: Option<ConversationId> = None;
             if let Some(warm) = state.warm.take()
                 && kind == JobKind::Ask
                 && warm.lane == request.origin.lane()
@@ -973,6 +977,8 @@ impl Runner {
                     doing: target.status.step.clone(),
                     steps: target.steps.iter().cloned().collect(),
                 };
+                // A helper steered stays its lead's.
+                steered_parent = target.parent.clone();
                 // A job's transcript gets the words where they were said,
                 // with a short "noted"; its steered run doesn't add them again.
                 if target.workspace.is_some() || matches!(target.kind, JobKind::Job { .. }) {
@@ -1025,6 +1031,11 @@ impl Runner {
                 voice,
                 said,
             );
+            if steered_parent.is_some()
+                && let Some(task) = state.tasks.last_mut()
+            {
+                task.parent = steered_parent;
+            }
             id
         };
         for key in stop {
@@ -1240,7 +1251,23 @@ impl Runner {
         if let Err(why) = &result {
             tracing::info!(lead = ask.lead, why, "a team request was refused");
         }
+        // A tell answers with the helpers told, not as started helpers.
+        let told = std::mem::take(&mut self.state().told);
         (self.hooks.team_answer)(ask, result);
+        // Instructions for helpers steer them, outside the state's lock;
+        // a lead's words authorize only from the person's (`Said`).
+        for (helper, text, said) in told {
+            self.submit_as(
+                Request {
+                    conversation: Some(helper),
+                    text,
+                    origin: Origin::Background,
+                    context: Context::default(),
+                },
+                JobKind::Ask,
+                said.map_or(Said::Nobody, Said::Words),
+            );
+        }
         if started {
             self.refresh_mode();
             self.pump();
@@ -1265,6 +1292,9 @@ impl Runner {
             return Err("A helper can't start helpers of its own: do this part yourself.".into());
         }
         let said = lead.said.clone();
+        if !ask.tell.is_empty() {
+            return Ok(Self::team_tell(state, ask, said));
+        }
         let working = state
             .tasks
             .iter()
@@ -1312,6 +1342,45 @@ impl Runner {
             });
         }
         Ok(members)
+    }
+
+    /// Notes the steers for the helpers `ask.tell` names (they must be the
+    /// lead's); the helpers told. `start_team` delivers them once the
+    /// state's lock is let go.
+    fn team_tell(
+        state: &mut State,
+        ask: &agent::team::Ask,
+        said: Option<String>,
+    ) -> Vec<agent::team::Member> {
+        let mut told = Vec::new();
+        for tell in &ask.tell {
+            let text = tell.text.trim();
+            if text.is_empty() {
+                continue;
+            }
+            let helpers: Vec<(ConversationId, String)> = state
+                .tasks
+                .iter()
+                .filter(|task| task.parent.as_deref() == Some(ask.lead.as_str()))
+                .filter(|task| tell.to == "all" || task.status.conversation == tell.to)
+                .map(|task| (task.status.conversation.clone(), task.status.title.clone()))
+                .collect();
+            for (helper, title) in helpers {
+                state
+                    .told
+                    .push((helper.clone(), text.to_owned(), said.clone()));
+                told.push(agent::team::Member {
+                    id: helper,
+                    title,
+                    task: text.to_owned(),
+                    state: agent::team::State::Running,
+                    step: None,
+                    answer: None,
+                    started_ms: 0,
+                });
+            }
+        }
+        told
     }
 
     pub(crate) fn cancel(self: &Arc<Self>, conversation: &str) {

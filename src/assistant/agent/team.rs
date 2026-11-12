@@ -87,12 +87,24 @@ pub struct Member {
     pub started_ms: u64,
 }
 
-/// A lead's request to start helpers.
+/// A lead's request to start helpers, or to tell running ones something.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Ask {
     pub lead: String,
     pub nonce: String,
     pub jobs: Vec<Job>,
+    /// New instructions for its helpers (`hex_team_tell`): each steers the
+    /// helper it names, as the person's words would.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tell: Vec<Tell>,
+}
+
+/// One instruction for a helper.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Tell {
+    /// The helper's id, or `all`.
+    pub to: String,
+    pub text: String,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -154,6 +166,15 @@ pub fn start(root: &Path, lead: &str, jobs: Vec<Job>) -> Result<Vec<Member>, Str
     start_waiting(root, lead, jobs, ANSWER_WAIT)
 }
 
+/// Asks the runner to give `lead`'s helpers new instructions; the helpers
+/// told, or why not.
+pub fn tell(root: &Path, lead: &str, tell: Vec<Tell>) -> Result<Vec<Member>, String> {
+    if tell.iter().all(|tell| tell.text.trim().is_empty()) {
+        return Err("hex_team_tell needs “text”".into());
+    }
+    send(root, lead, Vec::new(), tell, ANSWER_WAIT)
+}
+
 fn start_waiting(
     root: &Path,
     lead: &str,
@@ -163,6 +184,16 @@ fn start_waiting(
     if jobs.is_empty() {
         return Err("hex_team_start needs at least one job with a “task”".into());
     }
+    send(root, lead, jobs, Vec::new(), wait)
+}
+
+fn send(
+    root: &Path,
+    lead: &str,
+    jobs: Vec<Job>,
+    tell: Vec<Tell>,
+    wait: Duration,
+) -> Result<Vec<Member>, String> {
     let requests = dir(root, lead, "requests").ok_or("this task has no id Hex can use")?;
     let answers = dir(root, lead, "answers").ok_or("this task has no id Hex can use")?;
     let nonce = nonce();
@@ -170,6 +201,7 @@ fn start_waiting(
         lead: lead.to_owned(),
         nonce: nonce.clone(),
         jobs,
+        tell,
     };
     write_json(&requests.join(format!("{nonce}.json")), &ask)?;
     let answer = answers.join(format!("{nonce}.json"));
@@ -410,7 +442,7 @@ fn apply(member: &mut Member, event: &Event) {
 }
 
 /// What a lead learns in its rules: when and how to use helpers.
-pub const RULES: &str = "\nA team for big jobs: when the work splits into parts that can run beside each other (many sites or suppliers to research, several deliverables, a build beside a comparison), start helpers with hex_team_start: each is a full background job with its own browsers, apps, and folder inside yours, and asks the person on its own what it must know. Give each a self-contained task (every detail it needs, and which files to write in its folder), at most 12 at once. A step that needs their results (a sheet of everything they found, a message with the final link) comes after them: do it yourself once they're done, or start a helper for it then, naming the files to use. While they work, do your own part, or call hex_team_status with wait_seconds (up to 240) to wait for the next to finish; never poll it quickly. Read their answers and files, check them, and finish with one answer for all of it. Small jobs need no team.\n";
+pub const RULES: &str = "\nA team for big jobs: when the work splits into parts that can run beside each other (many sites or suppliers to research, several deliverables, a build beside a comparison), start helpers with hex_team_start: each is a full background job with its own browsers, apps, and folder inside yours, and asks the person on its own what it must know. Give each a self-contained task (every detail it needs, and which files to write in its folder), at most 12 at once. A step that needs their results (a sheet of everything they found, a message with the final link) comes after them: do it yourself once they're done, or start a helper for it then, naming the files to use. While they work, do your own part, or call hex_team_status with wait_seconds (up to 240) to wait for the next to finish; never poll it quickly. When the person changes what they want while helpers work, pass it on with hex_team_tell (one helper's id, or \"all\"). Read their answers and files, check them, and finish with one answer for all of it. Small jobs need no team.\n";
 
 /// What a helper learns in its rules: it does one part of its lead's job.
 pub fn helper_rules(lead: &str) -> String {

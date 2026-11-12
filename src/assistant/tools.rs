@@ -110,6 +110,14 @@ fn team_definitions() -> Vec<Value> {
             }, "required": ["jobs"]},
         }),
         json!({
+            "name": "hex_team_tell",
+            "description": "Give your helpers a new instruction while they work (the person changed what they want, or a helper should change course): it reaches the helper at once, as the person's words would. `to` is a helper's id from hex_team_start, or \"all\".",
+            "inputSchema": {"type": "object", "properties": {
+                "to": {"type": "string"},
+                "text": {"type": "string", "description": "The instruction, self-contained."}
+            }, "required": ["to", "text"]},
+        }),
+        json!({
             "name": "hex_team_status",
             "description": "Your helpers: each one's state, current step, and once it ended its final answer. With wait_seconds (up to 240) it waits until the next helper finishes or asks the person something, so you can wait without polling.",
             "inputSchema": {"type": "object", "properties": {
@@ -187,7 +195,7 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
         return Err((*why).to_owned());
     }
     match name {
-        "hex_team_start" | "hex_team_status" if role() != Role::Job => {
+        "hex_team_start" | "hex_team_status" | "hex_team_tell" if role() != Role::Job => {
             Err("Only a background job leads a team; hand the work on with hex_start_jobs.".into())
         }
         "hex_team_start" => {
@@ -207,6 +215,26 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
                 members.len(),
                 lines.join("\n")
             ))
+        }
+        "hex_team_tell" => {
+            let lead = TASK
+                .get()
+                .ok_or("hex_team_tell needs the task this server serves")?;
+            let root =
+                crate::assistant::agent::team::root().ok_or("Hex has no folder for teams")?;
+            let told = crate::assistant::agent::team::tell(
+                &root,
+                lead,
+                vec![crate::assistant::agent::team::Tell {
+                    to: text("to")?,
+                    text: text("text")?,
+                }],
+            )?;
+            if told.is_empty() {
+                return Err("No helper of yours has that id (hex_team_status lists them).".into());
+            }
+            let names: Vec<&str> = told.iter().map(|member| member.title.as_str()).collect();
+            Ok(format!("Told {}: {}.", told.len(), names.join(", ")))
         }
         "hex_team_status" => {
             let lead = TASK
@@ -420,6 +448,7 @@ mod tests {
                 "hex_schedules",
                 "hex_compare_images",
                 "hex_team_start",
+                "hex_team_tell",
                 "hex_team_status"
             ]
         );
