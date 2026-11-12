@@ -170,6 +170,9 @@ impl Bubble {
             }
             Event::Escalated { .. } => {
                 self.escalated = true;
+                if !self.answer.trim().is_empty() {
+                    self.phase = BubblePhase::Answered;
+                }
                 self.ended = Some(now);
                 true
             }
@@ -189,7 +192,10 @@ impl Bubble {
         let Some(ended) = self.ended else {
             return Due::Stay;
         };
-        if self.escalated {
+        // Handed to the background with nothing to show: it flies to the
+        // orb at once. With its spoken line ("On it: …") it stays until
+        // that was read, then goes.
+        if self.escalated && self.answer.trim().is_empty() {
             return Due::Leave;
         }
         if self.phase == BubblePhase::Failed {
@@ -396,5 +402,73 @@ mod tests {
         assert_eq!(reading_time(""), Duration::ZERO);
         assert_eq!(reading_time("one two three four"), Duration::from_secs(1));
         assert_eq!(reading_time(&"word ".repeat(1000)), READING_MAX);
+    }
+
+    /// Every line Hex says about a Here question shows: the answer, and the
+    /// "On it: ..." said when it hands the question to the background, which
+    /// stays while it's read and only then flies to the orb.
+    #[test]
+    fn a_spoken_hand_off_line_stays_visible_until_it_was_read() {
+        let t0 = Instant::now();
+        let mut bubble = None;
+        assert!(Bubble::apply(&mut bubble, &quick(1), t0));
+        let line = Event::AnswerDelta {
+            conversation: id(1),
+            text: "Mach ich: drei Aufgaben laufen.".into(),
+        };
+        assert!(Bubble::apply(&mut bubble, &line, t0));
+        assert!(Bubble::apply(
+            &mut bubble,
+            &Event::Escalated {
+                conversation: id(1)
+            },
+            t0
+        ));
+        let b = bubble.as_mut().unwrap();
+        assert!(b.escalated);
+        assert_eq!(b.answer, "Mach ich: drei Aufgaben laufen.");
+        // Read aloud: it stays.
+        assert!(matches!(b.due(t0, true), Due::At(_)));
+        // Read, then quiet past the linger: it goes (flying to the orb).
+        let later = t0 + Duration::from_secs(1);
+        assert!(matches!(b.due(later, false), Due::At(_)));
+        assert_eq!(b.due(later + BUBBLE_LINGER, false), Due::Leave);
+    }
+
+    /// With nothing to say, a handed-off question flies to the orb at once.
+    #[test]
+    fn a_silent_hand_off_flies_at_once() {
+        let t0 = Instant::now();
+        let mut bubble = None;
+        Bubble::apply(&mut bubble, &quick(2), t0);
+        Bubble::apply(
+            &mut bubble,
+            &Event::Escalated {
+                conversation: id(2),
+            },
+            t0,
+        );
+        assert_eq!(bubble.as_mut().unwrap().due(t0, true), Due::Leave);
+    }
+
+    /// The spoken status reply ("Wie weit ist ...?") is a Here question with
+    /// its answer: it shows as one.
+    #[test]
+    fn a_spoken_status_reply_shows_as_a_bubble() {
+        let t0 = Instant::now();
+        let mut bubble = None;
+        assert!(Bubble::apply(&mut bubble, &quick(3), t0));
+        assert!(Bubble::apply(
+            &mut bubble,
+            &Event::Answer {
+                conversation: id(3),
+                origin: Origin::ActionShortcut,
+                text: "Der Shop ist zu drei Vierteln fertig.".into(),
+            },
+            t0
+        ));
+        let b = bubble.as_ref().unwrap();
+        assert_eq!(b.phase, BubblePhase::Answered);
+        assert!(!b.answer.is_empty());
     }
 }

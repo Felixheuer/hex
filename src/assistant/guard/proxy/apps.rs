@@ -102,6 +102,8 @@ impl<D: Desktop> Guard<D> {
         if new_instance {
             launch.insert("no_attach".into(), json!(true));
         }
+        // The person's app keeps the front (`front`): noted before.
+        let before = super::front::frontmost();
         let result = self.forward("desktop_launch", &launch)?;
         let Some(data) = child::data(&result) else {
             // agent-desktop's own failure, as it said it.
@@ -126,6 +128,9 @@ impl<D: Desktop> Guard<D> {
             }
             std::thread::sleep(Duration::from_millis(100));
         };
+        super::front::keep_front(before, launched.pid);
+        // Onto the agents' display now, before the task acts in it.
+        self.place_arrivals();
         // The notes `adopt` left say the same; the data has it.
         self.notes.clear();
         let note = match (mine.is_empty(), was_running && !new_instance) {

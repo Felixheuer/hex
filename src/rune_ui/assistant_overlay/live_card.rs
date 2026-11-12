@@ -256,7 +256,7 @@ fn picture<S: 'static>(
             },
         );
     let base = match preview.filter(|preview| preview.has_frame()) {
-        Some(preview) => base.pixels_fit(&preview.pixels, rune::SurfaceFit::Fit),
+        Some(preview) => base.pixels_fit(preview.large_pixels(), rune::SurfaceFit::Fit),
         None => base.center().child(
             text(match preview.map(Preview::page) {
                 Some(page) if page.failed.is_some() => tr("No live picture of this browser"),

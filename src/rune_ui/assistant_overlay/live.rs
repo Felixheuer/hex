@@ -8,31 +8,66 @@
 //! Both large views share one stream per browser: [`view`] says which
 //! viewer shows what, and a browser any viewer shows large streams large.
 //!
-//! Streams run only while something shows them: the hovered task's at a
-//! few frames a second and downscaled, the one viewed large at full size
-//! and faster. Each task has a thread that looks for its browsers every
-//! moment and one thread per browser reading its stream
-//! (`assistant::browser::stream`). A light Lightpanda browser draws no
-//! pixels; its card shows the page's title and address instead.
+//! Every working task's browsers stream from the moment they open ([`track`]),
+//! slowly (a frame a second) in the background, so a picture is already there
+//! when the pointer comes: the hovered task's at a few frames a second, the
+//! one viewed large at full size and fast. Each browser keeps only its latest
+//! frame: a thumbnail filtered down to what the list draws (never below its
+//! on-screen pixels), and, while hovered or viewed, the full frame. A
+//! browser that becomes hovered or viewed with no full frame yet reconnects
+//! at once, since a still page sends no new frame by itself. One thread lists
+//! every tracked task's browsers (one agent-browser call a round) and one
+//! thread per browser reads its stream (`assistant::browser::stream`). A
+//! light Lightpanda browser draws no pixels; its card shows the page's title
+//! and address instead.
 //!
 //! Views read [`previews`] and [`preview`]; frames wake whatever draws
 //! their `rune::Pixels`, and a browser coming or going, or its page
 //! changing, calls the hooks set with [`on_change`].
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use crate::assistant::browser::stream::{self, Input, Message, Writer};
 
-/// Frames a second while a preview is small, and while it's viewed large.
-const SMALL_FPS: u32 = 3;
-const LARGE_FPS: u32 = 15;
-/// A small preview's widest, in pixels (two thumbnails side by side at 2×).
-const SMALL_WIDTH: usize = 400;
-/// How often a watched task's browsers are listed again.
+/// A thumbnail's width in pixels: the list draws it 148 points wide, so
+/// this covers a Retina (2×) display with room, filtered down from the
+/// frame rather than scaled by the GPU.
+const THUMB_WIDTH: usize = 360;
+/// How often the tracked tasks' browsers are listed again.
 const RELIST: Duration = Duration::from_millis(1500);
+
+/// How fast a browser streams.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum Rate {
+    /// Its task works but nothing shows it: a frame a second, so a picture
+    /// is ready the moment the pointer comes.
+    Background = 0,
+    /// Its task is hovered in the list: thumbnails.
+    Small = 1,
+    /// A viewer shows it large.
+    Large = 2,
+}
+
+impl Rate {
+    fn fps(self) -> u32 {
+        match self {
+            Self::Background => 1,
+            Self::Small => 5,
+            Self::Large => 24,
+        }
+    }
+
+    fn from_u8(value: u8) -> Self {
+        match value {
+            2 => Self::Large,
+            1 => Self::Small,
+            _ => Self::Background,
+        }
+    }
+}
 /// How long a stream that failed waits before trying again.
 const RETRY: Duration = Duration::from_secs(2);
 
@@ -43,11 +78,16 @@ pub(crate) struct Preview {
     /// What the agent calls it: "" for the task's main browser, else its
     /// name ("a", "suppliers-2").
     pub(crate) name: String,
+    /// The latest frame, filtered down to a thumbnail ([`THUMB_WIDTH`]).
     pub(crate) pixels: rune::Pixels,
+    /// The latest frame at full size, kept while hovered or viewed large.
+    pub(crate) full: rune::Pixels,
     page: Mutex<Page>,
     writer: Mutex<Option<Writer>>,
-    /// Viewed large: full size, more frames.
-    large: AtomicBool,
+    /// The [`Rate`] it streams at.
+    rate: AtomicU8,
+    /// Reconnect now (a fresh first frame), not after [`RETRY`].
+    refresh: AtomicBool,
     stop: AtomicBool,
 }
 
@@ -69,9 +109,11 @@ impl Preview {
             session,
             name,
             pixels: rune::Pixels::new(),
+            full: rune::Pixels::new(),
             page: Mutex::new(Page::default()),
             writer: Mutex::new(None),
-            large: AtomicBool::new(false),
+            rate: AtomicU8::new(Rate::Background as u8),
+            refresh: AtomicBool::new(false),
             stop: AtomicBool::new(false),
         }
     }
@@ -88,10 +130,34 @@ impl Preview {
         self.pixels.size() != (0, 0)
     }
 
-    fn set_large(&self, large: bool) {
-        if self.large.swap(large, Ordering::AcqRel) != large {
-            let fps = if large { LARGE_FPS } else { SMALL_FPS };
-            self.write(&stream::max_fps(fps));
+    /// The sharpest picture there is: the full frame once it came, else the
+    /// thumbnail (for the moment until it does).
+    pub(crate) fn large_pixels(&self) -> &rune::Pixels {
+        if self.full.size() != (0, 0) {
+            &self.full
+        } else {
+            &self.pixels
+        }
+    }
+
+    fn rate(&self) -> Rate {
+        Rate::from_u8(self.rate.load(Ordering::Acquire))
+    }
+
+    fn set_rate(&self, rate: Rate) {
+        let before = Rate::from_u8(self.rate.swap(rate as u8, Ordering::AcqRel));
+        if before == rate {
+            return;
+        }
+        self.write(&stream::max_fps(rate.fps()));
+        if needs_refresh(before, rate, self.full.size() != (0, 0)) {
+            // A still page sends no new frame: reconnect for a fresh one.
+            self.refresh.store(true, Ordering::Release);
+            if let Ok(writer) = self.writer.lock()
+                && let Some(writer) = writer.as_ref()
+            {
+                writer.close();
+            }
         }
     }
 
@@ -130,6 +196,10 @@ pub(crate) enum Viewer {
 
 #[derive(Default)]
 struct Registry {
+    /// The tasks that work now: their browsers stream in the background.
+    tracked: Vec<String>,
+    /// The thread listing browsers runs.
+    listing: bool,
     hovered: Option<String>,
     /// What each viewer shows large: (task, session).
     viewing: HashMap<Viewer, (String, String)>,
@@ -166,6 +236,21 @@ fn changed() {
     for hook in hooks().iter() {
         hook();
     }
+}
+
+/// The tasks that work now (queued, running, paused, waiting): their
+/// browsers stream in the background from the moment they open, so a
+/// preview shows at once. A task no longer listed stops streaming.
+pub(crate) fn track(tasks: &[String]) {
+    let mut registry = registry();
+    let mut tasks = tasks.to_vec();
+    tasks.sort();
+    tasks.dedup();
+    if registry.tracked == tasks {
+        return;
+    }
+    registry.tracked = tasks;
+    sync(&mut registry);
 }
 
 /// The pointer rests on `task` in the orb's list (`None`: on none).
@@ -228,17 +313,35 @@ pub(crate) fn send(task: &str, session: &str, input: &Input) {
     }
 }
 
-/// The tasks to watch: the hovered one and those viewed large, each once.
+/// The tasks to watch: the hovered one, those viewed large, and those that
+/// work, each once.
 fn wanted(registry: &Registry) -> Vec<String> {
     let mut tasks: Vec<String> = registry.hovered.iter().cloned().collect();
     let mut viewed: Vec<&String> = registry.viewing.values().map(|(task, _)| task).collect();
     viewed.sort();
-    for task in viewed {
+    for task in viewed.into_iter().chain(&registry.tracked) {
         if !tasks.contains(task) {
             tasks.push(task.clone());
         }
     }
     tasks
+}
+
+/// How fast `session` of `task` streams.
+fn rate_of(registry: &Registry, task: &str, session: &str) -> Rate {
+    if large(registry, task, session) {
+        Rate::Large
+    } else if registry.hovered.as_deref() == Some(task) {
+        Rate::Small
+    } else {
+        Rate::Background
+    }
+}
+
+/// Whether going from `before` to `after` needs a fresh frame now: the
+/// person looks at it (hovered or large) and it has no full frame yet.
+fn needs_refresh(before: Rate, after: Rate, has_full: bool) -> bool {
+    after > before && after >= Rate::Small && !has_full
 }
 
 /// Whether any viewer shows `session` of `task` large.
@@ -266,37 +369,67 @@ fn sync(registry: &mut Registry) {
             }
         }
     }
-    for task in wanted {
-        if !registry.tasks.contains_key(&task) {
-            let stop = Arc::new(AtomicBool::new(false));
+    for task in &wanted {
+        if !registry.tasks.contains_key(task) {
             registry.tasks.insert(
                 task.clone(),
                 Watch {
                     previews: Vec::new(),
-                    stop: stop.clone(),
+                    stop: Arc::new(AtomicBool::new(false)),
                 },
             );
-            let _ = std::thread::Builder::new()
-                .name("hex-browser-watch".into())
-                .spawn(move || watch(&task, &stop));
         }
     }
-    for (task, watch) in &registry.tasks {
-        for preview in &watch.previews {
-            preview.set_large(large(registry, task, &preview.session));
+    let rates: Vec<(Arc<Preview>, Rate)> = registry
+        .tasks
+        .iter()
+        .flat_map(|(task, watch)| {
+            watch
+                .previews
+                .iter()
+                .map(|preview| (preview.clone(), rate_of(registry, task, &preview.session)))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    for (preview, rate) in rates {
+        preview.set_rate(rate);
+    }
+    if !wanted.is_empty() && !registry.listing {
+        registry.listing = true;
+        let started = std::thread::Builder::new()
+            .name("hex-browser-list".into())
+            .spawn(list);
+        if started.is_err() {
+            registry.listing = false;
         }
     }
 }
 
-/// Lists `task`'s browsers every [`RELIST`] until stopped, streaming each.
-fn watch(task: &str, stop: &AtomicBool) {
+/// Lists every watched task's browsers every [`RELIST`] (one agent-browser
+/// call for all of them), streaming each, until no task is watched.
+fn list() {
     let Some(path) = crate::assistant::browser::executable() else {
+        registry().listing = false;
         return;
     };
-    while !stop.load(Ordering::Acquire) {
-        let mut sessions = crate::assistant::browser::running(&path, task);
-        sessions.sort_by_key(|session| (session.contains('_'), session.clone()));
-        if apply_sessions(task, &sessions, &path) {
+    loop {
+        let tasks = {
+            let mut registry = registry();
+            let tasks: Vec<String> = registry.tasks.keys().cloned().collect();
+            if tasks.is_empty() {
+                registry.listing = false;
+                return;
+            }
+            tasks
+        };
+        let mut open = crate::assistant::browser::running_of(&path, &tasks);
+        let mut any = false;
+        for task in &tasks {
+            let mut sessions = open.remove(task).unwrap_or_default();
+            sessions.sort_by_key(|session| (session.contains('_'), session.clone()));
+            any |= apply_sessions(task, &sessions, &path);
+        }
+        if any {
             changed();
         }
         std::thread::sleep(RELIST);
@@ -307,10 +440,9 @@ fn watch(task: &str, stop: &AtomicBool) {
 /// new ones; whether anything changed.
 fn apply_sessions(task: &str, sessions: &[String], path: &std::path::Path) -> bool {
     let mut registry = registry();
-    let viewed: Vec<String> = sessions
+    let rates: Vec<Rate> = sessions
         .iter()
-        .filter(|session| large(&registry, task, session))
-        .cloned()
+        .map(|session| rate_of(&registry, task, session))
         .collect();
     let Some(watch) = registry.tasks.get_mut(task) else {
         return false;
@@ -327,7 +459,7 @@ fn apply_sessions(task: &str, sessions: &[String], path: &std::path::Path) -> bo
         open
     });
     let mut changed = watch.previews.len() != before;
-    for session in sessions {
+    for (session, rate) in sessions.iter().zip(rates) {
         if watch
             .previews
             .iter()
@@ -336,9 +468,7 @@ fn apply_sessions(task: &str, sessions: &[String], path: &std::path::Path) -> bo
             continue;
         }
         let preview = Arc::new(Preview::new(session.clone(), name_of(task, session)));
-        preview
-            .large
-            .store(viewed.contains(session), Ordering::Release);
+        preview.rate.store(rate as u8, Ordering::Release);
         watch.previews.push(preview.clone());
         let path = path.to_path_buf();
         let _ = std::thread::Builder::new()
@@ -362,6 +492,10 @@ fn name_of(task: &str, session: &str) -> String {
 fn run(preview: &Preview, path: &std::path::Path) {
     while !preview.stop.load(Ordering::Acquire) {
         if let Err(why) = stream_once(preview, path) {
+            // Closed on purpose for a fresh frame: reconnect at once.
+            if preview.refresh.swap(false, Ordering::AcqRel) {
+                continue;
+            }
             set_page(preview, |page| page.failed = Some(why.clone()));
             tracing::debug!(session = %preview.session, %why, "browser preview stream ended");
             std::thread::sleep(RETRY);
@@ -371,11 +505,7 @@ fn run(preview: &Preview, path: &std::path::Path) {
 
 fn stream_once(preview: &Preview, path: &std::path::Path) -> Result<(), String> {
     let port = stream::enable(path, &preview.session)?;
-    let fps = if preview.large.load(Ordering::Acquire) {
-        LARGE_FPS
-    } else {
-        SMALL_FPS
-    };
+    let fps = preview.rate().fps();
     let (mut reader, writer) = stream::connect(port, &format!("pacing=ack&maxFps={fps}"))
         .map_err(|error| error.to_string())?;
     if let Ok(mut slot) = preview.writer.lock() {
@@ -393,11 +523,13 @@ fn stream_once(preview: &Preview, path: &std::path::Path) -> Result<(), String> 
                 jpeg,
                 viewport,
             }) => {
-                let large = preview.large.load(Ordering::Acquire);
-                if let Some((width, height, rgba)) =
-                    decode(&jpeg, if large { usize::MAX } else { SMALL_WIDTH })
-                {
-                    preview.pixels.set(width, height, rgba);
+                if let Some((width, height, rgba)) = decode(&jpeg) {
+                    let (tw, th, thumb) = fit_width(&rgba, width, height, THUMB_WIDTH);
+                    preview.pixels.set(tw as u32, th as u32, thumb);
+                    // The full frame only while someone looks closely.
+                    if preview.rate() >= Rate::Small {
+                        preview.full.set(width as u32, height as u32, rgba);
+                    }
                 }
                 let _ = writer.send(&stream::ack(seq));
                 let first = seen.fetch_add(1, Ordering::AcqRel) == 0;
@@ -440,42 +572,60 @@ fn set_page(preview: &Preview, change: impl FnOnce(&mut Page)) -> bool {
     before != (page.title.clone(), page.url.clone(), page.failed.clone())
 }
 
-/// A JPEG frame as RGBA, at most `max_width` wide (halved until it fits).
-fn decode(jpeg: &[u8], max_width: usize) -> Option<(u32, u32, Vec<u8>)> {
+/// A JPEG frame as RGBA at its own size.
+fn decode(jpeg: &[u8]) -> Option<(usize, usize, Vec<u8>)> {
     use zune_core::colorspace::ColorSpace;
     use zune_core::options::DecoderOptions;
     let options = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGBA);
     let mut decoder = zune_jpeg::JpegDecoder::new_with_options(std::io::Cursor::new(jpeg), options);
-    let mut rgba = decoder.decode().ok()?;
-    let (mut width, mut height) = decoder.dimensions()?;
-    if rgba.len() != width * height * 4 {
-        return None;
-    }
-    while width > max_width && width >= 2 && height >= 2 {
-        (rgba, width, height) = halve(&rgba, width, height);
-    }
-    Some((
-        u32::try_from(width).ok()?,
-        u32::try_from(height).ok()?,
-        rgba,
-    ))
+    let rgba = decoder.decode().ok()?;
+    let (width, height) = decoder.dimensions()?;
+    (width > 0 && height > 0 && rgba.len() == width * height * 4).then_some((width, height, rgba))
 }
 
-/// `rgba` at half the size, each pixel the average of the four it covers.
-fn halve(rgba: &[u8], width: usize, height: usize) -> (Vec<u8>, usize, usize) {
-    let (w, h) = (width / 2, height / 2);
-    let mut out = vec![0u8; w * h * 4];
+/// `rgba` scaled to `max_width` wide (kept when it's no wider), each output
+/// pixel the average of the source area it covers: a box filter at the
+/// exact size, so text stays legible instead of aliasing (the GPU samples
+/// a streamed frame without mipmaps).
+fn fit_width(
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+    max_width: usize,
+) -> (usize, usize, Vec<u8>) {
+    if width <= max_width || max_width == 0 {
+        return (width, height, rgba.to_vec());
+    }
+    let w = max_width;
+    let h = ((height * w) as f64 / width as f64).round().max(1.0) as usize;
+    let span = |out: usize, size: usize, from: usize| {
+        let start = out * from / size;
+        let end = ((out + 1) * from / size).max(start + 1).min(from);
+        start..end
+    };
+    let mut result = vec![0u8; w * h * 4];
     for y in 0..h {
+        let ys = span(y, h, height);
         for x in 0..w {
-            for c in 0..4 {
-                let at = |dx: usize, dy: usize| {
-                    u32::from(rgba[((y * 2 + dy) * width + x * 2 + dx) * 4 + c])
-                };
-                out[(y * w + x) * 4 + c] = ((at(0, 0) + at(1, 0) + at(0, 1) + at(1, 1)) / 4) as u8;
+            let xs = span(x, w, width);
+            let mut sum = [0u32; 4];
+            for sy in ys.clone() {
+                let row = sy * width;
+                for sx in xs.clone() {
+                    let at = (row + sx) * 4;
+                    for (channel, total) in sum.iter_mut().enumerate() {
+                        *total += u32::from(rgba[at + channel]);
+                    }
+                }
+            }
+            let count = (ys.len() * xs.len()) as u32;
+            let at = (y * w + x) * 4;
+            for (channel, total) in sum.iter().enumerate() {
+                result[at + channel] = ((total + count / 2) / count) as u8;
             }
         }
     }
-    (out, w, h)
+    (w, h, result)
 }
 
 /// The host of `url` without `www.` ("example.com"), for a caption.
@@ -580,27 +730,65 @@ mod tests {
     }
 
     #[test]
-    fn a_small_preview_is_halved_until_it_fits() {
+    fn a_thumbnail_is_filtered_to_its_width_and_never_upscaled() {
         // 4×2: a black and a white 2×2 block.
         let mut rgba = Vec::new();
         for _ in 0..2 {
             rgba.extend([0, 0, 0, 255].repeat(2));
             rgba.extend([255, 255, 255, 255].repeat(2));
         }
-        let (half, w, h) = halve(&rgba, 4, 2);
+        let (w, h, half) = fit_width(&rgba, 4, 2, 2);
         assert_eq!((w, h), (2, 1));
         assert_eq!(half, [0, 0, 0, 255, 255, 255, 255, 255]);
+        // Not a power of two: 1920 wide lands at the asked width, not 240.
+        let wide = vec![128u8; 1920 * 1200 * 4];
+        let (w, h, out) = fit_width(&wide, 1920, 1200, THUMB_WIDTH);
+        assert_eq!((w, h), (THUMB_WIDTH, 225));
+        assert!(out.iter().all(|value| *value == 128));
+        // Narrower than asked: kept as it is.
+        assert_eq!(fit_width(&rgba, 4, 2, 360).0, 4);
     }
 
     #[test]
-    fn a_frame_decodes_and_shrinks() {
+    fn a_frame_decodes_at_its_own_size() {
         let jpeg = include_bytes!("../../../tests/fixtures/live-frame.jpg");
-        let (width, height, rgba) = decode(jpeg, usize::MAX).unwrap();
+        let (width, height, rgba) = decode(jpeg).unwrap();
         assert_eq!((width, height), (64, 32));
         assert_eq!(rgba.len(), 64 * 32 * 4);
-        let (width, height, _) = decode(jpeg, 20).unwrap();
-        assert_eq!((width, height), (16, 8));
-        assert!(decode(b"not a jpeg", 100).is_none());
+        assert!(decode(b"not a jpeg").is_none());
+    }
+
+    #[test]
+    fn working_tasks_stream_in_the_background_and_speed_up_when_looked_at() {
+        let mut registry = Registry {
+            tracked: vec!["bg".into(), "a".into()],
+            hovered: Some("a".into()),
+            ..Registry::default()
+        };
+        registry
+            .viewing
+            .insert(Viewer::Overlay, ("a".into(), "hex-a_b".into()));
+        assert_eq!(wanted(&registry), ["a", "bg"]);
+        assert_eq!(rate_of(&registry, "bg", "hex-bg"), Rate::Background);
+        assert_eq!(rate_of(&registry, "a", "hex-a"), Rate::Small);
+        assert_eq!(rate_of(&registry, "a", "hex-a_b"), Rate::Large);
+        assert!(Rate::Large.fps() > Rate::Small.fps());
+        assert!(Rate::Small.fps() > Rate::Background.fps());
+    }
+
+    #[test]
+    fn looking_closer_without_a_full_frame_asks_for_a_fresh_one() {
+        assert!(needs_refresh(Rate::Background, Rate::Small, false));
+        assert!(needs_refresh(Rate::Small, Rate::Large, false));
+        assert!(
+            !needs_refresh(Rate::Background, Rate::Large, true),
+            "has one"
+        );
+        assert!(
+            !needs_refresh(Rate::Large, Rate::Small, false),
+            "slowing down"
+        );
+        assert!(!needs_refresh(Rate::Small, Rate::Background, false));
     }
 
     #[test]
