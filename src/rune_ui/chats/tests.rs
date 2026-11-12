@@ -245,16 +245,321 @@ fn delete_asks_first_and_escape_disarms_it() {
 }
 
 #[test]
-fn agent_mode_and_the_task_strip_reach_the_service() {
+fn the_header_counts_tasks_and_stop_all_and_take_over_reach_the_service() {
     let mut rt = chats();
-    assert!(rt.state.chats.agent_mode);
-    tap(&mut rt, "agent-mode");
-    assert!(!rt.state.chats.store().unwrap().agent_mode);
+    assert!(rt.find("agent-mode").is_none(), "Agent mode is gone");
+    assert!(shows(&rt, "1 running"), "{:?}", texts(&rt));
+    tap(&mut rt, "take-over");
+    assert_eq!(
+        rt.state.chats.store().unwrap().taken_over,
+        vec![("reply-to-maya".to_owned(), true)]
+    );
+    assert!(shows(&rt, "You have it"));
+    tap(&mut rt, "hand-back");
+    assert_eq!(
+        rt.state.chats.store().unwrap().taken_over.last(),
+        Some(&("reply-to-maya".to_owned(), false))
+    );
     tap(&mut rt, "stop-task");
     assert_eq!(
         rt.state.chats.store().unwrap().cancelled,
         vec!["reply-to-maya".to_owned()]
     );
+    tap(&mut rt, "stop-all-tasks");
+    assert_eq!(rt.state.chats.store().unwrap().cancelled.len(), 2);
+}
+
+#[test]
+fn tasks_show_taken_over_waiting_and_queued_and_events_move_them() {
+    let mut rt = scene("mac-chats-tasks");
+    assert!(shows(&rt, "4 running"), "{:?}", texts(&rt));
+    assert!(shows(&rt, "Queued"));
+    assert!(
+        texts(&rt)
+            .iter()
+            .any(|text| text.starts_with("Retries in 3:")),
+        "{:?}",
+        texts(&rt)
+    );
+    // The list marks how conversations ended.
+    assert!(shows(&rt, "Failed"));
+    assert!(shows(&rt, "Interrupted: Hex quit while it ran"));
+    rt.state.chats.deliver(Event::Waiting {
+        conversation: "reply-to-maya".into(),
+        until_ms: crate::history::now_ms() + 60_000,
+        reason: "Codex's usage limit".into(),
+    });
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(
+        texts(&rt)
+            .iter()
+            .any(|text| text.contains("Codex's usage limit")),
+        "{:?}",
+        texts(&rt)
+    );
+    rt.state.chats.deliver(Event::Step {
+        conversation: "reply-to-maya".into(),
+        description: "Clicked Send".into(),
+    });
+    rt.state.chats.deliver(Event::Paused {
+        conversation: "coffee".into(),
+    });
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(!rt.state.chats.holds.contains_key("reply-to-maya"), "retrying");
+    assert_eq!(
+        rt.state.chats.holds.get("coffee"),
+        Some(&super::Hold::Paused)
+    );
+    rt.state.chats.deliver(Event::Resumed {
+        conversation: "coffee".into(),
+    });
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(!rt.state.chats.holds.contains_key("coffee"));
+}
+
+#[test]
+fn an_interrupted_conversation_offers_resume() {
+    let mut rt = scene("mac-chats-interrupted");
+    assert!(shows(&rt, "This task stopped when Hex quit"));
+    tap(&mut rt, "resume");
+    assert_eq!(
+        rt.state.chats.store().unwrap().resumed,
+        vec!["sort-downloads".to_owned()]
+    );
+    assert!(rt.state.chats.running("sort-downloads"));
+    assert!(rt.find("resume").is_none(), "the banner leaves while it runs");
+}
+
+#[test]
+fn the_composer_sends_auto_by_default_with_here_and_background_overrides() {
+    use super::SendMode;
+    let mut rt = chats();
+    assert!(rt.find("composer-send-mode-control").is_none() || shows(&rt, "Auto"));
+    for (mode, words) in [
+        (SendMode::Auto, "Summarize this page"),
+        (SendMode::Here, "What's this error?"),
+        (SendMode::Background, "Sort my Downloads"),
+    ] {
+        tap(&mut rt, "new-chat");
+        rt.state.chats.lane = mode;
+        rt.state.chats.composer = TextEdit::new(words);
+        rt.invalidate();
+        settle(&mut rt);
+        tap(&mut rt, "composer-send");
+    }
+    let store = rt.state.chats.store().unwrap();
+    let window = |index: usize| {
+        store.submitted[index]
+            .context
+            .window
+            .as_ref()
+            .map(|window| window.app.clone())
+    };
+    // Auto: the assistant decides, knowing the window in front of Hex.
+    assert_eq!(store.submitted[0].origin, Origin::Chat);
+    assert_eq!(window(0).as_deref(), Some("Safari"));
+    assert_eq!(store.submitted[1].origin, Origin::ActionShortcut);
+    assert_eq!(window(1).as_deref(), Some("Safari"));
+    assert_eq!(store.submitted[2].origin, Origin::Chat);
+    assert_eq!(window(2), None, "Background looks for itself");
+}
+
+#[test]
+fn a_job_shows_its_plan_and_its_question_takes_the_answer() {
+    let mut rt = scene("mac-chats-job");
+    assert!(shows(&rt, "Plan"));
+    assert!(shows(&rt, "Draft an email to each in Gmail"));
+    assert!(shows(&rt, "Sign in to Google…"));
+    tap(&mut rt, "plan-head");
+    assert!(!shows(&rt, "Build the spreadsheet"), "folds to one line");
+    rt.state.chats.answer = TextEdit::new("Save drafts as files");
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "send-answer");
+    let store = rt.state.chats.store().unwrap();
+    let sent = store.submitted.last().unwrap();
+    assert_eq!(sent.conversation.as_deref(), Some("suppliers"));
+    assert_eq!(sent.text, "Save drafts as files");
+    assert!(!rt.state.chats.questions.contains_key("suppliers"));
+    assert!(shows(&rt, "Save drafts as files"), "the answer shows under it");
+    rt.state.chats.deliver(Event::Question {
+        conversation: "suppliers".into(),
+        text: "Which countries first?".into(),
+    });
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(shows(&rt, "Which countries first?"));
+}
+
+#[test]
+fn a_finished_job_offers_its_folder_files_and_sheet() {
+    let mut rt = scene("mac-chats-results");
+    for words in ["Open folder", "Comparison.xlsx", "Open Google Sheet"] {
+        assert!(shows(&rt, words), "{words}: {:?}", texts(&rt));
+    }
+    tap(&mut rt, "link0");
+    tap(&mut rt, "file0");
+    assert_eq!(
+        rt.state.chats.store().unwrap().opened,
+        vec![
+            "https://docs.google.com/spreadsheets/d/1hX9q3quotes/edit".to_owned(),
+            "~/Hex/Jobs/q3-quotes/Comparison.xlsx".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn a_here_question_that_becomes_a_job_says_so() {
+    let mut rt = chats();
+    rt.state.chats.deliver(Event::Started {
+        conversation: "window-question".into(),
+        origin: Origin::ActionShortcut,
+        question: "Fix this error".into(),
+    });
+    rt.state.chats.deliver(Event::Escalated {
+        conversation: "window-question".into(),
+    });
+    rt.invalidate();
+    settle(&mut rt);
+    assert_eq!(rt.state.chats.selected.as_deref(), Some("window-question"));
+    assert_eq!(
+        rt.state.chats.turns["window-question"].origin,
+        Origin::Background
+    );
+    assert!(shows(&rt, "Moved to the background"));
+}
+
+#[test]
+fn a_message_to_a_running_conversation_steers_it() {
+    let mut rt = chats();
+    tap(&mut rt, "chat-reply-to-maya");
+    rt.state.chats.composer = TextEdit::new("Also ask about the projector");
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "composer-send");
+    let store = rt.state.chats.store().unwrap();
+    assert_eq!(store.submitted.len(), 1);
+    assert_eq!(
+        store.submitted[0].conversation.as_deref(),
+        Some("reply-to-maya"),
+        "into the same conversation"
+    );
+    assert_eq!(store.submitted[0].origin, Origin::Background);
+    let turn = &rt.state.chats.turns["reply-to-maya"];
+    assert_eq!(turn.steered, vec!["Also ask about the projector".to_owned()]);
+    assert_eq!(turn.steps.len(), 4, "the turn goes on");
+    assert!(shows(&rt, "Sent while working"));
+}
+
+/// The pane over the fixture store with `tasks`, nothing selected yet.
+fn pane_with(tasks: Vec<crate::assistant::TaskStatus>) -> super::ChatsPane {
+    let mut store = super::fixture::store(crate::history::now_ms());
+    store.tasks = tasks;
+    super::ChatsPane::fixture(store)
+}
+
+fn task(id: &str, origin: Origin, state: crate::assistant::TaskState) -> crate::assistant::TaskStatus {
+    crate::assistant::TaskStatus {
+        conversation: id.into(),
+        origin,
+        title: id.into(),
+        state,
+        step: None,
+        windows: Vec::new(),
+        colour: 0,
+    }
+}
+
+#[test]
+fn opening_chats_selects_here_then_the_latest_started_task_then_the_latest_chat() {
+    use crate::assistant::TaskState::{Queued, Running};
+    let mut pane = pane_with(vec![
+        task("regex", Origin::Background, Running),
+        task("window-question", Origin::ActionShortcut, Running),
+        task("book-table", Origin::Background, Running),
+    ]);
+    pane.auto_select();
+    assert_eq!(pane.selected.as_deref(), Some("window-question"), "Here first");
+    let mut pane = pane_with(vec![
+        task("regex", Origin::Background, Running),
+        task("book-table", Origin::Background, Running),
+        task("sort-downloads", Origin::Background, Queued),
+    ]);
+    pane.auto_select();
+    assert_eq!(
+        pane.selected.as_deref(),
+        Some("book-table"),
+        "the most recently started, not the queued"
+    );
+    let mut pane = pane_with(Vec::new());
+    pane.auto_select();
+    assert_eq!(
+        pane.selected.as_deref(),
+        Some("reply-to-maya"),
+        "else the latest conversation"
+    );
+}
+
+#[test]
+fn chats_follows_new_activity_until_a_pick_then_offers_jump_to_current() {
+    let mut rt = chats();
+    rt.update(|ui, _| ui.chats.auto_select());
+    let start = |rt: &mut Runtime<Ui>, id: &str| {
+        rt.state.chats.deliver(Event::Started {
+            conversation: id.into(),
+            origin: Origin::Background,
+            question: format!("Task {id}"),
+        });
+        rt.invalidate();
+        settle(rt);
+    };
+    start(&mut rt, "new-1");
+    assert_eq!(rt.state.chats.selected.as_deref(), Some("new-1"), "follows");
+    tap(&mut rt, "chat-regex");
+    start(&mut rt, "new-2");
+    assert_eq!(
+        rt.state.chats.selected.as_deref(),
+        Some("regex"),
+        "a pick stays put"
+    );
+    assert!(rt.find("jump-to-current").is_some());
+    tap(&mut rt, "jump-to-current");
+    assert_eq!(rt.state.chats.selected.as_deref(), Some("new-2"));
+    assert!(rt.find("jump-to-current").is_none());
+    // Following again; typing holds it back.
+    rt.state.chats.composer = TextEdit::new("Half a thought");
+    rt.invalidate();
+    settle(&mut rt);
+    start(&mut rt, "new-3");
+    assert_eq!(rt.state.chats.selected.as_deref(), Some("new-2"));
+    assert_eq!(rt.state.chats.follow.elsewhere.as_deref(), Some("new-3"));
+}
+
+#[test]
+fn chats_shows_a_finish_setup_card_until_ready() {
+    let mut rt = chats();
+    rt.state.settings.assistant.setup_done = false;
+    tap(&mut rt, "new-chat");
+    assert!(shows(&rt, "Finish setting up the assistant"));
+    assert!(rt.find("composer-input").is_none(), "no chat until it's ready");
+    tap(&mut rt, "continue-setup");
+    assert!(rt.state.chats.setup.is_some());
+}
+
+#[test]
+fn a_hold_before_setup_opens_the_onboarding_and_says_so() {
+    let mut rt = chats();
+    rt.state.settings.assistant.setup_done = false;
+    rt.update(super::open_setup_from_hold);
+    settle(&mut rt);
+    assert!(rt.state.chats.setup.as_ref().unwrap().from_hold);
+    assert!(shows(
+        &rt,
+        "Finish setting up the assistant first"
+    ));
 }
 
 #[test]
@@ -292,6 +597,8 @@ fn page(rt: &Runtime<Ui>) -> Page {
 fn continue_waits_for_each_page_and_later_marks_it_unfinished() {
     let mut rt = onboarding();
     tap(&mut rt, "continue");
+    assert_eq!(page(&rt), Page::Privacy);
+    tap(&mut rt, "continue");
     assert_eq!(page(&rt), Page::Agent);
     // Nothing found yet: Continue stays put.
     tap(&mut rt, "continue");
@@ -299,12 +606,12 @@ fn continue_waits_for_each_page_and_later_marks_it_unfinished() {
     answer(&mut rt, Done::Detected(super::setup::fixture_found()));
     assert!(shows(&rt, "Ready"));
     tap(&mut rt, "continue");
-    assert_eq!(page(&rt), Page::Permissions);
+    assert_eq!(page(&rt), Page::Desktop);
     // Screen Recording unread: Later moves on and remembers.
     tap(&mut rt, "later");
     let flow = rt.state.chats.setup.as_ref().unwrap();
-    assert_eq!(flow.page, Page::Desktop);
-    assert_eq!(flow.later, vec![Page::Permissions]);
+    assert_eq!(flow.page, Page::Browser);
+    assert_eq!(flow.later, vec![Page::Desktop]);
 }
 
 #[test]
@@ -313,7 +620,7 @@ fn a_permission_waits_after_allow_until_macos_reports_it() {
     rt.state.platform.permissions.microphone = crate::desktop::onboarding::PermissionState::Ready;
     rt.state.platform.permissions.accessibility =
         crate::desktop::onboarding::PermissionState::Ready;
-    rt.update(|ui, _| super::setup::go(ui, Page::Permissions));
+    rt.update(|ui, _| super::setup::go(ui, Page::Desktop));
     answer(
         &mut rt,
         Done::Permissions(Permissions {
@@ -340,11 +647,214 @@ fn a_permission_waits_after_allow_until_macos_reports_it() {
         }),
     );
     assert_eq!(state(&rt), State::Passed);
-    assert!(super::setup::page_done(
-        &rt.state,
-        rt.state.chats.setup.as_ref().unwrap(),
-        Page::Permissions
-    ));
+    // The voice setup's grants show only while missing.
+    assert!(rt.find("grant-microphone").is_none());
+    assert!(rt.find("grant-screen-recording").is_some());
+}
+
+#[test]
+fn a_grant_that_needs_a_restart_relaunches_hex_in_one_click() {
+    let mut rt = scene("mac-assistant-setup-restart");
+    assert!(shows(&rt, "Restart Hex and continue"));
+    tap(&mut rt, "restart");
+    let asked = match &rt.state.host {
+        crate::rune_ui::platform::PlatformHost::Fixture(sent) => sent.clone(),
+        _ => Vec::new(),
+    };
+    assert!(
+        asked.contains(&crate::rune_ui::platform::PlatformRequest::Permission(
+            crate::desktop::onboarding::PermissionAction::Restart
+        ))
+    );
+}
+
+#[test]
+fn a_failed_check_shows_its_fix_while_later_checks_still_run() {
+    let rt = scene("mac-assistant-setup-checks");
+    let flow = rt.state.chats.setup.as_ref().unwrap();
+    assert!(flow.checks_running);
+    assert!(
+        shows(&rt, "Grant permissions…"),
+        "the fix shows at once: {:?}",
+        texts(&rt)
+    );
+}
+
+#[test]
+fn the_assistant_pages_continue_the_voice_first_run_before_hex_is_ready() {
+    let mut state = Ui::with(AppSettings::default(), Service::Fixture(Vec::new()));
+    let (_, apply) = SCENES
+        .iter()
+        .find(|(scene, _)| *scene == "mac-onboarding-try")
+        .unwrap();
+    apply(&mut state);
+    state.settings.labs.assistant = true;
+    state.settings.assistant.setup_done = false;
+    let mut rt = runtime_for(state);
+    settle(&mut rt);
+    assert!(rt.state.chats.setup.is_none(), "the voice pages come first");
+    // The story reaches its end: it holds there, and the assistant's pages
+    // open over it.
+    rt.state.first_run.as_mut().unwrap().jump_to_ready();
+    rt.invalidate();
+    settle(&mut rt);
+    let flow = rt.state.chats.setup.as_ref().expect("the assistant's pages");
+    assert!(flow.merged);
+    assert!(shows(&rt, "Now, your assistant"));
+    assert!(!rt.state.first_run.as_ref().unwrap().ready_age().is_finite());
+    // Done (or left for later): "Hex is ready" ends both.
+    rt.update(|ui, _| super::setup::close(ui));
+    settle(&mut rt);
+    assert!(rt.state.chats.setup.is_none());
+    assert!(rt.state.first_run.as_ref().unwrap().ready_age().is_finite());
+    // It doesn't hold again.
+    settle(&mut rt);
+    assert!(rt.state.chats.setup.is_none());
+}
+
+#[test]
+fn with_nothing_installed_one_button_sets_up_the_suggested_agent() {
+    let mut rt = scene("mac-assistant-setup-agent-none");
+    assert!(shows(&rt, "Recommended: Claude Code"));
+    tap(&mut rt, "set-up-recommended");
+    assert!(rt.state.chats.jobs.asked.iter().any(|job| matches!(
+        job,
+        Job::SetUpAgent(AssistantBackend::ClaudeCode, _)
+    )));
+    assert_eq!(
+        rt.state.chats.settings.agents.working,
+        Some(AssistantBackend::ClaudeCode)
+    );
+    // Its lines show as it goes, and the row turns Ready when it answers.
+    answer(
+        &mut rt,
+        Done::AgentProgress(AssistantBackend::ClaudeCode, "Downloading Claude Code".into()),
+    );
+    assert!(shows(&rt, "Downloading Claude Code"));
+    answer(&mut rt, Done::AgentSetUp(AssistantBackend::ClaudeCode, Ok(())));
+    assert_eq!(rt.state.chats.settings.agents.working, None);
+}
+
+#[test]
+fn your_own_key_installs_opencode_checks_the_key_and_saves_the_model() {
+    let mut rt = scene("mac-assistant-setup-agent-none");
+    tap(&mut rt, "use-own-key");
+    assert!(shows(&rt, "Your own API key"));
+    tap(&mut rt, "provider-deepseek");
+    rt.state
+        .chats
+        .settings
+        .agents
+        .byok
+        .as_mut()
+        .unwrap()
+        .key = TextEdit::new("sk-deepseek-123456");
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "verify-key");
+    assert!(rt.state.chats.jobs.asked.iter().any(|job| matches!(
+        job,
+        Job::OwnKey { provider, install: true, .. } if provider == "deepseek"
+    )));
+    answer(&mut rt, Done::OwnKey(Ok("deepseek/deepseek-chat".into())));
+    assert_eq!(rt.state.settings.assistant.backend, AssistantBackend::OpenCode);
+    assert_eq!(
+        rt.state.settings.assistant.opencode_model.as_deref(),
+        Some("deepseek/deepseek-chat")
+    );
+    assert!(shows(&rt, "Works. OpenCode answers with deepseek/deepseek-chat"));
+}
+
+#[test]
+fn codex_offers_an_openai_key_instead_of_a_sign_in() {
+    let mut rt = scene("mac-assistant-setup-agent");
+    tap(&mut rt, "codex-use-key");
+    rt.state.chats.settings.agents.codex_key = Some(TextEdit::new("sk-openai-123"));
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "codex-use");
+    assert!(
+        rt.state
+            .chats
+            .jobs
+            .asked
+            .contains(&Job::CodexKey("sk-openai-123".into()))
+    );
+}
+
+#[test]
+fn the_display_row_shows_only_with_two_displays() {
+    let mut rt = scene("mac-assistant-setup-desktop");
+    assert!(rt.find("agent-display").is_some(), "two displays in scenes");
+    rt.state.chats.settings.displays.truncate(1);
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(rt.find("agent-display").is_none());
+}
+
+#[test]
+fn the_privacy_page_sets_autonomy_and_blocked_apps() {
+    let mut rt = scene("mac-assistant-setup-privacy");
+    assert!(shows(&rt, "Dictation stays on your Mac."));
+    assert_eq!(
+        rt.state.settings.assistant.autonomy,
+        crate::assistant::autonomy::Autonomy::Smart
+    );
+    rt.state.chats.settings.blocked = TextEdit::new("Banking");
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "add-blocked-app");
+    assert!(
+        rt.state
+            .settings
+            .assistant
+            .blocked_apps
+            .contains(&"Banking".to_owned())
+    );
+}
+
+#[test]
+fn schedules_list_toggle_run_and_add_by_hand() {
+    let mut rt = chats();
+    assert!(shows(&rt, "Summarize my inbox and flag what needs me"));
+    tap(&mut rt, "new-schedule");
+    let sheet = rt.state.chats.new_schedule.as_mut().unwrap();
+    sheet.text = TextEdit::new("Back up my notes");
+    sheet.time = TextEdit::new("25:00");
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "save-schedule");
+    assert!(shows(&rt, "Use a time like 8:00 or 17:30"));
+    rt.state.chats.new_schedule.as_mut().unwrap().time = TextEdit::new("21:15");
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "save-schedule");
+    assert!(rt.state.chats.new_schedule.is_none());
+    assert_eq!(rt.state.chats.schedules.len(), 3);
+    assert_eq!(rt.state.chats.schedules[2].minute_of_day, 21 * 60 + 15);
+    rt.update(|ui, _| ui.chats.run_schedule("inbox"));
+    settle(&mut rt);
+    let sent = rt.state.chats.store().unwrap().submitted.last().unwrap();
+    assert_eq!(sent.text, "Summarize my inbox and flag what needs me");
+    assert_eq!(sent.conversation, None, "a new conversation");
+}
+
+#[test]
+fn page_names_round_trip_for_the_saved_progress() {
+    for page in Page::ALL {
+        assert_eq!(Page::named(page.name()), Some(page));
+    }
+    assert_eq!(Page::named("permissions"), None);
+}
+
+#[test]
+fn the_merged_flow_says_it_continues_and_new_in_hex_says_so() {
+    let rt = scene("mac-assistant-setup-merged");
+    assert!(shows(&rt, "Now, your assistant"));
+    let rt = scene("mac-assistant-setup-new");
+    assert!(shows(&rt, "New in Hex: your assistant"));
+    let rt = scene("mac-assistant-setup-resumed");
+    assert!(shows(&rt, "Hex restarted. Checking again where you left off…"));
 }
 
 #[test]
@@ -387,28 +897,49 @@ fn checks_run_on_arrival_and_finish_waits_for_answers_and_agent_desktop() {
 }
 
 #[test]
-fn the_try_page_shows_the_real_question_and_its_answer() {
+fn the_try_page_checks_each_gesture_live() {
     let mut rt = onboarding();
     rt.update(|ui, _| super::setup::go(ui, Page::Try));
     settle(&mut rt);
-    assert!(shows(&rt, "Waiting for your question"));
+    let done = |rt: &Runtime<Ui>| {
+        let flow = rt.state.chats.setup.as_ref().unwrap();
+        super::setup::page_done(&rt.state, flow, Page::Try)
+    };
+    assert!(shows(&rt, "Listening"));
+    // Hold: a question about the window in front, answered.
     rt.state.chats.deliver(Event::Started {
         conversation: "q".into(),
         origin: Origin::ActionShortcut,
-        question: "What time is it in Tokyo?".into(),
+        question: "What's on this page?".into(),
     });
     rt.invalidate();
     settle(&mut rt);
-    assert!(shows(&rt, "What time is it in Tokyo?"));
     rt.state.chats.deliver(Event::Answer {
         conversation: "q".into(),
         origin: Origin::ActionShortcut,
-        text: "It's 9:41 PM.".into(),
+        text: "Hex's release notes.".into(),
     });
     rt.invalidate();
     settle(&mut rt);
-    assert!(shows(&rt, "It's 9:41 PM."));
     assert!(shows(&rt, "Answered"));
+    assert!(!done(&rt), "the background gesture is still to try");
+    // A Chat task isn't the gesture; a Background one is.
+    for origin in [Origin::Chat, Origin::Background] {
+        rt.state.chats.deliver(Event::Queued {
+            conversation: format!("{origin:?}"),
+            origin,
+            question: "Find a free hour next week".into(),
+        });
+    }
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(shows(&rt, "Started"));
+    assert!(done(&rt), "double-tap is optional");
+    // The HUD reports the double-tap.
+    super::tasks_opened();
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(shows(&rt, "Opened"));
 }
 
 #[test]

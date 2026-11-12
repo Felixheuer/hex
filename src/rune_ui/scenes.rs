@@ -767,6 +767,36 @@ pub(super) const SCENES: &[Scene] = &[
         mac_chats(ui, chats::fixture::Scene::Settings)
     }),
     #[cfg(target_os = "macos")]
+    ("mac-chats-tasks", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Tasks)
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-chats-interrupted", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Interrupted)
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-chats-job", |ui| mac_chats(ui, chats::fixture::Scene::Job)),
+    #[cfg(target_os = "macos")]
+    ("mac-chats-new-schedule", |ui| {
+        mac_chats(ui, chats::fixture::Scene::NewSchedule)
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-privacy", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Privacy))
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-about", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::About))
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-chats-results", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Results)
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-chats-escalated", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Escalated)
+    }),
+    #[cfg(target_os = "macos")]
     ("mac-assistant-setup", |ui| {
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Welcome))
     }),
@@ -775,12 +805,56 @@ pub(super) const SCENES: &[Scene] = &[
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Agent))
     }),
     #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-permissions", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Permissions))
+    ("mac-assistant-setup-agent-ready", |ui| {
+        mac_chats(
+            ui,
+            chats::fixture::Scene::Agent(chats::fixture::AgentPage::Ready),
+        )
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-agent-none", |ui| {
+        mac_chats(
+            ui,
+            chats::fixture::Scene::Agent(chats::fixture::AgentPage::Nothing),
+        )
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-agent-own-key", |ui| {
+        mac_chats(
+            ui,
+            chats::fixture::Scene::Agent(chats::fixture::AgentPage::OwnKey),
+        )
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-agent-installing", |ui| {
+        mac_chats(
+            ui,
+            chats::fixture::Scene::Agent(chats::fixture::AgentPage::Installing),
+        )
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-new", |ui| {
+        mac_chats(ui, chats::fixture::Scene::NewInHex)
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-resumed", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Resumed)
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-merged", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Merged)
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-restart", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Restart)
     }),
     #[cfg(target_os = "macos")]
     ("mac-assistant-setup-desktop", |ui| {
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Desktop))
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-browser", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Browser))
     }),
     #[cfg(target_os = "macos")]
     ("mac-assistant-setup-checks", |ui| {

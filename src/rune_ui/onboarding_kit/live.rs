@@ -699,6 +699,34 @@ pub(in crate::rune_ui) fn skip(ui: &mut Ui) {
     }
 }
 
+/// One first run for both: while the assistant still needs setting up, the
+/// story holds before "Hex is ready" so the assistant's pages come first.
+/// True once the story reached that point and waits for them.
+pub(in crate::rune_ui) fn hold_for_assistant(ui: &mut Ui) -> bool {
+    let Some(s) = ui.first_run.as_mut() else {
+        return false;
+    };
+    if s.step == Step::Ready {
+        // Already there (resumed at the end): nothing to hold.
+        return false;
+    }
+    s.hold_ready = true;
+    s.wants_ready
+}
+
+/// The assistant's pages are done (or left for later): "Hex is ready".
+pub(in crate::rune_ui) fn release_for_assistant(ui: &mut Ui) {
+    let Some(s) = ui.first_run.as_mut() else {
+        return;
+    };
+    let wanted = s.wants_ready;
+    s.hold_ready = false;
+    s.wants_ready = false;
+    if wanted {
+        s.jump_to_ready();
+    }
+}
+
 /// "Continue without a model", once the download failed or stalled (#894):
 /// onboarding finishes with no model, and Settings says so with Download
 /// and Add model file…. Only offered once every permission is ready.

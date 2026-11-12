@@ -801,10 +801,17 @@ pub(crate) fn open_chat(conversation: Option<String>) {
     });
 }
 
-/// Opens the assistant's setup where it left off: Chats, which offers it
-/// until it's done. Any thread.
+/// Opens the onboarding where it was left, the window in front: the voice
+/// first run while that isn't done, else the assistant's pages at their
+/// saved page (a hold of the Action shortcut before setup finished, or the
+/// bubble's "Continue setup"). Any thread.
 pub(crate) fn open_assistant_setup() {
-    open_chat(None);
+    with_window(|window| {
+        window.update(|ui, tx| {
+            crate::rune_ui::open_assistant_setup(ui, tx);
+            bring_window_forward();
+        });
+    });
 }
 
 /// Opens the window in front, from the main thread.
@@ -987,11 +994,9 @@ impl Pump {
                 }
             }
             StatusItemAction::OpenMeetings => show(&self.window, Destination::Meetings(None)),
-            // Labs › Assistant: Chats, and Agent mode on or off.
+            // Labs › Assistant: Chats, and Stop all tasks.
             StatusItemAction::OpenChats => show(&self.window, Destination::Chats(None)),
-            StatusItemAction::ToggleAgentMode => {
-                crate::assistant::set_agent_mode(!crate::assistant::agent_mode());
-            }
+            StatusItemAction::StopAllTasks => crate::assistant::service::stop_all(),
             // Labs › Pause from menu bar: only keyboard shortcuts stop; the
             // menu's own actions keep working. The row says Resume Hex while
             // a resume waits, and choosing it again leaves it waiting.

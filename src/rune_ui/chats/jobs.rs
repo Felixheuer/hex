@@ -10,8 +10,9 @@ use rune::Waker;
 
 use super::Ui;
 use super::shortcut::{self, Conflict};
-use crate::app_settings::{AppSettings, AssistantSettings, HotkeySlot};
+use crate::app_settings::{AppSettings, AssistantBackend, AssistantSettings, HotkeySlot};
 use crate::assistant::backends::{AgentDesktop, CheckResult, Fix, Found};
+use crate::assistant::browser::{AgentBrowser, Engine};
 use crate::assistant::computer::Permissions;
 
 /// Something to find out or do off the window's thread.
@@ -23,9 +24,9 @@ pub(in crate::rune_ui) enum Job {
     Desktop,
     /// Hex's own Accessibility and Screen Recording, read afresh.
     Permissions,
-    /// What a failed check or row offers (`backends::apply_fix`). Opening
-    /// Hex's own System Settings guide runs on the window's thread, where
-    /// the guide can show.
+    /// What a failed check or row offers (`backends::apply_fix_with`),
+    /// reporting its installer's lines as it goes. Opening Hex's own System
+    /// Settings guide runs on the window's thread, where the guide can show.
     Fix(Fix),
     /// The self-tests for these settings' agent, in order.
     SelfTests(Box<AssistantSettings>),
@@ -37,6 +38,32 @@ pub(in crate::rune_ui) enum Job {
     Voices,
     /// Reads a line aloud with this voice.
     Speak(Option<String>),
+    /// agent-browser, its own browser, and whether anyone signed in to it.
+    Browser,
+    /// The browser's self-tests for these settings' agent.
+    BrowserChecks(Box<AssistantSettings>),
+    /// Opens Hex's own browser in a window to sign in to sites, at this
+    /// page or a blank one (`browser::sign_in`).
+    SignIn(Option<String>),
+    /// Saves and closes that window (`browser::finish_sign_in`).
+    FinishSignIn,
+    /// Forgets every sign-in.
+    ForgetSignIn,
+    /// The apps running now, for Settings' blocked apps.
+    RunningApps,
+    /// Sets up an agent in one go: installs, starts or signs in, and checks
+    /// that it answers (`agents::set_up`).
+    SetUpAgent(AssistantBackend, Box<AssistantSettings>),
+    /// OpenCode on the person's own key: installs it when `install`, checks
+    /// the key with the model, and saves it.
+    OwnKey {
+        provider: String,
+        key: String,
+        model: String,
+        install: bool,
+    },
+    /// Codex on an OpenAI key instead of a sign-in.
+    CodexKey(String),
 }
 
 /// A job's answer.
@@ -45,6 +72,10 @@ pub(in crate::rune_ui) enum Done {
     Detected(Vec<Found>),
     Desktop(AgentDesktop),
     Permissions(Permissions),
+    /// A line of what a fix is doing (an installer's output).
+    FixProgress(Fix, String),
+    /// A failed fix's command, to run in Terminal instead.
+    FixCommand(Fix, Option<String>),
     /// A fix ran: done, or why not.
     Fixed(Fix, Result<(), String>),
     /// A self-test started (`Running`) or ended.
@@ -54,6 +85,25 @@ pub(in crate::rune_ui) enum Done {
     Conflicts(Vec<(HotkeySlot, Conflict)>),
     KeySaved(Result<(), String>),
     Voices(Vec<String>),
+    /// agent-browser as found, whether anyone signed in to it, and the
+    /// engine its clean browsers run.
+    Browser(AgentBrowser, bool, Engine),
+    /// A browser self-test started (`Running`) or ended.
+    BrowserCheck(CheckResult),
+    BrowserChecked,
+    /// The sign-in window opened (`true`) or closed, or why not.
+    SignIn(bool, Result<(), String>),
+    /// The regular apps running now, by name.
+    RunningApps(Vec<String>),
+    /// A line of an agent's setup.
+    AgentProgress(AssistantBackend, String),
+    /// A failed setup's command, to run in Terminal instead.
+    AgentCommand(Option<String>),
+    /// An agent's setup ended: it answers, or why not.
+    AgentSetUp(AssistantBackend, Result<(), String>),
+    /// The own key works (OpenCode's `provider/model`), or why not.
+    OwnKey(Result<String, String>),
+    CodexKey(Result<(), String>),
 }
 
 pub(in crate::rune_ui) struct Jobs {
@@ -126,7 +176,10 @@ impl Jobs {
 
 /// Does `job`, sending what it found.
 fn perform(job: Job, send: &dyn Fn(Done)) {
-    use crate::assistant::{backends, computer, credentials, speech};
+    use crate::assistant::{backends, browser, computer, credentials, speech};
+    if super::agents::perform(&job, send) {
+        return;
+    }
     match job {
         Job::Detect => {
             backends::refresh();
@@ -134,10 +187,16 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
         }
         Job::Desktop => send(Done::Desktop(backends::agent_desktop())),
         Job::Permissions => send(Done::Permissions(computer::permissions_now())),
-        Job::Fix(fix) => send(Done::Fixed(
-            fix,
-            backends::apply_fix(fix).map_err(|error| format!("{error:#}")),
-        )),
+        Job::Fix(fix) => {
+            let result = backends::apply_fix_with(fix, |line| {
+                send(Done::FixProgress(fix, line.to_owned()))
+            })
+            .map_err(|error| format!("{error:#}"));
+            if result.is_err() {
+                send(Done::FixCommand(fix, backends::install_command(fix)));
+            }
+            send(Done::Fixed(fix, result));
+        }
         Job::SelfTests(settings) => {
             let checks =
                 backends::Check::for_backend(settings.backend, settings.background_browser);
@@ -164,6 +223,52 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             crate::desktop::i18n::tr("Hi, I'm your assistant. Ask me anything."),
             voice.as_deref(),
         ),
+        Job::Browser => send(Done::Browser(browser::agent_browser(), browser::signed_in(), browser::clean_engine())),
+        Job::BrowserChecks(settings) => super::setup::browser::perform_checks(&settings, send),
+        Job::SignIn(_) | Job::FinishSignIn => {
+            let open = matches!(job, Job::SignIn(_));
+            let result = match &job {
+                Job::SignIn(url) => browser::sign_in(url.as_deref()),
+                _ => browser::finish_sign_in(),
+            };
+            send(Done::SignIn(open, result.map_err(|error| format!("{error:#}"))));
+            send(Done::Browser(browser::agent_browser(), browser::signed_in(), browser::clean_engine()));
+        }
+        Job::ForgetSignIn => {
+            if let Err(error) = browser::forget_sign_in() {
+                tracing::warn!(error = %format!("{error:#}"), "could not forget the sign-ins");
+            }
+            send(Done::Browser(browser::agent_browser(), browser::signed_in(), browser::clean_engine()));
+        }
+        Job::RunningApps => send(Done::RunningApps(running_apps())),
+        Job::SetUpAgent(..) | Job::OwnKey { .. } | Job::CodexKey(_) => {}
+    }
+}
+
+/// The regular (Dock) apps running now, by name, sorted, without Hex.
+fn running_apps() -> Vec<String> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::{NSApplicationActivationPolicy, NSWorkspace};
+        let own = std::process::id() as i32;
+        let mut names: Vec<String> = objc2::rc::autoreleasepool(|_| {
+            NSWorkspace::sharedWorkspace()
+                .runningApplications()
+                .iter()
+                .filter(|app| {
+                    app.activationPolicy() == NSApplicationActivationPolicy::Regular
+                        && app.processIdentifier() != own
+                })
+                .filter_map(|app| app.localizedName().map(|name| name.to_string()))
+                .collect()
+        });
+        names.sort_by_key(|name| name.to_lowercase());
+        names.dedup();
+        names
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Vec::new()
     }
 }
 
@@ -179,9 +284,28 @@ pub(super) fn poll(ui: &mut Ui) -> bool {
 
 /// One answer, wherever it shows: the setup flow, and Settings' lists.
 pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
+    if super::agents::receive(ui, &done) {
+        return;
+    }
     match &done {
         Done::Detected(found) => ui.chats.settings.found = Some(found.clone()),
         Done::Voices(voices) => ui.chats.settings.voices = Some(voices.clone()),
+        Done::RunningApps(apps) => ui.chats.settings.running = Some(apps.clone()),
+        Done::Browser(found, signed_in, engine) => {
+            ui.chats.settings.browser = Some(found.clone());
+            ui.chats.settings.signed_in = *signed_in;
+            ui.chats.settings.engine = Some(*engine);
+        }
+        Done::Fixed(Fix::InstallLightpanda, result) if ui.chats.setup.is_none() => {
+            // Installed from Settings: read the engine again.
+            ui.chats.settings.installing_lightpanda = false;
+            ui.chats.settings.sign_in_error = result.clone().err();
+            ui.chats.jobs.run(Job::Browser);
+        }
+        Done::SignIn(open, result) => {
+            ui.chats.settings.signing_in = *open && result.is_ok();
+            ui.chats.settings.sign_in_error = result.clone().err();
+        }
         Done::KeySaved(Ok(())) => {
             ui.chats.settings.key.clear();
             ui.chats.settings.key_error = None;

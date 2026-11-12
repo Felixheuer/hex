@@ -15,6 +15,9 @@ pub(crate) mod assistant_overlay;
 pub(crate) mod capture_capsule;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod chats;
+/// The HUD's task list opened by a double-tap: the assistant tutorial's
+/// third gesture. The overlay calls it.
+pub(crate) use chats::tasks_opened as assistant_tasks_opened;
 mod controls;
 #[cfg(target_os = "macos")]
 pub(crate) mod deep_link;
@@ -422,6 +425,25 @@ pub(crate) fn destination(pane: Option<crate::control::Pane>) -> Destination {
 }
 
 /// Shows `destination` in the window (the caller opens it).
+/// The assistant's onboarding where it was left, saying the assistant
+/// answers once it's finished (a hold of the Action shortcut before that).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn open_assistant_setup(ui: &mut Ui, tx: &mut Tx) {
+    // One onboarding: the voice first run while it isn't done (its end
+    // leads into the assistant's pages), else the assistant's pages.
+    if ui.first_run.is_some() {
+        return;
+    }
+    if ui.live() && !crate::desktop::onboarding::completion_recorded() {
+        ui.tour = onboarding::Tour::start(&ui.settings, &ui.platform);
+        onboarding_kit::live::open(ui);
+        if ui.first_run.is_some() {
+            return;
+        }
+    }
+    chats::open_setup_from_hold(ui, tx);
+}
+
 pub(crate) fn show(ui: &mut Ui, destination: Destination, tx: &mut Tx) {
     let pane = match &destination {
         Destination::Settings | Destination::Models => Pane::General,
@@ -1478,11 +1500,12 @@ fn view(ui: &Ui, cx: &mut Cx<Ui>) -> El {
     if let Some(modal) = vocabulary::modal(ui, p) {
         layer.extend(modal);
     }
-    if let Some(setup) = chats::setup_overlay(ui, p) {
-        layer.push(setup);
-    }
     if let Some(first_run) = onboarding_kit::live::overlay(ui, p, cx.is_reduced_motion()) {
         layer.push(first_run);
+    }
+    // Over the first run: the assistant's pages continue it.
+    if let Some(setup) = chats::setup_overlay(ui, p) {
+        layer.push(setup);
     }
     rune_kit::root(window, layer).on_window_focus(window_focused)
 }

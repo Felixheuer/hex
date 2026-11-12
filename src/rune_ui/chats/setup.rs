@@ -4,29 +4,37 @@
 //! installed, signed in), that Hex and agent-desktop have every permission
 //! (each missing one opens its exact System Settings page with Hex's
 //! floating guide, and the page waits until macOS reports the grant), runs
-//! the live self-tests until they're green, makes sure the Action shortcut
-//! and dictation shortcuts are free and that a press of each really reaches
-//! Hex (`recognition::shortcut_probe`), and ends
-//! with one real spoken question through it.
+//! the hidden browser for web tasks (`browser`), the live self-tests until
+//! they're green, makes sure the Action shortcut and dictation shortcuts
+//! are free and that a press of each really reaches Hex
+//! (`recognition::shortcut_probe`), and ends with the Action shortcut's
+//! three gestures, each tried for real (`tutorial`).
 //!
 //! Nothing shows as working until its check ran and saw it work. Continue
 //! waits for a page's checks; Later moves on and leaves that page marked
 //! unfinished. Finish waits for an agent that answers and can use
 //! agent-desktop.
 
+pub(in crate::rune_ui) mod browser;
+pub(in crate::rune_ui) mod resume;
+pub(in crate::rune_ui) mod tutorial;
+
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use super::super::platform::PlatformRequest;
-use std::sync::mpsc::Receiver;
 
 use super::shortcut::{self, Conflict, ConflictFix, Probe};
 use super::{Job, Ui};
 use crate::app_settings::{AssistantBackend, HotkeySlot};
 use crate::assistant::backends::{AgentDesktop, Check, CheckResult, CheckState, Fix, Found};
 use crate::assistant::computer::{Permission, Permissions};
-use crate::assistant::{ConversationId, Event, Origin};
+use crate::assistant::Event;
 use crate::desktop::i18n::{tr, tr_fill};
 use crate::desktop::onboarding::{PermissionAction, PermissionKind, PermissionState};
+
+/// How many of a fix's latest lines it keeps.
+const FIX_LOG: usize = 6;
 
 /// How often a page that waits on macOS reads the grants again.
 const RECHECK: Duration = Duration::from_millis(1500);
@@ -35,25 +43,55 @@ const RECHECK: Duration = Duration::from_millis(1500);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::rune_ui) enum Page {
     Welcome,
+    /// Where your words go, how freely it acts, the apps it never touches.
+    Privacy,
     Agent,
-    Permissions,
+    /// Screen Recording (and the Microphone and Accessibility, when the
+    /// voice setup didn't already grant them), and agent-desktop with its
+    /// own grants.
     Desktop,
+    /// agent-browser, for web tasks in hidden browsers.
+    Browser,
     Checks,
     /// Nothing else takes the Action shortcut, and Hex receives it.
     Shortcut,
+    /// Optional: company, website, and colleagues, remembered.
+    About,
+    /// The three gestures, tried for real.
     Try,
 }
 
 impl Page {
-    pub(in crate::rune_ui) const ALL: [Page; 7] = [
+    pub(in crate::rune_ui) const ALL: [Page; 9] = [
         Page::Welcome,
+        Page::Privacy,
         Page::Agent,
-        Page::Permissions,
         Page::Desktop,
+        Page::Browser,
         Page::Checks,
         Page::Shortcut,
+        Page::About,
         Page::Try,
     ];
+
+    /// Its stable name, as the saved progress keeps it.
+    pub(in crate::rune_ui) fn name(self) -> &'static str {
+        match self {
+            Page::Welcome => "welcome",
+            Page::Privacy => "privacy",
+            Page::About => "about",
+            Page::Agent => "agent",
+            Page::Desktop => "desktop",
+            Page::Browser => "browser",
+            Page::Checks => "checks",
+            Page::Shortcut => "shortcut",
+            Page::Try => "try",
+        }
+    }
+
+    pub(in crate::rune_ui) fn named(name: &str) -> Option<Page> {
+        Self::ALL.into_iter().find(|page| page.name() == name)
+    }
 
     fn index(self) -> usize {
         Self::ALL.iter().position(|page| *page == self).unwrap_or(0)
@@ -151,11 +189,26 @@ pub(in crate::rune_ui) struct SetupFlow {
     pub(in crate::rune_ui) probes: Vec<(HotkeySlot, ProbeState)>,
     /// The test waiting for a press now.
     probing: Option<(HotkeySlot, Receiver<Probe>)>,
-    /// The try-it question: heard, then answered.
-    pub(in crate::rune_ui) asked_question: Option<ConversationId>,
-    pub(in crate::rune_ui) heard: Option<String>,
-    pub(in crate::rune_ui) answer: Option<Result<String, String>>,
+    /// agent-browser and its self-tests.
+    pub(in crate::rune_ui) browser: browser::BrowserStep,
+    /// The Try page's gestures.
+    pub(in crate::rune_ui) tutorial: tutorial::Tutorial,
     checked_at: Option<Instant>,
+    /// The pages continue the voice first run, whose "Hex is ready" ends
+    /// both.
+    pub(in crate::rune_ui) merged: bool,
+    /// Shown to someone who set Hex up before the assistant: "New in Hex".
+    pub(in crate::rune_ui) new_in_hex: bool,
+    /// Reopened after Hex restarted part way: the page says so.
+    pub(in crate::rune_ui) resumed: bool,
+    /// The running fix's latest lines (an installer's output).
+    pub(in crate::rune_ui) fix_log: Vec<String>,
+    /// The failed fix's command, to run in Terminal instead.
+    pub(in crate::rune_ui) fix_command: Option<String>,
+    /// Opened by a hold of the Action shortcut before setup finished.
+    pub(in crate::rune_ui) from_hold: bool,
+    /// "Tell Hex about you": company, website, colleagues.
+    pub(in crate::rune_ui) about: [rune::TextEdit; 3],
 }
 
 impl Default for SetupFlow {
@@ -179,10 +232,16 @@ impl Default for SetupFlow {
             conflicts_checked_at: None,
             probes: Vec::new(),
             probing: None,
-            asked_question: None,
-            heard: None,
-            answer: None,
+            browser: browser::BrowserStep::default(),
+            tutorial: tutorial::Tutorial::default(),
             checked_at: None,
+            merged: false,
+            new_in_hex: false,
+            resumed: false,
+            fix_log: Vec::new(),
+            fix_command: None,
+            from_hold: false,
+            about: Default::default(),
         }
     }
 }
@@ -206,7 +265,9 @@ pub(in crate::rune_ui) fn fix_for(found: &Found) -> Option<Fix> {
     Some(match (found.backend, found.path.is_some()) {
         (AssistantBackend::ClaudeApi, _) => Fix::AddApiKey,
         (backend, false) => Fix::Install(backend),
-        (AssistantBackend::OpenCode, true) => Fix::StartOpenCode,
+        // OpenCode installed but not answering: it needs a key (or a
+        // provider sign-in), which the agent picker's own-key panel takes.
+        (AssistantBackend::OpenCode, true) => Fix::UseApiKey(AssistantBackend::OpenCode),
         (backend, true) => Fix::SignIn(backend),
     })
 }
@@ -226,6 +287,9 @@ pub(in crate::rune_ui) fn fix_label(fix: Fix) -> String {
         Fix::OpenSettings(Permission::Accessibility) => tr("Open Accessibility…").into(),
         Fix::OpenSettings(Permission::ScreenRecording) => tr("Open Screen Recording…").into(),
         Fix::Retry => tr("Try again").into(),
+        // A fix added after this page was written, in its own words.
+        #[allow(unreachable_patterns)]
+        _ => fix.label(),
     }
 }
 
@@ -311,23 +375,26 @@ fn passed(flow: &SetupFlow, check: Check) -> bool {
 pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bool {
     let backend = ui.settings.assistant.backend;
     match page {
-        Page::Welcome => true,
+        Page::Welcome | Page::Privacy | Page::About => true,
         Page::Agent => chosen(ui).is_some_and(|found| found.ready),
-        Page::Permissions => Grant::HEX
-            .iter()
-            .all(|grant| grant_state(ui, flow, *grant) == State::Passed),
         Page::Desktop => {
-            flow.desktop
+            Grant::HEX
+                .iter()
+                .all(|grant| grant_state(ui, flow, *grant) == State::Passed)
+                && flow
+                .desktop
                 .as_ref()
                 .is_some_and(|found| found.path.is_some())
                 && Grant::DESKTOP
                     .iter()
                     .all(|grant| grant_state(ui, flow, *grant) == State::Passed)
         }
+        // Off in Settings, web tasks use the person's own browser.
+        Page::Browser => flow.browser.done() || !ui.settings.assistant.background_browser,
         Page::Checks => {
             flow.checked_backend == Some(backend)
                 && !flow.checks.is_empty()
-                && flow.checks.iter().all(CheckResult::ok)
+                && flow.checks.iter().all(browser::passed_or_optional)
         }
         // Nothing takes the Action shortcut for sure, and a press of it
         // really reached Hex.
@@ -341,7 +408,7 @@ pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bo
                 Some(ProbeState::Done(Probe::Works(_)))
             )
         }
-        Page::Try => matches!(flow.answer, Some(Ok(_))),
+        Page::Try => flow.tutorial.done(),
     }
 }
 
@@ -353,11 +420,23 @@ pub(in crate::rune_ui) fn can_finish(ui: &Ui, flow: &SetupFlow) -> bool {
         && required(backend).iter().all(|check| passed(flow, *check))
 }
 
-/// Opens the flow at its start, and starts looking.
+/// Opens the flow where it was left (Run setup again, Finish setting up),
+/// or at its start, and starts looking.
 pub(in crate::rune_ui) fn open(ui: &mut Ui) {
+    let page = resume::saved_page(ui).unwrap_or(Page::Welcome);
+    open_at(ui, page);
+}
+
+/// Opens the flow at `page`, looking at everything afresh.
+pub(in crate::rune_ui) fn open_at(ui: &mut Ui, page: Page) {
     ui.chats.setup = Some(SetupFlow::default());
+    super::displays::read(ui);
     detect(ui);
     recheck(ui);
+    browser::read(ui);
+    if page != Page::Welcome {
+        go(ui, page);
+    }
 }
 
 /// Looks for the agents again (after an install or a sign-in).
@@ -394,6 +473,13 @@ pub(in crate::rune_ui) fn go(ui: &mut Ui, page: Page) {
     let left = flow.page;
     flow.page = page;
     flow.fix_error = None;
+    if left != page {
+        flow.resumed = false;
+    }
+    resume::remember(ui, page);
+    let Some(flow) = ui.chats.setup.as_mut() else {
+        return;
+    };
     let stale = flow.checked_backend != Some(ui.settings.assistant.backend);
     if page == Page::Checks && (flow.checks.is_empty() || stale) {
         run_checks(ui);
@@ -404,6 +490,16 @@ pub(in crate::rune_ui) fn go(ui: &mut Ui, page: Page) {
     if page == Page::Shortcut {
         check_shortcut(ui);
         test_shortcut(ui, HotkeySlot::Action);
+    }
+    if page == Page::Browser {
+        browser::arrive(ui);
+    }
+    if page == Page::Try
+        && let Some(flow) = ui.chats.setup.as_mut()
+        && !flow.tutorial.worked(tutorial::Gesture::Here)
+    {
+        // Gestures count from here on.
+        flow.tutorial = tutorial::Tutorial::default();
     }
 }
 
@@ -488,8 +584,37 @@ pub(in crate::rune_ui) fn advance(ui: &mut Ui) {
     if let Some(flow) = ui.chats.setup.as_mut() {
         flow.later.retain(|later| *later != page);
     }
+    if page == Page::About {
+        remember_about(ui);
+    }
     if let Some(next) = page.next() {
         go(ui, next);
+    }
+}
+
+/// What "Tell Hex about you" filled in, added to what Hex knows.
+pub(in crate::rune_ui) fn remember_about(ui: &mut Ui) {
+    use super::round3_shim::memory;
+    let Some(flow) = ui.chats.setup.as_ref() else {
+        return;
+    };
+    let labels = ["Company", "Website", "Colleagues"];
+    let lines: Vec<String> = labels
+        .iter()
+        .zip(&flow.about)
+        .filter(|(_, field)| !field.text.trim().is_empty())
+        .map(|(label, field)| format!("- {label}: {}", field.text.trim()))
+        .collect();
+    if lines.is_empty() || !ui.chats.live() {
+        return;
+    }
+    let mut known = memory::read();
+    if !known.trim().is_empty() {
+        known.push('\n');
+    }
+    known.push_str(&lines.join("\n"));
+    if let Err(error) = memory::write(&known) {
+        tracing::warn!(error = %format!("{error:#}"), "could not remember what the person told");
     }
 }
 
@@ -554,6 +679,8 @@ pub(in crate::rune_ui) fn allow(ui: &mut Ui, grant: Grant) {
         flow.asked.push(grant);
     }
     if needs_restart(ui, grant) {
+        // One click: Hex relaunches itself and reopens on this page.
+        resume::before_restart(ui);
         ui.ask(PlatformRequest::Permission(PermissionAction::Restart));
         return;
     }
@@ -603,6 +730,8 @@ pub(in crate::rune_ui) fn apply(ui: &mut Ui, fix: Fix) {
         }
         flow.fixing = Some(fix);
         flow.fix_error = None;
+        flow.fix_log.clear();
+        flow.fix_command = None;
     }
     ui.chats.jobs.run(Job::Fix(fix));
 }
@@ -616,68 +745,46 @@ pub(in crate::rune_ui) fn finish(ui: &mut Ui, tx: &mut rune::Tx) {
         return;
     }
     if ui.update(|settings| settings.assistant.setup_done = true) {
+        resume::forget(ui);
         close(ui);
         super::show(ui, None, tx);
     }
 }
 
+/// Closes the flow. Unfinished, it waits in Chats ("Finish setting up")
+/// rather than reopening at launch; continuing the voice first run, that
+/// one goes on to "Hex is ready".
 pub(in crate::rune_ui) fn close(ui: &mut Ui) {
     stop_probe(ui);
+    let merged = ui.chats.setup.as_ref().is_some_and(|flow| flow.merged);
+    if ui.chats.setup.is_some() && !ui.settings.assistant.setup_done {
+        resume::dismiss(ui);
+    }
     ui.chats.setup = None;
+    if merged {
+        super::super::onboarding_kit::live::release_for_assistant(ui);
+    }
 }
 
-/// Follows the try-it question.
+/// Follows the tutorial's gestures.
 pub(super) fn event(ui: &mut Ui, event: &Event) -> bool {
-    let Some(flow) = ui.chats.setup.as_mut() else {
-        return false;
-    };
-    match event {
-        Event::Queued {
-            conversation,
-            origin: Origin::ActionShortcut,
-            question,
-        }
-        | Event::Started {
-            conversation,
-            origin: Origin::ActionShortcut,
-            question,
-        } => {
-            flow.asked_question = Some(conversation.clone());
-            flow.heard = Some(question.clone());
-            flow.answer = None;
-        }
-        Event::Answer {
-            conversation,
-            origin: Origin::ActionShortcut,
-            text,
-        } if flow
-            .asked_question
-            .as_ref()
-            .is_none_or(|asked| asked == conversation) =>
-        {
-            flow.asked_question = None;
-            flow.answer = Some(Ok(text.trim().to_owned()));
-        }
-        Event::Failed {
-            conversation,
-            message,
-        } if flow.asked_question.as_ref() == Some(conversation) => {
-            flow.asked_question = None;
-            flow.answer = Some(Err(message.clone()));
-        }
-        Event::Cancelled { conversation } if flow.asked_question.as_ref() == Some(conversation) => {
-            flow.asked_question = None;
-            flow.heard = None;
-        }
-        _ => return false,
-    }
-    true
+    ui.chats
+        .setup
+        .as_mut()
+        .is_some_and(|flow| flow.tutorial.event(event))
 }
 
 /// A job's answer, for the flow.
 pub(super) fn receive(ui: &mut Ui, done: super::Done) {
     use super::Done;
+    if browser::receive(ui, &done) {
+        return;
+    }
     let fixed = matches!(done, Done::Fixed(..));
+    let browser_installed = matches!(
+        done,
+        Done::Fixed(Fix::InstallAgentBrowser | Fix::InstallLightpanda, _)
+    );
     let Some(flow) = ui.chats.setup.as_mut() else {
         return;
     };
@@ -703,19 +810,50 @@ pub(super) fn receive(ui: &mut Ui, done: super::Done) {
             }
         }
         Done::AllChecked => flow.checks_running = false,
+        Done::FixProgress(fix, line) => {
+            if flow.fixing == Some(fix) && !line.trim().is_empty() {
+                flow.fix_log.push(line);
+                let extra = flow.fix_log.len().saturating_sub(FIX_LOG);
+                flow.fix_log.drain(..extra);
+            }
+        }
+        Done::FixCommand(_, command) => flow.fix_command = command,
         Done::Fixed(fix, result) => {
             if flow.fixing == Some(fix) {
                 flow.fixing = None;
             }
-            if let Err(error) = result {
-                flow.fix_error = Some(error);
+            match result {
+                // What it printed last, and why it stopped.
+                Err(error) => {
+                    let mut tail = std::mem::take(&mut flow.fix_log);
+                    tail.push(error);
+                    flow.fix_error = Some(tail.join("\n"));
+                }
+                Ok(()) => {
+                    flow.fix_log.clear();
+                    flow.fix_command = None;
+                }
             }
         }
         Done::Conflicts(found) => {
             flow.conflicts_checking = false;
             flow.conflicts = Some(found);
         }
-        Done::KeySaved(_) | Done::Voices(_) => {}
+        Done::KeySaved(_)
+        | Done::Voices(_)
+        | Done::RunningApps(_)
+        | Done::Browser(..)
+        | Done::SignIn(..)
+        | Done::BrowserCheck(_)
+        | Done::BrowserChecked
+        | Done::AgentProgress(..)
+        | Done::AgentCommand(_)
+        | Done::AgentSetUp(..)
+        | Done::OwnKey(_)
+        | Done::CodexKey(_) => {}
+    }
+    if browser_installed {
+        browser::installed(ui);
     }
     if fixed {
         // Installed, started, or signed in: look again.
@@ -776,10 +914,22 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut rune::Tx) -> bool {
         check_shortcut(ui);
         tx.wake_after(Duration::from_secs(3));
     }
+    // The HUD's double-tap, while the tutorial waits for it.
+    if let Some(flow) = ui.chats.setup.as_mut()
+        && flow.page == Page::Try
+        && !flow.tutorial.tasks
+    {
+        if flow.tutorial.poll() {
+            return true;
+        }
+        if live {
+            tx.wake_after(Duration::from_millis(500));
+        }
+    }
     let Some(flow) = ui.chats.setup.as_ref() else {
         return false;
     };
-    if !ui.chats.live() || !matches!(flow.page, Page::Permissions | Page::Desktop) {
+    if !ui.chats.live() || flow.page != Page::Desktop {
         return false;
     }
     let due = flow.checked_at.is_none_or(|at| at.elapsed() >= RECHECK);
@@ -943,8 +1093,10 @@ pub(in crate::rune_ui) fn fixture(ui: &mut Ui, page: Page, all_passed: bool) {
                 (HotkeySlot::Dictation, ProbeState::Waiting),
             ]
         },
-        heard: all_passed.then(|| "What time is it in Tokyo?".into()),
-        answer: all_passed.then(|| Ok("It's 9:41 PM in Tokyo.".into())),
+        tutorial: tutorial::Tutorial::fixture(all_passed),
         ..SetupFlow::default()
     });
+    if let Some(flow) = ui.chats.setup.as_mut() {
+        browser::fixture(flow, backend, all_passed);
+    }
 }
