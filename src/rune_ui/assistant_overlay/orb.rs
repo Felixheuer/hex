@@ -7,9 +7,11 @@
 //! step as a brief toast, ✓ or ✗ when it ends ([`super::pops`]). A task the
 //! person took over keeps a small "You have it" bubble with Hand back; one
 //! waiting out a usage limit keeps "Waiting for limit · resumes 14:05".
-//! A task's question (`Event::Question`) stays in a bubble in its colour,
-//! nearest the orb and newest first, with how to answer ("Hold ⌘ to
-//! answer"), until it's answered or put away. A task with a plan wears a
+//! The question to answer now (the inbox's active one,
+//! `Event::QuestionsChanged`) stays in a bubble in its task's colour,
+//! nearest the orb: who asks ("Einstein research asks"), the question, how
+//! to answer ("Hold ⌘ to answer"), and Later, which puts it behind the
+//! others. The orb wears a small count of every open question. A task with a plan wears a
 //! small progress ring around its dot. A Here question that turns into a
 //! long job (`Event::Escalated`) flies into the cluster as a new dot.
 //!
@@ -24,7 +26,7 @@ use rune_motion::{LoopSpec, Spring};
 
 use super::super::controls::Paint;
 use super::super::icons::SPARKLES;
-use super::board::{Board, Phase, Task};
+use super::board::{Asking, Board, Phase, Task};
 use super::pops::{Pop, PopKind};
 use super::{frame, palette, stack, when};
 use crate::desktop::i18n::{tr, tr_fill};
@@ -149,7 +151,7 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
     let grow = look.grow;
     let mut parts: Vec<El> = Vec::new();
     if !tasks.is_empty() || !board.pops.items.is_empty() {
-        parts.push(orb(p, &tasks, look, actions));
+        parts.push(orb(p, &tasks, board.open_questions(), look, actions));
     }
     if look.open && !tasks.is_empty() {
         let max_h = SIZE.1 - 2.0 * INSET - ORB_H - GAP;
@@ -166,10 +168,11 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
         );
     } else {
         let mut bubbles: Vec<El> = board
-            .questions()
+            .active_question()
+            .map(|asking| {
+                question(p, &asking, &look.answer_key, actions.list).transition(pop_in(grow))
+            })
             .into_iter()
-            .filter(|task| task.origin == crate::assistant::Origin::Background)
-            .map(|task| question(p, task, &look.answer_key, actions.list).transition(pop_in(grow)))
             .collect();
         bubbles.extend(
             tasks
@@ -218,8 +221,15 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
     }
 }
 
-/// The orb: its glowing core and a dot per live task.
-fn orb<S: 'static>(p: Paint, tasks: &[Task], look: &Look, actions: Actions<S>) -> El {
+/// The orb: its glowing core, a dot per live task, and how many questions
+/// wait on the person.
+fn orb<S: 'static>(
+    p: Paint,
+    tasks: &[Task],
+    questions: usize,
+    look: &Look,
+    actions: Actions<S>,
+) -> El {
     let c = &p.k.c;
     let (lead, trail) = palette::frame(p.k.dark);
     let core = el()
@@ -250,12 +260,22 @@ fn orb<S: 'static>(p: Paint, tasks: &[Task], look: &Look, actions: Actions<S>) -
     });
     let mut items: Vec<El> = vec![core];
     items.extend(dots);
+    items.extend((questions > 0).then(|| badge(p, questions, look.grow)));
     if !look.grow.right {
         items.reverse();
     }
     let toggle = actions.list.toggle;
     let drag = actions.drag;
     let live = tasks.iter().filter(|task| task.phase.live()).count();
+    let label = if questions > 0 {
+        format!(
+            "{} · {}",
+            tr_fill("Assistant tasks: {}", &live.to_string()),
+            tr_fill("Open questions: {}", &questions.to_string())
+        )
+    } else {
+        tr_fill("Assistant tasks: {}", &live.to_string())
+    };
     row()
         .key("orb")
         .h(ORB_H)
@@ -274,7 +294,7 @@ fn orb<S: 'static>(p: Paint, tasks: &[Task], look: &Look, actions: Actions<S>) -
             inset: false,
         })
         .role("button")
-        .label(tr_fill("Assistant tasks: {}", &live.to_string()))
+        .label(label)
         .hit()
         .on_press(move |s: &mut S| toggle(s))
         .drag_threshold(4.0)
@@ -346,16 +366,64 @@ fn ring(fraction: f32, colour: rune::Color, track: rune::Color) -> Shape {
     shape.stroke_with(arc, false, RING_W, LineCap::Round, colour)
 }
 
-/// A task's question, in its colour, with how to answer it and × to put
-/// it away (it still waits for the answer).
-fn question<S: 'static>(p: Paint, task: &Task, answer_key: &str, actions: stack::Actions<S>) -> El {
+/// The open questions' count on the orb, in the accent colour; it pops
+/// again whenever the count changes (a new question arrived).
+fn badge(p: Paint, count: usize, grow: Grow) -> El {
+    let accent = p.accent();
+    text(count.to_string())
+        .key(format!("questions-{count}"))
+        .font(p.k.ty.small_medium)
+        .color(p.k.c.bg_base)
+        .min_w(16.0)
+        .h(16.0)
+        .px(4.0)
+        .radius(8.0)
+        .fill(accent)
+        .align(rune::Align::Center)
+        .box_shadow(rune::Shadow {
+            x: 0.0,
+            y: 0.0,
+            blur: 8.0,
+            spread: 0.0,
+            color: accent.alpha(0.55),
+            inset: false,
+        })
+        .a11y_hidden()
+        .transition(
+            Transition::scale_anchor(0.4, anchor(grow))
+                .allow_small_scale()
+                .combined(Transition::opacity())
+                .springs(rune::SpringPair::new(
+                    Spring::new(0.42, 0.32),
+                    Spring::new(0.28, 0.0),
+                )),
+        )
+}
+
+/// The question to answer now, in its task's colour: who asks, the
+/// question, how to answer it, Later (behind the others), and × to put the
+/// bubble away (it still waits for the answer). A press opens it in Chats.
+fn question<S: 'static>(
+    p: Paint,
+    asking: &Asking,
+    answer_key: &str,
+    actions: stack::Actions<S>,
+) -> El {
     let c = &p.k.c;
-    let colour = palette::task(task.colour, p.k.dark);
+    let colour = palette::task(asking.colour, p.k.dark);
     let open = actions.open;
     let dismiss = actions.dismiss;
-    let (id, put_away) = (task.id.clone(), task.id.clone());
+    let defer = actions.defer;
+    let (id, put_away, later) = (asking.id.clone(), asking.id.clone(), asking.id.clone());
+    let dot = el()
+        .size(8.0, 8.0)
+        .radius(4.0)
+        .fill(colour.alpha(0.3))
+        .border(1.5, colour)
+        .a11y_hidden()
+        .mt(5.0);
     row()
-        .key(format!("question-{}", task.id))
+        .key(format!("question-{}", asking.id))
         .w(BUBBLE_MAX_W)
         .pl(12.0)
         .pr(4.0)
@@ -378,7 +446,7 @@ fn question<S: 'static>(p: Paint, task: &Task, answer_key: &str, actions: stack:
         .live_region(rune::LiveRegion::Polite)
         .hit()
         .on_press(move |s: &mut S| open(s, &id))
-        .child(dot(task, colour, 8.0).mt(5.0))
+        .child(dot)
         .child(
             col()
                 .key("question-lines")
@@ -387,7 +455,18 @@ fn question<S: 'static>(p: Paint, task: &Task, answer_key: &str, actions: stack:
                 .min_w(0.0)
                 .shrink()
                 .child(
-                    text(task.question.clone().unwrap_or_default())
+                    // Short enough that "asks" stays on the line.
+                    text(tr_fill(
+                        "{} asks",
+                        &crate::assistant::store::shorten(&asking.title, 34),
+                    ))
+                    .key("question-who")
+                    .truncate()
+                    .font(p.k.ty.small_medium)
+                    .color(colour),
+                )
+                .child(
+                    text(asking.question.clone())
                         .key("question-text")
                         .wrap()
                         .max_lines(QUESTION_LINES)
@@ -395,10 +474,26 @@ fn question<S: 'static>(p: Paint, task: &Task, answer_key: &str, actions: stack:
                         .color(p.text()),
                 )
                 .child(
-                    text(tr_fill("Hold {} to answer", answer_key))
-                        .key("question-hint")
-                        .font(p.k.ty.small)
-                        .color(colour),
+                    row()
+                        .key("question-foot")
+                        .gap(6.0)
+                        .center_y()
+                        .child(
+                            text(tr_fill("Hold {} to answer", answer_key))
+                                .key("question-hint")
+                                .font(p.k.ty.small)
+                                .color(p.muted())
+                                .grow(1.0)
+                                .min_w(0.0),
+                        )
+                        .child(
+                            Button::new(tr("Later"))
+                                .variant(ButtonVariant::GhostMuted)
+                                .control_size(ControlSize::Small)
+                                .on_press(move |s: &mut S| defer(s, &later))
+                                .build(p.k)
+                                .key("later"),
+                        ),
                 ),
         )
         .child(

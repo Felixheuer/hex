@@ -184,6 +184,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
                     open_preview: |orb, task, session| {
                         enlarged::open(&orb.board, task, session);
                     },
+                    defer: |_, id| crate::assistant::defer_question(id),
                 },
                 hover: |orb, inside| {
                     orb.peek = inside && !orb.board.stack().is_empty();
@@ -389,11 +390,49 @@ fn orb_event(orb: &mut Orb, event: &Event, tx: &mut Tx) -> bool {
         _ => None,
     };
     let now = Instant::now();
+    let asked_before = active_id(&orb.board);
     if !orb.board.apply(event, colour, now) {
         return false;
     }
+    if let Event::QuestionsChanged { .. } = event {
+        chime_for(asked_before, active_id(&orb.board));
+    }
     board_changed(orb, tx, now);
     true
+}
+
+fn active_id(board: &super::board::Board) -> Option<String> {
+    board
+        .inbox
+        .as_ref()
+        .and_then(|inbox| inbox.active.as_ref())
+        .map(|active| active.conversation.clone())
+}
+
+/// A soft tone when another question becomes the one to answer while it
+/// can't be read aloud now (something else is read, or announcements are
+/// off): the bubble alone would go unnoticed.
+fn chime_for(before: Option<String>, now: Option<String>) {
+    if should_chime(
+        before.as_deref(),
+        now.as_deref(),
+        crate::assistant::speech::speaking(),
+        crate::assistant::spoken_announcements(),
+    ) {
+        crate::feedback::play(crate::feedback::Tone::Onboarding(
+            crate::feedback::OnboardingTone::PermissionTick,
+        ));
+    }
+}
+
+/// Whether a change of the active question from `before` to `now` chimes.
+pub(super) fn should_chime(
+    before: Option<&str>,
+    now: Option<&str>,
+    speaking: bool,
+    spoken: bool,
+) -> bool {
+    now.is_some() && now != before && (speaking || !spoken)
 }
 
 /// The service's colour for a task, read here on the main thread rather
