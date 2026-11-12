@@ -13,7 +13,6 @@ use super::super::super::controls::{
 };
 use super::super::super::general::quiet_select;
 use super::super::super::lists::small_button;
-use super::super::super::platform::Os;
 use super::super::bridge::{memory, voices};
 use super::super::{Job, Ui};
 use crate::assistant::autonomy::Autonomy;
@@ -162,21 +161,13 @@ pub(super) fn voice_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
 /// "Get a better voice", when none installed sounds natural.
 pub(super) fn better_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
     let installed = ui.chats.settings.voices.as_ref()?;
-    voices::better_voice_available(installed)?;
+    let advice = voices::better_voice_available(installed)?;
     Some(
         described_row(
             p,
             "assistant-better-voice",
             tr("Get a better voice"),
-            Some((
-                if ui.platform.caps.os == Os::Macos {
-                    tr("Premium voices sound far more natural. Download one in System Settings")
-                } else {
-                    tr("Better voices sound far more natural. Download one in Settings")
-                }
-                .to_owned(),
-                p.muted(),
-            )),
+            Some((tr(advice).to_owned(), p.muted())),
             small_button(
                 p,
                 "get-better-voice",

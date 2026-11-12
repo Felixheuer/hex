@@ -181,13 +181,14 @@ pub(in crate::rune_ui) mod voices {
             .map_or(Quality::Default, |voice| voice.quality)
     }
 
-    /// A hint when a much better voice than the installed ones can be
-    /// downloaded for the system's language.
+    /// What to tell the person, in English for `tr()`, when a much better
+    /// voice than the installed ones can be downloaded for the system's
+    /// language.
     pub(in crate::rune_ui) fn better_voice_available(
         _installed: &[String],
     ) -> Option<&'static str> {
         let language = speech::language_of(&system_sample())?;
-        speech::better_voice_available(language).map(|_| "Premium voices sound far more natural")
+        speech::better_voice_available(language).map(|hint| hint.advice)
     }
 
     /// A short phrase in the system's language, for picking its language.
