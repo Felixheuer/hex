@@ -16,8 +16,8 @@
 use std::time::{Duration, Instant};
 
 use super::super::platform::PlatformRequest;
-use super::{Job, Ui};
 use super::shortcut_stub::{self as shortcut, Conflict, ConflictFix, Heard};
+use super::{Job, Ui};
 use crate::app_settings::{AssistantBackend, HotkeySlot};
 use crate::assistant::backends::{AgentDesktop, Check, CheckResult, CheckState, Fix, Found};
 use crate::assistant::computer::{Permission, Permissions};
@@ -294,7 +294,9 @@ pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bo
             .iter()
             .all(|grant| grant_state(ui, flow, *grant) == State::Passed),
         Page::Desktop => {
-            flow.desktop.as_ref().is_some_and(|found| found.path.is_some())
+            flow.desktop
+                .as_ref()
+                .is_some_and(|found| found.path.is_some())
                 && Grant::DESKTOP
                     .iter()
                     .all(|grant| grant_state(ui, flow, *grant) == State::Passed)
@@ -445,7 +447,12 @@ pub(in crate::rune_ui) fn later(ui: &mut Ui) {
 }
 
 pub(in crate::rune_ui) fn back(ui: &mut Ui) {
-    if let Some(previous) = ui.chats.setup.as_ref().and_then(|flow| flow.page.previous()) {
+    if let Some(previous) = ui
+        .chats
+        .setup
+        .as_ref()
+        .and_then(|flow| flow.page.previous())
+    {
         go(ui, previous);
     }
 }
@@ -625,11 +632,15 @@ pub(super) fn receive(ui: &mut Ui, done: super::Done) {
             forget_granted(ui);
         }
         Done::Check(result) => {
-            if let Some(slot) = flow.checks.iter_mut().find(|slot| slot.check == result.check) {
+            if let Some(slot) = flow
+                .checks
+                .iter_mut()
+                .find(|slot| slot.check == result.check)
+            {
                 *slot = result;
             }
         }
-        Done::ChecksDone => flow.checks_running = false,
+        Done::AllChecked => flow.checks_running = false,
         Done::Fixed(fix, result) => {
             if flow.fixing == Some(fix) {
                 flow.fixing = None;
@@ -737,16 +748,51 @@ pub(in crate::rune_ui) fn fixture(ui: &mut Ui, page: Page, all_passed: bool) {
     };
     let checks = if all_passed {
         vec![
-            result(Check::HexPermissions, CheckState::Ok, "Read Finder's window and the selection", None),
-            result(Check::Answers(backend), CheckState::Ok, "Replied “OK” in 2.1 s", None),
-            result(Check::DesktopPermissions, CheckState::Ok, "Accessibility and Screen Recording are on", None),
-            result(Check::DesktopRoundTrip, CheckState::Ok, "Listed 9 apps and 14 windows", None),
-            result(Check::DesktopThroughAgent(backend), CheckState::Ok, "Called desktop_status in 6.4 s", None),
+            result(
+                Check::HexPermissions,
+                CheckState::Ok,
+                "Read Finder's window and the selection",
+                None,
+            ),
+            result(
+                Check::Answers(backend),
+                CheckState::Ok,
+                "Replied “OK” in 2.1 s",
+                None,
+            ),
+            result(
+                Check::DesktopPermissions,
+                CheckState::Ok,
+                "Accessibility and Screen Recording are on",
+                None,
+            ),
+            result(
+                Check::DesktopRoundTrip,
+                CheckState::Ok,
+                "Listed 9 apps and 14 windows",
+                None,
+            ),
+            result(
+                Check::DesktopThroughAgent(backend),
+                CheckState::Ok,
+                "Called desktop_status in 6.4 s",
+                None,
+            ),
         ]
     } else {
         vec![
-            result(Check::HexPermissions, CheckState::Ok, "Read Finder's window and the selection", None),
-            result(Check::Answers(backend), CheckState::Ok, "Replied “OK” in 2.1 s", None),
+            result(
+                Check::HexPermissions,
+                CheckState::Ok,
+                "Read Finder's window and the selection",
+                None,
+            ),
+            result(
+                Check::Answers(backend),
+                CheckState::Ok,
+                "Replied “OK” in 2.1 s",
+                None,
+            ),
             result(
                 Check::DesktopPermissions,
                 CheckState::Failed,
@@ -754,12 +800,21 @@ pub(in crate::rune_ui) fn fixture(ui: &mut Ui, page: Page, all_passed: bool) {
                 Some(Fix::GuidePermissions),
             ),
             result(Check::DesktopRoundTrip, CheckState::Running, "", None),
-            result(Check::DesktopThroughAgent(backend), CheckState::Pending, "", None),
+            result(
+                Check::DesktopThroughAgent(backend),
+                CheckState::Pending,
+                "",
+                None,
+            ),
         ]
     };
     ui.chats.setup = Some(SetupFlow {
         page,
-        later: if all_passed || page.index() <= Page::Desktop.index() { Vec::new() } else { vec![Page::Desktop] },
+        later: if all_passed || page.index() <= Page::Desktop.index() {
+            Vec::new()
+        } else {
+            vec![Page::Desktop]
+        },
         desktop: Some(AgentDesktop {
             path: Some("/opt/homebrew/bin/agent-desktop".into()),
             version: Some("0.4.2".into()),

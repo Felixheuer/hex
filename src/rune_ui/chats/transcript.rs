@@ -117,9 +117,19 @@ fn new_chat(ui: &Ui, p: Paint) -> El {
                 .key("hint")
                 .gap(8.0)
                 .center_y()
-                .child(text(tr("Type below, or hold")).key("type").font(LEAD).color(p.muted()))
+                .child(
+                    text(tr("Type below, or hold"))
+                        .key("type")
+                        .font(LEAD)
+                        .color(p.muted()),
+                )
                 .child(keys(p, "keys", &caps, false))
-                .child(text(tr("anywhere")).key("anywhere").font(LEAD).color(p.muted()))
+                .child(
+                    text(tr("anywhere"))
+                        .key("anywhere")
+                        .font(LEAD)
+                        .color(p.muted()),
+                )
         }
         None => text(tr("Type below to ask the assistant"))
             .key("hint")
@@ -242,10 +252,7 @@ fn actions(pane: &ChatsPane, p: Paint, id: &str) -> Vec<El> {
 /// A question: its words in a bubble on the right, screenshots under it.
 fn question(ui: &Ui, p: Paint, id: &str, index: usize, message: &Message) -> El {
     let words = message.text();
-    let mut block = col()
-        .key(format!("message{index}"))
-        .gap(8.0)
-        .items_end();
+    let mut block = col().key(format!("message{index}")).gap(8.0).items_end();
     if !words.trim().is_empty() {
         block = block.child(bubble(p, "bubble", &words));
     }
@@ -429,7 +436,13 @@ fn in_flight(pane: &ChatsPane, p: Paint, id: &str, turn: &Turn) -> El {
             .gap(8.0)
             .h(24.0)
             .center_y()
-            .child(Spinner::new().size(14.0).color(p.accent()).build(p.k).a11y_hidden())
+            .child(
+                Spinner::new()
+                    .size(14.0)
+                    .color(p.accent())
+                    .build(p.k)
+                    .a11y_hidden(),
+            )
             .child(
                 text(doing)
                     .key("doing")
@@ -501,7 +514,10 @@ fn screenshot(ui: &Ui, p: Paint, id: &str, index: usize, file: &str) -> El {
         && let Some(path) = path
     {
         thumb = thumb.on_press(move |_: &mut Ui| {
-            if let Err(error) = std::process::Command::new("/usr/bin/open").arg(&path).spawn() {
+            if let Err(error) = std::process::Command::new("/usr/bin/open")
+                .arg(&path)
+                .spawn()
+            {
                 tracing::warn!(%error, "could not open a chat's screenshot");
             }
         });
@@ -538,10 +554,7 @@ fn composer(ui: &Ui, p: Paint) -> El {
         .key("composer-input")
         .grow(1.0)
         .shrink();
-    let running = pane
-        .selected
-        .as_deref()
-        .is_some_and(|id| pane.running(id));
+    let running = pane.selected.as_deref().is_some_and(|id| pane.running(id));
     let action = if running && empty {
         let stop = pane.selected.clone().unwrap_or_default();
         IconButton::new(STOP_ICON)

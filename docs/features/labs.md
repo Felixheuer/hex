@@ -1225,6 +1225,57 @@ each quick question and `speech::stop()`. Agent mode's tasks keep running
 on a Mac, the recorder row's rendering (macOS only, so no golden changes),
 or Escape against a running question.
 
+Assistant's window (`rune_ui/chats`, macOS): while the Lab is on, Chats joins
+the sidebar after History (`Pane::Chats`, `chats::available`), and the
+window leaves it for General when the Lab turns off. Its header switches
+Conversations and Settings, and shows the agent's name, Agent mode
+(`assistant::set_agent_mode`), and New chat. Conversations is a list and
+detail: the conversations grouped Today, Yesterday, Previous 7 days, and
+Older, searchable, each with how it was asked (microphone, Agent mode,
+keyboard) or, while it runs, a dot in its task's colour
+(`assistant_overlay::task_colour`) and its latest step; running and queued
+tasks sit in a strip above with Stop each and Stop all. The transcript
+shows questions as bubbles, answers as Markdown (`rune-kit`'s `markdown`
+feature; streaming while `AnswerDelta`s arrive), what the assistant did as
+muted steps (a run longer than four folds to its last step), screenshots as
+thumbnails that open the file, and errors; Delete chat… asks first. The
+composer sends `Request { origin: Chat, conversation: <shown> }` on Return
+(Shift-Return starts a line), and its button stops the shown request while
+it runs. The conversation showing is named with `assistant::set_focus`, and
+cleared when the pane, view, or window goes. Every `assistant::subscribe`
+event wakes the window. `hex://chats?id=<conversation>`,
+`hex://settings/chats`, the menu bar, and the HUD's task stack and "Open in
+Chats" (`assistant_overlay::set_open_chats` → `macos_rune::open_chat`) open
+it. Settings: the agent (and whether each is ready), its model, the Claude
+API key (Keychain only), Read answers aloud with its voice and Test voice,
+Operate apps, the real pointer and keyboard (with its warning), Send a
+screenshot, the follow-up window, Tasks at once (1 to 64), and Run setup….
+
+The assistant's onboarding (`chats/setup.rs`, drawn by `chats/sheet.rs` in
+the first run's type, card, and motion over the whole window) opens when
+the Lab turns on while `assistant.setup_done` is false, and from Run setup…
+or Chats' notice. Pages: Meet your assistant; Choose who answers (the
+agents `backends::detect` found, Claude Code by default, each with its fix:
+install, sign in, start OpenCode, or the API key); Hex's Microphone,
+Accessibility, and Screen Recording, each Allow opening its System Settings
+page with Hex's guide and waiting until macOS reports it on (read every
+1.5 s); agent-desktop, installed with Homebrew if missing, and its two
+permissions; the self-tests (`backends::self_tests`), run on arrival, with
+each failure's fix; the Action shortcut free of other apps and macOS
+features and heard by Hex, held and double-tapped (stubbed in
+`chats/shortcut_stub.rs` until the trigger's `conflicts` and probe land); and
+one real spoken question, answered. A row shows ✓ only after its check saw
+it work. Continue waits for its page; Later moves on and marks it unfinished
+(amber in the progress marks). Finish waits until the chosen agent answers
+and can use agent-desktop, then sets `assistant.setup_done`. Menu bar: Agent
+Mode (checked while on) and Chats… show only while the Lab is on. Checks:
+the tests in [rune_ui/chats/tests.rs](../../src/rune_ui/chats/tests.rs),
+`reads_chats_links` in [deep_link.rs](../../src/rune_ui/deep_link.rs), and
+`the_assistant_rows_start_hidden_and_do_something` in
+[status_item.rs](../../src/macos_rune/status_item.rs); scenes `mac-chats*`
+and `mac-assistant-setup*` (macOS only, so no golden changes). Not yet
+observed: the live service, real grants, or a real question on a Mac.
+
 Sort and filter models (`picker-sort-filter`, issue 645, every OS): while
 on, the speech model picker's Every model view shows one row between its
 header and the list: a sort (By recommendation, the default and the catalog's order; By

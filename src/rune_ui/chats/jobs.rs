@@ -51,7 +51,7 @@ pub(in crate::rune_ui) enum Done {
     Fixed(Fix, Result<(), String>),
     /// A self-test started (`Running`) or ended.
     Check(CheckResult),
-    ChecksDone,
+    AllChecked,
     Conflicts(Result<Vec<Conflict>, String>),
     ConflictCleared(Result<(), String>),
     KeySaved(Result<(), String>),
@@ -93,9 +93,10 @@ impl Jobs {
         if let Job::Fix(fix @ Fix::OpenSettings(_)) = job {
             // Hex's floating guide shows only from the main thread.
             let result = crate::assistant::backends::apply_fix(fix);
-            let _ = self
-                .sender
-                .send(Done::Fixed(fix, result.map_err(|error| format!("{error:#}"))));
+            let _ = self.sender.send(Done::Fixed(
+                fix,
+                result.map_err(|error| format!("{error:#}")),
+            ));
             waker();
             return;
         }
@@ -141,8 +142,10 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
         )),
         Job::SelfTests(settings) => {
             let checks = backends::Check::for_backend(settings.backend);
-            backends::self_tests(&checks, &settings, |result| send(Done::Check(result.clone())));
-            send(Done::ChecksDone);
+            backends::self_tests(&checks, &settings, |result| {
+                send(Done::Check(result.clone()))
+            });
+            send(Done::AllChecked);
         }
         Job::Conflicts(settings) => send(Done::Conflicts(shortcut_stub::conflicts(
             HotkeySlot::Action,

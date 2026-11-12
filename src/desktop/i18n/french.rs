@@ -10,7 +10,13 @@ use std::sync::OnceLock;
 /// The French strings by their English source.
 pub(super) fn table() -> &'static HashMap<&'static str, &'static str> {
     static TABLE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
-    TABLE.get_or_init(|| TRANSLATIONS.iter().copied().collect())
+    TABLE.get_or_init(|| {
+        TRANSLATIONS
+            .iter()
+            .chain(super::assistant::FRENCH)
+            .copied()
+            .collect()
+    })
 }
 
 #[rustfmt::skip]

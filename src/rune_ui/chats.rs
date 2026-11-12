@@ -15,7 +15,7 @@ mod settings;
 mod setup;
 mod sheet;
 mod shortcut_stub;
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests;
 mod transcript;
 
@@ -29,8 +29,7 @@ use super::controls::{ButtonKind, Paint, button, segmented_tx};
 use super::{Pane, Ui};
 use crate::app_settings::AssistantBackend;
 use crate::assistant::{
-    Context, Conversation, ConversationId, ConversationSummary, Event, Origin, Request,
-    TaskStatus,
+    Context, Conversation, ConversationId, ConversationSummary, Event, Origin, Request, TaskStatus,
 };
 use crate::desktop::i18n::{tr, tr_fill};
 
@@ -391,6 +390,7 @@ impl ChatsPane {
             if self.shown.is_none()
                 && let Some(id) = &self.selected
                 && !self.turns.contains_key(id)
+                && !self.failures.contains_key(id)
                 && !self.list.iter().any(|row| &row.id == id)
             {
                 self.selected = None;
@@ -414,7 +414,8 @@ impl ChatsPane {
             context: Context::default(),
         });
         if id.is_empty() {
-            self.error = Some(tr("The assistant didn't take the message. Try again in a moment.").into());
+            self.error =
+                Some(tr("The assistant didn't take the message. Try again in a moment.").into());
             return true;
         }
         self.error = None;
@@ -566,8 +567,15 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
     }
     changed |= jobs::poll(ui);
     if !available(ui) {
-        ui.chats.setup = None;
-        changed |= set_focus(ui, None);
+        if ui.chats.setup.is_some() || ui.pane == Pane::Chats {
+            // The Lab turned off: its onboarding closes, its pane leaves.
+            setup::close(ui);
+            if ui.pane == Pane::Chats {
+                ui.select_pane(Pane::General, tx);
+            }
+            changed = true;
+        }
+        set_focus(ui, None);
         return changed;
     }
     let visible = ui.window.as_ref().is_none_or(rune::AppHandle::is_visible);

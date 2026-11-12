@@ -98,11 +98,13 @@ fn setup_notice(p: Paint) -> El {
                         .color(p.text()),
                 )
                 .child(
-                    text(tr("Check the agents, agent-desktop, and permissions it needs"))
-                        .key("detail")
-                        .font(DESCRIPTION)
-                        .color(p.muted())
-                        .wrap(),
+                    text(tr(
+                        "Check the agents, agent-desktop, and permissions it needs",
+                    ))
+                    .key("detail")
+                    .font(DESCRIPTION)
+                    .color(p.muted())
+                    .wrap(),
                 ),
         )
         .child(button(
@@ -129,7 +131,12 @@ fn task_strip(ui: &Ui, p: Paint) -> Option<El> {
         .gap(8.0)
         .flex_wrap()
         .center_y()
-        .children(tasks.iter().enumerate().map(|(index, task)| chip(p, index, task)));
+        .children(
+            tasks
+                .iter()
+                .enumerate()
+                .map(|(index, task)| chip(p, index, task)),
+        );
     if tasks.len() > 1 {
         strip = strip.child(small_button(
             p,
@@ -234,7 +241,12 @@ fn list(ui: &Ui, p: Paint) -> El {
     for (index, summary) in rows.iter().enumerate() {
         let label = group(summary.updated_ms, now);
         if heading != Some(label) {
-            list = list.child(ld::group(p, &format!("group{index}"), label, heading.is_none()));
+            list = list.child(ld::group(
+                p,
+                &format!("group{index}"),
+                label,
+                heading.is_none(),
+            ));
             heading = Some(label);
         }
         list = list.child(item(ui, p, summary, now).position_in_set(index + 1, count));

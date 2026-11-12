@@ -122,7 +122,9 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
             p,
             "assistant-backend",
             tr("Agent"),
-            Some(tr("Answers and does the tasks, signed in with your own account")),
+            Some(tr(
+                "Answers and does the tasks, signed in with your own account",
+            )),
             backend_select(ui, p, layer),
         )
         .into(),
@@ -144,7 +146,9 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         tr("Read answers aloud"),
         tr("Quick questions answer out loud as well as in the HUD"),
         assistant.speak_answers,
-        |ui: &mut Ui| { ui.update(|settings| settings.assistant.speak_answers ^= true); },
+        |ui: &mut Ui| {
+            ui.update(|settings| settings.assistant.speak_answers ^= true);
+        },
     )];
     if assistant.speak_answers {
         voice.push(setting_row(
@@ -157,10 +161,15 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
                 .gap(8.0)
                 .center_y()
                 .child(voice_select(ui, p, layer))
-                .child(small_button(p, "test-voice", tr("Test voice"), |ui: &mut Ui, _| {
-                    let voice = ui.settings.assistant.voice.clone();
-                    ui.chats.jobs.run(Job::Speak(voice));
-                })),
+                .child(small_button(
+                    p,
+                    "test-voice",
+                    tr("Test voice"),
+                    |ui: &mut Ui, _| {
+                        let voice = ui.settings.assistant.voice.clone();
+                        ui.chats.jobs.run(Job::Speak(voice));
+                    },
+                )),
         ));
     }
     let physical = if assistant.physical_input {
@@ -180,7 +189,9 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         tr("Operate apps"),
         tr("Tasks click, type, and read apps through agent-desktop"),
         assistant.control_desktop,
-        |ui: &mut Ui| { ui.update(|settings| settings.assistant.control_desktop ^= true); },
+        |ui: &mut Ui| {
+            ui.update(|settings| settings.assistant.control_desktop ^= true);
+        },
     )];
     if assistant.control_desktop {
         desktop.push(
@@ -194,7 +205,9 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
                 ),
                 assistant.physical_input,
             )
-            .on_press(|ui: &mut Ui| { ui.update(|settings| settings.assistant.physical_input ^= true); }),
+            .on_press(|ui: &mut Ui| {
+                ui.update(|settings| settings.assistant.physical_input ^= true);
+            }),
         );
     }
     desktop.push(toggle_row(
@@ -203,14 +216,18 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         tr("Send a screenshot"),
         tr("A quick question includes the screen the pointer is on"),
         assistant.include_screenshot,
-        |ui: &mut Ui| { ui.update(|settings| settings.assistant.include_screenshot ^= true); },
+        |ui: &mut Ui| {
+            ui.update(|settings| settings.assistant.include_screenshot ^= true);
+        },
     ));
     let tasks = vec![
         setting_row(
             p,
             "assistant-follow-up",
             tr("Follow-up window"),
-            Some(tr("A question this soon after an answer continues that chat")),
+            Some(tr(
+                "A question this soon after an answer continues that chat",
+            )),
             follow_up_select(ui, p, layer),
         ),
         setting_row(
@@ -288,7 +305,10 @@ pub(super) fn key_row(ui: &Ui, p: Paint) -> El {
     let state = &ui.chats.settings;
     let description = match &state.key_error {
         Some(error) => (error.clone(), p.danger()),
-        None => (tr("Kept in your Keychain, never in Hex's settings").to_owned(), p.muted()),
+        None => (
+            tr("Kept in your Keychain, never in Hex's settings").to_owned(),
+            p.muted(),
+        ),
     };
     described_row(
         p,
@@ -310,7 +330,12 @@ pub(super) fn key_row(ui: &Ui, p: Paint) -> El {
                     .build(p.k)
                     .key("api-key-field"),
             )
-            .child(small_button(p, "save-api-key", tr("Save"), |ui: &mut Ui, _| save_key(ui))),
+            .child(small_button(
+                p,
+                "save-api-key",
+                tr("Save"),
+                |ui: &mut Ui, _| save_key(ui),
+            )),
     )
 }
 
@@ -331,7 +356,9 @@ fn voice_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
         labels,
         selected,
         move |ui, chosen| {
-            let voice = chosen.checked_sub(1).and_then(|index| voices.get(index).cloned());
+            let voice = chosen
+                .checked_sub(1)
+                .and_then(|index| voices.get(index).cloned());
             ui.update(|settings| settings.assistant.voice = voice);
         },
         layer,
@@ -341,7 +368,7 @@ fn voice_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
 fn seconds_label(seconds: u32) -> String {
     match seconds {
         0 => tr("Off").to_owned(),
-        60.. if seconds % 60 == 0 => tr_fill("{} min", &(seconds / 60).to_string()),
+        60.. if seconds.is_multiple_of(60) => tr_fill("{} min", &(seconds / 60).to_string()),
         _ => tr_fill("{} s", &seconds.to_string()),
     }
 }
@@ -365,7 +392,10 @@ fn follow_up_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
         Menu::Pick("assistant-follow-up"),
         "assistant-follow-up-control".to_owned(),
         tr("Follow-up window"),
-        values.iter().map(|seconds| seconds_label(*seconds)).collect(),
+        values
+            .iter()
+            .map(|seconds| seconds_label(*seconds))
+            .collect(),
         selected,
         move |ui, chosen| {
             let seconds = values[chosen];

@@ -751,13 +751,21 @@ pub(super) const SCENES: &[Scene] = &[
     }),
     // Labs › Assistant's Chats and setup (macOS only, so no golden moves).
     #[cfg(target_os = "macos")]
-    ("mac-chats", |ui| mac_chats(ui, chats::fixture::Scene::Conversation)),
+    ("mac-chats", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Conversation)
+    }),
     #[cfg(target_os = "macos")]
-    ("mac-chats-running", |ui| mac_chats(ui, chats::fixture::Scene::Running)),
+    ("mac-chats-running", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Running)
+    }),
     #[cfg(target_os = "macos")]
-    ("mac-chats-empty", |ui| mac_chats(ui, chats::fixture::Scene::Empty)),
+    ("mac-chats-empty", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Empty)
+    }),
     #[cfg(target_os = "macos")]
-    ("mac-chats-settings", |ui| mac_chats(ui, chats::fixture::Scene::Settings)),
+    ("mac-chats-settings", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Settings)
+    }),
     #[cfg(target_os = "macos")]
     ("mac-assistant-setup", |ui| {
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Welcome))

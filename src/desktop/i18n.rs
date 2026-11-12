@@ -9,6 +9,7 @@ use std::sync::OnceLock;
 #[cfg(not(test))]
 use std::sync::atomic::{AtomicU8, Ordering};
 
+mod assistant;
 mod failures;
 mod french;
 mod labs;
@@ -350,6 +351,7 @@ pub(super) fn all_translations() -> impl Iterator<Item = &'static (&'static str,
         .chain(labs::TRANSLATIONS)
         .chain(failures::TRANSLATIONS)
         .chain(onboarding::TRANSLATIONS)
+        .chain(assistant::TRANSLATIONS)
 }
 
 /// Columns: Polish, Chinese (Simplified), Japanese, German, Spanish, Ukrainian.
@@ -1676,6 +1678,14 @@ mod tests {
         include_str!("../rune_ui/screenshot_thumbnail/card.rs"),
         #[cfg(hex_capture)]
         include_str!("../rune_ui/captures.rs"),
+        include_str!("../rune_ui/chats.rs"),
+        include_str!("../rune_ui/chats/jobs.rs"),
+        include_str!("../rune_ui/chats/list.rs"),
+        include_str!("../rune_ui/chats/settings.rs"),
+        include_str!("../rune_ui/chats/setup.rs"),
+        include_str!("../rune_ui/chats/sheet.rs"),
+        include_str!("../rune_ui/chats/shortcut_stub.rs"),
+        include_str!("../rune_ui/chats/transcript.rs"),
         #[cfg(hex_capture)]
         include_str!("../rune_ui/screenshot_thumbnail/editor.rs"),
         #[cfg(hex_capture)]

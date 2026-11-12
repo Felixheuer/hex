@@ -5,7 +5,7 @@
 use rune::{Align, El, Tx, col, el, icon, row, text};
 use rune_kit::{Button, ButtonVariant, RadioItem, Spinner, TextInput, glyphs};
 
-use super::super::controls::{PushSize, Paint, pulsing_dot};
+use super::super::controls::{Paint, PushSize, pulsing_dot};
 use super::super::onboarding_kit::{LEAD, Motion, arrives, keys, title_font};
 use super::setup::{
     self, Grant, Page, SetupFlow, State, can_finish, check_title, chosen, fix_for, fix_label,
@@ -118,7 +118,10 @@ fn progress(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         .key("progress")
         .role("progressbar")
         .label(tr("Setup"))
-        .a11y_value(tr_fill("Step {}", &format!("{} / {}", current + 1, Page::ALL.len())))
+        .a11y_value(tr_fill(
+            "Step {}",
+            &format!("{} / {}", current + 1, Page::ALL.len()),
+        ))
         .gap(6.0)
         .center_y();
     for (index, page) in Page::ALL.iter().enumerate() {
@@ -146,7 +149,15 @@ fn progress(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
 
 /// A page: its heading, its card, a note, and its actions, arriving as
 /// the first run's pages do.
-fn page(p: Paint, key: &str, title: &str, lead: El, card: Option<El>, note: Option<El>, actions: El) -> El {
+fn page(
+    p: Paint,
+    key: &str,
+    title: &str,
+    lead: El,
+    card: Option<El>,
+    note: Option<El>,
+    actions: El,
+) -> El {
     let motion = Motion::default();
     let heading = motion.heading(
         col()
@@ -168,7 +179,9 @@ fn page(p: Paint, key: &str, title: &str, lead: El, card: Option<El>, note: Opti
         .gap(22.0)
         .items_center()
         .child(heading)
-        .children(card.map(|card| motion.staggered(p.k.elevate(card, &p.k.elevation.raised), 1.0, 8.0)))
+        .children(
+            card.map(|card| motion.staggered(p.k.elevate(card, &p.k.elevation.raised), 1.0, 8.0)),
+        )
         .children(note)
         .child(actions)
 }
@@ -195,7 +208,11 @@ fn card(p: Paint, key: &str) -> El {
 }
 
 fn separator(p: Paint, key: String) -> El {
-    el().key(key).h(p.hair).mx(16.0).fill(p.k.c.border_muted).a11y_hidden()
+    el().key(key)
+        .h(p.hair)
+        .mx(16.0)
+        .fill(p.k.c.border_muted)
+        .a11y_hidden()
 }
 
 /// `rows` in a card, a hairline between each.
@@ -211,7 +228,15 @@ fn rows_card(p: Paint, key: &str, rows: Vec<El>) -> El {
 }
 
 /// One row of a card: an icon, its title over what it found, a control.
-fn row_of(p: Paint, key: &str, glyph: &'static rune::Icon, title: &str, detail: &str, ink: rune::Color, control: El) -> El {
+fn row_of(
+    p: Paint,
+    key: &str,
+    glyph: &'static rune::Icon,
+    title: &str,
+    detail: &str,
+    ink: rune::Color,
+    control: El,
+) -> El {
     row()
         .key(key.to_owned())
         .role("group")
@@ -222,7 +247,12 @@ fn row_of(p: Paint, key: &str, glyph: &'static rune::Icon, title: &str, detail: 
         .px(16.0)
         .gap(12.0)
         .center_y()
-        .child(icon(glyph, 16.0).key("icon").color(p.k.c.icon_base).a11y_hidden())
+        .child(
+            icon(glyph, 16.0)
+                .key("icon")
+                .color(p.k.c.icon_base)
+                .a11y_hidden(),
+        )
         .child(
             col()
                 .key("copy")
@@ -257,8 +287,18 @@ fn done_pill(p: Paint, key: &str, label: &str) -> El {
         .gap(5.0)
         .center_y()
         .transition(arrives())
-        .child(icon(p.k.glyph.check_small, 16.0).key("check").color(p.success()).a11y_hidden())
-        .child(text(label.to_owned()).key("label").font(p.k.ty.ui_medium).color(p.success()))
+        .child(
+            icon(p.k.glyph.check_small, 16.0)
+                .key("check")
+                .color(p.success())
+                .a11y_hidden(),
+        )
+        .child(
+            text(label.to_owned())
+                .key("label")
+                .font(p.k.ty.ui_medium)
+                .color(p.success()),
+        )
 }
 
 /// Waiting on macOS or the person: a breathing dot and the word.
@@ -274,8 +314,18 @@ fn waiting_pill(p: Paint, key: &str, label: &str) -> El {
         .fill(k.c.surface_raised)
         .border(p.hair, k.c.border_weak)
         .transition(arrives())
-        .child(el().key("dot").size(8.0, 8.0).child(pulsing_dot(p.accent())).a11y_hidden())
-        .child(text(label.to_owned()).key("label").font(k.ty.small_medium).color(p.muted()))
+        .child(
+            el().key("dot")
+                .size(8.0, 8.0)
+                .child(pulsing_dot(p.accent()))
+                .a11y_hidden(),
+        )
+        .child(
+            text(label.to_owned())
+                .key("label")
+                .font(k.ty.small_medium)
+                .color(p.muted()),
+        )
 }
 
 fn spinner(p: Paint, key: &str) -> El {
@@ -373,7 +423,9 @@ fn welcome(ui: &Ui, p: Paint) -> El {
             "agent-mode",
             AGENT,
             &tr_fill("Double-tap {} for Agent mode", &shortcut),
-            tr("A frame circles the screen, and every hold starts a task that works beside the others"),
+            tr(
+                "A frame circles the screen, and every hold starts a task that works beside the others",
+            ),
             p.muted(),
             el().key("none"),
         ),
@@ -391,7 +443,12 @@ fn welcome(ui: &Ui, p: Paint) -> El {
         p,
         "welcome",
         tr("Meet your assistant"),
-        lead(p, tr("Ask anything by voice, or let it use your Mac for you. Hex makes sure every piece works first.")),
+        lead(
+            p,
+            tr(
+                "Ask anything by voice, or let it use your Mac for you. Hex makes sure every piece works first.",
+            ),
+        ),
         Some(rows_card(p, "welcome-card", rows)),
         None,
         actions(p, true, false),
@@ -413,7 +470,10 @@ fn agent(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                 .as_ref()
                 .map(|version| tr_fill("Version {}", version))
                 .unwrap_or_else(|| tr("Ready").to_owned()),
-            Some(entry) => entry.note.clone().unwrap_or_else(|| tr("Not ready").to_owned()),
+            Some(entry) => entry
+                .note
+                .clone()
+                .unwrap_or_else(|| tr("Not ready").to_owned()),
         };
         let pick = *backend;
         let radio = RadioItem::new(backend_name(*backend), *backend == chosen_backend)
@@ -433,9 +493,13 @@ fn agent(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             Some(entry) => match fix_for(entry) {
                 Some(fix) if flow.fixing == Some(fix) => spinner(p, "fixing"),
                 Some(Fix::AddApiKey) => el().key("none"),
-                Some(fix) => push(p, "fix", &fix_label(fix), *backend == chosen_backend, move |ui: &mut Ui| {
-                    setup::apply(ui, fix)
-                }),
+                Some(fix) => push(
+                    p,
+                    "fix",
+                    &fix_label(fix),
+                    *backend == chosen_backend,
+                    move |ui: &mut Ui| setup::apply(ui, fix),
+                ),
                 None => el().key("none"),
             },
         };
@@ -459,7 +523,8 @@ fn agent(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                 .child(control),
         );
     }
-    if chosen_backend == AssistantBackend::ClaudeApi && !chosen(ui).is_some_and(|found| found.ready) {
+    if chosen_backend == AssistantBackend::ClaudeApi && !chosen(ui).is_some_and(|found| found.ready)
+    {
         rows.push(key_row(ui, p));
     }
     let note = flow
@@ -506,7 +571,13 @@ fn key_row(ui: &Ui, p: Paint) -> El {
                 .grow(1.0)
                 .shrink(),
         )
-        .child(push(p, "save-api-key", tr("Save"), true, super::settings::save_key))
+        .child(push(
+            p,
+            "save-api-key",
+            tr("Save"),
+            true,
+            super::settings::save_key,
+        ))
 }
 
 fn note(p: Paint, copy: &str) -> El {
@@ -528,16 +599,22 @@ fn grant_control(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, primary: boo
         State::Passed => done_pill(p, "allowed", tr("Allowed")),
         State::Checking | State::Pending => spinner(p, "reading"),
         State::Waiting if needs_restart(ui, grant) => {
-            push(p, "restart", tr("Restart Hex"), true, move |ui: &mut Ui| setup::allow(ui, grant))
+            push(p, "restart", tr("Restart Hex"), true, move |ui: &mut Ui| {
+                setup::allow(ui, grant)
+            })
         }
         State::Waiting => row()
             .key("waiting-slot")
             .gap(8.0)
             .center_y()
             .child(waiting_pill(p, "waiting", tr("Waiting")))
-            .child(push(p, "again", tr("Open again"), false, move |ui: &mut Ui| {
-                setup::allow(ui, grant)
-            })),
+            .child(push(
+                p,
+                "again",
+                tr("Open again"),
+                false,
+                move |ui: &mut Ui| setup::allow(ui, grant),
+            )),
         State::Failed => push(p, "allow", tr("Allow"), primary, move |ui: &mut Ui| {
             setup::allow(ui, grant)
         }),
@@ -546,13 +623,21 @@ fn grant_control(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, primary: boo
 
 fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, primary: bool) -> El {
     let (glyph, title, detail) = match grant {
-        Grant::Microphone => (&glyphs::MIC, tr("Microphone"), tr("Hears your question while you hold the shortcut")),
+        Grant::Microphone => (
+            &glyphs::MIC,
+            tr("Microphone"),
+            tr("Hears your question while you hold the shortcut"),
+        ),
         Grant::Accessibility => (
             &glyphs::CURSOR_TEXT,
             tr("Accessibility"),
             tr("Notices the shortcut and reads the text you selected"),
         ),
-        Grant::ScreenRecording => (SCREEN, tr("Screen Recording"), tr("Sends the screen you ask about with your question")),
+        Grant::ScreenRecording => (
+            SCREEN,
+            tr("Screen Recording"),
+            tr("Sends the screen you ask about with your question"),
+        ),
         Grant::DesktopAccessibility => (
             &glyphs::CURSOR_TEXT,
             tr("Accessibility"),
@@ -570,7 +655,15 @@ fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, primary: bool) -
         State::Waiting => tr("Switch on Hex in System Settings"),
         _ => detail,
     };
-    row_of(p, grant.key(), glyph, title, detail, p.muted(), grant_control(ui, flow, p, grant, primary))
+    row_of(
+        p,
+        grant.key(),
+        glyph,
+        title,
+        detail,
+        p.muted(),
+        grant_control(ui, flow, p, grant, primary),
+    )
 }
 
 /// Hex's own permissions.
@@ -587,7 +680,12 @@ fn permissions(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         p,
         "permissions",
         tr("Let Hex see what you see"),
-        lead(p, tr("Each one opens its page in System Settings. This page waits until macOS turns it on.")),
+        lead(
+            p,
+            tr(
+                "Each one opens its page in System Settings. This page waits until macOS turns it on.",
+            ),
+        ),
         Some(rows_card(p, "permissions-card", rows)),
         None,
         actions(p, page_done(ui, flow, Page::Permissions), true),
@@ -619,7 +717,15 @@ fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             }),
         ),
     };
-    let mut rows = vec![row_of(p, "agent-desktop", TOOL, "agent-desktop", &detail, p.muted(), control)];
+    let mut rows = vec![row_of(
+        p,
+        "agent-desktop",
+        TOOL,
+        "agent-desktop",
+        &detail,
+        p.muted(),
+        control,
+    )];
     if installed {
         let first_missing = Grant::DESKTOP
             .iter()
@@ -635,7 +741,10 @@ fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         p,
         "desktop",
         tr("Let the assistant use your Mac"),
-        lead(p, tr("Tasks operate apps through agent-desktop. Hex starts it, so macOS asks for Hex.")),
+        lead(
+            p,
+            tr("Tasks operate apps through agent-desktop. Hex starts it, so macOS asks for Hex."),
+        ),
         Some(rows_card(p, "desktop-card", rows)),
         flow.fix_error.as_ref().map(|error| note(p, error)),
         actions(p, page_done(ui, flow, Page::Desktop), true),
@@ -653,7 +762,11 @@ fn mark(p: Paint, state: CheckState) -> El {
         CheckState::Ok => icon(PASSED, 16.0).color(p.success()),
         CheckState::Failed => icon(FAILED, 16.0).color(p.danger()),
     };
-    el().key("mark").size(16.0, 16.0).center().child(mark).a11y_hidden()
+    el().key("mark")
+        .size(16.0, 16.0)
+        .center()
+        .child(mark)
+        .a11y_hidden()
 }
 
 fn check_row(ui: &Ui, flow: &SetupFlow, p: Paint, index: usize, result: &CheckResult) -> El {
@@ -664,9 +777,13 @@ fn check_row(ui: &Ui, flow: &SetupFlow, p: Paint, index: usize, result: &CheckRe
         p.muted()
     };
     let control = match result.fix {
-        Some(fix) if result.state == CheckState::Failed && flow.fixing == Some(fix) => spinner(p, "fixing"),
+        Some(fix) if result.state == CheckState::Failed && flow.fixing == Some(fix) => {
+            spinner(p, "fixing")
+        }
         Some(fix) if result.state == CheckState::Failed && !flow.checks_running => {
-            push(p, "fix", &fix_label(fix), false, move |ui: &mut Ui| setup::apply(ui, fix))
+            push(p, "fix", &fix_label(fix), false, move |ui: &mut Ui| {
+                setup::apply(ui, fix)
+            })
         }
         _ => el().key("none"),
     };
@@ -693,8 +810,21 @@ fn check_row(ui: &Ui, flow: &SetupFlow, p: Paint, index: usize, result: &CheckRe
                 .grow(1.0)
                 .w(0.0)
                 .gap(2.0)
-                .child(text(title).key("title").font(p.k.ty.ui_medium).color(p.text()).a11y_hidden())
-                .child(text(said).key("detail").font(p.k.ty.small).color(ink).wrap().a11y_hidden()),
+                .child(
+                    text(title)
+                        .key("title")
+                        .font(p.k.ty.ui_medium)
+                        .color(p.text())
+                        .a11y_hidden(),
+                )
+                .child(
+                    text(said)
+                        .key("detail")
+                        .font(p.k.ty.small)
+                        .color(ink)
+                        .wrap()
+                        .a11y_hidden(),
+                ),
         )
         .child(control)
 }
@@ -720,7 +850,10 @@ fn checks(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         p,
         "checks",
         tr("Making sure it works"),
-        lead(p, tr("Each check sends a real request, so what passes here works for you.")),
+        lead(
+            p,
+            tr("Each check sends a real request, so what passes here works for you."),
+        ),
         Some(rows_card(p, "checks-card", rows)),
         flow.fix_error.as_ref().map(|error| note(p, error)),
         actions,
@@ -748,13 +881,22 @@ fn press_row(ui: &Ui, p: Paint, key: &str, title: &str, heard: bool) -> El {
         .key(key.to_owned())
         .role("group")
         .label(title.to_owned())
-        .description(if heard { tr("Hex heard it") } else { tr("Press it now") })
+        .description(if heard {
+            tr("Hex heard it")
+        } else {
+            tr("Press it now")
+        })
         .min_h(ROW_H)
         .py(8.0)
         .px(16.0)
         .gap(12.0)
         .center_y()
-        .child(icon(&glyphs::KEYBOARD, 16.0).key("icon").color(p.k.c.icon_base).a11y_hidden())
+        .child(
+            icon(&glyphs::KEYBOARD, 16.0)
+                .key("icon")
+                .color(p.k.c.icon_base)
+                .a11y_hidden(),
+        )
         .child(
             row()
                 .key("copy")
@@ -762,7 +904,13 @@ fn press_row(ui: &Ui, p: Paint, key: &str, title: &str, heard: bool) -> El {
                 .w(0.0)
                 .gap(8.0)
                 .center_y()
-                .child(text(title.to_owned()).key("title").font(p.k.ty.ui_medium).color(p.text()).a11y_hidden())
+                .child(
+                    text(title.to_owned())
+                        .key("title")
+                        .font(p.k.ty.ui_medium)
+                        .color(p.text())
+                        .a11y_hidden(),
+                )
                 .child(keys.a11y_hidden()),
         )
         .child(control)
@@ -790,7 +938,13 @@ fn shortcut(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             tr("Other apps"),
             why,
             p.danger(),
-            push(p, "check-again", tr("Check again"), false, setup::check_shortcut),
+            push(
+                p,
+                "check-again",
+                tr("Check again"),
+                false,
+                setup::check_shortcut,
+            ),
         )),
         Some(Ok(found)) if found.is_empty() => rows.push(row_of(
             p,
@@ -833,16 +987,39 @@ fn shortcut(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             }
         }
     }
-    rows.push(press_row(ui, p, "hold-probe", tr("Hold"), flow.heard_keys.hold));
-    rows.push(press_row(ui, p, "double-tap-probe", tr("Double-tap"), flow.heard_keys.double_tap));
+    rows.push(press_row(
+        ui,
+        p,
+        "hold-probe",
+        tr("Hold"),
+        flow.heard_keys.hold,
+    ));
+    rows.push(press_row(
+        ui,
+        p,
+        "double-tap-probe",
+        tr("Double-tap"),
+        flow.heard_keys.double_tap,
+    ));
     let free_again = matches!(&flow.conflicts, Some(Ok(found)) if !found.is_empty()).then(|| {
-        push(p, "check-again", tr("Check again"), false, setup::check_shortcut)
+        push(
+            p,
+            "check-again",
+            tr("Check again"),
+            false,
+            setup::check_shortcut,
+        )
     });
     page(
         p,
         "shortcut",
         tr("Make the shortcut yours"),
-        lead(p, tr("Nothing else may take it, and Hex has to hear it. Hold it once, then double-tap it.")),
+        lead(
+            p,
+            tr(
+                "Nothing else may take it, and Hex has to hear it. Hold it once, then double-tap it.",
+            ),
+        ),
         Some(rows_card(p, "shortcut-card", rows)),
         flow.fix_error.as_ref().map(|error| note(p, error)),
         actions(p, page_done(ui, flow, Page::Shortcut), true).children(free_again),
@@ -908,13 +1085,20 @@ fn try_it(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         .key("agent-hint")
         .gap(8.0)
         .center_y()
-        .child(text(tr("Then double-tap")).key("double").font(p.k.ty.small).color(p.faint()))
-        .children(action_keys(ui, p, "agent-keys", false))
         .child(
-            text(tr("for Agent mode: every hold starts a task that uses your Mac"))
-                .key("rest")
+            text(tr("Then double-tap"))
+                .key("double")
                 .font(p.k.ty.small)
                 .color(p.faint()),
+        )
+        .children(action_keys(ui, p, "agent-keys", false))
+        .child(
+            text(tr(
+                "for Agent mode: every hold starts a task that uses your Mac",
+            ))
+            .key("rest")
+            .font(p.k.ty.small)
+            .color(p.faint()),
         );
     let finish_ready = can_finish(ui, flow);
     let finish = Button::new(tr("Finish"))
@@ -923,7 +1107,11 @@ fn try_it(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         .on_press_tx(|ui: &mut Ui, tx: &mut Tx| setup::finish(ui, tx))
         .build_push(p.k)
         .key("finish");
-    let finish = if finish_ready { finish.default_button() } else { finish };
+    let finish = if finish_ready {
+        finish.default_button()
+    } else {
+        finish
+    };
     let blocked = (!finish_ready).then(|| {
         text(tr_fill(
             "Finish waits until {} answers and can use agent-desktop in Checks",
@@ -950,7 +1138,14 @@ fn try_it(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         tr("Try it"),
         hold,
         Some(card),
-        Some(col().key("notes").gap(10.0).items_center().child(agent_hint).children(blocked)),
+        Some(
+            col()
+                .key("notes")
+                .gap(10.0)
+                .items_center()
+                .child(agent_hint)
+                .children(blocked),
+        ),
         actions,
     )
 }

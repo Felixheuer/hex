@@ -1197,3 +1197,9 @@ fn keep_microphone_open_for(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
         layer,
     )
 }
+
+/// A lab switch flipped as its card does, for tests.
+#[cfg(test)]
+pub(super) fn flip_for_test(ui: &mut Ui, feature: Feature) {
+    flip(ui, Lab::Feature(feature));
+}

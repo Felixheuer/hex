@@ -39,7 +39,7 @@ impl Store {
                     .unwrap_or_default(),
             })
             .collect();
-        rows.sort_by(|a, b| b.updated_ms.cmp(&a.updated_ms));
+        rows.sort_by_key(|row| std::cmp::Reverse(row.updated_ms));
         rows
     }
 
@@ -111,7 +111,9 @@ pub(in crate::rune_ui) fn store(now: u64) -> Store {
         vec![message(
             Role::User,
             now - 2 * MINUTE,
-            vec![text("Reply to Maya's last email and say Thursday at 3 works for me")],
+            vec![text(
+                "Reply to Maya's last email and say Thursday at 3 works for me",
+            )],
         )],
     );
     let rename = conversation(
@@ -123,7 +125,9 @@ pub(in crate::rune_ui) fn store(now: u64) -> Store {
             message(
                 Role::User,
                 now - 28 * MINUTE,
-                vec![text("Rename the screenshots on my desktop by what they show")],
+                vec![text(
+                    "Rename the screenshots on my desktop by what they show",
+                )],
             ),
             message(
                 Role::Assistant,
@@ -135,7 +139,9 @@ pub(in crate::rune_ui) fn store(now: u64) -> Store {
                     action("Renamed “Screenshot 14.05” to “Settings sheet clipped”"),
                     action("Renamed “Screenshot 14.09” to “Build log passed”"),
                     action("Renamed “Screenshot 14.12” to “Release notes draft”"),
-                    text("Done. I renamed **4 screenshots** by what they show:\n\n- Deploy button grey\n- Settings sheet clipped\n- Build log passed\n- Release notes draft"),
+                    text(
+                        "Done. I renamed **4 screenshots** by what they show:\n\n- Deploy button grey\n- Settings sheet clipped\n- Build log passed\n- Release notes draft",
+                    ),
                 ],
             ),
         ],
@@ -149,12 +155,16 @@ pub(in crate::rune_ui) fn store(now: u64) -> Store {
             message(
                 Role::User,
                 now - 3 * 60 * MINUTE - MINUTE,
-                vec![text("What's a regex that matches ISO dates like 2026-11-12?")],
+                vec![text(
+                    "What's a regex that matches ISO dates like 2026-11-12?",
+                )],
             ),
             message(
                 Role::Assistant,
                 now - 3 * 60 * MINUTE,
-                vec![text("This matches a year, month, and day:\n\n```\n^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$\n```\n\nIt checks that the month is **01–12** and the day **01–31**; it doesn't know that February has 28 days.")],
+                vec![text(
+                    "This matches a year, month, and day:\n\n```\n^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$\n```\n\nIt checks that the month is **01–12** and the day **01–31**; it doesn't know that February has 28 days.",
+                )],
             ),
         ],
     );
@@ -177,7 +187,9 @@ pub(in crate::rune_ui) fn store(now: u64) -> Store {
             message(
                 Role::Assistant,
                 now - 26 * 60 * MINUTE,
-                vec![text("Xcode can't find the **Signing Certificate** for the team you chose. Open *Signing & Capabilities* and pick your personal team, or turn on *Automatically manage signing*.")],
+                vec![text(
+                    "Xcode can't find the **Signing Certificate** for the team you chose. Open *Signing & Capabilities* and pick your personal team, or turn on *Automatically manage signing*.",
+                )],
             ),
         ],
     );
@@ -285,7 +297,11 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
         Scene::Settings => {
             pane.view = super::View::Settings;
             pane.settings.found = Some(super::setup::fixture_found());
-            pane.settings.voices = Some(vec!["Ava (Premium)".into(), "Samantha".into(), "Zoe".into()]);
+            pane.settings.voices = Some(vec![
+                "Ava (Premium)".into(),
+                "Samantha".into(),
+                "Zoe".into(),
+            ]);
             ui.settings.assistant.voice = Some("Ava (Premium)".into());
         }
     }
