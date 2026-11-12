@@ -337,6 +337,11 @@ pub(super) const KEYS: &[Key] = &[
         "A Here task may use the real pointer and keys in the window in front (macOS)",
     ),
     key(
+        "assistant.background_front_window",
+        Kind::Bool,
+        "Background assistant tasks may also operate the window in front, like the ChatGPT app (macOS)",
+    ),
+    key(
         "assistant.background_browser",
         Kind::Bool,
         "Web work runs in agent-browser's own hidden browsers, one per task (macOS)",

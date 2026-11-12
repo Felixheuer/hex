@@ -30,6 +30,8 @@ pub struct Config {
     pub agent_display: Option<String>,
     /// `assistant.autonomy`: how freely it takes consequential actions.
     pub autonomy: crate::assistant::autonomy::Autonomy,
+    /// A Background task may claim the window in front of the person.
+    pub front_window: bool,
 }
 
 /// Where a snapshot's refs point.
@@ -207,9 +209,14 @@ impl<D: Desktop> Guard<D> {
                 "Hex guards these tools. This task runs in the background beside the person: it \
                  may read and act only in windows it holds, which are windows it opened with \
                  desktop_launch (and new windows its own actions open) and free windows it took \
-                 with desktop_claim_window. Never the window in front of the person. \
+                 with desktop_claim_window. {front} \
                  desktop_list_windows and desktop_list_apps see everything. Pass window_id when \
-                 an app has several windows. {input}"
+                 an app has several windows. {input}",
+                front = if self.config.front_window {
+                    "The person allowed it the window in front too: claim it by its window_id."
+                } else {
+                    "Never the window in front of the person."
+                }
             ),
         }
     }
@@ -615,7 +622,7 @@ impl<D: Desktop> Guard<D> {
         if self.blocked(&window.app) {
             return Err(self.blocked_refusal(tool, &window.app));
         }
-        if window.focused {
+        if window.focused && !self.config.front_window {
             return Err(refusal(
                 tool,
                 "NOT_YOUR_WINDOW",

@@ -96,6 +96,10 @@ pub struct WireSpec {
     /// `assistant.autonomy`: "ask", "smart" (the default), or "yolo".
     #[serde(default)]
     pub autonomy: crate::assistant::autonomy::Autonomy,
+    /// `assistant.background_front_window`: a Background task may claim
+    /// the window in front of the person too.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub front_window: bool,
 }
 
 /// Where the guard reads the windows on screen.
@@ -141,6 +145,7 @@ impl WireSpec {
             windows: WindowSource::default(),
             agent_display: None,
             autonomy: crate::assistant::autonomy::Autonomy::default(),
+            front_window: false,
         }
     }
 
@@ -182,6 +187,7 @@ fn server_for(spec: &TaskSpec, hex: &Path, desktop: &McpServer, state_dir: &Path
     wire.agent_display = crate::assistant::computer::agent_display_setting();
     if let Some((_, settings)) = crate::app_settings::assistant_runtime() {
         wire.autonomy = settings.autonomy;
+        wire.front_window = settings.background_front_window;
     }
     McpServer {
         command: hex.to_path_buf(),
@@ -253,6 +259,7 @@ fn config(wire: &WireSpec) -> proxy::Config {
         blocked_apps: wire.blocked_apps.clone(),
         agent_display: wire.agent_display.clone(),
         autonomy: wire.autonomy,
+        front_window: wire.front_window,
     }
 }
 

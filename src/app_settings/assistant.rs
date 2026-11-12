@@ -79,6 +79,9 @@ pub struct AssistantSettings {
     pub background_browser: bool,
     /// Apps no task may read or operate (by name or bundle id).
     pub blocked_apps: Vec<String>,
+    /// Background tasks may also operate the window in front of the
+    /// person, as the ChatGPT app's agent does; off keeps that window theirs.
+    pub background_front_window: bool,
     /// A task running longer than this many minutes is stopped; 0 never.
     pub task_timeout_minutes: u32,
     /// A task that hits its agent's usage limit waits and retries.
@@ -142,6 +145,7 @@ impl Default for AssistantSettings {
             ]
             .map(String::from)
             .to_vec(),
+            background_front_window: false,
             task_timeout_minutes: 30,
             retry_on_limit: true,
             agent_space: false,

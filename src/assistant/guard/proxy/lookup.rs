@@ -211,7 +211,11 @@ impl<D: Desktop> Guard<D> {
         if !held.iter().any(|lease| &lease.window_id == id) {
             return Err(self.not_held(tool, Some(id), &window.app));
         }
-        if kind.acts() && self.config.lane == Lane::Background && window.focused {
+        if kind.acts()
+            && self.config.lane == Lane::Background
+            && window.focused
+            && !self.config.front_window
+        {
             return Err(refusal(
                 tool,
                 "PERSON_IN_WINDOW",

@@ -136,6 +136,7 @@ fn with_one_display_or_in_the_here_lane_windows_stay_put() {
             blocked_apps: Vec::new(),
             agent_display: Some("Built-in Retina Display".into()),
             autonomy: Default::default(),
+            front_window: false,
         },
         scratch.store(),
         std::process::id(),

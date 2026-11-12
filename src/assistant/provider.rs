@@ -56,6 +56,9 @@ pub struct Desktop {
     pub agent_id: String,
     /// Real pointer and keyboard input (`--headed`) is allowed.
     pub headed: bool,
+    /// A Background task may also operate the window in front
+    /// (`assistant.background_front_window`; the guard enforces it).
+    pub front_window: bool,
 }
 
 impl Desktop {
@@ -75,6 +78,7 @@ impl Desktop {
             session: session.map(str::to_owned),
             agent_id: agent_id.to_owned(),
             headed: false,
+            front_window: false,
         }
     }
 
@@ -104,6 +108,7 @@ impl Desktop {
             session,
             agent_id,
             headed,
+            front_window: false,
         })
     }
 

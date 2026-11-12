@@ -127,6 +127,7 @@ fn a_here_task_holds_the_dialog_its_action_opens_but_nothing_of_other_apps() {
             blocked_apps: Vec::new(),
             agent_display: None,
             autonomy: Default::default(),
+            front_window: false,
         },
         scratch.store(),
         std::process::id(),

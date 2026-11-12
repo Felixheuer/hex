@@ -209,6 +209,7 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
     ];
     if assistant.control_desktop {
         desktop.push(lanes::here_input_row(ui, p));
+        desktop.push(lanes::front_window_row(ui, p));
         desktop.push(
             super::super::controls::pressable_row(
                 described_row(
