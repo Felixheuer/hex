@@ -524,7 +524,7 @@ pub fn job_rules(workspace: &std::path::Path, browser: bool) -> String {
         plan = workspace::PLAN,
         report = workspace::REPORT,
         parallel = if browser {
-            ", and several browser sessions when the browser tool offers named sessions"
+            ", and several browsers for research (sessions a, b, c, …, each opened once and closed when its batch is done; hex_browser_sessions lists them)"
         } else {
             ""
         },
@@ -700,7 +700,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
     });
     if browser {
         prompt.push_str(
-            "You have your own hidden browser (the browser tools): prefer it for anything on the web (looking things up, web apps, forms), over the person's browser windows.\n",
+            "You have your own hidden browsers (the browser tools): prefer them for anything on the web (looking things up, web apps, forms), over the person's browser windows. Every browser tool takes `session` (omit it, or \"main\", for the main browser; any other short name opens another, at most 8). Web apps that need the person's accounts (Gmail, Google Sheets, …) need `signedIn: true` on the call that opens them; a clean browser has no sign-ins. If a page shows a captcha or a Cloudflare challenge in a clean browser, retry it in a `signedIn: true` browser.\n",
         );
     }
     let Some(desktop) = desktop else {
