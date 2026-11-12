@@ -14,6 +14,7 @@ use super::super::super::controls::{
 use super::super::super::general::quiet_select;
 use super::super::super::list_detail as ld;
 use super::super::super::lists::small_button;
+use super::super::super::platform::Os;
 use super::super::{Ui, setup};
 use crate::desktop::i18n::{tr, tr_fill};
 
@@ -310,20 +311,45 @@ pub(in crate::rune_ui) fn task_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> V
 }
 
 /// Agent windows parked off-screen (experimental): macOS has no way for
-/// Hex to give them a Space of their own.
+/// Hex to give them a Space of their own, and Wayland lets no app move
+/// another's windows, so there the row says so instead of switching.
 pub(in crate::rune_ui) fn experimental_section(ui: &Ui, p: Paint) -> El {
-    let row = toggle_row(
-        p,
-        "assistant-agent-space",
-        tr("Park agent windows off-screen (experimental)"),
-        tr(
-            "Windows background tasks open move out of sight until you bring one forward from the task list. A Space of their own isn't possible on current macOS",
-        ),
-        ui.settings.assistant.agent_space,
-        |ui: &mut Ui| {
-            ui.update(|settings| settings.assistant.agent_space ^= true);
-        },
-    );
+    let title = tr("Park agent windows off-screen (experimental)");
+    let os = ui.platform.caps.os;
+    let row = if os == Os::Linux && ui.platform.wayland {
+        setting_row(
+            p,
+            "assistant-agent-space",
+            title,
+            Some(tr(
+                "Wayland doesn't let one app move another's windows, so background tasks' windows stay where they open",
+            )),
+            text(tr("Not on Wayland"))
+                .key("agent-space-unavailable")
+                .font(p.k.ty.small)
+                .color(p.muted()),
+        )
+    } else {
+        let detail = if os == Os::Macos {
+            tr(
+                "Windows background tasks open move out of sight until you bring one forward from the task list. A Space of their own isn't possible on current macOS",
+            )
+        } else {
+            tr(
+                "Windows background tasks open move out of sight until you bring one forward from the task list",
+            )
+        };
+        toggle_row(
+            p,
+            "assistant-agent-space",
+            title,
+            detail,
+            ui.settings.assistant.agent_space,
+            |ui: &mut Ui| {
+                ui.update(|settings| settings.assistant.agent_space ^= true);
+            },
+        )
+    };
     section(p, "assistant-experimental", tr("Experimental"), vec![row])
 }
 

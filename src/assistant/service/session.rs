@@ -176,8 +176,8 @@ pub(super) mod desktop_session {
     }
 
     /// Brings the window `task` holds (its lease, else the last window it
-    /// named) forward: the person asked to take it over, so this one
-    /// physical change is theirs.
+    /// named) forward, with any it parked back in place: the person asked
+    /// to take it over, so this one physical change is theirs.
     pub(in crate::assistant::service) fn bring_forward(task: &str, windows: &[TaskWindow]) {
         let leased: Vec<TaskWindow> = crate::assistant::guard::leases()
             .into_iter()
@@ -190,10 +190,13 @@ pub(super) mod desktop_session {
             .find(|window| window.window_id.is_some())
             .or_else(|| leased.first().or(windows.last()))
             .cloned();
-        let Some(window) = window else {
-            return;
-        };
+        let task = task.to_owned();
         std::thread::spawn(move || {
+            // Windows moved out of the way (`agent_space`) come back first.
+            crate::assistant::space::show_task(&task, true);
+            let Some(window) = window else {
+                return;
+            };
             let reply = match &window.window_id {
                 Some(id) => agent_desktop(&["focus-window", "--window-id", id]),
                 None => agent_desktop(&["focus-window", "--app", &window.app]),

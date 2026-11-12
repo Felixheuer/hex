@@ -15,52 +15,92 @@
 //! top-left corner sits in a bottom corner of a screen, leaving a pixel or
 //! two on screen. It stays on the person's Space, in its app, and in
 //! Accessibility's tree, so agent-desktop reads and operates it as before;
-//! it still shows in Mission Control and the app switcher. [`show`] moves
+//! it still shows in Mission Control and the app switcher. [`show_now`] moves
 //! it back where it was and brings it to the front. Whether this holds on a
 //! given Mac is what `hex dev assistant-space-probe` checks, run only when
 //! the person asks.
+//!
+//! The same works on Windows (UI Automation reads a window wherever it is;
+//! [`sliver`] keeps part of it past the invisible resize border) and on
+//! Linux under X11. Wayland lets no app move another's windows, so there
+//! [`available`] says no and the switch says why ([`unsupported_here`]).
+//! Coordinates are agent-desktop's own (`list-displays` and `move-window`
+//! share them on every OS).
+//!
+//! The service parks a Background task's windows once it opened or claimed
+//! them ([`park_held`], from the guard's leases), and brings them back when
+//! the person takes the task over or brings it forward from the task stack,
+//! and when it ends ([`show_task`]).
 //!
 //! OWNER: browser (with the Space spike).
 
 #[cfg(all(debug_assertions, target_os = "macos"))]
 pub mod probe;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde_json::Value;
 
 use crate::assistant::TaskWindow;
+use crate::assistant::backends::os::Os;
 use crate::assistant::backends::{self, desktop, search};
 
 /// Where parked windows were, by window id, to put them back.
 static PARKED: Mutex<Option<HashMap<String, (f64, f64)>>> = Mutex::new(None);
 
-/// Whether moving task windows out of the way is on and can work here
-/// (`agent_space` and the assistant are on, and agent-desktop is installed).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the agent_space setting is not wired to tasks yet"
+/// Each task's parked windows, and those the person brought forward (not
+/// parked again).
+static TASKS: Mutex<Option<HashMap<String, TaskSpace>>> = Mutex::new(None);
+
+#[derive(Default)]
+struct TaskSpace {
+    parked: Vec<TaskWindow>,
+    kept: HashSet<String>,
+    /// A look at its leases is under way.
+    parking: bool,
+}
+
+fn tasks() -> std::sync::MutexGuard<'static, Option<HashMap<String, TaskSpace>>> {
+    TASKS.lock().unwrap_or_else(|error| error.into_inner())
+}
+
+/// Whether agent-desktop can move other apps' windows on `os`: everywhere
+/// but a Wayland session, where only the compositor places windows.
+pub fn moves_windows(os: Os, wayland: bool) -> bool {
+    !(os == Os::Linux && wayland)
+}
+
+/// Why task windows can't be moved out of the way here, if they can't.
+pub fn unsupported_here() -> Option<&'static str> {
+    (!moves_windows(Os::HERE, wayland())).then_some(
+        "Wayland doesn't let one app move another's windows, so they stay where they open",
     )
-)]
+}
+
+fn wayland() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        crate::linux::session::LinuxSession::detect().is_wayland()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
+/// Whether moving task windows out of the way is on and can work here
+/// (`agent_space` and the assistant are on, agent-desktop is installed,
+/// and this session lets it move windows).
 pub fn available() -> bool {
     let on = crate::app_settings::assistant_runtime()
         .is_some_and(|(lab, settings)| lab && settings.agent_space);
-    on && search::find("agent-desktop").is_some()
+    on && unsupported_here().is_none() && search::find("agent-desktop").is_some()
 }
 
 /// Moves `window` out of the person's way; false when it couldn't (or
 /// `agent_space` is off).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the agent_space setting is not wired to tasks yet"
-    )
-)]
 pub fn park(window: &TaskWindow) -> bool {
     available()
         && park_now(window)
@@ -68,20 +108,97 @@ pub fn park(window: &TaskWindow) -> bool {
             .is_ok()
 }
 
-/// Brings `window` back where it was and to the front; false when it
-/// couldn't (or `agent_space` is off).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the agent_space setting is not wired to tasks yet"
-    )
-)]
-pub fn show(window: &TaskWindow) -> bool {
-    available()
-        && show_now(window)
-            .inspect_err(|error| tracing::warn!(error, app = window.app, "couldn't show a window"))
-            .is_ok()
+/// Parks the windows Background task `task` holds (it opened or claimed
+/// them; the guard's leases say which) that aren't parked yet and that the
+/// person didn't bring forward. Returns at once; the moves happen on a
+/// thread of their own, one look per task at a time.
+pub fn park_held(task: &str) {
+    if !available() {
+        return;
+    }
+    {
+        let mut tasks = tasks();
+        let space = tasks
+            .get_or_insert_with(HashMap::new)
+            .entry(task.to_owned())
+            .or_default();
+        if space.parking {
+            return;
+        }
+        space.parking = true;
+    }
+    let task = task.to_owned();
+    let spawned = std::thread::Builder::new()
+        .name("hex-assistant-space".into())
+        .spawn({
+            let task = task.clone();
+            move || park_leases(&task)
+        });
+    if spawned.is_err() {
+        finish_parking(&task, Vec::new());
+    }
+}
+
+fn park_leases(task: &str) {
+    let held: Vec<TaskWindow> = crate::assistant::guard::leases()
+        .into_iter()
+        .filter(|lease| lease.task == task)
+        .map(|lease| lease.window)
+        .collect();
+    let to_park: Vec<TaskWindow> = {
+        let tasks = tasks();
+        let space = tasks.as_ref().and_then(|tasks| tasks.get(task));
+        held.into_iter()
+            .filter(|window| {
+                let id = window.window_id.as_deref().unwrap_or_default();
+                space.is_none_or(|space| !space.kept.contains(id) && !space.parked.contains(window))
+            })
+            .collect()
+    };
+    let parked = to_park.into_iter().filter(park).collect();
+    finish_parking(task, parked);
+}
+
+fn finish_parking(task: &str, parked: Vec<TaskWindow>) {
+    let mut tasks = tasks();
+    if let Some(space) = tasks.get_or_insert_with(HashMap::new).get_mut(task) {
+        space.parking = false;
+        space.parked.extend(parked);
+    }
+}
+
+/// Brings back every window `task` parked. `kept`: the person took the task
+/// over or brought it forward, so they stay out while it runs; else the
+/// task ended and Hex forgets it. Blocks while it moves them (off the UI
+/// thread).
+pub fn show_task(task: &str, kept: bool) {
+    let parked = {
+        let mut tasks = tasks();
+        let all = tasks.get_or_insert_with(HashMap::new);
+        if kept {
+            all.get_mut(task).map_or_else(Vec::new, |space| {
+                let parked = std::mem::take(&mut space.parked);
+                space
+                    .kept
+                    .extend(parked.iter().filter_map(|window| window.window_id.clone()));
+                parked
+            })
+        } else {
+            all.remove(task)
+                .map(|space| space.parked)
+                .unwrap_or_default()
+        }
+    };
+    for window in parked {
+        // Shown even if the setting went off meanwhile: it was moved away.
+        if let Err(error) = show_now(&window) {
+            tracing::warn!(
+                error,
+                app = window.app,
+                "couldn't bring a parked window back"
+            );
+        }
+    }
 }
 
 /// A window as it was parked.
@@ -107,8 +224,8 @@ pub fn park_now(window: &TaskWindow) -> Result<Parked, String> {
     let setting = crate::assistant::computer::agent_display_setting();
     let preferred = crate::assistant::computer::agents_display(&agents, setting.as_deref())
         .map(|display| display.id.clone());
-    let to =
-        parking_spot(&displays, preferred.as_deref()).ok_or("agent-desktop listed no displays")?;
+    let to = parking_spot(Os::HERE, &displays, preferred.as_deref())
+        .ok_or("agent-desktop listed no displays")?;
     move_window(&tool, &window.app, id, to)?;
     PARKED
         .lock()
@@ -233,13 +350,21 @@ pub fn displays(data: &Value) -> Vec<Display> {
         .collect()
 }
 
-/// Where a parked window's top-left corner goes: one point inside the
+/// How much of a parked window stays on screen on `os`: a point on macOS
+/// and Linux; on Windows a window's frame includes an invisible resize
+/// border of about 8 pixels, so a sliver of 16 keeps some of it showing.
+pub fn sliver(os: Os) -> f64 {
+    if os == Os::Windows { 16.0 } else { 1.0 }
+}
+
+/// Where a parked window's top-left corner goes: its [`sliver`] inside the
 /// bottom-right corner of a display with no other display to its right or
 /// below (else its bottom-left, then the main display's bottom-right), so
 /// the window hangs off every screen but a sliver. The agents' display
 /// (`preferred`, an id) is tried first, then the main one, so a parked
 /// window's sliver stays off the person's working display when it can.
-pub fn parking_spot(displays: &[Display], preferred: Option<&str>) -> Option<(f64, f64)> {
+pub fn parking_spot(os: Os, displays: &[Display], preferred: Option<&str>) -> Option<(f64, f64)> {
+    let inset = sliver(os);
     let free = |point: (f64, f64)| !displays.iter().any(|display| display.contains(point));
     let mut ordered: Vec<&Display> = displays.iter().collect();
     ordered.sort_by_key(|display| {
@@ -254,7 +379,7 @@ pub fn parking_spot(displays: &[Display], preferred: Option<&str>) -> Option<(f6
             && free((right - 1.0, bottom + 1.0))
             && free((right + 1.0, bottom + 1.0))
         {
-            return Some((right - 1.0, bottom - 1.0));
+            return Some((right - inset, bottom - inset));
         }
     }
     for display in &ordered {
@@ -263,11 +388,11 @@ pub fn parking_spot(displays: &[Display], preferred: Option<&str>) -> Option<(f6
             && free((left + 1.0, bottom + 1.0))
             && free((left - 1.0, bottom + 1.0))
         {
-            return Some((left - 1.0, bottom - 1.0));
+            return Some((left - inset, bottom - inset));
         }
     }
     let main = ordered.first()?;
-    Some((main.x + main.width - 1.0, main.y + main.height - 1.0))
+    Some((main.x + main.width - inset, main.y + main.height - inset))
 }
 
 #[cfg(test)]
@@ -311,21 +436,27 @@ mod tests {
         let laptop = display(0.0, 0.0, 1800.0, 1169.0, true);
         let above = display(-604.0, -1440.0, 2560.0, 1440.0, false);
         let pair = [laptop.clone(), above.clone()];
-        assert_eq!(parking_spot(&pair, None), Some((1799.0, 1168.0)));
+        assert_eq!(parking_spot(Os::Mac, &pair, None), Some((1799.0, 1168.0)));
         // With the display above as the agents' display, its own free
         // corner: its bottom-right hangs past the laptop's right edge.
-        assert_eq!(parking_spot(&pair, Some("5")), Some((1955.0, -1.0)));
+        assert_eq!(
+            parking_spot(Os::Mac, &pair, Some("5")),
+            Some((1955.0, -1.0))
+        );
         // A taller display to the right of the main one: park on that one.
         let main = display(0.0, 0.0, 1800.0, 1200.0, true);
         let right = display(1800.0, 0.0, 1920.0, 1300.0, false);
         assert_eq!(
-            parking_spot(&[main.clone(), right], None),
+            parking_spot(Os::Mac, &[main.clone(), right], None),
             Some((3719.0, 1299.0))
         );
         // A shorter one: the main display's corner hangs below it.
         let short = display(1800.0, 0.0, 1920.0, 1080.0, false);
-        assert_eq!(parking_spot(&[main, short], None), Some((1799.0, 1199.0)));
-        assert_eq!(parking_spot(&[], None), None);
+        assert_eq!(
+            parking_spot(Os::Mac, &[main, short], None),
+            Some((1799.0, 1199.0))
+        );
+        assert_eq!(parking_spot(Os::Mac, &[], None), None);
     }
 
     #[test]
@@ -342,17 +473,36 @@ mod tests {
         let all = [main, left, right, above];
         // The main display's bottom-right touches the right display, so the
         // next display with a free corner (the left one, listed first).
-        let spot = parking_spot(&all, None).unwrap();
+        let spot = parking_spot(Os::Mac, &all, None).unwrap();
         assert_eq!(spot, (-1.0, 1079.0));
         assert!(
             all.iter()
                 .all(|display| { !display.contains((spot.0 + 2.0, spot.1 + 2.0)) })
         );
         // The agents' display (right) parks at its own corner.
-        assert_eq!(parking_spot(&all, Some("3")), Some((2719.0, 1023.0)));
+        assert_eq!(
+            parking_spot(Os::Mac, &all, Some("3")),
+            Some((2719.0, 1023.0))
+        );
         // The display above has no free corner of its own (main and the
         // side displays touch its bottom edge): the next free one.
-        assert_eq!(parking_spot(&all, Some("4")), Some((-1.0, 1079.0)));
+        assert_eq!(parking_spot(Os::Mac, &all, Some("4")), Some((-1.0, 1079.0)));
+    }
+
+    #[test]
+    fn windows_parks_past_its_invisible_border_and_wayland_not_at_all() {
+        let main = display(0.0, 0.0, 1920.0, 1080.0, true);
+        assert_eq!(
+            parking_spot(Os::Windows, std::slice::from_ref(&main), None),
+            Some((1904.0, 1064.0))
+        );
+        assert_eq!(
+            parking_spot(Os::Linux, &[main], None),
+            Some((1919.0, 1079.0))
+        );
+        assert!(moves_windows(Os::Mac, false) && moves_windows(Os::Windows, false));
+        assert!(moves_windows(Os::Linux, false));
+        assert!(!moves_windows(Os::Linux, true));
     }
 
     #[test]
@@ -367,6 +517,12 @@ mod tests {
         };
         assert!(!available());
         assert!(!park(&window));
-        assert!(!show(&window));
+        park_held("c1");
+        assert!(
+            tasks()
+                .as_ref()
+                .is_none_or(|tasks| !tasks.contains_key("c1"))
+        );
+        show_task("c1", false);
     }
 }
