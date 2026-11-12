@@ -2,7 +2,7 @@
 //! `<support>/assistant/schedules.json`, readable only by this user, and
 //! started by the task runner's scheduler (`service`) as Background jobs.
 //! A schedule says when as a cron line (`0 8 * * 1-5`) or an iCalendar
-//! RRULE (`FREQ=WEEKLY;BYDAY=MO;BYHOUR=9`), in this Mac's local time.
+//! RRULE (`FREQ=WEEKLY;BYDAY=MO;BYHOUR=9`), in this computer's local time.
 //!
 //! Runs missed while the Mac slept or Hex was closed run once when Hex next
 //! looks, never once per missed time. Tasks add, list, and remove schedules
@@ -429,8 +429,68 @@ pub struct Local {
     pub weekday: u32,
 }
 
-/// `ms` in this Mac's time zone.
+/// How far this computer's time zone is ahead of UTC at `ms`, in seconds
+/// (with daylight saving as it was then); `None` when it can't be read.
+pub fn local_offset_seconds(ms: u64) -> Option<i64> {
+    #[cfg(unix)]
+    {
+        let seconds = (ms / 1000) as libc::time_t;
+        // SAFETY: a zeroed `tm` is valid; `localtime_r` writes only into it.
+        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+        // SAFETY: both pointers are valid for the call.
+        if unsafe { libc::localtime_r(&seconds, &mut tm) }.is_null() {
+            return None;
+        }
+        Some(tm.tm_gmtoff)
+    }
+    #[cfg(windows)]
+    {
+        windows_offset_seconds(ms)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = ms;
+        None
+    }
+}
+
+/// Windows' offset: the UTC time converted by the person's time zone.
+#[cfg(windows)]
+fn windows_offset_seconds(ms: u64) -> Option<i64> {
+    use windows_sys::Win32::Foundation::{FILETIME, SYSTEMTIME};
+    use windows_sys::Win32::System::Time::{
+        FileTimeToSystemTime, SystemTimeToFileTime, SystemTimeToTzSpecificLocalTime,
+    };
+    // 100-nanosecond ticks since 1601.
+    let ticks = (ms + 11_644_473_600_000) * 10_000;
+    let utc_file = FILETIME {
+        dwLowDateTime: ticks as u32,
+        dwHighDateTime: (ticks >> 32) as u32,
+    };
+    // SAFETY: plain data; zero is a valid value of each.
+    let (mut utc, mut local, mut local_file): (SYSTEMTIME, SYSTEMTIME, FILETIME) =
+        unsafe { (std::mem::zeroed(), std::mem::zeroed(), std::mem::zeroed()) };
+    // SAFETY: every pointer is valid for its call; a null zone is the
+    // person's current one.
+    let converted = unsafe {
+        FileTimeToSystemTime(&utc_file, &mut utc) != 0
+            && SystemTimeToTzSpecificLocalTime(std::ptr::null(), &utc, &mut local) != 0
+            && SystemTimeToFileTime(&local, &mut local_file) != 0
+    };
+    if !converted {
+        return None;
+    }
+    let local_ticks =
+        (u64::from(local_file.dwHighDateTime) << 32) | u64::from(local_file.dwLowDateTime);
+    Some((local_ticks as i64 - ticks as i64) / 10_000_000)
+}
+
+/// `ms` in this computer's time zone.
 pub fn local(ms: u64) -> Local {
+    #[cfg(windows)]
+    if let Some(offset) = local_offset_seconds(ms) {
+        return utc(ms.saturating_add_signed(offset * 1000));
+    }
     #[cfg(unix)]
     {
         let seconds = (ms / 1000) as libc::time_t;

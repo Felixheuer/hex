@@ -37,6 +37,7 @@ use color_eyre::{Result, eyre::eyre};
 
 use crate::app_settings::AssistantBackend;
 use crate::assistant::backends::McpServer;
+use crate::assistant::backends::tree::Tree;
 use crate::assistant::types::{Message, TaskWindow};
 
 /// The desktop tool a task may use, and who it is there.
@@ -294,7 +295,7 @@ pub struct Control {
     steered: AtomicBool,
     /// Stopped by Hex for this reason (it ran too long): a failure.
     failure: Mutex<Option<String>>,
-    groups: Mutex<Vec<u32>>,
+    groups: Mutex<Vec<Arc<Tree>>>,
 }
 
 impl Control {
@@ -344,13 +345,13 @@ impl Control {
             .clone()
     }
 
-    fn track(&self, pid: u32) {
+    fn track(&self, tree: Arc<Tree>) {
         self.groups
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .push(pid);
+            .push(Arc::clone(&tree));
         if self.cancelled() {
-            end_group(pid);
+            end_group(tree);
         }
     }
 
@@ -358,7 +359,7 @@ impl Control {
         self.groups
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .retain(|group| *group != pid);
+            .retain(|group| group.pid() != pid);
     }
 }
 
@@ -409,15 +410,16 @@ pub fn session_key(backend: AssistantBackend) -> &'static str {
 pub fn executable(backend: AssistantBackend) -> Result<PathBuf> {
     crate::assistant::backends::executable(backend).ok_or_else(|| {
         eyre!(
-            "{} isn't installed on this Mac, or Hex can't find it. Install it, or choose another agent in Chats › Settings.",
+            "{} isn't installed on this computer, or Hex can't find it. Install it, or choose another agent in Chats › Settings.",
             name(backend)
         )
     })
 }
 
-/// agent-desktop's executable, if installed.
+/// agent-desktop's executable, if installed (as found: on Windows npm's
+/// `.cmd`, which `backends::agent_command` knows how to start).
 pub fn agent_desktop() -> Option<PathBuf> {
-    crate::assistant::backends::mcp_server(&[]).map(|server| server.command)
+    crate::assistant::backends::search::find("agent-desktop")
 }
 
 /// A command for `executable` in `workdir`, with the environment Hex gives
@@ -445,6 +447,8 @@ pub enum Stdin {
 /// end kept for errors.
 pub struct Process {
     child: Child,
+    /// It and the processes it started (its MCP servers).
+    tree: Arc<Tree>,
     stdin: Option<std::process::ChildStdin>,
     stdout: Option<BufReader<std::process::ChildStdout>>,
     stderr: Arc<Mutex<VecDeque<String>>>,
@@ -457,11 +461,7 @@ impl Process {
         if control.cancelled() {
             return Err(eyre!("cancelled"));
         }
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            command.process_group(0);
-        }
+        crate::assistant::backends::tree::own_group(&mut command);
         command
             .stdin(if matches!(stdin, Stdin::Null) {
                 Stdio::null()
@@ -474,7 +474,8 @@ impl Process {
         let mut child = command
             .spawn()
             .map_err(|error| eyre!("couldn't start {}: {error}", show(&program)))?;
-        control.track(child.id());
+        let tree = Arc::new(Tree::of(&child));
+        control.track(Arc::clone(&tree));
         let mut kept = None;
         match (stdin, child.stdin.take()) {
             (Stdin::Write(data), Some(mut pipe)) => {
@@ -501,11 +502,17 @@ impl Process {
         let stdout = child.stdout.take().map(BufReader::new);
         Ok(Self {
             child,
+            tree,
             stdin: kept,
             stdout,
             stderr,
             stderr_thread,
         })
+    }
+
+    /// It and the processes it started, to end together.
+    pub fn tree(&self) -> Arc<Tree> {
+        Arc::clone(&self.tree)
     }
 
     /// The input pipe of a process started with `Stdin::Keep`.
@@ -577,27 +584,14 @@ fn show(program: &OsString) -> String {
         .unwrap_or_else(|| program.to_string_lossy().into_owned())
 }
 
-/// Sends SIGTERM to process group `group`, then SIGKILL a moment later.
-fn end_group(group: u32) {
-    #[cfg(unix)]
-    {
-        let Ok(group) = i32::try_from(group) else {
-            return;
-        };
-        // SAFETY: kill only sends a signal to the group the task started.
-        unsafe {
-            libc::kill(-group, libc::SIGTERM);
-        }
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(1500));
-            // SAFETY: as above; a group that already ended makes this a no-op.
-            unsafe {
-                libc::kill(-group, libc::SIGKILL);
-            }
-        });
-    }
-    #[cfg(not(unix))]
-    let _ = group;
+/// Asks `tree` to end (SIGTERM), then kills it a moment later.
+fn end_group(tree: Arc<Tree>) {
+    tree.stop();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(1500));
+        // A tree that already ended makes this a no-op.
+        tree.kill();
+    });
 }
 
 /// Standard base64 of `data`, for images sent inline.

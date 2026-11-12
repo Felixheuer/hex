@@ -1,9 +1,11 @@
 //! The onboarding's permissions page: what the assistant needs to see and
-//! use the Mac. Screen Recording for Hex, the Microphone and Accessibility
-//! only when the voice setup didn't already grant them (one ask for both),
-//! then agent-desktop, installed with one click, and its own grants. A
-//! grant macOS applies only after a restart gets one button that relaunches
-//! Hex and reopens this page.
+//! use the computer. On macOS Screen Recording for Hex, the Microphone and
+//! Accessibility only when the voice setup didn't already grant them (one
+//! ask for both), then agent-desktop, installed with one click, and its own
+//! grants; a grant macOS applies only after a restart gets one button that
+//! relaunches Hex and reopens this page. On Linux the grants are the
+//! accessibility bus (AT-SPI) and the screenshot portal. Windows asks for
+//! none, so there the page only installs agent-desktop.
 
 use rune::{Align, El, Tx, col, row, text};
 use rune_kit::glyphs;
@@ -11,6 +13,7 @@ use rune_kit::glyphs;
 use super::super::super::controls::Paint;
 use super::super::super::lists::small_button;
 use super::super::super::onboarding_kit::arrives;
+use super::super::super::platform::Os;
 use super::super::Ui;
 use super::super::setup::{
     self, Grant, Page, SetupFlow, State, grant_state, needs_restart, page_done,
@@ -54,11 +57,17 @@ fn grant_control(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, primary: boo
 }
 
 pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, primary: bool) -> El {
+    let linux = ui.platform.caps.os == Os::Linux;
     let (glyph, title, detail) = match grant {
         Grant::Microphone => (
             &glyphs::MIC,
             tr("Microphone"),
             tr("Hears your question while you hold the shortcut"),
+        ),
+        Grant::Accessibility if linux => (
+            &glyphs::CURSOR_TEXT,
+            tr("Accessibility bus (AT-SPI)"),
+            tr("Reads the text you selected and the window in front"),
         ),
         Grant::Accessibility => (
             &glyphs::CURSOR_TEXT,
@@ -67,12 +76,20 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
         ),
         Grant::ScreenRecording => (
             SCREEN,
-            tr("Screen Recording"),
+            if linux {
+                tr("Screenshot portal")
+            } else {
+                tr("Screen Recording")
+            },
             tr("Sends the screen you ask about with your question"),
         ),
         Grant::DesktopAccessibility => (
             &glyphs::CURSOR_TEXT,
-            tr("Accessibility"),
+            if linux {
+                tr("Accessibility bus (AT-SPI)")
+            } else {
+                tr("Accessibility")
+            },
             tr("Lets agent-desktop click, type, and read apps"),
         ),
         Grant::DesktopScreenRecording => (
@@ -83,6 +100,7 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
     };
     let state = grant_state(ui, flow, grant);
     let detail = match state {
+        State::Waiting | State::Failed if linux => linux_hint(grant),
         State::Waiting if needs_restart(ui, grant) => {
             tr("macOS turns it on when Hex restarts. Hex reopens right here")
         }
@@ -100,8 +118,42 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
     )
 }
 
+/// The page's title and lead on `os`.
+pub(in crate::rune_ui) fn copy(os: Os) -> (&'static str, &'static str) {
+    match os {
+        Os::Macos => (
+            tr("Let the assistant see and use your Mac"),
+            tr(
+                "Each one opens its page in System Settings, and this page waits until macOS turns it on. Hex starts agent-desktop, so macOS asks for Hex.",
+            ),
+        ),
+        Os::Windows => (
+            tr("Let the assistant see and use your computer"),
+            tr(
+                "Windows asks for no permissions. Hex starts agent-desktop, which operates apps through UI Automation.",
+            ),
+        ),
+        Os::Linux => (
+            tr("Let the assistant see and use your computer"),
+            tr(
+                "Hex and agent-desktop read apps through the accessibility bus, and Hex asks the screenshot portal for screenshots. This page waits until they answer.",
+            ),
+        ),
+    }
+}
+
+/// What turns a Linux grant on: nothing to switch, only a service to have.
+fn linux_hint(grant: Grant) -> &'static str {
+    match grant {
+        Grant::ScreenRecording | Grant::DesktopScreenRecording => {
+            tr("Install xdg-desktop-portal for your desktop, then check again")
+        }
+        _ => tr("Install at-spi2-core, or log out and back in, then check again"),
+    }
+}
+
 /// An install that failed: the end of what it printed, and its command to
-/// run in Terminal instead.
+/// run in a terminal instead.
 pub(in crate::rune_ui) fn install_failure(p: Paint, error: &str, command: Option<&str>) -> El {
     let tail: Vec<&str> = error.lines().rev().take(4).collect();
     let tail = tail.into_iter().rev().collect::<Vec<_>>().join("\n");
@@ -146,22 +198,26 @@ pub(in crate::rune_ui) fn install_failure(p: Paint, error: &str, command: Option
         }))
 }
 
-/// Screen Recording (and any voice grant still missing), then agent-desktop
-/// and its grants.
+/// This OS's grants for Hex (on macOS Screen Recording and any voice grant
+/// still missing), then agent-desktop and its grants.
 pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
-    // The voice setup asked for the Microphone and Accessibility already;
-    // they show again only while missing.
-    let hex: Vec<Grant> = Grant::HEX
-        .into_iter()
+    let os = ui.platform.caps.os;
+    // On macOS the voice setup asked for the Microphone and Accessibility
+    // already; they show again only while missing.
+    let hex: Vec<Grant> = Grant::hex(os)
+        .iter()
+        .copied()
         .filter(|grant| {
-            *grant == Grant::ScreenRecording || grant_state(ui, flow, *grant) != State::Passed
+            os != Os::Macos
+                || *grant == Grant::ScreenRecording
+                || grant_state(ui, flow, *grant) != State::Passed
         })
         .collect();
     let found = flow.desktop.as_ref();
     let installed = found.is_some_and(|found| found.path.is_some());
     let mut grants: Vec<Grant> = hex.clone();
     if installed {
-        grants.extend(Grant::DESKTOP);
+        grants.extend(Grant::desktop(os));
     }
     let first_missing = grants
         .iter()
@@ -185,7 +241,14 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             done_pill(p, "installed", tr("Installed")),
         ),
         Some(_) => (
-            tr("Operates apps through Accessibility, without your pointer").to_owned(),
+            match os {
+                Os::Macos => tr("Operates apps through Accessibility, without your pointer"),
+                Os::Windows => tr("Operates apps through UI Automation, without your pointer"),
+                Os::Linux => {
+                    tr("Operates apps through the accessibility bus, without your pointer")
+                }
+            }
+            .to_owned(),
             push(p, "install", tr("Install"), true, |ui: &mut Ui| {
                 setup::apply(ui, Fix::InstallAgentDesktop)
             }),
@@ -202,7 +265,7 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     ));
     if installed {
         rows.extend(
-            Grant::DESKTOP
+            Grant::desktop(os)
                 .iter()
                 .map(|grant| grant_row(ui, flow, p, *grant, Some(*grant) == first_missing)),
         );
@@ -232,18 +295,36 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                 .children(failure),
         ),
     };
+    let (title, copy) = copy(os);
     page(
         p,
         "desktop",
-        tr("Let the assistant see and use your Mac"),
-        lead(
-            p,
-            tr(
-                "Each one opens its page in System Settings, and this page waits until macOS turns it on. Hex starts agent-desktop, so macOS asks for Hex.",
-            ),
-        ),
+        title,
+        lead(p, copy),
         Some(rows_card(p, "desktop-card", rows)),
         below,
         actions(p, page_done(ui, flow, Page::Desktop), true),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_page_names_the_computer_and_its_own_permissions_off_macos() {
+        for os in [Os::Windows, Os::Linux] {
+            let (title, lead) = copy(os);
+            for words in [title, lead] {
+                for mac in ["Mac", "System Settings"] {
+                    assert!(!words.contains(mac), "{words:?} on {os:?}");
+                }
+            }
+        }
+        assert!(copy(Os::Windows).1.contains("no permissions"));
+        assert!(copy(Os::Linux).1.contains("accessibility bus"));
+        assert_eq!(copy(Os::Macos).0, "Let the assistant see and use your Mac");
+        assert!(linux_hint(Grant::ScreenRecording).contains("xdg-desktop-portal"));
+        assert!(linux_hint(Grant::DesktopAccessibility).contains("at-spi2-core"));
+    }
 }

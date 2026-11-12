@@ -16,6 +16,9 @@
 //!   is queued, running, waiting, or paused (`Event::ModeChanged`).
 //! - **Take over.** `take_over` pauses a task's desktop actions through the
 //!   guard and brings its window forward; `hand_back` resumes it.
+//! - **Out of the way** (`agent_space`). A Background task's windows move
+//!   aside as it opens or claims them (`space::park_held`), and come back
+//!   when it's taken over or ends.
 //! - **Durability.** A conversation is `Running` on disk while it runs; one
 //!   left so by a Hex that quit reads `Interrupted`, and `resume_interrupted`
 //!   continues it. A task stops after `task_timeout_minutes`; one that hits
@@ -336,6 +339,9 @@ pub(crate) struct Hooks {
     pub hands_off: Hook<Option<ConversationId>>,
     /// Brings a task's window forward (taken over).
     pub bring_forward: Box<BringForward>,
+    /// A Background task used a window: the windows it holds move out of
+    /// the person's way (`agent_space`, `space::park_held`).
+    pub park: TaskHook,
     /// Records how a conversation's request ended when its run didn't.
     pub settle: Box<Settle>,
     /// The latest stored conversations, newest first.
@@ -379,6 +385,9 @@ impl Hooks {
             sleep: Box::new(std::thread::sleep),
             pause: Box::new(super::guard::set_paused),
             release: Box::new(|task| {
+                // Its parked windows come back before its leases go.
+                let parked = task.to_owned();
+                std::thread::spawn(move || super::space::show_task(&parked, false));
                 super::guard::release_all(task);
                 // Closing the browser takes a moment; the task has ended.
                 let task = task.to_owned();
@@ -386,6 +395,7 @@ impl Hooks {
             }),
             hands_off: Box::new(super::guard::hands_off),
             bring_forward: Box::new(session::desktop_session::bring_forward),
+            park: Box::new(super::space::park_held),
             settle: Box::new(|id, outcome, message| {
                 if let Ok(store) = Store::open() {
                     store.settle(id, outcome, Some(message));
@@ -637,6 +647,14 @@ impl Runner {
                 }
             }
             _ => {}
+        }
+        if let Event::Step { conversation, .. } | Event::Window { conversation, .. } = event {
+            let background = running_task(&mut self.state(), conversation).is_some_and(|task| {
+                task.lane() == Lane::Background && task.status.state != TaskState::Paused
+            });
+            if background {
+                (self.hooks.park)(conversation);
+            }
         }
         let subscribers = self
             .subscribers

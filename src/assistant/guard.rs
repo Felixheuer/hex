@@ -168,7 +168,10 @@ impl WireSpec {
 /// found them, so the guard agrees with Hex even when an agent starts its
 /// MCP servers with an environment of its own.
 pub fn mcp_server(spec: &TaskSpec) -> Option<McpServer> {
-    let desktop = crate::assistant::backends::mcp_server(&[])?;
+    let mut desktop = crate::assistant::backends::mcp_server(&[])?;
+    // The guard starts agent-desktop itself, from the path as found (on
+    // Windows `launch` reads npm's shim there).
+    desktop.command = crate::assistant::backends::search::find("agent-desktop")?;
     let hex = std::env::current_exe().ok()?;
     let store = state::Store::standard()?;
     Some(server_for(spec, &hex, &desktop, store.root()))

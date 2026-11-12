@@ -1,6 +1,8 @@
 //! `hex dev assistant-doctor` (debug builds): prints what the setup sheet
-//! would find and runs its self-tests, from this process. Run from a
-//! terminal, macOS judges that terminal's permissions, not Hex.app's.
+//! would find and runs its self-tests, from this process, with the checks
+//! this OS has (`Check::for_backend_on`). Run from a terminal, macOS judges
+//! that terminal's permissions, not Hex.app's; Windows and Linux ask for
+//! none, so there it reports what Hex itself would see.
 
 use std::path::PathBuf;
 
@@ -22,6 +24,8 @@ pub struct Doctor {
 }
 
 pub fn run(doctor: Doctor) -> color_eyre::Result<()> {
+    let os = super::os::Os::HERE;
+    println!("os: {os:?}");
     let started = std::time::Instant::now();
     let found = super::detect();
     println!("detect() in {:.1} s:", started.elapsed().as_secs_f32());
@@ -39,6 +43,13 @@ pub fn run(doctor: Doctor) -> color_eyre::Result<()> {
         );
     }
     println!("agent_desktop(): {:?}", super::agent_desktop());
+    if let Some(path) = super::search::find("agent-desktop") {
+        println!(
+            "agent-desktop {}: {:?}",
+            super::desktop_report_command(os),
+            super::desktop_call(&path, &[super::desktop_report_command(os)])
+        );
+    }
     for tool in super::BACKENDS
         .into_iter()
         .filter(|backend| *backend != crate::app_settings::AssistantBackend::ClaudeApi)
@@ -49,7 +60,7 @@ pub fn run(doctor: Doctor) -> color_eyre::Result<()> {
             super::Tool::Lightpanda,
         ])
     {
-        let plan = super::plan(tool, &super::Installers::here(tool));
+        let plan = super::install::plan_for(os, tool, &super::Installers::here(tool));
         println!("install plan for {}: {plan:?}", tool.name());
     }
     println!(
@@ -113,16 +124,27 @@ pub fn run(doctor: Doctor) -> color_eyre::Result<()> {
     if doctor.checks || doctor.browser {
         let settings = AssistantSettings::default();
         let api = crate::app_settings::AssistantBackend::ClaudeApi;
-        let mut checks = if doctor.browser {
-            Vec::new()
-        } else {
-            vec![
-                super::Check::HexPermissions,
-                super::Check::DesktopPermissions,
-                super::Check::DesktopRoundTrip,
-            ]
-        };
-        checks.extend([super::Check::BrowserRoundTrip, super::Check::LightBrowser]);
+        // This OS's own checks, in setup's order, without the agents'.
+        let mut checks: Vec<super::Check> = super::Check::for_backend_on(os, api, true)
+            .into_iter()
+            .filter(|check| {
+                matches!(
+                    check,
+                    super::Check::HexPermissions
+                        | super::Check::DesktopPermissions
+                        | super::Check::DesktopRoundTrip
+                        | super::Check::BrowserRoundTrip
+                        | super::Check::LightBrowser
+                )
+            })
+            .filter(|check| {
+                !doctor.browser
+                    || matches!(
+                        check,
+                        super::Check::BrowserRoundTrip | super::Check::LightBrowser
+                    )
+            })
+            .collect();
         if doctor.browser {
             // Hex's own MCP path, as the Claude API's tasks use it, then
             // each agent that is ready (a tiny prompt each).

@@ -20,6 +20,7 @@ use rune_kit::{Button, ButtonVariant, Spinner, glyphs};
 use super::super::controls::{Paint, PushSize, pulsing_dot};
 use super::super::icons::{GLOBE, MIC, SPARKLES};
 use super::super::onboarding_kit::{LEAD, Motion, arrives, keys, title_font};
+use super::super::platform::Os;
 use super::Ui;
 use super::setup::{self, Page, SetupFlow, page_done};
 use crate::assistant::backends::CheckState;
@@ -421,7 +422,7 @@ fn action_keys(ui: &Ui, p: Paint, key: &str, down: bool) -> Option<El> {
     Some(keys(p, key, &caps, down))
 }
 
-/// Stop all's keys, as words: ⌃⌥Esc.
+/// Stop all's keys, as words, as its binding draws them (⌃⌥Esc on a Mac).
 fn stop_all_words(ui: &Ui) -> String {
     ui.settings
         .assistant
@@ -479,26 +480,45 @@ fn welcome(ui: &Ui, p: Paint) -> El {
         ),
     ];
     let flow = ui.chats.setup.as_ref();
+    let mac = ui.platform.caps.os == Os::Macos;
     let (title, copy) = if flow.is_some_and(|flow| flow.merged) {
         (
             tr("Now, your assistant"),
-            tr(
-                "Hex can also answer questions about what's on screen and use your Mac for you. A few checks, and you're done.",
-            ),
+            if mac {
+                tr(
+                    "Hex can also answer questions about what's on screen and use your Mac for you. A few checks, and you're done.",
+                )
+            } else {
+                tr(
+                    "Hex can also answer questions about what's on screen and use your computer for you. A few checks, and you're done.",
+                )
+            },
         )
     } else if flow.is_some_and(|flow| flow.new_in_hex) {
         (
             tr("New in Hex: your assistant"),
-            tr(
-                "Ask about what's on screen, or let it use your Mac for you. Hex makes sure every piece works first.",
-            ),
+            if mac {
+                tr(
+                    "Ask about what's on screen, or let it use your Mac for you. Hex makes sure every piece works first.",
+                )
+            } else {
+                tr(
+                    "Ask about what's on screen, or let it use your computer for you. Hex makes sure every piece works first.",
+                )
+            },
         )
     } else {
         (
             tr("Meet your assistant"),
-            tr(
-                "Ask anything by voice, or let it use your Mac for you. Hex makes sure every piece works first.",
-            ),
+            if mac {
+                tr(
+                    "Ask anything by voice, or let it use your Mac for you. Hex makes sure every piece works first.",
+                )
+            } else {
+                tr(
+                    "Ask anything by voice, or let it use your computer for you. Hex makes sure every piece works first.",
+                )
+            },
         )
     };
     page(
@@ -515,14 +535,21 @@ fn welcome(ui: &Ui, p: Paint) -> El {
 /// Who answers: the agent picker (one action per agent, a suggestion when
 /// nothing is installed, OpenCode on your own key).
 fn agent(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
+    let mac = ui.platform.caps.os == Os::Macos;
     let lead_copy = if flow.detecting && ui.chats.settings.found.is_none() {
-        tr("Looking for the agents on this Mac…")
+        if mac {
+            tr("Looking for the agents on this Mac…")
+        } else {
+            tr("Looking for the agents on this computer…")
+        }
     } else if super::agents::nothing_installed(ui) {
         tr(
             "Nothing is installed yet. One click sets up the one we suggest, or use your own API key.",
         )
-    } else {
+    } else if mac {
         tr("It runs on this Mac, signed in with your own account or key.")
+    } else {
+        tr("It runs on this computer, signed in with your own account or key.")
     };
     page(
         p,

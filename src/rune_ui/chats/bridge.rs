@@ -192,12 +192,15 @@ pub(in crate::rune_ui) mod voices {
 
     /// A short phrase in the system's language, for picking its language.
     fn system_sample() -> String {
+        #[cfg(target_os = "macos")]
         let preferred = std::process::Command::new("/usr/bin/defaults")
             .args(["read", "-g", "AppleLocale"])
             .output()
             .ok()
             .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
             .unwrap_or_default();
+        #[cfg(not(target_os = "macos"))]
+        let preferred = crate::desktop::i18n::preferred_language();
         if preferred.starts_with("de") {
             "Das ist ein kurzer Satz auf Deutsch.".into()
         } else if preferred.starts_with("fr") {

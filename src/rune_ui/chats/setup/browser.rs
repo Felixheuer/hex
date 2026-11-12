@@ -41,9 +41,12 @@ pub(in crate::rune_ui) fn passed_or_optional(result: &CheckResult) -> bool {
     result.ok() || result.check == Check::LightBrowser
 }
 
-/// The browser's own checks, in order.
-pub(in crate::rune_ui) fn checks_for(settings: &AssistantSettings) -> Vec<Check> {
-    backends::Check::for_backend(settings.backend, true)
+/// The browser's own checks on `os`, in order (no Lightpanda on Windows).
+pub(in crate::rune_ui) fn checks_for(
+    settings: &AssistantSettings,
+    os: backends::os::Os,
+) -> Vec<Check> {
+    backends::Check::for_backend_on(os, settings.backend, true)
         .into_iter()
         .filter(|check| {
             matches!(
@@ -83,6 +86,7 @@ pub(in crate::rune_ui) fn arrive(ui: &mut Ui) {
 /// Runs the browser's self-tests against the chosen agent.
 pub(in crate::rune_ui) fn run_checks(ui: &mut Ui) {
     let settings = ui.settings.assistant.clone();
+    let os = super::backend_os(ui.platform.caps.os);
     let Some(flow) = ui.chats.setup.as_mut() else {
         return;
     };
@@ -90,7 +94,7 @@ pub(in crate::rune_ui) fn run_checks(ui: &mut Ui) {
         return;
     }
     flow.browser.checks_running = true;
-    flow.browser.checks = checks_for(&settings)
+    flow.browser.checks = checks_for(&settings, os)
         .into_iter()
         .map(|check| CheckResult {
             check,
@@ -146,7 +150,8 @@ pub(super) fn receive(ui: &mut Ui, done: &Done) -> bool {
 
 /// Runs the browser checks off the window's thread, reporting each.
 pub(in crate::rune_ui) fn perform_checks(settings: &AssistantSettings, send: &dyn Fn(Done)) {
-    backends::self_tests(&checks_for(settings), settings, |result| {
+    let checks = checks_for(settings, backends::os::Os::HERE);
+    backends::self_tests(&checks, settings, |result| {
         send(Done::BrowserCheck(result.clone()))
     });
     send(Done::BrowserChecked);

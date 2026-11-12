@@ -36,7 +36,7 @@ pub(super) fn run(
     let key = warm_key(run);
     if let Some(process) = warm::take(&key, run.resume.as_deref()) {
         tracing::debug!("the assistant uses a Claude Code that is already running");
-        control.track(process.child.id());
+        control.track(process.tree());
         if let Some(result) = turn(process, &input, run, &key, control, report, true) {
             return result;
         }

@@ -233,6 +233,7 @@ impl World {
             world(self),
             world(self),
         );
+        let park = world(self);
         let (recent, interrupted, prewarm, requests, workspaces) = (
             world(self),
             world(self),
@@ -267,6 +268,7 @@ impl World {
             bring_forward: Box::new(move |task, windows| {
                 forward.log(format!("forward {task} {}", windows.len()));
             }),
+            park: Box::new(move |task| park.log(format!("park {task}"))),
             settle: Box::new(move |task, outcome, message| {
                 settle.log(format!("settle {task} {outcome:?} {message}"));
             }),
@@ -686,6 +688,47 @@ fn take_over_pauses_and_hand_back_resumes() {
         2
     );
     assert!(world.logged(&format!("release {id}")));
+}
+
+#[test]
+fn a_background_tasks_windows_are_parked_as_it_uses_them_but_a_here_tasks_never() {
+    let world = World::new(8);
+    let runner = world.runner();
+    let background = runner.submit(request("background task", Origin::Background));
+    world.wait_for("the task", started(&background));
+    world.wait_for("its window", |_| runner.tasks()[0].windows.len() == 1);
+    assert!(world.logged(&format!("park {background}")));
+    // Taken over, it isn't parked again while paused.
+    runner.take_over(&background);
+    let parked = || {
+        world
+            .log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|line| **line == format!("park {background}"))
+            .count()
+    };
+    let before = parked();
+    runner.emit(&Event::Step {
+        conversation: background.clone(),
+        description: "Clicking".into(),
+    });
+    assert_eq!(parked(), before);
+    runner.cancel(&background);
+    world.wait_for("the end", ended(&background));
+
+    let here = runner.submit(request("what's this", Origin::ActionShortcut));
+    world.wait_for("the Here task", started(&here));
+    world.wait_for("its window", |_| {
+        runner
+            .tasks()
+            .iter()
+            .any(|task| task.conversation == here && task.windows.len() == 1)
+    });
+    assert!(!world.logged(&format!("park {here}")));
+    runner.cancel(&here);
+    world.wait_for("the end", ended(&here));
 }
 
 #[test]

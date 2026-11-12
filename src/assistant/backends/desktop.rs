@@ -3,6 +3,8 @@
 
 use serde_json::Value;
 
+use super::os::Os;
+
 /// One reply, read.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Reply {
@@ -45,17 +47,36 @@ pub struct Grants {
 }
 
 /// The grants in `permissions`' or `status`' data
-/// (`{accessibility: {state: "granted"}, …}`, under `permissions` for status).
+/// (`{accessibility: {state: "granted"}, …}`, under `permissions` for status),
+/// as this OS's agent-desktop reports them.
 pub fn grants(data: &Value) -> Option<Grants> {
+    grants_on(Os::HERE, data)
+}
+
+/// [`grants`] on `os`. `not_required` counts as granted (Windows and
+/// Linux ask for nothing to read apps, X11 nothing for screenshots); on
+/// Linux an `unknown` screen recording is Wayland's, whose portal asks at
+/// the first screenshot, so that counts too.
+pub fn grants_on(os: Os, data: &Value) -> Option<Grants> {
     let permissions = data.get("permissions").unwrap_or(data);
-    let granted = |name: &str| -> Option<bool> {
-        let state = permissions.get(name)?.get("state")?.as_str()?;
-        Some(state == "granted")
-    };
+    let state = |name: &str| -> Option<&str> { permissions.get(name)?.get("state")?.as_str() };
+    let ok = |state: &str| matches!(state, "granted" | "not_required");
     Some(Grants {
-        accessibility: granted("accessibility")?,
-        screen_recording: granted("screen_recording").unwrap_or(false),
+        accessibility: ok(state("accessibility")?),
+        screen_recording: state("screen_recording")
+            .is_some_and(|screen| ok(screen) || (os == Os::Linux && screen == "unknown")),
     })
+}
+
+/// What agent-desktop suggests for a denied Accessibility (on Linux, why
+/// the accessibility bus didn't answer: "Install at-spi2-core …").
+pub fn suggestion(data: &Value) -> Option<String> {
+    let permissions = data.get("permissions").unwrap_or(data);
+    let accessibility = permissions.get("accessibility")?;
+    ["suggestion", "message", "detail"]
+        .iter()
+        .find_map(|key| accessibility.get(*key)?.as_str())
+        .map(str::to_owned)
 }
 
 /// The status reply an agent's desktop tool call returned, found anywhere in
@@ -152,6 +173,43 @@ mod tests {
                 screen_recording: false
             })
         );
+    }
+
+    #[test]
+    fn windows_and_linux_grants_read_as_their_agent_desktop_reports_them() {
+        let windows: Value = serde_json::from_str(
+            r#"{"accessibility":{"state":"granted"},"automation":{"state":"not_required"},"screen_recording":{"state":"granted"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            grants_on(Os::Windows, &windows),
+            Some(Grants {
+                accessibility: true,
+                screen_recording: true
+            })
+        );
+        let x11: Value = serde_json::from_str(
+            r#"{"permissions":{"accessibility":{"state":"granted"},"screen_recording":{"state":"not_required"}},"supported_surfaces":["window"]}"#,
+        )
+        .unwrap();
+        assert!(grants_on(Os::Linux, &x11).unwrap().screen_recording);
+        let wayland: Value = serde_json::from_str(
+            r#"{"permissions":{"accessibility":{"state":"denied","suggestion":"Install at-spi2-core"},"screen_recording":{"state":"unknown"}},"supported_surfaces":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            grants_on(Os::Linux, &wayland),
+            Some(Grants {
+                accessibility: false,
+                screen_recording: true
+            })
+        );
+        assert_eq!(
+            suggestion(&wayland).as_deref(),
+            Some("Install at-spi2-core")
+        );
+        // On macOS an unknown Screen Recording is no grant.
+        assert!(!grants_on(Os::Mac, &wayland).unwrap().screen_recording);
     }
 
     #[test]

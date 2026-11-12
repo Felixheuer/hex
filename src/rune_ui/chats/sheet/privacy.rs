@@ -7,6 +7,7 @@ use rune_kit::TextInput;
 
 use super::super::super::controls::Paint;
 use super::super::super::lists::small_button;
+use super::super::super::platform::Os;
 use super::super::Ui;
 use super::super::setup::{Page, SetupFlow, page_done};
 use super::{actions, card, lead, page, separator};
@@ -121,6 +122,7 @@ fn blocked(ui: &Ui, p: Paint) -> El {
 
 /// Where your words go, how freely it acts, and the apps it never touches.
 pub(super) fn privacy(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
+    let mac = ui.platform.caps.os == Os::Macos;
     let facts = col()
         .key("facts")
         .gap(10.0)
@@ -132,7 +134,16 @@ pub(super) fn privacy(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             SEND_ICON,
             tr("Questions, screenshots, and page content go to the agent you choose (Claude, OpenAI, DeepSeek, …)."),
         ))
-        .child(fact(p, "stays", LOCAL_ICON, tr("Dictation stays on your Mac.")))
+        .child(fact(
+            p,
+            "stays",
+            LOCAL_ICON,
+            if mac {
+                tr("Dictation stays on your Mac.")
+            } else {
+                tr("Dictation stays on your computer.")
+            },
+        ))
         .child(fact(
             p,
             "never",
@@ -164,7 +175,15 @@ pub(super) fn privacy(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         tr("Your privacy, your rules"),
         lead(
             p,
-            tr("In plain words: what leaves your Mac, and what the assistant may do on its own."),
+            if mac {
+                tr(
+                    "In plain words: what leaves your Mac, and what the assistant may do on its own.",
+                )
+            } else {
+                tr(
+                    "In plain words: what leaves your computer, and what the assistant may do on its own.",
+                )
+            },
         ),
         Some(body),
         None,

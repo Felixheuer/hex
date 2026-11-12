@@ -102,6 +102,9 @@ pub fn round_trip(check: Check) -> CheckResult {
 
 /// Lightpanda opens the check's page through agent-browser.
 pub fn light_round_trip(check: Check) -> CheckResult {
+    if super::super::os::Os::HERE == super::super::os::Os::Windows {
+        return CheckResult::failed(check, super::super::install::NO_LIGHTPANDA_ON_WINDOWS, None);
+    }
     let path = match agent_browser(check) {
         Ok(path) => path,
         Err(failed) => return failed,
@@ -325,11 +328,7 @@ pub fn title_over_mcp(server: &McpServer, url: &str, deadline: Instant) -> Resul
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
+    super::super::tree::own_group(&mut command);
     let mut child = command
         .spawn()
         .map_err(|error| format!("it didn't start: {error}"))?;

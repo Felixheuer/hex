@@ -2,8 +2,10 @@
 //! started when the assistant turns on before it was ever finished, and
 //! again from Chats. Page by page it makes sure an agent answers (chosen,
 //! installed, signed in), that Hex and agent-desktop have every permission
-//! (each missing one opens its exact System Settings page with Hex's
-//! floating guide, and the page waits until macOS reports the grant), runs
+//! this OS has (on macOS each missing one opens its exact System Settings
+//! page with Hex's floating guide, and the page waits until macOS reports
+//! the grant; Linux has the accessibility bus and the screenshot portal;
+//! Windows asks for none, so its page only installs agent-desktop), runs
 //! the hidden browser for web tasks (`browser`), the live self-tests until
 //! they're green, makes sure the Action shortcut and dictation shortcuts
 //! are free and that a press of each really reaches Hex
@@ -17,12 +19,14 @@
 
 pub(in crate::rune_ui) mod browser;
 pub(in crate::rune_ui) mod resume;
+#[cfg(all(test, target_os = "macos"))]
+mod tests;
 pub(in crate::rune_ui) mod tutorial;
 
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use super::super::platform::PlatformRequest;
+use super::super::platform::{Os, PlatformRequest};
 
 use super::shortcut::{self, Conflict, ConflictFix, Probe};
 use super::{Job, Ui};
@@ -140,13 +144,32 @@ pub(in crate::rune_ui) enum Grant {
 }
 
 impl Grant {
-    pub(in crate::rune_ui) const HEX: [Grant; 3] = [
-        Grant::Microphone,
-        Grant::Accessibility,
-        Grant::ScreenRecording,
-    ];
-    pub(in crate::rune_ui) const DESKTOP: [Grant; 2] =
-        [Grant::DesktopAccessibility, Grant::DesktopScreenRecording];
+    /// Hex's own grants on `os`: macOS's Microphone, Accessibility, and
+    /// Screen Recording; on Linux the accessibility bus (AT-SPI, as
+    /// `Accessibility`) and the screenshot portal (as `ScreenRecording`);
+    /// none on Windows.
+    pub(in crate::rune_ui) fn hex(os: Os) -> &'static [Grant] {
+        match os {
+            Os::Macos => &[
+                Grant::Microphone,
+                Grant::Accessibility,
+                Grant::ScreenRecording,
+            ],
+            Os::Linux => &[Grant::Accessibility, Grant::ScreenRecording],
+            Os::Windows => &[],
+        }
+    }
+
+    /// agent-desktop's grants on `os`: Accessibility and Screen Recording on
+    /// macOS; on Linux whether the accessibility bus answers it (its
+    /// screenshots ask the portal when they're taken); none on Windows.
+    pub(in crate::rune_ui) fn desktop(os: Os) -> &'static [Grant] {
+        match os {
+            Os::Macos => &[Grant::DesktopAccessibility, Grant::DesktopScreenRecording],
+            Os::Linux => &[Grant::DesktopAccessibility],
+            Os::Windows => &[],
+        }
+    }
 
     pub(in crate::rune_ui) fn key(self) -> &'static str {
         match self {
@@ -246,6 +269,17 @@ impl Default for SetupFlow {
     }
 }
 
+/// The assistant's name for the OS the window shows (a scene may show
+/// another OS's pages than the one it runs on).
+pub(in crate::rune_ui) fn backend_os(os: Os) -> crate::assistant::backends::os::Os {
+    use crate::assistant::backends::os::Os as Backend;
+    match os {
+        Os::Macos => Backend::Mac,
+        Os::Windows => Backend::Windows,
+        Os::Linux => Backend::Linux,
+    }
+}
+
 /// The chosen agent as found, once looked for.
 pub(in crate::rune_ui) fn chosen(ui: &Ui) -> Option<&Found> {
     let backend = ui.settings.assistant.backend;
@@ -272,8 +306,8 @@ pub(in crate::rune_ui) fn fix_for(found: &Found) -> Option<Fix> {
     })
 }
 
-/// A fix's button, translated.
-pub(in crate::rune_ui) fn fix_label(fix: Fix) -> String {
+/// A fix's button on `os`, translated.
+pub(in crate::rune_ui) fn fix_label(fix: Fix, os: Os) -> String {
     match fix {
         Fix::Install(backend) => tr_fill("Install {}", super::backend_name(backend)),
         Fix::InstallAgentDesktop => tr("Install agent-desktop").into(),
@@ -284,6 +318,7 @@ pub(in crate::rune_ui) fn fix_label(fix: Fix) -> String {
         Fix::StartOpenCode => tr("Start OpenCode").into(),
         Fix::AddApiKey => tr("Add API key").into(),
         Fix::GuidePermissions => tr("Grant permissions…").into(),
+        Fix::OpenSettings(_) if os != Os::Macos => tr("Open Settings…").into(),
         Fix::OpenSettings(Permission::Accessibility) => tr("Open Accessibility…").into(),
         Fix::OpenSettings(Permission::ScreenRecording) => tr("Open Screen Recording…").into(),
         Fix::Retry => tr("Try again").into(),
@@ -293,14 +328,16 @@ pub(in crate::rune_ui) fn fix_label(fix: Fix) -> String {
     }
 }
 
-/// A self-test's row title, translated.
-pub(in crate::rune_ui) fn check_title(check: Check) -> String {
+/// A self-test's row title on `os`, translated.
+pub(in crate::rune_ui) fn check_title(check: Check, os: Os) -> String {
     match check {
         Check::HexPermissions => tr("Hex can read the screen and selected text").into(),
         Check::Answers(backend) => tr_fill("{} answers", super::backend_name(backend)),
-        Check::DesktopPermissions => {
-            tr("agent-desktop has Accessibility and Screen Recording").into()
-        }
+        Check::DesktopPermissions => match os {
+            Os::Macos => tr("agent-desktop has Accessibility and Screen Recording").into(),
+            Os::Windows => tr("agent-desktop reaches UI Automation").into(),
+            Os::Linux => tr("agent-desktop reaches the accessibility bus").into(),
+        },
         Check::DesktopRoundTrip => tr("agent-desktop reads apps and windows").into(),
         Check::DesktopThroughAgent(backend) => {
             tr_fill("{} can use agent-desktop", super::backend_name(backend))
@@ -313,11 +350,15 @@ pub(in crate::rune_ui) fn check_title(check: Check) -> String {
     }
 }
 
-/// Whether macOS reports `grant` on; `None` until it was read.
+/// Whether the OS reports `grant` on; `None` until it was read.
 fn granted(ui: &Ui, flow: &SetupFlow, grant: Grant) -> Option<bool> {
     let hex = |state: PermissionState| Some(state == PermissionState::Ready);
     match grant {
         Grant::Microphone => hex(ui.platform.permissions.microphone),
+        // Linux: the accessibility bus, as Hex reads it.
+        Grant::Accessibility if ui.platform.caps.os != Os::Macos => {
+            flow.permissions.map(|read| read.accessibility)
+        }
         Grant::Accessibility => hex(ui.platform.permissions.accessibility),
         Grant::ScreenRecording => flow.permissions.map(|read| read.screen_recording),
         Grant::DesktopAccessibility => flow
@@ -346,6 +387,9 @@ pub(in crate::rune_ui) fn grant_state(ui: &Ui, flow: &SetupFlow, grant: Grant) -
 
 /// Whether macOS wants Hex restarted before `grant` applies.
 pub(in crate::rune_ui) fn needs_restart(ui: &Ui, grant: Grant) -> bool {
+    if ui.platform.caps.os != Os::Macos {
+        return false;
+    }
     let state = match grant {
         Grant::Microphone => ui.platform.permissions.microphone,
         Grant::Accessibility => ui.platform.permissions.accessibility,
@@ -378,14 +422,15 @@ pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bo
         Page::Welcome | Page::Privacy | Page::About => true,
         Page::Agent => chosen(ui).is_some_and(|found| found.ready),
         Page::Desktop => {
-            Grant::HEX
+            let os = ui.platform.caps.os;
+            Grant::hex(os)
                 .iter()
                 .all(|grant| grant_state(ui, flow, *grant) == State::Passed)
                 && flow
                     .desktop
                     .as_ref()
                     .is_some_and(|found| found.path.is_some())
-                && Grant::DESKTOP
+                && Grant::desktop(os)
                     .iter()
                     .all(|grant| grant_state(ui, flow, *grant) == State::Passed)
         }
@@ -648,6 +693,7 @@ pub(in crate::rune_ui) fn back(ui: &mut Ui) {
 pub(in crate::rune_ui) fn run_checks(ui: &mut Ui) {
     let backend = ui.settings.assistant.backend;
     let settings = ui.settings.assistant.clone();
+    let os = backend_os(ui.platform.caps.os);
     let Some(flow) = ui.chats.setup.as_mut() else {
         return;
     };
@@ -656,7 +702,7 @@ pub(in crate::rune_ui) fn run_checks(ui: &mut Ui) {
     }
     flow.checks_running = true;
     flow.checked_backend = Some(backend);
-    flow.checks = Check::for_backend(backend, settings.background_browser)
+    flow.checks = Check::for_backend_on(os, backend, settings.background_browser)
         .into_iter()
         .map(|check| CheckResult {
             check,
@@ -669,9 +715,11 @@ pub(in crate::rune_ui) fn run_checks(ui: &mut Ui) {
     ui.chats.jobs.run(Job::SelfTests(Box::new(settings)));
 }
 
-/// Asks for a permission: Hex's open their System Settings page with
-/// Hex's floating guide, agent-desktop's open its own guide. The row waits
-/// until macOS reports it on.
+/// Asks for a permission: on macOS Hex's open their System Settings page
+/// with Hex's floating guide, agent-desktop's open its own guide; on Linux
+/// both are the accessibility bus, and the screenshot portal, whose
+/// settings `computer::open_settings` opens. The row waits until the OS
+/// reports it on.
 pub(in crate::rune_ui) fn allow(ui: &mut Ui, grant: Grant) {
     if let Some(flow) = ui.chats.setup.as_mut()
         && !flow.asked.contains(&grant)
@@ -684,7 +732,13 @@ pub(in crate::rune_ui) fn allow(ui: &mut Ui, grant: Grant) {
         ui.ask(PlatformRequest::Permission(PermissionAction::Restart));
         return;
     }
+    let os = ui.platform.caps.os;
     match grant {
+        Grant::Accessibility | Grant::DesktopAccessibility if os != Os::Macos => {
+            ui.chats
+                .jobs
+                .run(Job::Fix(Fix::OpenSettings(Permission::Accessibility)));
+        }
         Grant::Microphone => {
             let action = match ui.platform.permissions.microphone {
                 PermissionState::NeedsRequest => PermissionAction::RequestMicrophone,

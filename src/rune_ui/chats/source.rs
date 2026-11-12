@@ -134,17 +134,17 @@ impl Source {
             Self::Fixture(store) => store.opened.push(target.to_owned()),
             Self::Live => {
                 let target = expand_home(target);
-                let spawned = if quick {
+                // Quick Look is macOS's; elsewhere a file opens in its app.
+                let spawned = if quick && cfg!(target_os = "macos") {
                     std::process::Command::new("/usr/bin/qlmanage")
                         .arg("-p")
                         .arg(&target)
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::null())
                         .spawn()
+                        .map(drop)
                 } else {
-                    std::process::Command::new("/usr/bin/open")
-                        .arg(&target)
-                        .spawn()
+                    crate::assistant::backends::os::open(&target)
                 };
                 if let Err(error) = spawned {
                     tracing::warn!(%error, "could not open a job's result");

@@ -10,6 +10,7 @@ use rune_kit::{Button, ButtonVariant, RadioItem, Spinner, TextInput};
 use super::super::controls::{Paint, PushSize};
 use super::super::icons::SPARKLES;
 use super::super::lists::{Tone, tone_tag};
+use super::super::platform::Os;
 use super::agents::{self, Status};
 use super::{Ui, backend_name};
 use crate::app_settings::AssistantBackend;
@@ -179,9 +180,11 @@ fn codex_key(ui: &Ui, p: Paint) -> El {
         .pl(30.0);
     };
     let mut block = col().key("codex-key").pl(30.0).gap(6.0).child(
-        text(tr(
-            "This replaces Codex's ChatGPT sign-in on this Mac for all apps.",
-        ))
+        text(if ui.platform.caps.os == Os::Macos {
+            tr("This replaces Codex's ChatGPT sign-in on this Mac for all apps.")
+        } else {
+            tr("This replaces Codex's ChatGPT sign-in on this computer for all apps.")
+        })
         .key("warning")
         .role("status")
         .font(p.k.ty.small_medium)
@@ -442,7 +445,11 @@ fn byok(ui: &Ui, p: Paint) -> Option<El> {
                             .color(p.text()),
                     )
                     .child(
-                        text(tr("OpenCode runs any provider's model on your key. Hex keeps the key in your Keychain."))
+                        text(match ui.platform.caps.os {
+                            Os::Macos => tr("OpenCode runs any provider's model on your key. Hex keeps the key in your Keychain."),
+                            Os::Windows => tr("OpenCode runs any provider's model on your key. Hex keeps the key in Windows Credential Manager."),
+                            Os::Linux => tr("OpenCode runs any provider's model on your key. Hex keeps the key in your keyring."),
+                        })
                             .key("detail")
                             .font(k.ty.small)
                             .color(p.muted())
@@ -591,7 +598,11 @@ pub(super) fn picker(ui: &Ui, p: Paint) -> El {
         return picker.child(row().key("looking").px(16.0).py(12.0).child(progress(
             ui,
             p,
-            tr("Looking for the agents on this Mac…"),
+            if ui.platform.caps.os == Os::Macos {
+                tr("Looking for the agents on this Mac…")
+            } else {
+                tr("Looking for the agents on this computer…")
+            },
         )));
     }
     for (index, backend) in agents::all().into_iter().enumerate() {
