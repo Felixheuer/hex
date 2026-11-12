@@ -1,9 +1,10 @@
 //! Hex's own small MCP server for a task's agent (`hex assistant tools-mcp
 //! --task <id>`): `hex_remember` adds a fact to the person's memory note,
 //! `hex_schedule`, `hex_schedules`, `hex_unschedule` manage scheduled
-//! jobs, and `hex_compare_images` tells how alike two screenshots look (a
-//! job's own check, `agent::goal`). Newline-delimited JSON-RPC on stdio,
-//! like the other servers.
+//! jobs, `hex_compare_images` tells how alike two screenshots look (a
+//! job's own check, `agent::goal`), and `hex_start_jobs` hands a request
+//! that is a job to the background (`agent::handoff`). Newline-delimited
+//! JSON-RPC on stdio, like the other servers.
 //!
 //! OWNER: brain.
 
@@ -20,9 +21,23 @@ use crate::assistant::{memory, schedules};
 /// The server's name in each agent's config.
 pub const NAME: &str = "hex";
 
+/// The conversation this server serves (`--task`), for `hex_start_jobs`.
+static TASK: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 /// The tool definitions.
 pub fn definitions() -> Vec<Value> {
     vec![
+        json!({
+            "name": "hex_start_jobs",
+            "description": "Hand the request to the background as one or more jobs, when it is a job rather than a quick question or a small action in the window in front (several steps, many items, other apps or websites, research, documents, files, or more than a minute or two). Hex starts each job with every tool it needs (its own browsers, apps, files) and the job asks the person what it needs. Call it once with all jobs; several independent parts become several jobs that run in parallel. Then end your reply with one or two short, speakable sentences saying you're on it. Never say something runs in the background without calling this.",
+            "inputSchema": {"type": "object", "properties": {
+                "jobs": {"type": "array", "items": {"type": "object", "properties": {
+                    "title": {"type": "string", "description": "A short title, at most six words."},
+                    "task": {"type": "string", "description": "The job in one self-contained sentence, as the person asked for it (with every detail they gave)."}
+                }, "required": ["task"]}},
+                "say": {"type": "string", "description": "The short line to say meanwhile, in the person's language."}
+            }, "required": ["jobs"]},
+        }),
         json!({
             "name": "hex_remember",
             "description": "Remember one durable fact the person told you, for every later task: their company, website, a colleague's name and email, the tone or language they like. One short fact per call. Never passwords, keys, tokens, card or account numbers.",
@@ -72,6 +87,18 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             .ok_or_else(|| format!("{name} needs “{key}”"))
     };
     match name {
+        "hex_start_jobs" => {
+            let task = TASK
+                .get()
+                .ok_or("hex_start_jobs needs the task this server serves")?;
+            let handoff = crate::assistant::agent::handoff::parse(arguments)?;
+            let titles: Vec<String> = handoff.jobs.iter().map(|job| job.title.clone()).collect();
+            let count = crate::assistant::agent::handoff::record(task, handoff)?;
+            Ok(format!(
+                "Hex starts {count} background job(s) as soon as you end your reply: {}. Now end with one or two short sentences saying you're on it; don't do the work yourself.",
+                titles.join("; ")
+            ))
+        }
         "hex_compare_images" => images::compare(&text("a")?, &text("b")?),
         "hex_remember" => {
             if !memory_on() {
@@ -146,7 +173,7 @@ fn memory_on() -> bool {
 
 /// Serves the tools on stdio until the agent disconnects.
 pub fn serve(task: &str) -> Result<()> {
-    let _ = task;
+    let _ = TASK.set(task.to_owned());
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -220,6 +247,7 @@ mod tests {
         assert_eq!(
             names,
             [
+                "hex_start_jobs",
                 "hex_remember",
                 "hex_schedule",
                 "hex_schedules",

@@ -207,6 +207,9 @@ impl Talk {
                 }
                 if self.capture.is_some() {
                     self.shown = true;
+                    crate::assistant::interaction::conversation_listening(
+                        crate::assistant::interaction::Listening::FollowUp,
+                    );
                     indicator.send(DictationIndicatorEvent::Listening);
                 }
             }
@@ -230,6 +233,9 @@ impl Talk {
                     crate::assistant::service::prewarm(question.lane());
                 }
                 self.shown = true;
+                crate::assistant::interaction::conversation_listening(
+                    crate::assistant::interaction::Listening::Hearing,
+                );
                 indicator.send(DictationIndicatorEvent::Started);
                 indicator.send(DictationIndicatorEvent::Asking { agent: false });
             }
@@ -297,6 +303,11 @@ impl Talk {
     }
 
     fn reset(&mut self) {
+        if self.shown {
+            crate::assistant::interaction::conversation_listening(
+                crate::assistant::interaction::Listening::Off,
+            );
+        }
         self.capture = None;
         self.shown = false;
         self.question = None;
