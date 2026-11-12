@@ -58,6 +58,8 @@ mod versus;
 mod words;
 
 pub(crate) use game::add as game;
+// The first run's type, for the assistant's setup sheet.
+pub(super) use landing::{LEAD, title_font};
 pub(super) use sketches::fixture as sketch_fixture;
 pub(super) use stories::Onboard;
 pub(crate) use stories::{add as stories, set_live_window};

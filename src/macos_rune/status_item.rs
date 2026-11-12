@@ -36,6 +36,10 @@ pub enum StatusItemAction {
     CopyChapter(usize),
     /// The recording row: the Meetings pane.
     OpenMeetings,
+    /// Chats… (Labs › Assistant): the window on Chats.
+    OpenChats,
+    /// Agent Mode (Labs › Assistant): on or off.
+    ToggleAgentMode,
     /// The update item: check, download, or restart into an update.
     Update,
     Quit,
@@ -106,6 +110,7 @@ objc2::define_class!(
             refresh_recent_dictations();
             refresh_restore_capture();
             update_pause();
+            refresh_agent_mode();
         }
 
         /// Restore Last Capture is dimmed while no closed card can come
@@ -152,6 +157,16 @@ objc2::define_class!(
             let _ = self.ivars().actions.try_send(StatusItemAction::OpenMeetings);
         }
 
+        #[unsafe(method(openChats:))]
+        fn open_chats(&self, _sender: &AnyObject) {
+            let _ = self.ivars().actions.try_send(StatusItemAction::OpenChats);
+        }
+
+        #[unsafe(method(toggleAgentMode:))]
+        fn toggle_agent_mode(&self, _sender: &AnyObject) {
+            let _ = self.ivars().actions.try_send(StatusItemAction::ToggleAgentMode);
+        }
+
         #[unsafe(method(checkForUpdates:))]
         fn check_for_updates(&self, _sender: &AnyObject) {
             let _ = self
@@ -183,6 +198,11 @@ enum Row {
     CopySection,
     RecordMeeting,
     MeetingSeparator,
+    /// Labs › Assistant: Agent mode's checkmark, then Chats, hidden while
+    /// it's off.
+    AgentMode,
+    Chats,
+    AssistantSeparator,
     /// Labs › Pause from menu bar: hidden until the menu opens with it on.
     PauseHex,
     PasteLast,
@@ -198,12 +218,15 @@ enum Row {
     Quit,
 }
 
-const ROWS: [Row; 15] = [
+const ROWS: [Row; 18] = [
     Row::MeetingStatus,
     Row::StopMeeting,
     Row::CopySection,
     Row::RecordMeeting,
     Row::MeetingSeparator,
+    Row::AgentMode,
+    Row::Chats,
+    Row::AssistantSeparator,
     Row::PauseHex,
     Row::PasteLast,
     Row::CopyRecentDictation,
@@ -220,11 +243,13 @@ impl Row {
     /// The title it is built with; `None` for a separator.
     fn title(self) -> Option<String> {
         let title = match self {
-            Row::MeetingSeparator | Row::Separator => return None,
+            Row::MeetingSeparator | Row::AssistantSeparator | Row::Separator => return None,
             Row::MeetingStatus => "Recording meeting",
             Row::StopMeeting => "Stop & Transcribe",
             Row::CopySection => "Copy Section",
             Row::RecordMeeting => "Record Meeting",
+            Row::AgentMode => "Agent Mode",
+            Row::Chats => "Chats…",
             Row::PauseHex => pause_title(false),
             Row::PasteLast => "Paste Last Dictation",
             Row::CopyRecentDictation => "Copy Recent Dictation",
@@ -243,6 +268,8 @@ impl Row {
             Row::MeetingStatus => sel!(openMeetings:),
             Row::StopMeeting => sel!(stopMeeting:),
             Row::RecordMeeting => sel!(startMeeting:),
+            Row::AgentMode => sel!(toggleAgentMode:),
+            Row::Chats => sel!(openChats:),
             Row::PauseHex => sel!(togglePause:),
             Row::PasteLast => sel!(pasteLast:),
             Row::CopyLastMeetingTranscript => sel!(copyLastMeetingTranscript:),
@@ -251,6 +278,7 @@ impl Row {
             Row::Update => sel!(checkForUpdates:),
             Row::Quit => sel!(quit:),
             Row::MeetingSeparator
+            | Row::AssistantSeparator
             | Row::Separator
             | Row::CopySection
             | Row::CopyRecentDictation
@@ -277,6 +305,9 @@ impl Row {
                 | Row::CopySection
                 | Row::RecordMeeting
                 | Row::MeetingSeparator
+                | Row::AgentMode
+                | Row::Chats
+                | Row::AssistantSeparator
                 | Row::PauseHex
                 | Row::CopyRecentDictation
                 | Row::CopyLastMeetingTranscript
@@ -351,6 +382,8 @@ struct StatusItemController {
     pause_title: RefCell<String>,
     recent: Retained<NSMenuItem>,
     recent_menu: Retained<NSMenu>,
+    /// Labs › Assistant's rows: Agent Mode, Chats…, and their separator.
+    assistant: [Retained<NSMenuItem>; 3],
     restore_capture: Retained<NSMenuItem>,
     update: Option<Retained<NSMenuItem>>,
     update_title: RefCell<String>,
@@ -502,6 +535,11 @@ pub fn install() -> Result<Receiver<StatusItemAction>> {
             pause_title: RefCell::new(pause_title(false).into()),
             recent: row(Row::CopyRecentDictation),
             recent_menu,
+            assistant: [
+                row(Row::AgentMode),
+                row(Row::Chats),
+                row(Row::AssistantSeparator),
+            ],
             restore_capture: row(Row::RestoreCapture),
             update: (!update_managed).then(|| row(Row::Update)),
             update_title: RefCell::new("Check for Updates…".into()),
@@ -768,6 +806,39 @@ fn refresh_restore_capture() {
     });
 }
 
+/// Labs › Assistant's rows show while it's on; off, the menu is as it was.
+static ASSISTANT_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Shows Agent Mode and Chats… while Labs › Assistant is on (`on`), and
+/// hides them while it's off.
+pub fn update_assistant(on: bool) {
+    let was = ASSISTANT_SHOWN.swap(on, std::sync::atomic::Ordering::Relaxed);
+    if was == on {
+        return;
+    }
+    STATUS_ITEM.with(|controller| {
+        if let Some(controller) = controller.borrow().as_ref() {
+            for item in &controller.assistant {
+                item.setHidden(!on);
+            }
+        }
+    });
+    refresh_agent_mode();
+}
+
+/// Agent Mode's checkmark follows the assistant, as the menu opens.
+fn refresh_agent_mode() {
+    if !ASSISTANT_SHOWN.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let on = crate::assistant::agent_mode();
+    STATUS_ITEM.with(|controller| {
+        if let Some(controller) = controller.borrow().as_ref() {
+            controller.assistant[0].setState(if on { 1 } else { 0 });
+        }
+    });
+}
+
 /// Shows Pause Hex while Labs › Pause from menu bar is on, reads Resume Hex
 /// while shortcuts are suspended, and resumes at once if the lab turned off
 /// under a pause. The title follows the pause state itself, so it reads
@@ -1011,6 +1082,9 @@ mod tests {
                 "Copy Section".into(),
                 "Record Meeting".into(),
                 "—".into(),
+                "Agent Mode".into(),
+                "Chats…".into(),
+                "—".into(),
                 "Pause Hex".into(),
                 "Paste Last Dictation".into(),
                 "Copy Recent Dictation".into(),
@@ -1066,6 +1140,16 @@ mod tests {
         assert!(icon_shown(false, true));
         assert!(!icon_shown(true, false));
         assert!(icon_shown(true, true));
+    }
+
+    #[test]
+    fn the_assistant_rows_start_hidden_and_do_something() {
+        for row in [Row::AgentMode, Row::Chats, Row::AssistantSeparator] {
+            assert!(row.starts_hidden(), "{row:?}");
+        }
+        assert_eq!(Row::AgentMode.action(), Some(sel!(toggleAgentMode:)));
+        assert_eq!(Row::Chats.action(), Some(sel!(openChats:)));
+        assert_eq!(Row::AssistantSeparator.title(), None);
     }
 
     #[test]

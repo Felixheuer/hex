@@ -52,9 +52,21 @@ pub(super) fn body(p: Paint, key: &str, list: El, detail: El) -> El {
 
 /// The search field over the scrolling list, both on the title's edge.
 pub(super) fn list_column(p: Paint, search: El, scroll_key: &str, list: El) -> El {
+    list_column_sized(p, search, scroll_key, list, LIST_W)
+}
+
+/// A [`list_column`] `width` points wide, its hanging edge included, for a
+/// detail that needs more room (a chat's transcript).
+pub(super) fn list_column_sized(
+    p: Paint,
+    search: El,
+    scroll_key: &str,
+    list: El,
+    width: f32,
+) -> El {
     col()
         .key("list-column")
-        .w(LIST_W)
+        .w(width)
         .h_full()
         .pl(HANG)
         .child(search)
@@ -128,11 +140,36 @@ pub(super) fn item_with_icon(
     select: impl Fn(&mut Ui) + 'static,
 ) -> El {
     let selected = item.selected;
-    let row = item_body(p, item, leading);
+    let row = item_body(p, item, leading.map(|glyph| leading_icon(p, glyph)));
     super::lists::source_item(
         super::lists::select_at_once(row, selected, select),
         selected,
     )
+}
+
+/// [`item_with_icon`] led by `mark` instead of an icon, such as the
+/// pulsing dot of something running.
+pub(super) fn item_with_mark(
+    p: Paint,
+    item: Item,
+    mark: El,
+    select: impl Fn(&mut Ui) + 'static,
+) -> El {
+    let selected = item.selected;
+    let row = item_body(p, item, Some(mark.mr(-6.0).a11y_hidden()));
+    super::lists::source_item(
+        super::lists::select_at_once(row, selected, select),
+        selected,
+    )
+}
+
+/// A row's small faint leading icon.
+fn leading_icon(p: Paint, glyph: &'static Icon) -> El {
+    icon(glyph, LEADING_ICON)
+        .key("leading-icon")
+        .color(p.k.c.icon_faint)
+        .mr(-6.0)
+        .a11y_hidden()
 }
 
 /// [`item_with_icon`] whose press its pane wires itself, for a list that
@@ -144,7 +181,7 @@ pub(super) fn item_with_press(p: Paint, item: Item, press: impl Fn(El) -> El) ->
 }
 
 /// One row's box, words, and selected fill, before any press handling.
-fn item_body(p: Paint, item: Item, leading: Option<&'static Icon>) -> El {
+fn item_body(p: Paint, item: Item, leading: Option<El>) -> El {
     let c = &p.k.c;
     // A row of the list: its title names it and its meta and time describe
     // it, so their texts stay out of the tree.
@@ -188,13 +225,7 @@ fn item_body(p: Paint, item: Item, leading: Option<&'static Icon>) -> El {
                 .key("top")
                 .gap(12.0)
                 .center_y()
-                .children(leading.map(|glyph| {
-                    icon(glyph, LEADING_ICON)
-                        .key("leading-icon")
-                        .color(c.icon_faint)
-                        .mr(-6.0)
-                        .a11y_hidden()
-                }))
+                .children(leading)
                 .child(
                     text(item.title)
                         .key("title")

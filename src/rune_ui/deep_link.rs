@@ -1,6 +1,7 @@
 //! Links that open the window on a page: `hex://labs`,
-//! `hex://labs/<feature>` (`hex labs link <feature>` prints it), and
-//! `hex://settings/<pane>` (`hex-test://` in a test build). A Labs link
+//! `hex://labs/<feature>` (`hex labs link <feature>` prints it),
+//! `hex://settings/<pane>`, and `hex://chats?id=<conversation>` (Labs ›
+//! Assistant's Chats; `hex-test://` in a test build). A Labs link
 //! opens the store, on Turned on with `?tab=on`, on a chip with
 //! `?category=<id>`, searching with `?search=<words>`, and on a lab's group
 //! chip when it names one; it never turns a lab on. Story links live
@@ -20,6 +21,8 @@ pub(crate) enum Target {
     Labs(LabsLink),
     /// A main pane, by its link name.
     Settings(String),
+    /// Chats, on a conversation (`?id=`) or a new chat.
+    Chats(Option<String>),
 }
 
 impl LabsLink {
@@ -43,10 +46,11 @@ impl LabsLink {
 }
 
 /// The main panes a `hex://settings/<pane>` link names.
-const PANES: [(&str, Pane); 5] = [
+const PANES: [(&str, Pane); 6] = [
     ("general", Pane::General),
     ("output", Pane::Output),
     ("history", Pane::History),
+    ("chats", Pane::Chats),
     ("meetings", Pane::Meetings),
     ("voice-filter", Pane::VoiceFilter),
 ];
@@ -63,6 +67,13 @@ pub(crate) fn parse(link: &str, scheme: &str) -> Option<Result<Target, String>> 
         return None;
     }
     let host = url.host_str()?;
+    if host == "chats" {
+        let id = url
+            .query_pairs()
+            .find(|(key, value)| key == "id" && !value.trim().is_empty())
+            .map(|(_, value)| value.trim().to_owned());
+        return Some(Ok(Target::Chats(id)));
+    }
     if host != "labs" && host != "settings" {
         return None;
     }
@@ -93,6 +104,9 @@ pub(crate) fn labs_link(scheme: &str, feature: crate::labs::Feature) -> String {
 pub(crate) fn open(ui: &mut Ui, target: Target, tx: &mut Tx) {
     match target {
         Target::Labs(link) => super::labs::reveal(ui, &link, tx),
+        Target::Chats(conversation) => {
+            super::show(ui, super::Destination::Chats(conversation), tx);
+        }
         Target::Settings(name) => {
             let pane = PANES
                 .iter()
@@ -190,6 +204,20 @@ mod tests {
         );
         assert!(matches!(read("hex://settings"), Some(Err(_))));
         assert!(matches!(read("hex://labs/%FF"), Some(Err(_))));
+    }
+
+    #[test]
+    fn reads_chats_links() {
+        assert_eq!(
+            read("hex://chats?id=2f9c-41"),
+            Some(Ok(Target::Chats(Some("2f9c-41".into()))))
+        );
+        assert_eq!(read("hex://chats"), Some(Ok(Target::Chats(None))));
+        assert_eq!(read("hex://chats?id="), Some(Ok(Target::Chats(None))));
+        assert_eq!(
+            parse("hex-test://chats?id=a%20b", "hex-test"),
+            Some(Ok(Target::Chats(Some("a b".into()))))
+        );
     }
 
     #[test]

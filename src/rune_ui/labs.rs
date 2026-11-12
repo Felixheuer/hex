@@ -31,19 +31,20 @@ pub(super) static LABS_ICON: Icon = Icon {
 };
 
 /// The main sidebar's panes, in order: General, Output, History, then the
-/// features turned on (Meetings and Voice Filter from Labs, Annotate in dev
-/// builds).
+/// features turned on (Chats, Meetings, and Voice Filter from Labs, Annotate
+/// in dev builds).
 pub(super) fn main_panes(ui: &Ui) -> Vec<Pane> {
     let mut panes = vec![Pane::General, Pane::Output, Pane::History];
     #[cfg(hex_capture)]
     let optional = [
+        Pane::Chats,
         Pane::Captures,
         Pane::Meetings,
         Pane::Annotate,
         Pane::VoiceFilter,
     ];
     #[cfg(not(hex_capture))]
-    let optional = [Pane::Meetings, Pane::VoiceFilter];
+    let optional = [Pane::Chats, Pane::Meetings, Pane::VoiceFilter];
     panes.extend(optional.into_iter().filter(|pane| pane.shown(ui)));
     panes
 }
@@ -1028,6 +1029,10 @@ fn flip(ui: &mut Ui, lab: Lab) {
         // Hex hears the browser through System Audio Recording.
         Feature::PauseBrowser if on && !ui.platform.system_audio => {
             ui.ask(super::platform::PlatformRequest::SystemAudio);
+        }
+        // The assistant's setup checks everything it needs, once.
+        Feature::Assistant if on && !ui.settings.assistant.setup_done => {
+            super::chats::open_setup(ui);
         }
         _ => {}
     }

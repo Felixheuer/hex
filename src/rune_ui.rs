@@ -12,6 +12,8 @@
 mod activity;
 #[cfg(hex_capture)]
 pub(crate) mod capture_capsule;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod chats;
 mod controls;
 #[cfg(target_os = "macos")]
 pub(crate) mod deep_link;
@@ -370,6 +372,7 @@ fn on_close(ui: &mut Ui, tx: &mut Tx) {
     ui.open = None;
     models::close(ui);
     ui.close_dialogs();
+    chats::window_closed(ui);
     // HUD Lab's demo would otherwise stay on screen; reopening starts at
     // General, and coming back to HUD Lab starts the demo again.
     if ui.pane == Pane::HudLab {
@@ -396,6 +399,9 @@ pub(crate) enum Destination {
     Models,
     /// The Meetings pane, with a meeting selected when given.
     Meetings(Option<String>),
+    /// Chats (Labs › Assistant), on a conversation or a new chat.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Chats(Option<String>),
     Modes,
     History,
 }
@@ -421,6 +427,10 @@ pub(crate) fn show(ui: &mut Ui, destination: Destination, tx: &mut Tx) {
         Destination::Meetings(_) => Pane::Meetings,
         Destination::Modes => Pane::Output,
         Destination::History => Pane::History,
+        Destination::Chats(conversation) => {
+            ui.close_dialogs();
+            return chats::show(ui, conversation.clone(), tx);
+        }
     };
     ui.close_dialogs();
     if pane.shown(ui) {
@@ -688,6 +698,8 @@ pub(crate) struct Ui {
     platform: platform::PlatformState,
     host: platform::PlatformHost,
     meetings: meetings::MeetingsPane,
+    /// Chats and the assistant's setup (Labs › Assistant).
+    chats: chats::ChatsPane,
     fun: fun::FunPane,
     activity: activity::ActivityPane,
     /// HUD Lab's preset was copied since it last changed.
@@ -803,6 +815,7 @@ impl Ui {
             platform: platform::PlatformState::new(platform::Capabilities::current()),
             host: platform::PlatformHost::Local(Default::default()),
             meetings: meetings::MeetingsPane::default(),
+            chats: chats::ChatsPane::default(),
             fun: fun::FunPane::default(),
             activity: activity::ActivityPane::default(),
             hud_copied: false,
@@ -1190,6 +1203,8 @@ fn on_key(ui: &mut Ui, event: &rune::KeyEvent, tx: &mut Tx) -> bool {
     } else if ui.open.is_some() {
         ui.open = None;
         true
+    } else if chats::escape(ui) {
+        true
     } else if ui.meetings.renaming.is_some() || ui.meetings.delete_armed.is_some() {
         ui.meetings.renaming = None;
         ui.meetings.delete_armed = None;
@@ -1240,6 +1255,7 @@ fn setup(ui: &mut Ui, waker: Waker) {
                 Arc::new(move || waker())
             };
             ui.host = platform::PlatformHost::Native(host::native_host(host_wake));
+            chats::connect(ui, waker.clone());
         }
         let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(move || waker());
         ui.service = Service::Live(Box::new(Backend::connect(connect, wake)));
@@ -1367,6 +1383,7 @@ fn poll(ui: &mut Ui, clock: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     changed |= onboarding::poll(ui);
+    changed |= chats::poll(ui, tx);
     changed |= onboarding_kit::live::poll(ui, tx);
     changed |= general::poll_level(ui, clock, tx);
     let visible = ui.window.as_ref().is_none_or(rune::AppHandle::is_visible);
@@ -1399,6 +1416,7 @@ fn view(ui: &Ui, cx: &mut Cx<Ui>) -> El {
         #[cfg(hex_capture)]
         Pane::Captures => (Vec::new(), captures::pane(ui, p)),
         Pane::Meetings => meetings::pane(ui, p, &mut layer),
+        Pane::Chats => chats::pane(ui, p, &mut layer),
         #[cfg(hex_capture)]
         Pane::Annotate => (Vec::new(), scrawl::pane(ui, p, &mut layer)),
         Pane::VoiceFilter => (Vec::new(), fun::pane(ui, p)),
@@ -1428,6 +1446,8 @@ fn view(ui: &Ui, cx: &mut Cx<Ui>) -> El {
             },
             if ui.labs_open {
                 Some(labs::search_field(ui, p))
+            } else if ui.pane == Pane::Chats {
+                Some(chats::view_switch(ui, p))
             } else {
                 (ui.pane == Pane::Meetings)
                     .then(|| meetings::view_switch(ui, p))
@@ -1456,6 +1476,9 @@ fn view(ui: &Ui, cx: &mut Cx<Ui>) -> El {
     }
     if let Some(modal) = vocabulary::modal(ui, p) {
         layer.extend(modal);
+    }
+    if let Some(setup) = chats::setup_overlay(ui, p) {
+        layer.push(setup);
     }
     if let Some(first_run) = onboarding_kit::live::overlay(ui, p, cx.is_reduced_motion()) {
         layer.push(first_run);

@@ -1,0 +1,419 @@
+//! Chats › Settings: the agent that answers and its model, the Claude API
+//! key, reading answers aloud, how far tasks may act on the desktop, the
+//! follow-up window, and how many tasks run at once.
+
+use std::time::Instant;
+
+use rune::{El, TextEdit, row};
+use rune_kit::TextInput;
+
+use super::super::Menu;
+use super::super::controls::{CardRow, Paint, described_row, section, setting_row, toggle_row};
+use super::super::general::quiet_select;
+use super::super::lists::small_button;
+use super::{BACKENDS, Job, Ui, backend_name};
+use crate::app_settings::{AssistantBackend, AssistantSettings};
+use crate::assistant::backends::Found;
+use crate::desktop::i18n::{tr, tr_fill};
+
+/// Follow-up windows offered, in seconds; 0 always starts a new conversation.
+const FOLLOW_UP: [u32; 6] = [0, 10, 20, 30, 60, 120];
+/// Parallel task limits offered.
+const PARALLEL: [u32; 12] = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64];
+/// How long typing in a model field pauses before it's saved.
+const SAVE_AFTER: f64 = super::MODEL_SAVE_DELAY.as_secs_f64();
+
+/// Settings' lists and text fields.
+#[derive(Default)]
+pub(in crate::rune_ui) struct SettingsState {
+    /// The agents found on this Mac, once looked for.
+    pub(in crate::rune_ui) found: Option<Vec<Found>>,
+    /// The installed voices, once listed.
+    pub(in crate::rune_ui) voices: Option<Vec<String>>,
+    /// Each backend's model, in [`BACKENDS`] order, as typed.
+    pub(in crate::rune_ui) models: [TextEdit; 4],
+    /// When a model field last changed without being saved.
+    model_typed: Option<Instant>,
+    /// The Claude API key as typed; cleared once saved.
+    pub(in crate::rune_ui) key: TextEdit,
+    pub(in crate::rune_ui) key_error: Option<String>,
+}
+
+fn index(backend: AssistantBackend) -> usize {
+    BACKENDS
+        .iter()
+        .position(|known| *known == backend)
+        .unwrap_or(0)
+}
+
+/// A backend's saved model, as its field shows it.
+fn saved_model(settings: &AssistantSettings, backend: AssistantBackend) -> String {
+    match backend {
+        AssistantBackend::ClaudeCode => settings.claude_code_model.clone().unwrap_or_default(),
+        AssistantBackend::Codex => settings.codex_model.clone().unwrap_or_default(),
+        AssistantBackend::OpenCode => settings.opencode_model.clone().unwrap_or_default(),
+        AssistantBackend::ClaudeApi => settings.claude_api_model.clone(),
+    }
+}
+
+/// `settings` with every model field's text.
+fn with_models(settings: &AssistantSettings, models: &[TextEdit; 4]) -> AssistantSettings {
+    let mut next = settings.clone();
+    let typed = |backend: AssistantBackend| {
+        let text = models[index(backend)].text.trim();
+        (!text.is_empty()).then(|| text.to_owned())
+    };
+    next.claude_code_model = typed(AssistantBackend::ClaudeCode);
+    next.codex_model = typed(AssistantBackend::Codex);
+    next.opencode_model = typed(AssistantBackend::OpenCode);
+    next.claude_api_model = typed(AssistantBackend::ClaudeApi)
+        .unwrap_or_else(|| AssistantSettings::default().claude_api_model);
+    next
+}
+
+/// Settings opened: its fields show what's saved, and the agents and voices
+/// are looked up.
+pub(super) fn opened(ui: &mut Ui) {
+    for backend in BACKENDS {
+        ui.chats.settings.models[index(backend)] =
+            TextEdit::new(saved_model(&ui.settings.assistant, backend));
+    }
+    ui.chats.settings.model_typed = None;
+    ui.chats.jobs.run(Job::Detect);
+    if ui.chats.settings.voices.is_none() {
+        ui.chats.jobs.run(Job::Voices);
+    }
+}
+
+/// Saves model fields once typing pauses.
+pub(super) fn poll(ui: &mut Ui, now: Instant) -> bool {
+    let Some(typed) = ui.chats.settings.model_typed else {
+        return false;
+    };
+    if now.duration_since(typed).as_secs_f64() < SAVE_AFTER {
+        return false;
+    }
+    flush(ui);
+    true
+}
+
+/// Saves model fields now (leaving Settings).
+pub(super) fn flush(ui: &mut Ui) {
+    if ui.chats.settings.model_typed.take().is_none() {
+        return;
+    }
+    let next = with_models(&ui.settings.assistant, &ui.chats.settings.models);
+    if next != ui.settings.assistant {
+        ui.update(|settings| settings.assistant = next);
+    }
+}
+
+/// Saves the typed Claude API key in the Keychain.
+pub(super) fn save_key(ui: &mut Ui) {
+    let key = ui.chats.settings.key.text.trim().to_owned();
+    ui.chats.settings.key_error = None;
+    ui.chats.jobs.run(Job::SaveKey(key));
+}
+
+pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
+    let assistant = &ui.settings.assistant;
+    let mut agent: Vec<CardRow> = vec![
+        setting_row(
+            p,
+            "assistant-backend",
+            tr("Agent"),
+            Some(tr("Answers and does the tasks, signed in with your own account")),
+            backend_select(ui, p, layer),
+        )
+        .into(),
+        setting_row(
+            p,
+            "assistant-model",
+            tr("Model"),
+            Some(tr("Empty uses the agent's own default")),
+            model_field(ui, p),
+        )
+        .into(),
+    ];
+    if assistant.backend == AssistantBackend::ClaudeApi {
+        agent.push(key_row(ui, p).into());
+    }
+    let mut voice = vec![toggle_row(
+        p,
+        "assistant-speak",
+        tr("Read answers aloud"),
+        tr("Quick questions answer out loud as well as in the HUD"),
+        assistant.speak_answers,
+        |ui: &mut Ui| { ui.update(|settings| settings.assistant.speak_answers ^= true); },
+    )];
+    if assistant.speak_answers {
+        voice.push(setting_row(
+            p,
+            "assistant-voice",
+            tr("Voice"),
+            None,
+            row()
+                .key("voice-controls")
+                .gap(8.0)
+                .center_y()
+                .child(voice_select(ui, p, layer))
+                .child(small_button(p, "test-voice", tr("Test voice"), |ui: &mut Ui, _| {
+                    let voice = ui.settings.assistant.voice.clone();
+                    ui.chats.jobs.run(Job::Speak(voice));
+                })),
+        ));
+    }
+    let physical = if assistant.physical_input {
+        Some((
+            tr("Tasks move your pointer and type with your keyboard. Don't use them while a task runs").to_owned(),
+            p.warning(),
+        ))
+    } else {
+        Some((
+            tr("Off keeps every action in the background, without your pointer or keys").to_owned(),
+            p.muted(),
+        ))
+    };
+    let mut desktop = vec![toggle_row(
+        p,
+        "assistant-control-desktop",
+        tr("Operate apps"),
+        tr("Tasks click, type, and read apps through agent-desktop"),
+        assistant.control_desktop,
+        |ui: &mut Ui| { ui.update(|settings| settings.assistant.control_desktop ^= true); },
+    )];
+    if assistant.control_desktop {
+        desktop.push(
+            super::super::controls::pressable_row(
+                described_row(
+                    p,
+                    "assistant-physical-input",
+                    tr("Use the real pointer and keyboard"),
+                    physical,
+                    super::super::controls::row_switch(p, assistant.physical_input),
+                ),
+                assistant.physical_input,
+            )
+            .on_press(|ui: &mut Ui| { ui.update(|settings| settings.assistant.physical_input ^= true); }),
+        );
+    }
+    desktop.push(toggle_row(
+        p,
+        "assistant-screenshot",
+        tr("Send a screenshot"),
+        tr("A quick question includes the screen the pointer is on"),
+        assistant.include_screenshot,
+        |ui: &mut Ui| { ui.update(|settings| settings.assistant.include_screenshot ^= true); },
+    ));
+    let tasks = vec![
+        setting_row(
+            p,
+            "assistant-follow-up",
+            tr("Follow-up window"),
+            Some(tr("A question this soon after an answer continues that chat")),
+            follow_up_select(ui, p, layer),
+        ),
+        setting_row(
+            p,
+            "assistant-parallel",
+            tr("Tasks at once"),
+            Some(tr("More wait their turn")),
+            parallel_select(ui, p, layer),
+        ),
+    ];
+    vec![
+        section(p, "assistant-agent", tr("Agent"), agent),
+        section(p, "assistant-voice-section", tr("Answers"), voice),
+        section(p, "assistant-desktop", tr("Desktop"), desktop),
+        section(p, "assistant-tasks", tr("Tasks"), tasks),
+    ]
+}
+
+/// The settings page.
+pub(super) fn page(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
+    super::super::controls::page("chats-settings")
+        .pb(24.0)
+        .children(page_rows(ui, p, layer))
+}
+
+fn backend_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
+    let found = ui.chats.settings.found.as_deref();
+    let labels: Vec<String> = BACKENDS
+        .iter()
+        .map(|backend| {
+            let name = backend_name(*backend);
+            match found.and_then(|found| found.iter().find(|entry| entry.backend == *backend)) {
+                Some(entry) if !entry.ready => tr_fill("{} (not ready)", name),
+                _ => name.to_owned(),
+            }
+        })
+        .collect();
+    quiet_select(
+        ui,
+        p,
+        Menu::Pick("assistant-backend"),
+        "assistant-backend-control".to_owned(),
+        tr("Agent"),
+        labels,
+        index(ui.settings.assistant.backend),
+        |ui, chosen| {
+            flush(ui);
+            ui.update(|settings| settings.assistant.backend = BACKENDS[chosen]);
+        },
+        layer,
+    )
+}
+
+fn model_field(ui: &Ui, p: Paint) -> El {
+    let backend = ui.settings.assistant.backend;
+    let slot = index(backend);
+    let placeholder = match backend {
+        AssistantBackend::OpenCode => "provider/model",
+        AssistantBackend::ClaudeApi => "claude-sonnet-5-5",
+        _ => tr("Default"),
+    };
+    TextInput::new(&ui.chats.settings.models[slot])
+        .placeholder(placeholder)
+        .label(tr("Model"))
+        .width(Some(220.0))
+        .on_edit(move |ui: &mut Ui| &mut ui.chats.settings.models[slot])
+        .on_change(|ui: &mut Ui, _| ui.chats.settings.model_typed = Some(Instant::now()))
+        .build(p.k)
+        .key("assistant-model-field")
+}
+
+/// The Claude API key: a secure field and Save; the key goes to the
+/// Keychain, never to settings.
+pub(super) fn key_row(ui: &Ui, p: Paint) -> El {
+    let state = &ui.chats.settings;
+    let description = match &state.key_error {
+        Some(error) => (error.clone(), p.danger()),
+        None => (tr("Kept in your Keychain, never in Hex's settings").to_owned(), p.muted()),
+    };
+    described_row(
+        p,
+        "assistant-api-key",
+        tr("API key"),
+        Some(description),
+        row()
+            .key("key-controls")
+            .gap(8.0)
+            .center_y()
+            .child(
+                TextInput::new(&state.key)
+                    .secure()
+                    .placeholder("sk-ant-…")
+                    .label(tr("API key"))
+                    .width(Some(180.0))
+                    .on_edit(|ui: &mut Ui| &mut ui.chats.settings.key)
+                    .on_submit(|ui: &mut Ui, _| save_key(ui))
+                    .build(p.k)
+                    .key("api-key-field"),
+            )
+            .child(small_button(p, "save-api-key", tr("Save"), |ui: &mut Ui, _| save_key(ui))),
+    )
+}
+
+fn voice_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
+    let voices = ui.chats.settings.voices.clone().unwrap_or_default();
+    let mut labels = vec![tr("System voice").to_owned()];
+    labels.extend(voices.iter().cloned());
+    let current = ui.settings.assistant.voice.as_deref();
+    let selected = current
+        .and_then(|voice| voices.iter().position(|known| known == voice))
+        .map_or(0, |index| index + 1);
+    quiet_select(
+        ui,
+        p,
+        Menu::Pick("assistant-voice"),
+        "assistant-voice-control".to_owned(),
+        tr("Voice"),
+        labels,
+        selected,
+        move |ui, chosen| {
+            let voice = chosen.checked_sub(1).and_then(|index| voices.get(index).cloned());
+            ui.update(|settings| settings.assistant.voice = voice);
+        },
+        layer,
+    )
+}
+
+fn seconds_label(seconds: u32) -> String {
+    match seconds {
+        0 => tr("Off").to_owned(),
+        60.. if seconds % 60 == 0 => tr_fill("{} min", &(seconds / 60).to_string()),
+        _ => tr_fill("{} s", &seconds.to_string()),
+    }
+}
+
+/// `values` with `saved` among them, sorted, and where `saved` is.
+fn with_saved(values: &[u32], saved: u32) -> (Vec<u32>, usize) {
+    let mut values = values.to_vec();
+    if !values.contains(&saved) {
+        values.push(saved);
+        values.sort_unstable();
+    }
+    let index = values.iter().position(|value| *value == saved).unwrap_or(0);
+    (values, index)
+}
+
+fn follow_up_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
+    let (values, selected) = with_saved(&FOLLOW_UP, ui.settings.assistant.follow_up_seconds);
+    quiet_select(
+        ui,
+        p,
+        Menu::Pick("assistant-follow-up"),
+        "assistant-follow-up-control".to_owned(),
+        tr("Follow-up window"),
+        values.iter().map(|seconds| seconds_label(*seconds)).collect(),
+        selected,
+        move |ui, chosen| {
+            let seconds = values[chosen];
+            ui.update(|settings| settings.assistant.follow_up_seconds = seconds);
+        },
+        layer,
+    )
+}
+
+fn parallel_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
+    let saved = ui.settings.assistant.max_parallel.clamp(1, 64);
+    let (values, selected) = with_saved(&PARALLEL, saved);
+    quiet_select(
+        ui,
+        p,
+        Menu::Pick("assistant-parallel"),
+        "assistant-parallel-control".to_owned(),
+        tr("Tasks at once"),
+        values.iter().map(u32::to_string).collect(),
+        selected,
+        move |ui, chosen| {
+            let limit = values[chosen];
+            ui.update(|settings| settings.assistant.max_parallel = limit);
+        },
+        layer,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_fields_save_trimmed_and_empty_is_the_default() {
+        let saved = AssistantSettings::default();
+        let mut models: [TextEdit; 4] = Default::default();
+        models[index(AssistantBackend::Codex)] = TextEdit::new("  gpt-6 ");
+        let next = with_models(&saved, &models);
+        assert_eq!(next.codex_model.as_deref(), Some("gpt-6"));
+        assert_eq!(next.claude_code_model, None);
+        assert_eq!(next.claude_api_model, saved.claude_api_model);
+    }
+
+    #[test]
+    fn a_saved_value_outside_the_choices_stays_choosable() {
+        assert_eq!(with_saved(&PARALLEL, 8), (PARALLEL.to_vec(), 5));
+        let (values, index) = with_saved(&PARALLEL, 5);
+        assert_eq!(values[index], 5);
+        assert_eq!(values.len(), PARALLEL.len() + 1);
+    }
+}

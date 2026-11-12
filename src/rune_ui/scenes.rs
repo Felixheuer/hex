@@ -749,6 +749,21 @@ pub(super) const SCENES: &[Scene] = &[
         *ui = mac_fixture();
         ui.settings.meetings.enabled = false;
     }),
+    // Labs › Assistant's Chats and setup (macOS only, so no golden moves).
+    #[cfg(target_os = "macos")]
+    ("mac-chats", |ui| mac_chats(ui, chats::fixture::Scene::Conversation)),
+    #[cfg(target_os = "macos")]
+    ("mac-chats-running", |ui| mac_chats(ui, chats::fixture::Scene::Running)),
+    #[cfg(target_os = "macos")]
+    ("mac-chats-empty", |ui| mac_chats(ui, chats::fixture::Scene::Empty)),
+    #[cfg(target_os = "macos")]
+    ("mac-chats-settings", |ui| mac_chats(ui, chats::fixture::Scene::Settings)),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup", |ui| mac_chats(ui, chats::fixture::Scene::Setup)),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-done", |ui| {
+        mac_chats(ui, chats::fixture::Scene::SetupDone)
+    }),
     ("mac-activity", |ui| {
         *ui = mac_fixture();
         ui.platform.developer = true;
@@ -822,6 +837,14 @@ fn scrawl_fixture(ui: &mut Ui, enabled: bool, adjust: fn(&mut platform::ScrawlVi
     adjust(&mut view);
     ui.platform.scrawl = Some(view);
     ui.pane = Pane::Annotate;
+}
+
+/// The macOS window with Labs › Assistant on, at a Chats `scene`.
+#[cfg(target_os = "macos")]
+fn mac_chats(ui: &mut Ui, scene: chats::fixture::Scene) {
+    *ui = mac_fixture();
+    ui.settings.meetings.enabled = false;
+    chats::fixture_scene(ui, scene);
 }
 
 pub(super) fn mac_fixture() -> Ui {
