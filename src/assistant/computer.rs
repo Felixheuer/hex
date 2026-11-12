@@ -1,11 +1,18 @@
-//! What Hex itself reads from the desktop (macOS): a quick question's
-//! context (screenshot, selected text, frontmost app) and where a task's
-//! windows are, for their outlines. Tasks operate apps through agent-desktop
+//! What Hex itself reads from the desktop: a quick question's context
+//! (screenshot, selected text, frontmost app) and where a task's windows
+//! are, for their outlines. Tasks operate apps through agent-desktop
 //! (`backends`), not through this module.
 //!
-//! Everything here only reads: the selection comes through Accessibility,
-//! never the clipboard, and the screenshot through ScreenCaptureKit with
-//! every window of Hex's own (the HUD, the frame, Chats) left out.
+//! Everything here only reads: the selection comes through the OS's
+//! accessibility API, never the clipboard, and the screenshot never shows
+//! Hex's own windows (the HUD, the frame, Chats), blocked apps' windows, or
+//! password fields.
+//!
+//! - macOS: Accessibility, and ScreenCaptureKit with those windows left out.
+//! - Windows: UI Automation, and GDI with what shows of them blacked out
+//!   ([`windows`]); coordinates are global physical pixels.
+//! - Linux: AT-SPI; on X11 the root window with what shows of them blacked
+//!   out, on Wayland the Screenshot portal ([`linux`]).
 //!
 //! OWNER: hands (with `speech`).
 
@@ -27,7 +34,13 @@ pub const LONG_SIDE: u32 = 1280;
 const MAX_SELECTION: usize = 20_000;
 
 mod displays;
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(any(test, not(target_os = "macos")))]
+mod mask;
 mod privacy;
+#[cfg(target_os = "windows")]
+mod windows;
 
 pub use displays::{
     Display, agents_display, cascade, describe as describe_displays, display_of, displays,
@@ -46,26 +59,35 @@ pub fn screenshot() -> Result<Screenshot> {
     {
         macos::screenshot()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        Err(eyre!("taking screenshots isn't available on this computer"))
+        windows::screenshot()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux::screenshot()
     }
 }
 
 /// Where `window` is on screen, in global display points (x, y, width,
 /// height), for its task's outline; `None` when it's gone or hidden.
 ///
-/// A window id is agent-desktop's (`w-4521`), whose number is the
-/// CoreGraphics window number; without one, the app's frontmost window.
+/// A window id is agent-desktop's: `w-4521` on macOS (the CoreGraphics
+/// window number) and Windows (`w-<hwnd>`), the window's accessible address
+/// on Linux; without one, the app's frontmost window. Windows gives global
+/// pixels; Wayland tells no window's place (`None`).
 pub fn window_frame(window: &crate::assistant::TaskWindow) -> Option<(f64, f64, f64, f64)> {
     #[cfg(target_os = "macos")]
     {
         macos::window_frame(window)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        let _ = window;
-        None
+        windows::window_frame(window)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux::window_frame(window)
     }
 }
 
@@ -77,9 +99,13 @@ pub fn quick_context() -> crate::assistant::Context {
     {
         macos::quick_context()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        crate::assistant::Context::default()
+        windows::quick_context()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux::quick_context()
     }
 }
 
@@ -220,57 +246,170 @@ impl Drop for ContextHandle {
     }
 }
 
-/// Whether Hex may read other apps and record the screen (macOS
-/// Accessibility and Screen Recording), for setup to show what's missing,
-/// read afresh so a grant made since launch shows; blocks for up to a few
-/// seconds. Off the UI thread.
+/// Whether Hex may read other apps and take screenshots, for setup to show
+/// what's missing, read afresh so a grant made since launch shows; blocks
+/// for up to a few seconds. Off the UI thread.
+///
+/// - macOS: Accessibility and Screen Recording.
+/// - Windows: nothing to grant; both are true.
+/// - Linux: `accessibility` is the accessibility bus being on (AT-SPI);
+///   `screen_recording` is true on X11, and on Wayland once the Screenshot
+///   portal allowed Hex.
 pub fn permissions_now() -> Permissions {
     #[cfg(target_os = "macos")]
     {
         macos::permissions()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        Permissions::default()
+        windows::permissions()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux::permissions()
     }
 }
 
+/// What Hex may do, each true where nothing needs granting.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Permissions {
+    /// Read other apps' text: [`Permission::Accessibility`].
     pub accessibility: bool,
+    /// Take screenshots: [`Permission::ScreenRecording`].
     pub screen_recording: bool,
 }
 
 /// One permission Hex asks for.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Permission {
+    /// macOS's Accessibility; Linux's accessibility bus.
     Accessibility,
+    /// macOS's Screen Recording; Wayland's Screenshot portal.
     ScreenRecording,
 }
 
 impl Permission {
-    /// Its name in System Settings.
+    /// Its name where it is granted (System Settings on macOS), in English
+    /// for `tr()`.
     pub fn name(self) -> &'static str {
         match self {
+            Self::Accessibility if cfg!(target_os = "linux") => "Accessibility bus",
+            Self::ScreenRecording if cfg!(target_os = "linux") => "Screenshots",
             Self::Accessibility => "Accessibility",
             Self::ScreenRecording => "Screen Recording",
         }
     }
 }
 
-/// Opens System Settings at `permission`'s list. On the main thread Hex's
-/// own guide floats beside it with Hex to drag in (as onboarding does);
-/// elsewhere the list opens alone.
+/// Gets `permission` granted.
+///
+/// - macOS: opens System Settings at its list. On the main thread Hex's
+///   own guide floats beside it with Hex to drag in (as onboarding does);
+///   elsewhere the list opens alone.
+/// - Linux: turns the accessibility bus on at once; on Wayland, asks the
+///   Screenshot portal, which shows its question.
+/// - Windows: nothing to grant.
 pub fn open_settings(permission: Permission) {
     #[cfg(target_os = "macos")]
     macos::open_settings(permission);
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    linux::open_settings(permission);
+    #[cfg(target_os = "windows")]
     let _ = permission;
 }
 
-/// The CoreGraphics window number in an agent-desktop window id (`w-4521`).
+/// The number in an agent-desktop window id (`w-4521`): the CoreGraphics
+/// window number on macOS, the window handle on Windows.
 pub fn window_number(id: &str) -> Option<u32> {
     id.trim().strip_prefix("w-")?.parse().ok()
+}
+
+/// The bus name and object path an agent-desktop window id on Linux is made
+/// of (`:1.42/org/a11y/atspi/accessible/7`).
+#[cfg(any(test, target_os = "linux"))]
+pub fn atspi_address(id: &str) -> Option<(String, String)> {
+    let id = id.trim();
+    let slash = id.find('/')?;
+    let (name, path) = id.split_at(slash);
+    let name_ok = name.len() > 1
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '.' | '_' | '-'));
+    let path_ok = path.len() > 1
+        && path.split('/').skip(1).all(|part| {
+            !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        });
+    (name_ok && path_ok).then(|| (name.to_owned(), path.to_owned()))
+}
+
+/// What a portal permission store's table says for `app_id`: `yes` or
+/// `no`, `None` when it says nothing.
+#[cfg(any(test, target_os = "linux"))]
+pub fn stored_answer(
+    permissions: &std::collections::HashMap<String, Vec<String>>,
+    app_id: &str,
+) -> Option<bool> {
+    match permissions.get(app_id)?.first()?.as_str() {
+        "yes" => Some(true),
+        "no" => Some(false),
+        _ => None,
+    }
+}
+
+/// Where `display` lies in a picture of the whole desktop that is `size`
+/// pixels (the bounding box of `displays`, at one scale): `[x, y, width,
+/// height]` in its pixels, or `None` when the picture isn't that layout.
+#[cfg(any(test, target_os = "linux"))]
+pub fn crop_rect(
+    displays: &[Display],
+    display: &Display,
+    (width, height): (u32, u32),
+) -> Option<[u32; 4]> {
+    let left = displays
+        .iter()
+        .map(|d| d.frame.0)
+        .fold(f64::INFINITY, f64::min);
+    let top = displays
+        .iter()
+        .map(|d| d.frame.1)
+        .fold(f64::INFINITY, f64::min);
+    let right = displays
+        .iter()
+        .map(|d| d.frame.0 + d.frame.2)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let bottom = displays
+        .iter()
+        .map(|d| d.frame.1 + d.frame.3)
+        .fold(f64::NEG_INFINITY, f64::max);
+    if displays.len() < 2 || right <= left || bottom <= top {
+        return None;
+    }
+    let scale = f64::from(width) / (right - left);
+    // The picture must have the layout's shape, or it's not this layout.
+    if ((bottom - top) * scale - f64::from(height)).abs() > 2.0 {
+        return None;
+    }
+    let (x, y, w, h) = display.frame;
+    let rect = [
+        ((x - left) * scale).round() as u32,
+        ((y - top) * scale).round() as u32,
+        (w * scale).round() as u32,
+        (h * scale).round() as u32,
+    ];
+    (rect[0] + rect[2] <= width && rect[1] + rect[3] <= height && rect[2] > 0 && rect[3] > 0)
+        .then_some(rect)
+}
+
+/// The `[x, y, width, height]` part of a tightly packed RGBA image `width`
+/// pixels wide.
+#[cfg(any(test, target_os = "linux"))]
+pub fn crop(rgba: &[u8], width: u32, [x, y, w, h]: [u32; 4]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(w as usize * h as usize * 4);
+    for row in y..y + h {
+        let start = (row as usize * width as usize + x as usize) * 4;
+        out.extend_from_slice(&rgba[start..start + w as usize * 4]);
+    }
+    out
 }
 
 /// `width` × `height` scaled down so the long side is at most `long_side`,
@@ -350,6 +489,7 @@ fn clip_selection(text: String) -> String {
 /// their bounds as they come, global points with the origin at the primary
 /// display's top-left corner and y growing down (a display above the
 /// primary one has negative y), which is what the overlays draw in.
+#[cfg(any(test, not(target_os = "linux")))]
 pub fn frame_among(
     windows: &[scrawl_capture::windows::RawWindow],
     window: &crate::assistant::TaskWindow,
@@ -376,6 +516,7 @@ pub fn frame_among(
 /// (`focused`, through Accessibility) when CoreGraphics shows it, else the
 /// app's frontmost ordinary window among CoreGraphics' on-screen windows
 /// (front to back).
+#[cfg(any(test, not(target_os = "linux")))]
 pub fn front_window_among(
     windows: &[scrawl_capture::windows::RawWindow],
     pid: i32,
@@ -591,6 +732,66 @@ mod tests {
         assert_eq!(window_number(" w-7 "), Some(7));
         assert_eq!(window_number("14569"), None);
         assert_eq!(window_number("w-x"), None);
+    }
+
+    #[test]
+    fn linux_window_ids_are_accessible_addresses() {
+        assert_eq!(
+            atspi_address(":1.42/org/a11y/atspi/accessible/7"),
+            Some((":1.42".into(), "/org/a11y/atspi/accessible/7".into()))
+        );
+        assert_eq!(
+            atspi_address("org.gnome.TextEditor/org/gtk/Application/anonymous/a11y/12"),
+            Some((
+                "org.gnome.TextEditor".into(),
+                "/org/gtk/Application/anonymous/a11y/12".into()
+            ))
+        );
+        assert_eq!(atspi_address("w-14569"), None);
+        assert_eq!(atspi_address(":1.42/"), None);
+        assert_eq!(atspi_address("/org/a11y"), None);
+    }
+
+    #[test]
+    fn the_portal_store_says_yes_no_or_nothing() {
+        let store = std::collections::HashMap::from([
+            ("anomaly.hex".to_owned(), vec!["yes".to_owned()]),
+            ("other".to_owned(), vec!["no".to_owned()]),
+        ]);
+        assert_eq!(stored_answer(&store, "anomaly.hex"), Some(true));
+        assert_eq!(stored_answer(&store, "other"), Some(false));
+        assert_eq!(stored_answer(&store, "missing"), None);
+    }
+
+    #[test]
+    fn a_desktop_picture_is_cut_to_the_persons_display() {
+        let display = |id: &str, frame| Display {
+            id: id.into(),
+            name: id.into(),
+            frame,
+            visible_frame: frame,
+            scale: 1.0,
+            is_primary: false,
+            has_focus: false,
+        };
+        let displays = [
+            display("1", (0.0, 0.0, 1920.0, 1080.0)),
+            display("2", (1920.0, -200.0, 1280.0, 1024.0)),
+        ];
+        // 3200 × 1280 points, pictured at 2×.
+        assert_eq!(
+            crop_rect(&displays, &displays[1], (6400, 2560)),
+            Some([3840, 0, 2560, 2048])
+        );
+        assert_eq!(
+            crop_rect(&displays, &displays[0], (6400, 2560)),
+            Some([0, 400, 3840, 2160])
+        );
+        // A picture of another shape, or one display: the whole picture.
+        assert_eq!(crop_rect(&displays, &displays[0], (6400, 1000)), None);
+        assert_eq!(crop_rect(&displays[..1], &displays[0], (1920, 1080)), None);
+        let rgba: Vec<u8> = (0..4 * 3 * 4).map(|i| i as u8).collect();
+        assert_eq!(crop(&rgba, 4, [1, 1, 2, 1]), rgba[20..28]);
     }
 
     #[test]

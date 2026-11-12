@@ -1,27 +1,34 @@
 //! What a question's screenshot never shows: the windows of apps the person
-//! blocked (left out of the capture by ScreenCaptureKit), and password
-//! fields (blacked out on the image, found through Accessibility).
+//! blocked (left out of the capture by ScreenCaptureKit on macOS, blacked
+//! out on Windows and X11), and password fields (blacked out on the image,
+//! found through the OS's accessibility API).
 
 /// `[x, y, width, height]` in global points.
 pub type Rect = [f64; 4];
 
 /// How long finding password fields may take, for all apps together.
+#[cfg(target_os = "macos")]
 const SECURE_BUDGET: std::time::Duration = std::time::Duration::from_millis(250);
 
-/// An app name or bundle id as compared: case, soft hyphens, and spacing
-/// don't count.
+/// An app name, bundle id, or executable as compared: case, soft hyphens,
+/// spacing, and a Windows `.exe` don't count.
 fn key(name: &str) -> String {
-    name.chars()
+    let key = name
+        .chars()
         .filter(|c| *c != '\u{ad}')
         .flat_map(char::to_lowercase)
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
-        .join(" ")
+        .join(" ");
+    match key.strip_suffix(".exe") {
+        Some(stem) if !stem.is_empty() => stem.to_owned(),
+        _ => key,
+    }
 }
 
 /// The processes among `owners` (pid, app name) that are blocked apps, by
-/// name or by bundle id (`bundle_of`).
+/// name or by bundle id (`bundle_of`; off macOS, the executable's name).
 pub fn blocked_pids(
     owners: &[(i32, String)],
     bundle_of: impl Fn(i32) -> Option<String>,
@@ -75,24 +82,32 @@ pub fn black_out(rgba: &mut [u8], (width, height): (u32, u32), display: Rect, re
 
 /// The blocked apps (`assistant.blocked_apps`, its defaults until settings
 /// are applied).
-fn blocked_apps() -> Vec<String> {
+pub fn blocked_apps() -> Vec<String> {
     crate::app_settings::assistant_runtime()
         .map(|(_, settings)| settings.blocked_apps)
         .unwrap_or_else(|| crate::app_settings::AssistantSettings::default().blocked_apps)
 }
 
-/// The processes of blocked apps that show windows now.
-#[cfg(target_os = "macos")]
+/// The processes of blocked apps that show windows now (none known on
+/// Wayland, which tells no app of other windows).
 pub fn blocked_pids_now() -> Vec<i32> {
     let blocked = blocked_apps();
     if blocked.is_empty() {
         return Vec::new();
     }
-    let windows = objc2::rc::autoreleasepool(|_| scrawl_capture::windows::raw_windows());
-    let owners: Vec<(i32, String)> = windows
-        .iter()
-        .map(|window| (window.pid, window.owner.clone()))
-        .collect();
+    #[cfg(target_os = "macos")]
+    let owners: Vec<(i32, String)> =
+        objc2::rc::autoreleasepool(|_| scrawl_capture::windows::raw_windows())
+            .iter()
+            .map(|window| (window.pid, window.owner.clone()))
+            .collect();
+    #[cfg(target_os = "windows")]
+    let (owners, bundle_id) = (
+        super::windows::window_owners(),
+        super::windows::executable_name,
+    );
+    #[cfg(target_os = "linux")]
+    let (owners, bundle_id) = (super::linux::window_owners(), super::linux::executable_name);
     blocked_pids(&owners, bundle_id, &blocked)
 }
 
@@ -156,6 +171,16 @@ mod tests {
             "com.agilebits.onepassword7".to_owned(),
         ];
         assert_eq!(blocked_pids(&owners, bundle, &blocked), [10, 12]);
+        // Windows names apps by their executables.
+        let windows = [
+            (20, "Bitwarden.exe".to_owned()),
+            (21, "Code.exe".to_owned()),
+        ];
+        assert_eq!(
+            blocked_pids(&windows, |_| None, &["Bitwarden".to_owned()]),
+            [20]
+        );
+        assert_eq!(key(".exe"), ".exe");
         assert!(blocked_pids(&owners, bundle, &[]).is_empty());
     }
 
