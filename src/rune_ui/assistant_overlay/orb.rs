@@ -101,6 +101,9 @@ pub(crate) struct Orb {
     pub(crate) grow: Grow,
     /// The Action shortcut's keys, for "Hold ⌘ to answer".
     pub(crate) answer_key: String,
+    /// How loud an answer read aloud sounds now (0 to 1), when it can be
+    /// measured: the core pulses with it.
+    pub(crate) voice: Option<f32>,
     pub(crate) actions: Actions<Orb>,
 }
 
@@ -113,6 +116,8 @@ pub(crate) struct Look {
     pub(crate) still: bool,
     /// The Action shortcut's keys, for "Hold ⌘ to answer".
     pub(crate) answer_key: String,
+    /// The voice reading an answer aloud, when it can be measured.
+    pub(crate) voice: Option<f32>,
 }
 
 pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
@@ -122,6 +127,7 @@ pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
         grow: orb.grow,
         still: cx.system_reduced_motion(),
         answer_key: orb.answer_key.clone(),
+        voice: orb.voice,
     };
     el().key("orb-root")
         .w_full()
@@ -216,10 +222,11 @@ fn orb<S: 'static>(p: Paint, tasks: &[Task], look: &Look, actions: Actions<S>) -
             inset: false,
         })
         .a11y_hidden();
-    let core = if look.still {
-        core
-    } else {
-        core.looping(LoopSpec::opacity(frame::BREATH, 0.0, 0.62, 1.0))
+    let core = match look.voice {
+        // With the voice reading an answer aloud.
+        Some(level) => core.opacity(0.5 + 0.5 * super::bubble::pulse(level)),
+        None if look.still => core,
+        None => core.looping(LoopSpec::opacity(frame::BREATH, 0.0, 0.62, 1.0)),
     };
     let dots = tasks.iter().filter(|task| task.phase.live()).map(|task| {
         let colour = palette::task(task.colour, p.k.dark);

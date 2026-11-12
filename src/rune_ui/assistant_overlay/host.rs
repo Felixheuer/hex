@@ -35,6 +35,7 @@ use super::bubble::{self, BubbleOverlay};
 use super::frame::{self, Frame};
 use super::hands::{self, Hands};
 use super::hint::{self, Hint};
+use super::listening::{self, Listening};
 use super::orb::{self, Orb};
 use super::outline::{self, Outline};
 use super::{stack, when};
@@ -53,6 +54,7 @@ struct Overlays {
     bubble: OverlayHandle<BubbleOverlay>,
     hint: OverlayHandle<Hint>,
     hands: OverlayHandle<Hands>,
+    listening: OverlayHandle<Listening>,
 }
 
 static OVERLAYS: OnceLock<Overlays> = OnceLock::new();
@@ -155,6 +157,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             peek: false,
             grow: orb::Grow::default(),
             answer_key: answer_key(),
+            voice: None,
             actions: orb::Actions {
                 list: stack::Actions {
                     stop: |_, id| crate::assistant::cancel(id),
@@ -189,6 +192,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             speaking: false,
             setup: None,
             answer_key: answer_key(),
+            level: None,
             actions: bubble::Actions {
                 dismiss: dismiss_bubble,
                 open: |state, id| {
@@ -210,6 +214,10 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         passive("Hex hands off", hands::SIZE, hands::view),
         Hands::default(),
     );
+    let listening = app.overlay(
+        passive("Hex listening", listening::SIZE, listening::view).poll(listening_poll),
+        Listening::default(),
+    );
     let _ = OVERLAYS.set(Overlays {
         frames,
         outlines,
@@ -217,6 +225,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         bubble,
         hint,
         hands,
+        listening,
     });
     // Tasks already running when Hex started listening.
     if let Some(overlays) = OVERLAYS.get() {
@@ -492,6 +501,56 @@ fn ready() -> bool {
 fn frontmost_app() -> Option<String> {
     let app = objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication()?;
     Some(app.localizedName()?.to_string()).filter(|name| !name.is_empty())
+}
+
+// ---------------------------------------------------------------------------
+// Listening (conversation mode)
+
+/// How often the listening ring moves on.
+const LISTENING_TICK: Duration = Duration::from_millis(80);
+
+/// Shows conversation mode's listening past the HUD on the display the
+/// person works on while `on` (the trigger's `Listening`, until speech
+/// starts or it gives up). The HUD calls it on the main thread; a repeat
+/// does nothing. Nothing shows before the assistant's setup is done.
+pub(crate) fn listening(on: bool) {
+    let Some(overlays) = OVERLAYS.get() else {
+        return;
+    };
+    let seconds = crate::app_settings::assistant_runtime()
+        .map_or(8, |(_, settings)| settings.conversation_seconds) as f32;
+    let on = on && ready() && seconds > 0.0;
+    overlays.listening.update_if(move |state, tx| {
+        let Some(overlays) = OVERLAYS.get() else {
+            return false;
+        };
+        match (on, state.since.is_some()) {
+            (true, false) => {
+                *state = Listening::start(Instant::now(), seconds);
+                place_past_hud(&overlays.listening, listening::SIZE);
+                overlays.listening.fade_in(FADE);
+                tx.wake_after(LISTENING_TICK);
+                true
+            }
+            (false, true) => {
+                state.since = None;
+                overlays.listening.fade_out(FADE);
+                false
+            }
+            _ => false,
+        }
+    });
+}
+
+fn listening_poll(state: &mut Listening, _clock: f64, tx: &mut Tx) -> bool {
+    if state.since.is_none() {
+        return false;
+    }
+    let changed = state.tick(Instant::now());
+    if state.left > 0.0 {
+        tx.wake_after(LISTENING_TICK);
+    }
+    changed
 }
 
 // ---------------------------------------------------------------------------

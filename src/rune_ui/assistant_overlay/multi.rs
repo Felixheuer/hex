@@ -180,6 +180,7 @@ pub(crate) fn view(state: &TwoDisplays, cx: &mut Cx<TwoDisplays>) -> El {
                     grow,
                     still: true,
                     answer_key: fixture::ANSWER_KEY.into(),
+                    voice: None,
                 },
                 orb::Actions {
                     list: super::stack::Actions {

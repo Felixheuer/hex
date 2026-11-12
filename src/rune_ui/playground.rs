@@ -638,10 +638,16 @@ mod tests {
         let app = attach(App::new(spec(super::super::spec())));
         let mut rt = app.headless_runtime(WINDOW_SIZE, rune::Env::new(false, 1.0));
         rt.frame(0.0);
-        for story in ["desktop", "task-stack", "frame"] {
+        for story in ["desktop", "orb", "hands-off", "listening", "frame"] {
             open_link(
                 &mut rt,
                 &format!("hex://story/prototypes/assistant/{story}"),
+            );
+        }
+        for variant in ["bubbles", "quiet", "list", "escalated"] {
+            open_link(
+                &mut rt,
+                &format!("hex://story/prototypes/assistant/orb?variant={variant}"),
             );
         }
         for variant in [
@@ -649,6 +655,7 @@ mod tests {
             "working",
             "streaming",
             "answered",
+            "speaking",
             "long",
             "failed",
         ] {
@@ -663,8 +670,14 @@ mod tests {
         for step in 1..=8 {
             rt.frame(f64::from(step) * 0.5);
         }
-        assert!(rt.playground_element("stack").is_some(), "the script started tasks");
-        assert!(rt.playground_element("frame").is_some(), "and turned Agent mode on");
+        assert!(
+            rt.playground_element("orb").is_some(),
+            "the script started tasks: the orb shows"
+        );
+        assert!(
+            rt.playground_element("frame").is_some(),
+            "and Background work turned the frame on"
+        );
     }
 
     /// Every capture-capsule story, on every flow after a capture, opens

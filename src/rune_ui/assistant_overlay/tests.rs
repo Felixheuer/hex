@@ -70,6 +70,7 @@ fn orb_state(board: Board, expanded: bool) -> Orb {
         peek: false,
         grow: orb::Grow::default(),
         answer_key: fixture::ANSWER_KEY.into(),
+        voice: None,
         actions: orb::Actions {
             list: stack::Actions {
                 stop: |_, _| {},
@@ -94,6 +95,7 @@ fn bubble_state(bubble: Option<super::board::Bubble>) -> BubbleOverlay {
         speaking: false,
         setup: None,
         answer_key: fixture::ANSWER_KEY.into(),
+        level: None,
         actions: bubble::Actions {
             dismiss: |_| {},
             open: |_, _| {},
@@ -553,6 +555,53 @@ fn a_frame_alone_is_the_whole_ring_and_a_joined_one_moves_off_its_seam() {
     assert!((y + h - 1169.0).abs() < 0.5, "the other edges stay");
 }
 
+#[test]
+fn listening_glows_with_its_countdown_and_its_label_fades() {
+    use super::listening::{self, Listening};
+    let now = std::time::Instant::now();
+    let fresh = runtime(
+        Listening::start(now, 8.0),
+        listening::view,
+        listening::SIZE,
+        true,
+    );
+    assert!(rect(&fresh, "listening-ring").is_some());
+    assert!(
+        rect(&fresh, "listening-label").is_some(),
+        "Listening… at first"
+    );
+    assert!(inside(rect(&fresh, "listening").unwrap(), listening::SIZE));
+    let mut later = Listening::start(now, 8.0);
+    later.tick(now + std::time::Duration::from_secs(5));
+    let later = runtime(later, listening::view, listening::SIZE, false);
+    assert!(
+        rect(&later, "listening-label").is_none(),
+        "then only the glow"
+    );
+    assert!(rect(&later, "listening-ring").is_some());
+}
+
+#[test]
+fn the_speaking_pulse_follows_the_voice_when_it_can_be_measured() {
+    let dot = |level: Option<f32>| {
+        let rt = runtime(
+            BubbleOverlay {
+                speaking: true,
+                level,
+                ..bubble_state(fixture::bubble_at(f64::MAX))
+            },
+            bubble::view,
+            bubble::SIZE,
+            false,
+        );
+        rect(&rt, "voice-dot").expect("the voice glow")[2]
+    };
+    assert!(dot(Some(0.9)) > dot(Some(0.02)) + 4.0, "louder grows it");
+    assert_eq!(dot(None), 10.0, "unmeasured: the speaking rhythm");
+    assert_eq!(bubble::pulse(0.25), 0.5);
+    assert_eq!(bubble::pulse(2.0), 1.0);
+}
+
 /// The desktop while the Here question holds the pointer.
 fn hands_off_desk() -> Desk {
     Desk {
@@ -609,6 +658,18 @@ fn snapshots() {
                 "desktop-speaking",
                 Desk {
                     speaking: true,
+                    board: fixture::quiet_board(),
+                    ..Desk::settled()
+                },
+            ),
+            (
+                "desktop-listening",
+                Desk {
+                    listening: Some(super::listening::Listening::start(
+                        std::time::Instant::now(),
+                        8.0,
+                    )),
+                    bubble: None,
                     board: fixture::quiet_board(),
                     ..Desk::settled()
                 },
@@ -686,6 +747,18 @@ fn snapshots() {
             let size = (r[2], r[3]);
             let (w, h) = px(size);
             save(look.0, size, backdrop(&gpu, &mut rt, w, h, dark));
+        }
+        let now = std::time::Instant::now();
+        let mut counting = super::listening::Listening::start(now, 8.0);
+        counting.tick(now + std::time::Duration::from_secs(3));
+        for (name, state) in [
+            ("listening", super::listening::Listening::start(now, 8.0)),
+            ("listening-counting", counting),
+        ] {
+            let size = super::listening::SIZE;
+            let mut rt = runtime(state, super::listening::view, size, dark);
+            let (w, h) = px(size);
+            save(name, size, backdrop(&gpu, &mut rt, w, h, dark));
         }
         let mut hands_rt = runtime(hands::Hands::default(), hands::view, hands::SIZE, dark);
         let (w, h) = px(hands::SIZE);

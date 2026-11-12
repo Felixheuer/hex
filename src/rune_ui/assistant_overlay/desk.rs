@@ -12,6 +12,7 @@ use rune::{Cx, El, el, row, text};
 use super::super::controls::Paint;
 use super::board::{Board, Bubble, Due};
 use super::hint::Hint;
+use super::listening::{self, Listening};
 use super::outline::{self, Outline};
 use super::{bubble, fixture, frame, hands, hint, orb, place, stack};
 use crate::assistant::Event;
@@ -36,6 +37,8 @@ pub(crate) struct Desk {
     pub(crate) speaking: bool,
     /// "Finish setting up the assistant first" instead of the bubble.
     pub(crate) setup: bool,
+    /// Conversation mode listens for a follow-up past the HUD.
+    pub(crate) listening: Option<Listening>,
     /// What the last press asked for, for the stage's caption.
     pub(crate) note: String,
 }
@@ -51,6 +54,7 @@ impl Desk {
             expanded: false,
             speaking: false,
             setup: false,
+            listening: None,
             note: String::new(),
         }
     }
@@ -245,7 +249,16 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
         );
         past += h;
     }
-    if let Some(shown) = &desk.hint {
+    if let Some(state) = &desk.listening {
+        let (w, h) = listening::SIZE;
+        root = root.child(
+            el().key("listening-layer")
+                .absolute((SIZE.0 - w) / 2.0, past)
+                .size(w, h)
+                .center()
+                .child(listening::drawn(p, state, still)),
+        );
+    } else if let Some(shown) = &desk.hint {
         let (w, h) = hint::SIZE;
         root = root.child(
             el().key("hint-layer")
@@ -272,6 +285,7 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
                 bubble::Voice {
                     speaking: desk.speaking,
                     still,
+                    level: None,
                 },
                 fixture::ANSWER_KEY,
                 actions,
@@ -308,6 +322,7 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
                     grow,
                     still,
                     answer_key: fixture::ANSWER_KEY.into(),
+                    voice: None,
                 },
                 Desk::actions(),
             )),

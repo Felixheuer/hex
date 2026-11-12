@@ -273,6 +273,14 @@ fn follow_now(orb: &mut Orb, force: bool) {
         place_past_hud(&overlays.hands, super::super::hands::SIZE);
         overlays.hands.fade_in(MOVE_IN);
     }
+    overlays.listening.update_if(|state, _| {
+        if let Some(overlays) = OVERLAYS.get()
+            && state.since.is_some()
+        {
+            place_past_hud(&overlays.listening, super::super::listening::SIZE);
+        }
+        false
+    });
     if super::hint_shown() {
         place_past_hud(&overlays.hint, super::super::hint::SIZE);
     }
