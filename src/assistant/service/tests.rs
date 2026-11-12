@@ -315,6 +315,7 @@ impl World {
                 notify.log(format!("notify {}: {}", note.title, note.body));
             }),
             due_schedules: Box::new(move |_| std::mem::take(&mut *due.due.lock().unwrap())),
+            classify_reply: Box::new(|_, _, _| None),
         });
         let events = Arc::clone(self);
         runner.subscribe(Box::new(move |event| {
@@ -1308,4 +1309,92 @@ fn a_due_schedule_starts_a_background_job_and_the_memory_note_goes_along() {
             .iter()
             .any(|line| line.starts_with("notify Done: quick"))
     );
+}
+
+fn asked(conversation: &str) -> impl Fn(&[Event]) -> bool + '_ {
+    move |events| {
+        events.iter().any(
+            |event| matches!(event, Event::Question { conversation: id, .. } if id == conversation),
+        )
+    }
+}
+
+#[test]
+fn questions_wait_their_turn_and_a_hold_answers_the_active_one() {
+    let world = World::new(8);
+    world.script("language job", Script::Ask("Deutsch oder Englisch?"));
+    world.script("Deutsch", Script::Ask("Deutsch oder Englisch?"));
+    world.script("city job", Script::Ask("Welche Stadt?"));
+    world.script("Berlin", Script::Ask("Welche Stadt?"));
+    let runner = world.runner();
+    let first = runner.submit(request("language job", Origin::Background));
+    world.wait_for("the first question", asked(&first));
+    let second = runner.submit(request("city job", Origin::Background));
+    world.wait_for("the second question", asked(&second));
+    // The oldest is active; the other waits, and the overlay is told.
+    let inbox = runner.inbox();
+    assert_eq!(inbox.active.as_ref().unwrap().conversation, first);
+    assert_eq!(inbox.waiting.len(), 1);
+    world.wait_for("the inbox told", |events| {
+        events.iter().any(|event| {
+            matches!(event, Event::QuestionsChanged { active: Some(active), waiting: 1 }
+                if active.conversation == first && active.question == "Deutsch oder Englisch?")
+        })
+    });
+    assert_eq!(runner.focus(120), Some(first.clone()));
+    // "Später" puts it off: the other comes up and is read aloud.
+    let mut later = request("Später", Origin::ActionShortcut);
+    later.conversation = runner.focus(120);
+    assert_eq!(runner.submit(later), first);
+    assert_eq!(runner.inbox().active.unwrap().conversation, second);
+    world.wait_until("the next question read aloud", || {
+        world
+            .spoken
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|line| line.contains("Welche Stadt?"))
+    });
+    // A short reply answers the active one.
+    let mut answer = request("Berlin", Origin::ActionShortcut);
+    answer.conversation = runner.focus(120);
+    assert_eq!(runner.submit(answer), second);
+    world.wait_for("the second job's end", ended(&second));
+    assert_eq!(runner.inbox().active.unwrap().conversation, first);
+    // Stopping the last waiting task empties the inbox.
+    runner.cancel(&first);
+    world.wait_for("the first job's end", ended(&first));
+    assert_eq!(runner.inbox(), crate::assistant::Inbox::default());
+    world.wait_for("the empty inbox told", |events| {
+        events.iter().any(|event| {
+            matches!(
+                event,
+                Event::QuestionsChanged {
+                    active: None,
+                    waiting: 0
+                }
+            )
+        })
+    });
+}
+
+#[test]
+fn a_new_request_said_while_a_question_waits_starts_its_own_task() {
+    let world = World::new(8);
+    world.script("language job", Script::Ask("Deutsch oder Englisch?"));
+    let runner = world.runner();
+    let job = runner.submit(request("language job", Origin::Background));
+    world.wait_for("the question", asked(&job));
+    let mut new = request(
+        "Neue Aufgabe: wie spät ist es in Tokio?",
+        Origin::ActionShortcut,
+    );
+    new.conversation = runner.focus(120);
+    let other = runner.submit(new);
+    assert_ne!(other, job);
+    world.wait_for("the new task", started(&other));
+    // The question still waits.
+    assert_eq!(runner.inbox().active.unwrap().conversation, job);
+    runner.cancel(&job);
+    world.wait_for("the end", ended(&job));
 }

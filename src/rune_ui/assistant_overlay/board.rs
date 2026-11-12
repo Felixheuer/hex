@@ -419,7 +419,9 @@ impl Board {
                 // The Here question continues as a Background task.
                 set(&mut task.origin, Origin::Background)
             }),
-            Event::ConversationsChanged | Event::ModeChanged { .. } => false,
+            Event::ConversationsChanged
+            | Event::ModeChanged { .. }
+            | Event::QuestionsChanged { .. } => false,
         }
     }
 

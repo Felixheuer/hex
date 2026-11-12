@@ -421,6 +421,13 @@ fn follow(id: &str, events: &mpsc::Receiver<Event>, speak: bool) -> bool {
             Event::ModeChanged { on } => {
                 println!("[frame {}]", if *on { "on" } else { "off" })
             }
+            Event::QuestionsChanged { active, waiting } => match active {
+                Some(asked) => println!(
+                    "[questions] {}: {} (+{waiting})",
+                    asked.title, asked.question
+                ),
+                None => println!("[questions] none"),
+            },
         }
         if event.is_final() {
             break;

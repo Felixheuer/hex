@@ -33,6 +33,7 @@
 //! the HUD, and the Chats pane build against.
 
 mod context;
+mod inbox;
 mod monitor;
 pub mod remote;
 mod run;
@@ -129,6 +130,27 @@ pub fn cancel_all() {
 pub fn tasks() -> Vec<TaskStatus> {
     runner().tasks()
 }
+
+/// The questions tasks wait on: the one the next hold answers, and the
+/// others behind it (`Event::QuestionsChanged` tells when it changes).
+pub fn inbox() -> Inbox {
+    runner().inbox()
+}
+
+/// The person is holding the Action shortcut or dictating: questions and
+/// finished jobs wait to be read aloud until they stop (or 30 s pass).
+pub fn set_listening(on: bool) {
+    voice::set_listening(on, store::now_ms());
+}
+
+/// Whether questions and finished jobs are read aloud (the default), or
+/// only shown, for a surface that plays a soft chime instead.
+#[allow(dead_code, reason = "for the overlay's chime setting")]
+pub fn set_spoken_announcements(on: bool) {
+    voice::set_spoken_announcements(on);
+}
+
+pub use inbox::Inbox;
 
 /// Whether any task is running or queued.
 pub fn busy() -> bool {
@@ -322,6 +344,9 @@ type BringForward = dyn Fn(&str, &[TaskWindow]) + Send + Sync;
 type Settle = dyn Fn(&str, Ended, &str) + Send + Sync;
 type Authorize = dyn Fn(&str, &Authorized) + Send + Sync;
 type DueSchedules = dyn Fn(u64) -> Vec<Schedule> + Send + Sync;
+/// (question, task title, what the person said) → whether it answers the
+/// question; `None` when it can't tell in time.
+type ClassifyReply = dyn Fn(&str, &str, &str) -> Option<bool> + Send + Sync;
 
 /// What the runner does in the world; tests replace each part.
 pub(crate) struct Hooks {
@@ -376,6 +401,8 @@ pub(crate) struct Hooks {
     pub notify: Box<dyn Fn(&Note) + Send + Sync>,
     /// The schedules due at a time, marked as run (`schedules::take_due`).
     pub due_schedules: Box<DueSchedules>,
+    /// Settles an utterance the inbox's router can't place (`inbox`).
+    pub classify_reply: Box<ClassifyReply>,
 }
 
 impl Hooks {
@@ -437,6 +464,15 @@ impl Hooks {
             memory: Box::new(super::memory::read),
             notify: Box::new(super::notify::show),
             due_schedules: Box::new(super::schedules::take_due),
+            classify_reply: Box::new(|question, title, said| {
+                let (_, settings) = current_settings();
+                (settings.backend == AssistantBackend::ClaudeApi).then_some(())?;
+                let model = settings
+                    .here_model
+                    .clone()
+                    .unwrap_or_else(|| settings.claude_api_model.clone());
+                provider::classify_reply(&model, question, title, said, inbox::CLASSIFY_FOR)
+            }),
         }
     }
 }
@@ -508,6 +544,12 @@ pub(crate) struct State {
     hands_off: Option<ConversationId>,
     /// A backend started ahead, waiting for its request.
     warm: Option<Warm>,
+    /// The conversation the person last spoke to: its question is answered
+    /// first (`inbox`).
+    last_addressed: Option<ConversationId>,
+    /// The inbox as last told (`Event::QuestionsChanged`): its active
+    /// conversation and how many wait.
+    told_inbox: Option<(ConversationId, usize)>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -564,6 +606,8 @@ struct Task {
     plan_seen: Option<std::time::SystemTime>,
     /// The question it waits on (`NeedsInput`), and the answer once given.
     question: Option<String>,
+    /// When it asked (runner clock); its place in the inbox.
+    asked_ms: Option<u64>,
     reply: Option<String>,
     /// The plan's `HEX_AUTHORIZED:` line last applied.
     authorized_line: Option<String>,
@@ -686,6 +730,11 @@ impl Runner {
         if !settings.setup_done && !super::trying() {
             return refuse("Finish setting up the assistant first (Settings › Assistant).");
         }
+        if kind == JobKind::Ask
+            && let Some(handled) = self.route_hold(&mut request)
+        {
+            return handled;
+        }
         let now = self.now();
         let voice = request.origin != Origin::Chat;
         let mut stop = Vec::new();
@@ -701,6 +750,7 @@ impl Runner {
                 })
             {
                 task.reply = Some(request.text.trim().to_owned());
+                state.last_addressed = Some(conversation.clone());
                 return conversation.clone();
             }
             if kind == JobKind::Ask && request.conversation.is_none() {
@@ -834,6 +884,7 @@ impl Runner {
             plan: Vec::new(),
             plan_seen: None,
             question: None,
+            asked_ms: None,
             reply: None,
             authorized_line: None,
         });
@@ -1052,15 +1103,11 @@ impl Runner {
     }
 }
 
-/// `focus` on `state`: a task waiting for an answer, a running Here task,
+/// `focus` on `state`: the inbox's active question, a running Here task,
 /// Chats' conversation, or the last Here answer within `follow_up_seconds`.
 fn focus_in(state: &State, follow_up_seconds: u32, now: u64) -> Option<ConversationId> {
-    if let Some(task) = state
-        .tasks
-        .iter()
-        .find(|task| task.status.state == TaskState::NeedsInput)
-    {
-        return Some(task.status.conversation.clone());
+    if let Some(active) = inbox::of(state).active {
+        return Some(active.conversation);
     }
     if let Some(task) = state
         .tasks

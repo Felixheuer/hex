@@ -49,9 +49,9 @@ pub mod tools;
 pub mod types;
 
 pub use service::{
-    agent_mode, background_busy, busy, cancel, cancel_all, conversation, conversations, delete,
-    focus, hand_back, prewarm, resume_interrupted, set_agent_mode, set_focus, stop_all, submit,
-    subscribe, take_over, tasks,
+    Inbox, agent_mode, background_busy, busy, cancel, cancel_all, conversation, conversations,
+    delete, focus, hand_back, inbox, prewarm, resume_interrupted, set_agent_mode, set_focus,
+    set_listening, set_spoken_announcements, stop_all, submit, subscribe, take_over, tasks,
 };
 pub use types::*;
 
