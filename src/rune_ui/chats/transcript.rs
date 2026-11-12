@@ -638,10 +638,7 @@ fn screenshot(ui: &Ui, p: Paint, id: &str, index: usize, file: &str) -> El {
         && let Some(path) = path
     {
         thumb = thumb.on_press(move |_: &mut Ui| {
-            if let Err(error) = std::process::Command::new("/usr/bin/open")
-                .arg(&path)
-                .spawn()
-            {
+            if let Err(error) = crate::assistant::backends::os::open(&path) {
                 tracing::warn!(%error, "could not open a chat's screenshot");
             }
         });

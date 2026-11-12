@@ -34,6 +34,16 @@ impl Os {
         if self == Os::Windows { ';' } else { ':' }
     }
 
+    /// What the person's computer is called, for an agent's prompt: "Mac",
+    /// "Windows PC", "Linux computer".
+    pub fn computer(self) -> &'static str {
+        match self {
+            Os::Mac => "Mac",
+            Os::Windows => "Windows PC",
+            Os::Linux => "Linux computer",
+        }
+    }
+
     /// What a person calls the place they paste a command.
     pub fn terminal(self) -> &'static str {
         match self {

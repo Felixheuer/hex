@@ -28,7 +28,10 @@ pub fn definitions() -> Vec<Value> {
         }),
         json!({
             "name": "hex_schedule",
-            "description": "Schedule a job to run by itself later or repeatedly (\"every morning at 8, …\"), in this Mac's local time. Each run is a background job doing `task`. Tell the person the schedule and its next runs in your answer.",
+            "description": format!(
+                "Schedule a job to run by itself later or repeatedly (\"every morning at 8, …\"), in this {}'s local time. Each run is a background job doing `task`. Tell the person the schedule and its next runs in your answer.",
+                crate::assistant::backends::os::Os::HERE.computer()
+            ),
             "inputSchema": {"type": "object", "properties": {
                 "when": {"type": "string", "description": "A cron line (minute hour day month weekday, e.g. \"0 8 * * 1-5\") or an RRULE (e.g. \"FREQ=WEEKLY;BYDAY=MO;BYHOUR=9\")."},
                 "task": {"type": "string", "description": "What to do each time, as the person would say it."},
