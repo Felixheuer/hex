@@ -364,7 +364,7 @@ fn onboarding_walkthrough() {
     rt.state.picker.installed = Some(vec![model]);
 
     // The story plays on: the demo, then the practice game ("With Hex")
-    // once the model is ready, then Hex is ready.
+    // once the model is ready, then the assistant's setup before Hex is ready.
     settle(&mut rt);
     rt.update(|ui, _| super::super::onboarding_kit::live::fixture_resume(ui, Page::Try));
     settle(&mut rt);
@@ -372,12 +372,32 @@ fn onboarding_walkthrough() {
     assert!(texts(&rt).contains(&"With Hex".to_owned()));
     assert!(rt.find("skip").is_some(), "Skip shows on the practice too");
     tap(&mut rt, "done");
+    let shown = texts(&rt);
+    assert!(
+        shown.contains(&"Now, your assistant".to_owned()),
+        "{shown:?}"
+    );
+    assert!(
+        rt.state
+            .chats
+            .setup
+            .as_ref()
+            .is_some_and(|flow| flow.merged),
+        "the assistant continues the same first run"
+    );
+    assert!(!shown.contains(&"Hex is ready".to_owned()));
+    tap(&mut rt, "close-setup");
+    settle(&mut rt);
+    assert!(
+        !rt.state.settings.assistant.setup_done,
+        "setup waits in Chats"
+    );
     assert!(texts(&rt).contains(&"Hex is ready".to_owned()));
     tap(&mut rt, "start-using-hex");
     assert!(rt.state.tour.is_none(), "Start using Hex closes onboarding");
     assert!(rt.state.first_run.is_none());
     println!(
-        "onboarding walkthrough: Setting up Hex -> {} downloaded ({} bytes) -> Your turn -> Hex is ready",
+        "onboarding walkthrough: Setting up Hex -> {} downloaded ({} bytes) -> Your turn -> Assistant setup left for later -> Hex is ready",
         definition.name,
         downloaded.load(std::sync::atomic::Ordering::Relaxed)
     );

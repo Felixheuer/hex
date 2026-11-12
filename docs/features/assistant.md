@@ -371,6 +371,13 @@ the tests in [rune_ui/chats/tests.rs](../../src/rune_ui/chats/tests.rs),
 and `mac-assistant-setup*` (macOS only, so no golden changes). Not yet
 observed: the live service, real grants, or a real question on a Mac.
 
+The release check's `onboarding_walkthrough` in
+[onboarding_check.rs](../../src/rune_ui/tests/onboarding_check.rs) downloads
+the recommended speech model in an isolated data folder, follows the default
+assistant handoff after the voice practice, closes its setup for later, and
+still requires “Hex is ready” before finishing. This checks the window's
+flow, not live assistant setup or a real spoken question.
+
 ## Agents on Linux and Windows
 
 The agent backends (Claude Code, Codex, OpenCode, agent-desktop,
