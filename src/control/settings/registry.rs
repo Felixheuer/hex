@@ -273,6 +273,11 @@ pub(super) const KEYS: &[Key] = &[
         Kind::Text,
         "Labs: OpenCode's provider/model for the assistant; none is its default (macOS)",
     ),
+    optional(
+        "assistant.opencode_provider",
+        Kind::Text,
+        "Labs: the provider whose API key (saved in the Keychain) OpenCode uses for the assistant, such as deepseek or openrouter; none uses OpenCode's own sign-ins (macOS)",
+    ),
     key(
         "assistant.claude_api_model",
         Kind::Text,

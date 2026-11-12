@@ -36,6 +36,10 @@ pub struct AssistantSettings {
     pub codex_model: Option<String>,
     /// OpenCode's `provider/model`.
     pub opencode_model: Option<String>,
+    /// OpenCode with the person's own API key for this provider
+    /// (`assistant::backends::providers`), the key in the Keychain; `None`
+    /// uses OpenCode's own sign-ins.
+    pub opencode_provider: Option<String>,
     pub claude_api_model: String,
     /// The Here lane's model on Claude Code and the Claude API, for fast
     /// spoken answers; `None` uses the model above. Codex and OpenCode keep
@@ -87,6 +91,7 @@ impl Default for AssistantSettings {
             claude_code_model: None,
             codex_model: None,
             opencode_model: None,
+            opencode_provider: None,
             claude_api_model: "claude-sonnet-5-5".into(),
             here_model: Some("claude-haiku-5-5".into()),
             speak_answers: true,

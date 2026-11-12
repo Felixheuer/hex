@@ -186,6 +186,10 @@ pub enum Fix {
     InstallLightpanda,
     /// Opens Terminal on the agent's sign-in (`claude`, `codex login`).
     SignIn(AssistantBackend),
+    /// Use a saved API key instead of an account: Codex signs in with the
+    /// OpenAI key (`codex login --with-api-key`); OpenCode and the Claude
+    /// API only need the key saved (the sheet's key form).
+    UseApiKey(AssistantBackend),
     /// `opencode service start`.
     StartOpenCode,
     /// The sheet's API key field: nothing for [`apply_fix`] to do.
@@ -207,6 +211,7 @@ impl Fix {
             Self::InstallAgentBrowser => "Install agent-browser".into(),
             Self::InstallLightpanda => "Install Lightpanda".into(),
             Self::SignIn(_) => "Sign in".into(),
+            Self::UseApiKey(_) => "Use an API key".into(),
             Self::StartOpenCode => "Start OpenCode".into(),
             Self::AddApiKey => "Add API key".into(),
             Self::GuidePermissions => "Grant permissions".into(),
@@ -356,8 +361,12 @@ fn answers(check: Check, backend: AssistantBackend, settings: &AssistantSettings
             command.arg(ANSWER_PROMPT);
         }
         AssistantBackend::OpenCode => {
-            command.args(["run", "--format", "json", "--archived"]);
-            if let Some(model) = &settings.opencode_model {
+            // Standalone, as tasks run it, with the person's own key when
+            // one is chosen.
+            let model =
+                super::providers::opencode_check(&mut command, settings, serde_json::json!({}));
+            command.args(["run", "--standalone", "--format", "json", "--archived"]);
+            if let Some(model) = &model {
                 command.args(["--model", model]);
             }
             command.arg(ANSWER_PROMPT);
@@ -780,15 +789,11 @@ fn through_agent(
                 "mcp": server.opencode_config(),
                 "tools": { "*": false, tool.as_str(): true },
             });
-            command.env("OPENCODE_CONFIG_CONTENT", config.to_string());
+            let model = super::providers::opencode_check(&mut command, settings, config);
             // A private server, so the config above is its own.
             command.args(["run", "--standalone", "--format", "json", "--archived"]);
-            if let Some(model) = settings
-                .opencode_model
-                .clone()
-                .or_else(opencode_recent_model)
-            {
-                command.args(["--model", &model]);
+            if let Some(model) = &model {
+                command.args(["--model", model]);
             }
             command.arg(status_prompt(&tool));
         }
