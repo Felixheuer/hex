@@ -230,3 +230,11 @@ fn front_matter_is_dropped_from_the_guide() {
     );
     assert_eq!(strip_front_matter("# Guide"), "# Guide");
 }
+
+#[test]
+fn browsers_start_with_the_person_s_accounts_and_a_clean_one_is_asked_for() {
+    let prompt = system_prompt(Origin::Background, None, true);
+    assert!(prompt.contains("start with the person's accounts"));
+    assert!(prompt.contains("`signedIn: false` for a clean one"));
+    assert!(prompt.contains("Never ask the person to sign in unless a page still shows a login"));
+}

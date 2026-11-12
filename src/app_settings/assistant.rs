@@ -77,6 +77,12 @@ pub struct AssistantSettings {
     /// Web work runs in agent-browser's own hidden browsers, one session per
     /// task, instead of in the person's browser windows.
     pub background_browser: bool,
+    /// Every new task browser starts with the person's accounts (the
+    /// sign-in state); a task may still ask for a clean one.
+    pub browser_signed_in_by_default: bool,
+    /// The Chrome profile (`Default`, `Profile 1`) whose logins Hex's
+    /// browsers take over, refreshed daily; `None` takes none.
+    pub browser_import_profile: Option<String>,
     /// Apps no task may read or operate (by name or bundle id).
     pub blocked_apps: Vec<String>,
     /// Background tasks may also operate the window in front of the
@@ -145,6 +151,8 @@ impl Default for AssistantSettings {
             stop_all_hotkey: Some(HotkeyBinding::stop_all_default()),
             here_physical_input: true,
             background_browser: true,
+            browser_signed_in_by_default: true,
+            browser_import_profile: None,
             // macOS's password apps, then every OS's password managers.
             blocked_apps: [
                 "Passwords",

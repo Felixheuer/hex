@@ -352,6 +352,16 @@ pub(super) const KEYS: &[Key] = &[
         "With assistant.keep_awake, the display stays on too",
     ),
     key(
+        "assistant.browser_signed_in_by_default",
+        Kind::Bool,
+        "Every new assistant browser starts with the person's accounts (macOS)",
+    ),
+    optional(
+        "assistant.browser_import_profile",
+        Kind::Text,
+        "The Chrome profile whose logins Hex's browsers take over daily, such as Default; none takes none (macOS)",
+    ),
+    key(
         "assistant.background_browser",
         Kind::Bool,
         "Web work runs in agent-browser's own hidden browsers, one per task (macOS)",

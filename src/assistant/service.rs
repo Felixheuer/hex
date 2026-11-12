@@ -334,6 +334,11 @@ fn runner() -> &'static Arc<Runner> {
             if !WITHOUT_LAB.load(Ordering::Acquire) && current_settings().0 {
                 super::guard::startup();
                 start_scheduler();
+                // The Chrome logins Hex's browsers use, taken again daily.
+                let profile = current_settings().1.browser_import_profile;
+                std::thread::spawn(move || {
+                    super::browser::accounts::refresh_if_stale(profile.as_deref());
+                });
             }
             let app = !WITHOUT_LAB.load(Ordering::Acquire) && current_settings().0;
             if let Ok(store) = Store::open() {
