@@ -16,7 +16,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-if ($Version -notmatch '^(\d+\.\d+\.\d+(-beta\.\d+)?|0\.0\.0-dev-\d+)$') { throw "Expected a release version, not $Version." }
+if ($Version -notmatch '^(\d+\.\d+\.\d+(-(beta|pilot)\.\d+)?|0\.0\.0-dev-\d+)$') { throw "Expected a release version, not $Version." }
 $Executable = (Resolve-Path $Executable).Path
 $consoleDefine = @()
 if ($Console) { $consoleDefine = @("/DConsole=$((Resolve-Path $Console).Path)") }

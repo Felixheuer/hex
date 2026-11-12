@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react"
 import type { Platform } from "./platform"
-import { RELEASE } from "./release"
+import { download, formatSize, RELEASE, type Targets } from "./release"
 
 export function AppleMark() {
   return (
@@ -24,26 +24,6 @@ export function LinuxMark() {
       <path d="M5 5.5h14v13H5zM8 9l2.5 2.5L8 14M12.5 14H16" />
     </svg>
   )
-}
-
-export const PLATFORM_NAMES: Record<Platform, string> = {
-  mac: "Mac",
-  "mac-intel": "Mac",
-  "windows-x64": "Windows",
-  "windows-arm64": "Windows",
-  linux: "Linux",
-  "linux-arm64": "Linux",
-  mobile: "Mac, Windows, and Linux",
-}
-
-export const SHORTCUTS: Record<Platform, string> = {
-  mac: "Option",
-  "mac-intel": "Option",
-  "windows-x64": "Ctrl+Space",
-  "windows-arm64": "Ctrl+Space",
-  linux: "Alt+Space",
-  "linux-arm64": "Alt+Space",
-  mobile: "a shortcut",
 }
 
 function useCopy(): [boolean, (text: string) => void] {
@@ -74,13 +54,15 @@ interface Row {
   note?: string
   file?: string
   command?: string
+  // Nothing to download yet: the note says so, softly.
+  soon?: boolean
   // A small switch inside the row, e.g. x64/ARM64 or the Linux package format.
   choices?: Choice[]
   chosen?: string
   choose?: (id: string) => void
 }
 
-type Package = "deb" | "rpm" | "nix" | "aur"
+type Package = "deb" | "rpm"
 
 interface Choices {
   arch: Arch
@@ -100,39 +82,57 @@ const OSES: { id: Os; label: string; mark: ReactNode }[] = [
   { id: "linux", label: "Linux", mark: <LinuxMark /> },
 ]
 
-function rows(os: Os, intelMac: boolean, { arch, setArch, pkg, setPkg }: Choices): Row[] {
-  const linux = RELEASE.linux
+const SOON = "Bald verfügbar"
+
+function rows(os: Os, intelMac: boolean, published: Targets, { arch, setArch, pkg, setPkg }: Choices): Row[] {
+  const has = (target: string) => published[target] !== undefined
+  const detail = (target: string, prefix?: string) => {
+    const entry = published[target]
+    const parts = [prefix, entry && `Version ${entry.version}`, entry && formatSize(entry.size)].filter(Boolean)
+    return parts.join(" · ")
+  }
   const archSwitch = { choices: ARCHES, chosen: arch, choose: (id: string) => setArch(id as Arch) }
-  // Hex runs only on Apple silicon, so an Intel Mac gets the reason, not a download.
-  if (os === "mac" && intelMac) return [{ label: "Download", note: "Requires an Apple silicon Mac" }]
-  if (os === "mac")
-    return [
-      { label: "Download", note: "Apple silicon, macOS 15 or later", file: RELEASE.mac.url },
-      { label: "Homebrew", command: RELEASE.homebrew },
+  if (os === "mac") {
+    // Pilot runs only on Apple silicon, so an Intel Mac gets the reason, not a download.
+    if (intelMac) return [{ label: "Download", note: "Pilot braucht einen Mac mit Apple Silicon" }]
+    if (!has("macos-arm64-dmg")) return [{ label: "Download", note: `${SOON} · Apple Silicon, macOS 15 oder neuer`, soon: true }]
+    return [{ label: "Download", note: detail("macos-arm64-dmg", "Apple Silicon, macOS 15+"), file: download("macos-arm64-dmg") }]
+  }
+  if (os === "windows") {
+    const setup = `windows-${arch}-setup`
+    const any = ["x64", "arm64"].some((a) => has(`windows-${a}-setup`) || has(`windows-${a}`))
+    if (!any) return [{ label: "Installer", note: `${SOON} · Windows 10 und 11`, soon: true }]
+    const list: Row[] = [
+      has(setup)
+        ? { label: "Installer", note: detail(setup), file: download(setup), ...archSwitch }
+        : { label: "Installer", note: SOON, soon: true, ...archSwitch },
     ]
-  if (os === "windows")
-    return [
-      { label: "Installer", file: arch === "arm64" ? RELEASE.windowsArm64.url : RELEASE.windowsX64.url, ...archSwitch },
-      { label: "PowerShell", command: RELEASE.windows.command },
-    ]
+    if (has(`windows-${arch}`)) list.push({ label: "PowerShell", command: RELEASE.windows.command })
+    return list
+  }
+  const binary = `linux-${arch}`
+  if (!["x64", "arm64"].some((a) => has(`linux-${a}`))) return [{ label: "Skript", note: SOON, soon: true }]
+  const list: Row[] = []
+  if (has(binary)) list.push({ label: "Skript", command: RELEASE.linux.command })
   const packages: (Choice & { command: string })[] = [
-    { id: "deb", label: "Debian", command: linux.deb[arch] },
-    { id: "rpm", label: "Fedora", command: linux.rpm[arch] },
-    { id: "nix", label: "Nix", command: RELEASE.nix },
-    ...(linux.aur !== undefined ? [{ id: "aur", label: "AUR", command: linux.aur }] : []),
+    ...(has(`linux-${arch}-deb`) ? [{ id: "deb", label: "Debian", command: RELEASE.linux.deb(arch) }] : []),
+    ...(has(`linux-${arch}-rpm`) ? [{ id: "rpm", label: "Fedora", command: RELEASE.linux.rpm(arch) }] : []),
   ]
   const chosenPackage = packages.find((entry) => entry.id === pkg) ?? packages[0]
-  return [
-    { label: "Script", command: linux.command },
-    {
-      label: "Package",
+  if (chosenPackage)
+    list.push({
+      label: "Paket",
       command: chosenPackage.command,
       choices: packages,
       chosen: chosenPackage.id,
       choose: (id) => setPkg(id as Package),
-    },
-    { label: "Binary", file: linux.binary[arch], ...archSwitch },
-  ]
+    })
+  list.push(
+    has(binary)
+      ? { label: "Binärdatei", note: detail(binary), file: download(binary), ...archSwitch }
+      : { label: "Binärdatei", note: SOON, soon: true, ...archSwitch },
+  )
+  return list
 }
 
 function osOf(platform: Platform): Os {
@@ -177,7 +177,7 @@ function StackRow({ row }: { row: Row }) {
       <span className="stack__label">{row.label}</span>
       <span className="stack__value">
         {row.choices && (
-          <span className="stack__choices" role="group" aria-label={`${row.label} option`}>
+          <span className="stack__choices" role="group" aria-label={`${row.label}: Auswahl`}>
             {row.choices.map((choice) => (
               <button
                 key={choice.id}
@@ -190,15 +190,19 @@ function StackRow({ row }: { row: Row }) {
             ))}
           </span>
         )}
-        {row.command !== undefined ? <code title={row.command}>{row.command}</code> : <span>{row.note}</span>}
+        {row.command !== undefined ? (
+          <code title={row.command}>{row.command}</code>
+        ) : (
+          <span className={row.soon ? "stack__soon" : undefined}>{row.note}</span>
+        )}
       </span>
       {row.command === undefined && row.file === undefined ? null : row.command !== undefined ? (
         <button
           type="button"
           className="stack__action"
           onClick={() => copy(row.command!)}
-          aria-label={copied ? "Copied" : `Copy ${row.label} command`}
-          title={copied ? "Copied" : "Copy"}
+          aria-label={copied ? "Kopiert" : `${row.label}-Befehl kopieren`}
+          title={copied ? "Kopiert" : "Kopieren"}
         >
           {copied ? <CheckIcon /> : <CopyIcon />}
         </button>
@@ -206,8 +210,9 @@ function StackRow({ row }: { row: Row }) {
         <a
           className="stack__action stack__action--primary"
           href={row.file}
-          aria-label={`Download ${row.label}${row.note ? ` (${row.note})` : ""}`}
-          title="Download"
+          aria-label={`${row.label} herunterladen${row.note ? ` (${row.note})` : ""}`}
+          title="Herunterladen"
+          download
         >
           <DownloadIcon />
         </a>
@@ -240,7 +245,7 @@ function useTabIndicator(list: RefObject<HTMLDivElement | null>, selected: Os) {
   }, [list, selected])
 }
 
-export default function Download({ platform }: { platform: Platform }) {
+export default function Download({ platform, published }: { platform: Platform; published: Targets }) {
   const [chosenOs, setOs] = useState<Os>()
   const os = chosenOs ?? osOf(platform)
   const [chosenArch, setArch] = useState<Arch>()
@@ -251,8 +256,8 @@ export default function Download({ platform }: { platform: Platform }) {
   useTabIndicator(tabs, os)
 
   return (
-    <div className="hero__action install" data-avoid>
-      <div className="install__os" role="tablist" aria-label="Operating system" ref={tabs}>
+    <div className="hero__action install" id="download">
+      <div className="install__os" role="tablist" aria-label="Betriebssystem" ref={tabs}>
         {OSES.map((entry) => (
           <button
             key={entry.id}
@@ -283,7 +288,7 @@ export default function Download({ platform }: { platform: Platform }) {
             aria-labelledby={`install-tab-${entry.id}`}
             data-active={entry.id === os ? "" : undefined}
           >
-            {rows(entry.id, platform === "mac-intel", choices).map((row) => (
+            {rows(entry.id, platform === "mac-intel", published, choices).map((row) => (
               <StackRow key={row.label} row={row} />
             ))}
           </div>

@@ -1,7 +1,8 @@
 //! macOS installs: a `Hex.app` this user can replace updates itself. The
-//! update ZIP is unpacked beside the installed bundle (same volume), its code
-//! signature must satisfy Anomaly's Developer ID requirement for
-//! `anomaly.hex` and be notarized, and on "Restart to update" (or quit) the
+//! update ZIP must carry Pilot's release signature (`super::signature`), is
+//! unpacked beside the installed bundle (same volume), its code signature
+//! must be valid for `anomaly.hex` and, when the build names its Apple team
+//! (`HEX_UPDATE_TEAM_ID`), come from that team, and on "Restart to update" (or quit) the
 //! two bundles swap atomically (`renamex_np` with `RENAME_SWAP`). The old
 //! bundle stays beside it until the new version launches and removes it. A
 //! read-only, translocated, or root-owned location links to the DMG instead
@@ -22,10 +23,30 @@ use super::Method;
 pub const TARGET: &str = "macos-arm64";
 pub const DOWNLOAD_TARGET: &str = "macos-arm64-dmg";
 const BUNDLE_ID: &str = "anomaly.hex";
-/// A Developer ID application from Anomaly's team (5NZ4Q7NXJ4), identified
-/// as `anomaly.hex`, and notarized. The release build checks its artifacts
-/// against the same file.
-const REQUIREMENT: &str = include_str!("../../app/update-requirement.txt");
+/// The Apple team (its 10-character ID) Pilot's Mac releases are signed by,
+/// stamped at build time by `scripts/pilot-release-macos.sh`. The same
+/// team's Apple Development or Developer ID certificate keeps macOS
+/// permissions across updates.
+const TEAM_ID: Option<&str> = option_env!("HEX_UPDATE_TEAM_ID");
+
+/// The code requirement an update must satisfy: `anomaly.hex`, signed by
+/// `team` through Apple's CA when the build names one. Without a team (an
+/// ad-hoc signed build) only the identifier and an intact signature are
+/// checked; Pilot's release signature still vouches for the bytes.
+fn requirement_for(team: Option<&str>) -> String {
+    match team.filter(|team| {
+        team.len() == 10
+            && team
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+    }) {
+        Some(team) => format!(
+            "anchor apple generic and identifier \"{BUNDLE_ID}\" and certificate leaf[subject.OU] = \"{team}\""
+        ),
+        None => format!("identifier \"{BUNDLE_ID}\""),
+    }
+}
+
 /// Unpacked updates (and, after a swap, the replaced bundle) live in
 /// `.<name>-update-<version>` beside the installed bundle.
 const STAGING_PREFIX: &str = ".Hex-update-";
@@ -129,7 +150,7 @@ pub fn stage(archive: &Path, version: &str) -> Result<Staged> {
     let staging = parent.join(format!("{STAGING_PREFIX}{version}"));
     unpack(archive, &staging)?;
     let update = staging.join("Hex.app");
-    let result = verify_bundle(&update, version, REQUIREMENT);
+    let result = verify_bundle(&update, version, &requirement_for(TEAM_ID));
     if let Err(error) = result {
         let _ = fs::remove_dir_all(&staging);
         return Err(error);
@@ -188,7 +209,7 @@ fn verify_bundle(bundle: &Path, version: &str, requirement: &str) -> Result<()> 
         .wrap_err("could not run codesign")?;
     if !output.status.success() {
         bail!(
-            "the update's code signature is not Anomaly's notarized Developer ID: {}",
+            "the update's code signature does not satisfy Pilot's signing requirement: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
@@ -246,14 +267,17 @@ mod tests {
     }
 
     #[test]
-    fn the_developer_id_requirement_compiles() {
-        let status = Command::new("/usr/bin/csreq")
-            .arg(format!("-r={}", REQUIREMENT.trim()))
-            .arg("-t")
-            .stdout(Stdio::null())
-            .status()
-            .unwrap();
-        assert!(status.success());
+    fn the_team_requirement_compiles() {
+        for team in [None, Some("ABCDE12345"), TEAM_ID] {
+            let status = Command::new("/usr/bin/csreq")
+                .arg(format!("-r={}", requirement_for(team)))
+                .arg("-t")
+                .stdout(Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success(), "{team:?}");
+        }
+        assert_eq!(requirement_for(Some("bad")), requirement_for(None));
     }
 
     /// A minimal ad-hoc signed `Hex.app` with `identifier` and `version`.
@@ -287,8 +311,8 @@ mod tests {
         let app = bundle(&root, BUNDLE_ID, "9.9.9");
         // An ad-hoc signature satisfies a plain identifier requirement…
         verify_bundle(&app, "9.9.9", "identifier \"anomaly.hex\"").unwrap();
-        // …but never Anomaly's Developer ID requirement.
-        let error = verify_bundle(&app, "9.9.9", REQUIREMENT).unwrap_err();
+        // …but never a team's.
+        let error = verify_bundle(&app, "9.9.9", &requirement_for(Some("ABCDE12345"))).unwrap_err();
         assert!(error.to_string().contains("code signature"), "{error}");
         assert!(verify_bundle(&app, "9.9.8", "identifier \"anomaly.hex\"").is_err());
         let other = bundle(&root.join("other"), "com.kitlangton.hex2", "9.9.9");

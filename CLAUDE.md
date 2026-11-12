@@ -30,3 +30,10 @@ for the section you need instead of reading it whole.
 - The assistant is on by default in this fork (`assistant.enabled`, not a
   Lab; see `docs/features/assistant.md`), overriding upstream's "new
   features stay in Labs, off" rule for it.
+- Releases of this fork are **Pilot**, self-hosted at `https://ai.sms-pilot.de`
+  (website, downloads, update channel): `docs/pilot-release.md`. The updater's
+  `ORIGIN` is `https://ai.sms-pilot.de/release`; every update target must carry
+  an ed25519 signature by the fork's release key (`src/updater/signature.rs`;
+  the private key is only on the server, `~/.config/pilot-release/`). Never
+  commit a private key. Source builds (`install-fork.sh`) never check for
+  updates.

@@ -1,16 +1,8 @@
-# Hex
+# Pilot
 
-> Hex is local voice dictation for Mac, Windows, and Linux. Hold a shortcut, speak, and Hex transcribes on the device and pastes the text wherever the cursor is.
+> Pilot ist ein Sprach-Assistent für macOS, Windows und Linux: Diktieren in jeder App (lokale Spracherkennung) und ein KI-Assistent, mit dem man redet. Pilot basiert auf Hex (MIT-Lizenz).
 
-- Mac (Apple silicon, macOS 15 or later): https://anoma.ly/hex/files/releases/HEX-latest-arm64.dmg, or `brew install --cask anomalyco/tap/hex`
-- Windows 10 or 11 beta, x64 and ARM64: per-user Setup.exe installers at __ORIGIN__/
-- Linux beta, x86_64 Arch with glibc 2.44 or later: `curl -fsSL https://anoma.ly/hex/files/install-linux.sh | sh`
-
-## Docs
-
-- [README](https://github.com/anomalyco/hex/blob/dev/README.md): features, settings, privacy, and troubleshooting
-- [Windows guide](https://github.com/anomalyco/hex/blob/dev/docs/windows.md)
-- [Linux guide](https://github.com/anomalyco/hex/blob/dev/docs/linux.md)
-- [Transforms](https://anoma.ly/hex/docs/transforms): the JavaScript API for changing dictated text before Hex pastes it, including `fetch` and `node:child_process`
-- [Managing Hex](https://anoma.ly/hex/docs/admin): macOS configuration-profile keys that turn off Meetings, Annotate, OpenCode processing, transforms, Labs, and updates, or hold transforms to this computer
-- [TypeScript SDK](https://github.com/anomalyco/hex/blob/dev/sdk/typescript/README.md): local transcription for other apps
+- Download: __ORIGIN__/#download
+- Linux: `curl -fsSL __ORIGIN__/install-linux.sh | sh`
+- Versionen: __ORIGIN__/versionen/
+- Update-Kanal (Manifest): __ORIGIN__/release/hex/desktop/stable.json

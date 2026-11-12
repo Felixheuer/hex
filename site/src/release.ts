@@ -1,48 +1,59 @@
-// The files and commands the install switcher offers. scripts/release-data.ts
-// writes release-data.json at build time; file links name /hex/download/<target>,
-// which the Worker redirects to stable once it exists and to the newest dev
-// build until then.
-// `bun run check:downloads` fails unless every URL below serves a file.
+// What the download switcher offers: the targets scripts/pilot-publish.sh
+// has published (/download/index.json), as recorded at build time in
+// release-data.json and refreshed by the page on load. A target that isn't
+// published yet shows "Bald verfügbar" instead of a dead link.
+import { useEffect, useState } from "react"
+import { DOWNLOAD_INDEX, DOWNLOAD_PATH, ORIGIN } from "./base"
 import data from "./release-data.json"
 
-export type Channel = "stable" | "dev"
+export interface Published {
+  version: string
+  size: number
+  sha256: string
+  published_at: string
+}
 
-const deb = (url: string) => `curl -fLo /tmp/hex.deb ${url} && sudo apt install /tmp/hex.deb`
-const rpm = (url: string) => `curl -fLo /tmp/hex.rpm ${url} && sudo dnf install /tmp/hex.rpm`
+export type Targets = Record<string, Published>
+
+const BUILT: Targets = (data as { targets: Targets }).targets ?? {}
+
+export const download = (target: string) => `${DOWNLOAD_PATH}/${target}`
+
+const powershell = `powershell -ExecutionPolicy Bypass -Command "iwr ${ORIGIN}/install-windows.ps1 -OutFile install-windows.ps1; ./install-windows.ps1"`
 
 export const RELEASE = {
-  channel: data.channel as Channel,
-  mac: { url: data.mac },
-  windowsX64: { url: data.windowsX64 },
-  windowsArm64: { url: data.windowsArm64 },
-  windows: {
-    installer: data.windowsInstaller,
-    command: `powershell -ExecutionPolicy Bypass -Command "iwr ${data.windowsInstaller} -OutFile install-windows.ps1; ./install-windows.ps1"`,
-  },
+  version: newest(BUILT),
   linux: {
-    installer: data.linuxInstaller,
-    command: data.linuxCommand,
-    binary: { x64: data.linuxX64, arm64: data.linuxArm64 },
-    deb: { x64: deb(data.debX64), arm64: deb(data.debArm64) },
-    rpm: { x64: rpm(data.rpmX64), arm64: rpm(data.rpmArm64) },
-    // The AUR package is pushed by the first stable release.
-    aur: data.channel === "stable" ? "yay -S hex-bin" : undefined,
+    command: `curl -fsSL ${ORIGIN}/install-linux.sh | sh`,
+    deb: (arch: string) => `curl -fLo /tmp/hex.deb ${ORIGIN}${download(`linux-${arch}-deb`)} && sudo apt install /tmp/hex.deb`,
+    rpm: (arch: string) => `curl -fLo /tmp/hex.rpm ${ORIGIN}${download(`linux-${arch}-rpm`)} && sudo dnf install /tmp/hex.rpm`,
   },
-  github: data.github,
-  homebrew: "brew install --cask anomalyco/tap/hex",
-  nix: "nix profile add github:anomalyco/hex",
+  windows: { command: powershell },
 } as const
 
-export const DOWNLOAD_URLS = [
-  RELEASE.mac.url,
-  RELEASE.windowsX64.url,
-  RELEASE.windowsArm64.url,
-  RELEASE.linux.installer,
-  RELEASE.windows.installer,
-  data.linuxX64,
-  data.linuxArm64,
-  data.debX64,
-  data.debArm64,
-  data.rpmX64,
-  data.rpmArm64,
-]
+/** The newest version among the published targets, for the label. */
+export function newest(targets: Targets): string | undefined {
+  return Object.values(targets).sort((a, b) => b.published_at.localeCompare(a.published_at))[0]?.version
+}
+
+/** The published targets: the build's, then the live index once it loads. */
+export function usePublished(): Targets {
+  const [targets, setTargets] = useState<Targets>(BUILT)
+  useEffect(() => {
+    let current = true
+    fetch(DOWNLOAD_INDEX, { cache: "no-cache" })
+      .then((response) => (response.ok ? response.json() : undefined))
+      .then((value: { targets?: Targets } | undefined) => {
+        if (current && value?.targets) setTargets(value.targets)
+      })
+      .catch(() => {})
+    return () => {
+      current = false
+    }
+  }, [])
+  return targets
+}
+
+export function formatSize(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(0)} MB`
+}
