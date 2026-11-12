@@ -79,6 +79,38 @@ pub fn set_agent_mode(on: bool) {
 }
 
 /// Calls `subscriber` for every later event, until the process ends.
+/// Stops every task (the Stop all shortcut, the stack's and Chats' button,
+/// the menu bar). Same as `cancel_all`.
+pub fn stop_all() {
+    cancel_all();
+}
+
+/// Whether Background work is running, waiting, or queued: the screen frame
+/// shows while this is true.
+pub fn background_busy() -> bool {
+    agent_mode()
+}
+
+/// The person takes `conversation` over: its desktop actions wait, and its
+/// window comes forward. `Event::Paused`.
+pub fn take_over(conversation: &str) {
+    let _ = conversation;
+}
+
+/// Gives `conversation` back after `take_over`; it looks again before acting.
+/// `Event::Resumed`.
+pub fn hand_back(conversation: &str) {
+    let _ = conversation;
+}
+
+/// Continues a conversation Hex quit or crashed in the middle of
+/// (`Outcome::Interrupted`), telling the agent to check what was already
+/// done before going on.
+pub fn resume_interrupted(conversation: &str) -> Option<ConversationId> {
+    let _ = conversation;
+    None
+}
+
 pub fn subscribe(subscriber: Subscriber) {
     runner().subscribe(subscriber);
 }
@@ -496,7 +528,7 @@ impl Runner {
             match &state.session {
                 Session::On(id) => return Some(id.clone()),
                 Session::Off => return None,
-                Session::Starting if origin != Origin::AgentMode => return None,
+                Session::Starting if origin != Origin::Background => return None,
                 Session::Starting => {
                     let left = SESSION_WAIT.saturating_sub(started.elapsed());
                     if left.is_zero() {

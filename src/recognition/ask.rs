@@ -95,7 +95,7 @@ impl Question {
             Request {
                 conversation: None,
                 text: text.into(),
-                origin: Origin::AgentMode,
+                origin: Origin::Background,
                 context: Context::default(),
             }
         } else {
@@ -370,7 +370,7 @@ mod tests {
                 unreachable!("Agent mode continues none")
             })
             .expect("a task");
-        assert_eq!(task.origin, Origin::AgentMode);
+        assert_eq!(task.origin, Origin::Background);
         assert_eq!(task.conversation, None);
         assert_eq!(task.context.frontmost_app, None);
     }

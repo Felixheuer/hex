@@ -88,7 +88,7 @@ fn opened(id: &str, window_id: &str) -> Event {
 /// on, five tasks start, step, open windows, queue, fail, and finish, and a
 /// quick question is asked and answered.
 pub(crate) fn script() -> Vec<(f64, Event)> {
-    let agent = Origin::AgentMode;
+    let agent = Origin::Background;
     let mut script: Vec<(f64, Event)> = vec![
         (0.0, Event::ModeChanged { on: true }),
         (

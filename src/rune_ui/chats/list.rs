@@ -23,7 +23,7 @@ static STOP_ICON: &rune::Icon = &rune_theme_opencode::icons::STOP;
 pub(super) fn origin_icon(origin: Origin) -> &'static rune::Icon {
     match origin {
         Origin::ActionShortcut => &MIC,
-        Origin::AgentMode => AGENT_ICON,
+        Origin::Background => AGENT_ICON,
         Origin::Chat => &KEYBOARD,
     }
 }
@@ -32,7 +32,7 @@ pub(super) fn origin_icon(origin: Origin) -> &'static rune::Icon {
 pub(super) fn origin_label(origin: Origin) -> &'static str {
     match origin {
         Origin::ActionShortcut => tr("Asked by voice"),
-        Origin::AgentMode => tr("Agent mode task"),
+        Origin::Background => tr("Agent mode task"),
         Origin::Chat => tr("Typed in Chats"),
     }
 }

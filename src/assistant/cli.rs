@@ -93,7 +93,7 @@ pub fn run(command: AssistantCommand) -> u8 {
             backend: backend.map(Into::into),
             model,
             origin: if agent {
-                Origin::AgentMode
+                Origin::Background
             } else if chat {
                 Origin::Chat
             } else {
@@ -162,7 +162,7 @@ fn ask(ask: Ask) -> Result<bool> {
         let _ = sender.send(event.clone());
     }));
     let _ = ctrlc::set_handler(service::cancel_all);
-    if ask.origin == Origin::AgentMode {
+    if ask.origin == Origin::Background {
         service::set_agent_mode(true);
     }
     let id = service::submit(Request {
@@ -185,7 +185,12 @@ fn ask(ask: Ask) -> Result<bool> {
             println!();
             mid_line = false;
         }
+        #[allow(clippy::wildcard_enum_match_arm)]
         match &event {
+            Event::Paused { .. } => println!("[paused]"),
+            Event::Resumed { .. } => println!("[resumed]"),
+            Event::Waiting { reason, .. } => println!("[waiting] {reason}"),
+            Event::HandsOff { on, .. } => println!("[hands off] {on}"),
             Event::Queued { .. } => println!("[queued]"),
             Event::Started { origin, .. } => println!("[started] {origin:?}"),
             Event::Thinking { .. } => println!("[thinking]"),
@@ -217,7 +222,7 @@ fn ask(ask: Ask) -> Result<bool> {
             break;
         }
     }
-    if ask.origin == Origin::AgentMode {
+    if ask.origin == Origin::Background {
         service::set_agent_mode(false);
     }
     Ok(answered)

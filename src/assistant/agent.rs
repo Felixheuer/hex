@@ -329,7 +329,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>) -> String {
         Origin::ActionShortcut => {
             "This is a quick spoken question. Your answer is shown in a small bubble and read aloud, so keep it short (one to three sentences), plain, and speakable: no markdown, lists, tables, code blocks, links, or emoji. The question was transcribed from speech, so read past small transcription errors.\n"
         }
-        Origin::AgentMode => {
+        Origin::Background => {
             "This is one task in Agent mode, running beside other tasks. Do it on the desktop, then end with one or two plain sentences saying what you did; no markdown.\n"
         }
         Origin::Chat => {
@@ -356,7 +356,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>) -> String {
          - Never quit or close an app you didn't open in this task.\n\
          - Read before acting: snapshot or find, act on a ref, then verify.\n",
     );
-    if origin == Origin::AgentMode || desktop.session.is_some() {
+    if origin == Origin::Background || desktop.session.is_some() {
         prompt.push_str(&format!(
             "- Other agents are working on this Mac at the same time, each with its own cursor; yours is agent “{}”. Work only in windows you opened or were asked to use. Once you know a window's id, always pass it (--window-id / window_id). Never touch, move, close, or type into another task's windows, and don't change the frontmost app unless you must.\n",
             desktop.agent_id
@@ -427,6 +427,7 @@ mod tests {
             selected_text: Some(" the invoice total ".into()),
             frontmost_app: Some("Mail".into()),
             window_title: Some("Inbox".into()),
+            window: None,
         };
         let prompt = prompt(&request("What's this?", context), &[], false);
         assert_eq!(

@@ -115,7 +115,7 @@ fn a_long_stack_folds_its_oldest_tasks_into_a_count() {
         board.apply(
             &Event::Started {
                 conversation: format!("t{n}"),
-                origin: Origin::AgentMode,
+                origin: Origin::Background,
                 question: format!("Task number {n}"),
             },
             None,

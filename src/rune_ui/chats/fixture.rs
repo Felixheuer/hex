@@ -37,6 +37,7 @@ impl Store {
                     .last()
                     .map(|message| message.text().lines().next().unwrap_or_default().to_owned())
                     .unwrap_or_default(),
+                outcome: crate::assistant::Outcome::Answered,
             })
             .collect();
         rows.sort_by_key(|row| std::cmp::Reverse(row.updated_ms));
@@ -106,7 +107,7 @@ pub(in crate::rune_ui) fn store(now: u64) -> Store {
     let reply = conversation(
         "reply-to-maya",
         "Reply to Maya about Thursday",
-        Origin::AgentMode,
+        Origin::Background,
         now - 2 * MINUTE,
         vec![message(
             Role::User,
@@ -119,7 +120,7 @@ pub(in crate::rune_ui) fn store(now: u64) -> Store {
     let rename = conversation(
         "rename-screenshots",
         "Rename the screenshots on my desktop",
-        Origin::AgentMode,
+        Origin::Background,
         now - 26 * MINUTE,
         vec![
             message(
@@ -196,7 +197,7 @@ pub(in crate::rune_ui) fn store(now: u64) -> Store {
     let failed = conversation(
         "book-table",
         "Book a table for Friday",
-        Origin::AgentMode,
+        Origin::Background,
         now - 4 * 24 * 60 * MINUTE,
         vec![
             message(
@@ -221,7 +222,7 @@ pub(in crate::rune_ui) fn store(now: u64) -> Store {
         conversations: vec![reply, rename, regex, weather, failed],
         tasks: vec![TaskStatus {
             conversation: "reply-to-maya".into(),
-            origin: Origin::AgentMode,
+            origin: Origin::Background,
             title: "Reply to Maya about Thursday".into(),
             state: TaskState::Running,
             step: Some("Typing the reply in Mail".into()),
@@ -237,7 +238,7 @@ pub(in crate::rune_ui) fn store(now: u64) -> Store {
 pub(in crate::rune_ui) fn running_turn() -> super::Turn {
     super::Turn {
         question: "Reply to Maya's last email and say Thursday at 3 works for me".into(),
-        origin: Origin::AgentMode,
+        origin: Origin::Background,
         phase: super::Phase::Working,
         steps: vec![
             "Opened Mail".into(),

@@ -116,7 +116,10 @@ impl Board {
                 colour: status.colour % COLOURS,
                 phase: match status.state {
                     TaskState::Queued => Phase::Queued,
-                    TaskState::Running => Phase::Running,
+                    // The overlays engineer draws Paused and Waiting.
+                    TaskState::Running | TaskState::Paused | TaskState::Waiting { .. } => {
+                        Phase::Running
+                    }
                 },
                 step: status.step.as_deref().map(shorten),
                 windows: status.windows,
@@ -215,7 +218,13 @@ impl Board {
             Event::Cancelled { conversation } => {
                 self.finish(conversation, Phase::Stopped, now, |_| {})
             }
-            Event::ConversationsChanged | Event::ModeChanged { .. } => false,
+            // The overlays engineer draws these (paused, waiting, hands off).
+            Event::ConversationsChanged
+            | Event::ModeChanged { .. }
+            | Event::Paused { .. }
+            | Event::Resumed { .. }
+            | Event::Waiting { .. }
+            | Event::HandsOff { .. } => false,
         }
     }
 
@@ -236,7 +245,7 @@ impl Board {
     pub(crate) fn stack(&self) -> Vec<Task> {
         self.tasks
             .iter()
-            .filter(|task| task.origin == Origin::AgentMode)
+            .filter(|task| task.origin == Origin::Background)
             .cloned()
             .collect()
     }
@@ -606,7 +615,7 @@ mod tests {
         assert!(board.apply(
             &Event::Queued {
                 conversation: id(1),
-                origin: Origin::AgentMode,
+                origin: Origin::Background,
                 question: "Book a table for two tonight".into(),
             },
             Some(3),
@@ -614,7 +623,7 @@ mod tests {
         ));
         assert_eq!(board.tasks[0].phase, Phase::Queued);
         assert_eq!(board.tasks[0].colour, 3);
-        board.apply(&started(1, Origin::AgentMode, "Book a table"), None, t0);
+        board.apply(&started(1, Origin::Background, "Book a table"), None, t0);
         assert_eq!(
             board.tasks.len(),
             1,
@@ -654,7 +663,7 @@ mod tests {
         board.apply(
             &Event::Answer {
                 conversation: id(1),
-                origin: Origin::AgentMode,
+                origin: Origin::Background,
                 text: "\nBooked Nopa for 8 pm.\nConfirmation sent to your email.".into(),
             },
             None,
@@ -678,7 +687,7 @@ mod tests {
     fn a_stopped_task_leaves_sooner_and_late_events_change_nothing() {
         let t0 = Instant::now();
         let mut board = Board::default();
-        board.apply(&started(1, Origin::AgentMode, "Tidy my desktop"), None, t0);
+        board.apply(&started(1, Origin::Background, "Tidy my desktop"), None, t0);
         board.apply(
             &Event::Cancelled {
                 conversation: id(1),
@@ -709,7 +718,7 @@ mod tests {
     fn the_stack_lists_agent_mode_tasks_and_outlines_cover_every_live_one() {
         let t0 = Instant::now();
         let mut board = Board::default();
-        board.apply(&started(1, Origin::AgentMode, "a"), None, t0);
+        board.apply(&started(1, Origin::Background, "a"), None, t0);
         board.apply(&started(2, Origin::Chat, "b"), None, t0);
         board.apply(&started(3, Origin::ActionShortcut, "c"), None, t0);
         for n in 1..=3 {
@@ -731,9 +740,9 @@ mod tests {
     fn tasks_without_a_colour_take_the_first_free_one() {
         let t0 = Instant::now();
         let mut board = Board::default();
-        board.apply(&started(1, Origin::AgentMode, "a"), Some(0), t0);
-        board.apply(&started(2, Origin::AgentMode, "b"), None, t0);
-        board.apply(&started(3, Origin::AgentMode, "c"), None, t0);
+        board.apply(&started(1, Origin::Background, "a"), Some(0), t0);
+        board.apply(&started(2, Origin::Background, "b"), None, t0);
+        board.apply(&started(3, Origin::Background, "c"), None, t0);
         let colours: Vec<_> = board.tasks.iter().map(|t| t.colour).collect();
         assert_eq!(colours, [0, 1, 2]);
         board.apply(
@@ -743,12 +752,12 @@ mod tests {
             None,
             t0,
         );
-        board.apply(&started(4, Origin::AgentMode, "d"), None, t0);
+        board.apply(&started(4, Origin::Background, "d"), None, t0);
         assert_eq!(
             board.tasks[3].colour, 1,
             "a finished task's colour is free again"
         );
-        board.apply(&started(5, Origin::AgentMode, "e"), Some(11), t0);
+        board.apply(&started(5, Origin::Background, "e"), Some(11), t0);
         assert_eq!(board.tasks[4].colour, 11 % COLOURS);
     }
 
@@ -792,7 +801,7 @@ mod tests {
         let mut bubble = None;
         assert!(!Bubble::apply(
             &mut bubble,
-            &started(1, Origin::AgentMode, "x"),
+            &started(1, Origin::Background, "x"),
             t0
         ));
         assert!(bubble.is_none(), "Agent mode tasks never show the bubble");

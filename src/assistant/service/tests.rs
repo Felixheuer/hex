@@ -145,7 +145,7 @@ fn tasks_beyond_max_parallel_wait_their_turn() {
     let world = World::new(2);
     let runner = world.runner();
     let a = runner.submit(request("a", Origin::Chat));
-    let b = runner.submit(request("b", Origin::AgentMode));
+    let b = runner.submit(request("b", Origin::Background));
     let c = runner.submit(request("c", Origin::Chat));
     world.wait_for("a and b to start", |events| {
         started(&a)(events) && started(&b)(events)
@@ -190,7 +190,7 @@ fn tasks_beyond_max_parallel_wait_their_turn() {
         [
             Event::Answer {
                 conversation: b,
-                origin: Origin::AgentMode,
+                origin: Origin::Background,
                 text: "answer to b".into()
             },
             Event::Answer {
@@ -211,7 +211,7 @@ fn tasks_beyond_max_parallel_wait_their_turn() {
 fn a_new_quick_question_cancels_the_last_one_but_not_agent_tasks() {
     let world = World::new(8);
     let runner = world.runner();
-    let agent = runner.submit(request("agent", Origin::AgentMode));
+    let agent = runner.submit(request("agent", Origin::Background));
     let first = runner.submit(request("first", Origin::ActionShortcut));
     world.wait_for("the first quick question", started(&first));
     let second = runner.submit(request("second", Origin::ActionShortcut));
@@ -278,7 +278,7 @@ fn agent_mode_runs_tasks_in_one_desktop_session_until_off_and_idle() {
     let world = World::new(8);
     let runner = world.runner();
     runner.set_agent_mode(true);
-    let task = runner.submit(request("task", Origin::AgentMode));
+    let task = runner.submit(request("task", Origin::Background));
     world.wait_for("the task", started(&task));
     world.wait_for("the job", |_| !world.jobs.lock().unwrap().is_empty());
     let job = world.jobs.lock().unwrap()[0].clone();

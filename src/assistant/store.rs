@@ -236,6 +236,8 @@ fn summary(conversation: &Conversation) -> ConversationSummary {
         updated_ms: conversation.updated_ms,
         origin: conversation.origin,
         preview: shorten(&preview, PREVIEW_CHARS),
+        // The brain engineer stores and reads the real outcome.
+        outcome: crate::assistant::Outcome::Answered,
     }
 }
 
@@ -364,7 +366,7 @@ mod tests {
     fn the_list_is_newest_first_and_skips_unreadable_files() {
         let store = temp_store();
         for (id, at) in [("a", 5), ("b", 50), ("c", 20)] {
-            let mut stored = Stored::new(id, Origin::AgentMode, id);
+            let mut stored = Stored::new(id, Origin::Background, id);
             stored.push(message(Role::User, id, at));
             stored.conversation.updated_ms = at;
             store.save(&stored).unwrap();

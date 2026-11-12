@@ -25,11 +25,14 @@
 
 pub mod agent;
 pub mod backends;
+pub mod browser;
 pub mod cli;
 pub mod computer;
 pub mod credentials;
+pub mod guard;
 pub mod provider;
 pub mod service;
+pub mod space;
 pub mod speech;
 pub mod store;
 pub mod types;

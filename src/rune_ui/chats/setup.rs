@@ -533,7 +533,7 @@ pub(in crate::rune_ui) fn run_checks(ui: &mut Ui) {
             took: Duration::ZERO,
         })
         .collect();
-    ui.chats.jobs.run(Job::SelfTests(settings));
+    ui.chats.jobs.run(Job::SelfTests(Box::new(settings)));
 }
 
 /// Asks for a permission: Hex's open their System Settings page with

@@ -28,7 +28,7 @@ pub(in crate::rune_ui) enum Job {
     /// the guide can show.
     Fix(Fix),
     /// The self-tests for these settings' agent, in order.
-    SelfTests(AssistantSettings),
+    SelfTests(Box<AssistantSettings>),
     /// What else takes the tested shortcuts.
     Conflicts(Box<AppSettings>),
     /// Saves the Claude API key in the Keychain (empty deletes it).

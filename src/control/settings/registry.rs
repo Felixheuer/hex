@@ -307,6 +307,41 @@ pub(super) const KEYS: &[Key] = &[
         Kind::Integer { min: 1, max: 64 },
         "Labs: at most this many assistant tasks run at once; later ones wait (macOS)",
     ),
+    optional(
+        "assistant.stop_all_hotkey",
+        Kind::Json,
+        "Labs: stops every assistant task at once; control+option+escape by default (macOS)",
+    ),
+    key(
+        "assistant.here_physical_input",
+        Kind::Bool,
+        "Labs: a Here task may use the real pointer and keys in the window in front (macOS)",
+    ),
+    key(
+        "assistant.background_browser",
+        Kind::Bool,
+        "Labs: web work runs in agent-browser's own hidden browsers, one per task (macOS)",
+    ),
+    key(
+        "assistant.blocked_apps",
+        Kind::Json,
+        "Labs: apps no assistant task may read or operate, by name or bundle id (macOS)",
+    ),
+    key(
+        "assistant.task_timeout_minutes",
+        Kind::Integer { min: 0, max: 1440 },
+        "Labs: an assistant task running longer than this is stopped; 0 never (macOS)",
+    ),
+    key(
+        "assistant.retry_on_limit",
+        Kind::Bool,
+        "Labs: a task that hits its agent's usage limit waits and retries (macOS)",
+    ),
+    key(
+        "assistant.agent_space",
+        Kind::Bool,
+        "Labs: experimental; windows Background tasks open move to a Space of their own (macOS)",
+    ),
     key(
         "assistant.setup_done",
         Kind::Bool,

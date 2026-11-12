@@ -55,18 +55,45 @@ impl Message {
     }
 }
 
-/// Where a request came from.
+/// Where a request came from, which is also its lane.
+///
+/// - **Here** (`ActionShortcut`): held the Action shortcut. About the window
+///   in front; may act in that window only (with real input when allowed,
+///   under a "Hands off" pill). One at a time. Answer in the HUD bubble,
+///   read aloud.
+/// - **Background**: tapped then held the Action shortcut, or said "in the
+///   background …". Runs beside the others in windows it opens or claims,
+///   never in the window in front, never with real input unless
+///   `physical_input`. Listed in the task stack; the screen frame shows
+///   while any runs.
+/// - **Chat**: typed in Chats; answers there, may act like Background.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Origin {
-    /// Held the Action shortcut outside Agent mode: a quick question. The
-    /// answer shows in the HUD's bubble and is read aloud.
     ActionShortcut,
-    /// Held the Action shortcut in Agent mode: a task that runs beside the
-    /// others, listed in the HUD's task stack; not read aloud.
-    AgentMode,
-    /// Typed in Chats: the answer shows there and is not read aloud.
+    /// Stored as `agent_mode` before the lanes; still read.
+    #[serde(alias = "agent_mode")]
+    Background,
     Chat,
+}
+
+impl Origin {
+    pub fn lane(self) -> Lane {
+        match self {
+            Self::ActionShortcut => Lane::Here,
+            Self::Background | Self::Chat => Lane::Background,
+        }
+    }
+}
+
+/// Where a task may act (`guard` enforces it).
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Lane {
+    /// Only the window that was in front when it was asked.
+    Here,
+    /// Only windows it opened or claimed; never the window in front.
+    Background,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -89,10 +116,12 @@ pub struct ConversationSummary {
     pub origin: Origin,
     /// The last message's text, shortened, for the list's second line.
     pub preview: String,
+    /// How its last request ended (`Interrupted` offers Resume).
+    pub outcome: Outcome,
 }
 
-/// What the desktop looked like when the question was asked (quick
-/// questions; Agent mode tasks look for themselves).
+/// What the desktop looked like when the question was asked (Here lane;
+/// Background tasks look for themselves).
 #[derive(Clone, Debug, Default)]
 pub struct Context {
     /// The screen the pointer is on, as PNG (see `computer::Screenshot`).
@@ -103,6 +132,9 @@ pub struct Context {
     pub frontmost_app: Option<String>,
     /// The focused window's title.
     pub window_title: Option<String>,
+    /// The window in front, as agent-desktop names it: the Here lane's only
+    /// window.
+    pub window: Option<TaskWindow>,
 }
 
 /// One question to answer.
@@ -143,6 +175,10 @@ pub enum TaskState {
     /// Waiting for a free slot (`max_parallel`).
     Queued,
     Running,
+    /// The person took it over: its desktop actions wait until handed back.
+    Paused,
+    /// The backend hit a usage limit; it retries at this Unix ms time.
+    Waiting { until_ms: u64 },
 }
 
 /// What a running request reports, in order: `Started` (after any
@@ -191,9 +227,25 @@ pub enum Event {
         window: TaskWindow,
     },
     Cancelled { conversation: ConversationId },
+    /// Taken over by the person (`Paused`) or handed back (`Resumed`).
+    Paused { conversation: ConversationId },
+    Resumed { conversation: ConversationId },
+    /// Hit a usage limit; retries at `until_ms`.
+    Waiting {
+        conversation: ConversationId,
+        until_ms: u64,
+        reason: String,
+    },
+    /// A Here task is (or stops) moving the real pointer or pressing real
+    /// keys in the window in front: the HUD shows "Hands off".
+    HandsOff {
+        conversation: ConversationId,
+        on: bool,
+    },
     /// The stored list changed (a new, renamed, or deleted conversation).
     ConversationsChanged,
-    /// Agent mode turned on or off (the screen frame follows).
+    /// Background work started or ended: the screen frame shows while any
+    /// Background or Chat task runs, waits, or is queued.
     ModeChanged { on: bool },
 }
 
@@ -209,7 +261,11 @@ impl Event {
             | Self::AnswerDelta { conversation, .. }
             | Self::Answer { conversation, .. }
             | Self::Failed { conversation, .. }
-            | Self::Cancelled { conversation } => Some(conversation),
+            | Self::Cancelled { conversation }
+            | Self::Paused { conversation }
+            | Self::Resumed { conversation }
+            | Self::Waiting { conversation, .. }
+            | Self::HandsOff { conversation, .. } => Some(conversation),
             Self::ConversationsChanged | Self::ModeChanged { .. } => None,
         }
     }
@@ -226,4 +282,18 @@ impl Event {
 /// A file path beside a conversation (a screenshot it saved).
 pub fn attachment(conversation: &str, file: &str) -> Option<PathBuf> {
     crate::assistant::store::attachment_path(conversation, file)
+}
+
+/// How a stored conversation's last request ended, for Chats.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Outcome {
+    #[default]
+    Answered,
+    Failed,
+    Cancelled,
+    /// Hex quit or crashed while it ran; Chats offers Resume.
+    Interrupted,
+    /// Still running (only while Hex runs).
+    Running,
 }

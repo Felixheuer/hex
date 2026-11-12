@@ -53,6 +53,23 @@ pub struct AssistantSettings {
     pub max_parallel: u32,
     /// The setup sheet (agents found, agent-desktop, permissions) was finished.
     pub setup_done: bool,
+    /// Stops every task at once: Control-Option-Escape by default.
+    pub stop_all_hotkey: Option<HotkeyBinding>,
+    /// A Here task may move the real pointer and press real keys in the
+    /// window in front (under a "Hands off" pill); off keeps it headless too.
+    pub here_physical_input: bool,
+    /// Web work runs in agent-browser's own hidden browsers, one session per
+    /// task, instead of in the person's browser windows.
+    pub background_browser: bool,
+    /// Apps no task may read or operate (by name or bundle id).
+    pub blocked_apps: Vec<String>,
+    /// A task running longer than this many minutes is stopped; 0 never.
+    pub task_timeout_minutes: u32,
+    /// A task that hits its agent's usage limit waits and retries.
+    pub retry_on_limit: bool,
+    /// Experimental: windows Background tasks open move to a Space of their
+    /// own, out of the person's way.
+    pub agent_space: bool,
 }
 
 impl Default for AssistantSettings {
@@ -72,11 +89,40 @@ impl Default for AssistantSettings {
             follow_up_seconds: 30,
             max_parallel: 8,
             setup_done: false,
+            stop_all_hotkey: Some(HotkeyBinding::stop_all_default()),
+            here_physical_input: true,
+            background_browser: true,
+            blocked_apps: [
+                "Passwords",
+                "Keychain Access",
+                "1Password",
+                "Bitwarden",
+            ]
+            .map(String::from)
+            .to_vec(),
+            task_timeout_minutes: 30,
+            retry_on_limit: true,
+            agent_space: false,
         }
     }
 }
 
 impl HotkeyBinding {
+    /// Stop all tasks' default: Control-Option-Escape.
+    pub fn stop_all_default() -> Self {
+        Self {
+            modifiers: HotkeyModifiers {
+                control: Some(ModifierSide::Either),
+                option: Some(ModifierSide::Either),
+                ..Default::default()
+            },
+            key: Some(HotkeyKey {
+                code: 53,
+                label: "Esc".into(),
+            }),
+        }
+    }
+
     /// The Action shortcut's default: hold right Command alone.
     pub fn action_default() -> Self {
         Self {

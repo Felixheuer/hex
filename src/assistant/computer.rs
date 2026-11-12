@@ -449,6 +449,8 @@ mod macos {
             selected_text,
             frontmost_app: front.map(|(_, name, _)| name),
             window_title,
+            // The guard engineer fills this (the Here lane's window).
+            window: None,
         }
     }
 

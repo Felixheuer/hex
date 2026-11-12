@@ -379,6 +379,11 @@ impl ChatsPane {
                 reload_shown = true;
             }
             Event::ModeChanged { on } => self.agent_mode = *on,
+            // The UI engineer shows these (paused, waiting).
+            Event::Paused { .. }
+            | Event::Resumed { .. }
+            | Event::Waiting { .. }
+            | Event::HandsOff { .. } => {}
         }
         if reload_list {
             self.list = self.source.conversations();
@@ -487,6 +492,7 @@ impl ChatsPane {
                 updated_ms: crate::history::now_ms(),
                 origin: turn.origin,
                 preview: String::new(),
+                outcome: crate::assistant::Outcome::Running,
             })
             .collect();
         rows.sort_by(|a, b| a.id.cmp(&b.id));

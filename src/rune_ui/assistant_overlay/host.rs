@@ -233,7 +233,7 @@ fn play_fixture() {
                     end + at,
                     Event::Answer {
                         conversation: id.into(),
-                        origin: crate::assistant::Origin::AgentMode,
+                        origin: crate::assistant::Origin::Background,
                         text: "Done.".into(),
                     },
                 ));
