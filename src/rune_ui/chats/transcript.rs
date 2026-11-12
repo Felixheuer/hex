@@ -93,7 +93,11 @@ impl Thumbnails {
 /// The detail card: a new chat, or the selected conversation.
 pub(super) fn detail(ui: &Ui, p: Paint) -> El {
     let pane = &ui.chats;
+    // Until its onboarding finished, the assistant offers to finish it
+    // instead of a chat.
+    let ready = crate::assistant::ready(&ui.settings);
     let content = match pane.selected.as_deref() {
+        None if !ready => finish_setup(ui, p),
         None => new_chat(ui, p),
         Some(id) => conversation(ui, p, id),
     };
@@ -108,7 +112,52 @@ pub(super) fn detail(ui: &Ui, p: Paint) -> El {
         .min_h(0.0)
         .child(content)
         .children(banner)
-        .child(composer::composer(ui, p))
+        .children(ready.then(|| composer::composer(ui, p)))
+}
+
+/// Setup isn't finished: a calm card that picks it up where it was left.
+fn finish_setup(ui: &Ui, p: Paint) -> El {
+    use super::super::onboarding_kit::{LEAD, title_font};
+    let saved = super::setup::resume::saved_page(ui);
+    let detail = match saved {
+        Some(page) if page != super::setup::Page::Welcome => {
+            tr("It picks up where you left off, and checks that page again.")
+        }
+        _ => tr("Hex checks that the agent, its permissions, and the shortcuts work, then you try it once."),
+    };
+    col()
+        .key("finish-setup")
+        .grow(1.0)
+        .shrink()
+        .center()
+        .gap(10.0)
+        .pb(40.0)
+        .child(
+            text(tr("Finish setting up the assistant"))
+                .key("title")
+                .role("heading")
+                .level(2)
+                .font(title_font(p))
+                .color(p.text()),
+        )
+        .child(
+            text(detail)
+                .key("detail")
+                .font(LEAD)
+                .color(p.muted())
+                .align(rune::Align::Center)
+                .wrap()
+                .max_w(420.0),
+        )
+        .child(
+            rune_kit::Button::new(tr("Continue setup"))
+                .variant(rune_kit::ButtonVariant::Contrast)
+                .on_press(super::open_setup)
+                .build(p.k)
+                .key("continue-setup")
+                .mt(8.0),
+        )
+        .transition(super::super::onboarding_kit::arrives())
 }
 
 /// Nothing selected: what the assistant is for, over the composer.

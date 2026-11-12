@@ -33,6 +33,9 @@ use crate::assistant::Event;
 use crate::desktop::i18n::{tr, tr_fill};
 use crate::desktop::onboarding::{PermissionAction, PermissionKind, PermissionState};
 
+/// How many of a fix's latest lines it keeps.
+const FIX_LOG: usize = 6;
+
 /// How often a page that waits on macOS reads the grants again.
 const RECHECK: Duration = Duration::from_millis(1500);
 
@@ -190,6 +193,12 @@ pub(in crate::rune_ui) struct SetupFlow {
     pub(in crate::rune_ui) new_in_hex: bool,
     /// Reopened after Hex restarted part way: the page says so.
     pub(in crate::rune_ui) resumed: bool,
+    /// The running fix's latest lines (an installer's output).
+    pub(in crate::rune_ui) fix_log: Vec<String>,
+    /// The failed fix's command, to run in Terminal instead.
+    pub(in crate::rune_ui) fix_command: Option<String>,
+    /// Opened by a hold of the Action shortcut before setup finished.
+    pub(in crate::rune_ui) from_hold: bool,
 }
 
 impl Default for SetupFlow {
@@ -219,6 +228,9 @@ impl Default for SetupFlow {
             merged: false,
             new_in_hex: false,
             resumed: false,
+            fix_log: Vec::new(),
+            fix_command: None,
+            from_hold: false,
         }
     }
 }
@@ -672,6 +684,8 @@ pub(in crate::rune_ui) fn apply(ui: &mut Ui, fix: Fix) {
         }
         flow.fixing = Some(fix);
         flow.fix_error = None;
+        flow.fix_log.clear();
+        flow.fix_command = None;
     }
     ui.chats.jobs.run(Job::Fix(fix));
 }
@@ -721,6 +735,7 @@ pub(super) fn receive(ui: &mut Ui, done: super::Done) {
         return;
     }
     let fixed = matches!(done, Done::Fixed(..));
+    let browser_installed = matches!(done, Done::Fixed(Fix::InstallAgentBrowser, _));
     let Some(flow) = ui.chats.setup.as_mut() else {
         return;
     };
@@ -746,12 +761,29 @@ pub(super) fn receive(ui: &mut Ui, done: super::Done) {
             }
         }
         Done::AllChecked => flow.checks_running = false,
+        Done::FixProgress(fix, line) => {
+            if flow.fixing == Some(fix) && !line.trim().is_empty() {
+                flow.fix_log.push(line);
+                let extra = flow.fix_log.len().saturating_sub(FIX_LOG);
+                flow.fix_log.drain(..extra);
+            }
+        }
+        Done::FixCommand(_, command) => flow.fix_command = command,
         Done::Fixed(fix, result) => {
             if flow.fixing == Some(fix) {
                 flow.fixing = None;
             }
-            if let Err(error) = result {
-                flow.fix_error = Some(error);
+            match result {
+                // What it printed last, and why it stopped.
+                Err(error) => {
+                    let mut tail = std::mem::take(&mut flow.fix_log);
+                    tail.push(error);
+                    flow.fix_error = Some(tail.join("\n"));
+                }
+                Ok(()) => {
+                    flow.fix_log.clear();
+                    flow.fix_command = None;
+                }
             }
         }
         Done::Conflicts(found) => {
@@ -761,10 +793,13 @@ pub(super) fn receive(ui: &mut Ui, done: super::Done) {
         Done::KeySaved(_)
         | Done::Voices(_)
         | Done::RunningApps(_)
-        | Done::Browser(_)
-        | Done::BrowserInstalled(_)
+        | Done::Browser(..)
+        | Done::SignIn(..)
         | Done::BrowserCheck(_)
         | Done::BrowserChecked => {}
+    }
+    if browser_installed {
+        browser::installed(ui);
     }
     if fixed {
         // Installed, started, or signed in: look again.

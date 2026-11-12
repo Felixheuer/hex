@@ -48,8 +48,11 @@ pub(in crate::rune_ui) struct SettingsState {
     pub(in crate::rune_ui) blocked: TextEdit,
     /// agent-browser, once read.
     pub(in crate::rune_ui) browser: Option<AgentBrowser>,
-    /// Whether the agents' Space works on this Mac.
-    pub(in crate::rune_ui) space_available: bool,
+    /// Someone signed in to sites in Hex's own browser.
+    pub(in crate::rune_ui) signed_in: bool,
+    /// Hex's browser shows for signing in.
+    pub(in crate::rune_ui) signing_in: bool,
+    pub(in crate::rune_ui) sign_in_error: Option<String>,
 }
 
 fn index(backend: AssistantBackend) -> usize {
@@ -92,7 +95,6 @@ pub(super) fn opened(ui: &mut Ui) {
             TextEdit::new(saved_model(&ui.settings.assistant, backend));
     }
     ui.chats.settings.model_typed = None;
-    ui.chats.settings.space_available = crate::assistant::space::available();
     ui.chats.jobs.run(Job::Detect);
     ui.chats.jobs.run(Job::Browser);
     ui.chats.jobs.run(Job::RunningApps);

@@ -4,10 +4,13 @@
 //! self-test pages (`checks`), the shortcut page (`shortcut`), and the
 //! gesture tutorial (`try_it`) live beside it.
 
+mod browser;
 mod checks;
 mod desktop;
 mod shortcut;
 mod try_it;
+
+pub(super) use browser::sign_in_button;
 
 use rune::{Align, El, Tx, col, el, icon, row, text};
 use rune_kit::{Button, ButtonVariant, RadioItem, Spinner, TextInput, glyphs};
@@ -35,6 +38,7 @@ static CHAT: &rune::Icon = &rune_theme_opencode::icons::SPEECH_BUBBLE;
 static SCREEN: &rune::Icon = &rune_theme_opencode::icons::MONITOR;
 static TOOL: &rune::Icon = &rune_theme_opencode::icons::CUBE;
 static STACK: &rune::Icon = &rune_theme_opencode::icons::BULLET_LIST;
+static KEY: &rune::Icon = &rune_theme_opencode::icons::LOCK;
 
 /// The flow over the whole window, while it shows.
 pub(in crate::rune_ui) fn overlay(ui: &Ui, p: Paint) -> Option<El> {
@@ -43,7 +47,7 @@ pub(in crate::rune_ui) fn overlay(ui: &Ui, p: Paint) -> Option<El> {
         Page::Welcome => welcome(ui, p),
         Page::Agent => agent(ui, flow, p),
         Page::Desktop => desktop::desktop(ui, flow, p),
-        Page::Browser => checks::browser(ui, flow, p),
+        Page::Browser => browser::browser(ui, flow, p),
         Page::Checks => checks::checks(ui, flow, p),
         Page::Shortcut => shortcut::shortcut(ui, flow, p),
         Page::Try => try_it::try_it(ui, flow, p),
@@ -59,6 +63,17 @@ pub(in crate::rune_ui) fn overlay(ui: &Ui, p: Paint) -> Option<El> {
             .fill(p.k.c.bg_deep)
             .on_press(|_: &mut Ui| {})
             .child(top_bar(ui, flow, p))
+            .children(flow.from_hold.then(|| {
+                row().key("from-hold").w_full().justify_center().child(
+                    text(tr(
+                        "Finish setting up the assistant first. Then hold the Action shortcut again.",
+                    ))
+                    .key("words")
+                    .role("status")
+                    .font(p.k.ty.small_medium)
+                    .color(p.accent()),
+                )
+            }))
             .child(
                 col()
                     .key("middle")
@@ -533,10 +548,17 @@ fn agent(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                     .gap(6.0)
                     .center_y()
                     .child(
-                        text(tr("Installing…"))
-                            .key("label")
-                            .font(p.k.ty.small)
-                            .color(p.muted()),
+                        text(
+                            flow.fix_log
+                                .last()
+                                .cloned()
+                                .unwrap_or_else(|| tr("Installing…").to_owned()),
+                        )
+                        .key("label")
+                        .font(p.k.ty.small)
+                        .color(p.muted())
+                        .max_w(200.0)
+                        .truncate(),
                     )
                     .child(spinner(p, "fixing")),
                 Some(fix) if flow.fixing == Some(fix) => spinner(p, "fixing"),
@@ -581,7 +603,7 @@ fn agent(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         (Some(error), _) => Some(desktop::install_failure(
             p,
             error,
-            desktop::install_command(Fix::Install(chosen_backend)),
+            flow.fix_command.as_deref(),
         )),
         (None, Some(error)) => Some(note(p, error)),
         (None, None) => None,

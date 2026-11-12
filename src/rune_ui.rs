@@ -426,6 +426,13 @@ pub(crate) fn destination(pane: Option<crate::control::Pane>) -> Destination {
 }
 
 /// Shows `destination` in the window (the caller opens it).
+/// The assistant's onboarding where it was left, saying the assistant
+/// answers once it's finished (a hold of the Action shortcut before that).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn open_assistant_setup(ui: &mut Ui, tx: &mut Tx) {
+    chats::open_setup_from_hold(ui, tx);
+}
+
 pub(crate) fn show(ui: &mut Ui, destination: Destination, tx: &mut Tx) {
     let pane = match &destination {
         Destination::Settings | Destination::Models => Pane::General,

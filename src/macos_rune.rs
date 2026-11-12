@@ -503,6 +503,9 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     crate::rune_ui::assistant_overlay::install(&mut app);
     // Its task stack and "Open in Chats" open the conversation in Chats.
     crate::rune_ui::assistant_overlay::set_open_chats(|id| open_chat(Some(id.to_owned())));
+    // A hold of the Action shortcut before the assistant is set up opens
+    // its onboarding where it was left.
+    crate::recognition::ask::set_open_setup(open_assistant_setup);
     // The capture capsule, picker, and ink.
     #[cfg(hex_capture)]
     let capture_overlays =
@@ -788,6 +791,18 @@ pub(crate) fn open_chat(conversation: Option<String>) {
     with_window(|window| {
         window.update(move |ui, tx| {
             crate::rune_ui::show(ui, Destination::Chats(conversation), tx);
+            bring_window_forward();
+        });
+    });
+}
+
+/// Opens the assistant's onboarding where it was left, the window in
+/// front, after a hold of the Action shortcut before setup finished.
+/// Callable from any thread.
+fn open_assistant_setup() {
+    with_window(|window| {
+        window.update(|ui, tx| {
+            crate::rune_ui::open_assistant_setup(ui, tx);
             bring_window_forward();
         });
     });

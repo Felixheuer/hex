@@ -1,11 +1,14 @@
 //! The onboarding's Browser page: agent-browser found (or installed with
-//! Homebrew), its own hidden browser downloaded, and its self-tests green,
-//! so web tasks run in browsers of their own instead of the person's.
+//! one click, its own Chrome with it), and its self-tests green, so web
+//! tasks run in browsers of their own instead of the person's. Signing in
+//! to sites in Hex's own browser is offered, never required.
 
-use super::super::browser_shim::{self as bshim, CheckResult};
+use std::time::Duration;
+
 use super::super::{Done, Job, Ui};
-use super::SetupFlow;
-use crate::assistant::backends::CheckState;
+use super::{Page, SetupFlow};
+use crate::app_settings::AssistantSettings;
+use crate::assistant::backends::{self, Check, CheckResult, CheckState, Fix};
 use crate::assistant::browser::AgentBrowser;
 
 /// The Browser page's state.
@@ -14,9 +17,6 @@ pub(in crate::rune_ui) struct BrowserStep {
     /// agent-browser as last read.
     pub(in crate::rune_ui) found: Option<AgentBrowser>,
     pub(in crate::rune_ui) reading: bool,
-    pub(in crate::rune_ui) installing: bool,
-    /// Why the last install failed.
-    pub(in crate::rune_ui) error: Option<String>,
     pub(in crate::rune_ui) checks: Vec<CheckResult>,
     pub(in crate::rune_ui) checks_running: bool,
 }
@@ -35,12 +35,25 @@ impl BrowserStep {
     }
 }
 
+/// The browser's own checks, in order.
+pub(in crate::rune_ui) fn checks_for(settings: &AssistantSettings) -> Vec<Check> {
+    backends::Check::for_backend(settings.backend, true)
+        .into_iter()
+        .filter(|check| {
+            matches!(
+                check,
+                Check::BrowserRoundTrip | Check::BrowserThroughAgent(_)
+            )
+        })
+        .collect()
+}
+
 /// Reads agent-browser again.
 pub(in crate::rune_ui) fn read(ui: &mut Ui) {
     let Some(flow) = ui.chats.setup.as_mut() else {
         return;
     };
-    if flow.browser.reading || flow.browser.installing {
+    if flow.browser.reading || flow.fixing == Some(Fix::InstallAgentBrowser) {
         return;
     }
     flow.browser.reading = true;
@@ -61,19 +74,6 @@ pub(in crate::rune_ui) fn arrive(ui: &mut Ui) {
     }
 }
 
-/// `brew install agent-browser`, then its browser.
-pub(in crate::rune_ui) fn install(ui: &mut Ui) {
-    let Some(flow) = ui.chats.setup.as_mut() else {
-        return;
-    };
-    if flow.browser.installing {
-        return;
-    }
-    flow.browser.installing = true;
-    flow.browser.error = None;
-    ui.chats.jobs.run(Job::InstallBrowser);
-}
-
 /// Runs the browser's self-tests against the chosen agent.
 pub(in crate::rune_ui) fn run_checks(ui: &mut Ui) {
     let settings = ui.settings.assistant.clone();
@@ -84,19 +84,25 @@ pub(in crate::rune_ui) fn run_checks(ui: &mut Ui) {
         return;
     }
     flow.browser.checks_running = true;
-    flow.browser.checks = bshim::for_backend(settings.backend)
+    flow.browser.checks = checks_for(&settings)
         .into_iter()
-        .map(CheckResult::pending)
+        .map(|check| CheckResult {
+            check,
+            state: CheckState::Pending,
+            detail: String::new(),
+            fix: None,
+            took: Duration::ZERO,
+        })
         .collect();
     ui.chats.jobs.run(Job::BrowserChecks(Box::new(settings)));
 }
 
-/// What a failed browser check offers.
-pub(in crate::rune_ui) fn apply(ui: &mut Ui, fix: bshim::Fix) {
-    match fix {
-        bshim::Fix::InstallAgentBrowser => install(ui),
-        bshim::Fix::Retry => run_checks(ui),
+/// An install of agent-browser finished: look again, and test it.
+pub(super) fn installed(ui: &mut Ui) {
+    if let Some(flow) = ui.chats.setup.as_mut() {
+        flow.browser.checks.clear();
     }
+    read(ui);
 }
 
 /// A browser job's answer. True when it was one.
@@ -104,21 +110,17 @@ pub(super) fn receive(ui: &mut Ui, done: &Done) -> bool {
     let Some(flow) = ui.chats.setup.as_mut() else {
         return false;
     };
-    let here = flow.page == super::Page::Browser;
+    let here = flow.page == Page::Browser;
     let step = &mut flow.browser;
     match done {
-        Done::Browser(found) => {
+        Done::Browser(found, _) => {
             step.reading = false;
             step.found = Some(found.clone());
             if here && step.ready() && step.checks.is_empty() {
                 run_checks(ui);
             }
-        }
-        Done::BrowserInstalled(result) => {
-            step.installing = false;
-            step.error = result.clone().err();
-            step.checks.clear();
-            read(ui);
+            // Settings keeps it too.
+            return false;
         }
         Done::BrowserCheck(result) => {
             if let Some(slot) = step
@@ -136,23 +138,20 @@ pub(super) fn receive(ui: &mut Ui, done: &Done) -> bool {
 }
 
 /// Runs the browser checks off the window's thread, reporting each.
-pub(in crate::rune_ui) fn perform_checks(
-    settings: &crate::app_settings::AssistantSettings,
-    send: &dyn Fn(Done),
-) {
-    for check in bshim::for_backend(settings.backend) {
-        let mut running = CheckResult::pending(check);
-        running.state = CheckState::Running;
-        send(Done::BrowserCheck(running));
-        send(Done::BrowserCheck(bshim::self_test(check, settings)));
-    }
+pub(in crate::rune_ui) fn perform_checks(settings: &AssistantSettings, send: &dyn Fn(Done)) {
+    backends::self_tests(&checks_for(settings), settings, |result| {
+        send(Done::BrowserCheck(result.clone()))
+    });
     send(Done::BrowserChecked);
 }
 
 /// The page for scenes: agent-browser found and ready, one check passed,
 /// the next failed with its fix (or every check passed).
-pub(in crate::rune_ui) fn fixture(flow: &mut SetupFlow, backend: crate::app_settings::AssistantBackend, all_passed: bool) {
-    use std::time::Duration;
+pub(in crate::rune_ui) fn fixture(
+    flow: &mut SetupFlow,
+    backend: crate::app_settings::AssistantBackend,
+    all_passed: bool,
+) {
     flow.browser.found = Some(AgentBrowser {
         path: Some("/opt/homebrew/bin/agent-browser".into()),
         version: Some("0.9.3".into()),
@@ -167,24 +166,24 @@ pub(in crate::rune_ui) fn fixture(flow: &mut SetupFlow, backend: crate::app_sett
     };
     flow.browser.checks = vec![
         result(
-            bshim::Check::BrowserRoundTrip,
+            Check::BrowserRoundTrip,
             CheckState::Ok,
             "Opened example.com and read its title in 1.8 s",
             None,
         ),
         if all_passed {
             result(
-                bshim::Check::BrowserThroughAgent(backend),
+                Check::BrowserThroughAgent(backend),
                 CheckState::Ok,
                 "Opened a page through agent-browser in 7.2 s",
                 None,
             )
         } else {
             result(
-                bshim::Check::BrowserThroughAgent(backend),
+                Check::BrowserThroughAgent(backend),
                 CheckState::Failed,
                 "The agent didn't call agent-browser within 60 s",
-                Some(bshim::Fix::Retry),
+                Some(Fix::Retry),
             )
         },
     ];

@@ -112,6 +112,9 @@ pub(in crate::rune_ui) fn web_section(ui: &Ui, p: Paint) -> El {
         .browser
         .as_ref()
         .is_some_and(|found| found.path.is_none() || !found.browser_ready);
+    if on && !missing && ui.chats.settings.browser.is_some() {
+        rows.push(sign_in_row(ui, p));
+    }
     if on && missing {
         rows.push(
             described_row(
@@ -300,39 +303,60 @@ pub(in crate::rune_ui) fn task_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> V
     ]
 }
 
-/// The agents' own Space: off and disabled, with why, until this Mac can.
+/// Agent windows parked off-screen (experimental): macOS has no way for
+/// Hex to give them a Space of their own.
 pub(in crate::rune_ui) fn experimental_section(ui: &Ui, p: Paint) -> El {
-    let available = ui.chats.settings.space_available;
-    let on = ui.settings.assistant.agent_space && available;
-    let title = tr("A Space for the agents");
-    let row = if available {
-        toggle_row(
-            p,
-            "assistant-agent-space",
-            title,
-            tr("Windows background tasks open move to a Space of their own, out of your way"),
-            on,
-            |ui: &mut Ui| {
-                ui.update(|settings| settings.assistant.agent_space ^= true);
-            },
-        )
-    } else {
-        described_row(
-            p,
-            "assistant-agent-space",
-            title,
-            Some((
-                tr("macOS doesn't let Hex move windows between Spaces on this Mac yet").to_owned(),
-                p.muted(),
-            )),
-            rune_kit::Switch::new(false)
-                .disabled(true)
-                .build(p.k)
-                .key("switch")
-                .a11y_hidden(),
-        )
-        .role("switch")
-        .checked(false)
-    };
+    let row = toggle_row(
+        p,
+        "assistant-agent-space",
+        tr("Park agent windows off-screen (experimental)"),
+        tr("Windows background tasks open move out of sight until you bring one forward from the task list. A Space of their own isn't possible on current macOS"),
+        ui.settings.assistant.agent_space,
+        |ui: &mut Ui| {
+            ui.update(|settings| settings.assistant.agent_space ^= true);
+        },
+    );
     section(p, "assistant-experimental", tr("Experimental"), vec![row])
+}
+
+/// Signing in to sites in Hex's own browser, which every task's hidden
+/// browser then starts from.
+fn sign_in_row(ui: &Ui, p: Paint) -> CardRow {
+    let state = &ui.chats.settings;
+    let (detail, ink) = match &state.sign_in_error {
+        Some(error) => (error.clone(), p.danger()),
+        None if state.signing_in => (
+            tr("Sign in in Hex's browser window, then press Done").to_owned(),
+            p.accent(),
+        ),
+        None if state.signed_in => (
+            tr("Tasks start signed in where you signed in").to_owned(),
+            p.muted(),
+        ),
+        None => (
+            tr("Hidden browsers start signed out. Sign in once in Hex's own browser").to_owned(),
+            p.muted(),
+        ),
+    };
+    let mut controls = row()
+        .key("sign-in-controls")
+        .gap(8.0)
+        .center_y()
+        .child(super::super::sheet::sign_in_button(ui, p, "sign-in-sites"));
+    if state.signed_in && !state.signing_in {
+        controls = controls.child(small_button(
+            p,
+            "forget-sign-ins",
+            tr("Sign out everywhere"),
+            |ui: &mut Ui, _| ui.chats.jobs.run(super::super::Job::ForgetSignIn),
+        ));
+    }
+    described_row(
+        p,
+        "assistant-sign-in",
+        tr("Sites tasks may use"),
+        Some((detail, ink)),
+        controls,
+    )
+    .into()
 }

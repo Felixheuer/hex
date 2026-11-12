@@ -9,7 +9,6 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use rune::Waker;
 
 use super::Ui;
-use super::browser_shim;
 use super::shortcut::{self, Conflict};
 use crate::app_settings::{AppSettings, AssistantSettings, HotkeySlot};
 use crate::assistant::backends::{AgentDesktop, CheckResult, Fix, Found};
@@ -25,9 +24,9 @@ pub(in crate::rune_ui) enum Job {
     Desktop,
     /// Hex's own Accessibility and Screen Recording, read afresh.
     Permissions,
-    /// What a failed check or row offers (`backends::apply_fix`). Opening
-    /// Hex's own System Settings guide runs on the window's thread, where
-    /// the guide can show.
+    /// What a failed check or row offers (`backends::apply_fix_with`),
+    /// reporting its installer's lines as it goes. Opening Hex's own System
+    /// Settings guide runs on the window's thread, where the guide can show.
     Fix(Fix),
     /// The self-tests for these settings' agent, in order.
     SelfTests(Box<AssistantSettings>),
@@ -39,12 +38,15 @@ pub(in crate::rune_ui) enum Job {
     Voices,
     /// Reads a line aloud with this voice.
     Speak(Option<String>),
-    /// agent-browser and its own browser (`browser::agent_browser`).
+    /// agent-browser, its own browser, and whether anyone signed in to it.
     Browser,
-    /// Installs agent-browser and its browser (`browser::install`).
-    InstallBrowser,
     /// The browser's self-tests for these settings' agent.
     BrowserChecks(Box<AssistantSettings>),
+    /// Opens Hex's own browser in a window to sign in to sites
+    /// (`browser::sign_in`), or saves and closes it (`finish_sign_in`).
+    SignIn(bool),
+    /// Forgets every sign-in.
+    ForgetSignIn,
     /// The apps running now, for Settings' blocked apps.
     RunningApps,
 }
@@ -55,6 +57,10 @@ pub(in crate::rune_ui) enum Done {
     Detected(Vec<Found>),
     Desktop(AgentDesktop),
     Permissions(Permissions),
+    /// A line of what a fix is doing (an installer's output).
+    FixProgress(Fix, String),
+    /// A failed fix's command, to run in Terminal instead.
+    FixCommand(Fix, Option<String>),
     /// A fix ran: done, or why not.
     Fixed(Fix, Result<(), String>),
     /// A self-test started (`Running`) or ended.
@@ -64,11 +70,13 @@ pub(in crate::rune_ui) enum Done {
     Conflicts(Vec<(HotkeySlot, Conflict)>),
     KeySaved(Result<(), String>),
     Voices(Vec<String>),
-    Browser(AgentBrowser),
-    BrowserInstalled(Result<(), String>),
+    /// agent-browser as found, and whether anyone signed in to it.
+    Browser(AgentBrowser, bool),
     /// A browser self-test started (`Running`) or ended.
-    BrowserCheck(browser_shim::CheckResult),
+    BrowserCheck(CheckResult),
     BrowserChecked,
+    /// The sign-in window opened (`true`) or closed, or why not.
+    SignIn(bool, Result<(), String>),
     /// The regular apps running now, by name.
     RunningApps(Vec<String>),
 }
@@ -143,7 +151,7 @@ impl Jobs {
 
 /// Does `job`, sending what it found.
 fn perform(job: Job, send: &dyn Fn(Done)) {
-    use crate::assistant::{backends, computer, credentials, speech};
+    use crate::assistant::{backends, browser, computer, credentials, speech};
     match job {
         Job::Detect => {
             backends::refresh();
@@ -151,10 +159,16 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
         }
         Job::Desktop => send(Done::Desktop(backends::agent_desktop())),
         Job::Permissions => send(Done::Permissions(computer::permissions_now())),
-        Job::Fix(fix) => send(Done::Fixed(
-            fix,
-            backends::apply_fix(fix).map_err(|error| format!("{error:#}")),
-        )),
+        Job::Fix(fix) => {
+            let result = backends::apply_fix_with(fix, |line| {
+                send(Done::FixProgress(fix, line.to_owned()))
+            })
+            .map_err(|error| format!("{error:#}"));
+            if result.is_err() {
+                send(Done::FixCommand(fix, backends::install_command(fix)));
+            }
+            send(Done::Fixed(fix, result));
+        }
         Job::SelfTests(settings) => {
             let checks =
                 backends::Check::for_backend(settings.backend, settings.background_browser);
@@ -181,11 +195,23 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             crate::desktop::i18n::tr("Hi, I'm your assistant. Ask me anything."),
             voice.as_deref(),
         ),
-        Job::Browser => send(Done::Browser(crate::assistant::browser::agent_browser())),
-        Job::InstallBrowser => send(Done::BrowserInstalled(
-            crate::assistant::browser::install().map_err(|error| format!("{error:#}")),
-        )),
+        Job::Browser => send(Done::Browser(browser::agent_browser(), browser::signed_in())),
         Job::BrowserChecks(settings) => super::setup::browser::perform_checks(&settings, send),
+        Job::SignIn(open) => {
+            let result = if open {
+                browser::sign_in(None)
+            } else {
+                browser::finish_sign_in()
+            };
+            send(Done::SignIn(open, result.map_err(|error| format!("{error:#}"))));
+            send(Done::Browser(browser::agent_browser(), browser::signed_in()));
+        }
+        Job::ForgetSignIn => {
+            if let Err(error) = browser::forget_sign_in() {
+                tracing::warn!(error = %format!("{error:#}"), "could not forget the sign-ins");
+            }
+            send(Done::Browser(browser::agent_browser(), browser::signed_in()));
+        }
         Job::RunningApps => send(Done::RunningApps(running_apps())),
     }
 }
@@ -233,7 +259,14 @@ pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
         Done::Detected(found) => ui.chats.settings.found = Some(found.clone()),
         Done::Voices(voices) => ui.chats.settings.voices = Some(voices.clone()),
         Done::RunningApps(apps) => ui.chats.settings.running = Some(apps.clone()),
-        Done::Browser(found) => ui.chats.settings.browser = Some(found.clone()),
+        Done::Browser(found, signed_in) => {
+            ui.chats.settings.browser = Some(found.clone());
+            ui.chats.settings.signed_in = *signed_in;
+        }
+        Done::SignIn(open, result) => {
+            ui.chats.settings.signing_in = *open && result.is_ok();
+            ui.chats.settings.sign_in_error = result.clone().err();
+        }
         Done::KeySaved(Ok(())) => {
             ui.chats.settings.key.clear();
             ui.chats.settings.key_error = None;

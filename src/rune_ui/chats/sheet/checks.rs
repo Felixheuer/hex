@@ -1,23 +1,21 @@
-//! The onboarding's self-test pages: Checks (the agent answers and can use
-//! agent-desktop) and Browser (agent-browser found or installed, its own
-//! browser downloaded, and its own self-tests). A failed check always shows
-//! its fix, even while later checks still run.
+//! The onboarding's Checks page: the agent answers and can use
+//! agent-desktop (and agent-browser). A failed check always shows its fix,
+//! even while later checks still run.
 
 use rune::{El, col, el, row, text};
 use rune_kit::{Button, ButtonVariant};
 
 use super::super::super::controls::{Paint, PushSize};
 use super::super::Ui;
-use super::super::browser_shim as bshim;
+
 use super::super::setup::{self, Page, SetupFlow, check_title, fix_label, page_done};
-use super::{TOOL, actions, done_pill, lead, mark, note, page, push, row_of, rows_card, spinner};
+use super::{actions, lead, mark, note, page, push, rows_card, spinner};
 use crate::assistant::backends::{CheckResult, CheckState, Fix};
-use crate::desktop::i18n::{tr, tr_fill};
+use crate::desktop::i18n::tr;
 
 /// One self-test's row: its mark, what it proves over what it found, and
 /// its fix when it failed.
-#[allow(clippy::too_many_arguments)]
-fn result_row(
+pub(super) fn result_row(
     p: Paint,
     key: String,
     title: String,
@@ -125,129 +123,6 @@ pub(super) fn checks(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         Some(rows_card(p, "checks-card", rows)),
         flow.fix_error.as_ref().map(|error| note(p, error)),
         actions,
-    )
-}
-
-/// A browser self-test's row title.
-fn browser_check_title(check: bshim::Check) -> String {
-    match check {
-        bshim::Check::BrowserRoundTrip => tr("agent-browser opens a page in a hidden browser").into(),
-        bshim::Check::BrowserThroughAgent(backend) => tr_fill(
-            "{} can use the hidden browser",
-            super::super::backend_name(backend),
-        ),
-    }
-}
-
-/// agent-browser: found or installed, its browser downloaded, and its
-/// self-tests.
-pub(super) fn browser(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
-    let step = &flow.browser;
-    let found = step.found.as_ref();
-    let install = |primary: bool| {
-        push(p, "install", tr("Install"), primary, |ui: &mut Ui| {
-            setup::browser::install(ui)
-        })
-    };
-    let (detail, control) = match found {
-        _ if step.installing => (
-            tr("Installing with Homebrew… this takes a minute or two").to_owned(),
-            spinner(p, "installing"),
-        ),
-        None => (String::new(), spinner(p, "reading")),
-        Some(found) if found.path.is_some() => (
-            found
-                .version
-                .as_ref()
-                .map(|version| tr_fill("Version {}", version))
-                .unwrap_or_default(),
-            done_pill(p, "installed", tr("Installed")),
-        ),
-        Some(_) => (
-            tr("Opens web pages in browsers of its own, out of sight").to_owned(),
-            install(true),
-        ),
-    };
-    let mut rows = vec![row_of(
-        p,
-        "agent-browser",
-        TOOL,
-        "agent-browser",
-        &detail,
-        p.muted(),
-        control,
-    )];
-    if let Some(found) = found.filter(|found| found.path.is_some()) {
-        let (detail, control) = if found.browser_ready {
-            (
-                tr("Downloaded, separate from your own browser").to_owned(),
-                done_pill(p, "downloaded", tr("Ready")),
-            )
-        } else if step.installing {
-            (tr("Downloading…").to_owned(), spinner(p, "downloading"))
-        } else {
-            (
-                tr("Its own copy of Chrome, separate from yours").to_owned(),
-                install(true),
-            )
-        };
-        rows.push(row_of(
-            p,
-            "browser",
-            &super::GLOBE,
-            tr("Its own browser"),
-            &detail,
-            p.muted(),
-            control,
-        ));
-        for (index, result) in step.checks.iter().enumerate() {
-            let control = match result.fix {
-                Some(fix) if result.state == CheckState::Failed && !step.installing => {
-                    let label = match fix {
-                        bshim::Fix::InstallAgentBrowser => tr("Install"),
-                        bshim::Fix::Retry => tr("Try again"),
-                    };
-                    push(p, "fix", label, false, move |ui: &mut Ui| {
-                        setup::browser::apply(ui, fix)
-                    })
-                }
-                _ => el().key("none"),
-            };
-            rows.push(result_row(
-                p,
-                format!("browser-check{index}"),
-                browser_check_title(result.check),
-                result.state,
-                &result.detail,
-                control,
-            ));
-        }
-    }
-    let below = if !ui.settings.assistant.background_browser {
-        Some(
-            text(tr(
-                "The hidden browser is off in Settings, so web tasks use your own browser",
-            ))
-            .key("note")
-            .font(p.k.ty.small)
-            .color(p.muted())
-            .wrap()
-            .max_w(super::COL_W),
-        )
-    } else {
-        step.error.as_ref().map(|error| note(p, error))
-    };
-    page(
-        p,
-        "browser",
-        tr("A browser of its own"),
-        lead(
-            p,
-            tr("Web tasks run in agent-browser's hidden browsers, one per task, so many run at once and none takes over your windows."),
-        ),
-        Some(rows_card(p, "browser-card", rows)),
-        below,
-        actions(p, page_done(ui, flow, Page::Browser), true),
     )
 }
 

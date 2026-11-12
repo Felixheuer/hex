@@ -17,7 +17,6 @@ use super::{
     COL_W, SCREEN, TOOL, actions, done_pill, lead, page, push, row_of, rows_card, spinner,
     waiting_pill,
 };
-use crate::app_settings::AssistantBackend;
 use crate::assistant::backends::Fix;
 use crate::desktop::i18n::{tr, tr_fill};
 
@@ -99,21 +98,9 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
     )
 }
 
-/// The Terminal command that does what an install `fix` does, for when it
-/// can't run from Hex.
-pub(super) fn install_command(fix: Fix) -> Option<&'static str> {
-    Some(match fix {
-        Fix::InstallAgentDesktop => "brew install agent-desktop",
-        Fix::Install(AssistantBackend::ClaudeCode) => "curl -fsSL https://claude.ai/install.sh | bash",
-        Fix::Install(AssistantBackend::Codex) => "brew install codex",
-        Fix::Install(AssistantBackend::OpenCode) => "curl -fsSL https://opencode.ai/install | bash",
-        _ => return None,
-    })
-}
-
 /// An install that failed: the end of what it printed, and its command to
 /// run in Terminal instead.
-pub(super) fn install_failure(p: Paint, error: &str, command: Option<&'static str>) -> El {
+pub(super) fn install_failure(p: Paint, error: &str, command: Option<&str>) -> El {
     let tail: Vec<&str> = error.lines().rev().take(4).collect();
     let tail = tail.into_iter().rev().collect::<Vec<_>>().join("\n");
     col()
@@ -135,12 +122,13 @@ pub(super) fn install_failure(p: Paint, error: &str, command: Option<&'static st
                 .max_w(COL_W),
         )
         .children(command.map(|command| {
+            let copied = command.to_owned();
             row()
                 .key("fallback")
                 .gap(8.0)
                 .center_y()
                 .child(
-                    text(command)
+                    text(command.to_owned())
                         .key("command")
                         .font(p.k.ty.mono)
                         .color(p.muted())
@@ -151,7 +139,7 @@ pub(super) fn install_failure(p: Paint, error: &str, command: Option<&'static st
                     p,
                     "copy-command",
                     tr("Copy command"),
-                    move |_: &mut Ui, tx: &mut Tx| tx.copy(command.to_owned()),
+                    move |_: &mut Ui, tx: &mut Tx| tx.copy(copied.clone()),
                 ))
         }))
 }
@@ -182,10 +170,9 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         .map(|grant| grant_row(ui, flow, p, *grant, Some(*grant) == first_missing))
         .collect();
     let (detail, control) = match found {
-        _ if flow.fixing == Some(Fix::InstallAgentDesktop) => (
-            tr("Installing with Homebrew… this takes a minute").to_owned(),
-            spinner(p, "installing"),
-        ),
+        _ if flow.fixing == Some(Fix::InstallAgentDesktop) => {
+            super::browser::installing(p, flow, tr("Installing… this takes a minute"))
+        }
         None => (String::new(), spinner(p, "reading")),
         Some(found) if found.path.is_some() => (
             found
@@ -229,7 +216,7 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     let failure = flow
         .fix_error
         .as_ref()
-        .map(|error| install_failure(p, error, install_command(Fix::InstallAgentDesktop)));
+        .map(|error| install_failure(p, error, flow.fix_command.as_deref()));
     let below = match (resumed, failure) {
         (None, None) => None,
         (resumed, failure) => Some(

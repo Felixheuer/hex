@@ -42,7 +42,9 @@ pub(super) fn origin_label(origin: Origin) -> &'static str {
 pub(super) fn body(ui: &Ui, p: Paint) -> El {
     let pane = &ui.chats;
     let mut notices = Vec::new();
-    if !ui.settings.assistant.setup_done {
+    // Unfinished setup shows in the detail card while nothing is selected,
+    // and here once something is.
+    if !ui.settings.assistant.setup_done && pane.selected.is_some() {
         notices.push(setup_notice(p));
     }
     if let Some(error) = &pane.error {

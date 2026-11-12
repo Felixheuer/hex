@@ -10,7 +10,6 @@
 //! to it (`connect`); before that, and in every scene and test, it works on
 //! an in-memory [`fixture::Store`] and never touches the service.
 
-mod browser_shim;
 mod composer;
 mod events;
 mod follow;
@@ -525,6 +524,23 @@ pub(super) fn show(ui: &mut Ui, conversation: Option<ConversationId>, tx: &mut T
 /// Opens the assistant's onboarding, and starts its checks.
 pub(super) fn open_setup(ui: &mut Ui) {
     setup::open(ui);
+}
+
+/// A hold of the Action shortcut before setup finished: the onboarding
+/// where it was left (or as it is, when it shows), saying so.
+pub(super) fn open_setup_from_hold(ui: &mut Ui, tx: &mut Tx) {
+    if !available(ui) || ui.settings.assistant.setup_done {
+        return;
+    }
+    if ui.pane != Pane::Chats {
+        ui.select_pane(Pane::Chats, tx);
+    }
+    if ui.chats.setup.is_none() {
+        setup::open(ui);
+    }
+    if let Some(flow) = ui.chats.setup.as_mut() {
+        flow.from_hold = true;
+    }
 }
 
 /// Runs before every frame: takes in the service's events, reads the list
