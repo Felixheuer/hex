@@ -17,6 +17,13 @@
 //!         └── nothing in time -> Step::Close -> Idle
 //! Hearing(c) -> 900 ms without speech, or 60 s -> Step::Finish(c) -> Idle
 //! A key, a dictation, a meeting recording, the setup unfinished -> Step::Close -> Idle
+//!
+//! Another app playing audio (music, a video, a call; `other_audio`):
+//! - Answer: no voice barge-in (a capture open under it closes); holding
+//!   the key and saying "Stopp", or Escape, still stops the reading.
+//! - the reading ends -> Step::Close or nothing -> Idle: no hands-free window.
+//! - Listening -> Step::Close -> Idle, the moment it starts.
+//! - Hearing goes on: the person is already speaking.
 //! ```
 //!
 //! Speech is the dictation pipeline's frame test (`SpeechFrames`: 12 dB over
@@ -159,6 +166,8 @@ fn level_db(frame: &[f32]) -> f32 {
 pub(super) struct Conversation {
     phase: Phase,
     ears: Ears,
+    /// Another app plays audio now, which the microphone would hear.
+    other_audio: bool,
     /// Speech frames in the current run, and quiet frames since its last.
     run: u32,
     gap: u32,
@@ -169,6 +178,7 @@ impl Default for Conversation {
         Self {
             phase: Phase::Idle,
             ears: Ears::default(),
+            other_audio: false,
             run: 0,
             gap: 0,
         }
@@ -183,6 +193,18 @@ impl Conversation {
             Phase::Answer { open, .. } => open,
             Phase::Listening { .. } | Phase::Hearing { .. } => true,
         }
+    }
+
+    /// Whether anything is going on (an answer, listening, hearing): the
+    /// only time other apps' audio needs reading.
+    pub(super) fn is_active(&self) -> bool {
+        self.phase != Phase::Idle
+    }
+
+    /// Whether another app plays audio now (`other_audio::OtherAudio`);
+    /// the next [`Self::tick`] and every frame act on it.
+    pub(super) fn other_audio(&mut self, playing: bool) {
+        self.other_audio = playing;
     }
 
     /// Whether it hears a follow-up now.
@@ -221,7 +243,7 @@ impl Conversation {
         match &mut self.phase {
             Phase::Idle | Phase::Hearing { .. } => None,
             Phase::Listening { until, .. } => {
-                if now >= *until {
+                if now >= *until || self.other_audio {
                     self.end()
                 } else {
                     None
@@ -235,9 +257,10 @@ impl Conversation {
             } => {
                 if speaking {
                     *spoke = true;
-                    if !options.barge_in {
+                    if !options.barge_in || self.other_audio {
                         // Without barge-in nothing listens under an answer,
-                        // not even a capture left open by the last one.
+                        // not even a capture left open by the last one; nor
+                        // while music plays, whose vocals would count.
                         return std::mem::take(open).then_some(Step::Close);
                     }
                     if !*open {
@@ -252,7 +275,7 @@ impl Conversation {
                 if !over {
                     return None;
                 }
-                if options.listen_for.is_zero() {
+                if options.listen_for.is_zero() || self.other_audio {
                     return self.end();
                 }
                 self.phase = Phase::Listening {
@@ -314,7 +337,7 @@ impl Conversation {
             Phase::Answer {
                 conversation, open, ..
             } => {
-                if !*open {
+                if !*open || self.other_audio {
                     return None;
                 }
                 let voice = frame.speech
@@ -327,6 +350,7 @@ impl Conversation {
                 (self.count(voice) >= BARGE_IN_FRAMES)
                     .then(|| self.hearing(conversation, Step::BargeIn))
             }
+            Phase::Listening { .. } if self.other_audio => None,
             Phase::Listening { conversation, .. } => {
                 let conversation = conversation.clone();
                 (self.count(frame.speech) >= ONSET_FRAMES)
@@ -733,5 +757,82 @@ mod tests {
         );
         assert!((db(0.1) + 20.0).abs() < 0.01);
         assert!(level_db(&[0.0; 960]) < -150.0);
+    }
+
+    /// Music playing when the answer ends: no hands-free window opens, so a
+    /// song's lyrics never become a question.
+    #[test]
+    fn music_at_the_answers_end_opens_no_window() {
+        let start = Instant::now();
+        let mut machine = Conversation::default();
+        machine.answered("c1".into(), start);
+        machine.other_audio(true);
+        assert_eq!(machine.tick(after(start, 10), true, false, ON), None);
+        assert_eq!(machine.tick(after(start, 2_000), false, false, ON), None);
+        assert!(!machine.is_active());
+        assert!(!machine.is_open());
+        // Without music the next answer listens as usual.
+        machine.other_audio(false);
+        machine.answered("c2".into(), start);
+        machine.tick(after(start, 2_010), true, false, ON);
+        assert_eq!(
+            machine.tick(after(start, 4_000), false, false, ON),
+            Some(Step::Listen)
+        );
+    }
+
+    /// Music starting while it listens closes the window at once, and its
+    /// frames start nothing in between.
+    #[test]
+    fn music_starting_mid_listen_closes_it() {
+        let start = Instant::now();
+        let mut machine = Conversation::default();
+        machine.answered("c1".into(), start);
+        machine.tick(after(start, 10), true, false, ON);
+        assert_eq!(
+            machine.tick(after(start, 2_000), false, false, ON),
+            Some(Step::Listen)
+        );
+        machine.other_audio(true);
+        assert!(feed(&mut machine, speech(-20.0), 40, Output::Speakers, None).is_empty());
+        assert_eq!(
+            machine.tick(after(start, 2_500), false, false, ON),
+            Some(Step::Close)
+        );
+        assert!(!machine.is_open());
+    }
+
+    /// While music plays, voice barge-in is off: nothing listens under the
+    /// answer (a capture already open closes), however loud the voice.
+    /// A follow-up already being heard goes on.
+    #[test]
+    fn music_turns_voice_barge_in_off() {
+        let start = Instant::now();
+        let mut machine = Conversation::default();
+        machine.answered("c1".into(), start);
+        assert_eq!(
+            machine.tick(after(start, 200), true, false, ON),
+            Some(Step::Watch)
+        );
+        machine.other_audio(true);
+        assert!(feed(&mut machine, speech(-5.0), 30, Output::Headphones, None).is_empty());
+        assert_eq!(
+            machine.tick(after(start, 220), true, false, ON),
+            Some(Step::Close)
+        );
+        assert!(!machine.is_open());
+        assert_eq!(machine.tick(after(start, 240), true, false, ON), None);
+
+        let mut hearing = Conversation::default();
+        hearing.answered("c2".into(), start);
+        hearing.tick(after(start, 10), true, false, ON);
+        hearing.tick(after(start, 2_000), false, false, ON);
+        assert_eq!(
+            feed(&mut hearing, speech(-30.0), 8, Output::Speakers, None),
+            [Step::Heard]
+        );
+        hearing.other_audio(true);
+        assert_eq!(hearing.tick(after(start, 2_500), false, false, ON), None);
+        assert!(hearing.is_hearing());
     }
 }

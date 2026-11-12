@@ -35,6 +35,7 @@ use crate::suppression::InputEvent;
 use super::DictationSink;
 use super::ask::{Question, finish_question, submit};
 use super::conversation::{Conversation, Options, Output, Step, db};
+use super::other_audio::OtherAudio;
 
 /// The listener's conversation mode.
 pub(super) struct Talk {
@@ -48,6 +49,8 @@ pub(super) struct Talk {
     output: Output,
     /// Steps the audio decided, carried out at the loop's next turn.
     pending: Vec<Step>,
+    /// Whether another app plays audio, which closes the hands-free window.
+    other: OtherAudio,
 }
 
 impl Default for Talk {
@@ -59,6 +62,7 @@ impl Default for Talk {
             question: None,
             output: Output::Speakers,
             pending: Vec::new(),
+            other: OtherAudio::default(),
         }
     }
 }
@@ -127,13 +131,15 @@ impl Talk {
             barge_in: settings.barge_in,
             spoken: settings.speak_answers,
         };
+        let speaking = crate::assistant::speech::speaking();
+        // Music on the speakers would be heard as a follow-up; Core Audio
+        // is only asked while conversation mode is under way.
+        if self.machine.is_active() {
+            let playing = self.other.playing(now, speaking);
+            self.machine.other_audio(playing);
+        }
         let mut steps = std::mem::take(&mut self.pending);
-        steps.extend(self.machine.tick(
-            now,
-            crate::assistant::speech::speaking(),
-            blocked,
-            options,
-        ));
+        steps.extend(self.machine.tick(now, speaking, blocked, options));
         for step in steps {
             self.run(step, input, worker, events, indicator, release_while_idle)?;
         }

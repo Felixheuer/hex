@@ -28,6 +28,7 @@ mod context_watch;
 mod conversation;
 mod guards;
 mod hotkeys;
+mod other_audio;
 mod output;
 mod programmatic;
 pub(crate) mod shortcut_probe;
