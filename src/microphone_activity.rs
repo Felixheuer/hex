@@ -199,6 +199,41 @@ pub(crate) fn application_running_output(canonical_bundle_id: &str) -> Result<bo
 }
 
 #[cfg(target_os = "macos")]
+/// Whether any process but Hex (and the processes Hex started, such as
+/// `say` reading an answer) is playing output now: music, a video, a call.
+/// Read from Core Audio's process metadata (macOS 14.2 and later), never
+/// from audio; an error means the system can't tell.
+pub(crate) fn others_running_output() -> Result<bool> {
+    objc2::rc::autoreleasepool(|_| {
+        let own_pid = std::process::id() as i32;
+        let process_objects = property_vec::<AudioObjectID>(
+            kAudioObjectSystemObject as AudioObjectID,
+            kAudioHardwarePropertyProcessObjectList,
+        )?;
+        Ok(process_objects.into_iter().any(|process_object| {
+            property_value::<u32>(process_object, kAudioProcessPropertyIsRunningOutput)
+                .is_ok_and(|running| running != 0)
+                && property_value::<i32>(process_object, kAudioProcessPropertyPID)
+                    .is_ok_and(|pid| pid != own_pid && parent_pid(pid) != Some(own_pid))
+        }))
+    })
+}
+
+#[cfg(target_os = "macos")]
+/// Whether the default output device is running for any process, Hex
+/// included: the fallback where per-process output isn't reported.
+pub(crate) fn default_output_running() -> Result<bool> {
+    use objc2_core_audio::{
+        kAudioDevicePropertyDeviceIsRunningSomewhere, kAudioHardwarePropertyDefaultOutputDevice,
+    };
+    let device = property_value::<AudioObjectID>(
+        kAudioObjectSystemObject as AudioObjectID,
+        kAudioHardwarePropertyDefaultOutputDevice,
+    )?;
+    Ok(property_value::<u32>(device, kAudioDevicePropertyDeviceIsRunningSomewhere)? != 0)
+}
+
+#[cfg(target_os = "macos")]
 /// The UIDs of the input devices the app `canonical_bundle_id` (its helpers
 /// included) records from, read from each of its processes running input.
 /// macOS 14 and later report them; earlier systems report none.

@@ -290,7 +290,9 @@ pub(super) fn conversation_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<C
             p,
             "assistant-conversation",
             tr("Keep listening after an answer"),
-            Some(tr("Answer back without the shortcut, for a moment")),
+            Some(tr(
+                "Answer back without the shortcut, for a moment. Paused while other audio plays",
+            )),
             listen,
         )
         .into(),
@@ -298,7 +300,9 @@ pub(super) fn conversation_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<C
             p,
             "assistant-barge-in",
             tr("Interrupt by speaking"),
-            tr("Talk over an answer to stop it. Works best with headphones"),
+            tr(
+                "Talk over an answer to stop it. Works best with headphones; off while other audio plays",
+            ),
             ui.settings.assistant.barge_in,
             |ui: &mut Ui| {
                 ui.update(|settings| settings.assistant.barge_in ^= true);
