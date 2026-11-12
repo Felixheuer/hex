@@ -532,6 +532,33 @@ fn refs_map_to_the_window_their_snapshot_was_taken_of() {
 }
 
 #[test]
+fn one_task_at_a_time_holds_the_real_mouse_and_keyboard() {
+    let scratch = Scratch::new();
+    let store = scratch.store();
+    let me = std::process::id();
+    let held = store
+        .take_hands("first", me, Duration::from_millis(10))
+        .unwrap();
+    assert_eq!(store.hands_off().as_deref(), Some("first"));
+    // A second task waits, then is told who holds them.
+    let busy = store
+        .take_hands("second", me, Duration::from_millis(100))
+        .err();
+    assert_eq!(busy.as_deref(), Some("first"));
+    // An action inside the holder's own action goes on.
+    assert!(store.take_hands("first", me, Duration::ZERO).is_ok());
+    // Given back: the next one gets them at once.
+    drop(held);
+    let next = store.take_hands("second", me, Duration::ZERO);
+    assert!(next.is_ok());
+    drop(next);
+    // A holder that ended (a crash) doesn't keep them.
+    let lock = scratch.0.join("guard").join("hands-off").join("held.lock");
+    std::fs::write(&lock, r#"{"task":"gone","pid":4294967,"started":1}"#).unwrap();
+    assert!(store.take_hands("third", me, Duration::ZERO).is_ok());
+}
+
+#[test]
 fn a_check_reads_its_windows_but_never_acts() {
     let scratch = Scratch::new();
     let fake = Fake::recorded();

@@ -19,6 +19,10 @@ use super::screen::Screen;
 use super::state::{Acquire, LeaseFile, Store};
 use crate::assistant::types::{Lane, TaskWindow};
 
+/// How long an action waits for another task's to give the real pointer
+/// and keyboard back.
+const HANDS_WAIT: Duration = Duration::from_secs(20);
+
 /// What the guard knows about its task.
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -371,8 +375,11 @@ impl<D: Desktop> Guard<D> {
             // What was on screen before, so what its action opens is new.
             let _ = self.list(Look::Check);
         }
-        let hands = (kind.acts() && self.config.physical_input)
-            .then(|| self.store.hands_on(&self.config.task, self.pid));
+        let hands = if kind.acts() && self.config.physical_input {
+            Some(self.take_hands(tool)?)
+        } else {
+            None
+        };
         let result = self.forward(tool, args);
         drop(hands);
         let mut result = result?;
@@ -382,6 +389,22 @@ impl<D: Desktop> Guard<D> {
             let _ = self.list(Look::AfterAction);
         }
         Ok(result)
+    }
+
+    /// The real pointer and keyboard for this action, one task at a time
+    /// (a second task's action would move the same pointer): waits a while
+    /// for another task's action to end, else refuses as busy.
+    fn take_hands(&self, tool: &str) -> Result<super::state::HandsOn, Value> {
+        self.store
+            .take_hands(&self.config.task, self.pid, HANDS_WAIT)
+            .map_err(|_| {
+                refusal(
+                    tool,
+                    "BUSY",
+                    "Another task is using the real mouse and keyboard right now. Try again in a \
+                     moment, or do it with a headless action.",
+                )
+            })
     }
 
     fn forward(&mut self, tool: &str, args: &Map<String, Value>) -> Result<Value, Value> {
@@ -588,8 +611,11 @@ impl<D: Desktop> Guard<D> {
         }
         let app = text(args, "app").unwrap_or_default();
         let _ = self.list(Look::Check);
-        let hands = (self.config.physical_input && activate)
-            .then(|| self.store.hands_on(&self.config.task, self.pid));
+        let hands = if self.config.physical_input && activate {
+            Some(self.take_hands(tool)?)
+        } else {
+            None
+        };
         // The person's app keeps the front (`front`): noted before.
         let before = (self.config.lane == Lane::Background && !activate)
             .then(front::frontmost)
