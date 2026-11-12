@@ -156,6 +156,22 @@ fn a_here_task_holds_the_dialog_its_action_opens_but_nothing_of_other_apps() {
     assert!(scratch.store().holder("w-702").is_none());
 }
 
+/// Linux's start time: ticks after boot (`/proc/<pid>/stat`'s field 22,
+/// counted after a name that may hold spaces and parentheses) plus boot.
+#[test]
+fn a_linux_process_start_is_read_from_proc() {
+    use super::super::state::linux_started_us;
+    let stat = "4242 (my (odd) app) S 1 4242 4242 0 -1 4194560 100 0 0 0 1 2 0 0 20 0 3 0 \
+                12345 1000 50 18446744073709551615";
+    let boot = "cpu  1 2 3\nbtime 1700000000\nprocesses 99\n";
+    assert_eq!(
+        linux_started_us(stat, boot, 100),
+        Some(1_700_000_000_000_000 + 123_450_000)
+    );
+    assert_eq!(linux_started_us("garbage", boot, 100), None);
+    assert_eq!(linux_started_us(stat, "cpu 1\n", 100), None);
+}
+
 #[test]
 fn a_reused_pid_does_not_keep_a_lease() {
     let scratch = Scratch::new();
