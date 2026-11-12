@@ -34,6 +34,17 @@ pub(super) fn shortcuts(settings: &AppSettings) -> (LinuxHotkey, HotkeyOptions) 
             .enabled
             .then(|| LinuxHotkey::from(&settings.capture.hotkey)),
         cancel: settings.active_cancel_hotkey().map(LinuxHotkey::from),
+        // The assistant's shortcuts, only while it is on and each is bound
+        // to its own keys; a keyless saved binding (right Command alone, a
+        // macOS default) never runs on Linux, which grabs a named key.
+        action: settings
+            .active_action_hotkey()
+            .filter(|binding| binding.key.is_some())
+            .map(LinuxHotkey::from),
+        stop_all: settings
+            .active_stop_all_hotkey()
+            .filter(|binding| binding.key.is_some())
+            .map(LinuxHotkey::from),
     };
     (LinuxHotkey::from(&settings.dictation_hotkey), options)
 }

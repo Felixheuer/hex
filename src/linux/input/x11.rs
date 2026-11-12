@@ -172,6 +172,8 @@ impl Backend {
             options
                 .second_dictation
                 .map(|key| (Shortcut::SecondDictation, key)),
+            options.action.map(|key| (Shortcut::Action, key)),
+            options.stop_all.map(|key| (Shortcut::StopAll, key)),
         ];
         for (shortcut, key) in requested.into_iter().flatten() {
             let mouse = mouse_button(&key.key);
@@ -317,13 +319,18 @@ impl Backend {
                 dispatcher.input(input);
             }
             dispatcher.commands();
-            // Escape is Hex's only while Annotate draws or, as Toggle's
-            // cancel key, while a recording runs, and until its release so
-            // the release never reaches the app. Grabbing before the flush
-            // holds the key before dictation hears that recording started.
+            // Escape is Hex's only while Annotate draws, as Toggle's cancel
+            // key while a recording runs, or while the assistant takes it
+            // (a Here task runs or an answer is read aloud, nothing
+            // records), and until its release so the release never reaches
+            // the app. Grabbing before the flush holds the key before
+            // dictation hears that recording started.
+            dispatcher.state.escape_claimed = assistant_escape();
             let wants_cancel = dispatcher.state.wants_cancel();
-            let wants_escape =
-                annotate_drawing() || escape_down || (wants_cancel && cancel_on_escape);
+            let wants_escape = annotate_drawing()
+                || escape_down
+                || (wants_cancel && cancel_on_escape)
+                || dispatcher.state.wants_assistant_escape();
             if wants_escape && grabs.escape_grabbed.is_empty() {
                 let available = grabs.grab_escape()?;
                 if !available && !escape_taken {

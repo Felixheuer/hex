@@ -493,8 +493,10 @@ dictation rules:
   paste as sent. Ctrl+Space or a key without modifiers works.
   Hyprland names each shortcut `anomaly.hex:<shortcut>`: `anomaly.hex:dictation`,
   `anomaly.hex:paste-last`, `anomaly.hex:capture` (Annotate),
-  `anomaly.hex:raw-dictation` (Dictate without processing), and
-  `anomaly.hex:terminal-paste` (Labs › Terminal paste shortcut, while on).
+  `anomaly.hex:raw-dictation` (Dictate without processing),
+  `anomaly.hex:terminal-paste` (Labs › Terminal paste shortcut, while on),
+  and, while the assistant is on, `anomaly.hex:assistant-action` and
+  `anomaly.hex:assistant-stop-all`.
   The names stay the
   same when you record another key in Settings (#1376), so a bind keeps
   working; `hyprctl globalshortcuts` lists them while Hex runs. For example:
@@ -585,6 +587,23 @@ alone, are not supported on Linux.
 
 On X11, Hex grabs Escape only while Annotate draws, where it stops drawing. If
 another application holds it, drawing goes on and Hex logs it once.
+
+While the assistant is on, Hex registers two more shortcuts: the **Action
+shortcut** (`assistant.action_hotkey`, Ctrl+Alt+A by default) and **Stop all
+tasks** (`assistant.stop_all_hotkey`, Ctrl+Alt+Q by default). Hold the Action
+shortcut and speak to ask the assistant: the words are processed like a
+dictation but never pasted, copied, offered to Paste last, or saved to
+History. Tap it and then hold it to start a background task; double-tap it to
+show or hide the task list. It always works as hold-to-talk, whatever the
+dictation shortcut's mode, and `hex dictation stop` never finishes it (`hex
+dictation cancel` discards it). Stop all tasks stops every assistant task and
+the answer being read aloud. On Wayland the portal lists them as "Ask the
+assistant (hold)" (`assistant-action`) and "Stop all assistant tasks"
+(`assistant-stop-all`); Hyprland names them `anomaly.hex:assistant-action` and
+`anomaly.hex:assistant-stop-all`. On X11, Hex also grabs Escape while a quick
+question runs or an answer is read aloud and nothing records; Escape then
+stops those (never background tasks). The portal can't bind Escape, so on
+Wayland use Stop all tasks instead.
 
 Recording sounds are enabled at 50% volume by default, including when upgrading
 older settings. A start sound is queued immediately when the shortcut starts capture,
