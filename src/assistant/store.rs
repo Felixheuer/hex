@@ -105,6 +105,30 @@ impl Stored {
     }
 }
 
+/// `side` merged into `stored`: each message not already there, all in
+/// time order (stable, so messages of the same moment keep theirs).
+fn merge_side(stored: &mut Stored, side: Vec<Message>) {
+    let mut added = false;
+    for message in side {
+        let there = stored.conversation.messages.iter().any(|kept| {
+            kept.at_ms == message.at_ms
+                && kept.role == message.role
+                && kept.text() == message.text()
+        });
+        if !there {
+            stored.conversation.updated_ms = stored.conversation.updated_ms.max(message.at_ms);
+            stored.conversation.messages.push(message);
+            added = true;
+        }
+    }
+    if added {
+        stored
+            .conversation
+            .messages
+            .sort_by_key(|message| message.at_ms);
+    }
+}
+
 /// A folder of conversations.
 #[derive(Clone, Debug)]
 pub struct Store {
@@ -126,11 +150,15 @@ impl Store {
         valid_id(id).then(|| self.dir.join(format!("{id}.json")))
     }
 
-    /// The saved conversation `id`, if there is one that reads.
+    /// The saved conversation `id`, if there is one that reads, with the
+    /// messages added beside a running task merged in ([`Store::append`]).
     pub fn load(&self, id: &str) -> Option<Stored> {
         let data = fs::read(self.file(id)?).ok()?;
-        match serde_json::from_slice(&data) {
-            Ok(stored) => Some(stored),
+        match serde_json::from_slice::<Stored>(&data) {
+            Ok(mut stored) => {
+                merge_side(&mut stored, self.side(id));
+                Some(stored)
+            }
             Err(error) => {
                 tracing::warn!(id, %error, "an assistant conversation doesn't read");
                 None
@@ -138,7 +166,9 @@ impl Store {
         }
     }
 
-    /// Saves `stored`, replacing its file in one step.
+    /// Saves `stored`, replacing its file in one step. Messages added beside
+    /// it ([`Store::append`]) are kept in their place, so a running task that
+    /// saves the copy it holds never drops them.
     pub fn save(&self, stored: &Stored) -> Result<()> {
         let id = &stored.conversation.id;
         let path = self
@@ -146,8 +176,49 @@ impl Store {
             .ok_or_else(|| color_eyre::eyre::eyre!("“{id}” is not a conversation id"))?;
         crate::app_paths::create_private_dir(&self.dir)
             .wrap_err("couldn't create the conversations folder")?;
-        let data = serde_json::to_vec_pretty(stored)?;
+        let side = self.side(id);
+        let data = if side.is_empty() {
+            serde_json::to_vec_pretty(stored)?
+        } else {
+            let mut merged = stored.clone();
+            merge_side(&mut merged, side);
+            serde_json::to_vec_pretty(&merged)?
+        };
         write_private(&path, &data).wrap_err("couldn't save the conversation")
+    }
+
+    /// Adds `message` to conversation `id` beside the task that may be
+    /// running it and holds its own copy (a status answer, a note while a
+    /// job works): kept in a side file that every load and save merges in
+    /// by time.
+    pub fn append(&self, id: &str, message: Message) -> Result<()> {
+        let path = self
+            .side_file(id)
+            .ok_or_else(|| color_eyre::eyre::eyre!("“{id}” is not a conversation id"))?;
+        if let Some(dir) = path.parent() {
+            crate::app_paths::create_private_dir(dir)
+                .wrap_err("couldn't create the conversation's folder")?;
+        }
+        let mut side = self.side(id);
+        side.push(message);
+        write_private(&path, &serde_json::to_vec(&side)?)
+            .wrap_err("couldn't save the conversation's note")?;
+        // The main file too, so Chats shows it before the task saves again.
+        if let Some(stored) = self.load(id) {
+            self.save(&stored)?;
+        }
+        Ok(())
+    }
+
+    fn side_file(&self, id: &str) -> Option<PathBuf> {
+        valid_id(id).then(|| self.dir.join(id).join("side.json"))
+    }
+
+    fn side(&self, id: &str) -> Vec<Message> {
+        self.side_file(id)
+            .and_then(|path| fs::read(path).ok())
+            .and_then(|data| serde_json::from_slice(&data).ok())
+            .unwrap_or_default()
     }
 
     /// Every conversation that reads, newest first.
@@ -629,5 +700,47 @@ mod tests {
         assert_eq!(id.len(), 36);
         assert!(valid_id(&id));
         assert_ne!(id, new_id());
+    }
+
+    #[test]
+    fn a_note_added_beside_a_running_task_survives_its_saves_in_time_order() {
+        let store = temp_store();
+        let id = new_id();
+        let mut running = Stored::new(&id, Origin::Chat, "Teste dich selber");
+        running.push(message(Role::User, "Teste dich selber", 10));
+        running.push(message(Role::Assistant, "Ich teste Hex.", 20));
+        store.save(&running).unwrap();
+        // Said while the job works, beside the copy it holds.
+        store
+            .append(&id, message(Role::User, "Wie weit bist du?", 30))
+            .unwrap();
+        store
+            .append(&id, message(Role::Assistant, "Läuft seit 2 Minuten.", 31))
+            .unwrap();
+        // The job saves its own copy, which never saw them, with a later step.
+        running.push(message(Role::Assistant, "Fertig.", 40));
+        store.save(&running).unwrap();
+        let texts: Vec<String> = store
+            .load(&id)
+            .unwrap()
+            .conversation
+            .messages
+            .iter()
+            .map(Message::text)
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                "Teste dich selber",
+                "Ich teste Hex.",
+                "Wie weit bist du?",
+                "Läuft seit 2 Minuten.",
+                "Fertig."
+            ]
+        );
+        // Listing shows the conversation once, not its note file.
+        assert_eq!(store.list().len(), 1);
+        store.delete(&id);
+        assert!(store.load(&id).is_none());
     }
 }

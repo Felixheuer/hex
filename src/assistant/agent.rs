@@ -139,11 +139,13 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
         .load(id)
         .unwrap_or_else(|| Stored::new(id, request.origin, &request.text));
     let asks = match &job.kind {
-        JobKind::Ask | JobKind::Steer { .. } | JobKind::Answer { .. } | JobKind::Confirm { .. } => {
-            true
-        }
-        // A job started as one keeps its question; an escalated one has it.
-        JobKind::Job { .. } => stored.last_question().as_deref() != Some(request.text.trim()),
+        JobKind::Ask | JobKind::Answer { .. } | JobKind::Confirm { .. } => true,
+        // Written to the conversation when it was said (`service`), so it
+        // sits where the person said it.
+        JobKind::Steer { .. } => !said_lately(&stored, &request.text, store::now_ms()),
+        // A job started as one keeps its question; an escalated one has it,
+        // wherever later messages put it (they may come before it starts).
+        JobKind::Job { .. } => !said_before(&stored, &request.text),
         JobKind::AfterLimit | JobKind::Resume => false,
     };
     // What came before this run's own message.
@@ -390,6 +392,34 @@ fn rules_fingerprint(system: &str) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     rules.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
+}
+
+/// Whether the person already said `text` in `stored` (a job's request that
+/// escalated from a question, or that more was added to while it waited).
+fn said_before(stored: &Stored, text: &str) -> bool {
+    let text = text.trim();
+    stored.conversation.messages.iter().any(|message| {
+        message.role == Role::User && {
+            let said = message.text();
+            let said = said.trim();
+            !said.is_empty()
+                && (said == text || (said.chars().count() >= 20 && text.starts_with(said)))
+        }
+    })
+}
+
+/// How recent a message must be to count as the one a steer carries.
+const STEER_WRITTEN_MS: u64 = 10 * 60 * 1000;
+
+/// Whether `text` is among the person's messages of the last minutes: a
+/// steer written to the conversation when it was said.
+fn said_lately(stored: &Stored, text: &str, now: u64) -> bool {
+    let text = text.trim();
+    stored.conversation.messages.iter().rev().any(|message| {
+        message.role == Role::User
+            && now.saturating_sub(message.at_ms) <= STEER_WRITTEN_MS
+            && message.text().trim() == text
+    })
 }
 
 /// What a backend run reported that the conversation keeps.
@@ -1021,7 +1051,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
     }
     prompt.push_str(
         "Rules:\n\
-         - Only do what the person asked. Ask nothing back; if something is ambiguous, risky, or irreversible (sending, deleting, paying, posting), stop and say what you would do instead.\n\
+         - Only do what the person asked. Never ask back what you can find out yourself; if something only the person can tell is missing or the request is ambiguous, ask for it (a job: in one message starting with `HEX_QUESTION:`) instead of guessing. Sending, deleting, paying, and posting follow the autonomy rules below.\n\
          - Never quit or close an app you didn't open in this task.\n\
          - Read before acting: snapshot or find, act on a ref, then verify.\n",
     );

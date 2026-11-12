@@ -396,6 +396,7 @@ type BringForward = dyn Fn(&str, &[TaskWindow]) + Send + Sync;
 type Settle = dyn Fn(&str, Ended, &str) + Send + Sync;
 type Authorize = dyn Fn(&str, &Authorized) + Send + Sync;
 type DueSchedules = dyn Fn(u64) -> Vec<Schedule> + Send + Sync;
+type WriteNote = dyn Fn(&str, super::types::Message) + Send + Sync;
 /// (question, task title, what the person said) → whether it answers the
 /// question; `None` when it can't tell in time.
 type ClassifyReply = dyn Fn(&str, &str, &str) -> Option<bool> + Send + Sync;
@@ -444,6 +445,10 @@ pub(crate) struct Hooks {
     pub make_workspace: OnTask<Option<std::path::PathBuf>>,
     /// A conversation's workspace, if it is a job.
     pub workspace_of: OnTask<Option<std::path::PathBuf>>,
+    /// Writes a message into a conversation beside the task that may be
+    /// running it (`Store::append`): a status answer, a note said while a
+    /// job works, so it sits where it was said.
+    pub note: Box<WriteNote>,
     /// Reads and writes what the person authorized for a task (`autonomy`).
     pub authorized: OnTask<Authorized>,
     pub authorize: Box<Authorize>,
@@ -510,6 +515,13 @@ impl Hooks {
             }),
             workspace_of: Box::new(|conversation| {
                 Store::open().ok()?.load(conversation)?.workspace
+            }),
+            note: Box::new(|conversation, message| {
+                if let Err(error) =
+                    Store::open().and_then(|store| store.append(conversation, message))
+                {
+                    tracing::warn!(%error, "couldn't add a note to the conversation");
+                }
             }),
             authorized: Box::new(super::autonomy::read),
             authorize: Box::new(super::autonomy::write),
@@ -801,10 +813,18 @@ impl Runner {
         {
             return handled;
         }
+        // In a job's own conversation: "wie weit bist du?" is told at once,
+        // and words said while it waits for its turn join its request.
+        if kind == JobKind::Ask
+            && let Some(handled) = self.in_job(&request)
+        {
+            return handled;
+        }
         let now = self.now();
         let voice = request.origin != Origin::Chat;
         let mut stop = Vec::new();
         let mut on_it = None;
+        let mut steer_note = None;
         let id = {
             let mut state = self.state();
             // The answer to a job's question.
@@ -857,6 +877,11 @@ impl Runner {
                     doing: target.status.step.clone(),
                     steps: target.steps.iter().cloned().collect(),
                 };
+                // A job's transcript gets the words where they were said,
+                // with a short "noted"; its steered run doesn't add them again.
+                if target.workspace.is_some() || matches!(target.kind, JobKind::Job { .. }) {
+                    steer_note = Some((id.clone(), request.text.clone()));
+                }
                 request.origin = target.request.origin;
                 request.context = Context {
                     screenshot: None,
@@ -895,6 +920,19 @@ impl Runner {
         };
         for key in stop {
             self.cancel_task(key);
+        }
+        if let Some((conversation, said)) = steer_note {
+            self.note(&conversation, super::types::Role::User, &said);
+            self.note(
+                &conversation,
+                super::types::Role::Assistant,
+                if status::said_in_german(&said) {
+                    "Okay, ich berücksichtige das beim nächsten Schritt."
+                } else {
+                    "Okay, I'll take that into account at the next step."
+                },
+            );
+            self.emit(&Event::ConversationsChanged);
         }
         if let Some(line) = on_it {
             self.emit(&Event::Escalated {
