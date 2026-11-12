@@ -132,7 +132,7 @@ pub fn definitions() -> Vec<Value> {
     vec![
         json!({
             "name": "hex_start_jobs",
-            "description": "Hand the request to the background as one or more jobs, when it is a job rather than a quick question or a small action in the window in front (several steps, many items, other apps or websites, research, documents, files, or more than a minute or two). Hex starts each job with every tool it needs (its own browsers, apps, files) and the job asks the person what it needs. Call it once with all jobs; several independent parts become several jobs that run in parallel. Then end your reply with one or two short, speakable sentences saying you're on it. Never say something runs in the background without calling this.",
+            "description": "Hand the request to the background as one or more jobs, when it is a job rather than a quick question or a small action in the window in front (several steps, many items, other apps or websites, research, documents, files, or more than a minute or two). Hex starts each job with every tool it needs (its own browsers, apps, files) and the job asks the person what it needs. Call it once with all jobs: unrelated requests become separate jobs that run in parallel; parts that build on each other (research, then a sheet, then a message) stay one job, which leads helpers itself. Then end your reply with one or two short, speakable sentences saying you're on it. Never say something runs in the background without calling this.",
             "inputSchema": {"type": "object", "properties": {
                 "jobs": {"type": "array", "items": {"type": "object", "properties": {
                     "title": {"type": "string", "description": "A short title, at most six words."},
