@@ -523,6 +523,12 @@ Labs > Assistant > Action shortcut           // recognition::ask, Shortcut::Acti
 The shortcut that started a capture owns it: dictation and the Action
 shortcut stand down while the other records.
 
+While the Lab is on, General also notes what else takes the dictation or
+Action shortcut's keys (macOS shortcuts, the 🌐 key, Apple Dictation, Siri,
+and apps such as Raycast or Karabiner-Elements), and setup can ask for a
+press to prove the shortcut reaches Hex (`recognition::shortcut_probe`); see
+[labs.md](labs.md), Assistant.
+
 ### Copy Recent Dictation (Labs, macOS)
 
 Paste Last Dictation reaches only the newest dictation. With Labs › Copy

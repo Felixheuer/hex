@@ -28,6 +28,7 @@ mod context_watch;
 mod guards;
 mod hotkeys;
 mod output;
+pub(crate) mod shortcut_probe;
 
 use context_watch::ContextWatch;
 use guards::{
@@ -235,6 +236,7 @@ pub fn listen(
         .then(|| crate::personal_commands::PersonalCommands::start(transformations.clone()))
         .flatten();
     let mut asker = ask::Asker::default();
+    let _probe = shortcut_probe::Listening::start();
     let mut next_programmatic_id = 1_u64;
     let mut programmatic = None::<ProgrammaticDictation>;
     let mut programmatic_lost = None::<LostProgrammaticDictation>;
@@ -719,6 +721,7 @@ pub fn listen(
             transcription_revision = next_revision;
         }
         let hotkey_capture_suspended = crate::shortcut_pause::tick() || input.is_recovering();
+        shortcut_probe::tick(hotkeys.any_recording() || programmatic.is_some());
         if hotkeys.suspend_when(hotkey_capture_suspended) {
             handle_hotkey_action(
                 HotkeyAction::Cancel,
@@ -784,7 +787,8 @@ pub fn listen(
             let capture_at = observed.capture_at;
             // Escape included: it belongs to the owner app (closing a
             // picker while a note records), which cancels through the API.
-            if programmatic.is_some() {
+            // A shortcut test takes every edge too, so its press starts nothing.
+            if programmatic.is_some() || shortcut_probe::observe(input_event, capture_at) {
                 hotkeys.track_key_state(input_event, capture_at);
                 continue;
             }

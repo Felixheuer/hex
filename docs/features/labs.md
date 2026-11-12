@@ -1202,6 +1202,49 @@ the Action shortcut stand down while the other records; `hex dictation
 stop` refuses while a question records (`cancel` still discards it); a
 microphone loss mid-question fails it instead of salvaging a copy.
 
+Whether the shortcuts can work (macOS, `shortcut_conflicts` and
+`recognition::shortcut_probe`). `shortcut_conflicts::conflicts(slot,
+settings)` checks a saved shortcut against what can take its keys first,
+each `Taken` (a saved setting names the same keys) or `Possible` (on or
+running, and commonly uses such keys):
+
+```ts
+conflicts(slot, settings) -> Vec<Conflict { source, certainty, name, description, fix }>
+├── macOS keyboard shortcuts (com.apple.symbolichotkeys)  // Taken; unsaved IDs on with defaults
+│   └── Spotlight ⌘ Space, input sources ⌃ Space, Mission Control, screenshots, …; others as "a macOS keyboard shortcut"
+├── 🌐 alone vs "Press 🌐 key to" (HIToolbox AppleFnUsageType)   // Taken; unsaved -> Possible
+├── Apple Dictation on + a lone ⌘, ⌃, or 🌐 pressed twice     // Possible: its shortcut isn't readable
+├── Siri on + a lone ⌘ pressed twice, or ⌘/⌥/🌐 Space held    // Possible; HotkeyTag 0 reads as off
+├── Raycast running: raycastGlobalHotkey ("Option-49")       // Taken when it matches; unreadable -> Possible on Space
+├── Karabiner-Elements installed: karabiner.json's selected profile
+│   ├── a simple modification of one of the keys            // Taken
+│   └── a complex rule from one of them                     // Possible
+└── running Superwhisper, Wispr Flow, MacWhisper, Spokenly (any shortcut),
+    Alfred (a chord on Space), BetterTouchTool, Hammerspoon, Keyboard Maestro (any)  // Possible
+```
+
+`shortcut_conflicts::cached` reads again at most every 3 s, for Settings.
+While the Lab is on, General shows each conflict under the dictation and
+Action shortcut rows (red when taken, muted when possible) with where it is
+fixed (Keyboard settings, Siri settings, or the app) and "Choose another
+shortcut"; no conflict, or the Lab off, draws nothing new. The screenshot
+Lab's check (`screenshots::system_shortcut`) reads the same symbolic hot
+keys. `shortcut_probe::start(slot, wait)` asks for a press: while it runs
+the listener hands every edge to it, not the shortcut machines (nothing
+records), and the HID tap reports every key press
+(`suppression::set_probing`), so it tells a press and release that reached
+Hex with exactly the keys and sides (`Works { held }`) from a key the
+keyboard saw but Hex's tap never got (`Swallowed`), the wrong modifiers or
+side (`WrongKeys`), a missing release (`NoRelease`), and nothing
+(`NothingReceived`). It refuses (`Unavailable`) without the listener, while
+Settings records a shortcut, or while a recording runs. Checks: the six
+fixture-plist tests in
+[shortcut_conflicts/tests.rs](../../src/shortcut_conflicts/tests.rs) and the
+four in [recognition/shortcut_probe.rs](../../src/recognition/shortcut_probe.rs).
+Not yet observed: Raycast's and Siri's saved formats on a Mac that has them
+set (neither is set on the development Mac), a real probe, or the notes'
+rendering.
+
 Escape belongs to the assistant only while a quick question
 (`Origin::ActionShortcut`) runs or waits, or an answer is read aloud
 (`speech::speaking()`), and nothing records: the tap then keeps it from the

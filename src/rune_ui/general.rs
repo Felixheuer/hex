@@ -30,6 +30,11 @@ use crate::transcription::models as transcription_models;
 mod search;
 mod shortcuts;
 
+/// Labs › Assistant (macOS): what else takes the dictation and Action
+/// shortcuts' keys.
+#[cfg(target_os = "macos")]
+mod conflicts;
+
 /// Labs › More dictation shortcuts (macOS): General's extra shortcut rows.
 #[cfg(target_os = "macos")]
 mod extra_shortcuts;

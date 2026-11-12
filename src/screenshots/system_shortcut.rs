@@ -8,14 +8,10 @@
 
 use crate::app_settings::RuntimeHotkey;
 
-/// One symbolic hot key as `AppleSymbolicHotKeys` holds it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Entry {
-    pub(crate) enabled: bool,
-    /// The key code and the modifier flags (CGEventFlags' bits), when the
-    /// entry names them.
-    pub(crate) chord: Option<(u16, u64)>,
-}
+/// One symbolic hot key as `AppleSymbolicHotKeys` holds it; read with
+/// every other one by `shortcut_conflicts`, which checks Hex's other
+/// shortcuts against them.
+pub(crate) use crate::shortcut_conflicts::Entry;
 
 const SHIFT: u64 = 0x2_0000;
 const CONTROL: u64 = 0x4_0000;
@@ -67,58 +63,8 @@ fn flags(hotkey: RuntimeHotkey) -> u64 {
 /// Whether a macOS screenshot shortcut is on with `hotkey`'s chord, read
 /// from the saved preferences now.
 pub(crate) fn takes(hotkey: RuntimeHotkey) -> bool {
-    let saved = read();
-    taken_by(hotkey, |id| {
-        saved.iter().find(|(i, _)| *i == id).map(|(_, e)| *e)
-    })
-    .is_some()
-}
-
-/// The saved screenshot entries.
-fn read() -> Vec<(u32, Entry)> {
-    use objc2::rc::Retained;
-    use objc2::runtime::AnyObject;
-    use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSString, NSUserDefaults};
-
-    let Some(domain) = NSUserDefaults::standardUserDefaults()
-        .persistentDomainForName(&NSString::from_str("com.apple.symbolichotkeys"))
-    else {
-        return Vec::new();
-    };
-    let Some(keys) = domain.objectForKey(&NSString::from_str("AppleSymbolicHotKeys")) else {
-        return Vec::new();
-    };
-    let Some(keys) = keys.downcast_ref::<NSDictionary>() else {
-        return Vec::new();
-    };
-    let field = |dict: &NSDictionary, name: &str| -> Option<Retained<AnyObject>> {
-        let key = NSString::from_str(name);
-        let key: &AnyObject = &key;
-        dict.objectForKey(key)
-    };
-    let number = |object: &AnyObject| object.downcast_ref::<NSNumber>().map(|n| n.integerValue());
-    SCREENSHOT_KEYS
-        .into_iter()
-        .filter_map(|(id, ..)| {
-            let entry = field(keys, &id.to_string())?;
-            let entry = entry.downcast_ref::<NSDictionary>()?;
-            let enabled = field(entry, "enabled")
-                .and_then(|on| number(&on))
-                .is_none_or(|on| on != 0);
-            let chord = field(entry, "value").and_then(|value| {
-                let value = value.downcast_ref::<NSDictionary>()?;
-                let parameters = field(value, "parameters")?;
-                let parameters = parameters.downcast_ref::<NSArray>()?;
-                if parameters.count() < 3 {
-                    return None;
-                }
-                let code = number(&parameters.objectAtIndex(1))?;
-                let mods = number(&parameters.objectAtIndex(2))?;
-                Some((u16::try_from(code).ok()?, u64::try_from(mods).ok()?))
-            });
-            Some((id, Entry { enabled, chord }))
-        })
-        .collect()
+    let saved = crate::shortcut_conflicts::read_symbolic_hotkeys();
+    taken_by(hotkey, |id| saved.get(&id).copied()).is_some()
 }
 
 /// Opens Keyboard › Keyboard Shortcuts in System Settings, where
