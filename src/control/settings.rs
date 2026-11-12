@@ -792,9 +792,17 @@ mod tests {
         let rules = rules();
         let mut settings = AppSettings::default();
         settings.assistant.enabled = true;
+        // Each OS has its own default; see `HotkeyBinding::stop_all_default`.
+        let default = if cfg!(target_os = "macos") {
+            "control+option+esc"
+        } else if cfg!(target_os = "linux") {
+            "control+option+shift+escape"
+        } else {
+            "control+option+escape"
+        };
         assert_eq!(
             get(&settings, "assistant.stop_all_hotkey").unwrap()[0].value,
-            Value::String("control+option+esc".into())
+            Value::String(default.into())
         );
         let change = apply(
             &settings,
