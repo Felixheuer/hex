@@ -89,6 +89,10 @@ pub struct WireSpec {
     /// Where the guard sees the windows on screen.
     #[serde(default, skip_serializing_if = "WindowSource::is_default")]
     pub windows: WindowSource,
+    /// `assistant.agent_display`: the display new Background windows go to
+    /// (an id or name); `None` is the one the person isn't working on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_display: Option<String>,
 }
 
 /// Where the guard reads the windows on screen.
@@ -132,6 +136,7 @@ impl WireSpec {
             agent_desktop: None,
             state_dir: None,
             windows: WindowSource::default(),
+            agent_display: None,
         }
     }
 
@@ -165,6 +170,7 @@ fn server_for(spec: &TaskSpec, hex: &Path, desktop: &McpServer, state_dir: &Path
     let mut wire = WireSpec::new(spec);
     wire.agent_desktop = Some(desktop.command.clone());
     wire.state_dir = Some(state_dir.to_path_buf());
+    wire.agent_display = crate::assistant::computer::agent_display_setting();
     McpServer {
         command: hex.to_path_buf(),
         args: vec![
@@ -227,6 +233,7 @@ fn config(wire: &WireSpec) -> proxy::Config {
         }),
         physical_input: wire.physical_input,
         blocked_apps: wire.blocked_apps.clone(),
+        agent_display: wire.agent_display.clone(),
     }
 }
 

@@ -77,6 +77,10 @@ pub struct AssistantSettings {
     /// Experimental: windows Background tasks open move to a Space of their
     /// own, out of the person's way.
     pub agent_space: bool,
+    /// The display new Background windows go to, by agent-desktop id ("5")
+    /// or name ("M27Q"); `None` is the one the person isn't working on
+    /// (with two or more displays; with one, windows stay where they open).
+    pub agent_display: Option<String>,
 }
 
 impl Default for AssistantSettings {
@@ -111,6 +115,7 @@ impl Default for AssistantSettings {
             task_timeout_minutes: 30,
             retry_on_limit: true,
             agent_space: false,
+            agent_display: None,
         }
     }
 }

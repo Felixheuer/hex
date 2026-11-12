@@ -135,6 +135,11 @@ pub struct Context {
     /// The window in front, as agent-desktop names it: the Here lane's only
     /// window.
     pub window: Option<TaskWindow>,
+    /// The display the person works on (the one holding the focused window,
+    /// which the screenshot shows) and the layout around it, for the prompt:
+    /// "The person is working on M27Q (display 5, …). Built-in Retina
+    /// Display (display 1, main, …) is below and right of it. …"
+    pub display: Option<String>,
 }
 
 /// One question to answer.

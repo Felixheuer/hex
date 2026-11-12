@@ -350,6 +350,12 @@ pub(super) const KEYS: &[Key] = &[
         Kind::Bool,
         "Labs: experimental; windows Background tasks open move to a Space of their own (macOS)",
     ),
+    optional(
+        "assistant.agent_display",
+        Kind::Text,
+        "Labs: the display new Background task windows move to, by agent-desktop id or name; \
+         none is the display the person isn't working on (macOS)",
+    ),
     key(
         "assistant.setup_done",
         Kind::Bool,

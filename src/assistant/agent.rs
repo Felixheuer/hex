@@ -625,6 +625,13 @@ pub fn prompt(job: &Job, history: &[Message], with_history: bool) -> String {
             window.app
         ));
     }
+    if let Some(display) = context
+        .display
+        .as_deref()
+        .filter(|display| !display.is_empty())
+    {
+        seen.push(format!("Displays: {display}"));
+    }
     if let Some(selected) = context
         .selected_text
         .as_deref()

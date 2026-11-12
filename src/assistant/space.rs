@@ -82,7 +82,12 @@ pub fn park_now(window: &TaskWindow) -> Result<Parked, String> {
     let (x, y, _, _) = bounds(&tool, &window.app, id)?
         .ok_or("agent-desktop doesn't list the window's position")?;
     let displays = displays(&call(&tool, &["list-displays"])?);
-    let to = parking_spot(&displays).ok_or("agent-desktop listed no displays")?;
+    let agents = crate::assistant::computer::displays();
+    let setting = crate::assistant::computer::agent_display_setting();
+    let preferred = crate::assistant::computer::agents_display(&agents, setting.as_deref())
+        .map(|display| display.id.clone());
+    let to =
+        parking_spot(&displays, preferred.as_deref()).ok_or("agent-desktop listed no displays")?;
     move_window(&tool, &window.app, id, to)?;
     PARKED
         .lock()
@@ -164,8 +169,10 @@ fn move_window(tool: &Path, app: &str, id: &str, (x, y): (f64, f64)) -> Result<(
 }
 
 /// A display as `list-displays` gives it (top-left origin, points).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Display {
+    /// agent-desktop's id ("1", "5").
+    pub id: String,
     pub x: f64,
     pub y: f64,
     pub width: f64,
@@ -187,6 +194,11 @@ pub fn displays(data: &Value) -> Vec<Display> {
             let bounds = display.get("bounds")?;
             let number = |name| bounds.get(name).and_then(Value::as_f64);
             Some(Display {
+                id: display
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
                 x: number("x")?,
                 y: number("y")?,
                 width: number("width")?,
@@ -203,11 +215,18 @@ pub fn displays(data: &Value) -> Vec<Display> {
 /// Where a parked window's top-left corner goes: one point inside the
 /// bottom-right corner of a display with no other display to its right or
 /// below (else its bottom-left, then the main display's bottom-right), so
-/// the window hangs off every screen but a sliver.
-pub fn parking_spot(displays: &[Display]) -> Option<(f64, f64)> {
+/// the window hangs off every screen but a sliver. The agents' display
+/// (`preferred`, an id) is tried first, then the main one, so a parked
+/// window's sliver stays off the person's working display when it can.
+pub fn parking_spot(displays: &[Display], preferred: Option<&str>) -> Option<(f64, f64)> {
     let free = |point: (f64, f64)| !displays.iter().any(|display| display.contains(point));
     let mut ordered: Vec<&Display> = displays.iter().collect();
-    ordered.sort_by_key(|display| !display.primary);
+    ordered.sort_by_key(|display| {
+        (
+            preferred.is_none_or(|id| display.id != id),
+            !display.primary,
+        )
+    });
     for display in &ordered {
         let (right, bottom) = (display.x + display.width, display.y + display.height);
         if free((right + 1.0, bottom - 1.0))
@@ -235,7 +254,13 @@ mod tests {
     use super::*;
 
     fn display(x: f64, y: f64, width: f64, height: f64, primary: bool) -> Display {
+        let id = match (x, y) {
+            (0.0, 0.0) => "1",
+            (-604.0, -1440.0) => "5",
+            _ => "9",
+        };
         Display {
+            id: id.into(),
             x,
             y,
             width,
@@ -264,15 +289,49 @@ mod tests {
         // A laptop with a display above it: its own bottom-right is free.
         let laptop = display(0.0, 0.0, 1800.0, 1169.0, true);
         let above = display(-604.0, -1440.0, 2560.0, 1440.0, false);
-        assert_eq!(parking_spot(&[laptop, above]), Some((1799.0, 1168.0)));
+        let pair = [laptop.clone(), above.clone()];
+        assert_eq!(parking_spot(&pair, None), Some((1799.0, 1168.0)));
+        // With the display above as the agents' display, its own free
+        // corner: its bottom-right hangs past the laptop's right edge.
+        assert_eq!(parking_spot(&pair, Some("5")), Some((1955.0, -1.0)));
         // A taller display to the right of the main one: park on that one.
         let main = display(0.0, 0.0, 1800.0, 1200.0, true);
         let right = display(1800.0, 0.0, 1920.0, 1300.0, false);
-        assert_eq!(parking_spot(&[main, right]), Some((3719.0, 1299.0)));
+        assert_eq!(
+            parking_spot(&[main.clone(), right], None),
+            Some((3719.0, 1299.0))
+        );
         // A shorter one: the main display's corner hangs below it.
         let short = display(1800.0, 0.0, 1920.0, 1080.0, false);
-        assert_eq!(parking_spot(&[main, short]), Some((1799.0, 1199.0)));
-        assert_eq!(parking_spot(&[]), None);
+        assert_eq!(parking_spot(&[main, short], None), Some((1799.0, 1199.0)));
+        assert_eq!(parking_spot(&[], None), None);
+    }
+
+    #[test]
+    fn three_displays_left_right_and_above_park_off_a_free_corner() {
+        // Main 1440×900 at 0,0; one left (1920×1080 at -1920,0), one right
+        // (1280×1024 at 1440,0), one above (2560×1440 at -560,-1440).
+        let main = display(0.0, 0.0, 1440.0, 900.0, true);
+        let mut left = display(-1920.0, 0.0, 1920.0, 1080.0, false);
+        left.id = "2".into();
+        let mut right = display(1440.0, 0.0, 1280.0, 1024.0, false);
+        right.id = "3".into();
+        let mut above = display(-560.0, -1440.0, 2560.0, 1440.0, false);
+        above.id = "4".into();
+        let all = [main, left, right, above];
+        // The main display's bottom-right touches the right display, so the
+        // next display with a free corner (the left one, listed first).
+        let spot = parking_spot(&all, None).unwrap();
+        assert_eq!(spot, (-1.0, 1079.0));
+        assert!(
+            all.iter()
+                .all(|display| { !display.contains((spot.0 + 2.0, spot.1 + 2.0)) })
+        );
+        // The agents' display (right) parks at its own corner.
+        assert_eq!(parking_spot(&all, Some("3")), Some((2719.0, 1023.0)));
+        // The display above has no free corner of its own (main and the
+        // side displays touch its bottom edge): the next free one.
+        assert_eq!(parking_spot(&all, Some("4")), Some((-1.0, 1079.0)));
     }
 
     #[test]

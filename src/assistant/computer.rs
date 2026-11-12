@@ -26,8 +26,20 @@ pub const LONG_SIDE: u32 = 1280;
 /// The most selected text a question takes along, in characters.
 const MAX_SELECTION: usize = 20_000;
 
-/// A screenshot of the display the pointer is on, scaled so its long side
-/// is at most 1280 pixels.
+mod displays;
+
+pub use displays::{
+    Display, agents_display, cascade, describe as describe_displays, display_of, displays, relation,
+};
+
+/// `assistant.agent_display` as last applied.
+pub fn agent_display_setting() -> Option<String> {
+    crate::app_settings::assistant_runtime().and_then(|(_, settings)| settings.agent_display)
+}
+
+/// A screenshot of the display the person works on (the one holding the
+/// focused window, else the pointer's), scaled so its long side is at most
+/// 1280 pixels.
 pub fn screenshot() -> Result<Screenshot> {
     #[cfg(target_os = "macos")]
     {
@@ -430,13 +442,24 @@ mod macos {
 
     pub fn screenshot() -> Result<Screenshot> {
         use scrawl_capture::screens;
-        let at = screens::pointer().unwrap_or_default();
-        let displays = screens::displays();
-        let display = screens::index_at(&displays, at)
-            .map(|index| displays[index])
-            .ok_or_else(|| eyre!("No display to take a screenshot of"))?;
+        // The display the person works on: the focused window's, else the
+        // pointer's.
+        let focused = super::displays()
+            .into_iter()
+            .find(|display| display.has_focus)
+            .and_then(|display| display.id.parse::<u32>().ok());
+        let id = match focused {
+            Some(id) => id,
+            None => {
+                let at = screens::pointer().unwrap_or_default();
+                let displays = screens::displays();
+                screens::index_at(&displays, at)
+                    .map(|index| displays[index].id)
+                    .ok_or_else(|| eyre!("No display to take a screenshot of"))?
+            }
+        };
         let image = capture_core::screenshot_with(
-            &capture_core::Source::Display(display.id),
+            &capture_core::Source::Display(id),
             &exclusions(),
             Some(LONG_SIDE),
             true,
@@ -486,12 +509,16 @@ mod macos {
             let focused = crate::accessibility::focused_window_number(*pid);
             super::front_window_among(&windows, *pid, name, focused)
         });
+        let displays = super::displays();
+        let chosen = super::agent_display_setting();
+        let agents = super::agents_display(&displays, chosen.as_deref());
         Context {
             screenshot: None,
             selected_text,
             frontmost_app: front.map(|(_, name, _)| name),
             window_title,
             window,
+            display: super::displays::describe(&displays, agents),
         }
     }
 

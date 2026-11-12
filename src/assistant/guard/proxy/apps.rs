@@ -160,7 +160,7 @@ impl<D: Desktop> Guard<D> {
     }
 }
 
-fn success(command: &str, data: Value) -> Value {
+pub(super) fn success(command: &str, data: Value) -> Value {
     let envelope = json!({"version": "hex-guard", "ok": true, "command": command, "data": data});
     json!({
         "content": [{"type": "text", "text": envelope.to_string()}],
