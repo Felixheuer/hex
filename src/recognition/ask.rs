@@ -153,7 +153,7 @@ impl Asker {
                 let accepted = handle(action, context, events)?;
                 // Questions and finished jobs wait to be read aloud while
                 // the person speaks.
-                crate::assistant::set_listening(accepted);
+                crate::assistant::interaction::hold_listening(accepted);
                 if accepted {
                     // The HUD wears the assistant's colours (and after a tap
                     // says "New task"), so a question never looks like a
@@ -169,7 +169,7 @@ impl Asker {
                 Ok(accepted)
             }
             HotkeyAction::Finish => {
-                crate::assistant::set_listening(false);
+                crate::assistant::interaction::hold_listening(false);
                 let page = context.finish(events)?;
                 let question = self
                     .question

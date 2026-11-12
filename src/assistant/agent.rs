@@ -15,6 +15,7 @@
 //! OWNER: brain.
 
 pub mod goal;
+pub mod handoff;
 pub mod markers;
 pub mod workspace;
 
@@ -105,6 +106,9 @@ pub enum Outcome {
         reply: String,
         /// Further jobs to start beside it: (title, what each does).
         more: Vec<(String, String)>,
+        /// What the first job does, when it isn't the whole request (the
+        /// request held several jobs, handed on with `hex_start_jobs`).
+        first_task: Option<String>,
     },
     /// Hex refused a consequential action; the person's yes to `question`
     /// allows that kind of action for the task.
@@ -184,6 +188,9 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
     let backend = job.settings.backend;
     let key = provider::session_key(backend, job.request.origin.lane());
     let key = key.as_str();
+    // A hand-off left by a run that was stopped before it ended isn't this
+    // run's to start.
+    handoff::clear(&job.conversation);
     let mut resume = stored.sessions.get(key).cloned();
     let mut run = match prepare(job, &history, resume.clone(), image) {
         Ok(run) => run,
@@ -268,6 +275,20 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
             );
             return finish(store, &mut stored, actions, Err(message), emit);
         }
+        // Jobs handed on with `hex_start_jobs` (the deterministic way), or an
+        // answer that claims the background without having started anything
+        // (the safety net): either way the jobs start.
+        if job.workspace.is_none()
+            && let Ok(text) = &result
+            && let Some(outcome) = handed_on(job, text, handoff::take(&job.conversation))
+        {
+            let reply = match &outcome {
+                Outcome::Escalate { reply, .. } => reply.clone(),
+                _ => String::new(),
+            };
+            keep_reply(store, &mut stored, actions, &reply, emit);
+            return outcome;
+        }
         if let Ok(text) = &result
             && let Some(marker) = markers::parse(text)
         {
@@ -281,8 +302,14 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
                     return Outcome::Confirm { category, question };
                 }
                 markers::Marker::Job { title, reply, more } if job.workspace.is_none() => {
+                    handoff::clear(&job.conversation);
                     keep_reply(store, &mut stored, actions, &reply, emit);
-                    return Outcome::Escalate { title, reply, more };
+                    return Outcome::Escalate {
+                        title,
+                        reply,
+                        more,
+                        first_task: None,
+                    };
                 }
                 // Already a job: go on as if it had answered.
                 markers::Marker::Job { reply, .. } => {
@@ -420,6 +447,44 @@ fn said_lately(stored: &Stored, text: &str, now: u64) -> bool {
             && now.saturating_sub(message.at_ms) <= STEER_WRITTEN_MS
             && message.text().trim() == text
     })
+}
+
+/// The escalation a Here or Chat run's answer `text` asks for: the jobs it
+/// handed on with `hex_start_jobs`, else, when it only *says* the work runs
+/// in the background (no tool, no marker), the whole request as one job.
+fn handed_on(job: &Job, text: &str, handoff: Option<handoff::Handoff>) -> Option<Outcome> {
+    // The line said meanwhile: the tool's `say`, else the answer (without
+    // a marker the agent may have added too).
+    let spoken = |say: Option<String>| {
+        say.filter(|say| !say.trim().is_empty())
+            .unwrap_or_else(|| match markers::parse(text) {
+                Some(markers::Marker::Job { reply, .. }) => reply,
+                _ => text.trim().to_owned(),
+            })
+    };
+    if let Some(handoff) = handoff {
+        let mut jobs = handoff.jobs.into_iter();
+        let first = jobs.next()?;
+        let more: Vec<(String, String)> = jobs.map(|job| (job.title, job.task)).collect();
+        // One job is the request itself; several split it.
+        let first_task = (!more.is_empty()).then_some(first.task);
+        return Some(Outcome::Escalate {
+            title: first.title,
+            reply: spoken(handoff.say),
+            more,
+            first_task,
+        });
+    }
+    if markers::parse(text).is_none() && handoff::claims_background(text) {
+        tracing::info!("an answer claimed the background without a job; starting one");
+        return Some(Outcome::Escalate {
+            title: crate::assistant::store::shorten(&job.request.text, 60),
+            reply: text.trim().to_owned(),
+            more: Vec::new(),
+            first_task: None,
+        });
+    }
+    None
 }
 
 /// What a backend run reported that the conversation keeps.
@@ -784,7 +849,7 @@ pub fn autonomy_rules(
 }
 
 /// How a Here or Chat agent hands a job to Hex instead of doing it.
-pub const ROUTING: &str = "\nYou decide how to handle each request; the person only holds a key and speaks. Answer a quick question or do a small action yourself, right away. If the request is a job rather than that, don't start it. A job has several steps, many items, several apps or websites, research, or documents, or takes more than a minute or two. Reply instead with: first `HEX_JOB: <a short title, at most six words>`; if the request holds several independent jobs (such as researching three topics), add one line per further job right after it, `HEX_JOB: <title> | <that job in one self-contained sentence>`, so they run in parallel; then one or two short, speakable sentences in the person's language saying you're on it and what it covers, such as “On it: 50 suppliers, Gmail drafts, and a sheet. I'll ask what I need.” Hex then runs each in the background with every tool it needs, and each job asks the person what it needs to know.\n";
+pub const ROUTING: &str = "\nYou decide how to handle each request; the person only holds a key and speaks. Answer a quick question or do a small action in the window in front yourself, right away. Anything else is a job: several steps, many items, other apps, a browser or websites, research, documents, files, or more than a minute or two. Never start a job yourself and never only say it runs in the background: call the hex_start_jobs tool once with every job (one per independent part, so they run in parallel; each task one self-contained sentence with every detail the person gave), then end with one or two short, speakable sentences in the person's language saying you're on it and what it covers, such as \u{201c}On it: 50 suppliers, Gmail drafts, and a sheet. I'll ask what I need.\u{201d} Hex then runs each job in the background with every tool it needs, and each job asks the person what it needs to know. Only if the tool is missing, start your reply with `HEX_JOB: <a short title>` instead (one more `HEX_JOB: <title> | <job>` line per further job) and then that sentence.\n";
 
 /// A job's rules: its workspace, plan, one batched question, files, and
 /// what it may never do on its own.
@@ -1057,7 +1122,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
     );
     match origin.lane() {
         Lane::Here => prompt.push_str(
-            "- Work only in the window in front, named in the message: read it, and act in it only if asked. Never touch any other window or app, and don't bring another one forward.\n- If the request needs anything beyond that window (open an app or a browser, another window, the web, files), never say you can't and never tell the person to do it themselves: hand it off at once with `HEX_JOB:` as described above, however small it is; a background job may open apps and browsers.\n",
+            "- Work only in the window in front, named in the message: read it, and act in it only if asked. Never touch any other window or app, and don't bring another one forward.\n- If the request needs anything beyond that window (open an app or a browser, another window, the web, files), never say you can't and never tell the person to do it themselves: hand it off at once with `HEX_JOB:` with the hex_start_jobs tool (see below), however small it is; a background job may open apps and browsers.\n",
         ),
         Lane::Background => prompt.push_str(&format!(
             "- You run beside the person and other agents, each with its own cursor; yours is agent “{}”. Work only in your own windows: open apps with hex_open_app, which gives you your own window, or claim a free window that is already open with desktop_claim_window (its window_id from desktop_list_windows). {}Never another task's windows: don't move, close, or type into them. The clipboard is Here-only: don't use it. Once you know a window's id, always pass it (--window-id / window_id), and don't bring windows to the front.\n\

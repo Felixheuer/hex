@@ -629,7 +629,16 @@ pub(crate) fn listening(on: bool) {
     };
     let seconds = crate::app_settings::assistant_runtime()
         .map_or(8, |(_, settings)| settings.conversation_seconds) as f32;
-    let on = on && ready() && seconds > 0.0;
+    // One source of truth (`interaction::listening`): the ring shows exactly
+    // while conversation mode's capture is open (waiting or hearing); a
+    // hold shows in the HUD itself. The HUD's own event is only the cue.
+    let _ = on;
+    let on = matches!(
+        crate::assistant::interaction::listening(),
+        crate::assistant::interaction::Listening::FollowUp
+            | crate::assistant::interaction::Listening::Hearing
+    ) && ready()
+        && seconds > 0.0;
     overlays.listening.update_if(move |state, tx| {
         let Some(overlays) = OVERLAYS.get() else {
             return false;
