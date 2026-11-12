@@ -39,6 +39,7 @@ pub mod space;
 pub mod speech;
 pub mod store;
 pub mod tools;
+pub mod trigger;
 pub mod types;
 
 pub use service::{

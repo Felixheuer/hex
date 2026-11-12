@@ -507,7 +507,7 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     // assistant first" and opens the setup; the bubble's "Continue setup"
     // opens it too.
     crate::rune_ui::assistant_overlay::set_open_setup(open_assistant_setup);
-    crate::recognition::ask::set_open_setup(|| {
+    crate::assistant::trigger::set_open_setup(|| {
         crate::rune_ui::assistant_overlay::setup_needed();
         open_assistant_setup();
     });

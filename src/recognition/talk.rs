@@ -33,8 +33,9 @@ use crate::parakeet::DictationWorker;
 use crate::suppression::InputEvent;
 
 use super::DictationSink;
-use super::ask::{Question, finish_question, submit};
+use super::ask::finish_question;
 use super::conversation::{Conversation, Options, Output, Step, db};
+use crate::assistant::trigger::{Question, submit};
 
 /// The listener's conversation mode.
 pub(super) struct Talk {

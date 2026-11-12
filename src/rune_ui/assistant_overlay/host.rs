@@ -238,7 +238,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
     }
     crate::assistant::subscribe(Box::new(on_event));
     // The Action shortcut's double tap unfolds the list.
-    crate::recognition::ask::set_toggle_tasks(toggle_tasks);
+    crate::assistant::trigger::set_toggle_tasks(toggle_tasks);
     // Displays coming, going, or moving: frames, outlines, and the HUD-side
     // panels follow at once.
     displays::watch(|| {
