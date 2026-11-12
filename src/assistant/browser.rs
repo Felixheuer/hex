@@ -321,7 +321,7 @@ fn private_state() {
 /// agent-browser with Hex's agent PATH (and Lightpanda's folder) and none
 /// of the person's own `AGENT_BROWSER_*` settings.
 fn base_command(path: &Path) -> Command {
-    let mut command = crate::desktop::background_process::command(path);
+    let mut command = backends::launch::command(path);
     let extra: Vec<PathBuf> = [Some(path.to_owned()), lightpanda()]
         .into_iter()
         .flatten()

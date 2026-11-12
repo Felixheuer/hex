@@ -325,11 +325,7 @@ pub fn title_over_mcp(server: &McpServer, url: &str, deadline: Instant) -> Resul
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
+    super::super::tree::own_group(&mut command);
     let mut child = command
         .spawn()
         .map_err(|error| format!("it didn't start: {error}"))?;

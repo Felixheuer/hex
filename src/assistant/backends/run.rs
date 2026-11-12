@@ -1,11 +1,13 @@
 //! Running a helper process with a time limit: its output is read on its own
 //! threads, and at the limit it and everything it started (an agent's MCP
-//! servers, a login shell's children) are killed as one process group.
+//! servers, a login shell's children) are killed as one (`tree`).
 
 use std::io::Read;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
+
+use super::tree::Tree;
 
 /// What a bounded run left behind.
 #[derive(Debug)]
@@ -47,13 +49,10 @@ pub fn bounded(mut command: Command, limit: Duration) -> std::io::Result<Ran> {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
+    super::tree::own_group(&mut command);
     let started = Instant::now();
     let mut child = command.spawn()?;
+    let tree = Tree::of(&child);
     let (done, finished) = mpsc::channel();
     let stdout = reader(child.stdout.take(), done.clone());
     let stderr = reader(child.stderr.take(), done);
@@ -70,7 +69,7 @@ pub fn bounded(mut command: Command, limit: Duration) -> std::io::Result<Ran> {
         }
     }
     if status.is_none() || open > 0 {
-        kill_group(&mut child);
+        end(&tree, &mut child);
     }
     Ok(Ran {
         status,
@@ -92,14 +91,11 @@ pub fn streamed(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
+    super::tree::own_group(&mut command);
     let started = Instant::now();
     let deadline = started + limit;
     let mut child = command.spawn()?;
+    let tree = Tree::of(&child);
     let (sender, lines) = mpsc::channel();
     split_lines(child.stdout.take(), false, sender.clone());
     split_lines(child.stderr.take(), true, sender);
@@ -133,7 +129,7 @@ pub fn streamed(
         }
     }
     if status.is_none() || exited_at.is_some_and(|at| at.elapsed() > Duration::from_millis(500)) {
-        kill_group(&mut child);
+        end(&tree, &mut child);
     }
     Ok(Ran {
         status,
@@ -209,6 +205,13 @@ fn wait_until(child: &mut Child, deadline: Instant) -> Option<ExitStatus> {
             _ => return None,
         }
     }
+}
+
+/// Ends `tree` and reaps its first process.
+fn end(tree: &Tree, child: &mut Child) {
+    tree.kill();
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// Kills `child` and the process group it leads, then reaps it.

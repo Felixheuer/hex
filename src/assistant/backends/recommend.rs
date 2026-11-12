@@ -1,4 +1,4 @@
-//! What setup offers on a Mac with no agent yet: the agents in the order a
+//! What setup offers on a computer with no agent yet: the agents in the order a
 //! new person should consider them, each with what it needs and its
 //! one-click install.
 
@@ -79,6 +79,8 @@ fn recommend(backend: AssistantBackend, install: Plan) -> Recommendation {
 mod tests {
     use std::path::PathBuf;
 
+    use super::super::install::plan_for;
+    use super::super::os::Os;
     use super::*;
 
     #[test]
@@ -94,7 +96,7 @@ mod tests {
         ];
         let offered: Vec<_> = order
             .into_iter()
-            .map(|backend| recommend(backend, plan(Tool::Agent(backend), &bare)))
+            .map(|backend| recommend(backend, plan_for(Os::Mac, Tool::Agent(backend), &bare)))
             .collect();
         assert_eq!(offered[0].title, "Claude Code");
         assert!(offered[1].pitch.contains("DeepSeek, OpenRouter"));
@@ -109,7 +111,7 @@ mod tests {
             };
             assert!(
                 steps[0]
-                    .command_line()
+                    .command_line(Os::Mac)
                     .starts_with("/opt/homebrew/bin/brew install")
             );
         }

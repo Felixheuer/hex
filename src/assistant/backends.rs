@@ -1,4 +1,4 @@
-//! Finding the agents installed on this Mac (Claude Code, Codex, OpenCode)
+//! Finding the agents installed on this computer (Claude Code, Codex, OpenCode)
 //! and agent-desktop, the desktop tool every task uses. A GUI app does not
 //! inherit the person's shell PATH, so this looks where installers put them
 //! and asks the login shell (`search`), and gives every agent it starts that
@@ -17,10 +17,13 @@ pub(in crate::assistant) mod desktop;
 pub mod doctor;
 mod install;
 mod keys;
+pub(in crate::assistant) mod launch;
+pub mod os;
 mod providers;
 mod recommend;
 pub(in crate::assistant) mod run;
 pub(in crate::assistant) mod search;
+pub(in crate::assistant) mod tree;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -227,11 +230,14 @@ pub fn parse_version(text: &str) -> Option<String> {
 fn claude_signed_in(path: &Path) -> (bool, Option<String>) {
     let mut command = agent_command(path);
     command.args(["auth", "status"]);
-    let sign_in = "Run `claude` once in Terminal to sign in";
+    let sign_in = format!(
+        "Run `claude` once in {} to sign in",
+        os::Os::HERE.terminal()
+    );
     match run::bounded(command, QUICK) {
         Ok(ran) => match claude_logged_in(&ran.stdout) {
             Some(true) => (true, None),
-            Some(false) => (false, Some(sign_in.into())),
+            Some(false) => (false, Some(sign_in)),
             // An older Claude Code without `auth status`: the first task
             // tells.
             None => (true, None),
@@ -251,12 +257,15 @@ pub fn claude_logged_in(output: &str) -> Option<bool> {
 fn codex_signed_in(path: &Path) -> (bool, Option<String>) {
     let mut command = agent_command(path);
     command.args(["login", "status"]);
-    let sign_in = "Run `codex login` once in Terminal to sign in";
+    let sign_in = format!(
+        "Run `codex login` once in {} to sign in",
+        os::Os::HERE.terminal()
+    );
     match run::bounded(command, QUICK) {
         Ok(ran) if ran.success() && codex_logged_in(&format!("{}\n{}", ran.stdout, ran.stderr)) => {
             (true, None)
         }
-        Ok(_) => (false, Some(sign_in.into())),
+        Ok(_) => (false, Some(sign_in)),
         Err(error) => (false, Some(format!("Codex didn't start: {error}"))),
     }
 }
@@ -310,9 +319,10 @@ fn is_session_marker(key: &str) -> bool {
     )
 }
 
-/// A command for `program` with [`agent_env`], that never shows a window.
+/// A command for `program` with [`agent_env`], that never shows a window
+/// (on Windows, an npm shim is started through what it runs: `launch`).
 pub fn agent_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
-    let mut command = crate::desktop::background_process::command(program);
+    let mut command = launch::command(Path::new(program.as_ref()));
     command.env_clear().envs(agent_env());
     command
 }
@@ -420,14 +430,23 @@ pub struct McpServer {
 /// `agent-desktop_desktop_*` (OpenCode).
 pub const MCP_NAME: &str = "agent-desktop";
 
+/// agent-desktop as an MCP server with `args`; on Windows, an npm shim's
+/// `node.exe` and script, which an agent's MCP client can start.
 pub fn mcp_server(args: &[&str]) -> Option<McpServer> {
-    let command = search::find("agent-desktop")?;
-    let extra = [command.clone()];
+    let found = search::find("agent-desktop")?;
+    let launch = launch::here(&found);
+    let extra = [found, launch.program.clone()];
     Some(McpServer {
-        command,
-        args: std::iter::once("mcp")
-            .chain(args.iter().copied())
-            .map(str::to_owned)
+        command: launch.program,
+        args: launch
+            .args
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .chain(
+                std::iter::once("mcp")
+                    .chain(args.iter().copied())
+                    .map(str::to_owned),
+            )
             .collect(),
         path_env: search::path_value(&extra),
     })

@@ -5,7 +5,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Stdio};
 
 use serde_json::{Map, Value, json};
 
@@ -56,7 +56,7 @@ impl AgentDesktop {
             return Ok(());
         }
         self.running = None;
-        let mut child = Command::new(&self.program)
+        let mut child = crate::assistant::backends::launch::command(&self.program)
             .args(&self.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
