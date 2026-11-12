@@ -37,6 +37,10 @@ pub struct AssistantSettings {
     /// OpenCode's `provider/model`.
     pub opencode_model: Option<String>,
     pub claude_api_model: String,
+    /// The Here lane's model on Claude Code and the Claude API, for fast
+    /// spoken answers; `None` uses the model above. Codex and OpenCode keep
+    /// their own model.
+    pub here_model: Option<String>,
     /// Answers to a quick question are read aloud.
     pub speak_answers: bool,
     /// The macOS voice name; `None` is the system voice.
@@ -84,12 +88,13 @@ impl Default for AssistantSettings {
             codex_model: None,
             opencode_model: None,
             claude_api_model: "claude-sonnet-5-5".into(),
+            here_model: Some("claude-haiku-5-5".into()),
             speak_answers: true,
             voice: None,
             control_desktop: true,
             physical_input: false,
             include_screenshot: true,
-            follow_up_seconds: 30,
+            follow_up_seconds: 120,
             max_parallel: 8,
             setup_done: false,
             stop_all_hotkey: Some(HotkeyBinding::stop_all_default()),

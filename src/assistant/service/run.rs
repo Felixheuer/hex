@@ -1,0 +1,368 @@
+//! One task's run, on its own thread, to its end: the backend run, and what
+//! may come between runs of the same task (waiting out a usage limit, a
+//! job's question and the person's answer), then the end (its final event,
+//! its windows and browser released, its outcome recorded) or its handover
+//! (steered, or escalated from a Here or Chat request into a Background
+//! job).
+
+use std::panic::AssertUnwindSafe;
+use std::sync::Arc;
+use std::time::Duration;
+
+use super::{
+    BLIND_RETRIES, Context, ConversationSummary, Ended, Event, Job, JobKind, Lane, Origin, Outcome,
+    Request, Runner, TaskState, TaskStatus, backoff, context,
+};
+
+impl Runner {
+    pub(super) fn run_task(self: &Arc<Self>, key: u64) {
+        let (_, settings) = (self.hooks.settings)();
+        let now = self.now();
+        let Some((request, control, agent_id, colour, kind, new_conversation, voice)) = ({
+            let mut state = self.state();
+            state
+                .tasks
+                .iter_mut()
+                .find(|task| task.key == key)
+                .map(|task| {
+                    task.speak = task.lane() == Lane::Here && settings.speak_answers;
+                    task.deadline_ms = (settings.task_timeout_minutes > 0)
+                        .then(|| now + u64::from(settings.task_timeout_minutes) * 60_000);
+                    (
+                        task.request.clone(),
+                        Arc::clone(&task.control),
+                        task.agent_id.clone(),
+                        task.status.colour,
+                        task.kind.clone(),
+                        task.new_conversation,
+                        task.voice,
+                    )
+                })
+        }) else {
+            return;
+        };
+        let conversation = request.conversation.clone().unwrap_or_default();
+        let lane = request.origin.lane();
+        self.emit(&Event::Started {
+            conversation: conversation.clone(),
+            origin: request.origin,
+            question: request.text.clone(),
+        });
+        let desktop_session = if settings.control_desktop {
+            self.session_for(lane)
+        } else {
+            None
+        };
+        if let Some(session) = &desktop_session {
+            (self.hooks.style_agent)(session, &agent_id, colour, None);
+        }
+        let workspace = match &kind {
+            JobKind::Job { title } => {
+                let workspace = (self.hooks.make_workspace)(title);
+                if workspace.is_none() {
+                    tracing::warn!("couldn't make the job's workspace; it runs without one");
+                }
+                workspace
+            }
+            _ => (self.hooks.workspace_of)(&conversation),
+        };
+        if let Some(task) = self.state().tasks.iter_mut().find(|task| task.key == key) {
+            task.workspace = workspace.clone();
+            task.session = desktop_session.clone();
+        }
+        let digest = (new_conversation && matches!(kind, JobKind::Ask | JobKind::Job { .. }))
+            .then(|| self.digest(&conversation))
+            .flatten();
+        let mut job = Job {
+            conversation: conversation.clone(),
+            request: request.clone(),
+            settings: settings.clone(),
+            agent_id,
+            desktop_session,
+            kind,
+            digest,
+            workspace: workspace.clone(),
+        };
+        let mut attempts = 0;
+        let outcome = loop {
+            let outcome = if control.cancelled() {
+                Outcome::Cancelled
+            } else {
+                std::panic::catch_unwind(AssertUnwindSafe(|| {
+                    (self.hooks.execute)(&job, &control, &mut |event| self.emit(&event))
+                }))
+                .unwrap_or_else(|_| {
+                    tracing::error!("an assistant task panicked");
+                    Outcome::Failed("The task stopped unexpectedly.".into())
+                })
+            };
+            match outcome {
+                Outcome::Limited { reason, until_ms } => {
+                    attempts += 1;
+                    if until_ms.is_none() && attempts > BLIND_RETRIES {
+                        break Outcome::Failed(format!(
+                            "{reason} (still limited after {attempts} tries)"
+                        ));
+                    }
+                    let until = until_ms.unwrap_or_else(|| self.now() + backoff(attempts));
+                    self.wait_out(key, &conversation, &control, until, reason);
+                    if control.cancelled() {
+                        break Outcome::Cancelled;
+                    }
+                    job.kind = JobKind::AfterLimit;
+                }
+                Outcome::Question(question) => {
+                    if voice && settings.speak_answers {
+                        self.voice.finish(self, &conversation, &question);
+                    }
+                    let Some(answer) = self.ask(key, &conversation, &control, question.clone())
+                    else {
+                        break Outcome::Cancelled;
+                    };
+                    job.kind = JobKind::Answer { question };
+                    job.request.text = answer;
+                    job.request.context = Context::default();
+                }
+                other => break other,
+            }
+            job.digest = None;
+        };
+        let outcome = if control.steered() {
+            Outcome::Steered
+        } else if let (Some(reason), Outcome::Cancelled) = (control.failure(), &outcome) {
+            Outcome::Failed(reason)
+        } else if control.cancelled() {
+            Outcome::Cancelled
+        } else {
+            outcome
+        };
+        let handed_on = matches!(outcome, Outcome::Steered | Outcome::Escalate { .. });
+        let now = self.now();
+        let (paused, hands_off, end_session) = {
+            let mut state = self.state();
+            let paused = state
+                .tasks
+                .iter()
+                .find(|task| task.key == key)
+                .is_some_and(|task| task.status.state == TaskState::Paused);
+            state.tasks.retain(|task| task.key != key);
+            if lane == Lane::Here && matches!(outcome, Outcome::Answer(_)) {
+                state.last_quick = Some((conversation.clone(), now));
+            }
+            let hands_off = (state.hands_off.as_deref() == Some(conversation.as_str())
+                && outcome != Outcome::Steered)
+                .then(|| state.hands_off.take())
+                .flatten();
+            (paused, hands_off, self.session_to_end(&mut state))
+        };
+        if let Some(conversation) = hands_off {
+            self.emit(&Event::HandsOff {
+                conversation,
+                on: false,
+            });
+        }
+        if outcome != Outcome::Steered {
+            if paused {
+                (self.hooks.pause)(&conversation, false);
+            }
+            (self.hooks.release)(&conversation);
+        }
+        if !handed_on {
+            let (ended, message) = match &outcome {
+                Outcome::Answer(_) => (Ended::Answered, ""),
+                Outcome::Failed(message) => (Ended::Failed, message.as_str()),
+                _ => (Ended::Cancelled, "Stopped."),
+            };
+            (self.hooks.settle)(&conversation, ended, message);
+        }
+        if let Some(session) = end_session {
+            (self.hooks.end_session)(&session);
+        }
+        match outcome {
+            Outcome::Answer(text) => {
+                let text = with_workspace(text, workspace.as_deref());
+                if settings.speak_answers {
+                    if lane == Lane::Here {
+                        self.voice.finish(self, &conversation, &text);
+                    } else if voice {
+                        // A job asked by voice: its first sentence.
+                        self.voice
+                            .finish(self, &conversation, first_sentence(&text));
+                    }
+                }
+                self.emit(&Event::Answer {
+                    conversation,
+                    origin: request.origin,
+                    text,
+                });
+            }
+            Outcome::Failed(message) => {
+                self.voice.drop_answer(&conversation);
+                self.emit(&Event::Failed {
+                    conversation,
+                    message,
+                });
+            }
+            Outcome::Cancelled => {
+                self.voice.drop_answer(&conversation);
+                self.emit(&Event::Cancelled { conversation });
+            }
+            Outcome::Escalate { title, reply } => {
+                if voice && settings.speak_answers && !reply.is_empty() {
+                    self.voice.finish(self, &conversation, &reply);
+                }
+                self.escalate(request, title, new_conversation, voice);
+            }
+            Outcome::Steered | Outcome::Limited { .. } | Outcome::Question(_) => {
+                self.voice.drop_answer(&conversation);
+            }
+        }
+        self.refresh_mode();
+        self.pump();
+    }
+
+    /// Continues `request` (a Here or Chat request that turned out to be a
+    /// job) as a job in the same conversation: `Event::Escalated`, then a
+    /// Background (or Chat) task that plans first.
+    pub(super) fn escalate(
+        self: &Arc<Self>,
+        request: Request,
+        title: String,
+        new_conversation: bool,
+        voice: bool,
+    ) {
+        let conversation = request.conversation.clone().unwrap_or_default();
+        let origin = match request.origin {
+            Origin::ActionShortcut => Origin::Background,
+            other => other,
+        };
+        let request = Request {
+            origin,
+            context: Context {
+                screenshot: None,
+                window: None,
+                ..request.context
+            },
+            ..request
+        };
+        self.emit(&Event::Escalated {
+            conversation: conversation.clone(),
+        });
+        {
+            let mut state = self.state();
+            self.push_task(
+                &mut state,
+                request,
+                JobKind::Job { title },
+                None,
+                new_conversation,
+                voice,
+            );
+        }
+        self.refresh_mode();
+        self.pump();
+    }
+
+    /// Asks the person `question` for task `key` and waits for the answer
+    /// (`TaskState::NeedsInput`); `None` when the task was stopped instead.
+    fn ask(
+        self: &Arc<Self>,
+        key: u64,
+        conversation: &str,
+        control: &super::Control,
+        question: String,
+    ) -> Option<String> {
+        let now = self.now();
+        if let Some(task) = self.state().tasks.iter_mut().find(|task| task.key == key) {
+            task.status.state = TaskState::NeedsInput;
+            task.question = Some(question.clone());
+            task.reply = None;
+            task.held_since.get_or_insert(now);
+        }
+        self.emit(&Event::Question {
+            conversation: conversation.to_owned(),
+            text: question,
+        });
+        loop {
+            if control.cancelled() {
+                return None;
+            }
+            let answer = {
+                let now = self.now();
+                let mut state = self.state();
+                let task = state.tasks.iter_mut().find(|task| task.key == key)?;
+                task.reply.take().inspect(|_| {
+                    task.status.state = TaskState::Running;
+                    task.question = None;
+                    super::monitor::resume_clock(task, now);
+                })
+            };
+            if answer.is_some() {
+                return answer;
+            }
+            (self.hooks.sleep)(Duration::from_millis(100));
+        }
+    }
+
+    /// What else is going on, for a new conversation's first prompt.
+    pub(super) fn digest(&self, conversation: &str) -> Option<String> {
+        let running: Vec<TaskStatus> = self
+            .state()
+            .tasks
+            .iter()
+            .filter(|task| task.status.conversation != conversation)
+            .map(|task| task.status.clone())
+            .collect();
+        let recent: Vec<ConversationSummary> = (self.hooks.recent)()
+            .into_iter()
+            .filter(|summary| summary.id != conversation)
+            .collect();
+        context::digest(&running, &recent, self.now())
+    }
+}
+
+/// A job's answer names its workspace; Hex adds it when the agent didn't.
+fn with_workspace(text: String, workspace: Option<&std::path::Path>) -> String {
+    match workspace {
+        Some(workspace) if !text.contains(&*workspace.to_string_lossy()) => {
+            format!("{}\n\nFiles: {}", text.trim_end(), workspace.display())
+        }
+        _ => text,
+    }
+}
+
+/// The first sentence of `text` (all of it when it has one).
+fn first_sentence(text: &str) -> &str {
+    let text = text.trim();
+    text.char_indices()
+        .find(|(index, c)| {
+            matches!(c, '.' | '!' | '?' | '\n')
+                && text[index + c.len_utf8()..]
+                    .chars()
+                    .next()
+                    .is_none_or(char::is_whitespace)
+                && *index > 8
+        })
+        .map_or(text, |(index, c)| &text[..index + c.len_utf8()])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_job_answer_names_its_workspace_and_speaks_its_first_sentence() {
+        let path = std::path::Path::new("/Users/p/Documents/Hex/2026-11-12 Job");
+        assert_eq!(
+            with_workspace("Done.".into(), Some(path)),
+            "Done.\n\nFiles: /Users/p/Documents/Hex/2026-11-12 Job"
+        );
+        let named = format!("Saved in {}.", path.display());
+        assert_eq!(with_workspace(named.clone(), Some(path)), named);
+        assert_eq!(
+            first_sentence("Found 3 suppliers. The sheet is in the workspace."),
+            "Found 3 suppliers."
+        );
+        assert_eq!(first_sentence("Done"), "Done");
+    }
+}

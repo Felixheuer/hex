@@ -1755,6 +1755,9 @@ mod tests {
         include_str!("../rune_ui/assistant_overlay/bubble.rs"),
         include_str!("../rune_ui/assistant_overlay/hint.rs"),
         include_str!("../rune_ui/assistant_overlay/stack.rs"),
+        include_str!("../rune_ui/assistant_overlay/orb.rs"),
+        include_str!("../rune_ui/assistant_overlay/outline.rs"),
+        include_str!("../rune_ui/assistant_overlay/hands.rs"),
     ];
 
     /// The string literals passed to `tr`, `tr_fill`, and `tr_named`.

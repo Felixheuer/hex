@@ -430,6 +430,18 @@ pub(crate) fn destination(pane: Option<crate::control::Pane>) -> Destination {
 /// answers once it's finished (a hold of the Action shortcut before that).
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn open_assistant_setup(ui: &mut Ui, tx: &mut Tx) {
+    // One onboarding: the voice first run while it isn't done (its end
+    // leads into the assistant's pages), else the assistant's pages.
+    if ui.first_run.is_some() {
+        return;
+    }
+    if ui.live() && !crate::desktop::onboarding::completion_recorded() {
+        ui.tour = onboarding::Tour::start(&ui.settings, &ui.platform);
+        onboarding_kit::live::open(ui);
+        if ui.first_run.is_some() {
+            return;
+        }
+    }
     chats::open_setup_from_hold(ui, tx);
 }
 

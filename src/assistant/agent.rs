@@ -1,18 +1,34 @@
-//! One task from start to end: builds its prompt (the question, a quick
-//! question's context, agent-desktop's guide, its agent id and session),
-//! runs it on the chosen backend (`provider`), reports steps and windows,
-//! and saves the conversation.
+//! One task from start to end: builds its prompt (the question, its lane's
+//! rules, a Here question's window and context, what else is going on, the
+//! desktop's guide), gives it its tools (the guard's desktop server, or
+//! agent-desktop directly when there is no guard, and a hidden browser for
+//! Background work), runs it on the chosen backend (`provider`), reports
+//! steps and windows, and saves the conversation as it goes, so a restart
+//! finds it `Running` and offers to resume it.
+//!
+//! A Here or Chat agent that finds the request is a job says so
+//! (`markers`), and Hex continues it as a Background job: a planning turn
+//! first (`plan.md` in its own `workspace`), one batched question if it
+//! needs anything, then the work with file and shell tools scoped to that
+//! folder.
 //!
 //! OWNER: brain.
 
+pub mod markers;
+pub mod workspace;
+
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use crate::app_settings::{AssistantBackend, AssistantSettings};
 
-use super::provider::{self, Control, Desktop, Report, Run};
+use super::guard::TaskSpec;
+use super::provider::{self, Control, Desktop, Report, Run, limit};
 use super::store::{self, Store, Stored};
-use super::types::{ConversationId, Event, Message, Origin, Part, Request, Role};
+use super::types::{
+    ConversationId, Event, Lane, Message, Origin, Outcome as Ended, Part, Request, Role,
+};
 
 /// One task as the runner hands it over.
 #[derive(Clone, Debug)]
@@ -22,8 +38,39 @@ pub struct Job {
     pub settings: AssistantSettings,
     /// This task's agent id in the desktop session: its own cursor.
     pub agent_id: String,
-    /// Agent mode's multi-agent session, when one is running.
+    /// The multi-agent desktop session, when one is running.
     pub desktop_session: Option<String>,
+    pub kind: JobKind,
+    /// Other tasks running and recent conversations, for a new
+    /// conversation's first prompt (`service::context`).
+    pub digest: Option<String>,
+    /// A job's folder: its files, plan, and report. `None` for a quick
+    /// question or chat.
+    pub workspace: Option<PathBuf>,
+}
+
+/// Why this run of a conversation happens.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum JobKind {
+    /// A new question (or follow-up).
+    #[default]
+    Ask,
+    /// The person spoke into the running task; it was stopped and goes on
+    /// with `request.text` as its new instruction.
+    Steer {
+        /// The step it was on.
+        doing: Option<String>,
+        /// Its last few steps.
+        steps: Vec<String>,
+    },
+    /// The same question again after a usage limit lifted.
+    AfterLimit,
+    /// The same question again after Hex quit or crashed while it ran.
+    Resume,
+    /// A job's first run: plan, ask what's missing, then do it.
+    Job { title: String },
+    /// The person answered the job's question (`request.text`).
+    Answer { question: String },
 }
 
 /// How a task ended.
@@ -32,7 +79,30 @@ pub enum Outcome {
     Answer(String),
     Failed(String),
     Cancelled,
+    /// Stopped for a new instruction; a `Steer` run goes on.
+    Steered,
+    /// The backend hit a usage limit; the conversation is kept running so
+    /// an `AfterLimit` run can go on once it lifts.
+    Limited {
+        reason: String,
+        until_ms: Option<u64>,
+    },
+    /// The job asks the person this and waits for the answer; the
+    /// conversation is kept running.
+    Question(String),
+    /// The request is a job: Hex continues it in the background. `reply` is
+    /// the short line said meanwhile ("On it: …").
+    Escalate {
+        title: String,
+        reply: String,
+    },
 }
+
+/// What a restarted task is told before anything else.
+pub const RESUME_NOTE: &str = "You were interrupted by a restart. Check what was already done (take a fresh look) before continuing; never repeat a send/submit you may already have done.";
+
+/// What a task is told after waiting out a usage limit.
+pub const LIMIT_NOTE: &str = "You were paused by a usage limit and may go on now. Check what was already done (take a fresh look) before continuing; never repeat a send/submit you may already have done.";
 
 /// Runs `job` to its end: saves the question, runs the backend, saves the
 /// answer (or the failure), and reports `Thinking`, `Step`, `Window`,
@@ -52,26 +122,40 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
     let mut stored = store
         .load(id)
         .unwrap_or_else(|| Stored::new(id, request.origin, &request.text));
-    let history = stored.conversation.messages.clone();
-
-    let mut parts = vec![Part::Text {
-        text: request.text.clone(),
-    }];
+    let asks = match &job.kind {
+        JobKind::Ask | JobKind::Steer { .. } | JobKind::Answer { .. } => true,
+        // A job started as one keeps its question; an escalated one has it.
+        JobKind::Job { .. } => stored.last_question().as_deref() != Some(request.text.trim()),
+        JobKind::AfterLimit | JobKind::Resume => false,
+    };
+    // What came before this run's own message.
+    let mut history = stored.conversation.messages.clone();
     let mut image = None;
-    if let Some(screenshot) = &request.context.screenshot {
-        match store.save_attachment(id, &screenshot.png) {
-            Ok(file) => {
-                image = store.attachment_path(id, &file);
-                parts.push(Part::Screenshot { file });
+    if asks {
+        let mut parts = vec![Part::Text {
+            text: request.text.clone(),
+        }];
+        if let Some(screenshot) = &request.context.screenshot {
+            match store.save_attachment(id, &screenshot.png) {
+                Ok(file) => {
+                    image = store.attachment_path(id, &file);
+                    parts.push(Part::Screenshot { file });
+                }
+                Err(error) => tracing::warn!(%error, "couldn't keep the question's screenshot"),
             }
-            Err(error) => tracing::warn!(%error, "couldn't keep the question's screenshot"),
         }
+        stored.push(Message {
+            role: Role::User,
+            parts,
+            at_ms: store::now_ms(),
+        });
+    } else if history.last().is_some_and(|last| last.role == Role::User) {
+        history.pop();
     }
-    stored.push(Message {
-        role: Role::User,
-        parts,
-        at_ms: store::now_ms(),
-    });
+    stored.set_running();
+    if job.workspace.is_some() {
+        stored.workspace = job.workspace.clone();
+    }
     if let Err(error) = store.save(&stored) {
         return Outcome::Failed(format!("{error:#}"));
     }
@@ -89,7 +173,7 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
     emit(Event::Thinking {
         conversation: id.clone(),
     });
-    let mut result = run_backend(&run, control, id, emit, &mut seen);
+    let mut result = run_backend(&run, control, id, emit, &mut seen, store, &mut stored);
     // A saved session the backend no longer has: start a new one that is
     // told the conversation so far.
     if let Err(error) = &result
@@ -97,23 +181,66 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
         && !seen.streamed
         && seen.actions.is_empty()
         && !control.cancelled()
+        && limit::detect(&format!("{error:#}")).is_none()
     {
         tracing::info!(error = %format!("{error:#}"), "the saved session didn't continue; starting a new one");
         run.resume = None;
-        run.prompt = prompt(request, &history, true);
-        result = run_backend(&run, control, id, emit, &mut seen);
-    }
-    if let Some(session) = seen.session.take() {
-        stored.sessions.insert(key.to_owned(), session);
+        stored.sessions.remove(key);
+        run.prompt = prompt(job, &history, true);
+        result = run_backend(&run, control, id, emit, &mut seen, store, &mut stored);
     }
     let actions = std::mem::take(&mut seen.actions);
+    if control.steered() {
+        keep_actions(store, &mut stored, actions);
+        return Outcome::Steered;
+    }
+    if let Some(reason) = control.failure() {
+        return finish(store, &mut stored, actions, Err(reason), emit);
+    }
     if control.cancelled() {
         let _ = finish(store, &mut stored, actions, Err("Stopped.".into()), emit);
+        stored.set_outcome(Ended::Cancelled);
+        let _ = store.save(&stored);
         return Outcome::Cancelled;
     }
     let result = result
         .map(|finished| finished.text)
         .map_err(|error| format!("{error:#}"));
+    if let Err(message) = &result
+        && let Some(limit) = limit::detect(message)
+    {
+        if job.settings.retry_on_limit {
+            keep_actions(store, &mut stored, actions);
+            return Outcome::Limited {
+                reason: limit.reason,
+                until_ms: limit.until_ms,
+            };
+        }
+        let message = format!(
+            "{} hit its usage limit: {}",
+            provider::name(backend),
+            limit.reason
+        );
+        return finish(store, &mut stored, actions, Err(message), emit);
+    }
+    if let Ok(text) = &result
+        && let Some(marker) = markers::parse(text)
+    {
+        match marker {
+            markers::Marker::Question(question) => {
+                keep_reply(store, &mut stored, actions, &question, emit);
+                return Outcome::Question(question);
+            }
+            markers::Marker::Job { title, reply } if job.workspace.is_none() => {
+                keep_reply(store, &mut stored, actions, &reply, emit);
+                return Outcome::Escalate { title, reply };
+            }
+            // Already a job: go on as if it had answered.
+            markers::Marker::Job { reply, .. } => {
+                return finish(store, &mut stored, actions, Ok(reply), emit);
+            }
+        }
+    }
     finish(store, &mut stored, actions, result, emit)
 }
 
@@ -123,17 +250,53 @@ struct Seen {
     /// Desktop actions done, as the transcript records them.
     actions: Vec<String>,
     streamed: bool,
-    session: Option<String>,
+    /// Keeps markers out of the streamed answer.
+    gate: markers::Gate,
 }
 
-/// Runs the backend once, turning its reports into events.
+/// Saves what the assistant said while the conversation goes on (a job's
+/// question, or "On it" before a job): its actions and that text.
+fn keep_reply(
+    store: &Store,
+    stored: &mut Stored,
+    actions: Vec<String>,
+    text: &str,
+    emit: &mut dyn FnMut(Event),
+) {
+    let mut parts: Vec<Part> = actions
+        .into_iter()
+        .map(|description| Part::Action { description })
+        .collect();
+    if !text.trim().is_empty() {
+        parts.push(Part::Text {
+            text: text.trim().to_owned(),
+        });
+    }
+    if !parts.is_empty() {
+        stored.push(Message {
+            role: Role::Assistant,
+            parts,
+            at_ms: store::now_ms(),
+        });
+    }
+    if let Err(error) = store.save(stored) {
+        tracing::warn!(%error, "couldn't save the assistant's reply");
+    }
+    emit(Event::ConversationsChanged);
+}
+
+/// Runs the backend once, turning its reports into events, and saves its
+/// session the moment it has one, so a restart can resume it.
 fn run_backend(
     run: &Run,
     control: &Control,
     id: &ConversationId,
     emit: &mut dyn FnMut(Event),
     seen: &mut Seen,
+    store: &Store,
+    stored: &mut Stored,
 ) -> color_eyre::Result<provider::Finished> {
+    let key = provider::session_key(run.backend);
     let mut report = |report: Report| match report {
         Report::Thinking => emit(Event::Thinking {
             conversation: id.clone(),
@@ -153,14 +316,41 @@ fn run_backend(
         }),
         Report::Delta(text) => {
             seen.streamed = true;
-            emit(Event::AnswerDelta {
-                conversation: id.clone(),
-                text,
-            });
+            if let Some(text) = seen.gate.pass(&text) {
+                emit(Event::AnswerDelta {
+                    conversation: id.clone(),
+                    text,
+                });
+            }
         }
-        Report::Session(session) => seen.session = Some(session),
+        Report::Session(session) => {
+            if stored.sessions.get(key) != Some(&session) {
+                stored.sessions.insert(key.to_owned(), session);
+                if let Err(error) = store.save(stored) {
+                    tracing::warn!(%error, "couldn't keep the backend's session");
+                }
+            }
+        }
     };
     provider::run(run, control, &mut report)
+}
+
+/// Keeps what a run did before it stopped to go on later (steered, or
+/// waiting out a limit): its actions, as an assistant message.
+fn keep_actions(store: &Store, stored: &mut Stored, actions: Vec<String>) {
+    if !actions.is_empty() {
+        stored.push(Message {
+            role: Role::Assistant,
+            parts: actions
+                .into_iter()
+                .map(|description| Part::Action { description })
+                .collect(),
+            at_ms: store::now_ms(),
+        });
+    }
+    if let Err(error) = store.save(stored) {
+        tracing::warn!(%error, "couldn't save the task's progress");
+    }
 }
 
 /// Saves the assistant's message and says how the task ended.
@@ -199,6 +389,10 @@ fn finish(
         parts,
         at_ms: store::now_ms(),
     });
+    stored.set_outcome(match outcome {
+        Outcome::Answer(_) => Ended::Answered,
+        _ => Ended::Failed,
+    });
     if let Err(error) = store.save(stored) {
         tracing::warn!(%error, "couldn't save the assistant's answer");
     }
@@ -206,20 +400,65 @@ fn finish(
     outcome
 }
 
+/// What the guard needs to know about `job`.
+pub fn task_spec(job: &Job) -> TaskSpec {
+    let lane = job.request.origin.lane();
+    TaskSpec {
+        task: job.conversation.clone(),
+        lane,
+        agent_id: job.agent_id.clone(),
+        session: job.desktop_session.clone(),
+        here_window: match lane {
+            Lane::Here => job.request.context.window.clone(),
+            Lane::Background => None,
+        },
+        physical_input: match lane {
+            Lane::Here => job.settings.here_physical_input,
+            Lane::Background => job.settings.physical_input,
+        },
+        blocked_apps: job.settings.blocked_apps.clone(),
+    }
+}
+
+/// The model `job` runs on: the Here lane's fast one where the backend
+/// takes it, else the backend's own.
+pub fn model(job: &Job) -> Option<String> {
+    let settings = &job.settings;
+    let here = job.request.origin.lane() == Lane::Here;
+    let fast = settings
+        .here_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| here && !model.is_empty())
+        .map(str::to_owned);
+    match settings.backend {
+        AssistantBackend::ClaudeCode => fast.or_else(|| settings.claude_code_model.clone()),
+        AssistantBackend::Codex => settings.codex_model.clone(),
+        AssistantBackend::OpenCode => settings.opencode_model.clone(),
+        AssistantBackend::ClaudeApi => fast.or_else(|| Some(settings.claude_api_model.clone())),
+    }
+}
+
 /// The backend run for `job`, or why it can't run.
-fn prepare(
+pub fn prepare(
     job: &Job,
     history: &[Message],
     resume: Option<String>,
     image: Option<PathBuf>,
 ) -> Result<Run, String> {
     let settings = &job.settings;
+    let spec = task_spec(job);
     let desktop = if settings.control_desktop {
+        let guard = super::guard::mcp_server(&spec);
+        if guard.is_none() {
+            log_once("the guard has no MCP server yet; tasks use agent-desktop directly");
+        }
         Some(
             Desktop::new(
+                guard,
                 job.desktop_session.clone(),
                 job.agent_id.clone(),
-                settings.physical_input,
+                spec.physical_input,
             )
             .ok_or(
                 "agent-desktop isn't installed, so the assistant can't use apps. Install it in Labs › Assistant, or turn off “Use apps”.",
@@ -228,28 +467,96 @@ fn prepare(
     } else {
         None
     };
-    let workdir = workdir()
-        .map_err(|error| format!("Hex can't prepare the assistant's folder: {error:#}"))?;
-    let origin = job.request.origin;
-    let model = match settings.backend {
-        AssistantBackend::ClaudeCode => settings.claude_code_model.clone(),
-        AssistantBackend::Codex => settings.codex_model.clone(),
-        AssistantBackend::OpenCode => settings.opencode_model.clone(),
-        AssistantBackend::ClaudeApi => Some(settings.claude_api_model.clone()),
+    let lane = spec.lane;
+    let browser = (settings.background_browser && lane == Lane::Background)
+        .then(|| super::browser::mcp_server(&job.conversation))
+        .flatten();
+    let workdir = match &job.workspace {
+        Some(workspace) => workspace.clone(),
+        None => workdir()
+            .map_err(|error| format!("Hex can't prepare the assistant's folder: {error:#}"))?,
     };
+    let origin = job.request.origin;
     let continued = resume.is_none() && settings.backend != AssistantBackend::ClaudeApi;
+    let keep_warm = (lane == Lane::Here
+        && settings.backend == AssistantBackend::ClaudeCode
+        && settings.follow_up_seconds > 0)
+        .then(|| Duration::from_secs(settings.follow_up_seconds.into()));
+    let mut system = system_prompt(origin, desktop.as_ref(), browser.is_some());
+    match &job.workspace {
+        Some(workspace) => system.push_str(&job_rules(workspace, browser.is_some())),
+        None if origin != Origin::Background => system.push_str(ROUTING),
+        None => {}
+    }
     Ok(Run {
         backend: settings.backend,
-        model,
-        system: system_prompt(origin, desktop.as_ref()),
-        prompt: prompt(&job.request, history, continued),
+        model: model(job),
+        system,
+        prompt: prompt(job, history, continued),
         image,
         resume,
         history: history.to_vec(),
         desktop,
+        browser,
         workdir,
-        quick: origin == Origin::ActionShortcut,
+        quick: lane == Lane::Here,
+        keep_warm,
+        workspace: job.workspace.clone(),
     })
+}
+
+/// How a Here or Chat agent hands a job to Hex instead of doing it.
+pub const ROUTING: &str = "\nIf the request is a job rather than a quick question or a small action, don't start it. A job has several steps, many items, several apps or websites, research, or documents, or takes more than a minute or two. Reply with exactly two lines instead: first `HEX_JOB: <a short title, at most six words>`, then one or two short, speakable sentences in the person's language saying you're on it and what it covers, such as “On it: 50 suppliers, Gmail drafts, and a sheet. I'll ask what I need.” Hex then runs it in the background with every tool it needs.\n";
+
+/// A job's rules: its workspace, plan, one batched question, files, and
+/// what it may never do on its own.
+pub fn job_rules(workspace: &std::path::Path, browser: bool) -> String {
+    let mut rules = format!(
+        "\nThis is a job, running in the background while the person does other things. Find the fastest way to do all of it, then do it fully on your own.\n\
+         Your workspace is {ws} (your current folder). Keep every file of this job there: data, spreadsheets, documents, scripts. Use absolute paths inside it.\n\
+         1. Plan first: write {plan} in the workspace as a checklist (`- [ ] step`), each step naming its tool: the hidden browser for research and web apps (Gmail, Google Sheets, and other accounts through the browser's signed-in session), the desktop only for native apps (check which apps are installed with hex_installed_apps before choosing one), and files and scripts in the workspace for spreadsheets, CSV, and documents. Say what runs in parallel, and run it in parallel: subagents (Task) for independent batches{parallel}. Tick each step (`- [x]`) as it finishes; Hex shows this plan to the person.\n\
+         2. Ask up front, once: if something essential is missing that you can't find out yourself (an email address, the tone or language of messages, the sender's name, which account), ask all of it in ONE message and stop: start your reply with the line `HEX_QUESTION:`, then the question in one or two speakable sentences. Never ask what you can look up. After the answer, go on without asking again unless something unexpected blocks you.\n\
+         3. Spreadsheets: write .xlsx with Python and openpyxl (if it's missing: `python3 -m venv .venv && .venv/bin/pip install openpyxl` in the workspace); if that fails, write CSV. Shell commands run sandboxed: they may write only in the workspace.\n\
+         4. Never send an email, post, buy, or delete anything unless the person explicitly said so: save emails as drafts. Share a document only with people the person named.\n\
+         5. Keep {report} in the workspace up to date: what you did, the results, file names, and links.\n\
+         6. At the end, answer with a short summary: what you did, the numbers (such as drafts saved), links (such as a sheet's URL), and the workspace path.\n",
+        ws = workspace.display(),
+        plan = workspace::PLAN,
+        report = workspace::REPORT,
+        parallel = if browser {
+            ", and several browsers for research (sessions a, b, c, …, each opened once and closed when its batch is done; hex_browser_sessions lists them)"
+        } else {
+            ""
+        },
+    );
+    if browser && !crate::assistant::browser::signed_in() {
+        rules.push_str("The hidden browser isn't signed in to any account. If the job needs Gmail, Google Sheets, or another account, include in your one question that the person should sign in to it in Hex's browser (Chats has a Sign in button) and answer when done.\n");
+    }
+    rules
+}
+
+/// Starts `job`'s backend ahead of its question (`service::prewarm`).
+pub fn prewarm(job: &Job) {
+    let resume = Store::open()
+        .ok()
+        .and_then(|store| store.load(&job.conversation))
+        .and_then(|stored| {
+            stored
+                .sessions
+                .get(provider::session_key(job.settings.backend))
+                .cloned()
+        });
+    match prepare(job, &[], resume, None) {
+        Ok(run) => provider::prewarm(&run),
+        Err(why) => tracing::debug!(why, "nothing to start ahead"),
+    }
+}
+
+fn log_once(message: &'static str) {
+    static LOGGED: OnceLock<()> = OnceLock::new();
+    if LOGGED.set(()).is_ok() {
+        tracing::info!("{message}");
+    }
 }
 
 /// The folder every backend runs in: private, outside any project, and the
@@ -260,10 +567,12 @@ fn workdir() -> color_eyre::Result<PathBuf> {
     Ok(dir)
 }
 
-/// The first message: the conversation so far when the backend has no
-/// session for it (`with_history`), what was on screen for a quick
-/// question, then the question.
-pub fn prompt(request: &Request, history: &[Message], with_history: bool) -> String {
+/// The message a run sends: the conversation so far when the backend has no
+/// session for it (`with_history`), what else is going on for a new
+/// conversation, the Here lane's window and what was on screen, then the
+/// question, the new instruction (steering), or the note to go on.
+pub fn prompt(job: &Job, history: &[Message], with_history: bool) -> String {
+    let request = &job.request;
     let mut prompt = String::new();
     if with_history && !history.is_empty() {
         prompt.push_str("The conversation so far:\n");
@@ -281,6 +590,12 @@ pub fn prompt(request: &Request, history: &[Message], with_history: bool) -> Str
         }
         prompt.push('\n');
     }
+    if history.is_empty()
+        && let Some(digest) = job.digest.as_deref().filter(|digest| !digest.is_empty())
+    {
+        prompt.push_str(digest.trim_end());
+        prompt.push_str("\n\n");
+    }
     let context = &request.context;
     let mut seen = Vec::new();
     if let Some(app) = context
@@ -297,6 +612,19 @@ pub fn prompt(request: &Request, history: &[Message], with_history: bool) -> Str
     {
         seen.push(format!("Its window: {title}"));
     }
+    if request.origin.lane() == Lane::Here
+        && let Some(window) = &context.window
+    {
+        let id = window
+            .window_id
+            .as_deref()
+            .map(|id| format!(" (window id {id})"))
+            .unwrap_or_default();
+        seen.push(format!(
+            "Your only window, the one in front: {}{id}",
+            window.app
+        ));
+    }
     if let Some(selected) = context
         .selected_text
         .as_deref()
@@ -312,30 +640,69 @@ pub fn prompt(request: &Request, history: &[Message], with_history: bool) -> Str
         prompt.push_str(&seen.join("\n"));
         prompt.push_str("\n\n");
     }
-    if !prompt.is_empty() {
-        prompt.push_str("The person asks: ");
+    let text = request.text.trim();
+    match &job.kind {
+        JobKind::Ask => {
+            if !prompt.is_empty() {
+                prompt.push_str("The person asks: ");
+            }
+            prompt.push_str(text);
+        }
+        JobKind::Steer { doing, steps } => {
+            let doing = doing.as_deref().unwrap_or("the task");
+            prompt.push_str(&format!(
+                "The person interrupted you while you were doing this: {doing}"
+            ));
+            if !steps.is_empty() {
+                prompt.push_str(&format!(" (last steps: {})", steps.join("; ")));
+            }
+            prompt.push_str(&format!(
+                ". Their new instruction: “{text}”. Adjust what you are doing; don't redo finished steps."
+            ));
+        }
+        JobKind::AfterLimit => {
+            prompt.push_str(&format!("{LIMIT_NOTE}\nThe task was: “{text}”"));
+        }
+        JobKind::Resume => {
+            prompt.push_str(&format!("{RESUME_NOTE}\nThe task was: “{text}”"));
+        }
+        JobKind::Job { title } => {
+            prompt.push_str(&format!(
+                "Your job (“{title}”), as the person asked for it: {text}\nStart with the plan."
+            ));
+        }
+        JobKind::Answer { question } => {
+            prompt.push_str(&format!(
+                "You asked: “{question}”\nThe person answered: “{text}”\nGo on with the job."
+            ));
+        }
     }
-    prompt.push_str(request.text.trim());
     prompt
 }
 
-/// Who the assistant is, how it answers, and the rules for the desktop.
-pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>) -> String {
+/// Who the assistant is, how it answers, and its lane's rules for the
+/// desktop and the browser.
+pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -> String {
     let mut prompt = String::from(
         "You are Hex's assistant on the person's Mac. Hex is a voice app: the person speaks a request and you answer or do it.\n\
          Answer in the language the person used.\n",
     );
     prompt.push_str(match origin {
         Origin::ActionShortcut => {
-            "This is a quick spoken question. Your answer is shown in a small bubble and read aloud, so keep it short (one to three sentences), plain, and speakable: no markdown, lists, tables, code blocks, links, or emoji. The question was transcribed from speech, so read past small transcription errors.\n"
+            "This is a quick spoken question about the window in front of the person. Your answer is shown in a small bubble and read aloud, so keep it short (one to three sentences), plain, and speakable: no markdown, lists, tables, code blocks, links, or emoji. The question was transcribed from speech, so read past small transcription errors.\n"
         }
         Origin::Background => {
-            "This is one task in Agent mode, running beside other tasks. Do it on the desktop, then end with one or two plain sentences saying what you did; no markdown.\n"
+            "This is a background task, running beside the person and other tasks while they keep working. Do it, then end with one or two plain sentences saying what you did; no markdown.\n"
         }
         Origin::Chat => {
-            "This is a typed chat. Markdown is fine; be as brief as the question allows.\n"
+            "This is a typed chat; it may run beside other tasks. Markdown is fine; be as brief as the question allows.\n"
         }
     });
+    if browser {
+        prompt.push_str(
+            "You have your own hidden browsers (the browser tools): prefer them for anything on the web (looking things up, web apps, forms), over the person's browser windows. Every browser tool takes `session` (omit it, or \"main\", for the main browser; any other short name opens another, at most 8). Web apps that need the person's accounts (Gmail, Google Sheets, …) need `signedIn: true` on the call that opens them; a clean browser has no sign-ins. If a page shows a captcha or a Cloudflare challenge in a clean browser, retry it in a `signedIn: true` browser.\n",
+        );
+    }
     let Some(desktop) = desktop else {
         prompt.push_str(
             "You have no access to the desktop or other apps in this conversation: answer from what you know and what the person gave you. Do not offer to click, type, or open apps.\n",
@@ -345,6 +712,12 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>) -> String {
     prompt.push_str(
         "\nYou can see and use the Mac's apps through agent-desktop's tools (desktop_snapshot, desktop_click, desktop_list_apps, …). The guide below shows them as shell commands: each command is the tool of the same name (`agent-desktop list-apps` is desktop_list_apps) and its flags are the tool's arguments. Always call the tools; never run agent-desktop in a shell. Your session and agent id are already set.\n",
     );
+    if desktop.guarded {
+        prompt.push_str("Use hex_installed_apps to see what's installed before choosing an app.\n");
+        prompt.push_str(
+            "Every desktop action passes Hex's guard, which lets you act only in windows that are yours. A refusal comes back as a tool error with a code: NOT_YOUR_WINDOW (another task's window, or one you haven't launched or claimed), PERSON_IN_WINDOW (the person is working there), TAKEN_OVER (the person took this task over; look again before acting), POLICY_DENIED (a blocked app, or an action tasks may not do). Don't try to get around a refusal: choose another way, or say what you couldn't do.\n",
+        );
+    }
     if desktop.headed {
         prompt.push_str("Physical input (--headed) is allowed, but prefer headless actions; use physical input only when no semantic action exists.\n");
     } else {
@@ -356,11 +729,20 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>) -> String {
          - Never quit or close an app you didn't open in this task.\n\
          - Read before acting: snapshot or find, act on a ref, then verify.\n",
     );
-    if origin == Origin::Background || desktop.session.is_some() {
-        prompt.push_str(&format!(
-            "- Other agents are working on this Mac at the same time, each with its own cursor; yours is agent “{}”. Work only in windows you opened or were asked to use. Once you know a window's id, always pass it (--window-id / window_id). Never touch, move, close, or type into another task's windows, and don't change the frontmost app unless you must.\n",
-            desktop.agent_id
-        ));
+    match origin.lane() {
+        Lane::Here => prompt.push_str(
+            "- Work only in the window in front, named in the message: read it, and act in it only if asked. Never touch any other window or app, and don't bring another one forward.\n",
+        ),
+        Lane::Background => prompt.push_str(&format!(
+            "- You run beside the person and other agents, each with its own cursor; yours is agent “{}”. Work only in your own windows: open apps with hex_open_app, which gives you your own window, or claim a free window that is already open with desktop_claim_window (its window_id from desktop_list_windows). Never the person's window (the one in front), and never another task's windows: don't move, close, or type into them. The clipboard is Here-only: don't use it. Once you know a window's id, always pass it (--window-id / window_id), and don't bring windows to the front.\n\
+             - {}\n",
+            desktop.agent_id,
+            if browser {
+                "Use the browser tools for anything on the web; use the desktop only for native apps."
+            } else {
+                "For web work, open your own browser window rather than using one the person has open."
+            }
+        )),
     }
     if let Some(guide) = guide(desktop.executable()) {
         prompt.push_str("\nagent-desktop's guide:\n\n");
@@ -407,78 +789,4 @@ fn strip_front_matter(markdown: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::assistant::types::Context;
-
-    fn request(text: &str, context: Context) -> Request {
-        Request {
-            conversation: None,
-            text: text.into(),
-            origin: Origin::ActionShortcut,
-            context,
-        }
-    }
-
-    #[test]
-    fn a_quick_question_carries_what_was_on_screen() {
-        let context = Context {
-            screenshot: None,
-            selected_text: Some(" the invoice total ".into()),
-            frontmost_app: Some("Mail".into()),
-            window_title: Some("Inbox".into()),
-            window: None,
-        };
-        let prompt = prompt(&request("What's this?", context), &[], false);
-        assert_eq!(
-            prompt,
-            "What the person has on screen as they ask:\nFrontmost app: Mail\nIts window: Inbox\nSelected text:\n<<<\nthe invoice total\n>>>\n\nThe person asks: What's this?"
-        );
-        assert_eq!(prompt_of("Hi"), "Hi");
-    }
-
-    fn prompt_of(text: &str) -> String {
-        prompt(&request(text, Context::default()), &[], true)
-    }
-
-    #[test]
-    fn a_new_session_is_told_the_conversation_so_far() {
-        let history = [
-            Message {
-                role: Role::User,
-                parts: vec![Part::Text {
-                    text: "2+2?".into(),
-                }],
-                at_ms: 1,
-            },
-            Message {
-                role: Role::Assistant,
-                parts: vec![Part::Text { text: "4".into() }],
-                at_ms: 2,
-            },
-        ];
-        let prompt = prompt(&request("And times 3?", Context::default()), &history, true);
-        assert_eq!(
-            prompt,
-            "The conversation so far:\nPerson: 2+2?\nYou: 4\n\nThe person asks: And times 3?"
-        );
-    }
-
-    #[test]
-    fn without_the_desktop_the_prompt_forbids_it() {
-        let quick = system_prompt(Origin::ActionShortcut, None);
-        assert!(quick.contains("no markdown"));
-        assert!(quick.contains("no access to the desktop"));
-        let chat = system_prompt(Origin::Chat, None);
-        assert!(chat.contains("Markdown is fine"));
-    }
-
-    #[test]
-    fn front_matter_is_dropped_from_the_guide() {
-        assert_eq!(
-            strip_front_matter("---\nname: x\n---\n\n# Guide"),
-            "# Guide"
-        );
-        assert_eq!(strip_front_matter("# Guide"), "# Guide");
-    }
-}
+mod tests;

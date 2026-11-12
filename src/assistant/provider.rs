@@ -1,7 +1,12 @@
 //! Running one task on a backend: `claude -p --output-format stream-json`,
 //! `codex exec --json`, `opencode run --format json`, or the Claude Messages
-//! API, each given agent-desktop as its desktop tool, with their output turned
-//! into `Report`s.
+//! API, each given its desktop tool (the guard's MCP server, or agent-desktop
+//! itself when there is no guard) and, for web work, its own hidden browser
+//! (`servers`), with their output turned into `Report`s.
+//!
+//! Claude Code can be started ahead (`warm`): its process and MCP servers
+//! come up while the person still speaks, and a Here conversation's process
+//! stays for the follow-up.
 //!
 //! Every backend process runs in its own process group, so cancelling a task
 //! ends the agent and everything it started (its agent-desktop MCP server,
@@ -13,8 +18,11 @@ mod claude_api;
 mod claude_code;
 mod codex;
 pub mod desktop;
+pub mod limit;
 mod mcp;
 mod opencode;
+pub mod servers;
+mod warm;
 
 use std::collections::VecDeque;
 use std::ffi::OsString;
@@ -31,12 +39,17 @@ use crate::app_settings::AssistantBackend;
 use crate::assistant::backends::McpServer;
 use crate::assistant::types::{Message, TaskWindow};
 
-/// The agent-desktop a task may use, and who it is there.
+/// The desktop tool a task may use, and who it is there.
 #[derive(Clone, Debug)]
 pub struct Desktop {
-    /// `agent-desktop mcp` with this task's flags (`backends::mcp_server`).
+    /// The guard's MCP server for this task, or `agent-desktop mcp` with
+    /// this task's flags when there is no guard.
     pub server: McpServer,
-    /// The Agent mode multi-agent session, when one is running.
+    /// agent-desktop itself (for its guide).
+    pub agent_desktop: PathBuf,
+    /// The guard stands between the task and agent-desktop.
+    pub guarded: bool,
+    /// The multi-agent session, when one is running.
     pub session: Option<String>,
     /// This task's id within the session; its own cursor.
     pub agent_id: String,
@@ -56,18 +69,37 @@ impl Desktop {
                 args,
                 path_env: "/usr/bin:/bin".into(),
             },
+            agent_desktop: "/opt/homebrew/bin/agent-desktop".into(),
+            guarded: false,
             session: session.map(str::to_owned),
             agent_id: agent_id.to_owned(),
             headed: false,
         }
     }
 
-    /// agent-desktop for a task, if it is installed.
-    pub fn new(session: Option<String>, agent_id: String, headed: bool) -> Option<Self> {
-        let flags = flags(session.as_deref(), &agent_id, headed);
-        let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
+    /// The desktop tool for a task: `guard`'s server when there is one,
+    /// else agent-desktop directly; `None` when agent-desktop isn't
+    /// installed.
+    pub fn new(
+        guard: Option<McpServer>,
+        session: Option<String>,
+        agent_id: String,
+        headed: bool,
+    ) -> Option<Self> {
+        let agent_desktop = agent_desktop()?;
+        let guarded = guard.is_some();
+        let server = match guard {
+            Some(server) => server,
+            None => {
+                let flags = flags(session.as_deref(), &agent_id, headed);
+                let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
+                crate::assistant::backends::mcp_server(&flags)?
+            }
+        };
         Some(Self {
-            server: crate::assistant::backends::mcp_server(&flags)?,
+            server,
+            agent_desktop,
+            guarded,
             session,
             agent_id,
             headed,
@@ -76,7 +108,7 @@ impl Desktop {
 
     /// The agent-desktop executable.
     pub fn executable(&self) -> &Path {
-        &self.server.command
+        &self.agent_desktop
     }
 
     /// The environment that names the session and agent, for every process
@@ -160,6 +192,11 @@ pub const DESKTOP_TOOLS: &[&str] = &[
     "desktop_clipboard_set",
     "desktop_list_notifications",
     "desktop_wait",
+    // The guard's own: take a free window (Background lane), see what's
+    // installed, and open an app in a window of the task's own.
+    crate::assistant::guard::CLAIM_TOOL,
+    "hex_installed_apps",
+    "hex_open_app",
 ];
 
 /// One task for a backend.
@@ -179,10 +216,40 @@ pub struct Run {
     pub history: Vec<Message>,
     /// `None`: answer only, no desktop tools.
     pub desktop: Option<Desktop>,
+    /// The task's own hidden browser (`browser::mcp_server`), if any.
+    pub browser: Option<McpServer>,
     /// The working folder the agent runs in.
     pub workdir: PathBuf,
     /// A quick question: answer fast and short.
     pub quick: bool,
+    /// Keep the backend's process for a follow-up this long after it
+    /// answers (Claude Code only); `None` ends it.
+    pub keep_warm: Option<Duration>,
+    /// A job's folder (also `workdir`): the backend gets file tools and a
+    /// sandboxed shell that may write only there.
+    pub workspace: Option<PathBuf>,
+}
+
+impl Run {
+    /// A run with only the essentials, for tests.
+    #[cfg(test)]
+    pub fn fixture(backend: AssistantBackend) -> Self {
+        Self {
+            backend,
+            model: None,
+            system: "You are Hex.".into(),
+            prompt: "hi".into(),
+            image: None,
+            resume: None,
+            history: Vec::new(),
+            desktop: None,
+            browser: None,
+            workdir: std::env::temp_dir(),
+            quick: false,
+            keep_warm: None,
+            workspace: None,
+        }
+    }
 }
 
 /// What a running backend reports.
@@ -213,6 +280,10 @@ pub struct Finished {
 #[derive(Debug, Default)]
 pub struct Control {
     cancelled: AtomicBool,
+    /// Stopped to take a new instruction (steering), not to end.
+    steered: AtomicBool,
+    /// Stopped by Hex for this reason (it ran too long): a failure.
+    failure: Mutex<Option<String>>,
     groups: Mutex<Vec<u32>>,
 }
 
@@ -238,6 +309,31 @@ impl Control {
         self.cancelled.load(Ordering::Acquire)
     }
 
+    /// Stops the current turn because the person gave a new instruction:
+    /// the conversation goes on with it.
+    pub fn steer(&self) {
+        self.steered.store(true, Ordering::Release);
+        self.cancel();
+    }
+
+    pub fn steered(&self) -> bool {
+        self.steered.load(Ordering::Acquire)
+    }
+
+    /// Stops the task as failed, for `reason` (it ran too long).
+    pub fn fail(&self, reason: &str) {
+        *self.failure.lock().unwrap_or_else(|e| e.into_inner()) = Some(reason.to_owned());
+        self.cancel();
+    }
+
+    /// Why Hex stopped the task as failed, if it did.
+    pub fn failure(&self) -> Option<String> {
+        self.failure
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     fn track(&self, pid: u32) {
         self.groups
             .lock()
@@ -254,6 +350,19 @@ impl Control {
             .unwrap_or_else(|e| e.into_inner())
             .retain(|group| *group != pid);
     }
+}
+
+/// Starts `run`'s backend ahead of its question (Claude Code), so the
+/// process and its MCP servers are up when the question comes.
+pub fn prewarm(run: &Run) {
+    if run.backend == AssistantBackend::ClaudeCode {
+        claude_code::prewarm(run);
+    }
+}
+
+/// Ends every backend process started ahead.
+pub fn cool_down() {
+    warm::clear();
 }
 
 /// Runs `run` on its backend until it answers, fails, or is cancelled.
@@ -540,6 +649,9 @@ mod tests {
     #[test]
     fn desktop_flags_name_the_session_only_when_there_is_one() {
         assert!(flags(None, "hex-1", false).is_empty());
+        let control = Control::new();
+        control.steer();
+        assert!(control.cancelled() && control.steered());
         assert_eq!(
             flags(Some("s1"), "hex-1", true),
             ["--session", "s1", "--agent-id", "hex-1", "--headed"]

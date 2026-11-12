@@ -1,8 +1,9 @@
 //! Conversations on disk: one JSON file per conversation, and its screenshots
 //! beside it, under `<support dir>/assistant/conversations/`.
 //!
-//! `<id>.json` holds the conversation and the backend sessions that continue
-//! it; `<id>/` holds its PNG attachments. Both are private to this user, and
+//! `<id>.json` holds the conversation, the backend sessions that continue
+//! it, and how its last request ended (`Outcome`; `Running` with the pid of
+//! the Hex that runs it); `<id>/` holds its PNG attachments. Both are private to this user, and
 //! every write goes to a temporary file first, then replaces the old one.
 //!
 //! OWNER: brain.
@@ -16,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use color_eyre::{Result, eyre::WrapErr};
 use serde::{Deserialize, Serialize};
 
-use super::types::{Conversation, ConversationSummary, Message, Origin};
+use super::types::{Conversation, ConversationSummary, Message, Origin, Outcome, Part, Role};
 
 /// How long a title made from the first question may be, in characters.
 const TITLE_CHARS: usize = 60;
@@ -32,6 +33,16 @@ pub struct Stored {
     pub conversation: Conversation,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub sessions: BTreeMap<String, String>,
+    /// How its last request ended; `Running` while one runs.
+    #[serde(default)]
+    pub outcome: Outcome,
+    /// The process running it, while `Running`: a dead one means Hex quit
+    /// or crashed mid-task (`Interrupted`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    /// A job's folder (`agent::workspace`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<PathBuf>,
 }
 
 impl Stored {
@@ -48,7 +59,43 @@ impl Stored {
                 messages: Vec::new(),
             },
             sessions: BTreeMap::new(),
+            outcome: Outcome::Answered,
+            pid: None,
+            workspace: None,
         }
+    }
+
+    /// Marks it running in this process.
+    pub fn set_running(&mut self) {
+        self.outcome = Outcome::Running;
+        self.pid = Some(std::process::id());
+    }
+
+    /// Marks how it ended.
+    pub fn set_outcome(&mut self, outcome: Outcome) {
+        self.outcome = outcome;
+        self.pid = None;
+    }
+
+    /// Its outcome as it stands now: `Running` whose process is gone reads
+    /// as `Interrupted`.
+    pub fn current_outcome(&self) -> Outcome {
+        match (self.outcome, self.pid) {
+            (Outcome::Running, Some(pid)) if !alive(pid) => Outcome::Interrupted,
+            (Outcome::Running, None) => Outcome::Interrupted,
+            (outcome, _) => outcome,
+        }
+    }
+
+    /// The last question the person asked, for a continuation.
+    pub fn last_question(&self) -> Option<String> {
+        self.conversation
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role == Role::User)
+            .map(Message::text)
+            .filter(|text| !text.trim().is_empty())
     }
 
     /// Adds `message` and marks the conversation updated.
@@ -112,11 +159,76 @@ impl Store {
             .filter_map(|entry| {
                 let name = entry.ok()?.file_name().into_string().ok()?;
                 let id = name.strip_suffix(".json")?;
-                Some(summary(&self.load(id)?.conversation))
+                Some(summary(&self.load(id)?))
             })
             .collect();
         list.sort_by(|a, b| b.updated_ms.cmp(&a.updated_ms).then(a.id.cmp(&b.id)));
         list
+    }
+
+    /// Marks every conversation left `Running` by a Hex that is gone as
+    /// `Interrupted` (at startup); their ids.
+    pub fn recover_interrupted(&self) -> Vec<String> {
+        let Ok(entries) = fs::read_dir(&self.dir) else {
+            return Vec::new();
+        };
+        let mut recovered = Vec::new();
+        for entry in entries.flatten() {
+            let Some(id) = entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.strip_suffix(".json"))
+                .map(str::to_owned)
+            else {
+                continue;
+            };
+            let Some(mut stored) = self.load(&id) else {
+                continue;
+            };
+            if stored.outcome == Outcome::Running
+                && stored.current_outcome() == Outcome::Interrupted
+            {
+                stored.set_outcome(Outcome::Interrupted);
+                if self.save(&stored).is_ok() {
+                    recovered.push(id);
+                }
+            }
+        }
+        recovered
+    }
+
+    /// Records how a task on `id` ended when its run didn't (it was
+    /// stopped while waiting out a limit, or after being steered): only a
+    /// conversation still `Running` changes. When the assistant hasn't
+    /// replied, `message` is added as its error so the transcript says why.
+    pub fn settle(&self, id: &str, outcome: Outcome, message: Option<&str>) {
+        let Some(mut stored) = self.load(id) else {
+            return;
+        };
+        if stored.outcome != Outcome::Running {
+            return;
+        }
+        let replied = stored
+            .conversation
+            .messages
+            .last()
+            .is_some_and(|last| last.role == Role::Assistant);
+        if !replied
+            && !stored.conversation.messages.is_empty()
+            && let Some(message) = message
+        {
+            stored.push(Message {
+                role: Role::Assistant,
+                parts: vec![Part::Error {
+                    message: message.to_owned(),
+                }],
+                at_ms: now_ms(),
+            });
+        }
+        stored.set_outcome(outcome);
+        if let Err(error) = self.save(&stored) {
+            tracing::warn!(id, %error, "couldn't record how the task ended");
+        }
     }
 
     /// Removes a conversation and its attachments.
@@ -222,7 +334,26 @@ pub fn shorten(text: &str, limit: usize) -> String {
     format!("{}…", cut.trim_end_matches([' ', ',', '.', ';', ':']))
 }
 
-fn summary(conversation: &Conversation) -> ConversationSummary {
+/// Whether process `pid` still runs.
+fn alive(pid: u32) -> bool {
+    if pid == std::process::id() {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        let Ok(pid) = i32::try_from(pid) else {
+            return false;
+        };
+        // SAFETY: signal 0 only checks that the process exists.
+        let result = unsafe { libc::kill(pid, 0) };
+        result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+    #[cfg(not(unix))]
+    false
+}
+
+fn summary(stored: &Stored) -> ConversationSummary {
+    let conversation = &stored.conversation;
     let preview = conversation
         .messages
         .iter()
@@ -236,8 +367,7 @@ fn summary(conversation: &Conversation) -> ConversationSummary {
         updated_ms: conversation.updated_ms,
         origin: conversation.origin,
         preview: shorten(&preview, PREVIEW_CHARS),
-        // The brain engineer stores and reads the real outcome.
-        outcome: crate::assistant::Outcome::Answered,
+        outcome: stored.current_outcome(),
     }
 }
 
@@ -375,6 +505,71 @@ mod tests {
         let ids: Vec<_> = store.list().into_iter().map(|s| s.id).collect();
         let _ = fs::remove_dir_all(&store.dir);
         assert_eq!(ids, ["b", "c", "a"]);
+    }
+
+    #[test]
+    fn a_conversation_left_running_by_a_gone_process_reads_as_interrupted() {
+        let store = temp_store();
+        let mut running = Stored::new("live", Origin::Background, "live");
+        running.push(message(Role::User, "live", 1));
+        running.set_running();
+        store.save(&running).unwrap();
+        let mut gone = Stored::new("gone", Origin::Background, "gone");
+        gone.push(message(Role::User, "gone", 2));
+        gone.set_running();
+        // No process has pid 0x7fff_fff0 on a Mac.
+        gone.pid = Some(0x7fff_fff0);
+        store.save(&gone).unwrap();
+        let mut done = Stored::new("done", Origin::Chat, "done");
+        done.set_outcome(Outcome::Failed);
+        store.save(&done).unwrap();
+
+        let outcomes = |store: &Store| -> Vec<(String, Outcome)> {
+            let mut list: Vec<_> = store
+                .list()
+                .into_iter()
+                .map(|s| (s.id, s.outcome))
+                .collect();
+            list.sort_by(|a, b| a.0.cmp(&b.0));
+            list
+        };
+        assert_eq!(
+            outcomes(&store),
+            [
+                ("done".into(), Outcome::Failed),
+                ("gone".into(), Outcome::Interrupted),
+                ("live".into(), Outcome::Running),
+            ]
+        );
+        assert_eq!(store.recover_interrupted(), ["gone"]);
+        let gone = store.load("gone").unwrap();
+        assert_eq!((gone.outcome, gone.pid), (Outcome::Interrupted, None));
+        assert_eq!(gone.last_question().as_deref(), Some("gone"));
+        assert!(store.recover_interrupted().is_empty());
+
+        store.settle("live", Outcome::Cancelled, Some("Stopped."));
+        // Only a conversation still running is settled.
+        store.settle("done", Outcome::Cancelled, Some("Stopped."));
+        assert_eq!(store.load("done").unwrap().outcome, Outcome::Failed);
+        let live = store.load("live").unwrap();
+        assert_eq!(live.outcome, Outcome::Cancelled);
+        assert_eq!(
+            live.conversation.messages.last().unwrap().parts,
+            [Part::Error {
+                message: "Stopped.".into()
+            }]
+        );
+        let _ = fs::remove_dir_all(&store.dir);
+    }
+
+    #[test]
+    fn older_files_without_an_outcome_read_as_answered() {
+        let stored: Stored = serde_json::from_str(
+            r#"{"id":"x","title":"t","created_ms":1,"updated_ms":1,"origin":"agent_mode","messages":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(stored.outcome, Outcome::Answered);
+        assert_eq!(stored.conversation.origin, Origin::Background);
     }
 
     #[test]

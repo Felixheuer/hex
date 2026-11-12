@@ -21,6 +21,32 @@ pub fn command(tool: &str) -> Option<&str> {
     tool.strip_prefix("desktop_")
 }
 
+/// A hidden-browser call as a step: "Opening example.com in the browser".
+fn browser_step(tool: &str, args: &Value) -> Option<Report> {
+    let name = tool
+        .strip_prefix("mcp__agent-browser__")
+        .or_else(|| tool.strip_prefix("agent-browser_"))
+        .or_else(|| tool.strip_prefix("agent_browser_"))
+        .or_else(|| tool.starts_with("browser_").then_some(tool))?;
+    let host = text(args, "url").map(|url| {
+        url::Url::parse(url)
+            .ok()
+            .and_then(|url| url.host_str().map(str::to_owned))
+            .unwrap_or_else(|| url.to_owned())
+    });
+    let (doing, done) = match (name, host) {
+        (_, Some(host)) => (
+            format!("Opening {host} in the browser"),
+            format!("Opened {host} in the browser"),
+        ),
+        (name, None) if name.contains("snapshot") || name.contains("screenshot") => {
+            ("Reading the page".to_owned(), "Read the page".to_owned())
+        }
+        _ => ("Working in the browser".to_owned(), String::new()),
+    };
+    Some(Report::Step { doing, done })
+}
+
 /// What one task has seen of the desktop so far.
 #[derive(Debug, Default)]
 pub struct Describer {
@@ -36,7 +62,7 @@ impl Describer {
     /// The reports for a call of `tool` with `args`, before its result.
     pub fn call(&mut self, tool: &str, args: &Value) -> Vec<Report> {
         let Some(command) = command(tool) else {
-            return Vec::new();
+            return browser_step(tool, args).into_iter().collect();
         };
         let mut reports = Vec::new();
         if let Some(window) = self.window_of(command, args) {

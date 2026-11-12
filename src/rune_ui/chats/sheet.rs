@@ -66,7 +66,7 @@ pub(in crate::rune_ui) fn overlay(ui: &Ui, p: Paint) -> Option<El> {
             .children(flow.from_hold.then(|| {
                 row().key("from-hold").w_full().justify_center().child(
                     text(tr(
-                        "Finish setting up the assistant first. Then hold the Action shortcut again.",
+                        "Finish setting up the assistant first",
                     ))
                     .key("words")
                     .role("status")

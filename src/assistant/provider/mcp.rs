@@ -1,6 +1,6 @@
-//! A small MCP client over stdio for `agent-desktop mcp`, so the Claude API
-//! backend runs the same desktop tools, with the same schemas, as the
-//! agents that load the server themselves.
+//! A small MCP client over stdio for a task's servers (its desktop tool and
+//! its browser), so the Claude API backend runs the same tools, with the
+//! same schemas, as the agents that load the servers themselves.
 
 use std::io::Write;
 
@@ -8,6 +8,7 @@ use color_eyre::{Result, eyre::eyre};
 use serde_json::{Value, json};
 
 use super::{Control, Desktop, Process, Stdin};
+use crate::assistant::backends::McpServer;
 
 /// One tool the server offers.
 #[derive(Clone, Debug)]
@@ -31,10 +32,16 @@ pub struct Client {
 }
 
 impl Client {
-    /// Starts the server for `desktop` and completes the MCP handshake.
-    pub fn start(desktop: &Desktop, workdir: &std::path::Path, control: &Control) -> Result<Self> {
-        let mut command = super::command(desktop.executable(), workdir, Some(desktop));
-        command.args(&desktop.server.args);
+    /// Starts `server` (with `desktop`'s session in its environment) and
+    /// completes the MCP handshake.
+    pub fn start(
+        server: &McpServer,
+        desktop: Option<&Desktop>,
+        workdir: &std::path::Path,
+        control: &Control,
+    ) -> Result<Self> {
+        let mut command = super::command(&server.command, workdir, desktop);
+        command.args(&server.args);
         let process = Process::spawn(command, Stdin::Keep, control)?;
         let mut client = Self {
             process,

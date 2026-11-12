@@ -2,48 +2,165 @@
 //! person's own account.
 //!
 //! The question (and a quick question's screenshot, as an image block) goes
-//! in on stdin as one stream-json user message. Only agent-desktop's MCP
-//! server is loaded (`--strict-mcp-config`), the built-in tools are cut to web
-//! search and fetch, and `dontAsk` denies anything not allowed up front, so a
-//! task never waits on a permission prompt. Hooks are off: the person's own
-//! hooks are for their coding sessions, not this.
+//! in on stdin as one stream-json user message. Only the task's MCP servers
+//! are loaded (`--strict-mcp-config`: its desktop tool and its browser), the
+//! built-in tools are cut to web search and fetch, and `dontAsk` denies
+//! anything not allowed up front, so a task never waits on a permission
+//! prompt. Hooks are off: the person's own hooks are for their coding
+//! sessions, not this.
+//!
+//! Its input stays open: a process started ahead (`prewarm`) waits for the
+//! question, and after an answer a Here conversation's process can wait
+//! (`Run::keep_warm`) for the follow-up, which then skips start-up entirely.
 
 use std::collections::HashMap;
+use std::io::Write;
+use std::time::Duration;
 
 use color_eyre::{Result, eyre::eyre};
 use serde_json::{Value, json};
 
 use super::desktop::Describer;
-use super::{Control, Finished, Process, Report, Run, Stdin, WITHHELD_TOOLS};
+use super::{Control, Finished, Process, Report, Run, Stdin, warm};
 use crate::app_settings::AssistantBackend;
 
-const SERVER: &str = crate::assistant::backends::MCP_NAME;
+/// How long a process started ahead waits for its question.
+const PREWARM_TTL: Duration = Duration::from_secs(90);
 
 pub(super) fn run(
     run: &Run,
     control: &Control,
     report: &mut dyn FnMut(Report),
 ) -> Result<Finished> {
+    let input = input(run)?;
+    let key = warm_key(run);
+    if let Some(process) = warm::take(&key, run.resume.as_deref()) {
+        tracing::debug!("the assistant uses a Claude Code that is already running");
+        control.track(process.child.id());
+        if let Some(result) = turn(process, &input, run, &key, control, report, true) {
+            return result;
+        }
+        tracing::info!("the waiting Claude Code had ended; starting a new one");
+    }
+    let process = spawn(run, control)?;
+    turn(process, &input, run, &key, control, report, false)
+        .unwrap_or_else(|| Err(eyre!("Claude Code stopped before it answered")))
+}
+
+/// Starts Claude Code for `run` and leaves it waiting for its question.
+pub(super) fn prewarm(run: &Run) {
+    let key = warm_key(run);
+    if warm::has(&key, run.resume.as_deref()) {
+        return;
+    }
+    match spawn(run, &Control::default()) {
+        Ok(process) => warm::put(key, run.resume.clone(), process, PREWARM_TTL),
+        Err(error) => tracing::warn!(%error, "couldn't start Claude Code ahead"),
+    }
+}
+
+fn spawn(run: &Run, control: &Control) -> Result<Process> {
     let executable = super::executable(AssistantBackend::ClaudeCode)?;
     let mut command = super::command(&executable, &run.workdir, run.desktop.as_ref());
     command.args(arguments(run));
-    let input = input(run)?;
-    let mut process = Process::spawn(command, Stdin::Write(input), control)?;
-    let mut stream = Stream::default();
-    while let Some(line) = process.next_line() {
-        stream.line(&line, report);
+    Process::spawn(command, Stdin::Keep, control)
+}
+
+/// What makes a waiting process fit `run`: everything it was started with
+/// but the session it resumed, which is matched on its own.
+fn warm_key(run: &Run) -> String {
+    let mut args = arguments(run);
+    if let Some(index) = args.iter().position(|arg| arg == "--resume") {
+        args.drain(index..(index + 2).min(args.len()));
     }
+    let env = run.desktop.as_ref().map(super::Desktop::env);
+    format!("{args:?}{:?}{env:?}", run.workdir)
+}
+
+/// Sends one question to `process` and reads until its result. `None` when
+/// a waiting process (`reused`) turned out to have ended before answering.
+/// Keeps the process for the follow-up when `run` asks to and it answered.
+fn turn(
+    mut process: Process,
+    input: &[u8],
+    run: &Run,
+    key: &str,
+    control: &Control,
+    report: &mut dyn FnMut(Report),
+    reused: bool,
+) -> Option<Result<Finished>> {
+    let wrote = process
+        .stdin()
+        .is_some_and(|pipe| pipe.write_all(input).and_then(|()| pipe.flush()).is_ok());
+    let mut stream = Stream::default();
+    let mut lines = 0;
+    if wrote {
+        while let Some(line) = process.next_line() {
+            lines += 1;
+            stream.line(&line, report);
+            if stream.outcome.is_some() {
+                break;
+            }
+        }
+    }
+    if reused && lines == 0 && !control.cancelled() {
+        let _ = process.finish(control);
+        return None;
+    }
+    let answered = matches!(stream.outcome, Some(Ok(_)));
+    if answered
+        && !control.cancelled()
+        && let Some(ttl) = run.keep_warm
+    {
+        let pid = process.child.id();
+        control.untrack(pid);
+        let session = stream.session.clone().or_else(|| run.resume.clone());
+        warm::put(key.to_owned(), session, process, ttl);
+        return stream.finish();
+    }
+    drop(process.stdin.take());
     let (status, stderr) = process.finish(control);
     if control.cancelled() {
-        return Err(eyre!("cancelled"));
+        return Some(Err(eyre!("cancelled")));
     }
-    stream.finish().unwrap_or_else(|| {
+    Some(stream.finish().unwrap_or_else(|| {
         Err(super::exit_error(
             AssistantBackend::ClaudeCode,
             status,
             &stderr,
         ))
+    }))
+}
+
+/// Built-in tools a job gets beside web search and fetch: files and a shell
+/// in its workspace, and subagents for parallel batches.
+const JOB_TOOLS: &[&str] = &["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Task"];
+
+/// `--settings`: hooks off; for a job, its file tools allowed only inside
+/// the workspace, and its shell sandboxed (writes only in the workspace,
+/// which is the working folder; the network only to install Python
+/// packages) and run without asking.
+fn settings(run: &Run) -> String {
+    let Some(workspace) = &run.workspace else {
+        return r#"{"disableAllHooks":true}"#.into();
+    };
+    // `//` starts an absolute path in a permission rule.
+    let scope = format!("/{}/**", workspace.display());
+    let allow: Vec<String> = ["Read", "Write", "Edit", "Glob", "Grep"]
+        .iter()
+        .map(|tool| format!("{tool}({scope})"))
+        .collect();
+    json!({
+        "disableAllHooks": true,
+        "permissions": {"allow": allow},
+        "sandbox": {
+            "enabled": true,
+            "autoAllowBashIfSandboxed": true,
+            "allowUnsandboxedCommands": false,
+            "network": {"allowedDomains": ["pypi.org", "files.pythonhosted.org"]},
+        },
     })
+    .to_string()
 }
 
 fn arguments(run: &Run) -> Vec<String> {
@@ -57,24 +174,27 @@ fn arguments(run: &Run) -> Vec<String> {
         "--include-partial-messages",
         "--permission-mode",
         "dontAsk",
-        "--settings",
-        r#"{"disableAllHooks":true}"#,
         "--strict-mcp-config",
-        "--tools",
-        "WebSearch,WebFetch",
     ]
     .map(str::to_owned)
     .into();
+    args.extend(["--settings".into(), settings(run)]);
+    let mut tools = vec!["WebSearch".to_owned(), "WebFetch".to_owned()];
+    let mut allowed = tools.clone();
+    if let Some(workspace) = &run.workspace {
+        tools.extend(JOB_TOOLS.iter().map(|tool| (*tool).to_owned()));
+        allowed.extend(["Bash".to_owned(), "Task".to_owned()]);
+        args.extend(["--add-dir".into(), workspace.display().to_string()]);
+    }
+    args.extend(["--tools".into(), tools.join(",")]);
     args.extend(["--system-prompt".into(), run.system.clone()]);
-    let mut allowed = vec!["WebSearch".to_owned(), "WebFetch".to_owned()];
-    if let Some(desktop) = &run.desktop {
-        args.extend(["--mcp-config".into(), desktop.server.claude_config()]);
-        allowed.push(format!("mcp__{SERVER}"));
-        let withheld: Vec<String> = WITHHELD_TOOLS
-            .iter()
-            .map(|tool| format!("mcp__{SERVER}__{tool}"))
-            .collect();
-        args.extend(["--disallowedTools".into(), withheld.join(",")]);
+    if let Some(config) = super::servers::claude_config(run) {
+        args.extend(["--mcp-config".into(), config]);
+        let (servers, withheld) = super::servers::claude_tools(run);
+        allowed.extend(servers);
+        if !withheld.is_empty() {
+            args.extend(["--disallowedTools".into(), withheld.join(",")]);
+        }
     }
     args.extend(["--allowedTools".into(), allowed.join(",")]);
     if let Some(model) = run
@@ -105,6 +225,16 @@ fn input(run: &Run) -> Result<Vec<u8>> {
     Ok(line)
 }
 
+/// A recorded limit's words when the result says nothing more.
+fn limit_text(event: &Value) -> Option<String> {
+    (event.get("error").and_then(Value::as_str) == Some("rate_limit")).then(|| {
+        blocks(event)
+            .filter_map(|block| block.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join(" ")
+    })
+}
+
 /// Claude Code's stream-json output, read line by line.
 #[derive(Default)]
 pub(super) struct Stream {
@@ -116,6 +246,10 @@ pub(super) struct Stream {
     wrote: bool,
     tool_after_text: bool,
     outcome: Option<Result<Finished>>,
+    /// The backend session this turn ran in.
+    session: Option<String>,
+    /// A synthetic message that reported a usage limit.
+    limit: Option<String>,
 }
 
 impl Stream {
@@ -126,6 +260,7 @@ impl Stream {
         match event.get("type").and_then(Value::as_str) {
             Some("system") if event.get("subtype").and_then(Value::as_str) == Some("init") => {
                 if let Some(session) = event.get("session_id").and_then(Value::as_str) {
+                    self.session = Some(session.to_owned());
                     report(Report::Session(session.to_owned()));
                 }
             }
@@ -144,6 +279,9 @@ impl Stream {
                 }
             }
             Some("assistant") => {
+                if let Some(limit) = limit_text(&event) {
+                    self.limit = Some(limit);
+                }
                 for block in blocks(&event) {
                     if block.get("type").and_then(Value::as_str) != Some("tool_use") {
                         continue;
@@ -209,7 +347,9 @@ impl Stream {
                         })
                         .filter(|errors| !errors.is_empty());
                     let why = errors.unwrap_or(if text.is_empty() {
-                        "it stopped without an answer".into()
+                        self.limit
+                            .clone()
+                            .unwrap_or_else(|| "it stopped without an answer".into())
                     } else {
                         text
                     });
@@ -307,16 +447,10 @@ mod tests {
     #[test]
     fn arguments_load_only_agent_desktop_and_allow_it_without_prompts() {
         let mut run = Run {
-            backend: AssistantBackend::ClaudeCode,
             model: Some("sonnet".into()),
-            system: "You are Hex.".into(),
-            prompt: "hi".into(),
-            image: None,
             resume: Some("abc".into()),
-            history: Vec::new(),
-            desktop: None,
-            workdir: std::env::temp_dir(),
             quick: true,
+            ..Run::fixture(AssistantBackend::ClaudeCode)
         };
         let plain = arguments(&run);
         assert!(!plain.iter().any(|arg| arg.contains("mcpServers")));
@@ -344,5 +478,68 @@ mod tests {
             .unwrap()
             + 1];
         assert!(withheld.contains("mcp__agent-desktop__desktop_session_end"));
+    }
+
+    #[test]
+    fn a_job_gets_files_a_sandboxed_shell_and_subagents_in_its_workspace() {
+        let mut run = Run::fixture(AssistantBackend::ClaudeCode);
+        let plain = arguments(&run);
+        assert!(
+            plain
+                .windows(2)
+                .any(|pair| pair == ["--tools", "WebSearch,WebFetch"])
+        );
+        assert!(!plain.iter().any(|arg| arg.contains("sandbox")));
+        run.workspace = Some("/Users/p/Documents/Hex/2026-11-12 Job".into());
+        let args = arguments(&run);
+        assert!(args.windows(2).any(|pair| pair
+            == [
+                "--tools",
+                "WebSearch,WebFetch,Read,Write,Edit,Glob,Grep,Bash,Task"
+            ]));
+        let allowed = &args[args.iter().position(|arg| arg == "--allowedTools").unwrap() + 1];
+        assert_eq!(allowed, "WebSearch,WebFetch,Bash,Task");
+        let settings: Value = serde_json::from_str(
+            &args[args.iter().position(|arg| arg == "--settings").unwrap() + 1],
+        )
+        .unwrap();
+        assert!(
+            settings["permissions"]["allow"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("Write(//Users/p/Documents/Hex/2026-11-12 Job/**)"))
+        );
+        assert_eq!(settings["sandbox"]["enabled"], true);
+        assert_eq!(settings["sandbox"]["allowUnsandboxedCommands"], false);
+    }
+
+    #[test]
+    fn a_waiting_process_fits_only_the_same_run() {
+        let mut run = Run::fixture(AssistantBackend::ClaudeCode);
+        run.desktop = Some(Desktop::fixture(Some("s1"), "hex-2"));
+        let key = warm_key(&run);
+        // The session it resumes is matched apart from the arguments.
+        run.resume = Some("abc".into());
+        assert_eq!(warm_key(&run), key);
+        run.desktop = Some(Desktop::fixture(Some("s1"), "hex-3"));
+        assert_ne!(warm_key(&run), key);
+    }
+
+    #[test]
+    fn a_recorded_usage_limit_fails_with_its_reset_time() {
+        let (_, outcome) = replay(include_str!(
+            "../../../tests/fixtures/assistant/claude-code-limit.jsonl"
+        ));
+        let error = outcome.unwrap().unwrap_err().to_string();
+        assert_eq!(
+            error,
+            "Claude Code: You've hit your session limit · resets 2am (Europe/Berlin)"
+        );
+        assert!(
+            crate::assistant::provider::limit::detect(&error)
+                .unwrap()
+                .until_ms
+                .is_some()
+        );
     }
 }

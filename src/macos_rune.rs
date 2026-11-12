@@ -503,9 +503,14 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     crate::rune_ui::assistant_overlay::install(&mut app);
     // Its task stack and "Open in Chats" open the conversation in Chats.
     crate::rune_ui::assistant_overlay::set_open_chats(|id| open_chat(Some(id.to_owned())));
-    // A hold of the Action shortcut before the assistant is set up opens
-    // its onboarding where it was left.
-    crate::recognition::ask::set_open_setup(open_assistant_setup);
+    // A hold of the Action shortcut before setup says "Finish setting up the
+    // assistant first" and opens the setup; the bubble's "Continue setup"
+    // opens it too.
+    crate::rune_ui::assistant_overlay::set_open_setup(open_assistant_setup);
+    crate::recognition::ask::set_open_setup(|| {
+        crate::rune_ui::assistant_overlay::setup_needed();
+        open_assistant_setup();
+    });
     // The capture capsule, picker, and ink.
     #[cfg(hex_capture)]
     let capture_overlays =
@@ -796,10 +801,11 @@ pub(crate) fn open_chat(conversation: Option<String>) {
     });
 }
 
-/// Opens the assistant's onboarding where it was left, the window in
-/// front, after a hold of the Action shortcut before setup finished.
-/// Callable from any thread.
-fn open_assistant_setup() {
+/// Opens the onboarding where it was left, the window in front: the voice
+/// first run while that isn't done, else the assistant's pages at their
+/// saved page (a hold of the Action shortcut before setup finished, or the
+/// bubble's "Continue setup"). Any thread.
+pub(crate) fn open_assistant_setup() {
     with_window(|window| {
         window.update(|ui, tx| {
             crate::rune_ui::open_assistant_setup(ui, tx);

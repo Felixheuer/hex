@@ -1,0 +1,14 @@
+2026-11-12 12:00 => You've hit your session limit · resets 12pm (Europe/Berlin)
+2026-11-13 02:00 => Claude Code: You've hit your session limit · resets 2am (Europe/Berlin)
+2026-11-12 22:50 => You've hit your session limit · resets 10:50pm (Europe/Berlin)
+2026-11-12 17:00 => You've hit your session limit · resets 5pm (Europe/Berlin)
+2026-11-12 13:00 => You've hit your weekly limit · resets 1pm (Europe/Berlin)
+2026-11-14 13:00 => You've hit your weekly limit · resets Nov 14 at 1pm (Europe/Berlin)
+none => You've hit your weekly limit · resets Oct 22 at 1pm (Europe/Berlin)
+none => Internal error: You've hit your limit · resets Aug 6 at 1pm (Europe/Berlin)
+2026-11-12 15:04 => Codex: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at 3:04 PM.
+2026-11-13 09:15 => Codex: You've hit your usage limit. Try again at Nov 13th, 2026 9:15 AM.
+none => Codex: You've hit your usage limit. Try again later.
+none => OpenCode: Rate limit exceeded. Please try again later.
+none => Claude Code: API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account's rate limit. Please try again later."}}
+none => Claude Code: API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}

@@ -258,6 +258,12 @@ pub(super) const KEYS: &[Key] = &[
         "Labs: the model Claude Code uses for the assistant; none is its default (macOS)",
     ),
     optional(
+        "assistant.here_model",
+        Kind::Text,
+        "Labs: the model for Here-lane answers on Claude Code and the Claude API; none uses \
+         the backend's model (macOS)",
+    ),
+    optional(
         "assistant.codex_model",
         Kind::Text,
         "Labs: the model Codex uses for the assistant; none is its default (macOS)",

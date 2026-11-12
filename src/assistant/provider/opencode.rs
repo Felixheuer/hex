@@ -29,6 +29,10 @@ pub(super) fn run(
 ) -> Result<Finished> {
     let executable = super::executable(AssistantBackend::OpenCode)?;
     let mut command = super::command(&executable, &run.workdir, run.desktop.as_ref());
+    // TODO(integration, bring-your-own-key providers): add
+    // `backends::agent_env_for(AssistantBackend::OpenCode, &settings)` to
+    // this command's environment (the key travels by env reference only).
+    // `Run` will need the settings (or that env) for it; not in this branch.
     command.env("OPENCODE_CONFIG_CONTENT", config(run).to_string());
     command.args(arguments(run));
     let mut process = Process::spawn(command, Stdin::Null, control)?;
@@ -90,16 +94,26 @@ fn config(run: &Run) -> Value {
     for tool in WITHHELD_TOOLS {
         tools.insert(format!("agent-desktop_{tool}"), Value::Bool(false));
     }
+    // A job may edit and run commands in its workspace (the working
+    // folder); nothing outside it.
+    let permission = match run.workspace {
+        Some(_) => json!({"bash": "allow", "edit": "allow", "webfetch": "allow",
+            "external_directory": "deny"}),
+        None => json!({"bash": "deny", "edit": "deny", "webfetch": "allow"}),
+    };
     let mut config = json!({"agent": {AGENT: {
         "mode": "primary",
         "description": "Hex's assistant",
         "prompt": run.system,
-        "permission": {"bash": "deny", "edit": "deny", "webfetch": "allow"},
+        "permission": permission,
         "tools": tools,
     }}});
-    if let Some(desktop) = &run.desktop {
-        config["mcp"] = desktop.server.opencode_config();
+    if let Some(mcp) = super::servers::opencode_config(run) {
+        config["mcp"] = mcp;
     }
+    // TODO(integration, bring-your-own-key providers): merge
+    // `backends::opencode_provider_config(&settings)` (its `provider` entry)
+    // into `config` here; not in this branch.
     config
 }
 
@@ -170,6 +184,22 @@ impl Stream {
                     .unwrap_or_else(|| {
                         event.get("error").map(Value::to_string).unwrap_or_default()
                     });
+                // Keep what tells a limit apart: the HTTP status, and when
+                // to try again.
+                let data = event.pointer("/error/data");
+                let status = data
+                    .and_then(|data| data.get("statusCode"))
+                    .and_then(Value::as_u64);
+                let retry = data
+                    .and_then(|data| data.pointer("/responseHeaders/retry-after"))
+                    .and_then(Value::as_str);
+                let mut why = why;
+                if let Some(status) = status {
+                    why.push_str(&format!(" (HTTP {status})"));
+                }
+                if let Some(seconds) = retry.and_then(|retry| retry.trim().parse::<u64>().ok()) {
+                    why.push_str(&format!("; retry after {seconds} seconds"));
+                }
                 self.error = Some(why);
             }
             _ => {}
@@ -305,5 +335,21 @@ mod tests {
         );
         let error = stream.finish().unwrap().unwrap_err().to_string();
         assert_eq!(error, "OpenCode: no credentials");
+    }
+
+    #[test]
+    fn a_rate_limit_keeps_its_status_and_wait() {
+        let mut stream = Stream::default();
+        stream.line(
+            r#"{"type":"error","sessionID":"ses_1","error":{"name":"APIError","data":{"message":"Rate limit exceeded","statusCode":429,"isRetryable":true,"responseHeaders":{"retry-after":"42"}}}}"#,
+            &mut |_| {},
+        );
+        let error = stream.finish().unwrap().unwrap_err().to_string();
+        assert_eq!(
+            error,
+            "OpenCode: Rate limit exceeded (HTTP 429); retry after 42 seconds"
+        );
+        let limit = crate::assistant::provider::limit::detect_at(&error, 1_000, 0).unwrap();
+        assert_eq!(limit.until_ms, Some(43_000));
     }
 }

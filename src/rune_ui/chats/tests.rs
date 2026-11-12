@@ -558,7 +558,7 @@ fn a_hold_before_setup_opens_the_onboarding_and_says_so() {
     assert!(rt.state.chats.setup.as_ref().unwrap().from_hold);
     assert!(shows(
         &rt,
-        "Finish setting up the assistant first. Then hold the Action shortcut again."
+        "Finish setting up the assistant first"
     ));
 }
 

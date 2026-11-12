@@ -4,13 +4,22 @@
 //! "…" and the footer's "Open in Chats" shows the rest. It stays while the
 //! answer is read aloud, then a few seconds more (`board::Bubble::due`);
 //! a press, or Esc, dismisses it.
+//!
+//! It grows out of the HUD on a spring and shrinks back into it when it
+//! goes; while its answer is read aloud a small glow beside the question
+//! pulses with a speaking rhythm.
 
-use rune::{Cx, El, col, el, icon, row, text};
+use rune::{Cx, El, Transition, Vec2, col, el, icon, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Spinner};
+use rune_motion::{LoopSpec, Spring};
 
 use super::super::controls::Paint;
 use super::board::{Bubble, BubblePhase};
+use super::palette;
 use crate::desktop::i18n::tr;
+
+/// One speaking pulse, in seconds: about a syllable pair.
+const VOICE_PULSE: f64 = 0.9;
 
 /// The overlay: a readable measure, and room for about ten lines.
 pub(crate) const SIZE: (f32, f32) = (440.0, 340.0);
@@ -30,6 +39,8 @@ pub(crate) struct Actions<S> {
     pub(crate) dismiss: fn(&mut S),
     /// "Open in Chats": open this conversation there.
     pub(crate) open: fn(&mut S, &str),
+    /// "Continue setup": open the assistant's setup.
+    pub(crate) setup: fn(&mut S),
 }
 
 impl<S> Clone for Actions<S> {
@@ -46,8 +57,15 @@ pub(crate) struct BubbleOverlay {
     /// The card hangs from the overlay's top (the HUD is above it), else
     /// rises from its bottom.
     pub(crate) below: bool,
-    /// Whether it shows; a hidden bubble keeps its last card for the fade.
+    /// Whether it shows; a hidden bubble shrinks its card back as the
+    /// panel fades.
     pub(crate) shown: bool,
+    /// Its answer is being read aloud.
+    pub(crate) speaking: bool,
+    /// "Finish setting up the assistant first" shows instead, until then.
+    pub(crate) setup: Option<std::time::Instant>,
+    /// The Action shortcut's keys, for "Hold ⌘ to answer".
+    pub(crate) answer_key: String,
     pub(crate) actions: Actions<BubbleOverlay>,
 }
 
@@ -65,22 +83,168 @@ pub(crate) fn view(state: &BubbleOverlay, cx: &mut Cx<BubbleOverlay>) -> El {
     } else {
         root.justify_end()
     };
-    root.children(
+    let voice_now = Voice {
+        speaking: state.speaking,
+        still: cx.system_reduced_motion(),
+    };
+    let flying = state.bubble.as_ref().is_some_and(|b| b.escalated);
+    let shown = if !state.shown {
+        None
+    } else if state.setup.is_some() {
+        Some(setup_card(p, state.actions))
+    } else {
         state
             .bubble
             .as_ref()
-            .map(|bubble| card(p, bubble, state.actions)),
+            .map(|bubble| card(p, bubble, voice_now, &state.answer_key, state.actions))
+    };
+    let motion = if flying {
+        fly(state.below)
+    } else {
+        grow(state.below)
+    };
+    root.children(shown.map(|card| card.transition(motion)))
+}
+
+/// A Here question that became a Background task: the card shrinks to a dot
+/// and flies off toward the orb, beside the HUD, as its dot arrives there.
+fn fly(below: bool) -> Transition {
+    let anchor = Vec2::new(1.0, if below { 0.0 } else { 1.0 });
+    Transition::asymmetric(
+        Transition::opacity(),
+        Transition::scale_anchor(0.5, anchor)
+            .allow_small_scale()
+            .combined(Transition::offset(240.0, if below { -24.0 } else { 24.0 }))
+            .combined(Transition::opacity()),
     )
+    .springs(rune::SpringPair::new(
+        Spring::new(0.3, 0.0),
+        Spring::new(0.42, 0.1),
+    ))
+}
+
+/// "Finish setting up the assistant first", with Continue setup: what the
+/// Action shortcut gets before the assistant is set up.
+pub(crate) fn setup_card<S: 'static>(p: Paint, actions: Actions<S>) -> El {
+    let c = &p.k.c;
+    let setup = actions.setup;
+    let dismiss = actions.dismiss;
+    let (lead, _) = palette::frame(p.k.dark);
+    row()
+        .key("setup-card")
+        .w_full()
+        .pl(16.0)
+        .pr(8.0)
+        .py(10.0)
+        .gap(10.0)
+        .center_y()
+        .radius(p.k.radius.md + 8.0)
+        .fill(c.bg_base)
+        .border(p.hair, c.border_base)
+        .role("status")
+        .live_region(rune::LiveRegion::Polite)
+        .hit()
+        .on_press(move |s: &mut S| dismiss(s))
+        .animate_layout()
+        .child(
+            icon(&super::super::icons::SPARKLES, 15.0)
+                .key("setup-sparkle")
+                .color(lead)
+                .a11y_hidden(),
+        )
+        .child(
+            text(tr("Finish setting up the assistant first"))
+                .key("setup-text")
+                .wrap()
+                .font(p.k.ty.ui)
+                .color(p.text())
+                .grow(1.0)
+                .min_w(0.0),
+        )
+        .child(
+            Button::new(tr("Continue setup"))
+                .variant(ButtonVariant::Submit)
+                .control_size(ControlSize::Small)
+                .on_press(move |s: &mut S| setup(s))
+                .build(p.k)
+                .key("continue-setup"),
+        )
+}
+
+/// Whether the answer is read aloud now, and whether to hold its pulse
+/// still (Reduce motion).
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Voice {
+    pub(crate) speaking: bool,
+    pub(crate) still: bool,
+}
+
+/// The card grows out of the HUD's side with a little overshoot, and
+/// shrinks back into it.
+fn grow(below: bool) -> Transition {
+    let anchor = Vec2::new(0.5, if below { 0.0 } else { 1.0 });
+    Transition::asymmetric(
+        Transition::scale_anchor(0.6, anchor)
+            .allow_small_scale()
+            .combined(Transition::offset(0.0, if below { -8.0 } else { 8.0 })),
+        Transition::scale_anchor(0.7, anchor)
+            .allow_small_scale()
+            .combined(Transition::opacity()),
+    )
+    .springs(rune::SpringPair::new(
+        Spring::new(0.45, 0.24),
+        Spring::new(0.26, 0.0),
+    ))
+}
+
+/// A small glow that pulses while the answer is read aloud.
+fn voice(p: Paint, still: bool) -> El {
+    let (lead, trail) = palette::frame(p.k.dark);
+    let glow = el()
+        .key("voice")
+        .size(10.0, 10.0)
+        .radius(5.0)
+        .gradient(lead, trail)
+        .box_shadow(rune::Shadow {
+            x: 0.0,
+            y: 0.0,
+            blur: 8.0,
+            spread: 1.0,
+            color: lead.alpha(0.6),
+            inset: false,
+        })
+        .a11y_hidden();
+    if still {
+        glow
+    } else {
+        glow.looping(LoopSpec::opacity(VOICE_PULSE, 0.0, 0.35, 1.0))
+    }
 }
 
 /// The card for `bubble`, as wide as its parent allows.
-pub(crate) fn card<S: 'static>(p: Paint, bubble: &Bubble, actions: Actions<S>) -> El {
+pub(crate) fn card<S: 'static>(
+    p: Paint,
+    bubble: &Bubble,
+    voice_now: Voice,
+    answer_key: &str,
+    actions: Actions<S>,
+) -> El {
     let c = &p.k.c;
-    let question = text(bubble.question.clone())
-        .key("question")
-        .truncate()
-        .font(p.k.ty.small)
-        .color(p.faint());
+    let question = row()
+        .key("question-row")
+        .w_full()
+        .gap(8.0)
+        .center_y()
+        .child(
+            text(bubble.question.clone())
+                .key("question")
+                .truncate()
+                .font(p.k.ty.small)
+                .color(p.faint())
+                .grow(1.0)
+                .min_w(0.0),
+        )
+        .children(voice_now.speaking.then(|| voice(p, voice_now.still)));
     let body: Vec<El> = match bubble.phase {
         BubblePhase::Thinking => vec![working(p, tr("Thinking…"), "thinking")],
         BubblePhase::Working => {
@@ -155,7 +319,14 @@ pub(crate) fn card<S: 'static>(p: Paint, bubble: &Bubble, actions: Actions<S>) -
         .gap(8.0)
         .radius(p.k.radius.md + 8.0)
         .fill(c.bg_base)
-        .border(p.hair, c.border_base)
+        .border(
+            p.hair,
+            if voice_now.speaking {
+                palette::frame(p.k.dark).0.alpha(0.6)
+            } else {
+                c.border_base
+            },
+        )
         .role("status")
         .label(bubble.question.clone())
         .live_region(if live {
@@ -168,7 +339,36 @@ pub(crate) fn card<S: 'static>(p: Paint, bubble: &Bubble, actions: Actions<S>) -
         .animate_layout()
         .child(question)
         .children(body)
+        .children(bubble.asks.as_ref().map(|asks| asking(p, asks, answer_key)))
         .children(footer)
+}
+
+/// What the task asks the person, with how to answer.
+fn asking(p: Paint, asks: &str, answer_key: &str) -> El {
+    let (lead, _) = palette::frame(p.k.dark);
+    col()
+        .key("asks")
+        .w_full()
+        .gap(3.0)
+        .pl(10.0)
+        .border_sides([0.0, 0.0, 0.0, 2.0], lead)
+        .child(
+            text(asks.to_owned())
+                .key("asks-text")
+                .wrap()
+                .max_lines(4)
+                .font(p.k.ty.ui_medium)
+                .color(p.text()),
+        )
+        .child(
+            text(crate::desktop::i18n::tr_fill(
+                "Hold {} to answer",
+                answer_key,
+            ))
+            .key("asks-hint")
+            .font(p.k.ty.small)
+            .color(lead),
+        )
 }
 
 /// A line with the activity spinner: what it's doing now.
