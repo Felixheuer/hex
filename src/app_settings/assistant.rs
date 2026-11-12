@@ -267,6 +267,16 @@ pub fn assistant_runtime() -> Option<(bool, AssistantSettings)> {
 }
 
 pub(super) fn apply_assistant(settings: &AppSettings) {
+    // Hex's own voice loads when it's chosen, not with the first answer.
+    let neural = crate::assistant::enabled(settings) && settings.assistant.speak_answers;
+    crate::assistant::speech::neural::keep_warm(
+        settings
+            .assistant
+            .voice
+            .as_deref()
+            .filter(|_| neural)
+            .and_then(crate::assistant::speech::neural::preset),
+    );
     *ASSISTANT_RUNTIME
         .get_or_init(Default::default)
         .write()

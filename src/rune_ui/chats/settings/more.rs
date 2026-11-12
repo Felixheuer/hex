@@ -97,6 +97,9 @@ pub(in crate::rune_ui) fn autonomy_section(ui: &Ui, p: Paint) -> El {
 
 /// A voice's name without its quality, and the quality as a word.
 fn voice_label(name: &str) -> String {
+    if let Some(preset) = crate::assistant::speech::neural::preset(name) {
+        return format!("{} {preset} · {}", tr("Hex voice"), tr("Neural"));
+    }
     let quality = match voices::quality(name) {
         voices::Quality::Premium => tr("Premium"),
         voices::Quality::Enhanced => tr("Enhanced"),
@@ -110,7 +113,12 @@ fn voice_label(name: &str) -> String {
 /// The voice, best first with its quality, and Test voice.
 pub(super) fn voice_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     let mut voices = ui.chats.settings.voices.clone().unwrap_or_default();
-    voices.sort_by_key(|voice| std::cmp::Reverse(voices::quality(voice)));
+    voices.sort_by_key(|voice| {
+        (
+            crate::assistant::speech::neural::preset(voice).is_none(),
+            std::cmp::Reverse(voices::quality(voice)),
+        )
+    });
     let mut labels = vec![tr("System voice").to_owned()];
     labels.extend(voices.iter().map(|voice| voice_label(voice)));
     let selected = ui
@@ -155,6 +163,60 @@ pub(super) fn voice_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
                     ui.chats.jobs.run(Job::Speak(voice));
                 },
             )),
+    )
+}
+
+/// Hex's own voice, until it's downloaded: what it is, and Download (its
+/// progress, or why it failed).
+pub(super) fn hex_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
+    use crate::assistant::speech::neural::files;
+    let installed = ui.chats.settings.voices.as_ref().is_some_and(|voices| {
+        voices
+            .iter()
+            .any(|voice| voice.starts_with(crate::assistant::speech::neural::PREFIX))
+    });
+    if installed {
+        return None;
+    }
+    let megabytes = (files::total_bytes() / 1_000_000).to_string();
+    let (description, color) = match &ui.chats.settings.voice_download {
+        Some(Err(error)) => (
+            error.lines().next().unwrap_or_default().to_owned(),
+            p.danger(),
+        ),
+        Some(Ok(bytes)) => (
+            crate::desktop::i18n::tr_fill(
+                "Downloading… {} %",
+                &(bytes * 100 / files::total_bytes().max(1)).to_string(),
+            ),
+            p.muted(),
+        ),
+        None => (
+            crate::desktop::i18n::tr_fill(
+                "A natural voice that runs on this computer, in 31 languages (Supertonic 3, about {} MB)",
+                &megabytes,
+            ),
+            p.muted(),
+        ),
+    };
+    let downloading = matches!(ui.chats.settings.voice_download, Some(Ok(_)));
+    let control = if downloading {
+        text(tr("Downloading…")).color(p.muted())
+    } else {
+        small_button(p, "download-hex-voice", tr("Download"), |ui: &mut Ui, _| {
+            ui.chats.settings.voice_download = Some(Ok(0));
+            ui.chats.jobs.run(Job::DownloadVoice);
+        })
+    };
+    Some(
+        described_row(
+            p,
+            "assistant-hex-voice",
+            tr("Hex voice"),
+            Some((description, color)),
+            control,
+        )
+        .into(),
     )
 }
 
