@@ -177,7 +177,9 @@ fn tasks_beyond_max_parallel_wait_their_turn() {
 
     world.release("b");
     world.wait_for("c to start once b is done", started(&c));
+    // One at a time: released together, a and c may answer in either order.
     world.release("a");
+    world.wait_for("a's answer", ended(&a));
     world.release("c");
     world.wait_for("every answer", |events| {
         ended(&a)(events) && ended(&c)(events)
