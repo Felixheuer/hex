@@ -14,6 +14,7 @@ use serde_json::{Map, Value, json};
 use super::child::{self, Desktop};
 use super::policy::{self, Kind, Target};
 use super::proxy::{Config, Guard, RESUMED};
+use super::screen::{App, Screen};
 use super::state::{Acquire, Store};
 use super::{TaskSpec, WireSpec};
 use crate::assistant::backends::McpServer;
@@ -87,6 +88,10 @@ struct FakeState {
     windows: Vec<Value>,
     calls: Vec<(String, Map<String, Value>)>,
     snapshots: u32,
+    /// Times the guard looked at the windows on screen.
+    looks: u32,
+    apps: Vec<App>,
+    running: Vec<PathBuf>,
     on_launch: Option<Value>,
     replies: HashMap<String, Value>,
 }
@@ -144,6 +149,22 @@ fn ok(command: &str, data: Value) -> Value {
         "structuredContent": envelope,
         "isError": false,
     })
+}
+
+impl Screen for Fake {
+    fn windows(&mut self) -> Vec<child::Window> {
+        let mut state = self.state();
+        state.looks += 1;
+        child::windows(&Value::Array(state.windows.clone()))
+    }
+
+    fn installed_apps(&mut self) -> Vec<App> {
+        self.state().apps.clone()
+    }
+
+    fn running_apps(&mut self) -> Vec<PathBuf> {
+        self.state().running.clone()
+    }
 }
 
 impl Desktop for Fake {
@@ -246,7 +267,7 @@ const SETTINGS: &str = "w-18628";
 const GHOSTTY: &str = "w-18108";
 
 fn here(scratch: &Scratch, fake: &Fake, window: &str, app: &str, physical: bool) -> Guard<Fake> {
-    Guard::new(
+    let mut guard = Guard::new(
         Config {
             task: "here-task".into(),
             lane: Lane::Here,
@@ -260,7 +281,11 @@ fn here(scratch: &Scratch, fake: &Fake, window: &str, app: &str, physical: bool)
         scratch.store(),
         std::process::id(),
         fake.clone(),
-    )
+        Box::new(fake.clone()),
+    );
+    // The tests change the windows between calls; every check looks again.
+    guard.fresh_for = Duration::ZERO;
+    guard
 }
 
 fn background(scratch: &Scratch, fake: &Fake, task: &str, physical: bool) -> Guard<Fake> {
@@ -275,8 +300,11 @@ fn background(scratch: &Scratch, fake: &Fake, task: &str, physical: bool) -> Gua
         scratch.store(),
         std::process::id(),
         fake.clone(),
+        Box::new(fake.clone()),
     );
     guard.poll = Duration::from_millis(20);
+    guard.window_wait = Duration::from_millis(200);
+    guard.fresh_for = Duration::ZERO;
     guard
 }
 
@@ -715,6 +743,7 @@ fn real_input_needs_permission_and_shows_hands_off_while_it_runs() {
         store.clone(),
         std::process::id(),
         Spy(fake.clone(), during, watcher),
+        Box::new(fake.clone()),
     );
     assert!(
         spied
@@ -913,3 +942,5 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
     let claude: Value = serde_json::from_str(&server.claude_config()).unwrap();
     assert_eq!(claude["mcpServers"]["agent-desktop"]["args"][1], "mcp");
 }
+
+mod round_two;

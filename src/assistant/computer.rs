@@ -386,24 +386,40 @@ pub fn frame_among(
     Some((x, y, width, height))
 }
 
-/// The frontmost ordinary window of app `pid` among CoreGraphics' on-screen
-/// windows (front to back), as agent-desktop names it (`w-<number>`): the
-/// Here lane's window.
+/// App `pid`'s window in front, as agent-desktop names it (`w-<number>`):
+/// the Here lane's window. That is the window the app says has focus
+/// (`focused`, through Accessibility) when CoreGraphics shows it, else the
+/// app's frontmost ordinary window among CoreGraphics' on-screen windows
+/// (front to back).
 pub fn front_window_among(
     windows: &[scrawl_capture::windows::RawWindow],
     pid: i32,
     app: &str,
+    focused: Option<u32>,
 ) -> Option<crate::assistant::TaskWindow> {
-    let found = windows.iter().find(|candidate| {
-        candidate.pid == pid
-            && candidate.layer == 0
-            && candidate.alpha > 0.0
-            && candidate.bounds[2] > 1.0
-            && candidate.bounds[3] > 1.0
-    })?;
+    let said = focused.filter(|number| {
+        windows
+            .iter()
+            .any(|candidate| candidate.id == *number && candidate.pid == pid)
+    });
+    let number = match said {
+        Some(number) => number,
+        None => {
+            windows
+                .iter()
+                .find(|candidate| {
+                    candidate.pid == pid
+                        && candidate.layer == 0
+                        && candidate.alpha > 0.0
+                        && candidate.bounds[2] > 1.0
+                        && candidate.bounds[3] > 1.0
+                })?
+                .id
+        }
+    };
     Some(crate::assistant::TaskWindow {
         app: app.to_owned(),
-        window_id: Some(format!("w-{}", found.id)),
+        window_id: Some(format!("w-{number}")),
     })
 }
 
@@ -467,7 +483,8 @@ mod macos {
         };
         let window = front.as_ref().and_then(|(pid, name, _)| {
             let windows = objc2::rc::autoreleasepool(|_| scrawl_capture::windows::raw_windows());
-            super::front_window_among(&windows, *pid, name)
+            let focused = crate::accessibility::focused_window_number(*pid);
+            super::front_window_among(&windows, *pid, name, focused)
         });
         Context {
             screenshot: None,
@@ -640,10 +657,20 @@ mod tests {
             raw(8, "Mail", [300.0, 200.0, 900.0, 700.0], 0),
         ];
         assert_eq!(
-            front_window_among(&windows, 1, "Mail"),
+            front_window_among(&windows, 1, "Mail", None),
             Some(task("Mail", Some("w-7")))
         );
-        assert_eq!(front_window_among(&windows, 3, "Gone"), None);
+        // The window Mail says has focus, behind a strip of its own.
+        assert_eq!(
+            front_window_among(&windows, 1, "Mail", Some(8)),
+            Some(task("Mail", Some("w-8")))
+        );
+        // Not another app's window.
+        assert_eq!(
+            front_window_among(&windows, 1, "Mail", Some(5)),
+            Some(task("Mail", Some("w-7")))
+        );
+        assert_eq!(front_window_among(&windows, 3, "Gone", None), None);
     }
 
     /// Live, read-only: the menu bar sits at the top of the primary display,

@@ -7,7 +7,9 @@ use serde_json::{Map, Value};
 use super::super::child::{self, Desktop, Window};
 use super::super::policy::{self, Kind, Target};
 use super::super::state::LeaseFile;
-use super::{Guard, Resolved, bundle_ids, describe_task_window, name_window, refusal, same_app};
+use super::{
+    Guard, Look, Resolved, bundle_ids, describe_task_window, name_window, refusal, same_app,
+};
 use crate::assistant::types::Lane;
 
 impl<D: Desktop> Guard<D> {
@@ -21,7 +23,7 @@ impl<D: Desktop> Guard<D> {
         let background_act = kind.acts() && self.config.lane == Lane::Background;
         let mut found = match target {
             Target::Window(id) => {
-                let windows = self.list(None)?;
+                let windows = self.list(Look::Check)?;
                 let window = windows.iter().find(|window| window.id == id).ok_or_else(|| {
                     refusal(
                         tool,
@@ -48,7 +50,7 @@ impl<D: Desktop> Guard<D> {
                 if let Some(id) = &origin.window
                     && (background_act || kind == Kind::Press)
                 {
-                    let windows = self.list(None)?;
+                    let windows = self.list(Look::Check)?;
                     resolved.focused = windows
                         .iter()
                         .any(|window| &window.id == id && window.focused);
@@ -56,7 +58,7 @@ impl<D: Desktop> Guard<D> {
                 vec![resolved]
             }
             Target::App(app) => {
-                let windows = self.list(None)?;
+                let windows = self.list(Look::Check)?;
                 let of_app: Vec<&Window> = windows
                     .iter()
                     .filter(|window| window.visible && same_app(&window.app, &app))
@@ -103,7 +105,7 @@ impl<D: Desktop> Guard<D> {
                 }
             }
             Target::Focused => {
-                let windows = self.list(None)?;
+                let windows = self.list(Look::Check)?;
                 let front = windows
                     .iter()
                     .find(|window| window.focused && window.visible)
@@ -128,7 +130,7 @@ impl<D: Desktop> Guard<D> {
                 vec![Resolved::of(front)]
             }
             Target::Point(x, y) => {
-                let windows = self.list(None)?;
+                let windows = self.list(Look::Check)?;
                 let under: Vec<Resolved> = windows
                     .iter()
                     .filter(|window| window.visible && window.contains(x, y))
@@ -161,7 +163,7 @@ impl<D: Desktop> Guard<D> {
         let Some(first) = found.first().cloned() else {
             return Ok(found);
         };
-        let windows = self.list(None)?;
+        let windows = self.list(Look::Check)?;
         let of_app: Vec<Resolved> = windows
             .iter()
             .filter(|window| {

@@ -1,8 +1,9 @@
 //! The guard's state on disk, shared by Hex and every task's guard process:
 //!
-//! - `leases/<window>.json`: who holds a window (task, pid, app). Created
-//!   exclusively (`O_EXCL`) under `leases/.lock`, so two processes never
-//!   both win; a lease whose pid is dead has lapsed and anyone may take it.
+//! - `leases/<window>.json`: who holds a window (task, pid and its start
+//!   time, app). Created exclusively (`O_EXCL`) under `leases/.lock`, so two
+//!   processes never both win; a lease whose process is gone (its pid dead,
+//!   or now another process's) has lapsed and anyone may take it.
 //! - `guard/paused/<task>`: present while the person has taken `task` over;
 //!   `<task>.resumed` holds the time it was last handed back.
 //! - `guard/hands-off/<task>.json`: present while `task` moves the real
@@ -22,6 +23,17 @@ pub struct LeaseFile {
     pub window_id: String,
     pub app: String,
     pub since_ms: u64,
+    /// When `pid` started (µs since 1970), so a reused pid isn't taken
+    /// for the holder.
+    #[serde(default)]
+    pub started: Option<u64>,
+}
+
+impl LeaseFile {
+    /// Whether its holder is still running.
+    pub fn live(&self) -> bool {
+        running(self.pid, self.started)
+    }
 }
 
 /// What asking for a window came to.
@@ -109,7 +121,7 @@ impl Store {
                 if lease.task == task && lease.pid == pid {
                     return Acquire::Held;
                 }
-                if lease.task != task && alive(lease.pid) {
+                if lease.task != task && lease.live() {
                     return Acquire::Taken(lease.task);
                 }
                 // Lapsed, or ours from a process that has ended or restarted.
@@ -121,6 +133,7 @@ impl Store {
                 window_id: window_id.to_owned(),
                 app: app.to_owned(),
                 since_ms: now_ms,
+                started: started_us(pid),
             };
             match create_exclusive(&path, &lease) {
                 Ok(()) => Acquire::Acquired,
@@ -135,7 +148,7 @@ impl Store {
 
     /// Who holds `window_id` now, if anyone live does.
     pub fn holder(&self, window_id: &str) -> Option<LeaseFile> {
-        read_lease(&self.lease_path(window_id)).filter(|lease| alive(lease.pid))
+        read_lease(&self.lease_path(window_id)).filter(LeaseFile::live)
     }
 
     /// Every live lease.
@@ -144,7 +157,7 @@ impl Store {
             .lease_files()
             .into_iter()
             .filter_map(|path| read_lease(&path))
-            .filter(|lease| alive(lease.pid))
+            .filter(LeaseFile::live)
             .collect();
         leases.sort_by(|a, b| (a.since_ms, &a.window_id).cmp(&(b.since_ms, &b.window_id)));
         leases
@@ -184,7 +197,7 @@ impl Store {
         self.locked(|| {
             for path in self.lease_files() {
                 let lapsed = match read_lease(&path) {
-                    Some(lease) => !alive(lease.pid),
+                    Some(lease) => !lease.live(),
                     None => is_old(&path),
                 };
                 if lapsed {
@@ -193,7 +206,7 @@ impl Store {
             }
         });
         for path in json_files(&self.hands_dir()) {
-            if read_hands(&path).is_none_or(|(_, pid)| !alive(pid)) {
+            if read_hands(&path).is_none_or(|(_, pid, started)| !running(pid, started)) {
                 let _ = std::fs::remove_file(path);
             }
         }
@@ -242,8 +255,8 @@ impl Store {
         let dir = self.hands_dir();
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join(format!("{}.json", file_name(task)));
-        let body = serde_json::json!({ "task": task, "pid": pid }).to_string();
-        let _ = std::fs::write(&path, body);
+        let body = serde_json::json!({ "task": task, "pid": pid, "started": started_us(pid) });
+        let _ = std::fs::write(&path, body.to_string());
         HandsOn { path }
     }
 
@@ -252,8 +265,8 @@ impl Store {
         json_files(&self.hands_dir())
             .into_iter()
             .filter_map(|path| read_hands(&path))
-            .find(|(_, pid)| alive(*pid))
-            .map(|(task, _)| task)
+            .find(|(_, pid, started)| running(*pid, *started))
+            .map(|(task, _, _)| task)
     }
 }
 
@@ -272,11 +285,12 @@ fn read_lease(path: &Path) -> Option<LeaseFile> {
     serde_json::from_slice(&std::fs::read(path).ok()?).ok()
 }
 
-fn read_hands(path: &Path) -> Option<(String, u32)> {
+fn read_hands(path: &Path) -> Option<(String, u32, Option<u64>)> {
     let value: serde_json::Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
     Some((
         value.get("task")?.as_str()?.to_owned(),
         u32::try_from(value.get("pid")?.as_u64()?).ok()?,
+        value.get("started").and_then(serde_json::Value::as_u64),
     ))
 }
 
@@ -317,6 +331,38 @@ pub fn file_name(id: &str) -> String {
         })
         .collect();
     if name.is_empty() { "_".into() } else { name }
+}
+
+/// Whether process `pid` is running and is the one that started at
+/// `started` (when known): a pid the system reused for another process
+/// doesn't count.
+pub fn running(pid: u32, started: Option<u64>) -> bool {
+    alive(pid)
+        && match (started, started_us(pid)) {
+            (Some(recorded), Some(now)) => recorded == now,
+            _ => true,
+        }
+}
+
+/// When process `pid` started, in µs since 1970 (`proc_pidinfo`).
+pub fn started_us(pid: u32) -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        let pid = i32::try_from(pid).ok().filter(|pid| *pid > 0)?;
+        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+        let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+        // SAFETY: `info` is a `proc_bsdinfo` of `size` bytes for the kernel
+        // to fill.
+        let wrote = unsafe {
+            libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size)
+        };
+        (wrote == size).then(|| info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = pid;
+        None
+    }
 }
 
 /// Whether process `pid` is running.
