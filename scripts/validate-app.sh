@@ -51,7 +51,13 @@ codesign --verify --deep --strict --verbose=2 "$bundle"
 signature=$(codesign -d --verbose=4 "$bundle" 2>&1)
 printf '%s\n' "$signature" | grep -Fq 'Identifier=anomaly.hex' || fail "code signature has the wrong identifier"
 printf '%s\n' "$signature" | grep -Fq "TeamIdentifier=$team_id" || fail "code signature has the wrong team"
-printf '%s\n' "$signature" | grep -Fq 'Authority=Developer ID Application:' || fail "not signed for Developer ID distribution"
+if [ "${HEX_ALLOW_DEVELOPMENT_SIGNING:-}" = 1 ]; then
+  # A build for this team's own Macs (scripts/pilot-release-macos.sh without
+  # a Developer ID certificate).
+  printf '%s\n' "$signature" | grep -Eq 'Authority=(Developer ID Application|Apple Development):' || fail "not signed by an Apple certificate"
+else
+  printf '%s\n' "$signature" | grep -Fq 'Authority=Developer ID Application:' || fail "not signed for Developer ID distribution"
+fi
 entitlements=$(codesign -d --entitlements - "$bundle" 2>/dev/null)
 printf '%s\n' "$entitlements" | grep -Fq 'com.apple.security.device.audio-input' || fail "microphone entitlement is missing"
 printf '%s\n' "$entitlements" | grep -Fq 'com.apple.security.automation.apple-events' || fail "automation entitlement is missing"

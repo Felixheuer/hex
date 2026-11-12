@@ -43,7 +43,7 @@ trap cleanup EXIT HUP INT TERM
 server="$temporary/server"
 installer="$temporary/install-linux.sh"
 version=9.8.7
-# A fixture signing key stands in for Anomaly's.
+# A fixture signing key stands in for Pilot's.
 openssl genpkey -algorithm ed25519 -out "$temporary/signing.pem" 2>/dev/null
 fixture_key=$(openssl pkey -in "$temporary/signing.pem" -pubout -outform DER | base64 | tr -d '\n')
 # The fixture service is plain HTTP on loopback.
@@ -62,7 +62,7 @@ bytes=$(wc -c < "$unsigned" | tr -d ' ')
 file="hex-$version-$target"
 mkdir -p "$server/release/hex/desktop" "$server/release/hex/files/$sha256"
 cp "$unsigned" "$server/release/hex/files/$sha256/$file"
-printf 'anomaly.hex.linux-artifact.v1\n%s\n' "$sha256" > "$temporary/signed"
+printf 'pilot.release-artifact.v1\n%s\n' "$sha256" > "$temporary/signed"
 openssl pkeyutl -sign -rawin -inkey "$temporary/signing.pem" -in "$temporary/signed" -out "$temporary/hex.sig"
 signature_sha256=$(sha256sum "$temporary/hex.sig" | awk '{ print $1 }')
 mkdir -p "$server/release/hex/files/$signature_sha256"

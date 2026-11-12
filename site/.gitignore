@@ -1,10 +1,8 @@
 node_modules/
 dist/
 *.tsbuildinfo
-.wrangler/
 dist-server/
-.cloudflare/
 src/release-data.json
 public/install-linux.sh
 public/install-windows.ps1
-public/appcast.xml
+public/LICENSE.txt

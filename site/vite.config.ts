@@ -1,13 +1,9 @@
-import { cloudflare } from "@cloudflare/vite-plugin"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
-import { BASE_PATH } from "./src/base.ts"
 
-// The Cloudflare plugin only shapes the client build into Build Output for `cf deploy`.
-// Dev stays plain Vite, and the SSR build only feeds the prerender.
-export default defineConfig(({ command, isSsrBuild }) => ({
-  plugins: [react(), ...(command === "build" && !isSsrBuild ? [cloudflare()] : [])],
-  base: `${BASE_PATH}/`,
-  // strobe builds with STROBE_SOURCEMAP=hidden: maps beside the scripts for its profiles, the scripts unchanged.
-  build: { sourcemap: (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.STROBE_SOURCEMAP as "hidden" | undefined },
-}))
+// A static build for ai.sms-pilot.de, served by Caddy from /srv/pilot/site
+// (docs/pilot-release.md). The SSR build only feeds the prerender.
+export default defineConfig({
+  plugins: [react()],
+  base: "/",
+})
