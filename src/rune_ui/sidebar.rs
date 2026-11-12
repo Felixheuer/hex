@@ -429,6 +429,7 @@ fn release_notes_link(ui: &Ui, p: Paint) -> Option<El> {
 fn version_line(ui: &Ui, p: Paint, version: El) -> El {
     let badge = match ui.build_preview.unwrap_or_else(build_kind) {
         BuildKind::Release => return version,
+        BuildKind::Local if crate::app_paths::is_macos_dev_build() => tr("Dev"),
         BuildKind::Local => tr("Local"),
         BuildKind::Test => tr("Test"),
     };
@@ -490,7 +491,9 @@ fn version_label() -> String {
     let version = if cfg!(test) { "0.0.0" } else { crate::VERSION };
     match option_env!("HEX_COMMIT") {
         Some(commit) => {
-            let kind = if crate::app_paths::is_local_build() {
+            let kind = if crate::app_paths::is_macos_dev_build() {
+                "dev"
+            } else if crate::app_paths::is_local_build() {
                 "local"
             } else {
                 "test"

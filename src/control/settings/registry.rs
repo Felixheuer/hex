@@ -342,6 +342,16 @@ pub(super) const KEYS: &[Key] = &[
         "Background assistant tasks may also operate the window in front, like the ChatGPT app (macOS)",
     ),
     key(
+        "assistant.keep_awake",
+        Kind::Bool,
+        "The computer doesn't sleep while a background assistant task works (the display may)",
+    ),
+    key(
+        "assistant.keep_display_awake",
+        Kind::Bool,
+        "With assistant.keep_awake, the display stays on too",
+    ),
+    key(
         "assistant.background_browser",
         Kind::Bool,
         "Web work runs in agent-browser's own hidden browsers, one per task (macOS)",

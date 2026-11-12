@@ -34,6 +34,7 @@ pub(super) fn result_row(
         CheckState::Pending => tr("Waiting to run").to_owned(),
         CheckState::Running if detail.is_empty() => tr("Checking…").to_owned(),
         CheckState::Ok => tr("Ready").to_owned(),
+        CheckState::Failed if doctor(detail).is_some() => doctor(detail).unwrap().to_owned(),
         CheckState::Failed
             if detail.starts_with("Hex needs Accessibility")
                 || detail.starts_with("agent-desktop has no Accessibility") =>
@@ -83,6 +84,25 @@ pub(super) fn result_row(
                 ),
         )
         .child(control)
+}
+
+/// The permission doctor's findings, translated (`desktop::permission_doctor`).
+fn doctor(detail: &str) -> Option<&'static str> {
+    #[cfg(target_os = "macos")]
+    {
+        use crate::desktop::permission_doctor::{
+            NEEDS_RESTART, NOT_INSTALLED, OTHER_COPIES, TRANSLOCATED,
+        };
+        [TRANSLOCATED, NOT_INSTALLED, OTHER_COPIES, NEEDS_RESTART]
+            .into_iter()
+            .find(|message| *message == detail)
+            .map(tr)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = detail;
+        None
+    }
 }
 
 /// A failed check's fix: its button at once, even while later checks run

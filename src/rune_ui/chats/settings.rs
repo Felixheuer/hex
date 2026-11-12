@@ -230,6 +230,34 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
             .into(),
         );
     }
+    desktop.push(
+        toggle_row(
+            p,
+            "assistant-keep-awake",
+            tr("Keep the Mac awake while tasks run"),
+            tr("Background tasks can run for hours or days. The display may sleep, but closing a laptop's lid on battery still sleeps it"),
+            assistant.keep_awake,
+            |ui: &mut Ui| {
+                ui.update(|settings| settings.assistant.keep_awake ^= true);
+            },
+        )
+        .into(),
+    );
+    if assistant.keep_awake {
+        desktop.push(
+            toggle_row(
+                p,
+                "assistant-keep-display-awake",
+                tr("Keep the display awake too"),
+                tr("The screen stays on while tasks run, so you can watch them"),
+                assistant.keep_display_awake,
+                |ui: &mut Ui| {
+                    ui.update(|settings| settings.assistant.keep_display_awake ^= true);
+                },
+            )
+            .into(),
+        );
+    }
     desktop.push(super::displays::settings_row(ui, p, layer).into());
     desktop.push(
         toggle_row(

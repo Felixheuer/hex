@@ -64,7 +64,8 @@ pub(crate) fn prompt_accessibility_trust() -> bool {
 }
 
 /// The running `.app` bundle's `CFBundleIdentifier`, or the build's default
-/// Hex identifier (`anomaly.hex` / `anomaly.hex.test`) outside a bundle.
+/// Hex identifier (`anomaly.hex`, `anomaly.hex.dev`, `anomaly.hex.test`)
+/// outside a bundle.
 pub(crate) fn running_bundle_id() -> String {
     let mut buf = [0u8; 256];
     let len = unsafe { hex_running_app_bundle_id(buf.as_mut_ptr(), buf.len()) };

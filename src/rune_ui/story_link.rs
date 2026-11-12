@@ -35,13 +35,10 @@ impl StoryLink {
     }
 }
 
-/// The scheme this build registers: a test build's never opens the real Hex.
+/// The scheme this build registers: a Dev or Test build's never opens the
+/// real Hex.
 pub(crate) fn scheme() -> &'static str {
-    if crate::app_paths::is_macos_test_build() {
-        "hex-test"
-    } else {
-        "hex"
-    }
+    crate::app_paths::variant().scheme()
 }
 
 /// Reads `scheme://story/<path>[?variant=V&play=1]`.

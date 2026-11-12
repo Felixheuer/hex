@@ -220,6 +220,16 @@ enum DevCommand {
         #[arg(required = true)]
         wavs: Vec<PathBuf>,
     },
+    /// Every copy of Hex on this Mac: Live, Dev, and the strays that only
+    /// confuse permissions. `--remove` deletes the strays.
+    Copies {
+        /// Delete the strays instead of only listing them.
+        #[arg(long)]
+        remove: bool,
+        /// The Dev build to keep (the one just installed).
+        #[arg(long)]
+        keep: Option<PathBuf>,
+    },
     /// Render offline audio through the Hex Microphone voice filter.
     VoiceFilter {
         #[command(subcommand)]
@@ -402,6 +412,13 @@ fn main() -> Result<()> {
             output,
         );
     }
+    #[cfg(target_os = "macos")]
+    if let Some(Command::Dev {
+        command: DevCommand::Copies { remove, keep },
+    }) = &cli.command
+    {
+        return desktop::copies::command(*remove, keep.as_deref());
+    }
     #[cfg(debug_assertions)]
     if let Some(Command::Dev {
         command:
@@ -505,7 +522,9 @@ fn main() -> Result<()> {
                         println!("{}", bundle.display());
                         return Ok(());
                     }
-                    DevCommand::VoiceFilter { .. } => unreachable!("handled before startup"),
+                    DevCommand::VoiceFilter { .. } | DevCommand::Copies { .. } => {
+                        unreachable!("handled before startup")
+                    }
                     DevCommand::AssistantDoctor { .. } => unreachable!("handled before startup"),
                     DevCommand::AssistantSpaceProbe => unreachable!("handled before startup"),
                 };
@@ -519,7 +538,9 @@ fn main() -> Result<()> {
             #[cfg(not(debug_assertions))]
             {
                 match command {
-                    DevCommand::VoiceFilter { .. } => unreachable!("handled before startup"),
+                    DevCommand::VoiceFilter { .. } | DevCommand::Copies { .. } => {
+                        unreachable!("handled before startup")
+                    }
                 }
             }
         }

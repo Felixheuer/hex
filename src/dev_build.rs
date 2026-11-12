@@ -12,7 +12,7 @@ pub fn is_dev_build() -> bool {
         cfg!(debug_assertions),
         cfg!(test),
         option_env!("HEX_LOCAL_BUILD"),
-        option_env!("HEX_TEST_BUILD"),
+        option_env!("HEX_TEST_BUILD").or(option_env!("HEX_DEV_BUILD")),
         option_env!("HEX_BUILD_CHANNEL"),
         crate::VERSION,
     )
