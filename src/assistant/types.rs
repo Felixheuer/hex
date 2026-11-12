@@ -199,6 +199,18 @@ pub enum TaskState {
     NeedsInput,
 }
 
+/// A question a task waits on (`TaskState::NeedsInput`), as the overlay's
+/// bubble shows it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WaitingQuestion {
+    pub conversation: ConversationId,
+    /// The task's title.
+    pub title: String,
+    pub question: String,
+    /// When it was asked (Unix ms).
+    pub asked_ms: u64,
+}
+
 /// One step of a task's plan, as the HUD and Chats show its progress.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct PlanStep {
@@ -292,6 +304,14 @@ pub enum Event {
         conversation: ConversationId,
         on: bool,
     },
+    /// The questions waiting on the person changed: which one to answer now
+    /// (its task's title and the question, for the overlay's bubble) and
+    /// how many wait behind it. Sent when a task asks, is answered, stops,
+    /// or the person puts the active one off; `None` when nothing waits.
+    QuestionsChanged {
+        active: Option<WaitingQuestion>,
+        waiting: usize,
+    },
     /// The stored list changed (a new, renamed, or deleted conversation).
     ConversationsChanged,
     /// Background work started or ended: the screen frame shows while any
@@ -321,7 +341,9 @@ impl Event {
             | Self::Plan { conversation, .. }
             | Self::Question { conversation, .. }
             | Self::Escalated { conversation } => Some(conversation),
-            Self::ConversationsChanged | Self::ModeChanged { .. } => None,
+            Self::ConversationsChanged
+            | Self::ModeChanged { .. }
+            | Self::QuestionsChanged { .. } => None,
         }
     }
 

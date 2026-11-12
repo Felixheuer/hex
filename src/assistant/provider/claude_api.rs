@@ -184,6 +184,47 @@ fn fallbacks(model: &str) -> bool {
     .contains(&model)
 }
 
+/// Whether `said` answers `question` (asked by the task `title`) or starts
+/// something new, as `model` judges within `within`; `None` without a key,
+/// on an error, or when it takes longer (`service::inbox`).
+pub fn classify_reply(
+    model: &str,
+    question: &str,
+    title: &str,
+    said: &str,
+    within: Duration,
+) -> Option<bool> {
+    let key = crate::assistant::credentials::api_key()?;
+    let body = json!({
+        "model": model,
+        "max_tokens": 4,
+        "system": "A task is waiting for the person's answer to its question. Decide whether what the person said next answers that question, or is a new, unrelated request. Reply with exactly one word: ANSWER or NEW.",
+        "messages": [{
+            "role": "user",
+            "content": format!("Task: {title}\nIts question: {question}\nThe person said: {said}"),
+        }],
+    });
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("assistant-classify".into())
+        .spawn(move || {
+            let _ = sender.send(send(&key, &body));
+        })
+        .ok()?;
+    let reply = receiver.recv_timeout(within).ok()?.ok()?;
+    let word = reply
+        .pointer("/content/0/text")?
+        .as_str()?
+        .to_ascii_uppercase();
+    if word.contains("NEW") {
+        Some(false)
+    } else if word.contains("ANSWER") {
+        Some(true)
+    } else {
+        None
+    }
+}
+
 fn send(key: &str, body: &Value) -> Result<Value> {
     let agent = crate::net::agent(URL, |config| {
         config
