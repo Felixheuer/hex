@@ -253,3 +253,55 @@ fn browsers_start_with_the_person_s_accounts_and_a_clean_one_is_asked_for() {
     assert!(prompt.contains("`signedIn: false` for a clean one"));
     assert!(prompt.contains("Never ask the person to sign in unless a page still shows a login"));
 }
+
+fn said(text: &str, at_ms: u64) -> crate::assistant::types::Message {
+    crate::assistant::types::Message {
+        role: Role::User,
+        parts: vec![crate::assistant::types::Part::Text { text: text.into() }],
+        at_ms,
+    }
+}
+
+#[test]
+fn an_escalated_job_never_adds_its_request_again() {
+    let mut stored = Stored::new(
+        "c1",
+        Origin::Chat,
+        "Teste dich selber und notiere die Lücken.",
+    );
+    stored.push(said("Teste dich selber und notiere die Lücken.", 1));
+    // The person wrote more before the job started.
+    stored.push(said("Wie weit bist du?", 2));
+    assert!(super::said_before(
+        &stored,
+        "Teste dich selber und notiere die Lücken."
+    ));
+    // Or the more was added to its request while it waited.
+    assert!(super::said_before(
+        &stored,
+        "Teste dich selber und notiere die Lücken.\n\nnimm Freitag"
+    ));
+    // A new job in a new conversation adds it; a short earlier word
+    // ("Ja") is no prefix.
+    let mut fresh = Stored::new("c2", Origin::Background, "Ja, recherchiere das");
+    assert!(!super::said_before(&fresh, "Ja, recherchiere das"));
+    fresh.push(said("Ja", 1));
+    assert!(!super::said_before(&fresh, "Ja, recherchiere das"));
+}
+
+#[test]
+fn a_steer_written_when_said_is_not_added_again() {
+    let mut stored = Stored::new("c1", Origin::Background, "job");
+    stored.push(said("use Friday instead", 1_000));
+    assert!(super::said_lately(
+        &stored,
+        "use Friday instead",
+        1_000 + 5_000
+    ));
+    assert!(!super::said_lately(
+        &stored,
+        "use Friday instead",
+        1_000 + 11 * 60_000
+    ));
+    assert!(!super::said_lately(&stored, "something else", 2_000));
+}

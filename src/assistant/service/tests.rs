@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use super::*;
 use crate::assistant::autonomy::Category;
-use crate::assistant::types::{Context, TaskWindow};
+use crate::assistant::types::{Context, Role, TaskWindow};
 
 /// What the fake backend does with a question.
 #[derive(Clone)]
@@ -56,6 +56,8 @@ struct World {
     authorizations: Mutex<std::collections::HashMap<String, Authorized>>,
     memory: Mutex<String>,
     due: Mutex<Vec<Schedule>>,
+    /// Messages written beside running tasks: (conversation, role, text).
+    notes: Mutex<Vec<(String, Role, String)>>,
 }
 
 const START: u64 = 1_000_000;
@@ -92,6 +94,7 @@ impl World {
             authorizations: Mutex::default(),
             memory: Mutex::default(),
             due: Mutex::default(),
+            notes: Mutex::default(),
             workspaces: std::env::temp_dir().join(format!(
                 "hex-runner-{}-{}",
                 std::process::id(),
@@ -234,6 +237,7 @@ impl World {
             world(self),
             world(self),
         );
+        let notes = world(self);
         let (recent, interrupted, prewarm, requests, workspaces) = (
             world(self),
             world(self),
@@ -294,6 +298,13 @@ impl World {
                     .ok()
             }),
             workspace_of: Box::new(|_| None),
+            note: Box::new(move |conversation, message| {
+                notes.notes.lock().unwrap().push((
+                    conversation.to_owned(),
+                    message.role,
+                    message.text(),
+                ));
+            }),
             authorized: Box::new(move |task| {
                 authorized
                     .authorizations
@@ -539,6 +550,20 @@ fn speaking_into_a_running_task_steers_it_in_the_same_conversation() {
             steps: vec!["Working on write to Anna".into()],
         }
     );
+    // The words sit in the job's conversation where they were said, with a
+    // short "noted" (the steered run doesn't add them again).
+    {
+        let notes = world.notes.lock().unwrap();
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert_eq!(
+            notes[0],
+            (id.clone(), Role::User, "use Friday instead".into())
+        );
+        assert_eq!(
+            (notes[1].0.as_str(), notes[1].1),
+            (id.as_str(), Role::Assistant)
+        );
+    }
     // The stopped turn kept its windows and browser, and said nothing final.
     assert!(!world.logged(&format!("release {id}")));
     assert!(world.finals().is_empty());
@@ -1468,4 +1493,71 @@ fn a_new_request_said_while_a_question_waits_starts_its_own_task() {
     assert_eq!(runner.inbox().active.unwrap().conversation, job);
     runner.cancel(&job);
     world.wait_for("the end", ended(&job));
+}
+
+#[test]
+fn asking_a_working_job_how_far_it_is_answers_in_its_own_conversation() {
+    let world = World::new(8);
+    let runner = world.runner();
+    let id = runner.submit(request("research suppliers", Origin::Background));
+    world.wait_for("the job", started(&id));
+    world.advance(20 * 60_000);
+    let mut asked = request("Wie weit bist du?", Origin::Chat);
+    asked.conversation = Some(id.clone());
+    assert_eq!(runner.submit(asked), id);
+    let notes = world.notes.lock().unwrap().clone();
+    assert_eq!(notes.len(), 2, "{notes:?}");
+    assert_eq!(
+        notes[0],
+        (id.clone(), Role::User, "Wie weit bist du?".into())
+    );
+    assert_eq!(notes[1].0, id);
+    assert_eq!(notes[1].1, Role::Assistant);
+    assert!(
+        notes[1]
+            .2
+            .starts_with("research suppliers: läuft seit 20 Minuten"),
+        "{}",
+        notes[1].2
+    );
+    // Told at once: nothing ran for it, the job wasn't steered or stopped.
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(world.jobs.lock().unwrap().len(), 1);
+    assert!(world.finals().is_empty());
+    world.release("research suppliers");
+    world.wait_for("the job's answer", ended(&id));
+    assert_eq!(world.jobs.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn words_said_while_a_job_waits_its_turn_join_it_in_order() {
+    let world = World::new(1);
+    let runner = world.runner();
+    let first = runner.submit(request("first", Origin::Background));
+    world.wait_for("the first job", started(&first));
+    let second = runner.submit(request("second job", Origin::Background));
+    let mut more = request("nimm bitte den Freitag", Origin::Chat);
+    more.conversation = Some(second.clone());
+    assert_eq!(runner.submit(more), second);
+    assert_eq!(
+        world.notes.lock().unwrap()[..],
+        [
+            (second.clone(), Role::User, "nimm bitte den Freitag".into()),
+            (
+                second.clone(),
+                Role::Assistant,
+                "Notiert, das nehme ich mit dazu, sobald ich anfange.".into()
+            ),
+        ]
+    );
+    world.release("first");
+    world.wait_until("the second job's run", || {
+        world.jobs.lock().unwrap().len() == 2
+    });
+    let job = world.jobs.lock().unwrap()[1].clone();
+    assert_eq!(job.conversation, second);
+    assert_eq!(job.request.text, "second job\n\nnimm bitte den Freitag");
+    assert!(matches!(job.kind, JobKind::Job { .. }));
+    world.release("second job\n\nnimm bitte den Freitag");
+    world.wait_for("the second answer", ended(&second));
 }
