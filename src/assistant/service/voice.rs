@@ -150,14 +150,12 @@ impl Voice {
                 }
                 (sentence, state.voice.clone().flatten(), state.generation)
             };
-            (runner.hooks.speak)(&sentence, voice.as_deref());
-            // Wait for it to be read before the next, unless stopped.
-            while (runner.hooks.speaking)() {
-                if self.state().generation != generation {
-                    break;
-                }
-                (runner.hooks.sleep)(Duration::from_millis(40));
+            if self.state().generation != generation {
+                continue;
             }
+            // Queued behind what plays (`speak_next`), so sentences follow
+            // each other with no gap and the next is handed over at once.
+            (runner.hooks.speak)(&sentence, voice.as_deref());
         }
     }
 }

@@ -13,7 +13,7 @@ use super::super::super::controls::{
 };
 use super::super::super::general::quiet_select;
 use super::super::super::lists::small_button;
-use super::super::round3_shim::{memory, voices};
+use super::super::bridge::{memory, voices};
 use super::super::{Job, Ui};
 use crate::assistant::autonomy::Autonomy;
 use crate::desktop::i18n::tr;
@@ -93,6 +93,7 @@ fn voice_label(name: &str) -> String {
         voices::Quality::Premium => tr("Premium"),
         voices::Quality::Enhanced => tr("Enhanced"),
         voices::Quality::Default => tr("Default"),
+        voices::Quality::Personal => tr("Personal Voice"),
     };
     let bare = name
         .replace(" (Premium)", "")

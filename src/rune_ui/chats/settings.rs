@@ -49,7 +49,7 @@ pub(in crate::rune_ui) struct SettingsState {
     /// agent-browser, once read.
     pub(in crate::rune_ui) browser: Option<AgentBrowser>,
     /// The connected displays, read when Settings or the onboarding opens.
-    pub(in crate::rune_ui) displays: Vec<super::display_shim::Display>,
+    pub(in crate::rune_ui) displays: Vec<crate::assistant::computer::Display>,
     /// What Hex knows about you, as edited, and whether that's saved.
     pub(in crate::rune_ui) memory: TextEdit,
     pub(in crate::rune_ui) memory_saved: bool,

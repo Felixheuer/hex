@@ -1281,6 +1281,7 @@ fn a_due_schedule_starts_a_background_job_and_the_memory_note_goes_along() {
         enabled: true,
         created_ms: START,
         last_run_ms: None,
+        once: false,
     });
     let runner = world.runner();
     let started = runner.run_due_schedules();

@@ -594,7 +594,7 @@ pub(in crate::rune_ui) fn advance(ui: &mut Ui) {
 
 /// What "Tell Hex about you" filled in, added to what Hex knows.
 pub(in crate::rune_ui) fn remember_about(ui: &mut Ui) {
-    use super::round3_shim::memory;
+    use super::bridge::memory;
     let Some(flow) = ui.chats.setup.as_ref() else {
         return;
     };

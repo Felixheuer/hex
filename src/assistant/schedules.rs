@@ -40,6 +40,10 @@ pub struct Schedule {
     /// When it last ran (Unix ms).
     #[serde(default)]
     pub last_run_ms: Option<u64>,
+    /// Runs one time, then removes itself (a dated cron line would
+    /// otherwise come back on the same date next year).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub once: bool,
 }
 
 impl Schedule {
@@ -60,8 +64,17 @@ pub fn list() -> Vec<Schedule> {
     dir().map(|dir| load(&dir)).unwrap_or_default()
 }
 
-/// Adds a schedule for `task` at `when`; it.
+/// Adds a schedule for `task` at `when`.
 pub fn add(when: &str, task: &str, lane: Lane) -> Result<Schedule> {
+    add_with(when, task, lane, false)
+}
+
+/// Adds a schedule that runs at `when`'s next time only, then removes itself.
+pub fn add_once(when: &str, task: &str, lane: Lane) -> Result<Schedule> {
+    add_with(when, task, lane, true)
+}
+
+fn add_with(when: &str, task: &str, lane: Lane, once: bool) -> Result<Schedule> {
     let when = when.trim();
     let rule = Rule::parse(when)?;
     let now = store::now_ms();
@@ -80,6 +93,7 @@ pub fn add(when: &str, task: &str, lane: Lane) -> Result<Schedule> {
         enabled: true,
         created_ms: now,
         last_run_ms: None,
+        once,
     };
     let added = schedule.clone();
     change(&dir()?, move |list| list.push(added))?;
@@ -140,6 +154,8 @@ pub fn take_due(now: u64) -> Vec<Schedule> {
                     schedule.last_run_ms = Some(now);
                 }
             }
+            // A one-time schedule is done once it has run.
+            list.retain(|schedule| !(schedule.once && schedule.last_run_ms.is_some()));
         })
     });
     due
@@ -572,6 +588,7 @@ mod tests {
             enabled: true,
             created_ms: NOW - 3 * 3_600_000,
             last_run_ms,
+            once: false,
         };
         // Three hours asleep: one run, not twelve.
         let list = [schedule(None)];

@@ -29,7 +29,7 @@ pub(in crate::rune_ui) struct Store {
     /// Folders, files, and links opened, in order.
     pub(in crate::rune_ui) opened: Vec<String>,
     /// Scheduled requests.
-    pub(in crate::rune_ui) schedules: Vec<super::round3_shim::schedules::Schedule>,
+    pub(in crate::rune_ui) schedules: Vec<super::bridge::schedules::Schedule>,
     /// The conversation last named as the one showing.
     pub(in crate::rune_ui) focus: Option<ConversationId>,
 }
@@ -263,7 +263,7 @@ pub(in crate::rune_ui) fn store(now: u64) -> Store {
         ("book-table".to_owned(), Outcome::Failed),
         ("sort-downloads".to_owned(), Outcome::Interrupted),
     ]);
-    use super::round3_shim::schedules::{Repeat, Schedule};
+    use super::bridge::schedules::{Repeat, Schedule};
     let schedules = vec![
         Schedule {
             id: "inbox".into(),
@@ -582,7 +582,7 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
     };
     let mut pane = super::ChatsPane::fixture(store);
     pane.images.fixture();
-    pane.settings.displays = super::display_shim::fixture();
+    pane.settings.displays = super::displays::fixture();
     // The scene shows what it set up, not what following would pick.
     pane.follow.was_showing = true;
     match scene {
@@ -659,7 +659,7 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
             pane.new_schedule = Some(super::schedules::NewSchedule {
                 text: rune::TextEdit::new("Summarize the news about our competitors"),
                 time: rune::TextEdit::new("7:30"),
-                repeat: super::round3_shim::schedules::Repeat::Weekdays,
+                repeat: super::bridge::schedules::Repeat::Weekdays,
                 error: None,
             });
         }

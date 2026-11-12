@@ -325,6 +325,8 @@ assistant_strings![
     ("Every day", ["Codziennie", "每天", "毎日", "Täglich", "Cada día", "Щодня", "Todo dia", "Chaque jour", "Каждый день"]),
     ("Weekdays", ["W dni robocze", "工作日", "平日", "Werktags", "Entre semana", "У будні", "Dias úteis", "En semaine", "По будням"]),
     ("Every week", ["Co tydzień", "每周", "毎週", "Wöchentlich", "Cada semana", "Щотижня", "Toda semana", "Chaque semaine", "Каждую неделю"]),
+    ("Custom", ["Niestandardowo", "自定义", "カスタム", "Eigene Regel", "Personalizado", "Власне правило", "Personalizado", "Personnalisé", "Своё правило"]),
+    ("Personal Voice", ["Głos osobisty", "个人声音", "パーソナルボイス", "Eigene Stimme", "Voz personal", "Особистий голос", "Voz Pessoal", "Voix personnelle", "Личный голос"]),
     ("Use a time like 8:00 or 17:30", ["Podaj godzinę, np. 8:00 lub 17:30", "请输入如 8:00 或 17:30 的时间", "8:00 や 17:30 のように入力してください", "Gib eine Uhrzeit wie 8:00 oder 17:30 an", "Usa una hora como 8:00 o 17:30", "Вкажіть час, як-от 8:00 або 17:30", "Use um horário como 8:00 ou 17:30", "Indiquez une heure comme 8:00 ou 17:30", "Укажите время, например 8:00 или 17:30"]),
     ("Run now", ["Uruchom teraz", "立即运行", "今すぐ実行", "Jetzt ausführen", "Ejecutar ahora", "Запустити зараз", "Executar agora", "Lancer maintenant", "Запустить сейчас"]),
     ("Delete schedule", ["Usuń harmonogram", "删除计划", "スケジュールを削除", "Zeitplan löschen", "Eliminar programación", "Видалити розклад", "Apagar agendamento", "Supprimer la programmation", "Удалить расписание"]),

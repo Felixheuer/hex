@@ -3,7 +3,7 @@
 //! [`fixture::Store`] (scenes, tests, a window not yet connected).
 
 use super::fixture;
-use super::round3_shim::schedules::{self, Repeat, Schedule};
+use super::bridge::schedules::{self, Repeat, Schedule};
 use crate::assistant::{
     Context, Conversation, ConversationId, ConversationSummary, Request, TaskState, TaskStatus,
     TaskWindow,

@@ -13,14 +13,13 @@
 mod agent_picker;
 mod agents;
 mod composer;
-mod display_shim;
 mod displays;
 mod events;
 mod follow;
 pub(super) mod fixture;
 mod jobs;
 mod list;
-mod round3_shim;
+mod bridge;
 mod schedules;
 mod settings;
 mod work;
@@ -187,7 +186,7 @@ pub(super) struct ChatsPane {
     /// Here conversations that became Background jobs while shown.
     pub(super) escalated: Vec<ConversationId>,
     /// The scheduled requests, as last read.
-    pub(super) schedules: Vec<round3_shim::schedules::Schedule>,
+    pub(super) schedules: Vec<bridge::schedules::Schedule>,
     /// The New schedule sheet, while it shows.
     pub(super) new_schedule: Option<schedules::NewSchedule>,
     /// The files in each job folder an answer named, by folder.

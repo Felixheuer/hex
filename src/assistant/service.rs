@@ -389,7 +389,7 @@ impl Hooks {
             start_session: Box::new(session::desktop_session::start),
             end_session: Box::new(session::desktop_session::end),
             style_agent: Box::new(session::desktop_session::style),
-            speak: Box::new(super::speech::speak),
+            speak: Box::new(speak_next),
             speaking: Box::new(super::speech::speaking),
             pick_voice: Box::new(super::speech::automatic_voice),
             stop_speaking: Box::new(super::speech::stop),
@@ -443,6 +443,16 @@ impl Hooks {
 
 /// The settings as applied, or as saved (read at most every two seconds)
 /// for a `hex` command that never applies them.
+/// Reads `text` right after what is being read, with no gap between
+/// sentences, or starts reading it when nothing is.
+fn speak_next(text: &str, voice: Option<&str>) {
+    if super::speech::speaking() {
+        super::speech::queue(text, voice);
+    } else {
+        super::speech::speak(text, voice);
+    }
+}
+
 fn current_settings() -> (bool, AssistantSettings) {
     static READ: Mutex<Option<(Instant, (bool, AssistantSettings))>> = Mutex::new(None);
     let (on, mut settings) = crate::app_settings::assistant_runtime().unwrap_or_else(|| {

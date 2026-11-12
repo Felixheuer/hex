@@ -8,7 +8,7 @@ use rune_kit::{Button, ButtonVariant, Switch, TextInput};
 
 use super::super::controls::{Paint, PushSize};
 use super::super::list_detail::{self as ld};
-use super::round3_shim::schedules::{Repeat, Schedule};
+use super::bridge::schedules::{Repeat, Schedule};
 use super::{ChatsPane, Ui};
 use crate::desktop::i18n::tr;
 
@@ -41,6 +41,7 @@ fn repeat_label(repeat: Repeat) -> &'static str {
         Repeat::Daily => tr("Every day"),
         Repeat::Weekdays => tr("Weekdays"),
         Repeat::Weekly => tr("Every week"),
+        Repeat::Custom => tr("Custom"),
     }
 }
 

@@ -8,7 +8,7 @@ use rune::{El, el, row};
 use super::super::Menu;
 use super::super::controls::{Paint, setting_row};
 use super::super::general::quiet_select;
-use super::display_shim::{self as shim, Display};
+use crate::assistant::computer::{self, Display};
 use super::Ui;
 use crate::desktop::i18n::tr;
 
@@ -19,24 +19,18 @@ const MAP_H: f32 = 36.0;
 /// Reads the connected displays (live only: scenes keep theirs).
 pub(super) fn read(ui: &mut Ui) {
     if ui.chats.live() {
-        ui.chats.settings.displays = shim::displays();
+        ui.chats.settings.displays = computer::displays();
     }
 }
 
 /// The display agents use now: the chosen one, or Auto's pick (the first
 /// you're not working on).
 fn used<'a>(displays: &'a [Display], chosen: Option<&str>) -> Option<&'a Display> {
-    match chosen {
-        Some(id) => displays.iter().find(|display| display.id == id),
-        None => displays
-            .iter()
-            .find(|display| !display.has_focus)
-            .or_else(|| displays.first()),
-    }
+    computer::agents_display(displays, chosen)
 }
 
-fn choose(display: Option<String>) {
-    shim::set_agent_display(display);
+fn choose(ui: &mut Ui, display: Option<String>) {
+    ui.update(|settings| settings.assistant.agent_display = display);
 }
 
 /// A small map of the displays as they're arranged, the agents' one
@@ -108,7 +102,7 @@ fn selected(displays: &[Display], chosen: Option<&str>) -> usize {
 /// Settings' row: the picker and the map.
 pub(super) fn settings_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     let displays = ui.chats.settings.displays.clone();
-    let chosen = shim::agent_display();
+    let chosen = ui.settings.assistant.agent_display.clone();
     let picker = {
         let ids: Vec<String> = displays.iter().map(|display| display.id.clone()).collect();
         quiet_select(
@@ -119,7 +113,7 @@ pub(super) fn settings_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
             tr("Agents work on"),
             labels(&displays),
             selected(&displays, chosen.as_deref()),
-            move |_, chosen| choose(chosen.checked_sub(1).and_then(|index| ids.get(index).cloned())),
+            move |ui, chosen| choose(ui, chosen.checked_sub(1).and_then(|index| ids.get(index).cloned())),
             layer,
         )
     };
@@ -144,7 +138,7 @@ pub(super) fn onboarding_row(ui: &Ui, p: Paint) -> Option<El> {
     if displays.len() < 2 {
         return None;
     }
-    let chosen = shim::agent_display();
+    let chosen = ui.settings.assistant.agent_display.clone();
     let picked = selected(displays, chosen.as_deref());
     let mut chips = row().key("display-chips").role("radiogroup").gap(6.0).flex_wrap();
     for (index, label) in labels(displays).into_iter().enumerate() {
@@ -158,7 +152,7 @@ pub(super) fn onboarding_row(ui: &Ui, p: Paint) -> Option<El> {
             format!("display{index}"),
             &label,
             index == picked,
-            move |_| choose(id.clone()),
+            move |ui| choose(ui, id.clone()),
         ));
     }
     Some(
@@ -189,13 +183,37 @@ pub(super) fn onboarding_row(ui: &Ui, p: Paint) -> Option<El> {
     )
 }
 
+/// Two displays side by side, the pointer on the main one, for scenes.
+pub(in crate::rune_ui) fn fixture() -> Vec<Display> {
+    vec![
+        Display {
+            id: "1".into(),
+            name: "Built-in Retina Display".into(),
+            frame: (0.0, 0.0, 1512.0, 982.0),
+            visible_frame: (0.0, 25.0, 1512.0, 957.0),
+            scale: 2.0,
+            is_primary: true,
+            has_focus: true,
+        },
+        Display {
+            id: "2".into(),
+            name: "Studio Display".into(),
+            frame: (1512.0, -300.0, 2560.0, 1440.0),
+            visible_frame: (1512.0, -300.0, 2560.0, 1440.0),
+            scale: 2.0,
+            is_primary: false,
+            has_focus: false,
+        },
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn auto_uses_the_display_you_are_not_on() {
-        let displays = shim::fixture();
+        let displays = fixture();
         assert_eq!(used(&displays, None).map(|d| d.id.as_str()), Some("2"));
         assert_eq!(used(&displays, Some("1")).map(|d| d.id.as_str()), Some("1"));
         assert_eq!(selected(&displays, Some("2")), 2);
