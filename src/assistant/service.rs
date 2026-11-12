@@ -682,9 +682,6 @@ pub(crate) struct Runner {
 #[derive(Default)]
 pub(crate) struct State {
     tasks: Vec<Task>,
-    /// Steers a lead asked for its helpers (helper, words, the person's
-    /// words behind the lead), waiting to be delivered (`team_tell`).
-    told: Vec<(ConversationId, String, Option<String>)>,
     /// Background work is queued, running, waiting, or paused (the desktop
     /// session runs around it; `background_busy`).
     background_on: bool,
@@ -957,6 +954,7 @@ impl Runner {
             let mut id = request.conversation.clone().unwrap_or_else(store::new_id);
             let mut key = None;
             let mut steered_parent: Option<ConversationId> = None;
+            let mut steered_title: Option<String> = None;
             if let Some(warm) = state.warm.take()
                 && kind == JobKind::Ask
                 && warm.lane == request.origin.lane()
@@ -978,8 +976,12 @@ impl Runner {
                     doing: target.status.step.clone(),
                     steps: target.steps.iter().cloned().collect(),
                 };
-                // A helper steered stays its lead's.
+                // A helper steered stays its lead's, and a job keeps its
+                // title (the new words are an instruction, not a name).
                 steered_parent = target.parent.clone();
+                if target.workspace.is_some() || matches!(target.kind, JobKind::Job { .. }) {
+                    steered_title = Some(target.status.title.clone());
+                }
                 // A job's transcript gets the words where they were said,
                 // with a short "noted"; its steered run doesn't add them again.
                 if target.workspace.is_some() || matches!(target.kind, JobKind::Job { .. }) {
@@ -1032,10 +1034,13 @@ impl Runner {
                 voice,
                 said,
             );
-            if steered_parent.is_some()
-                && let Some(task) = state.tasks.last_mut()
-            {
-                task.parent = steered_parent;
+            if let Some(task) = state.tasks.last_mut() {
+                if steered_parent.is_some() {
+                    task.parent = steered_parent;
+                }
+                if let Some(title) = steered_title {
+                    task.status.title = title;
+                }
             }
             id
         };

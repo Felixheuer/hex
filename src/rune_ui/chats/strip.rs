@@ -118,6 +118,10 @@ pub(super) fn task_strip(ui: &Ui, p: Paint) -> Option<El> {
 fn strip_order(tasks: &[TaskStatus], held: impl Fn(&TaskStatus) -> bool) -> Vec<&TaskStatus> {
     let mut ordered: Vec<&TaskStatus> = tasks.iter().filter(|task| held(task)).collect();
     ordered.extend(tasks.iter().filter(|task| !held(task)));
+    // A steer queues the conversation's next run beside the one it stops:
+    // one chip each.
+    let mut seen = std::collections::HashSet::new();
+    ordered.retain(|task| seen.insert(task.conversation.clone()));
     ordered.truncate(STRIP_MAX);
     ordered
 }

@@ -105,28 +105,13 @@ const STOP_ONE: &[&str] = &[
 ];
 /// Words naming what's stopped, never part of its name.
 const NOT_A_NAME: &[&str] = &[
-    "die",
-    "den",
-    "das",
-    "der",
-    "dem",
-    "the",
-    "a",
-    "an",
-    "ab",
-    "an",
-    "aufgabe",
-    "auftrag",
-    "job",
-    "task",
-    "recherche",
-    "bitte",
-    "please",
-    "mal",
-    "jetzt",
-    "sofort",
-    "now",
+    "die", "den", "das", "der", "dem", "the", "a", "an", "ab", "aufgabe", "auftrag", "job", "task",
+    "bitte", "please", "mal", "jetzt", "sofort", "now",
 ];
+/// Words that make a stop one of a job, not of something else the person
+/// names ("Stopp das Video" pauses a video; "Stopp die Video-Aufgabe"
+/// stops the job).
+const TASK_WORDS: &[&str] = &["aufgabe", "auftrag", "job", "task"];
 
 /// The words naming one task when `text` asks to stop it ("Brich die
 /// Shop-Aufgabe ab" → ["shop"]); `None` when it's no such stop. A plain stop
@@ -141,6 +126,9 @@ pub(crate) fn named_stop(text: &str) -> Option<Vec<String>> {
         .map(str::to_lowercase)
         .collect();
     if words.len() > 8 || !STOP_ONE.contains(&words.first()?.as_str()) {
+        return None;
+    }
+    if !words.iter().any(|word| TASK_WORDS.contains(&word.as_str())) {
         return None;
     }
     let names: Vec<String> = words[1..]
@@ -199,7 +187,7 @@ mod tests {
             ("Brich die Shop-Aufgabe ab", "shop"),
             ("Stopp den Einstein Auftrag", "einstein"),
             ("Cancel the shop task", "shop"),
-            ("Beende bitte Einstein", "einstein"),
+            ("Beende bitte den Einstein-Job", "einstein"),
         ] {
             let names = named_stop(said).unwrap_or_else(|| panic!("{said}"));
             assert_eq!(
@@ -213,8 +201,12 @@ mod tests {
         assert_eq!(named_stop("Stopp alle Aufgaben"), None);
         assert_eq!(named_stop("Stoppuhr auf fünf Minuten"), None);
         assert_eq!(named_stop("Halte mir den Termin frei"), None);
+        // A stop of something else, even with a job's word in it, is no
+        // job's stop: „Stopp das Video“ pauses a video.
+        assert_eq!(named_stop("Stopp das Video"), None);
+        assert_eq!(named_stop("Cancel my meeting with Anna"), None);
         // A stop that names no running task stays a request.
-        let names = named_stop("Beende die Präsentation").unwrap();
+        let names = named_stop("Beende die Präsentations-Aufgabe").unwrap();
         assert!(task_named(&names, &tasks).is_none());
         // Two tasks named alike: not guessed.
         let twins = [status("a", "Shop bauen"), status("b", "Shop testen")];

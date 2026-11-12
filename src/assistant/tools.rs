@@ -231,7 +231,7 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
                 }],
             )?;
             if told.is_empty() {
-                return Err("No helper of yours has that id (hex_team_status lists them).".into());
+                return Err("No helper was told: none of yours has that id, or it waits for the person's answer to its question (only they answer it; hex_team_status shows each one).".into());
             }
             let names: Vec<&str> = told.iter().map(|member| member.title.as_str()).collect();
             Ok(format!("Told {}: {}.", told.len(), names.join(", ")))

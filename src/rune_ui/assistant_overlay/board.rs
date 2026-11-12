@@ -493,8 +493,9 @@ impl Board {
     pub(crate) fn stack(&self) -> Vec<Task> {
         self.tasks
             .iter()
-            // Every job, typed in Chats or not, as the cards show them.
-            .filter(|task| task.origin != Origin::ActionShortcut)
+            // Jobs: a Chats request that became one was escalated, which
+            // made it Background here; a plain Chats reply isn't one.
+            .filter(|task| task.origin == Origin::Background)
             .cloned()
             .collect()
     }
@@ -506,7 +507,7 @@ impl Board {
             || self
                 .tasks
                 .iter()
-                .any(|task| task.origin != Origin::ActionShortcut)
+                .any(|task| task.origin == Origin::Background)
     }
 
     /// Whether any task waits out a usage limit (its countdown ticks).
@@ -926,7 +927,7 @@ mod tests {
     }
 
     #[test]
-    fn the_stack_lists_every_job_and_outlines_cover_every_live_one() {
+    fn the_stack_lists_jobs_and_outlines_cover_every_live_one() {
         let t0 = Instant::now();
         let mut board = Board::default();
         board.apply(&started(1, Origin::Background, "a"), None, t0);
@@ -943,8 +944,10 @@ mod tests {
             );
         }
         let stack: Vec<_> = board.stack().into_iter().map(|t| t.id).collect();
-        // Jobs typed in Chats too (they get cards); quick questions don't.
-        assert_eq!(stack, [id(1), id(2)]);
+        // Jobs only: a plain Chats reply (`Chat`) and a quick question
+        // aren't; a Chats request that became a job was escalated to
+        // Background.
+        assert_eq!(stack, [id(1)]);
         assert_eq!(board.outlined().len(), 3);
     }
 

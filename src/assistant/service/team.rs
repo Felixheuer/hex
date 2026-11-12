@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use super::{Context, ConversationId, JobKind, Origin, Request, Runner, Said, State, agent, store};
+use super::{Context, JobKind, Origin, Request, Runner, State, TaskState, agent, store};
 
 impl Runner {
     /// Starts the helpers a job asked for (`agent::team`), and answers it.
@@ -17,23 +17,7 @@ impl Runner {
         if let Err(why) = &result {
             tracing::info!(lead = ask.lead, why, "a team request was refused");
         }
-        // A tell answers with the helpers told, not as started helpers.
-        let told = std::mem::take(&mut self.state().told);
         (self.hooks.team_answer)(ask, result);
-        // Instructions for helpers steer them, outside the state's lock;
-        // a lead's words authorize only from the person's (`Said`).
-        for (helper, text, said) in told {
-            self.submit_as(
-                Request {
-                    conversation: Some(helper),
-                    text,
-                    origin: Origin::Background,
-                    context: Context::default(),
-                },
-                JobKind::Ask,
-                said.map_or(Said::Nobody, Said::Words),
-            );
-        }
         if started {
             self.refresh_mode();
             self.pump();
@@ -59,7 +43,7 @@ impl Runner {
         }
         let said = lead.said.clone();
         if !ask.tell.is_empty() {
-            return Ok(Self::team_tell(state, ask, said));
+            return Ok(self.team_tell(state, ask, said));
         }
         let working = state
             .tasks
@@ -110,10 +94,14 @@ impl Runner {
         Ok(members)
     }
 
-    /// Notes the steers for the helpers `ask.tell` names (they must be the
-    /// lead's); the helpers told. `start_team` delivers them once the
-    /// state's lock is let go.
+    /// Passes the lead's instructions on to the helpers `ask.tell` names
+    /// (they must be its own): a working helper is steered, a queued one
+    /// gets the words added to its task; the helpers told. Done right here
+    /// rather than as a request, so a tell never answers a helper's
+    /// question or confirmation (those wait on the person), is never routed
+    /// to another task by its words, and says nothing aloud.
     fn team_tell(
+        &self,
         state: &mut State,
         ask: &agent::team::Ask,
         said: Option<String>,
@@ -124,17 +112,44 @@ impl Runner {
             if text.is_empty() {
                 continue;
             }
-            let helpers: Vec<(ConversationId, String)> = state
+            let keys: Vec<u64> = state
                 .tasks
                 .iter()
                 .filter(|task| task.parent.as_deref() == Some(ask.lead.as_str()))
                 .filter(|task| tell.to == "all" || task.status.conversation == tell.to)
-                .map(|task| (task.status.conversation.clone(), task.status.title.clone()))
+                .filter(|task| task.status.state != TaskState::NeedsInput)
+                .filter(|task| !task.control.steered())
+                .map(|task| task.key)
                 .collect();
-            for (helper, title) in helpers {
-                state
-                    .told
-                    .push((helper.clone(), text.to_owned(), said.clone()));
+            for key in keys {
+                let Some(task) = state.tasks.iter_mut().find(|task| task.key == key) else {
+                    continue;
+                };
+                let (helper, title) = (task.status.conversation.clone(), task.status.title.clone());
+                if task.running {
+                    let kind = JobKind::Steer {
+                        doing: task.status.step.clone(),
+                        steps: task.steps.iter().cloned().collect(),
+                    };
+                    let context = Context {
+                        screenshot: None,
+                        ..task.request.context.clone()
+                    };
+                    task.control.steer();
+                    let request = Request {
+                        conversation: Some(helper.clone()),
+                        text: text.to_owned(),
+                        origin: Origin::Background,
+                        context,
+                    };
+                    self.push_task(state, request, kind, None, false, false, said.clone());
+                    if let Some(steered) = state.tasks.last_mut() {
+                        steered.parent = Some(ask.lead.clone());
+                        steered.status.title = title.clone();
+                    }
+                } else {
+                    task.request.text = format!("{}\n\n{text}", task.request.text.trim_end());
+                }
                 told.push(agent::team::Member {
                     id: helper,
                     title,

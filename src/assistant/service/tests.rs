@@ -595,6 +595,61 @@ fn a_job_leads_helpers_that_work_in_its_folder_and_stop_with_it() {
 }
 
 #[test]
+fn a_lead_never_answers_its_helper_s_question() {
+    use crate::assistant::agent::handoff::Job as Part;
+    use crate::assistant::agent::team::{Ask, Tell};
+    let world = World::new(8);
+    world.script("Order the parts", Script::Ask("Abschicken (89 €)?"));
+    let runner = world.runner();
+    let lead = runner.submit(request("Build the robot", Origin::Background));
+    world.wait_for("the lead", started(&lead));
+    world.team_asks.lock().unwrap().push(Ask {
+        lead: lead.clone(),
+        nonce: "start".into(),
+        jobs: vec![Part {
+            title: "Parts".into(),
+            task: "Order the parts".into(),
+        }],
+        tell: Vec::new(),
+    });
+    world.wait_until("the helper", || {
+        !world.team_answers.lock().unwrap().is_empty()
+    });
+    let (_, started_helpers) = world.team_answers.lock().unwrap().remove(0);
+    let helper = started_helpers.unwrap().remove(0).id;
+    world.wait_for("the helper's question", asked(&helper));
+    // The lead says yes in its place: the question stays the person's.
+    world.team_asks.lock().unwrap().push(Ask {
+        lead: lead.clone(),
+        nonce: "yes".into(),
+        jobs: Vec::new(),
+        tell: vec![Tell {
+            to: helper.clone(),
+            text: "Ja".into(),
+        }],
+    });
+    world.wait_until("the tell's answer", || {
+        !world.team_answers.lock().unwrap().is_empty()
+    });
+    let (_, told) = world.team_answers.lock().unwrap().remove(0);
+    assert!(told.unwrap().is_empty(), "nobody told");
+    let state = runner
+        .tasks()
+        .into_iter()
+        .find(|task| task.conversation == helper)
+        .map(|task| task.state);
+    assert_eq!(
+        state,
+        Some(TaskState::NeedsInput),
+        "still asking the person"
+    );
+    runner.cancel(&lead);
+    world.wait_for("the end", |events| {
+        ended(&lead)(events) && ended(&helper)(events)
+    });
+}
+
+#[test]
 fn leads_waiting_for_helpers_hold_no_slot() {
     use crate::assistant::agent::handoff::Job as Part;
     use crate::assistant::agent::team::Ask;

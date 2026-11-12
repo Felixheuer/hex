@@ -338,7 +338,8 @@ pub fn answer(root: &Path, ask: &Ask, result: Result<Vec<Member>, String>) {
     }
     let answered = match result {
         Ok(members) => {
-            for member in &members {
+            // A tell's helpers keep their records; only new ones are noted.
+            for member in members.iter().filter(|_| ask.tell.is_empty()) {
                 record(root, &ask.lead, member);
                 index().insert(member.id.clone(), ask.lead.clone());
             }

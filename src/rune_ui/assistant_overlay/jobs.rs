@@ -77,7 +77,9 @@ pub(crate) enum Layout {
 pub(crate) fn running(tasks: &[Task]) -> Vec<&Task> {
     tasks
         .iter()
-        .filter(|task| task.origin != Origin::ActionShortcut)
+        // Jobs: a Chats request that became one was escalated (Background
+        // here); a plain Chats reply gets no card.
+        .filter(|task| task.origin == Origin::Background)
         .filter(|task| matches!(task.phase, Phase::Queued | Phase::Running))
         .collect()
 }
