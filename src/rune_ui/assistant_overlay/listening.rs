@@ -117,12 +117,10 @@ pub(crate) fn drawn(p: Paint, state: &Listening, still: bool) -> El {
             .key("listening-label")
             .font(p.k.ty.small_medium)
             .color(p.muted())
-            .transition(
-                Transition::opacity().springs(rune::SpringPair::new(
-                    Spring::new(0.3, 0.0),
-                    Spring::new(0.9, 0.0),
-                )),
-            )
+            .transition(Transition::opacity().springs(rune::SpringPair::new(
+                Spring::new(0.3, 0.0),
+                Spring::new(0.9, 0.0),
+            )))
     });
     let c = &p.k.c;
     row()

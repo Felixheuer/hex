@@ -9,6 +9,7 @@ use super::super::controls::Paint;
 use super::board::{Board, Bubble};
 use super::desk::{self, Desk};
 use super::hint::Hint;
+use super::listening::{self, Listening};
 use super::{bubble, fixture, frame, hands, orb, stack};
 
 /// Adds the assistant's stories to `playground`.
@@ -18,6 +19,7 @@ pub(crate) fn add<S: 'static>(playground: Playground<S>) -> Playground<S> {
         .story(orb_story())
         .story(quick_answer())
         .story(hands_story())
+        .story(listening_story())
         .story(frame_story())
 }
 
@@ -272,6 +274,33 @@ fn hands_story() -> Story<()> {
                 .child(hands::pill(p))
         },
     )
+}
+
+/// Conversation mode's listening, counting down eight seconds: L listens
+/// again.
+fn listening_story() -> Story<Listening> {
+    Story::new(
+        "Prototypes/Assistant/Listening",
+        || Listening::start(std::time::Instant::now(), 8.0),
+        |state: &Listening, cx: &mut Cx<Listening>| {
+            let p = Paint::new(cx.system_dark(), cx.env().scale);
+            let (w, h) = listening::SIZE;
+            el().key("listening-stage")
+                .size(w, h)
+                .center()
+                .child(listening::drawn(p, state, cx.system_reduced_motion()))
+        },
+    )
+    .poll(|state: &mut Listening, _, tx| {
+        let changed = state.tick(std::time::Instant::now());
+        if state.left > 0.0 {
+            tx.wake_after(std::time::Duration::from_millis(80));
+        }
+        changed
+    })
+    .trigger('l', "Listen again", |state, _| {
+        *state = Listening::start(std::time::Instant::now(), 8.0)
+    })
 }
 
 fn frame_story() -> Story<()> {

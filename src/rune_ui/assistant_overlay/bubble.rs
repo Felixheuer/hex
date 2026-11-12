@@ -221,15 +221,15 @@ fn voice(p: Paint, voice: Voice) -> El {
             el().key("voice-dot")
                 .size(size, size)
                 .radius(size / 2.0)
-        .gradient(lead, trail)
-        .box_shadow(rune::Shadow {
-            x: 0.0,
-            y: 0.0,
-            blur: 8.0,
-            spread: 1.0,
-            color: lead.alpha(0.6),
-            inset: false,
-        })
+                .gradient(lead, trail)
+                .box_shadow(rune::Shadow {
+                    x: 0.0,
+                    y: 0.0,
+                    blur: 8.0,
+                    spread: 1.0,
+                    color: lead.alpha(0.6),
+                    inset: false,
+                })
                 .opacity(voice.level.map_or(1.0, |level| 0.45 + 0.55 * pulse(level))),
         )
         .a11y_hidden();
