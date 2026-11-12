@@ -217,7 +217,11 @@ pub(super) fn validate_hotkey(
     target: ShortcutTarget,
     binding: &HotkeyBinding,
 ) -> Result<(), &'static str> {
-    if target != ShortcutTarget::Dictation && binding.key.is_none() {
+    // The dictation and Action shortcuts may be a modifier alone (right
+    // Ctrl for the Action shortcut by default); the rest fire on a key.
+    if !matches!(target, ShortcutTarget::Dictation | ShortcutTarget::Action)
+        && binding.key.is_none()
+    {
         return Err(tr("Add a key"));
     }
     // Hex takes the cancel key only while a recording runs, so a key alone,

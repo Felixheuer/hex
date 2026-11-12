@@ -8,11 +8,25 @@ use rune::{El, col, text};
 
 use super::super::controls::{Paint, card, toggle_row};
 use super::Ui;
-use crate::desktop::i18n::tr;
+use crate::desktop::i18n::{tr, tr_fill};
 
-/// What the assistant does, under its name.
-fn about() -> &'static str {
-    tr("Hold right ⌘ to ask, double-tap for your tasks")
+/// What the assistant does, under its name, with this computer's Action
+/// shortcut ("Hold right ⌘", "Hold Right Ctrl").
+fn about(ui: &Ui) -> String {
+    let keys = ui
+        .settings
+        .assistant
+        .action_hotkey
+        .as_ref()
+        .map(|binding| binding.keycaps().join(" "))
+        .filter(|keys| !keys.is_empty());
+    match keys {
+        _ if cfg!(target_os = "macos") && keys.as_deref().is_none_or(|keys| keys == "Right ⌘") => {
+            tr("Hold right ⌘ to ask, double-tap for your tasks").to_owned()
+        }
+        Some(keys) => tr_fill("Hold {} to ask, double-tap for your tasks", &keys),
+        None => tr("Set an Action shortcut in General to ask by voice").to_owned(),
+    }
 }
 
 /// Turns the assistant on or off. On, an Action shortcut another shortcut
@@ -31,6 +45,7 @@ pub(super) fn set(ui: &mut Ui, on: bool) {
 /// Settings' first card: the assistant's on/off row.
 pub(super) fn settings_card(ui: &Ui, p: Paint) -> El {
     let on = crate::assistant::enabled(&ui.settings);
+    let about = about(ui);
     card(
         p,
         "assistant-switch",
@@ -38,7 +53,7 @@ pub(super) fn settings_card(ui: &Ui, p: Paint) -> El {
             p,
             "assistant-enabled",
             tr("Assistant"),
-            about(),
+            about.as_str(),
             on,
             move |ui: &mut Ui| set(ui, !on),
         )],
@@ -46,7 +61,7 @@ pub(super) fn settings_card(ui: &Ui, p: Paint) -> El {
 }
 
 /// The Chats view while the assistant is off: what it is, and Turn on.
-pub(super) fn off_card(p: Paint) -> El {
+pub(super) fn off_card(ui: &Ui, p: Paint) -> El {
     use super::super::onboarding_kit::{LEAD, title_font};
     col()
         .key("assistant-off")
@@ -64,7 +79,7 @@ pub(super) fn off_card(p: Paint) -> El {
                 .color(p.text()),
         )
         .child(
-            text(about())
+            text(about(ui))
                 .key("detail")
                 .font(LEAD)
                 .color(p.muted())

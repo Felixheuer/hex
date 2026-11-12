@@ -104,7 +104,11 @@ pub(in crate::rune_ui) mod schedules {
     }
 
     /// Adds a Background schedule and returns its id.
-    pub(in crate::rune_ui) fn add(text: &str, minute_of_day: u32, repeat: Repeat) -> Result<String> {
+    pub(in crate::rune_ui) fn add(
+        text: &str,
+        minute_of_day: u32,
+        repeat: Repeat,
+    ) -> Result<String> {
         if text.trim().is_empty() {
             return Err(eyre!("Say what it should do"));
         }
@@ -179,10 +183,11 @@ pub(in crate::rune_ui) mod voices {
 
     /// A hint when a much better voice than the installed ones can be
     /// downloaded for the system's language.
-    pub(in crate::rune_ui) fn better_voice_available(_installed: &[String]) -> Option<&'static str> {
+    pub(in crate::rune_ui) fn better_voice_available(
+        _installed: &[String],
+    ) -> Option<&'static str> {
         let language = speech::language_of(&system_sample())?;
-        speech::better_voice_available(language)
-            .map(|_| "Premium voices sound far more natural")
+        speech::better_voice_available(language).map(|_| "Premium voices sound far more natural")
     }
 
     /// A short phrase in the system's language, for picking its language.

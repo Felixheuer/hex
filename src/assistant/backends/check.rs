@@ -631,6 +631,15 @@ fn judge_grants(check: Check, grants: desktop::Grants, who: &str) -> CheckResult
             check,
             format!("Accessibility and Screen Recording are granted ({who})"),
         ),
+        (false, _) if cfg!(target_os = "linux") => CheckResult::failed(
+            check,
+            format!(
+                "agent-desktop can't read apps ({who}): turn on assistive technologies \
+                 (AT-SPI), e.g. gsettings set org.gnome.desktop.interface \
+                 toolkit-accessibility true, then sign out and in"
+            ),
+            None,
+        ),
         (false, _) => CheckResult::failed(
             check,
             format!("agent-desktop has no Accessibility ({who}). Switch Hex on in System Settings"),

@@ -20,10 +20,8 @@ use rune_kit::{Button, ButtonVariant, Spinner, glyphs};
 use super::super::controls::{Paint, PushSize, pulsing_dot};
 use super::super::icons::{GLOBE, MIC, SPARKLES};
 use super::super::onboarding_kit::{LEAD, Motion, arrives, keys, title_font};
-use super::setup::{
-    self, Page, SetupFlow, page_done,
-};
 use super::Ui;
+use super::setup::{self, Page, SetupFlow, page_done};
 use crate::assistant::backends::CheckState;
 use crate::desktop::i18n::{tr, tr_fill};
 
@@ -68,13 +66,11 @@ pub(in crate::rune_ui) fn overlay(ui: &Ui, p: Paint) -> Option<El> {
             .child(top_bar(ui, flow, p))
             .children(flow.from_hold.then(|| {
                 row().key("from-hold").w_full().justify_center().child(
-                    text(tr(
-                        "Finish setting up the assistant first",
-                    ))
-                    .key("words")
-                    .role("status")
-                    .font(p.k.ty.small_medium)
-                    .color(p.accent()),
+                    text(tr("Finish setting up the assistant first"))
+                        .key("words")
+                        .role("status")
+                        .font(p.k.ty.small_medium)
+                        .color(p.accent()),
                 )
             }))
             .child(
@@ -134,7 +130,7 @@ fn top_bar(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
 /// with Later amber.
 fn progress(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     let c = &p.k.c;
-    let current = Page::ALL
+    let current = Page::shown()
         .iter()
         .position(|page| *page == flow.page)
         .unwrap_or(0);
@@ -144,11 +140,11 @@ fn progress(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         .label(tr("Setup"))
         .a11y_value(tr_fill(
             "Step {}",
-            &format!("{} / {}", current + 1, Page::ALL.len()),
+            &format!("{} / {}", current + 1, Page::shown().len()),
         ))
         .gap(6.0)
         .center_y();
-    for (index, page) in Page::ALL.iter().enumerate() {
+    for (index, page) in Page::shown().iter().enumerate() {
         let here = index == current;
         let fill = if here {
             c.text_base
@@ -486,17 +482,41 @@ fn welcome(ui: &Ui, p: Paint) -> El {
     let (title, copy) = if flow.is_some_and(|flow| flow.merged) {
         (
             tr("Now, your assistant"),
-            tr("Hex can also answer questions about what's on screen and use your Mac for you. A few checks, and you're done."),
+            if cfg!(target_os = "macos") {
+                tr(
+                    "Hex can also answer questions about what's on screen and use your Mac for you. A few checks, and you're done.",
+                )
+            } else {
+                tr(
+                    "Hex can also answer questions about what's on screen and use your computer for you. A few checks, and you're done.",
+                )
+            },
         )
     } else if flow.is_some_and(|flow| flow.new_in_hex) {
         (
             tr("New in Hex: your assistant"),
-            tr("Ask about what's on screen, or let it use your Mac for you. Hex makes sure every piece works first."),
+            if cfg!(target_os = "macos") {
+                tr(
+                    "Ask about what's on screen, or let it use your Mac for you. Hex makes sure every piece works first.",
+                )
+            } else {
+                tr(
+                    "Ask about what's on screen, or let it use your computer for you. Hex makes sure every piece works first.",
+                )
+            },
         )
     } else {
         (
             tr("Meet your assistant"),
-            tr("Ask anything by voice, or let it use your Mac for you. Hex makes sure every piece works first."),
+            if cfg!(target_os = "macos") {
+                tr(
+                    "Ask anything by voice, or let it use your Mac for you. Hex makes sure every piece works first.",
+                )
+            } else {
+                tr(
+                    "Ask anything by voice, or let it use your computer for you. Hex makes sure every piece works first.",
+                )
+            },
         )
     };
     page(
@@ -514,11 +534,21 @@ fn welcome(ui: &Ui, p: Paint) -> El {
 /// nothing is installed, OpenCode on your own key).
 fn agent(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     let lead_copy = if flow.detecting && ui.chats.settings.found.is_none() {
-        tr("Looking for the agents on this Mac…")
+        if cfg!(target_os = "macos") {
+            tr("Looking for the agents on this Mac…")
+        } else {
+            tr("Looking for the agents on this computer…")
+        }
     } else if super::agents::nothing_installed(ui) {
-        tr("Nothing is installed yet. One click sets up the one we suggest, or use your own API key.")
+        tr(
+            "Nothing is installed yet. One click sets up the one we suggest, or use your own API key.",
+        )
     } else {
-        tr("It runs on this Mac, signed in with your own account or key.")
+        if cfg!(target_os = "macos") {
+            tr("It runs on this Mac, signed in with your own account or key.")
+        } else {
+            tr("It runs on this computer, signed in with your own account or key.")
+        }
     };
     page(
         p,
@@ -560,4 +590,3 @@ fn mark(p: Paint, state: CheckState) -> El {
         .child(mark)
         .a11y_hidden()
 }
-

@@ -123,7 +123,9 @@ fn finish_setup(ui: &Ui, p: Paint) -> El {
         Some(page) if page != super::setup::Page::Welcome => {
             tr("It picks up where you left off, and checks that page again.")
         }
-        _ => tr("Hex checks that the agent, its permissions, and the shortcuts work, then you try it once."),
+        _ => tr(
+            "Hex checks that the agent, its permissions, and the shortcuts work, then you try it once.",
+        ),
     };
     col()
         .key("finish-setup")

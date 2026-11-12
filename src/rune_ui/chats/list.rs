@@ -63,7 +63,12 @@ pub(super) fn body(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
         .shrink()
         .children((!notices.is_empty()).then(|| ld::notices(notices)))
         .children(strip::task_strip(ui, p))
-        .child(ld::body(p, "chats-body", column, transcript::detail(ui, p, layer)))
+        .child(ld::body(
+            p,
+            "chats-body",
+            column,
+            transcript::detail(ui, p, layer),
+        ))
 }
 
 fn search(ui: &Ui, p: Paint) -> El {
@@ -134,10 +139,13 @@ fn group(updated_ms: u64, now_ms: u64) -> &'static str {
 fn list(ui: &Ui, p: Paint) -> El {
     let pane = &ui.chats;
     let rows = pane.rows();
-    let mut list = col()
-        .key("chats-list")
-        .label(tr("Chats"))
-        .children(pane.search.text.trim().is_empty().then(|| super::schedules::group(ui, p)));
+    let mut list = col().key("chats-list").label(tr("Chats")).children(
+        pane.search
+            .text
+            .trim()
+            .is_empty()
+            .then(|| super::schedules::group(ui, p)),
+    );
     if rows.is_empty() {
         let empty = if pane.search.text.trim().is_empty() {
             tr("No chats yet.")
@@ -171,8 +179,8 @@ fn item(ui: &Ui, p: Paint, summary: &ConversationSummary, now: u64) -> El {
     let pane = &ui.chats;
     let running = pane.running(&summary.id);
     let task = pane.task(&summary.id);
-    let failed = pane.failures.contains_key(&summary.id)
-        || (!running && summary.outcome == Outcome::Failed);
+    let failed =
+        pane.failures.contains_key(&summary.id) || (!running && summary.outcome == Outcome::Failed);
     let interrupted = !running && summary.outcome == Outcome::Interrupted;
     let latest_step = || {
         pane.turns

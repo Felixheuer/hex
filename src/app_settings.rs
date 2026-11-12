@@ -15,9 +15,9 @@ use serde::{Deserialize, Serialize};
 use crate::dictation::vocabulary::{VocabularyEntry, serialize_saved};
 use crate::transcription::models::{TranscriptionModelId, TranscriptionSelection};
 
+mod assistant;
 #[cfg(hex_capture)]
 mod capture;
-mod assistant;
 mod dictation_processing;
 mod extra_shortcuts;
 mod hotkeys;
@@ -31,12 +31,12 @@ pub(crate) use persistence::LaunchLoad;
 pub(crate) use persistence::LaunchNote;
 mod shortcut_repair;
 
+pub use assistant::*;
 #[cfg(hex_capture)]
 pub use capture::*;
 pub use dictation_processing::{
     DictationMode, DictationPostProcessing, DictationProcessingSettings,
 };
-pub use assistant::*;
 pub use extra_shortcuts::*;
 pub use hotkeys::*;
 pub use labs::*;
@@ -1069,11 +1069,11 @@ impl AppSettings {
             .filter(|binding| !self.hotkey_in_use(HotkeySlot::SecondDictation, binding))
     }
 
-    /// The assistant's Action shortcut while it takes effect: macOS, the
-    /// assistant on, bound, and sharing no key with another active shortcut.
-    /// Otherwise Hex matches, suppresses, and checks nothing for it.
+    /// The assistant's Action shortcut while it takes effect: the assistant
+    /// on, bound, and sharing no key with another active shortcut. Otherwise
+    /// Hex matches, suppresses, and checks nothing for it.
     pub fn active_action_hotkey(&self) -> Option<&HotkeyBinding> {
-        if !cfg!(target_os = "macos") || !crate::assistant::enabled(self) {
+        if !crate::assistant::enabled(self) {
             return None;
         }
         self.assistant
@@ -1396,7 +1396,6 @@ pub fn refresh_layout_hotkeys() {
 
 /// The assistant's options as last applied, for the listener's Action
 /// shortcut; the defaults until settings load.
-#[cfg(target_os = "macos")]
 pub fn applied_assistant() -> AssistantSettings {
     HOTKEYS
         .get_or_init(Default::default)

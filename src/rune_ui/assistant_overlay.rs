@@ -40,7 +40,6 @@ mod fixture;
 mod frame;
 mod hands;
 mod hint;
-#[cfg(target_os = "macos")]
 mod host;
 mod listening;
 mod markdown;
@@ -60,7 +59,6 @@ pub(crate) mod stories;
 mod tests;
 mod when;
 
-#[cfg(target_os = "macos")]
 pub(crate) use host::{ask_hint, install, listening, set_open_chats, set_open_setup, setup_needed};
 
 /// A task's colour, for Chats' running tasks.
@@ -68,10 +66,9 @@ pub(super) use palette::task as task_colour;
 
 /// Unfolds the task list from the orb, or folds it back: the Action
 /// shortcut's double-tap. Any thread; nothing while no Background task is
-/// listed, and nothing off macOS.
-#[allow(dead_code)] // The Action shortcut calls it through `ask::set_toggle_tasks`.
+/// listed.
+#[allow(dead_code)] // The Action shortcut calls it through `shortcut::set_toggle_tasks`.
 pub fn toggle_tasks() {
-    #[cfg(target_os = "macos")]
     host::toggle_tasks();
 }
 

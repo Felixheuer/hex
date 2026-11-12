@@ -133,7 +133,10 @@ impl Tutorial {
                 conversation,
                 origin: Origin::ActionShortcut,
                 text,
-            } if here.asked.as_ref().is_none_or(|asked| asked == conversation)
+            } if here
+                .asked
+                .as_ref()
+                .is_none_or(|asked| asked == conversation)
                 && !here.answered() =>
             {
                 here.asked = None;
@@ -162,7 +165,7 @@ impl Tutorial {
                 asked: None,
                 heard: Some("What's on this page?".into()),
                 answer: Some(Ok(
-                    "Hex's release notes: version 0.32 adds Background tasks.".into()
+                    "Hex's release notes: version 0.32 adds Background tasks.".into(),
                 )),
             },
             background: all.then(|| "In the background, find a free hour next week".into()),

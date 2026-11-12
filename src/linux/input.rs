@@ -620,7 +620,7 @@ impl Shortcut {
     /// The dictation shortcut that starts captures with `flavour`.
     fn for_flavour(flavour: DictationFlavour) -> Self {
         match flavour {
-            DictationFlavour::Normal => Self::Dictation,
+            DictationFlavour::Normal | DictationFlavour::Assistant => Self::Dictation,
             DictationFlavour::Raw => Self::RawDictation,
             DictationFlavour::TerminalPaste => Self::TerminalPaste,
             DictationFlavour::Second => Self::SecondDictation,

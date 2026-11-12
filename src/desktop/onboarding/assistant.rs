@@ -42,7 +42,11 @@ pub(crate) fn record_assistant_at(
     match progress {
         Some(progress) => {
             fs::create_dir_all(directory)?;
-            let state = if progress.dismissed { "dismissed" } else { "open" };
+            let state = if progress.dismissed {
+                "dismissed"
+            } else {
+                "open"
+            };
             fs::write(path, format!("{}\n{state}\n", progress.page))?;
         }
         None => match fs::remove_file(path) {

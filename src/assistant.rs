@@ -37,7 +37,9 @@ pub mod notify;
 pub mod palette;
 pub mod provider;
 pub mod schedules;
+pub mod secrets;
 pub mod service;
+pub mod shortcut;
 pub mod space;
 pub mod speech;
 pub mod store;
@@ -53,9 +55,19 @@ pub use types::*;
 
 use crate::app_settings::AppSettings;
 
-/// Whether the assistant may run: this OS has it and its switch is on.
+/// Whether the assistant may run: this OS has it (macOS, Linux, and
+/// Windows) and its switch is on.
 pub fn enabled(settings: &AppSettings) -> bool {
-    cfg!(target_os = "macos") && settings.assistant.enabled
+    available() && settings.assistant.enabled
+}
+
+/// Whether this OS has the assistant: every desktop Hex runs on.
+pub const fn available() -> bool {
+    cfg!(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "windows"
+    ))
 }
 
 /// Whether the assistant may answer: enabled, and its setup finished. Until

@@ -69,6 +69,11 @@ pub enum DictationFlavour {
     /// like the dictation shortcut. It is its own owner, so neither
     /// shortcut finishes or double-taps the other's capture.
     Second,
+    /// The assistant's Action shortcut (Linux and Windows; macOS has its
+    /// own `TranscriptionTarget::Assistant`): processed like a paste, then
+    /// handed to the question (`assistant::shortcut`), never pasted,
+    /// copied, kept for Paste last dictation, or saved to History.
+    Assistant,
 }
 
 #[cfg_attr(not(any(target_os = "windows", target_os = "linux")), allow(dead_code))]

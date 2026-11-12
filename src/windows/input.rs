@@ -425,7 +425,7 @@ impl CallbackState {
                 (self.terminal_paste_trigger_vk, self.terminal_paste.as_ref())
             }
             DictationFlavour::Second => (self.second_trigger_vk, self.second.as_ref()),
-            DictationFlavour::Normal => return None,
+            DictationFlavour::Normal | DictationFlavour::Assistant => return None,
         };
         let trigger_down = self.second_trigger_down(flavour);
         let matches = binding.is_some_and(|binding| self.modifiers.matches(binding));
@@ -474,7 +474,7 @@ impl CallbackState {
             DictationFlavour::Raw => self.raw_trigger_down,
             DictationFlavour::TerminalPaste => self.terminal_paste_trigger_down,
             DictationFlavour::Second => self.second_trigger_down,
-            DictationFlavour::Normal => false,
+            DictationFlavour::Normal | DictationFlavour::Assistant => false,
         }
     }
 
@@ -483,7 +483,7 @@ impl CallbackState {
             DictationFlavour::Raw => self.raw_trigger_down = down,
             DictationFlavour::TerminalPaste => self.terminal_paste_trigger_down = down,
             DictationFlavour::Second => self.second_trigger_down = down,
-            DictationFlavour::Normal => {}
+            DictationFlavour::Normal | DictationFlavour::Assistant => {}
         }
     }
 }

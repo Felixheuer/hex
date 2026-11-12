@@ -99,6 +99,10 @@ pub(crate) enum ShortcutTarget {
     SecondDictation,
     /// Toggle mode's cancel shortcut.
     Cancel,
+    /// The assistant's Action shortcut (right Ctrl alone by default).
+    Action,
+    /// The assistant's Stop all tasks.
+    StopAll,
 }
 
 /// What the runtime last published for the window.
@@ -210,6 +214,11 @@ pub fn open(event_path: PathBuf, shutdown: &'static AtomicBool, start_hidden: bo
     };
     let hud = crate::rune_hud::install(&mut app);
     crate::rune_ui::live_text::install(&mut app, crate::rune_hud::live_text_place);
+    // The assistant: the frame, task stack, and quick answer; hidden,
+    // without windows, until the assistant reports work.
+    crate::rune_ui::assistant_overlay::install(&mut app);
+    crate::rune_ui::window_link::remember(window.clone());
+    crate::rune_ui::window_link::wire_assistant();
     // The capture capsule, picker, and ink.
     let _capture_overlays =
         crate::rune_ui::capture_capsule::feed::CaptureOverlays::install(&mut app);

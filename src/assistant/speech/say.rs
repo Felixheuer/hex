@@ -1,6 +1,15 @@
-//! The fallback engine: `/usr/bin/say` writes each sentence to a WAV file,
-//! which plays through the same output as the speech engine's audio, so
-//! stopping, queueing, and the level work the same.
+//! The fallback engine on macOS and the engine on Linux and Windows: the
+//! system's speech program writes each sentence to WAV audio, which plays
+//! through the same output as the speech engine's, so stopping, queueing,
+//! and the level work the same.
+//!
+//! ```ts
+//! macOS    /usr/bin/say                       (the system voices; AVSpeech reads first)
+//! Linux    piper + a downloaded voice          (natural; ~/.local/share/piper-voices, …)
+//!          pico2wave                           (de, en, es, fr, it)
+//!          espeak-ng / espeak                  (every language, robotic)
+//! Windows  Windows.Media.SpeechSynthesis       (the installed Windows voices, in process)
+//! ```
 
 use std::io::Write;
 use std::process::{Child, Stdio};
@@ -10,10 +19,33 @@ use std::sync::{Mutex, OnceLock};
 
 use super::playback::RATE;
 
-const SAY: &str = "/usr/bin/say";
-/// Words a minute: a little faster than `say`'s 175, as the speech engine
-/// reads.
-const WORDS_PER_MINUTE: &str = "190";
+#[cfg(target_os = "linux")]
+#[path = "say/linux.rs"]
+mod system;
+#[cfg(target_os = "macos")]
+#[path = "say/macos.rs"]
+mod system;
+#[cfg(target_os = "windows")]
+#[path = "say/windows.rs"]
+mod system;
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+#[path = "say/none.rs"]
+mod system;
+
+pub use system::voices;
+
+/// How one sentence's audio is made.
+pub(super) enum Plan {
+    /// A program that writes the WAV file it was given, reading the text
+    /// from its standard input when `stdin` holds it.
+    Command {
+        command: std::process::Command,
+        stdin: Option<String>,
+    },
+    /// The audio, made in process (a WAV file's bytes), or `None` when it
+    /// couldn't be.
+    Audio(Option<Vec<u8>>),
+}
 
 /// A sentence for `say`.
 pub struct Job {
@@ -88,23 +120,26 @@ fn work(jobs: &Receiver<(u64, Job)>, deliver: Deliver) {
     }
 }
 
-/// Has `say` write `job` to a file and reads it back.
+/// Has the system's speech program write `job` to a file and reads it back.
 fn write(job: &Job, generation: u64) -> Option<Vec<f32>> {
     let file =
         std::env::temp_dir().join(format!("hex-speech-{}-{}.wav", std::process::id(), job.id));
-    let mut command = crate::desktop::background_process::command(SAY);
-    if let Some(voice) = &job.voice {
-        command.args(["-v", voice]);
-    }
+    let (mut command, text) = match system::plan(job, &file) {
+        Plan::Audio(bytes) => {
+            let samples = bytes.as_deref().and_then(wav_samples);
+            if bytes.is_some() && samples.is_none() {
+                tracing::warn!("the speech engine wrote audio Hex can't read");
+            }
+            return samples;
+        }
+        Plan::Command { command, stdin } => (command, stdin),
+    };
     command
-        .args(["-r", WORDS_PER_MINUTE])
-        .args(["--file-format=WAVE", &format!("--data-format=LEF32@{RATE}")])
-        .arg("-o")
-        .arg(&file)
-        // The text goes in on stdin, so one that starts with "-" is never
-        // an option.
-        .args(["-f", "-"])
-        .stdin(Stdio::piped())
+        .stdin(if text.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     #[cfg(unix)]
@@ -115,7 +150,7 @@ fn write(job: &Job, generation: u64) -> Option<Vec<f32>> {
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            tracing::warn!(%error, "could not start say");
+            tracing::warn!(%error, "could not start the speech program");
             return None;
         }
     };
@@ -128,9 +163,9 @@ fn write(job: &Job, generation: u64) -> Option<Vec<f32>> {
         }
         *current = Some(child);
     }
-    if let Some(mut stdin) = stdin {
+    if let (Some(mut stdin), Some(text)) = (stdin, text) {
         // A stop before it's all written ends the pipe; that's fine.
-        let _ = stdin.write_all(job.text.as_bytes());
+        let _ = stdin.write_all(text.as_bytes());
     }
     let status = loop {
         let mut current = CURRENT.lock().unwrap_or_else(|error| error.into_inner());
@@ -156,18 +191,19 @@ fn write(job: &Job, generation: u64) -> Option<Vec<f32>> {
     let bytes = std::fs::read(&file);
     let _ = std::fs::remove_file(&file);
     if !status.success() {
-        tracing::warn!(?status, "say could not read a sentence");
+        tracing::warn!(?status, "the speech program could not read a sentence");
         return None;
     }
     let samples = bytes.ok().and_then(|bytes| wav_samples(&bytes));
     if samples.is_none() {
-        tracing::warn!("say wrote audio Hex can't read");
+        tracing::warn!("the speech program wrote audio Hex can't read");
     }
     samples
 }
 
-/// A mono 32-bit float WAV's samples at [`RATE`] (the first channel of
-/// several); `None` for anything else.
+/// A WAV file's samples, mono at [`RATE`]: 32-bit float or 16-bit PCM at
+/// any rate (the first channel of several), resampled linearly when its
+/// rate differs; `None` for anything else.
 pub fn wav_samples(bytes: &[u8]) -> Option<Vec<f32>> {
     if bytes.len() < 12 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         return None;
@@ -183,26 +219,41 @@ pub fn wav_samples(bytes: &[u8]) -> Option<Vec<f32>> {
         let end = body.checked_add(size)?.min(bytes.len());
         match id {
             b"fmt " => {
-                let tag = u16_at(body)?;
+                let mut tag = u16_at(body)?;
                 let channels = u16_at(body + 2)?;
                 let rate = u32_at(body + 4)?;
                 let bits = u16_at(body + 14)?;
-                // 3 is IEEE float; 0xFFFE is "extensible", which `say` uses
-                // for float too.
+                // 0xFFFE is "extensible": its subformat's first two bytes
+                // are the real tag (`say` writes float this way).
+                if tag == 0xFFFE {
+                    tag = if size >= 26 {
+                        u16_at(body + 24)?
+                    } else if bits == 32 {
+                        3
+                    } else {
+                        1
+                    };
+                }
                 format = Some((tag, channels, rate, bits));
             }
             b"data" => {
                 let (tag, channels, rate, bits) = format?;
-                if !matches!(tag, 3 | 0xFFFE) || bits != 32 || rate != RATE || channels == 0 {
+                if channels == 0 || rate == 0 {
                     return None;
                 }
-                let frame = 4 * usize::from(channels);
-                return Some(
-                    bytes[body..end]
-                        .chunks_exact(frame)
+                let data = &bytes[body..end];
+                let samples: Vec<f32> = match (tag, bits) {
+                    (3, 32) => data
+                        .chunks_exact(4 * usize::from(channels))
                         .map(|frame| f32::from_le_bytes([frame[0], frame[1], frame[2], frame[3]]))
                         .collect(),
-                );
+                    (1, 16) => data
+                        .chunks_exact(2 * usize::from(channels))
+                        .map(|frame| f32::from(i16::from_le_bytes([frame[0], frame[1]])) / 32_768.0)
+                        .collect(),
+                    _ => return None,
+                };
+                return Some(resample(&samples, rate));
             }
             _ => {}
         }
@@ -210,6 +261,24 @@ pub fn wav_samples(bytes: &[u8]) -> Option<Vec<f32>> {
         at = body + size + (size & 1);
     }
     None
+}
+
+/// `samples` at `rate` as samples at [`RATE`], by linear interpolation.
+fn resample(samples: &[f32], rate: u32) -> Vec<f32> {
+    if rate == RATE || samples.len() < 2 {
+        return samples.to_vec();
+    }
+    let step = f64::from(rate) / f64::from(RATE);
+    let count = ((samples.len() as f64) / step).floor() as usize;
+    (0..count)
+        .map(|index| {
+            let at = index as f64 * step;
+            let low = at.floor() as usize;
+            let high = (low + 1).min(samples.len() - 1);
+            let weight = (at - low as f64) as f32;
+            samples[low] * (1.0 - weight) + samples[high] * weight
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -251,9 +320,39 @@ mod tests {
             wav_samples(&wav(0xFFFE, 2, RATE, &samples, false)).as_deref(),
             Some(&[0.0, -0.5][..])
         );
+        // 16-bit PCM at 32-bit sizes is nothing Hex reads.
         assert_eq!(wav_samples(&wav(1, 1, RATE, &samples, false)), None);
-        assert_eq!(wav_samples(&wav(3, 1, 22_050, &samples, false)), None);
         assert_eq!(wav_samples(b"RIFF\0\0\0\0WAVEdata"), None);
+    }
+
+    fn pcm16(rate: u32, samples: &[i16]) -> Vec<u8> {
+        let mut bytes = b"RIFF\0\0\0\0WAVE".to_vec();
+        bytes.extend(b"fmt ");
+        bytes.extend(16_u32.to_le_bytes());
+        bytes.extend(1_u16.to_le_bytes());
+        bytes.extend(1_u16.to_le_bytes());
+        bytes.extend(rate.to_le_bytes());
+        bytes.extend((rate * 2).to_le_bytes());
+        bytes.extend(2_u16.to_le_bytes());
+        bytes.extend(16_u16.to_le_bytes());
+        bytes.extend(b"data");
+        bytes.extend((samples.len() as u32 * 2).to_le_bytes());
+        for sample in samples {
+            bytes.extend(sample.to_le_bytes());
+        }
+        bytes
+    }
+
+    /// espeak-ng, pico2wave, piper, and Windows write 16-bit PCM at their
+    /// own rates; it plays at the output's rate.
+    #[test]
+    fn pcm_wav_at_other_rates_is_resampled() {
+        let samples = wav_samples(&pcm16(RATE, &[0, 16_384, -32_768])).expect("pcm");
+        assert_eq!(samples, [0.0, 0.5, -1.0]);
+        let slow = wav_samples(&pcm16(24_000, &[0, 16_384, 0, -16_384])).expect("resampled");
+        assert_eq!(slow.len(), 8);
+        assert!((slow[1] - 0.25).abs() < 1e-6, "{slow:?}");
+        assert!((slow[2] - 0.5).abs() < 1e-6, "{slow:?}");
         assert_eq!(wav_samples(b"nonsense"), None);
     }
 }

@@ -219,7 +219,10 @@ pub(in crate::rune_ui) fn perform(job: &Job, send: &dyn Fn(Done)) -> bool {
             let result = backends::set_provider_key("openai", key)
                 .and_then(|()| {
                     backends::apply_fix_with(Fix::UseApiKey(AssistantBackend::Codex), |line| {
-                        send(Done::AgentProgress(AssistantBackend::Codex, line.to_owned()))
+                        send(Done::AgentProgress(
+                            AssistantBackend::Codex,
+                            line.to_owned(),
+                        ))
                     })
                 })
                 .map_err(|error| format!("{error:#}"));
