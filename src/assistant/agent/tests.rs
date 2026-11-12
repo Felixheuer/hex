@@ -371,7 +371,10 @@ fn a_hand_off_starts_its_jobs_and_a_mere_claim_starts_one() {
 #[test]
 fn the_routing_rule_hands_jobs_on_with_the_tool() {
     assert!(ROUTING.contains("hex_start_jobs"));
-    assert!(ROUTING.contains("is ONE job"), "dependent parts stay one job");
+    assert!(
+        ROUTING.contains("is ONE job"),
+        "dependent parts stay one job"
+    );
     let here = system_prompt(
         Origin::ActionShortcut,
         Some(&Desktop::fixture(None, "hex-1")),

@@ -8,7 +8,8 @@
 //! `<assistant>/audit/<conversation>.jsonl`, one JSON object a line, as it
 //! happens. Secrets in the arguments (anything named like a password, token,
 //! key, or card number) are blanked, and long values cut. A job's check
-//! appears marked as such. `hex assistant audit <conversation>` prints it.
+//! appears marked as such. `hex assistant audit <conversation>` prints it,
+//! and a job that ends leaves it in its folder as `Hex-Protokoll.txt`.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -114,6 +115,21 @@ pub fn report(entries: &[Entry]) -> String {
         ));
     }
     out
+}
+
+/// The log's file in a job's folder.
+pub const IN_FOLDER: &str = "Hex-Protokoll.txt";
+
+/// Writes `conversation`'s log as a timeline into its job's `folder`
+/// ([`IN_FOLDER`]), when there is one.
+pub fn keep_in(conversation: &str, folder: &std::path::Path) {
+    let entries = read(conversation);
+    if entries.is_empty() {
+        return;
+    }
+    if let Err(error) = std::fs::write(folder.join(IN_FOLDER), report(&entries)) {
+        tracing::debug!(%error, "couldn't keep the log in the job's folder");
+    }
 }
 
 /// `desktop_click` for `mcp__hex-desktop__desktop_click`.

@@ -288,6 +288,11 @@ impl Runner {
         if let Some(session) = end_session {
             (self.hooks.end_session)(&session);
         }
+        // What it did, call by call, beside what it made: the folder's
+        // list in Chats shows it.
+        if !handed_on && let Some(folder) = &workspace {
+            crate::assistant::audit::keep_in(&conversation, folder);
+        }
         match outcome {
             Outcome::Answer(text) => {
                 let text = with_workspace(text, workspace.as_deref());
