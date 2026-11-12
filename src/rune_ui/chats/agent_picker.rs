@@ -11,7 +11,6 @@ use super::super::controls::{Paint, PushSize};
 use super::super::icons::SPARKLES;
 use super::super::lists::{Tone, tone_tag};
 use super::agents::{self, Status};
-use super::backends_shim as shim;
 use super::{Ui, backend_name};
 use crate::app_settings::AssistantBackend;
 use crate::desktop::i18n::{tr, tr_fill};
@@ -307,7 +306,7 @@ fn byok(ui: &Ui, p: Paint) -> Option<El> {
     let byok = state.byok.as_ref()?;
     let provider = agents::provider(byok);
     let k = p.k;
-    let providers = shim::providers();
+    let providers = crate::assistant::backends::providers();
     let mut provider_chips = row().key("providers").role("radiogroup").gap(6.0).flex_wrap();
     for (index, each) in providers.iter().enumerate() {
         provider_chips = provider_chips.child(choice(

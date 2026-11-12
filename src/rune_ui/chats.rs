@@ -12,7 +12,6 @@
 
 mod agent_picker;
 mod agents;
-mod backends_shim;
 mod composer;
 mod display_shim;
 mod displays;

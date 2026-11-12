@@ -7,10 +7,9 @@
 
 use rune::TextEdit;
 
-use super::backends_shim::{self as shim, Provider};
 use super::{BACKENDS, Done, Job, Ui};
 use crate::app_settings::{AssistantBackend, AssistantSettings};
-use crate::assistant::backends::{self, Check, Fix, Found};
+use crate::assistant::backends::{self, Check, Fix, Found, Provider};
 
 /// How many of a setup's latest lines it keeps.
 const LOG: usize = 6;
@@ -18,7 +17,7 @@ const LOG: usize = 6;
 /// The own-key panel for OpenCode.
 #[derive(Default)]
 pub(in crate::rune_ui) struct Byok {
-    /// Into [`shim::providers`].
+    /// Into [`backends::providers`].
     pub(in crate::rune_ui) provider: usize,
     /// Into that provider's models.
     pub(in crate::rune_ui) model: usize,
@@ -97,8 +96,8 @@ pub(in crate::rune_ui) fn nothing_installed(ui: &Ui) -> bool {
 
 /// The suggested agent when nothing is installed.
 pub(in crate::rune_ui) fn recommended(ui: &Ui) -> AssistantBackend {
-    let found = ui.chats.settings.found.clone().unwrap_or_default();
-    shim::recommendations(&found)
+    let _ = ui;
+    backends::recommendations()
         .first()
         .map_or(AssistantBackend::ClaudeCode, |pick| pick.backend)
 }
@@ -141,7 +140,7 @@ pub(in crate::rune_ui) fn open_byok(ui: &mut Ui) {
 
 /// The provider chosen in the panel.
 pub(in crate::rune_ui) fn provider(byok: &Byok) -> Provider {
-    let providers = shim::providers();
+    let providers = backends::providers();
     providers
         .get(byok.provider)
         .cloned()
@@ -164,7 +163,7 @@ pub(in crate::rune_ui) fn verify(ui: &mut Ui) {
         .models
         .get(byok.model)
         .copied()
-        .unwrap_or(provider.models[0]);
+        .unwrap_or(provider.default_model);
     byok.verifying = true;
     byok.result = None;
     if install {
@@ -216,7 +215,13 @@ pub(in crate::rune_ui) fn perform(job: &Job, send: &dyn Fn(Done)) -> bool {
             send(Done::Detected(backends::detect()));
         }
         Job::CodexKey(key) => {
-            let result = shim::use_api_key(AssistantBackend::Codex, key)
+            // The key is saved as OpenAI's, then Codex signs in with it.
+            let result = backends::set_provider_key("openai", key)
+                .and_then(|()| {
+                    backends::apply_fix_with(Fix::UseApiKey(AssistantBackend::Codex), |line| {
+                        send(Done::AgentProgress(AssistantBackend::Codex, line.to_owned()))
+                    })
+                })
                 .map_err(|error| format!("{error:#}"));
             send(Done::CodexKey(result));
             backends::refresh();
@@ -274,8 +279,19 @@ fn own_key_now(
         backends::apply_fix_with(Fix::Install(AssistantBackend::OpenCode), progress)
             .map_err(|error| format!("{error:#}"))?;
     }
-    shim::verify_provider_key(provider, key, model).map_err(|error| format!("{error:#}"))?;
-    shim::set_provider_key(provider, key).map_err(|error| format!("{error:#}"))
+    let _ = model;
+    backends::set_provider_key(provider, key).map_err(|error| format!("{error:#}"))?;
+    match backends::verify_provider_key(provider) {
+        Ok(found) => {
+            progress(&found);
+            Ok(())
+        }
+        Err(error) => {
+            // A key that doesn't work isn't kept.
+            let _ = backends::set_provider_key(provider, "");
+            Err(format!("{error:#}"))
+        }
+    }
 }
 
 /// A picker job's answer. True when it was one.
@@ -310,8 +326,10 @@ pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: &Done) -> bool {
             }
             if let Ok(model) = result {
                 let model = model.clone();
+                let provider = model.split('/').next().unwrap_or_default().to_owned();
                 ui.update(|settings| {
                     settings.assistant.backend = AssistantBackend::OpenCode;
+                    settings.assistant.opencode_provider = Some(provider);
                     settings.assistant.opencode_model = Some(model);
                 });
             }
