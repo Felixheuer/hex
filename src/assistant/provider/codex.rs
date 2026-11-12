@@ -55,6 +55,11 @@ fn arguments(run: &Run) -> Vec<String> {
         format!("developer_instructions={}", toml_string(&run.system)),
     ];
     match &run.workspace {
+        // Yolo: no sandbox at all.
+        Some(workspace) if run.unrestricted => {
+            args.extend(["-C".into(), workspace.display().to_string()]);
+            config.push(r#"sandbox_mode="danger-full-access""#.into());
+        }
         Some(workspace) => {
             args.extend(["-C".into(), workspace.display().to_string()]);
             config.push(r#"sandbox_mode="workspace-write""#.into());
@@ -237,5 +242,20 @@ mod tests {
         assert!(args.contains(
             &r#"mcp_servers.agent-desktop.default_tools_approval_mode="approve""#.to_owned()
         ));
+    }
+
+    #[test]
+    fn a_yolo_job_gets_full_access_and_others_their_sandbox() {
+        let mut run = Run {
+            workspace: Some("/tmp/job".into()),
+            ..Run::fixture(AssistantBackend::Codex)
+        };
+        let args = arguments(&run);
+        assert!(args.contains(&r#"sandbox_mode="workspace-write""#.to_owned()));
+        run.unrestricted = true;
+        let args = arguments(&run);
+        assert!(args.contains(&r#"sandbox_mode="danger-full-access""#.to_owned()));
+        assert!(!args.iter().any(|arg| arg.contains("workspace-write")));
+        assert!(args.contains(&r#"approval_policy="never""#.to_owned()));
     }
 }

@@ -197,6 +197,23 @@ impl Store {
         recovered
     }
 
+    /// Of the conversations `ids` (just recovered as interrupted), the jobs
+    /// to go on with at launch: those with a workspace, started within
+    /// `budget_ms` of `now_ms` (0: any age).
+    pub fn resumable_jobs(&self, ids: &[String], now_ms: u64, budget_ms: u64) -> Vec<String> {
+        ids.iter()
+            .filter(|id| {
+                self.load(id).is_some_and(|stored| {
+                    stored.workspace.is_some()
+                        && stored.current_outcome() == Outcome::Interrupted
+                        && (budget_ms == 0
+                            || now_ms.saturating_sub(stored.conversation.created_ms) <= budget_ms)
+                })
+            })
+            .cloned()
+            .collect()
+    }
+
     /// Records how a task on `id` ended when its run didn't (it was
     /// stopped while waiting out a limit, or after being steered): only a
     /// conversation still `Running` changes. When the assistant hasn't
@@ -532,6 +549,30 @@ mod tests {
             ]
         );
         assert_eq!(store.recover_interrupted(), ["gone"]);
+        // Only a job (it has a workspace) within its budget goes on by itself.
+        assert!(
+            store
+                .resumable_jobs(&["gone".into()], now_ms(), 0)
+                .is_empty()
+        );
+        let mut job = store.load("gone").unwrap();
+        job.workspace = Some("/tmp/job".into());
+        store.save(&job).unwrap();
+        let created = job.conversation.created_ms;
+        let day = 24 * 60 * 60 * 1000;
+        assert_eq!(
+            store.resumable_jobs(&["gone".into()], created + day, 7 * day),
+            ["gone"]
+        );
+        assert!(
+            store
+                .resumable_jobs(&["gone".into()], created + 8 * day, 7 * day)
+                .is_empty()
+        );
+        assert_eq!(
+            store.resumable_jobs(&["gone".into()], created + 8 * day, 0),
+            ["gone"]
+        );
         let gone = store.load("gone").unwrap();
         assert_eq!((gone.outcome, gone.pid), (Outcome::Interrupted, None));
         assert_eq!(gone.last_question().as_deref(), Some("gone"));

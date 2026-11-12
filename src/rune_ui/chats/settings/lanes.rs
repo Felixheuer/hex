@@ -20,6 +20,9 @@ use crate::desktop::i18n::{tr, tr_fill};
 /// Task timeouts offered, in minutes; 0 never stops one.
 const TIMEOUTS: [u32; 7] = [0, 5, 10, 15, 30, 60, 120];
 
+/// Job budgets offered, in minutes: an hour, a day, a week; 0 never.
+const BUDGETS: [u32; 4] = [60, 24 * 60, 7 * 24 * 60, 0];
+
 static REMOVE_ICON: &rune::Icon = &rune_theme_opencode::icons::CLOSE_SMALL;
 
 /// Stop all's shortcut, shown here and changed in General.
@@ -317,7 +320,41 @@ pub(in crate::rune_ui) fn task_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> V
         },
         layer,
     );
+    let saved = ui.settings.assistant.job_budget_minutes;
+    let (budgets, chosen_budget) = super::with_saved(&BUDGETS, saved);
+    let budget = quiet_select(
+        ui,
+        p,
+        Menu::Pick("assistant-budget"),
+        "assistant-budget-control".to_owned(),
+        tr("Stop a job after"),
+        budgets
+            .iter()
+            .map(|minutes| match *minutes {
+                0 => tr("Never").to_owned(),
+                1440 => tr("1 day").to_owned(),
+                m if m % 1440 == 0 => tr_fill("{} days", &(m / 1440).to_string()),
+                m if m % 60 == 0 => tr_fill("{} h", &(m / 60).to_string()),
+                m => tr_fill("{} min", &m.to_string()),
+            })
+            .collect(),
+        chosen_budget,
+        move |ui, chosen| {
+            let minutes = budgets[chosen];
+            ui.update(|settings| settings.assistant.job_budget_minutes = minutes);
+        },
+        layer,
+    );
     vec![
+        setting_row(
+            p,
+            "assistant-budget",
+            tr("Stop a job after"),
+            Some(tr(
+                "A background job works until its goal is met, through restarts, for at most this long",
+            )),
+            budget,
+        ),
         setting_row(
             p,
             "assistant-timeout",

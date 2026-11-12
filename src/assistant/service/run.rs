@@ -28,8 +28,9 @@ impl Runner {
                 .find(|task| task.key == key)
                 .map(|task| {
                     task.speak = task.lane() == Lane::Here && settings.speak_answers;
-                    task.deadline_ms = (settings.task_timeout_minutes > 0)
-                        .then(|| now + u64::from(settings.task_timeout_minutes) * 60_000);
+                    task.limit_minutes = limit_minutes(task.lane(), &settings);
+                    task.deadline_ms = (task.limit_minutes > 0)
+                        .then(|| now + u64::from(task.limit_minutes) * 60_000);
                     (
                         task.request.clone(),
                         Arc::clone(&task.control),
@@ -125,7 +126,13 @@ impl Runner {
             match outcome {
                 Outcome::Limited { reason, until_ms } => {
                     attempts += 1;
-                    if until_ms.is_none() && attempts > BLIND_RETRIES {
+                    // A job keeps trying for its whole budget (backoff tops
+                    // out at half an hour); a question gives up sooner.
+                    let retries = match lane {
+                        Lane::Background => (settings.job_budget_minutes / 30).max(BLIND_RETRIES),
+                        Lane::Here => BLIND_RETRIES,
+                    };
+                    if until_ms.is_none() && attempts > retries {
                         break Outcome::Failed(format!(
                             "{reason} (still limited after {attempts} tries)"
                         ));
@@ -416,6 +423,32 @@ fn with_workspace(text: String, workspace: Option<&std::path::Path>) -> String {
     }
 }
 
+/// How long a task may run: a Background job its budget (up to seven
+/// days), a question or chat the shorter task limit; 0 never stops it.
+pub(super) fn limit_minutes(lane: Lane, settings: &crate::app_settings::AssistantSettings) -> u32 {
+    match lane {
+        Lane::Background => settings.job_budget_minutes,
+        Lane::Here => settings.task_timeout_minutes,
+    }
+}
+
+/// A time limit as people say it: "45 minutes", "6 hours", "7 days".
+pub(super) fn limit_words(minutes: u32) -> String {
+    match minutes {
+        m if m >= 1440 && m % 1440 == 0 => plural(m / 1440, "day"),
+        m if m >= 60 && m % 60 == 0 => plural(m / 60, "hour"),
+        m => plural(m, "minute"),
+    }
+}
+
+fn plural(n: u32, unit: &str) -> String {
+    if n == 1 {
+        format!("1 {unit}")
+    } else {
+        format!("{n} {unit}s")
+    }
+}
+
 /// Sentences of a spoken summary: enough to tell a research result, short
 /// enough to listen to.
 const SPOKEN_SENTENCES: usize = 4;
@@ -459,6 +492,17 @@ mod tests {
             "Found 3 suppliers. The sheet is in the workspace."
         );
         assert_eq!(spoken_summary("Done"), "Done");
+    }
+
+    #[test]
+    fn jobs_get_their_budget_and_questions_the_task_limit() {
+        let settings = crate::app_settings::AssistantSettings::default();
+        assert_eq!(limit_minutes(Lane::Background, &settings), 7 * 24 * 60);
+        assert_eq!(limit_minutes(Lane::Here, &settings), 30);
+        assert_eq!(limit_words(7 * 24 * 60), "7 days");
+        assert_eq!(limit_words(60), "1 hour");
+        assert_eq!(limit_words(90), "90 minutes");
+        assert_eq!(limit_words(30), "30 minutes");
         assert_eq!(
             spoken_summary(
                 "Eins ist gut. Zwei ist gut. Drei ist gut. Vier ist gut. Fünf ist zu viel."
