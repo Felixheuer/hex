@@ -1143,6 +1143,43 @@ pub fn frontmost_app_info() -> Option<(i32, String, Option<String>)> {
     None
 }
 
+/// The app in front other than this one: the frontmost app, or, while one
+/// of this app's own windows is in front (its chats, its settings), the app
+/// whose window is right behind it, else the last other app in front. A
+/// question about "the window in front" asked from the host's own window
+/// means the person's window behind it.
+pub fn frontmost_external_app_info() -> Option<(i32, String, Option<String>)> {
+    use objc2_app_kit::{NSRunningApplication, NSWorkspace};
+    let our_pid = std::process::id() as i32;
+    let app_info = |pid: i32| {
+        let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid)?;
+        let name = app.localizedName()?.to_string();
+        let bundle_id = app.bundleIdentifier().map(|b| b.to_string());
+        Some((pid, name, bundle_id))
+    };
+    if let Some(app) = NSWorkspace::sharedWorkspace().frontmostApplication() {
+        let pid = app.processIdentifier();
+        if pid > 0 && pid != our_pid {
+            LAST_EXTERNAL_APP_PID.store(pid, Ordering::Release);
+            return app_info(key_panel_pid(pid).unwrap_or(pid));
+        }
+    }
+    let windows = objc2::rc::autoreleasepool(|_| crate::windows::raw_windows());
+    if let Some(behind) = windows
+        .iter()
+        .find(|window| {
+            window.layer == 0 && window.alpha > 0.0 && window.pid > 0 && window.pid != our_pid
+        })
+        .and_then(|window| app_info(window.pid))
+    {
+        return Some(behind);
+    }
+    let fallback_pid = LAST_EXTERNAL_APP_PID.load(Ordering::Acquire);
+    (fallback_pid > 0 && fallback_pid != our_pid)
+        .then(|| app_info(fallback_pid))
+        .flatten()
+}
+
 /// The ScreenCaptureKit sampler: `capture_core` records `recording.mp4` while candidate
 /// screenshots are taken every `buffer.interval()` (or at once when urgent).
 pub(super) fn run_sampler(sampler: Sampler) -> Option<super::Movie> {

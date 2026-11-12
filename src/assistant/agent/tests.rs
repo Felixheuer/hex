@@ -230,3 +230,13 @@ fn front_matter_is_dropped_from_the_guide() {
     );
     assert_eq!(strip_front_matter("# Guide"), "# Guide");
 }
+
+#[test]
+fn a_session_s_rules_fingerprint_ignores_the_request_s_permissions() {
+    let base = "You are Hex's assistant.\nRules: work in the window.\n";
+    let a = format!("{base}\nAutonomy (Smart): you may only send because…\nmemory A");
+    let b = format!("{base}\nAutonomy (Yolo): nothing waits…\nmemory B");
+    assert_eq!(super::rules_fingerprint(&a), super::rules_fingerprint(&b));
+    let changed = format!("{base}- If the request needs anything beyond that window, hand it off.\n\nAutonomy (Smart): …");
+    assert_ne!(super::rules_fingerprint(&a), super::rules_fingerprint(&changed));
+}
