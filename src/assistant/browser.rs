@@ -326,11 +326,11 @@ fn base_command(path: &Path) -> Command {
         .into_iter()
         .flatten()
         .collect();
-    command.env_clear().envs(
-        backends::agent_env()
-            .into_iter()
-            .filter(|(key, _)| key != "PATH" && !key.starts_with("AGENT_BROWSER_")),
-    );
+    command
+        .env_clear()
+        .envs(backends::agent_env().into_iter().filter(|(key, _)| {
+            !key.eq_ignore_ascii_case("PATH") && !key.starts_with("AGENT_BROWSER_")
+        }));
     command.env("PATH", search::path_value(&extra));
     command
 }

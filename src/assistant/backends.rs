@@ -289,7 +289,8 @@ pub fn agent_env() -> Vec<(String, String)> {
         .collect();
     let path = search::path_value(&extra);
     let mut env: Vec<(String, String)> = std::env::vars()
-        .filter(|(key, _)| key != "PATH" && !is_session_marker(key))
+        // Windows names it `Path`; any spelling is replaced.
+        .filter(|(key, _)| !key.eq_ignore_ascii_case("PATH") && !is_session_marker(key))
         .collect();
     env.push(("PATH".into(), path));
     env
