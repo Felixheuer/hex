@@ -10,6 +10,7 @@
 //! design language (`rune-theme-opencode`); see `docs/design-system.md`.
 
 mod activity;
+pub(crate) mod assistant_overlay;
 #[cfg(hex_capture)]
 pub(crate) mod capture_capsule;
 mod controls;

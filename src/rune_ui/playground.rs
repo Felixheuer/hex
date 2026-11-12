@@ -362,6 +362,8 @@ fn playground() -> Playground<Ui> {
     let playground = super::live_notes::add(playground);
     #[cfg(target_os = "macos")]
     let playground = super::hud_stories::add(playground);
+    #[cfg(target_os = "macos")]
+    let playground = super::assistant_overlay::stories::add(playground);
     #[cfg(all(hex_capture, target_os = "macos"))]
     let playground = super::capture_capsule::playground::stories(playground);
     playground
@@ -598,6 +600,43 @@ mod tests {
                 "HUD story side panel lacked {control}"
             );
         }
+    }
+
+    /// Every assistant overlay story, and each quick-answer state, opens
+    /// from its `hex://story` link, and the desktop plays its script.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn every_assistant_story_opens_from_its_link() {
+        let app = attach(App::new(spec(super::super::spec())));
+        let mut rt = app.headless_runtime(WINDOW_SIZE, rune::Env::new(false, 1.0));
+        rt.frame(0.0);
+        for story in ["desktop", "task-stack", "frame"] {
+            open_link(
+                &mut rt,
+                &format!("hex://story/prototypes/assistant/{story}"),
+            );
+        }
+        for variant in [
+            "thinking",
+            "working",
+            "streaming",
+            "answered",
+            "long",
+            "failed",
+        ] {
+            open_link(
+                &mut rt,
+                &format!("hex://story/prototypes/assistant/quick-answer?variant={variant}"),
+            );
+        }
+        open_link(&mut rt, "hex://story/prototypes/assistant/desktop");
+        assert!(rt.playground_element("desk").is_some(), "the desktop shows");
+        rt.playground_trigger('r');
+        for step in 1..=8 {
+            rt.frame(f64::from(step) * 0.5);
+        }
+        assert!(rt.playground_element("stack").is_some(), "the script started tasks");
+        assert!(rt.playground_element("frame").is_some(), "and turned Agent mode on");
     }
 
     /// Every capture-capsule story, on every flow after a capture, opens
