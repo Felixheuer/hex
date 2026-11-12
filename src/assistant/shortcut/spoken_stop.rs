@@ -92,9 +92,134 @@ pub(crate) fn spoken_stop(text: &str) -> Option<SpokenStop> {
     (!kept.is_empty() && kept.iter().all(|word| QUIET.contains(word))).then_some(SpokenStop::Quiet)
 }
 
+/// Verbs that open a stop of one task: "Brich die Shop-Aufgabe ab",
+/// "Stopp den Einstein-Auftrag", "Cancel the supplier job".
+const STOP_ONE: &[&str] = &[
+    "stopp",
+    "stoppe",
+    "stop",
+    "brich",
+    "beende",
+    "cancel",
+    "abbrechen",
+];
+/// Words naming what's stopped, never part of its name.
+const NOT_A_NAME: &[&str] = &[
+    "die",
+    "den",
+    "das",
+    "der",
+    "dem",
+    "the",
+    "a",
+    "an",
+    "ab",
+    "an",
+    "aufgabe",
+    "auftrag",
+    "job",
+    "task",
+    "recherche",
+    "bitte",
+    "please",
+    "mal",
+    "jetzt",
+    "sofort",
+    "now",
+];
+
+/// The words naming one task when `text` asks to stop it ("Brich die
+/// Shop-Aufgabe ab" → ["shop"]); `None` when it's no such stop. A plain stop
+/// ([`spoken_stop`]) and stopping everything are not.
+pub(crate) fn named_stop(text: &str) -> Option<Vec<String>> {
+    if spoken_stop(text).is_some() {
+        return None;
+    }
+    let words: Vec<String> = text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_lowercase)
+        .collect();
+    if words.len() > 8 || !STOP_ONE.contains(&words.first()?.as_str()) {
+        return None;
+    }
+    let names: Vec<String> = words[1..]
+        .iter()
+        .filter(|word| !NOT_A_NAME.contains(&word.as_str()) && !STOP_ONE.contains(&word.as_str()))
+        .cloned()
+        .collect();
+    (!names.is_empty()).then_some(names)
+}
+
+/// The one running task whose title has a word (four letters or more)
+/// that `names` holds; `None` when none or several do.
+pub(crate) fn task_named<'a>(
+    names: &[String],
+    tasks: &'a [crate::assistant::TaskStatus],
+) -> Option<&'a crate::assistant::TaskStatus> {
+    let matches = |task: &&crate::assistant::TaskStatus| {
+        task.title
+            .to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|word| word.chars().count() >= 4)
+            .any(|word| {
+                names
+                    .iter()
+                    .any(|name| name.chars().count() >= 4 && word == name)
+            })
+    };
+    let mut found = tasks.iter().filter(matches);
+    let first = found.next()?;
+    found.next().is_none().then_some(first)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn status(id: &str, title: &str) -> crate::assistant::TaskStatus {
+        crate::assistant::TaskStatus {
+            conversation: id.into(),
+            origin: crate::assistant::Origin::Background,
+            title: title.into(),
+            state: crate::assistant::TaskState::Running,
+            step: None,
+            windows: Vec::new(),
+            colour: 0,
+        }
+    }
+
+    #[test]
+    fn one_task_is_stopped_by_its_name() {
+        let tasks = [
+            status("shop", "Online-Shop wie Nike bauen"),
+            status("einstein", "Einstein recherchieren"),
+        ];
+        for (said, id) in [
+            ("Brich die Shop-Aufgabe ab", "shop"),
+            ("Stopp den Einstein Auftrag", "einstein"),
+            ("Cancel the shop task", "shop"),
+            ("Beende bitte Einstein", "einstein"),
+        ] {
+            let names = named_stop(said).unwrap_or_else(|| panic!("{said}"));
+            assert_eq!(
+                task_named(&names, &tasks).map(|t| t.conversation.as_str()),
+                Some(id),
+                "{said}"
+            );
+        }
+        // A plain stop, everything, or a request that isn't a stop.
+        assert_eq!(named_stop("Stopp"), None);
+        assert_eq!(named_stop("Stopp alle Aufgaben"), None);
+        assert_eq!(named_stop("Stoppuhr auf fünf Minuten"), None);
+        assert_eq!(named_stop("Halte mir den Termin frei"), None);
+        // A stop that names no running task stays a request.
+        let names = named_stop("Beende die Präsentation").unwrap();
+        assert!(task_named(&names, &tasks).is_none());
+        // Two tasks named alike: not guessed.
+        let twins = [status("a", "Shop bauen"), status("b", "Shop testen")];
+        assert!(task_named(&["shop".into()], &twins).is_none());
+    }
 
     #[test]
     fn a_stop_alone_means_quiet() {

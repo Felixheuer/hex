@@ -339,6 +339,16 @@ impl Question {
                     tracing::info!("dropped a question that was Hex's own voice");
                     return;
                 }
+                // „Brich die Shop-Aufgabe ab“: that one task stops.
+                if let Some(names) = spoken_stop::named_stop(&text) {
+                    let tasks = crate::assistant::tasks();
+                    if let Some(task) = spoken_stop::task_named(&names, &tasks) {
+                        tracing::info!(task = task.conversation, "stopped by name");
+                        crate::assistant::cancel(&task.conversation);
+                        crate::feedback::play(crate::feedback::Tone::Cancel);
+                        return;
+                    }
+                }
                 match spoken_stop::spoken_stop(&text) {
                     // A job asks ("abschicken oder abbrechen?") and nothing
                     // else is going on: „Abbrechen“ answers it.
