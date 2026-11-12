@@ -1,4 +1,4 @@
-//! Labs › Assistant's conversation mode and barge-in (macOS): what the
+//! The assistant's conversation mode and barge-in (macOS): what the
 //! microphone does after a Here answer, as a pure state machine fed by the
 //! answer's events, whether Hex is reading aloud, and 20 ms frames of
 //! microphone level. `recognition::ask` carries out its [`Step`]s with the

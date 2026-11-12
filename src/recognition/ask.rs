@@ -1,4 +1,4 @@
-//! Labs › Assistant's Action shortcut and Stop all tasks, from the
+//! The assistant's Action shortcut and Stop all tasks, from the
 //! listener's side (macOS).
 //!
 //! The Action machine (`Shortcut::Action`) records exactly as dictation
@@ -34,8 +34,8 @@
 //! Escape stops a running Here task and its speech, never a Background one,
 //! and Hex takes Escape from the app in front only while one runs or speaks.
 //! The Stop all tasks shortcut (`assistant.stop_all_hotkey`, ⌃⌥Esc) stops
-//! every task and the speech; the event tap swallows it only while the Lab is
-//! on and it is bound (`RuntimeHotkeys::stop_all`).
+//! every task and the speech; the event tap swallows it only while the
+//! assistant is on and it is bound (`RuntimeHotkeys::stop_all`).
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -524,7 +524,7 @@ pub(super) fn submit(request: Request) {
 }
 
 /// Whether `event` is a press of the Stop all tasks shortcut `binding`
-/// (`None` with the Lab off or it unbound). `held` keeps its key while it is
+/// (`None` with the assistant off or it unbound). `held` keeps its key while it is
 /// down, so the key's repeats are not presses.
 fn stop_all_press(
     event: InputEvent,
@@ -841,8 +841,8 @@ mod tests {
     }
 
     /// ⌃⌥Esc stops everything once per press, its repeats stop nothing, and
-    /// Escape alone, ⌘⌥Esc (Force Quit), or the shortcut unbound or its Lab
-    /// off (`None`) is no press.
+    /// Escape alone, ⌘⌥Esc (Force Quit), or the shortcut unbound or the
+    /// assistant off (`None`) is no press.
     #[test]
     fn the_stop_all_shortcut_presses_once_and_only_while_bound() {
         use crate::app_settings::{COMMAND_KEY_MASK, CONTROL_KEY_MASK, OPTION_KEY_MASK};

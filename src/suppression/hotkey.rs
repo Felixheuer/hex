@@ -17,7 +17,7 @@ pub enum HotkeyAction {
     PasteLast,
     PasteMeeting,
     /// Two complete taps on a machine that takes a double tap as a gesture
-    /// (Labs › Assistant's Action shortcut) instead of a lock: the second
+    /// (the assistant's Action shortcut) instead of a lock: the second
     /// tap's provisional capture ends unheard, and the gesture is the
     /// caller's to act on.
     DoubleTap,
@@ -308,7 +308,7 @@ impl DictationHotkey {
 
     /// Whether two complete taps are a gesture the caller acts on
     /// ([`HotkeyAction::DoubleTap`]) rather than a hands-free lock. Needs
-    /// double-tap enabled and Hold, as Labs › Assistant's Action shortcut
+    /// double-tap enabled and Hold, as the assistant's Action shortcut
     /// configures it.
     pub fn set_double_tap_gesture(&mut self, enabled: bool) {
         self.double_tap_gesture = enabled;

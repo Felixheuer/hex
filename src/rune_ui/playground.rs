@@ -262,6 +262,7 @@ const PATHS: &[(&str, &str)] = &[
     ),
     ("mac-onboarding-ready", "Window/Onboarding/Hex is ready"),
     ("mac-chats", "Window/Chats/Conversation"),
+    ("mac-chats-off", "Window/Chats/The assistant is off"),
     ("mac-chats-running", "Window/Chats/Tasks running"),
     ("mac-chats-empty", "Window/Chats/No conversations"),
     ("mac-chats-settings", "Window/Chats/Settings"),

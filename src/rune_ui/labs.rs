@@ -30,9 +30,9 @@ pub(super) static LABS_ICON: Icon = Icon {
     body: r#"<path d="M6.25 2.5h3.5M6.75 2.5v4L3.2 12.3a.8.8 0 0 0 .7 1.2h8.2a.8.8 0 0 0 .7-1.2L9.25 6.5v-4M4.8 10h6.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>"#,
 };
 
-/// The main sidebar's panes, in order: General, Output, History, then the
-/// features turned on (Chats, Meetings, and Voice Filter from Labs, Annotate
-/// in dev builds).
+/// The main sidebar's panes, in order: General, Output, History, then
+/// Chats (macOS) and the features turned on (Meetings and Voice Filter from
+/// Labs, Annotate in dev builds).
 pub(super) fn main_panes(ui: &Ui) -> Vec<Pane> {
     let mut panes = vec![Pane::General, Pane::Output, Pane::History];
     #[cfg(hex_capture)]
@@ -535,12 +535,6 @@ fn rows(ui: &Ui) -> Vec<Row> {
             tr("Print-only CLI dictation"),
             tr("Let hex dictation start --print answer with the transcript when it ends"),
         ));
-        rows.push(row(
-            Feature::Assistant,
-            None,
-            tr("Assistant"),
-            tr("Add an Action shortcut and Chats: ask by voice, hear the answer, and let the assistant use your Mac"),
-        ));
     }
     // macOS's shortcut machine takes a shortcut without a key.
     if caps.os == super::platform::Os::Macos {
@@ -988,7 +982,6 @@ fn row_key(lab: Lab) -> &'static str {
         Feature::SpeakersOnly => "lab-speakers-only",
         Feature::KeepMicrophoneOpen => "lab-keep-microphone-open",
         Feature::PrintStart => "lab-print-start",
-        Feature::Assistant => "lab-assistant",
     }
 }
 
@@ -1029,10 +1022,6 @@ fn flip(ui: &mut Ui, lab: Lab) {
         // Hex hears the browser through System Audio Recording.
         Feature::PauseBrowser if on && !ui.platform.system_audio => {
             ui.ask(super::platform::PlatformRequest::SystemAudio);
-        }
-        // The assistant's setup checks everything it needs, once.
-        Feature::Assistant if on && !ui.settings.assistant.setup_done => {
-            super::chats::open_setup(ui);
         }
         _ => {}
     }
@@ -1196,10 +1185,4 @@ fn keep_microphone_open_for(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
         },
         layer,
     )
-}
-
-/// A lab switch flipped as its card does, for tests.
-#[cfg(test)]
-pub(super) fn flip_for_test(ui: &mut Ui, feature: Feature) {
-    flip(ui, Lab::Feature(feature));
 }

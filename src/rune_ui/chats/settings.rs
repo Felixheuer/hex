@@ -257,6 +257,7 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
     ];
     tasks.extend(lanes::task_rows(ui, p, layer));
     vec![
+        super::switch::settings_card(ui, p),
         section(p, "assistant-agent", tr("Agent"), agent),
         more::autonomy_section(ui, p),
         section(p, "assistant-voice-section", tr("Answers"), voice),

@@ -191,9 +191,9 @@ impl AppSettings {
         }
     }
 
-    /// Labs › Assistant's Action and Stop all tasks shortcuts never share a
-    /// key with another active shortcut: while the Lab is on, one that does
-    /// (the dictation shortcut moved onto right Command while the Lab was
+    /// The assistant's Action and Stop all tasks shortcuts never share a
+    /// key with another active shortcut: while the assistant is on, one that
+    /// does (the dictation shortcut moved onto right Command while it was
     /// off, say) is unbound, so General shows an empty recorder rather than
     /// a shortcut that does nothing. Off, they stay as saved. Returns
     /// whether either changed.

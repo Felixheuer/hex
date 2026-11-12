@@ -226,7 +226,7 @@ enum DevCommand {
         command: VoiceFilterCommand,
     },
     #[cfg(debug_assertions)]
-    /// Labs › Assistant: find the agents and agent-desktop, and run setup's
+    /// The assistant: find the agents and agent-desktop, and run setup's
     /// self-tests from this process.
     AssistantDoctor {
         /// Run every self-test (asks each installed agent a tiny prompt).
@@ -245,7 +245,7 @@ enum DevCommand {
         browser: bool,
     },
     #[cfg(debug_assertions)]
-    /// Labs › Assistant's experimental agents' Space: opens a TextEdit
+    /// The assistant's experimental agents' Space: opens a TextEdit
     /// window, parks it out of the way, checks agent-desktop still reads and
     /// sets its text, shows it again, and quits TextEdit. Moves a window on
     /// screen: run it only on purpose.

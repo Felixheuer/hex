@@ -1,5 +1,5 @@
-//! Labs › Assistant's window strings (Chats, its settings, its onboarding,
-//! and the Lab's card), kept beside [`super::TRANSLATIONS`]. One row per
+//! The assistant's window strings (Chats, its settings and switch, and its
+//! onboarding), kept beside [`super::TRANSLATIONS`]. One row per
 //! string with every language, so none is ever left out; the macro splits
 //! them into the main table's six columns and the Portuguese, French, and
 //! Russian tables.
@@ -18,7 +18,9 @@ macro_rules! assistant_strings {
 #[rustfmt::skip]
 assistant_strings![
     ("Assistant", ["Asystent", "助手", "アシスタント", "Assistent", "Asistente", "Асистент", "Assistente", "Assistant", "Ассистент"]),
-    ("Add an Action shortcut and Chats: ask by voice, hear the answer, and let the assistant use your Mac", ["Dodaje skrót Akcji i Czaty: pytaj głosem, słuchaj odpowiedzi i pozwól asystentowi używać Maca", "添加操作快捷键和聊天：用语音提问、听到回答，并让助手操作你的 Mac", "アクションショートカットとチャットを追加します。声で尋ね、答えを聞き、アシスタントに Mac を操作させます", "Fügt ein Aktionskürzel und Chats hinzu: per Sprache fragen, die Antwort hören und den Assistenten deinen Mac bedienen lassen", "Añade un atajo de Acción y Chats: pregunta con la voz, escucha la respuesta y deja que el asistente use tu Mac", "Додає сполучення Дії та Чати: питайте голосом, слухайте відповідь і дозвольте асистенту користуватися Mac", "Adiciona um atalho de Ação e Chats: pergunte por voz, ouça a resposta e deixe o assistente usar seu Mac", "Ajoute un raccourci Action et les Discussions : demandez à voix haute, écoutez la réponse et laissez l'assistant utiliser votre Mac", "Добавляет сочетание «Действие» и Чаты: спрашивайте голосом, слушайте ответ и позвольте ассистенту управлять Mac"]),
+    ("Hold right ⌘ to ask, double-tap for your tasks", ["Przytrzymaj prawy ⌘, by zapytać; stuknij dwa razy, by zobaczyć zadania", "按住右侧 ⌘ 提问，连按两下查看你的任务", "右 ⌘ を押し続けて質問、ダブルタップでタスクを表示", "Halte die rechte ⌘-Taste zum Fragen, doppeltippe für deine Aufgaben", "Mantén ⌘ derecha para preguntar; toca dos veces para ver tus tareas", "Утримуйте правий ⌘, щоб запитати; двічі торкніться, щоб побачити завдання", "Segure o ⌘ direito para perguntar; toque duas vezes para ver suas tarefas", "Maintenez ⌘ droite pour demander, touchez deux fois pour voir vos tâches", "Удерживайте правый ⌘, чтобы спросить; дважды нажмите, чтобы увидеть задачи"]),
+    ("The assistant is off", ["Asystent jest wyłączony", "助手已关闭", "アシスタントはオフです", "Der Assistent ist aus", "El asistente está desactivado", "Асистента вимкнено", "O assistente está desativado", "L'assistant est désactivé", "Ассистент выключен"]),
+    ("Turn on", ["Włącz", "打开", "オンにする", "Einschalten", "Activar", "Увімкнути", "Ativar", "Activer", "Включить"]),
     ("Chats", ["Czaty", "聊天", "チャット", "Chats", "Chats", "Чати", "Chats", "Discussions", "Чаты"]),
     ("Conversations", ["Rozmowy", "对话", "会話", "Unterhaltungen", "Conversaciones", "Розмови", "Conversas", "Conversations", "Разговоры"]),
     ("Working in {}", ["Pracuje w {}", "正在 {} 中工作", "{} で作業中", "Arbeitet in {}", "Trabajando en {}", "Працює в {}", "Trabalhando no {}", "Travaille dans {}", "Работает в {}"]),

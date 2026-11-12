@@ -403,7 +403,7 @@ pub(crate) enum Destination {
     Models,
     /// The Meetings pane, with a meeting selected when given.
     Meetings(Option<String>),
-    /// Chats (Labs › Assistant), on a conversation or a new chat.
+    /// Chats, on a conversation or a new chat.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Chats(Option<String>),
     Modes,
@@ -721,7 +721,7 @@ pub(crate) struct Ui {
     platform: platform::PlatformState,
     host: platform::PlatformHost,
     meetings: meetings::MeetingsPane,
-    /// Chats and the assistant's setup (Labs › Assistant).
+    /// Chats and the assistant's setup.
     chats: chats::ChatsPane,
     fun: fun::FunPane,
     activity: activity::ActivityPane,

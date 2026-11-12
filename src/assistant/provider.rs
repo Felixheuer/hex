@@ -409,7 +409,7 @@ pub fn session_key(backend: AssistantBackend) -> &'static str {
 pub fn executable(backend: AssistantBackend) -> Result<PathBuf> {
     crate::assistant::backends::executable(backend).ok_or_else(|| {
         eyre!(
-            "{} isn't installed on this Mac, or Hex can't find it. Install it, or choose another agent in Labs › Assistant.",
+            "{} isn't installed on this Mac, or Hex can't find it. Install it, or choose another agent in Chats › Settings.",
             name(backend)
         )
     })

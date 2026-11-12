@@ -1,5 +1,5 @@
 //! The assistant's onboarding: a full-window flow in the first run's kit,
-//! started when Labs › Assistant turns on before it was ever finished, and
+//! started when the assistant turns on before it was ever finished, and
 //! again from Chats. Page by page it makes sure an agent answers (chosen,
 //! installed, signed in), that Hex and agent-desktop have every permission
 //! (each missing one opens its exact System Settings page with Hex's

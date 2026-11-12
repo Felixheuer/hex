@@ -548,10 +548,10 @@ pub(in crate::rune_ui) enum Scene {
     NewSchedule,
 }
 
-/// Sets `ui` up for a Chats scene: the Lab on, with fake conversations.
+/// Sets `ui` up for a Chats scene: the assistant on, with fake conversations.
 pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
     let now = crate::history::now_ms();
-    ui.settings.labs.assistant = true;
+    ui.settings.assistant.enabled = true;
     ui.settings.assistant.setup_done = matches!(
         scene,
         Scene::Conversation

@@ -27,3 +27,6 @@ for the section you need instead of reading it whole.
   turned off for the repository. Where AGENTS.md or docs mention workflows,
   CI, golden artifacts from `check-linux.yml`, or release jobs, they describe
   upstream. Verify locally instead (filtered tests, `scripts/check`).
+- The assistant is on by default in this fork (`assistant.enabled`, not a
+  Lab; see `docs/features/assistant.md`), overriding upstream's "new
+  features stay in Labs, off" rule for it.

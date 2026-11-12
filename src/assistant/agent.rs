@@ -480,7 +480,7 @@ pub fn prepare(
                 spec.physical_input,
             )
             .ok_or(
-                "agent-desktop isn't installed, so the assistant can't use apps. Install it in Labs › Assistant, or turn off “Use apps”.",
+                "agent-desktop isn't installed, so the assistant can't use apps. Install it in Chats › Settings, or turn off “Use apps”.",
             )?,
         )
     } else {

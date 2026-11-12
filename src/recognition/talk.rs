@@ -1,4 +1,4 @@
-//! Labs › Assistant's conversation mode and barge-in, carried out with the
+//! The assistant's conversation mode and barge-in, carried out with the
 //! listener's capture (macOS). [`super::conversation`] decides; this opens,
 //! hears, finishes, and closes.
 //!

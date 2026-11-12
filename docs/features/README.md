@@ -33,6 +33,10 @@ Agents can [read retained transcripts](transcript-cli.md) and
 [Labs](labs.md) gives every unfinished feature its own switch, off by
 default, listed under collapsible groups (Dictation, Output, History,
 Meetings, Annotate, Shortcuts, Models) with only this OS's labs.
+The [Assistant](assistant.md) (macOS, on by default in this fork, graduated
+from Labs) answers, acts, or starts a background job when you hold the
+Action shortcut and speak; Chats lists its conversations, and its switch is
+`assistant.enabled`.
 Its Restore shortcut default toggle (off by default) puts a Restore default
 button beside Paste last dictation's shortcut (#613); its Sort and filter
 models toggle (off by default) adds a sort and a saved-language filter to the

@@ -603,7 +603,7 @@ pub fn set_probing(on: bool) {
 fn is_chord_evidence(code: u16, flags: u64, hotkeys: RuntimeHotkeys) -> bool {
     // The Globe key's own event is the shortcut itself for the dictation
     // shortcuts that can hold Fn: the main, second, raw, and extra ones, and
-    // Labs › Assistant's Action shortcut. Any other shortcut's Fn chord is
+    // The assistant's Action shortcut. Any other shortcut's Fn chord is
     // still evidence of one.
     let own_globe_key = std::iter::once(hotkeys.dictation)
         .chain(hotkeys.second_dictation)

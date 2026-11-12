@@ -1,4 +1,4 @@
-// Labs › Assistant's notifications: a Background job finished, failed, or
+// The assistant's notifications: a Background job finished, failed, or
 // asks something. Posted through UNUserNotificationCenter, which only works
 // inside the bundled, signed Hex.app; clicking one opens Chats on its
 // conversation (`hex://chats?id=<conversation>`).

@@ -1,4 +1,4 @@
-//! Chats (Labs › Assistant, macOS): every conversation with the assistant
+//! Chats (the assistant, macOS): every conversation with the assistant
 //! and how it ended, the selected one's transcript with its answers
 //! streaming in, a composer that asks about the window in front (Here) or
 //! starts a Background task, the running tasks with Take over, Hand back,
@@ -28,6 +28,7 @@ mod sheet;
 mod shortcut;
 mod source;
 mod strip;
+mod switch;
 #[cfg(all(test, target_os = "macos"))]
 mod tests;
 mod transcript;
@@ -558,10 +559,15 @@ impl ChatsPane {
     }
 }
 
-/// Whether the pane is in the sidebar: Labs › Assistant is on, on macOS.
+/// Whether the pane is in the sidebar: on macOS, whether or not the
+/// assistant is on (off, it offers to turn it on).
 pub(super) fn available(ui: &Ui) -> bool {
-    ui.platform.caps.os == super::platform::Os::Macos
-        && crate::assistant::enabled(&ui.settings)
+    cfg!(target_os = "macos") && ui.platform.caps.os == super::platform::Os::Macos
+}
+
+/// Whether the assistant runs: the pane is here and its switch is on.
+fn on(ui: &Ui) -> bool {
+    available(ui) && crate::assistant::enabled(&ui.settings)
 }
 
 /// Connects the pane to the assistant service: the window shows what it
@@ -587,7 +593,7 @@ pub(super) fn connect(ui: &mut Ui, waker: Waker) {
 /// `hex://chats?id=` link, the HUD's bubble, or its task stack; without
 /// one, on the most relevant conversation.
 pub(super) fn show(ui: &mut Ui, conversation: Option<ConversationId>, tx: &mut Tx) {
-    if !available(ui) {
+    if !on(ui) {
         return;
     }
     ui.select_pane(Pane::Chats, tx);
@@ -608,7 +614,7 @@ pub(super) fn open_setup(ui: &mut Ui) {
 /// A hold of the Action shortcut before setup finished: the onboarding
 /// where it was left (or as it is, when it shows), saying so.
 pub(super) fn open_setup_from_hold(ui: &mut Ui, tx: &mut Tx) {
-    if !available(ui) || ui.settings.assistant.setup_done {
+    if !on(ui) || ui.settings.assistant.setup_done {
         return;
     }
     if ui.pane != Pane::Chats {
@@ -639,16 +645,19 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
         changed |= setup::event(ui, event);
     }
     changed |= jobs::poll(ui);
-    if !available(ui) {
-        if ui.chats.setup.is_some() || ui.pane == Pane::Chats {
-            // The Lab turned off: its onboarding closes, its pane leaves.
+    if !on(ui) {
+        if ui.chats.setup.is_some() {
+            // The assistant turned off: its onboarding closes; the pane
+            // stays, offering to turn it back on.
             setup::close(ui);
-            if ui.pane == Pane::Chats {
-                ui.select_pane(Pane::General, tx);
-            }
+            changed = true;
+        }
+        if !available(ui) && ui.pane == Pane::Chats {
+            ui.select_pane(Pane::General, tx);
             changed = true;
         }
         set_focus(ui, None);
+        changed |= settings::poll(ui, Instant::now());
         return changed;
     }
     changed |= setup::resume::follow_first_run(ui);
@@ -718,9 +727,16 @@ pub(super) fn escape(ui: &mut Ui) -> bool {
 pub(super) fn pane(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> (Vec<El>, El) {
     match ui.chats.view {
         View::Settings => (
-            vec![setup_button(p)],
+            // Off, there is nothing to set up until it's turned on.
+            crate::assistant::enabled(&ui.settings)
+                .then(|| setup_button(p))
+                .into_iter()
+                .collect(),
             super::scroll_body(p.k, "chats-settings-scroll", settings::page(ui, p, layer)),
         ),
+        View::Chats if !crate::assistant::enabled(&ui.settings) => {
+            (Vec::new(), switch::off_card(p))
+        }
         View::Chats => {
             layer.extend(schedules::sheet(ui, p));
             (header_actions(ui, p), list::body(ui, p, layer))

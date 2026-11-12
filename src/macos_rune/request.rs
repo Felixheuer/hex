@@ -52,9 +52,9 @@ pub(crate) enum ShortcutTarget {
     SecondDictation,
     /// Labs › More dictation shortcuts (macOS): row `index`.
     ExtraDictation(usize),
-    /// Labs › Assistant's Action shortcut.
+    /// The assistant's Action shortcut.
     Action,
-    /// Labs › Assistant's Stop all tasks shortcut.
+    /// The assistant's Stop all tasks shortcut.
     StopAll,
     /// Toggle mode's cancel shortcut.
     Cancel,

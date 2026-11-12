@@ -30,7 +30,7 @@ use crate::transcription::models as transcription_models;
 mod search;
 mod shortcuts;
 
-/// Labs › Assistant (macOS): what else takes the dictation and Action
+/// The assistant (macOS): what else takes the dictation and Action
 /// shortcuts' keys.
 #[cfg(target_os = "macos")]
 mod conflicts;
@@ -84,7 +84,7 @@ pub(super) fn basics(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Opt
                 ),
             );
         }
-        // Labs › Assistant (macOS): the Action shortcut (hold and say
+        // The assistant (macOS): the Action shortcut (hold and say
         // anything, the assistant decides; double-tap for the task list),
         // and Stop all tasks under it.
         #[cfg(target_os = "macos")]

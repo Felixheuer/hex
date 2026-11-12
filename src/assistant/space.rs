@@ -38,7 +38,7 @@ use crate::assistant::backends::{self, desktop, search};
 static PARKED: Mutex<Option<HashMap<String, (f64, f64)>>> = Mutex::new(None);
 
 /// Whether moving task windows out of the way is on and can work here
-/// (`agent_space` and the Lab are on, and agent-desktop is installed).
+/// (`agent_space` and the assistant are on, and agent-desktop is installed).
 pub fn available() -> bool {
     let on = crate::app_settings::assistant_runtime()
         .is_some_and(|(lab, settings)| lab && settings.agent_space);

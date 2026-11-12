@@ -27,7 +27,7 @@ Hex's dictation processing never runs an OpenCode executable, never starts or
 restarts the service, and never searches for or probes an installed CLI. It
 only talks to an already running service (`src/desktop/opencode_service.rs`).
 
-The one exception is Labs › Assistant (off by default, macOS) with OpenCode
+The one exception is the assistant (on by default, macOS) with OpenCode
 chosen as its agent: each task runs `opencode run --standalone` with its own
 `OPENCODE_CONFIG_CONTENT` (a `hex` agent denied the shell and file edits, and
 agent-desktop as its MCP server), because the running service loads its MCP

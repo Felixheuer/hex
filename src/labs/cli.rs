@@ -103,7 +103,11 @@ pub fn run(command: Option<&LabsCommand>) -> Result<()> {
 
 /// The feature `name` names, if this OS has it and `reaches` admits it.
 /// Features that left Labs: `hex labs` still knows their names.
-const GRADUATED: [(&str, &str); 2] = [
+const GRADUATED: [(&str, &str); 3] = [
+    (
+        "assistant",
+        "assistant graduated: the assistant is a normal Hex feature now, on by default; turn it off with `hex settings set assistant.enabled false`",
+    ),
     (
         "custom-models",
         "custom-models graduated: adding a model file and models found on this computer are always on now",

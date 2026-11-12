@@ -982,7 +982,7 @@ pub fn listen(
         let capture_escape = capture_host.is_some() && capture_shortcut.takes_escape();
         #[cfg(not(hex_capture))]
         let capture_escape = false;
-        // Labs › Assistant takes it only while a quick question runs or speaks.
+        // The assistant takes it only while a quick question runs or speaks.
         let free = programmatic.is_none() && !hotkeys.any_recording();
         input_monitor.set_takes_escape(
             claims_escape(programmatic.is_some(), capture_escape)
@@ -1137,7 +1137,7 @@ pub fn listen(
             {
                 indicator.meter(&audio.samples);
             }
-            // Labs › Assistant's conversation mode hears its own capture.
+            // The assistant's conversation mode hears its own capture.
             if audio.is_current(input.recognition_generation()) {
                 asker.hear(&audio.samples, input.sample_rate(), indicator);
             }

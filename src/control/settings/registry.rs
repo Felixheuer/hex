@@ -239,159 +239,165 @@ pub(super) const KEYS: &[Key] = &[
         Kind::Path,
         "Labs: folder screenshots are saved to; none uses the Desktop (macOS)",
     ),
+    key(
+        "assistant.enabled",
+        Kind::Bool,
+        "The assistant: hold the Action shortcut to ask by voice, double-tap for your tasks; \
+         Chats lists the conversations; on by default (macOS)",
+    ),
     optional(
         "assistant.action_hotkey",
         Kind::Shortcut(HotkeySlot::Action),
-        "Labs: hold and say anything, and the assistant answers, acts, or starts a \
+        "Hold and say anything, and the assistant answers, acts, or starts a \
          background job; double-tap shows the task list; right command by default; none \
-         turns it off (macOS, with labs.assistant)",
+         turns it off (macOS)",
     ),
     key(
         "assistant.backend",
         Kind::Choice(&["claude_code", "codex", "open_code", "claude_api"]),
-        "Labs: the agent that answers and acts: claude_code, codex, open_code, or claude_api \
+        "The agent that answers and acts: claude_code, codex, open_code, or claude_api \
          (an Anthropic key in the Keychain) (macOS)",
     ),
     optional(
         "assistant.claude_code_model",
         Kind::Text,
-        "Labs: the model Claude Code uses for the assistant; none is its default (macOS)",
+        "The model Claude Code uses for the assistant; none is its default (macOS)",
     ),
     optional(
         "assistant.here_model",
         Kind::Text,
-        "Labs: the model for Here-lane answers on Claude Code and the Claude API; none uses \
+        "The model for Here-lane answers on Claude Code and the Claude API; none uses \
          the backend's model (macOS)",
     ),
     optional(
         "assistant.codex_model",
         Kind::Text,
-        "Labs: the model Codex uses for the assistant; none is its default (macOS)",
+        "The model Codex uses for the assistant; none is its default (macOS)",
     ),
     optional(
         "assistant.opencode_model",
         Kind::Text,
-        "Labs: OpenCode's provider/model for the assistant; none is its default (macOS)",
+        "OpenCode's provider/model for the assistant; none is its default (macOS)",
     ),
     optional(
         "assistant.opencode_provider",
         Kind::Text,
-        "Labs: the provider whose API key (saved in the Keychain) OpenCode uses for the assistant, such as deepseek or openrouter; none uses OpenCode's own sign-ins (macOS)",
+        "The provider whose API key (saved in the Keychain) OpenCode uses for the assistant, such as deepseek or openrouter; none uses OpenCode's own sign-ins (macOS)",
     ),
     key(
         "assistant.claude_api_model",
         Kind::Text,
-        "Labs: the Claude model the API backend uses, claude-sonnet-5-5 by default (macOS)",
+        "The Claude model the API backend uses, claude-sonnet-5-5 by default (macOS)",
     ),
     key(
         "assistant.speak_answers",
         Kind::Bool,
-        "Labs: the assistant reads quick answers aloud (macOS)",
+        "The assistant reads quick answers aloud (macOS)",
     ),
     optional(
         "assistant.voice",
         Kind::Text,
-        "Labs: the macOS voice that reads answers; none uses the system voice (macOS)",
+        "The macOS voice that reads answers; none uses the system voice (macOS)",
     ),
     key(
         "assistant.control_desktop",
         Kind::Bool,
-        "Labs: assistant tasks may operate apps through agent-desktop (macOS)",
+        "Assistant tasks may operate apps through agent-desktop (macOS)",
     ),
     key(
         "assistant.physical_input",
         Kind::Bool,
-        "Labs: assistant tasks may also move the real pointer and press real keys (macOS)",
+        "Assistant tasks may also move the real pointer and press real keys (macOS)",
     ),
     key(
         "assistant.include_screenshot",
         Kind::Bool,
-        "Labs: a quick question sends a screenshot of the screen with it (macOS)",
+        "A quick question sends a screenshot of the screen with it (macOS)",
     ),
     key(
         "assistant.follow_up_seconds",
         Kind::Integer { min: 0, max: 600 },
-        "Labs: a hold this soon after a quick answer continues that conversation; 0 always \
+        "A hold this soon after a quick answer continues that conversation; 0 always \
          starts a new one (macOS)",
     ),
     key(
         "assistant.max_parallel",
         Kind::Integer { min: 1, max: 64 },
-        "Labs: at most this many assistant tasks run at once; later ones wait (macOS)",
+        "At most this many assistant tasks run at once; later ones wait (macOS)",
     ),
     optional(
         "assistant.stop_all_hotkey",
         Kind::Shortcut(HotkeySlot::StopAll),
-        "Labs: stops every assistant task and its speech at once; control+option+escape by \
-         default; none turns it off (macOS, with labs.assistant)",
+        "Stops every assistant task and its speech at once; control+option+escape by \
+         default; none turns it off (macOS)",
     ),
     key(
         "assistant.here_physical_input",
         Kind::Bool,
-        "Labs: a Here task may use the real pointer and keys in the window in front (macOS)",
+        "A Here task may use the real pointer and keys in the window in front (macOS)",
     ),
     key(
         "assistant.background_browser",
         Kind::Bool,
-        "Labs: web work runs in agent-browser's own hidden browsers, one per task (macOS)",
+        "Web work runs in agent-browser's own hidden browsers, one per task (macOS)",
     ),
     key(
         "assistant.blocked_apps",
         Kind::Json,
-        "Labs: apps no assistant task may read or operate, by name or bundle id (macOS)",
+        "Apps no assistant task may read or operate, by name or bundle id (macOS)",
     ),
     key(
         "assistant.task_timeout_minutes",
         Kind::Integer { min: 0, max: 1440 },
-        "Labs: an assistant task running longer than this is stopped; 0 never (macOS)",
+        "An assistant task running longer than this is stopped; 0 never (macOS)",
     ),
     key(
         "assistant.retry_on_limit",
         Kind::Bool,
-        "Labs: a task that hits its agent's usage limit waits and retries (macOS)",
+        "A task that hits its agent's usage limit waits and retries (macOS)",
     ),
     key(
         "assistant.agent_space",
         Kind::Bool,
-        "Labs: experimental; windows Background tasks open move to a Space of their own (macOS)",
+        "Experimental; windows Background tasks open move to a Space of their own (macOS)",
     ),
     optional(
         "assistant.agent_display",
         Kind::Text,
-        "Labs: the display new Background task windows move to, by agent-desktop id or name; \
+        "The display new Background task windows move to, by agent-desktop id or name; \
          none is the display the person isn't working on (macOS)",
     ),
     key(
         "assistant.autonomy",
         Kind::Choice(&["ask", "smart", "yolo"]),
-        "Labs: how freely assistant tasks send, delete, pay, share, or publish: ask each \
+        "How freely assistant tasks send, delete, pay, share, or publish: ask each \
          time, smart (only what your request named, the default), or yolo (macOS)",
     ),
     key(
         "assistant.memory",
         Kind::Bool,
-        "Labs: assistant tasks read your note about you (business, people, tone) (macOS)",
+        "Assistant tasks read your note about you (business, people, tone) (macOS)",
     ),
     key(
         "assistant.conversation_seconds",
         Kind::Integer { min: 0, max: 60 },
-        "Labs: after a spoken answer Hex listens this long for a follow-up without the \
+        "After a spoken answer Hex listens this long for a follow-up without the \
          shortcut; 0 turns conversation mode off (macOS)",
     ),
     key(
         "assistant.barge_in",
         Kind::Bool,
-        "Labs: speaking while an answer is read aloud interrupts it (macOS)",
+        "Speaking while an answer is read aloud interrupts it (macOS)",
     ),
     key(
         "assistant.notifications",
         Kind::Bool,
-        "Labs: macOS notifications when an assistant job finishes, fails, or asks (macOS)",
+        "MacOS notifications when an assistant job finishes, fails, or asks (macOS)",
     ),
     key(
         "assistant.setup_done",
         Kind::Bool,
-        "Labs: the assistant's setup sheet was finished (macOS)",
+        "The assistant's setup sheet was finished (macOS)",
     ),
     key(
         "show_dock_icon",
@@ -805,12 +811,6 @@ pub(super) const KEYS: &[Key] = &[
         Kind::Bool,
         "Labs: `hex dictation start --print` records a dictation whose transcript goes to \
          that command, never pasted or copied, however the recording ends (macOS)",
-    ),
-    key(
-        "labs.assistant",
-        Kind::Bool,
-        "Labs: the Action shortcut asks the assistant by voice, Chats joins the sidebar, and \
-         the assistant may control the desktop (macOS)",
     ),
     key(
         "meetings.enabled",

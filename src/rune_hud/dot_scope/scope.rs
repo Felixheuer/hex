@@ -96,7 +96,7 @@ pub struct Pose {
     pub clock: f32,
     /// 1 once the dictation is done, else 0.
     pub done: f32,
-    /// 1 while the capture asks the assistant (Labs › Assistant), else 0:
+    /// 1 while the capture asks the assistant, else 0:
     /// the voice's colour becomes the assistant's.
     pub ask: f32,
 }

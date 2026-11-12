@@ -442,7 +442,7 @@ pub fn apply(
         "labs.standalone_special_keys" => candidate.repair_special_keys(),
         "labs.section_key_alone" => candidate.repair_section_key(),
         // On, an Action shortcut another shortcut took meanwhile is unbound.
-        "labs.assistant" => {
+        "assistant.enabled" => {
             candidate.repair_action_shortcut();
         }
         "labs.parakeet_ultra" if !candidate.labs.parakeet_ultra => {
@@ -791,7 +791,7 @@ mod tests {
     fn stop_all_is_a_shortcut_setting() {
         let rules = rules();
         let mut settings = AppSettings::default();
-        settings.labs.assistant = true;
+        settings.assistant.enabled = true;
         assert_eq!(
             get(&settings, "assistant.stop_all_hotkey").unwrap()[0].value,
             Value::String("control+option+esc".into())

@@ -1,6 +1,7 @@
-//! Labs › Assistant's settings (macOS): the Action shortcut, the agent that
-//! answers, and how far it may act. The Lab's switch is
-//! `labs.assistant`; the Anthropic API key lives in the Keychain, never here.
+//! The assistant's settings (macOS): its switch, the Action shortcut, the
+//! agent that answers, and how far it may act. The switch is
+//! `assistant.enabled`, on by default; the Anthropic API key lives in the
+//! Keychain, never here.
 
 use super::*;
 
@@ -21,10 +22,14 @@ pub enum AssistantBackend {
     ClaudeApi,
 }
 
-/// Labs › Assistant's options.
+/// The assistant's options.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default)]
 pub struct AssistantSettings {
+    /// The assistant's switch (macOS): off, the Action shortcut, the
+    /// overlays, the scheduler, and its menu bar items are inert. On by
+    /// default.
+    pub enabled: bool,
     /// Hold and say anything: the assistant answers, acts in the window in
     /// front, or starts a background job. Double-tap shows or hides the task
     /// list; a tap then a hold forces a new Background task. Right Command
@@ -105,6 +110,7 @@ pub struct AssistantSettings {
 impl Default for AssistantSettings {
     fn default() -> Self {
         Self {
+            enabled: true,
             action_hotkey: Some(HotkeyBinding::action_default()),
             backend: AssistantBackend::ClaudeCode,
             claude_code_model: None,
@@ -190,8 +196,8 @@ impl HotkeyBinding {
 }
 
 impl AppSettings {
-    /// Labs › Assistant's Stop all tasks shortcut while it takes effect:
-    /// macOS, the Lab on, bound, and sharing no key with another active
+    /// The assistant's Stop all tasks shortcut while it takes effect:
+    /// macOS, the assistant on, bound, and sharing no key with another active
     /// shortcut or Force Quit. Otherwise Hex matches and swallows nothing for
     /// it.
     pub fn active_stop_all_hotkey(&self) -> Option<&HotkeyBinding> {
@@ -220,7 +226,7 @@ pub fn applied_assistant_ready() -> bool {
         .is_some_and(crate::assistant::ready)
 }
 
-/// The assistant's settings as last applied, and whether its Lab is on, for
+/// The assistant's settings as last applied, and whether it is on, for
 /// the task runner's threads; `None` until settings are applied (a `hex`
 /// command that never loads them reads the file instead).
 pub fn assistant_runtime() -> Option<(bool, AssistantSettings)> {

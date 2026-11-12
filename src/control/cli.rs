@@ -186,7 +186,7 @@ pub enum ControlCli {
         #[command(subcommand)]
         command: Option<crate::labs::LabsCommand>,
     },
-    /// Labs › Assistant: ask one question here and print what happens, or
+    /// The assistant: ask one question here and print what happens, or
     /// list saved conversations.
     #[command(hide = true)]
     Assistant {

@@ -501,17 +501,17 @@ options), `the_second_dictation_shortcut_needs_its_lab_and_its_own_keys`
 (cross-compiled only). Proof limits: no physical shortcut press on any OS, no
 real Wayland grant or X11 grab run, and no Windows hook run.
 
-### Action Shortcut (Labs › Assistant, macOS)
+### Action Shortcut (Assistant, macOS)
 
-While Labs › Assistant is on (`labs.assistant`), its Action shortcut
+While the assistant is on (`assistant.enabled`, on by default), its Action shortcut
 (`assistant.action_hotkey`, right Command alone by default) records through
 the same microphone pipeline, HUD, and sounds as dictation, but its transcript
-asks the assistant instead of pasting ([labs.md](labs.md), Assistant). Hold
+asks the assistant instead of pasting ([assistant.md](assistant.md)). Hold
 and say anything; Hex decides: the assistant answers, acts in the window in
 front, or escalates to a background job, so there is no mode to choose:
 
 ```ts
-Labs > Assistant > Action shortcut           // recognition::ask, Shortcut::Action
+Assistant > Action shortcut                  // recognition::ask, Shortcut::Action
 ├── Setup not finished (assistant::ready false) -> nothing recorded; a hold
 │   opens the setup at its saved page (ask::set_open_setup); a tap does nothing
 ├── Hold, say anything (Origin::ActionShortcut): capture starts at once; once
@@ -532,12 +532,12 @@ Labs > Assistant > Action shortcut           // recognition::ask, Shortcut::Acti
 ├── Short tap, chord (R⌘+C), or silence -> discarded, nothing asked
 ├── Escape -> stops running Here tasks and the speech, never a Background
 │   task; taken from the app in front only while one runs or speaks
-└── Lab off, unbound, or sharing a key -> nothing matched or suppressed
+└── Assistant off, unbound, or sharing a key -> nothing matched or suppressed
 
-Labs > Assistant > Stop all tasks            // assistant.stop_all_hotkey, ⌃⌥Esc
+Assistant > Stop all tasks                   // assistant.stop_all_hotkey, ⌃⌥Esc
 ├── Press -> assistant::service::stop_all + speech::stop, cancel tone;
 │   swallowed from the app in front; repeats while held do nothing more
-└── Lab off, unbound, or sharing a key (any Hex shortcut, ⌘⌥Esc Force Quit)
+└── Assistant off, unbound, or sharing a key (any Hex shortcut, ⌘⌥Esc Force Quit)
     -> nothing matched or swallowed
 ```
 
@@ -567,12 +567,12 @@ loss never salvages it as a dictation.
 The shortcut that started a capture owns it: dictation and the Action
 shortcut stand down while the other records.
 
-While the Lab is on, General shows Stop all tasks under the Action shortcut
+While the assistant is on, General shows Stop all tasks under the Action shortcut
 (with Clear, and Restore default, since Escape ends the recorder), and notes
 what else takes the dictation, Action, or Stop all shortcut's keys (macOS
 shortcuts, the 🌐 key, Apple Dictation, Siri, and apps such as Raycast or
 Karabiner-Elements); setup can ask for a press to prove a shortcut reaches Hex
-(`recognition::shortcut_probe`); see [labs.md](labs.md), Assistant. Both are
+(`recognition::shortcut_probe`); see [assistant.md](assistant.md). Both are
 also set with `hex settings set assistant.action_hotkey right-command` and
 `hex settings set assistant.stop_all_hotkey control+option+escape`.
 

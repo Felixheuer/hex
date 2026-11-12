@@ -498,7 +498,7 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     };
     let hud = crate::rune_hud::install(&mut app);
     crate::rune_ui::live_text::install(&mut app, crate::rune_hud::live_text_place);
-    // Labs › Assistant: the frame, window outlines, task stack, and quick
+    // The assistant: the frame, window outlines, task stack, and quick
     // answer; hidden, without windows, until the assistant reports work.
     crate::rune_ui::assistant_overlay::install(&mut app);
     // Its task stack and "Open in Chats" open the conversation in Chats.
@@ -790,7 +790,7 @@ fn show_update_check(window: &rune::AppHandle<Ui>) {
 }
 
 /// Opens the window on Chats at `conversation`, or a new chat with `None`
-/// (Labs › Assistant; nothing while it's off). Callable from any thread:
+/// (nothing while the assistant is off). Callable from any thread:
 /// the HUD's task stack opens a task's conversation this way.
 pub(crate) fn open_chat(conversation: Option<String>) {
     with_window(|window| {
@@ -994,7 +994,7 @@ impl Pump {
                 }
             }
             StatusItemAction::OpenMeetings => show(&self.window, Destination::Meetings(None)),
-            // Labs › Assistant: Chats, and Stop all tasks.
+            // The assistant: Chats, and Stop all tasks.
             StatusItemAction::OpenChats => show(&self.window, Destination::Chats(None)),
             StatusItemAction::StopAllTasks => crate::assistant::service::stop_all(),
             // Labs › Pause from menu bar: only keyboard shortcuts stop; the

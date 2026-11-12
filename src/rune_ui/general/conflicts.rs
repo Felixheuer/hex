@@ -1,7 +1,7 @@
-//! Labs › Assistant (macOS): what else takes the dictation or Action
+//! The assistant (macOS): what else takes the dictation or Action
 //! shortcut's keys (`shortcut_conflicts`), as notes under its row, each with
-//! where it is fixed and "Choose another shortcut". No conflict, or the Lab
-//! off, adds nothing.
+//! where it is fixed and "Choose another shortcut". No conflict, or the
+//! assistant off, adds nothing.
 
 use super::*;
 use crate::app_settings::HotkeySlot;

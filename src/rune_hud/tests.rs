@@ -41,7 +41,7 @@ fn dot_scope_window_fits_the_largest_plate() {
     assert!(largest("dot-height") / 2.0 + 19.0 <= WINDOW.1 / 2.0);
 }
 
-/// An Action capture (Labs › Assistant) wears the assistant's colours until
+/// An Action capture wears the assistant's colours until
 /// the next capture starts; a dictation's colours are exactly as before.
 #[test]
 fn a_question_tints_the_hud_and_a_dictation_never_does() {
@@ -82,7 +82,7 @@ fn schedule(model: &mut IndicatorModel, start: Instant) -> Vec<DotFrame> {
         (4.4, HudEvent::JobCompleted { job_id: 1 }),
     ];
     // `HEX_HUD_ASK=quick` or `agent`: the Action shortcut asks the
-    // assistant instead (Labs › Assistant).
+    // assistant instead.
     if let Ok(ask) = std::env::var("HEX_HUD_ASK") {
         events.insert(
             1,

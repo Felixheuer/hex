@@ -74,18 +74,33 @@ fn answer(rt: &mut Runtime<Ui>, done: Done) {
 }
 
 #[test]
-fn chats_joins_the_sidebar_only_while_the_lab_is_on() {
+fn chats_stays_in_the_sidebar_while_the_assistant_is_off_and_offers_to_turn_it_on() {
     let mut rt = chats();
     assert!(rt.find("nav-chats").is_some());
-    rt.state.settings.labs.assistant = false;
+    rt.state.settings.assistant.enabled = false;
     rt.invalidate();
     settle(&mut rt);
-    assert!(rt.find("nav-chats").is_none(), "Chats left with its Lab");
-    assert_eq!(
-        rt.state.pane,
-        Pane::General,
-        "the window leaves for General"
-    );
+    assert!(rt.find("nav-chats").is_some(), "Chats stays in the sidebar");
+    assert_eq!(rt.state.pane, Pane::Chats, "the window stays on Chats");
+    assert!(shows(&rt, "The assistant is off"));
+    assert!(rt.find("new-chat").is_none(), "no chat while it's off");
+    tap(&mut rt, "turn-on-assistant");
+    assert!(rt.state.settings.assistant.enabled);
+    assert!(!shows(&rt, "The assistant is off"));
+    assert!(rt.state.chats.setup.is_none(), "its setup was already done");
+}
+
+#[test]
+fn the_settings_switch_turns_the_assistant_off_and_on() {
+    let mut rt = scene("mac-chats-settings");
+    assert!(shows(&rt, "Hold right ⌘ to ask, double-tap for your tasks"));
+    assert!(rt.find("run-assistant-setup").is_some());
+    tap(&mut rt, "assistant-enabled");
+    assert!(!rt.state.settings.assistant.enabled);
+    assert!(!crate::assistant::enabled(&rt.state.settings));
+    assert!(rt.find("run-assistant-setup").is_none(), "nothing to set up while off");
+    tap(&mut rt, "assistant-enabled");
+    assert!(rt.state.settings.assistant.enabled);
 }
 
 #[test]
@@ -563,15 +578,15 @@ fn a_hold_before_setup_opens_the_onboarding_and_says_so() {
 }
 
 #[test]
-fn turning_the_lab_on_opens_the_onboarding_until_it_is_done() {
+fn turning_the_assistant_on_opens_the_onboarding_until_it_is_done() {
     let mut state = Ui::with(AppSettings::default(), Service::Fixture(Vec::new()));
     super::fixture_scene(&mut state, super::fixture::Scene::Empty);
-    state.settings.labs.assistant = false;
+    state.settings.assistant.enabled = false;
     state.settings.assistant.setup_done = false;
     let mut rt = runtime_for(state);
-    rt.update(|ui, _| super::super::labs::flip_for_test(ui, crate::labs::Feature::Assistant));
-    settle(&mut rt);
-    assert!(rt.state.settings.labs.assistant);
+    assert!(rt.state.chats.setup.is_none(), "off, nothing to set up");
+    tap(&mut rt, "turn-on-assistant");
+    assert!(rt.state.settings.assistant.enabled);
     assert!(rt.state.chats.setup.is_some());
     assert!(shows(&rt, "Meet your assistant"));
     // It starts looking at once; nothing shows ✓ before an answer.
@@ -688,7 +703,7 @@ fn the_assistant_pages_continue_the_voice_first_run_before_hex_is_ready() {
         .find(|(scene, _)| *scene == "mac-onboarding-try")
         .unwrap();
     apply(&mut state);
-    state.settings.labs.assistant = true;
+    state.settings.assistant.enabled = true;
     state.settings.assistant.setup_done = false;
     let mut rt = runtime_for(state);
     settle(&mut rt);

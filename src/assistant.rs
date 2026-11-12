@@ -1,5 +1,6 @@
-//! Labs › Assistant: a second, "Action" shortcut. Hold it to ask by voice
-//! (the answer shows in the HUD and is read aloud); double-tap it for Agent
+//! The assistant (on by default, `assistant.enabled`): a second, "Action"
+//! shortcut. Hold it to ask by voice (the answer shows in the HUD and is
+//! read aloud); double-tap it for Agent
 //! mode, where a frame circles the screen and every hold starts another task
 //! that runs beside the others, each operating its own windows with its own
 //! cursor. Chats lists every conversation and takes typed messages.
@@ -18,7 +19,7 @@
 //! backends::detect ─ setup sheet (agents found, agent-desktop, permissions)
 //! ```
 //!
-//! Everything here is inert while `labs.assistant` is off.
+//! Everything here is inert while `assistant.enabled` is off.
 
 // Until the Action shortcut and Chats call into it. Remove when wired.
 #![allow(dead_code, unused_imports)]
@@ -52,9 +53,9 @@ pub use types::*;
 
 use crate::app_settings::AppSettings;
 
-/// Whether the assistant may run: its Lab is on and this OS has it.
+/// Whether the assistant may run: this OS has it and its switch is on.
 pub fn enabled(settings: &AppSettings) -> bool {
-    crate::labs::Feature::Assistant.on(settings)
+    cfg!(target_os = "macos") && settings.assistant.enabled
 }
 
 /// Whether the assistant may answer: enabled, and its setup finished. Until

@@ -56,7 +56,7 @@ impl AppearanceTheme {
     }
 }
 
-/// The `labs` switches (`crate::labs`), each off by default; older Labs features keep their own keys, and retired switches (`labs.enabled`, `labs.collapsible_meeting_sections`, `labs.meeting_platform_icons`) are ignored.
+/// The `labs` switches (`crate::labs`), each off by default; older Labs features keep their own keys, and retired or graduated switches (`labs.enabled`, `labs.collapsible_meeting_sections`, `labs.meeting_platform_icons`, `labs.assistant`) are ignored.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default)]
 pub struct LabsSettings {
@@ -225,9 +225,6 @@ pub struct LabsSettings {
     /// `hex dictation start --print` records a dictation whose transcript
     /// goes to the command that started it, however it ends (macOS).
     pub print_start: bool,
-    /// The Action shortcut asks the assistant, Chats joins the sidebar, and
-    /// the assistant may control the desktop (macOS).
-    pub assistant: bool,
     /// Settings › Labs' groups opened or closed by hand, by `labs::Group`
     /// id; a group not here is open while it holds a lab that's on.
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
@@ -344,7 +341,6 @@ impl Default for LabsSettings {
             app_model_switching: false,
             pause_menu: false,
             print_start: false,
-            assistant: false,
             gnome_meeting_capsules: false,
             gnome_annotate: false,
             screenshots: false,

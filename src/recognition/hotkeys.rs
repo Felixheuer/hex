@@ -1,8 +1,8 @@
 //! The dictation shortcut machines: dictation, Labs › Second dictation
 //! shortcut while it is on and bound, Dictate without processing while it is
 //! bound, Labs › Caps Lock dictation's hands-free toggle, Labs › More
-//! dictation shortcuts' rows while that Lab is on, and Labs › Assistant's
-//! Action shortcut while that Lab is on and it is bound.
+//! dictation shortcuts' rows while that Lab is on, and the assistant's
+//! Action shortcut while the assistant is on and it is bound.
 
 use crate::app_settings::MAX_EXTRA_DICTATION_SHORTCUTS;
 use crate::audio::CaptureInstant;
@@ -22,7 +22,7 @@ pub(super) enum Shortcut {
     CapsLock,
     /// Labs › More dictation shortcuts, by row.
     Extra(usize),
-    /// Labs › Assistant's Action shortcut: records as dictation does, but
+    /// The assistant's Action shortcut: records as dictation does, but
     /// its transcript asks the assistant; a tap then a hold starts a
     /// Background task, and a double tap shows the task list
     /// (`recognition::ask`).
@@ -61,7 +61,7 @@ pub(super) struct Hotkeys {
     /// Labs › Caps Lock dictation's hands-free toggle. Its binding is empty:
     /// presses arrive from the caps-lock worker, not the shortcut matcher.
     pub(super) caps_lock: DictationHotkey,
-    /// Labs › Assistant's Action shortcut: Hold, with a double tap as a
+    /// The assistant's Action shortcut: Hold, with a double tap as a
     /// gesture rather than a lock, whatever the dictation shortcut's mode.
     pub(super) action: Option<DictationHotkey>,
     /// The recording (or the last) skips processing: the raw shortcut or
@@ -158,7 +158,7 @@ impl Hotkeys {
             .any(DictationHotkey::is_recording)
     }
 
-    /// Whether Labs › Assistant's Action shortcut records a question.
+    /// Whether the assistant's Action shortcut records a question.
     pub(super) fn action_recording(&self) -> bool {
         self.action
             .as_ref()
@@ -495,7 +495,7 @@ mod tests {
         )
     }
 
-    /// Option dictates; right Command alone is Labs › Assistant's Action
+    /// Option dictates; right Command alone is the assistant's Action
     /// shortcut, configured as the listener configures it.
     fn action_hotkeys() -> Hotkeys {
         let mut hotkeys = hotkeys();
@@ -686,7 +686,7 @@ mod tests {
         assert!(!hotkeys.any_recording());
     }
 
-    /// With the Lab off or the shortcut unbound there is no Action machine:
+    /// With the assistant off or the shortcut unbound there is no Action machine:
     /// right Command does nothing.
     #[test]
     fn without_its_machine_right_command_does_nothing() {

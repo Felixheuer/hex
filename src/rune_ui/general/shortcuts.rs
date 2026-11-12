@@ -22,12 +22,12 @@ pub(in crate::rune_ui) fn shortcut_rows(
         .child(keys_button(ui, p, target));
     // The optional shortcuts can be turned off.
     let second = target == ShortcutTarget::SecondDictation;
-    // Labs › Assistant's Action shortcut (macOS).
+    // The assistant's Action shortcut (macOS).
     #[cfg(target_os = "macos")]
     let action = target == ShortcutTarget::Action;
     #[cfg(not(target_os = "macos"))]
     let action = false;
-    // Labs › Assistant's Stop all tasks (macOS).
+    // The assistant's Stop all tasks (macOS).
     #[cfg(target_os = "macos")]
     let stop_all = target == ShortcutTarget::StopAll;
     #[cfg(not(target_os = "macos"))]

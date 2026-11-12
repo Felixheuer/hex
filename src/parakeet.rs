@@ -107,7 +107,7 @@ pub enum TranscriptionTarget {
     Print,
     /// A printing stop of a raw dictation: the transcript as heard.
     RawPrint,
-    /// Labs › Assistant's Action shortcut: processed as a paste, then handed
+    /// The assistant's Action shortcut: processed as a paste, then handed
     /// to the question waiting for it. Never pasted, copied, kept for Paste
     /// last dictation, or saved to History: the question lives in its
     /// conversation instead.
@@ -420,7 +420,7 @@ impl DictationWorker {
         self.submit(clip, target, context, Some(print))
     }
 
-    /// A Labs › Assistant question: the transcript, processed as a paste,
+    /// An assistant question: the transcript, processed as a paste,
     /// goes to `reply` and nowhere else.
     pub fn transcribe_for_assistant(
         &self,
@@ -1663,7 +1663,7 @@ mod tests {
         }
     }
 
-    /// Labs › Assistant: a question's transcript goes only to the question
+    /// The assistant: a question's transcript goes only to the question
     /// waiting for it: never pasted or copied, never Paste last dictation's,
     /// and never in History.
     #[test]

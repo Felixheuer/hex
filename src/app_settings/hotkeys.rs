@@ -1282,7 +1282,7 @@ impl AppSettings {
         {
             others.push(second.clone());
         }
-        // Labs › Assistant's Action shortcut (macOS), while its Lab is on.
+        // The assistant's Action shortcut (macOS), while the assistant is on.
         if slot != HotkeySlot::Action
             && cfg!(target_os = "macos")
             && crate::assistant::enabled(self)
@@ -1290,7 +1290,7 @@ impl AppSettings {
         {
             others.push(action.clone());
         }
-        // Labs › Assistant's Stop all tasks shortcut, while its Lab is on.
+        // The assistant's Stop all tasks shortcut, while the assistant is on.
         if slot != HotkeySlot::StopAll
             && cfg!(target_os = "macos")
             && crate::assistant::enabled(self)
@@ -1366,11 +1366,11 @@ pub struct RuntimeHotkeys {
     /// Each extra row's activation mode, folded to one its binding can
     /// trigger.
     pub extra_dictation_modes: [ExtraDictationMode; MAX_EXTRA_DICTATION_SHORTCUTS],
-    /// Labs › Assistant's Action shortcut (macOS), while the Lab is on and it
-    /// is bound and shares no key.
+    /// The assistant's Action shortcut (macOS), while the assistant is on
+    /// and it is bound and shares no key.
     pub action: Option<RuntimeHotkey>,
-    /// Labs › Assistant's Stop all tasks shortcut (macOS), while the Lab is
-    /// on and it is bound and shares no key.
+    /// The assistant's Stop all tasks shortcut (macOS), while the assistant
+    /// is on and it is bound and shares no key.
     pub stop_all: Option<RuntimeHotkey>,
     /// Toggle mode's cancel shortcut. Not among [`RuntimeHotkeys::all`]:
     /// Hex takes it only while a toggled recording runs.

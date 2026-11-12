@@ -35,14 +35,14 @@ pub enum DictationIndicatorEvent {
     /// until the next `Reset`.
     DemoVoice,
     Started,
-    /// Labs › Assistant: the capture just started asks the assistant
+    /// The assistant: the capture just started asks the assistant
     /// rather than dictating (the Action shortcut), a new Agent mode task
     /// when `agent`. Sent right after `Started`; the HUD wears the
     /// assistant's colours until the next `Started` or `Reset`.
     Asking {
         agent: bool,
     },
-    /// Labs › Assistant's conversation mode: after an answer, the microphone
+    /// The assistant's conversation mode: after an answer, the microphone
     /// listens hands-free for a follow-up and has heard nothing yet. A soft
     /// state for the assistant's overlays to draw; `Started` follows once
     /// speech begins, `Discarded` when it gives up. The dictation HUD stays

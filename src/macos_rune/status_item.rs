@@ -36,9 +36,9 @@ pub enum StatusItemAction {
     CopyChapter(usize),
     /// The recording row: the Meetings pane.
     OpenMeetings,
-    /// Chats… (Labs › Assistant): the window on Chats.
+    /// Chats…: the window on Chats.
     OpenChats,
-    /// Stop all tasks (Labs › Assistant), while any runs.
+    /// Stop all tasks, while any runs.
     StopAllTasks,
     /// The update item: check, download, or restart into an update.
     Update,
@@ -205,7 +205,7 @@ enum Row {
     CopySection,
     RecordMeeting,
     MeetingSeparator,
-    /// Labs › Assistant: Stop all tasks (enabled while any runs), then
+    /// The assistant: Stop all tasks (enabled while any runs), then
     /// Chats, hidden while it's off.
     StopAllTasks,
     Chats,
@@ -389,7 +389,7 @@ struct StatusItemController {
     pause_title: RefCell<String>,
     recent: Retained<NSMenuItem>,
     recent_menu: Retained<NSMenu>,
-    /// Labs › Assistant's rows: Stop All Tasks, Chats…, and their separator.
+    /// The assistant's rows: Stop All Tasks, Chats…, and their separator.
     assistant: [Retained<NSMenuItem>; 3],
     restore_capture: Retained<NSMenuItem>,
     update: Option<Retained<NSMenuItem>>,
@@ -813,10 +813,10 @@ fn refresh_restore_capture() {
     });
 }
 
-/// Labs › Assistant's rows show while it's on; off, the menu is as it was.
+/// The assistant's rows show while it's on; off, the menu is as it was.
 static ASSISTANT_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Shows Stop All Tasks and Chats… while Labs › Assistant is on (`on`), and
+/// Shows Stop All Tasks and Chats… while the assistant is on (`on`), and
 /// hides them while it's off.
 pub fn update_assistant(on: bool) {
     let was = ASSISTANT_SHOWN.swap(on, std::sync::atomic::Ordering::Relaxed);

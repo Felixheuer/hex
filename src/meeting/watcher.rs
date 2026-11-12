@@ -150,7 +150,7 @@ pub struct ListenerConfig {
 /// Whether a meeting records now, as the controller last saw it.
 static RECORDING: AtomicBool = AtomicBool::new(false);
 
-/// Whether a meeting records now (Labs › Assistant's conversation mode never
+/// Whether a meeting records now (the assistant's conversation mode never
 /// listens over one).
 pub(crate) fn recording() -> bool {
     RECORDING.load(Ordering::Relaxed)

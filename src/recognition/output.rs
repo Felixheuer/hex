@@ -240,7 +240,7 @@ pub(super) fn handle_dictation_event(
                 | TranscriptionTarget::CopyOnlyPaste
                 | TranscriptionTarget::RawCopyOnlyPaste
                 | TranscriptionTarget::RawPaste => DictationPhase::Pasted,
-                // A Labs › Assistant question went to its question, as a
+                // An assistant question went to its question, as a
                 // printed one goes to its command.
                 TranscriptionTarget::Print
                 | TranscriptionTarget::RawPrint

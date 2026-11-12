@@ -328,7 +328,7 @@ pub struct AppSettings {
     pub labs: LabsSettings,
     /// Labs › Screenshots' shortcut and folder (macOS).
     pub screenshots: ScreenshotSettings,
-    /// Labs › Assistant's shortcut, model, and voice (macOS).
+    /// The assistant's shortcut, model, and voice (macOS).
     pub assistant: AssistantSettings,
     /// Start listening when Hex opens (Windows and Linux, where the
     /// listener can be off).
@@ -1069,8 +1069,8 @@ impl AppSettings {
             .filter(|binding| !self.hotkey_in_use(HotkeySlot::SecondDictation, binding))
     }
 
-    /// Labs › Assistant's Action shortcut while it takes effect: macOS, the
-    /// Lab on, bound, and sharing no key with another active shortcut.
+    /// The assistant's Action shortcut while it takes effect: macOS, the
+    /// assistant on, bound, and sharing no key with another active shortcut.
     /// Otherwise Hex matches, suppresses, and checks nothing for it.
     pub fn active_action_hotkey(&self) -> Option<&HotkeyBinding> {
         if !cfg!(target_os = "macos") || !crate::assistant::enabled(self) {
@@ -1231,9 +1231,9 @@ pub enum HotkeySlot {
     SecondDictation,
     /// Labs › More dictation shortcuts (macOS): row `index`'s binding.
     ExtraDictation(usize),
-    /// Labs › Assistant's Action shortcut (macOS).
+    /// The assistant's Action shortcut (macOS).
     Action,
-    /// Labs › Assistant's Stop all tasks shortcut (macOS).
+    /// The assistant's Stop all tasks shortcut (macOS).
     StopAll,
     /// Labs › Terminal paste shortcut (Windows, Linux).
     TerminalPaste,
@@ -1394,7 +1394,7 @@ pub fn refresh_layout_hotkeys() {
     });
 }
 
-/// Labs › Assistant's options as last applied, for the listener's Action
+/// The assistant's options as last applied, for the listener's Action
 /// shortcut; the defaults until settings load.
 #[cfg(target_os = "macos")]
 pub fn applied_assistant() -> AssistantSettings {
@@ -1793,13 +1793,16 @@ mod tests {
         assert_eq!(settings.runtime_hotkeys().second_dictation, None);
     }
 
-    /// Labs › Assistant's Action shortcut: inert and unchecked while its Lab
-    /// is off; on, it runs (right Command by default), the other shortcuts
-    /// refuse its keys, it refuses theirs, and a saved overlap is unbound.
+    /// The assistant's Action shortcut: inert and unchecked while the
+    /// assistant is off; on (the default), it runs (right Command by
+    /// default), the other shortcuts refuse its keys, it refuses theirs, and
+    /// a saved overlap is unbound.
     #[test]
-    fn the_action_shortcut_needs_its_lab_and_its_own_keys() {
+    fn the_action_shortcut_needs_the_assistant_and_its_own_keys() {
         let right_command = HotkeyBinding::action_default();
         let mut settings = AppSettings::default();
+        assert!(settings.assistant.enabled);
+        settings.assistant.enabled = false;
         assert_eq!(
             settings.assistant.action_hotkey,
             Some(right_command.clone())
@@ -1808,7 +1811,7 @@ mod tests {
         assert!(!settings.hotkey_in_use(HotkeySlot::Dictation, &right_command));
         assert!(!settings.repair_action_shortcut());
 
-        settings.labs.assistant = true;
+        settings.assistant.enabled = true;
         if !cfg!(target_os = "macos") {
             assert_eq!(settings.runtime_hotkeys().action, None);
             return;
@@ -1829,8 +1832,8 @@ mod tests {
         assert!(settings.hotkey_in_use(HotkeySlot::Action, &dictation));
         assert!(!settings.repair_action_shortcut());
 
-        // The dictation shortcut moved onto right Command while the Lab was
-        // off: the Action shortcut stands down and is unbound on repair.
+        // The dictation shortcut moved onto right Command while the
+        // assistant was off: the Action shortcut stands down and is unbound on repair.
         settings.dictation_hotkey = right_command.clone();
         assert_eq!(settings.runtime_hotkeys().action, None);
         assert_eq!(
@@ -1842,19 +1845,34 @@ mod tests {
         assert_eq!(settings.runtime_hotkeys().action, None);
     }
 
-    /// Labs › Assistant's Stop all tasks: inert while its Lab is off; on, it
-    /// is matched and swallowed (⌃⌥Esc by default), the other shortcuts refuse
+    /// The assistant left Labs: on by default, and a settings file that still
+    /// says `labs.assistant` loads, the key ignored.
+    #[test]
+    fn the_assistant_is_on_by_default_and_its_old_lab_key_still_loads() {
+        assert!(AppSettings::default().assistant.enabled);
+        let settings: AppSettings =
+            serde_json::from_str(r#"{"labs":{"assistant":false},"assistant":{"enabled":false}}"#)
+                .expect("an old labs.assistant loads");
+        assert!(!settings.assistant.enabled);
+        let settings: AppSettings = serde_json::from_str(r#"{"labs":{"assistant":true}}"#)
+            .expect("an old labs.assistant loads");
+        assert!(settings.assistant.enabled);
+    }
+
+    /// The assistant's Stop all tasks: inert while the assistant is off; on,
+    /// it is matched and swallowed (⌃⌥Esc by default), the other shortcuts refuse
     /// its keys and it refuses theirs and Force Quit's, and a saved overlap
     /// is unbound.
     #[test]
-    fn stop_all_needs_its_lab_and_its_own_keys() {
+    fn stop_all_needs_the_assistant_and_its_own_keys() {
         let stop = HotkeyBinding::stop_all_default();
         let mut settings = AppSettings::default();
+        settings.assistant.enabled = false;
         assert_eq!(settings.assistant.stop_all_hotkey, Some(stop.clone()));
         assert_eq!(settings.runtime_hotkeys().stop_all, None);
         assert!(!settings.hotkey_in_use(HotkeySlot::Dictation, &stop));
 
-        settings.labs.assistant = true;
+        settings.assistant.enabled = true;
         if !cfg!(target_os = "macos") {
             assert_eq!(settings.runtime_hotkeys().stop_all, None);
             return;

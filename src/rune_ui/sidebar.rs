@@ -65,8 +65,8 @@ pub(super) enum Pane {
     /// Recorded calls and their settings, or the opt-in (macOS beta).
     Meetings,
     History,
-    /// The assistant's conversations, transcript, and settings (macOS,
-    /// while Labs › Assistant is on).
+    /// The assistant's conversations, transcript, and settings (macOS; off,
+    /// it offers to turn the assistant on).
     Chats,
     /// The shots and recordings Labs › Screenshots saved (macOS, while
     /// it's on).
