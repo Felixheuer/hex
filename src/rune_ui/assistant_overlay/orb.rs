@@ -159,6 +159,19 @@ pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
         .child(content(p, &orb.board, &look, orb.actions))
 }
 
+/// The jobs whose cards show at the orb with the list folded (`open`
+/// false) and the count line unfolded or not: their browsers stream.
+pub(crate) fn carded(board: &Board, open: bool, jobs_open: bool) -> Vec<String> {
+    if open && !board.stack().is_empty() {
+        return Vec::new();
+    }
+    let running = jobs::running(&board.tasks);
+    match jobs::layout(&running, board.active_question().is_some(), jobs_open) {
+        jobs::Layout::Cards(ids) | jobs::Layout::All(ids) => ids,
+        jobs::Layout::None | jobs::Layout::Line(_) => Vec::new(),
+    }
+}
+
 /// The orb and what unfolds from it, filling its parent from the orb's
 /// corner.
 pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions: Actions<S>) -> El {

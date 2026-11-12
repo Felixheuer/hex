@@ -8,10 +8,13 @@
 //! Both large views share one stream per browser: [`view`] says which
 //! viewer shows what, and a browser any viewer shows large streams large.
 //!
-//! Every working task's browsers stream from the moment they open ([`track`]),
-//! slowly (a frame a second) in the background, so a picture is already there
-//! when the pointer comes: the hovered task's at a few frames a second, the
-//! one viewed large at full size and fast. Each browser keeps only its latest
+//! Every working task's browsers are listed from the moment they open
+//! ([`track`]); those a job's card shows at the orb ([`cards`], a card's first
+//! four) stream slowly (a frame a second), so a picture is already there when
+//! the pointer comes; the hovered task's at a few frames a second, the one
+//! viewed large at full size and fast. Every other browser streams nothing
+//! ([`Rate::Idle`]) until it shows, so fifty jobs with a dozen browsers each
+//! don't decode hundreds of pictures a second nobody sees. Each browser keeps only its latest
 //! frame: a thumbnail filtered down to what the list draws (never below its
 //! on-screen pixels), and, while hovered or viewed, the full frame. A
 //! browser that becomes hovered or viewed with no full frame yet reconnects
@@ -42,18 +45,23 @@ const RELIST: Duration = Duration::from_millis(1500);
 /// How fast a browser streams.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum Rate {
-    /// Its task works but nothing shows it: a frame a second, so a picture
-    /// is ready the moment the pointer comes.
-    Background = 0,
+    /// Nothing draws it (its job has no card showing, or it's past a card's
+    /// four browsers): no stream at all, so fifty jobs with a dozen
+    /// browsers each cost nothing until they show.
+    Idle = 0,
+    /// Its job's card shows it: a frame a second, so a picture is ready
+    /// the moment the pointer comes.
+    Background = 1,
     /// Its task is hovered in the list: thumbnails.
-    Small = 1,
+    Small = 2,
     /// A viewer shows it large.
-    Large = 2,
+    Large = 3,
 }
 
 impl Rate {
     fn fps(self) -> u32 {
         match self {
+            Self::Idle => 0,
             Self::Background => 1,
             Self::Small => 5,
             Self::Large => 24,
@@ -62,12 +70,16 @@ impl Rate {
 
     fn from_u8(value: u8) -> Self {
         match value {
-            2 => Self::Large,
-            1 => Self::Small,
-            _ => Self::Background,
+            3 => Self::Large,
+            2 => Self::Small,
+            1 => Self::Background,
+            _ => Self::Idle,
         }
     }
 }
+
+/// How often an idle browser's thread looks whether it shows again.
+const IDLE_POLL: Duration = Duration::from_millis(200);
 /// How long a stream that failed waits before trying again.
 const RETRY: Duration = Duration::from_secs(2);
 
@@ -112,7 +124,7 @@ impl Preview {
             full: rune::Pixels::new(),
             page: Mutex::new(Page::default()),
             writer: Mutex::new(None),
-            rate: AtomicU8::new(Rate::Background as u8),
+            rate: AtomicU8::new(Rate::Idle as u8),
             refresh: AtomicBool::new(false),
             stop: AtomicBool::new(false),
         }
@@ -147,6 +159,15 @@ impl Preview {
     fn set_rate(&self, rate: Rate) {
         let before = Rate::from_u8(self.rate.swap(rate as u8, Ordering::AcqRel));
         if before == rate {
+            return;
+        }
+        if rate == Rate::Idle {
+            // Nothing draws it: drop the stream until something does.
+            if let Ok(writer) = self.writer.lock()
+                && let Some(writer) = writer.as_ref()
+            {
+                writer.close();
+            }
             return;
         }
         self.write(&stream::max_fps(rate.fps()));
@@ -201,6 +222,8 @@ struct Registry {
     /// The thread listing browsers runs.
     listing: bool,
     hovered: Option<String>,
+    /// The jobs whose cards show at the orb: their first browsers stream.
+    cards: Vec<String>,
     /// What each viewer shows large: (task, session).
     viewing: HashMap<Viewer, (String, String)>,
     /// A preview pressed in the orb's list, for Chats to open.
@@ -250,6 +273,21 @@ pub(crate) fn track(tasks: &[String]) {
         return;
     }
     registry.tracked = tasks;
+    sync(&mut registry);
+}
+
+/// The jobs whose cards show at the orb now: the first
+/// [`super::jobs::MAX_THUMBS`] browsers of each stream slowly; every other
+/// browser not hovered or viewed large streams nothing.
+pub(crate) fn cards(tasks: &[String]) {
+    let mut registry = registry();
+    let mut tasks = tasks.to_vec();
+    tasks.sort();
+    tasks.dedup();
+    if registry.cards == tasks {
+        return;
+    }
+    registry.cards = tasks;
     sync(&mut registry);
 }
 
@@ -327,14 +365,27 @@ fn wanted(registry: &Registry) -> Vec<String> {
     tasks
 }
 
-/// How fast `session` of `task` streams.
+/// How fast `session` of `task` streams: large, hovered, on a card that
+/// shows (its first few browsers), or not at all.
 fn rate_of(registry: &Registry, task: &str, session: &str) -> Rate {
+    let on_card = || {
+        registry.cards.iter().any(|card| card == task)
+            && registry.tasks.get(task).is_none_or(|watch| {
+                watch
+                    .previews
+                    .iter()
+                    .position(|preview| preview.session == session)
+                    .is_none_or(|at| at < super::jobs::MAX_THUMBS)
+            })
+    };
     if large(registry, task, session) {
         Rate::Large
     } else if registry.hovered.as_deref() == Some(task) {
         Rate::Small
-    } else {
+    } else if on_card() {
         Rate::Background
+    } else {
+        Rate::Idle
     }
 }
 
@@ -476,6 +527,12 @@ fn apply_sessions(task: &str, sessions: &[String], path: &std::path::Path) -> bo
             .spawn(move || run(&preview, &path));
         changed = true;
     }
+    // A browser's place on its card may have moved (one before it closed):
+    // the first few stream, the rest go idle.
+    let previews = watch.previews.clone();
+    for preview in previews {
+        preview.set_rate(rate_of(&registry, task, &preview.session));
+    }
     changed
 }
 
@@ -491,9 +548,14 @@ fn name_of(task: &str, session: &str) -> String {
 /// Streams `preview` until it's halted, reconnecting after a failure.
 fn run(preview: &Preview, path: &std::path::Path) {
     while !preview.stop.load(Ordering::Acquire) {
+        if preview.rate() == Rate::Idle {
+            std::thread::sleep(IDLE_POLL);
+            continue;
+        }
         if let Err(why) = stream_once(preview, path) {
-            // Closed on purpose for a fresh frame: reconnect at once.
-            if preview.refresh.swap(false, Ordering::AcqRel) {
+            // Closed on purpose for a fresh frame, or because nothing draws
+            // it any more: reconnect at once, or wait while idle.
+            if preview.refresh.swap(false, Ordering::AcqRel) || preview.rate() == Rate::Idle {
                 continue;
             }
             set_page(preview, |page| page.failed = Some(why.clone()));
@@ -759,9 +821,43 @@ mod tests {
     }
 
     #[test]
+    fn only_what_shows_streams() {
+        let preview = |session: &str| Arc::new(Preview::new(session.into(), String::new()));
+        let mut registry = Registry {
+            tracked: vec!["carded".into(), "folded".into()],
+            cards: vec!["carded".into()],
+            ..Registry::default()
+        };
+        let sessions: Vec<String> = (0..6).map(|n| format!("hex-carded_{n}")).collect();
+        registry.tasks.insert(
+            "carded".into(),
+            Watch {
+                previews: sessions.iter().map(|s| preview(s)).collect(),
+                stop: Arc::new(AtomicBool::new(false)),
+            },
+        );
+        // A card's first four browsers stream slowly; the fifth on is "+2".
+        assert_eq!(rate_of(&registry, "carded", "hex-carded_0"), Rate::Background);
+        assert_eq!(rate_of(&registry, "carded", "hex-carded_3"), Rate::Background);
+        assert_eq!(rate_of(&registry, "carded", "hex-carded_4"), Rate::Idle);
+        // A job folded into the count line streams nothing until it shows.
+        assert_eq!(rate_of(&registry, "folded", "hex-folded"), Rate::Idle);
+        registry.hovered = Some("folded".into());
+        assert_eq!(rate_of(&registry, "folded", "hex-folded"), Rate::Small);
+        registry
+            .viewing
+            .insert(Viewer::Chats, ("carded".into(), "hex-carded_5".into()));
+        assert_eq!(rate_of(&registry, "carded", "hex-carded_5"), Rate::Large);
+        assert!(Rate::Idle < Rate::Background);
+        assert_eq!(Rate::from_u8(Rate::Idle as u8), Rate::Idle);
+        assert_eq!(Rate::from_u8(Rate::Large as u8), Rate::Large);
+    }
+
+    #[test]
     fn working_tasks_stream_in_the_background_and_speed_up_when_looked_at() {
         let mut registry = Registry {
             tracked: vec!["bg".into(), "a".into()],
+            cards: vec!["bg".into(), "a".into()],
             hovered: Some("a".into()),
             ..Registry::default()
         };

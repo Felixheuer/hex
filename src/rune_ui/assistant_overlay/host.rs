@@ -196,6 +196,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
                         orb.jobs_hovered = false;
                         hover_task(orb, "", false);
                     }
+                    show_cards(orb);
                 },
                 drag: drag_orb,
                 jobs: jobs::LineActions {
@@ -204,10 +205,12 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
                         if inside {
                             orb.peek = false;
                         }
+                        show_cards(orb);
                     },
                     pin: |orb| {
                         orb.jobs_pinned = !orb.jobs_pinned;
                         orb.peek = false;
+                        show_cards(orb);
                     },
                 },
             },
@@ -381,6 +384,17 @@ fn toggle(orb: &mut Orb) {
     if !orb.expanded {
         hover_task(orb, "", false);
     }
+    show_cards(orb);
+}
+
+/// Tells the previews which jobs' cards show now, so only their browsers
+/// stream (`live::cards`).
+fn show_cards(orb: &Orb) {
+    super::live::cards(&orb::carded(
+        &orb.board,
+        orb.expanded || orb.peek,
+        orb.jobs_hovered || orb.jobs_pinned,
+    ));
 }
 
 /// The pointer came onto task `id`'s row in the list, or left it: its
@@ -510,6 +524,7 @@ fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
         orb.jobs_hovered = false;
         orb.jobs_pinned = false;
     }
+    show_cards(orb);
     let visible = orb.board.orb_shows();
     if visible && !orb.shown {
         place_orb(&overlays.orb, orb);
