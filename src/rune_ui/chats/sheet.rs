@@ -63,6 +63,7 @@ pub(in crate::rune_ui) fn overlay(ui: &Ui, p: Paint) -> Option<El> {
             .fill(p.k.c.bg_deep)
             .on_press(|_: &mut Ui| {})
             .child(top_bar(ui, flow, p))
+            .children(repair_banner(flow, p))
             .children(flow.from_hold.then(|| {
                 row().key("from-hold").w_full().justify_center().child(
                     text(tr("Finish setting up the assistant first"))
@@ -90,21 +91,60 @@ pub(in crate::rune_ui) fn overlay(ui: &Ui, p: Paint) -> Option<El> {
     )
 }
 
+/// The guide's header, when setup came back for what's missing: what
+/// changed, one line each.
+fn repair_banner(flow: &SetupFlow, p: Paint) -> Option<El> {
+    let repair = flow.repair.as_ref()?;
+    let mut said: Vec<&'static str> = Vec::new();
+    for gap in &repair.gaps {
+        let line = gap.message();
+        if !said.contains(&line) {
+            said.push(line);
+        }
+    }
+    Some(
+        col()
+            .key("repair-banner")
+            .role("status")
+            .w_full()
+            .items_center()
+            .gap(4.0)
+            .pt(4.0)
+            .child(
+                text(tr("Hex needs your help for a moment"))
+                    .key("repair-title")
+                    .font(p.k.ty.ui_medium)
+                    .color(p.accent()),
+            )
+            .children(said.into_iter().enumerate().map(|(index, line)| {
+                text(tr(line))
+                    .key(format!("repair-gap{index}"))
+                    .font(p.k.ty.small)
+                    .color(p.muted())
+                    .align(rune::Align::Center)
+                    .wrap()
+                    .max_w(560.0)
+            })),
+    )
+}
+
 /// Back on the left, where the flow is in the middle, Close on the right.
 /// The bar moves the window, as the first run's does.
 fn top_bar(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
-    let back = (flow.page != Page::Welcome).then(|| {
-        Button::new(tr("Back"))
-            .variant(ButtonVariant::Ghost)
-            .on_press(setup::back)
-            .build_push(p.k)
-            .key("back")
-            .absolute(
-                super::super::sidebar::onboarding_back_x(ui.platform.caps.os),
-                8.0,
-            )
-            .transition(arrives())
-    });
+    let back = setup::repair::previous_page(flow, flow.page)
+        .is_some()
+        .then(|| {
+            Button::new(tr("Back"))
+                .variant(ButtonVariant::Ghost)
+                .on_press(setup::back)
+                .build_push(p.k)
+                .key("back")
+                .absolute(
+                    super::super::sidebar::onboarding_back_x(ui.platform.caps.os),
+                    8.0,
+                )
+                .transition(arrives())
+        });
     let quiet = p.muted();
     let close = row()
         .key("close-corner")
@@ -136,7 +176,8 @@ fn top_bar(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
 /// with Later amber.
 fn progress(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     let c = &p.k.c;
-    let current = Page::shown()
+    let pages = setup::repair::pages(flow);
+    let current = pages
         .iter()
         .position(|page| *page == flow.page)
         .unwrap_or(0);
@@ -146,11 +187,11 @@ fn progress(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         .label(tr("Setup"))
         .a11y_value(tr_fill(
             "Step {}",
-            &format!("{} / {}", current + 1, Page::shown().len()),
+            &format!("{} / {}", current + 1, pages.len()),
         ))
         .gap(6.0)
         .center_y();
-    for (index, page) in Page::shown().iter().enumerate() {
+    for (index, page) in pages.iter().enumerate() {
         let here = index == current;
         let fill = if here {
             c.text_base

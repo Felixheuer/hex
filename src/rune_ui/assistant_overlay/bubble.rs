@@ -156,13 +156,18 @@ pub(crate) fn setup_card<S: 'static>(p: Paint, actions: Actions<S>) -> El {
                 .a11y_hidden(),
         )
         .child(
-            text(tr("Finish setting up the assistant first"))
-                .key("setup-text")
-                .wrap()
-                .font(p.k.ty.ui)
-                .color(p.text())
-                .grow(1.0)
-                .min_w(0.0),
+            // Set up before but missing something now: what.
+            text(
+                crate::assistant::setup_gap()
+                    .map(tr)
+                    .unwrap_or(tr("Finish setting up the assistant first")),
+            )
+            .key("setup-text")
+            .wrap()
+            .font(p.k.ty.ui)
+            .color(p.text())
+            .grow(1.0)
+            .min_w(0.0),
         )
         .child(
             Button::new(tr("Continue setup"))

@@ -339,6 +339,10 @@ const PATHS: &[(&str, &str)] = &[
         "Window/Assistant setup/Resumed after a restart",
     ),
     (
+        "mac-assistant-setup-repair",
+        "Window/Assistant setup/Back for what's missing",
+    ),
+    (
         "mac-assistant-setup-merged",
         "Window/Assistant setup/After the voice first run",
     ),
