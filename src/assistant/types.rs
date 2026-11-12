@@ -179,6 +179,16 @@ pub enum TaskState {
     Paused,
     /// The backend hit a usage limit; it retries at this Unix ms time.
     Waiting { until_ms: u64 },
+    /// It asked the person something (`Event::Question`) and waits for the
+    /// answer: the next hold of the Action shortcut, or a message in Chats.
+    NeedsInput,
+}
+
+/// One step of a task's plan, as the HUD and Chats show its progress.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct PlanStep {
+    pub title: String,
+    pub done: bool,
 }
 
 /// What a running request reports, in order: `Started` (after any
@@ -236,6 +246,21 @@ pub enum Event {
         until_ms: u64,
         reason: String,
     },
+    /// The task's plan, sent whenever it is made or a step changes.
+    Plan {
+        conversation: ConversationId,
+        steps: Vec<PlanStep>,
+    },
+    /// The task asks the person something before (or while) it works, and
+    /// waits (`TaskState::NeedsInput`); read aloud and shown in the bubble
+    /// and Chats. The answer arrives as a `submit` into this conversation.
+    Question {
+        conversation: ConversationId,
+        text: String,
+    },
+    /// A Here request turned out to be a long job and continues as a
+    /// Background task in the same conversation (the frame comes on).
+    Escalated { conversation: ConversationId },
     /// A Here task is (or stops) moving the real pointer or pressing real
     /// keys in the window in front: the HUD shows "Hands off".
     HandsOff {
@@ -265,7 +290,10 @@ impl Event {
             | Self::Paused { conversation }
             | Self::Resumed { conversation }
             | Self::Waiting { conversation, .. }
-            | Self::HandsOff { conversation, .. } => Some(conversation),
+            | Self::HandsOff { conversation, .. }
+            | Self::Plan { conversation, .. }
+            | Self::Question { conversation, .. }
+            | Self::Escalated { conversation } => Some(conversation),
             Self::ConversationsChanged | Self::ModeChanged { .. } => None,
         }
     }

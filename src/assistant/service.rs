@@ -118,6 +118,18 @@ pub fn resume_interrupted(conversation: &str) -> Option<ConversationId> {
     None
 }
 
+/// The plan of a running or finished conversation, if it made one.
+pub fn plan(conversation: &str) -> Vec<crate::assistant::PlanStep> {
+    let _ = conversation;
+    Vec::new()
+}
+
+/// The question a task is waiting on (`TaskState::NeedsInput`), if any.
+pub fn question(conversation: &str) -> Option<String> {
+    let _ = conversation;
+    None
+}
+
 pub fn subscribe(subscriber: Subscriber) {
     runner().subscribe(subscriber);
 }

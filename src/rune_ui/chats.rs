@@ -383,7 +383,10 @@ impl ChatsPane {
             Event::Paused { .. }
             | Event::Resumed { .. }
             | Event::Waiting { .. }
-            | Event::HandsOff { .. } => {}
+            | Event::HandsOff { .. }
+            | Event::Plan { .. }
+            | Event::Question { .. }
+            | Event::Escalated { .. } => {}
         }
         if reload_list {
             self.list = self.source.conversations();
