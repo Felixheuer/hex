@@ -1,6 +1,8 @@
 //! The expanded task list: a sheet that unfolds from the orb (double-tap
 //! the Action shortcut, press the orb, or rest the pointer on it) with every
-//! Background task, newest nearest the orb. Each row shows its colour, its
+//! Background task in three groups ([`Group`]): Waiting for you (a question
+//! to answer, with Later), Running, and Done, empty ones left out; newest
+//! nearest the orb within each. Each row shows its colour, its
 //! question, where it works (a globe for the web, a window for desktop
 //! apps, with their names), its last few steps, and its state: Queued,
 //! Running, "You have it" (paused), the minutes until a usage limit lifts,
@@ -44,6 +46,8 @@ pub(crate) struct Actions<S> {
     pub(crate) hover: fn(&mut S, &str, bool),
     /// A live preview: open that browser large (task, session).
     pub(crate) open_preview: fn(&mut S, &str, &str),
+    /// Later on a question: behind the other questions.
+    pub(crate) defer: fn(&mut S, &str),
 }
 
 impl<S> Clone for Actions<S> {
@@ -53,6 +57,46 @@ impl<S> Clone for Actions<S> {
 }
 
 impl<S> Copy for Actions<S> {}
+
+/// Where a task stands in the list.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Group {
+    /// It asks the person something.
+    Waiting,
+    /// Queued, running, taken over, or waiting out a usage limit.
+    Running,
+    /// Answered, failed, or stopped (they linger a moment).
+    Done,
+}
+
+impl Group {
+    /// Top to bottom.
+    pub(crate) const ALL: [Group; 3] = [Group::Waiting, Group::Running, Group::Done];
+
+    pub(crate) fn of(task: &Task) -> Self {
+        match task.phase {
+            Phase::NeedsInput => Self::Waiting,
+            Phase::Queued | Phase::Running | Phase::Paused | Phase::Waiting { .. } => Self::Running,
+            Phase::Done | Phase::Failed | Phase::Stopped => Self::Done,
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::Waiting => tr("Waiting for you"),
+            Self::Running => tr("Running"),
+            Self::Done => tr("Done"),
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Waiting => "waiting",
+            Self::Running => "running",
+            Self::Done => "done",
+        }
+    }
+}
 
 /// The sheet with `tasks` (oldest first), at most `max_h` tall; its rows
 /// scroll past that. `newest_first` lists the newest at the top (the sheet
@@ -103,9 +147,36 @@ pub(crate) fn sheet<S: 'static>(
                 .build(p.k)
                 .key("fold"),
         );
-    let mut ordered: Vec<&Task> = tasks.iter().collect();
-    if newest_first {
-        ordered.reverse();
+    let mut sections: Vec<El> = Vec::new();
+    for group in Group::ALL {
+        let mut members: Vec<&Task> = tasks
+            .iter()
+            .filter(|task| Group::of(task) == group)
+            .collect();
+        if members.is_empty() {
+            continue;
+        }
+        if newest_first {
+            members.reverse();
+        }
+        sections.push(
+            text(group.title())
+                .key(format!("group-{}", group.key()))
+                .font(p.k.ty.small_medium)
+                .color(p.faint())
+                .pl(10.0)
+                .pt(if sections.is_empty() { 2.0 } else { 8.0 })
+                .pb(2.0)
+                .role("heading"),
+        );
+        sections.extend(members.into_iter().map(|task| {
+            let previews = if hovered == Some(task.id.as_str()) {
+                live::previews(&task.id)
+            } else {
+                Vec::new()
+            };
+            task_row(p, task, &previews, actions)
+        }));
     }
     let rows = col()
         .key("sheet-rows")
@@ -119,14 +190,7 @@ pub(crate) fn sheet<S: 'static>(
         .scroll_edge_fade(16.0)
         .role("list")
         .label(tr("Assistant tasks"))
-        .children(ordered.into_iter().map(|task| {
-            let previews = if hovered == Some(task.id.as_str()) {
-                live::previews(&task.id)
-            } else {
-                Vec::new()
-            };
-            task_row(p, task, &previews, actions)
-        }));
+        .children(sections);
     col()
         .key("sheet")
         .w(WIDTH)
@@ -518,6 +582,18 @@ fn buttons<S: 'static>(p: Paint, task: &Task, actions: Actions<S>) -> Option<El>
                     .on_press(move |s: &mut S| hand_back(s, &id))
                     .build(p.k)
                     .key("hand-back"),
+            )
+        }
+        Phase::NeedsInput => {
+            let defer = actions.defer;
+            let id = id.clone();
+            Some(
+                Button::new(tr("Later"))
+                    .variant(ButtonVariant::Outline)
+                    .control_size(ControlSize::Small)
+                    .on_press(move |s: &mut S| defer(s, &id))
+                    .build(p.k)
+                    .key("later"),
             )
         }
         _ => None,

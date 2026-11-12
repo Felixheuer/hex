@@ -194,6 +194,7 @@ pub(crate) fn view(state: &TwoDisplays, cx: &mut Cx<TwoDisplays>) -> El {
                         dismiss: |_, _| {},
                         hover: |_, _, _| {},
                         open_preview: |_, _, _| {},
+                        defer: |_, _| {},
                     },
                     hover: |_, _| {},
                     drag: |_, _| {},

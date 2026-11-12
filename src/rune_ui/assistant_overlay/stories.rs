@@ -161,6 +161,7 @@ fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
                         open_preview: |s: &mut OrbStory, task, session| {
                             s.note = format!("Would open {session} of {task} live");
                         },
+                        defer: |s: &mut OrbStory, id| s.note = format!("Would ask {id} later"),
                     },
                     hover: |_, _| {},
                     drag: |_, _| {},

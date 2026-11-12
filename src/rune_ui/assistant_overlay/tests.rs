@@ -83,6 +83,7 @@ fn orb_state(board: Board, expanded: bool) -> Orb {
                 dismiss: |_, _| {},
                 hover: |_, _, _| {},
                 open_preview: |_, _, _| {},
+                defer: |_, _| {},
             },
             hover: |_, _| {},
             drag: |_, _| {},
@@ -614,6 +615,160 @@ fn hands_off_desk() -> Desk {
     }
 }
 
+/// The fixture's board after the service told its inbox: the invoices
+/// task's question is the one to answer, two more wait behind it.
+fn inbox_board() -> Board {
+    let mut board = fixture::board();
+    board.apply(
+        &Event::QuestionsChanged {
+            active: Some(crate::assistant::WaitingQuestion {
+                conversation: "invoices".into(),
+                title: "File this month's invoices".into(),
+                question: fixture::INVOICE_QUESTION.into(),
+                asked_ms: 1,
+            }),
+            waiting: 2,
+        },
+        None,
+        std::time::Instant::now(),
+    );
+    board
+}
+
+#[test]
+fn the_inbox_shows_one_question_with_who_asks_later_and_a_count() {
+    for dark in [false, true] {
+        let rt = runtime(orb_state(inbox_board(), false), orb::view, orb::SIZE, dark);
+        assert_eq!(count_prefix(&rt, "question-invoices"), 1, "one bubble");
+        let bubble = rect(&rt, "question-invoices").expect("the active question");
+        assert!(inside(bubble, orb::SIZE), "{bubble:?}");
+        assert!(rect(&rt, "question-who").is_some(), "who asks");
+        assert!(rect(&rt, "question-hint").is_some(), "Hold ⌘ to answer");
+        assert_eq!(count(&rt, "later"), 1, "Later");
+        assert_eq!(count(&rt, "questions-3"), 1, "three open questions");
+    }
+}
+
+#[test]
+fn the_badge_counts_every_open_question_and_none_hides_it() {
+    let mut board = inbox_board();
+    assert_eq!(board.open_questions(), 3);
+    board.apply(
+        &Event::QuestionsChanged {
+            active: None,
+            waiting: 0,
+        },
+        None,
+        std::time::Instant::now(),
+    );
+    assert_eq!(board.open_questions(), 0);
+    assert!(board.active_question().is_none());
+    let rt = runtime(orb_state(board, false), orb::view, orb::SIZE, false);
+    assert_eq!(count_prefix(&rt, "questions-"), 0);
+    assert!(rect(&rt, "question-invoices").is_none());
+}
+
+#[test]
+fn a_put_away_question_comes_back_when_another_is_active() {
+    let mut board = inbox_board();
+    assert!(board.dismiss_question("invoices"));
+    assert!(board.active_question().is_none(), "put away");
+    assert_eq!(board.open_questions(), 3, "it still waits");
+    board.apply(
+        &Event::QuestionsChanged {
+            active: Some(crate::assistant::WaitingQuestion {
+                conversation: "table".into(),
+                title: "Book a table".into(),
+                question: "For two or four?".into(),
+                asked_ms: 2,
+            }),
+            waiting: 2,
+        },
+        None,
+        std::time::Instant::now(),
+    );
+    let asking = board.active_question().expect("the next one");
+    assert_eq!(asking.id, "table");
+    assert_eq!(asking.question, "For two or four?");
+}
+
+fn state_press<S: 'static>(rt: &mut Runtime<S>, key: &str) {
+    let (x, y) = rt.find(key).unwrap_or_else(|| panic!("no {key}"));
+    rt.pointer_move(x, y);
+    rt.frame(1.0 / 60.0);
+    rt.pointer_down(x, y);
+    rt.frame(1.0 / 60.0);
+    rt.pointer_up(x, y);
+    for _ in 0..10 {
+        rt.frame(1.0 / 60.0);
+    }
+}
+
+static DEFERRED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+#[test]
+fn later_puts_the_question_behind_the_others() {
+    let mut state = orb_state(inbox_board(), false);
+    state.actions.list.defer = |_, id| DEFERRED.lock().unwrap().push(id.to_owned());
+    let mut rt = runtime(state, orb::view, orb::SIZE, false);
+    state_press(&mut rt, "later");
+    assert_eq!(DEFERRED.lock().unwrap().as_slice(), ["invoices"]);
+}
+
+#[test]
+fn the_list_groups_waiting_running_and_done_in_that_order() {
+    use stack::Group;
+    let board = inbox_board();
+    let groups: Vec<Group> = board.stack().iter().map(stack::Group::of).collect();
+    assert!(groups.contains(&Group::Waiting));
+    for dark in [false, true] {
+        let rt = runtime(orb_state(board.clone(), true), orb::view, orb::SIZE, dark);
+        let y = |key: &str| rect(&rt, key).unwrap_or_else(|| panic!("{key}"))[1];
+        assert!(y("group-waiting") < y("group-running"));
+        assert!(y("group-running") < y("group-done"));
+        assert!(y("group-waiting") < y("task-invoices"));
+        assert!(y("task-invoices") < y("group-running"));
+        assert_eq!(count(&rt, "later"), 1, "the waiting row's Later");
+    }
+    // An empty group has no heading.
+    let mut quiet = Board::default();
+    quiet.apply(
+        &Event::Started {
+            conversation: "one".into(),
+            origin: Origin::Background,
+            question: "Sort my downloads".into(),
+        },
+        None,
+        std::time::Instant::now(),
+    );
+    let rt = runtime(orb_state(quiet, true), orb::view, orb::SIZE, false);
+    assert!(rect(&rt, "group-running").is_some());
+    assert!(rect(&rt, "group-waiting").is_none());
+    assert!(rect(&rt, "group-done").is_none());
+}
+
+#[test]
+fn a_new_question_chimes_only_when_it_cant_be_read_aloud() {
+    use super::host::should_chime;
+    assert!(
+        !should_chime(None, Some("a"), false, true),
+        "it is read aloud"
+    );
+    assert!(
+        should_chime(None, Some("a"), true, true),
+        "something else plays"
+    );
+    assert!(
+        should_chime(None, Some("a"), false, false),
+        "announcements off"
+    );
+    assert!(
+        !should_chime(Some("a"), Some("a"), true, false),
+        "the same one"
+    );
+    assert!(!should_chime(Some("a"), None, true, false), "none left");
+}
+
 /// Renders the overlays to `HEX_ASSISTANT_SNAPS/assistant-*.png` in both
 /// appearances, to look at: the pretend desktop in each state, the orb, the
 /// list, the bubble in each state, the hints, and the Hands off pill.
@@ -722,6 +877,8 @@ fn snapshots() {
             );
         }
         let orbs = [
+            ("orb-inbox", orb_state(inbox_board(), false)),
+            ("orb-inbox-list", orb_state(inbox_board(), true)),
             ("orb-bubbles", orb_state(fixture::board(), false)),
             ("orb-quiet", orb_state(fixture::quiet_board(), false)),
             ("orb-list", orb_state(fixture::board(), true)),

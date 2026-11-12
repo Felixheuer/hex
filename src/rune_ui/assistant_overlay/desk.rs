@@ -166,6 +166,7 @@ impl Desk {
                 open_preview: |desk, task, session| {
                     desk.note = format!("Would open {session} of {task} live");
                 },
+                defer: |desk, id| desk.note = format!("Would ask {id} later"),
             },
             hover: |_, _| {},
             drag: |_, _| {},

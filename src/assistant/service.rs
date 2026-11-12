@@ -150,6 +150,18 @@ pub fn set_spoken_announcements(on: bool) {
     voice::set_spoken_announcements(on);
 }
 
+/// Whether questions and finished jobs are read aloud, for the overlay
+/// to chime when they aren't.
+pub fn spoken_announcements() -> bool {
+    voice::spoken_announcements()
+}
+
+/// Puts `conversation`'s question behind the others (the overlay's
+/// Later; saying "später" does the same), and brings up the next.
+pub fn defer_question(conversation: &str) {
+    runner().defer(conversation);
+}
+
 pub use inbox::Inbox;
 
 /// Whether any task is running or queued.
