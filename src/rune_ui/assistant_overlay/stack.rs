@@ -6,7 +6,9 @@
 //! Running, "You have it" (paused), the minutes until a usage limit lifts,
 //! ✓, ✗, or Stopped. Take over and Hand back pass a running task between
 //! the agent and the person; × stops one, Stop all every one (with two or
-//! more); pressing a row opens its conversation in Chats.
+//! more); pressing a row opens its conversation in Chats. While the pointer
+//! rests on a row, its browsers stream live below it ([`live`]); pressing
+//! one opens it large in Chats.
 
 use rune::{El, ScrollSpec, col, icon, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Spinner};
@@ -14,6 +16,7 @@ use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant
 use super::super::controls::Paint;
 use super::super::icons::{GLOBE, PANEL};
 use super::board::{Phase, Place, Task};
+use super::live::{self, Preview};
 use super::{palette, when};
 use crate::desktop::i18n::{tr, tr_fill};
 
@@ -37,6 +40,10 @@ pub(crate) struct Actions<S> {
     pub(crate) toggle: fn(&mut S),
     /// Put a task's question bubble away (it still waits for the answer).
     pub(crate) dismiss: fn(&mut S, &str),
+    /// The pointer came onto a row (`true`) or left it.
+    pub(crate) hover: fn(&mut S, &str, bool),
+    /// A live preview: open that browser large (task, session).
+    pub(crate) open_preview: fn(&mut S, &str, &str),
 }
 
 impl<S> Clone for Actions<S> {
@@ -49,12 +56,13 @@ impl<S> Copy for Actions<S> {}
 
 /// The sheet with `tasks` (oldest first), at most `max_h` tall; its rows
 /// scroll past that. `newest_first` lists the newest at the top (the sheet
-/// hangs below the orb).
+/// hangs below the orb). The `hovered` task shows its browsers live.
 pub(crate) fn sheet<S: 'static>(
     p: Paint,
     tasks: &[Task],
     newest_first: bool,
     max_h: f32,
+    hovered: Option<&str>,
     actions: Actions<S>,
 ) -> El {
     let c = &p.k.c;
@@ -111,7 +119,14 @@ pub(crate) fn sheet<S: 'static>(
         .scroll_edge_fade(16.0)
         .role("list")
         .label(tr("Assistant tasks"))
-        .children(ordered.into_iter().map(|task| task_row(p, task, actions)));
+        .children(ordered.into_iter().map(|task| {
+            let previews = if hovered == Some(task.id.as_str()) {
+                live::previews(&task.id)
+            } else {
+                Vec::new()
+            };
+            task_row(p, task, &previews, actions)
+        }));
     col()
         .key("sheet")
         .w(WIDTH)
@@ -134,7 +149,12 @@ pub(crate) fn sheet<S: 'static>(
         .child(rows)
 }
 
-fn task_row<S: 'static>(p: Paint, task: &Task, actions: Actions<S>) -> El {
+fn task_row<S: 'static>(
+    p: Paint,
+    task: &Task,
+    previews: &[std::sync::Arc<Preview>],
+    actions: Actions<S>,
+) -> El {
     let colour = palette::task(task.colour, p.k.dark);
     let live = task.phase.live();
     let dot = super::orb::marker(p, task, colour, 10.0).mt(3.0);
@@ -161,8 +181,10 @@ fn task_row<S: 'static>(p: Paint, task: &Task, actions: Actions<S>) -> El {
         .child(title)
         .children(place)
         .children(detail)
+        .children(strip(p, &task.id, previews, actions))
         .children(buttons(p, task, actions));
     let open = actions.open;
+    let (hover, hovered_id) = (actions.hover, task.id.clone());
     let id = task.id.clone();
     let body = row()
         .key(format!("task-{}", task.id))
@@ -177,6 +199,7 @@ fn task_row<S: 'static>(p: Paint, task: &Task, actions: Actions<S>) -> El {
         .label(task.title.clone())
         .hit()
         .on_press(move |s: &mut S| open(s, &id))
+        .on_hover_change(move |s: &mut S, inside, _| hover(s, &hovered_id, inside))
         .child(dot)
         .child(lines)
         .child(status(p, task, colour).mt(2.0));
@@ -186,6 +209,106 @@ fn task_row<S: 'static>(p: Paint, task: &Task, actions: Actions<S>) -> El {
         body
     };
     p.k.interactive(body)
+}
+
+/// A live preview's size in the list.
+const PREVIEW_W: f32 = 148.0;
+const PREVIEW_H: f32 = 92.0;
+
+/// The task's browsers, live, two to a line; `None` while it has none.
+fn strip<S: 'static>(
+    p: Paint,
+    task: &str,
+    previews: &[std::sync::Arc<Preview>],
+    actions: Actions<S>,
+) -> Option<El> {
+    if previews.is_empty() {
+        return None;
+    }
+    Some(
+        row()
+            .key("previews")
+            .pt(6.0)
+            .gap(6.0)
+            .flex_wrap()
+            .role("list")
+            .label(tr("Live browsers"))
+            .children(
+                previews
+                    .iter()
+                    .map(|preview| thumbnail(p, task, preview, actions)),
+            ),
+    )
+}
+
+/// One browser: its live picture (or, for a light browser that draws none,
+/// its page's title and address) and its name; a press opens it large.
+fn thumbnail<S: 'static>(p: Paint, task: &str, preview: &Preview, actions: Actions<S>) -> El {
+    let c = &p.k.c;
+    let page = preview.page();
+    let picture = if preview.has_frame() {
+        rune::el()
+            .key("picture")
+            .size(PREVIEW_W, PREVIEW_H)
+            .radius(6.0)
+            .fill(c.layer_02)
+            .pixels_fit(&preview.pixels, rune::SurfaceFit::Fill)
+    } else {
+        let words = if page.failed.is_some() && page.title.is_empty() && page.url.is_empty() {
+            tr("No live picture").to_owned()
+        } else if !page.title.is_empty() {
+            page.title.clone()
+        } else if !page.url.is_empty() {
+            page.url.clone()
+        } else {
+            tr("Loading…").to_owned()
+        };
+        col()
+            .key("card")
+            .size(PREVIEW_W, PREVIEW_H)
+            .radius(6.0)
+            .fill(c.layer_02)
+            .padding(8.0)
+            .gap(4.0)
+            .child(icon(&GLOBE, 14.0).color(p.faint()).a11y_hidden())
+            .child(
+                text(words)
+                    .key("card-text")
+                    .font(p.k.ty.small)
+                    .color(p.muted())
+                    .wrap()
+                    .max_lines(3),
+            )
+    };
+    let name = if preview.name.is_empty() {
+        tr("Main browser").to_owned()
+    } else {
+        preview.name.clone()
+    };
+    let caption = match live::host_of(&page.url) {
+        Some(host) => format!("{name} · {host}"),
+        None => name,
+    };
+    let open = actions.open_preview;
+    let (task, session) = (task.to_owned(), preview.session.clone());
+    let card = col()
+        .key(format!("preview-{}", preview.session))
+        .w(PREVIEW_W)
+        .gap(3.0)
+        .role("button")
+        .label(tr_fill("Open {} live", &caption))
+        .hit()
+        .on_press(move |s: &mut S| open(s, &task, &session))
+        .child(picture.border(p.hair, p.k.alpha(c.text_base, 0.14)))
+        .child(
+            text(caption)
+                .key("caption")
+                .truncate()
+                .font(p.k.ty.small)
+                .color(p.faint())
+                .min_w(0.0),
+        );
+    p.k.interactive(card)
 }
 
 /// A globe for the web, a window for desktop apps, with the apps' names.

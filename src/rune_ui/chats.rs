@@ -20,6 +20,7 @@ pub(super) mod fixture;
 mod follow;
 mod jobs;
 mod list;
+mod live_view;
 mod schedules;
 mod settings;
 mod setup;
@@ -213,6 +214,8 @@ pub(super) struct ChatsPane {
     pub(super) follow: follow::Follow,
     /// The voice first run handed over to the assistant's pages already.
     pub(super) handed_off: bool,
+    /// A task's browser shown large (task, session), from its preview.
+    pub(super) live: Option<(ConversationId, String)>,
 }
 
 impl Default for ChatsPane {
@@ -252,6 +255,7 @@ impl Default for ChatsPane {
             settings: settings::SettingsState::default(),
             follow: follow::Follow::default(),
             handed_off: false,
+            live: None,
         }
     }
 }
@@ -581,12 +585,15 @@ pub(super) fn connect(ui: &mut Ui, waker: Waker) {
     pane.jobs.connect(waker.clone());
     pane.images.connect(waker.clone());
     let inbox = pane.inbox.clone();
+    let woken = waker.clone();
     crate::assistant::subscribe(Box::new(move |event: &Event| {
         if let Ok(mut events) = inbox.lock() {
             events.push(event.clone());
         }
         waker();
     }));
+    // A browser's preview pressed in the orb's list, or its page changing.
+    super::assistant_overlay::live::on_change(move || woken());
     // A relaunch reopens the onboarding where it was.
     setup::resume::launch(ui);
 }
@@ -663,6 +670,10 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
         return changed;
     }
     changed |= setup::resume::follow_first_run(ui);
+    if let Some((task, session)) = super::assistant_overlay::live::take_request() {
+        live_view::open(ui, task, session);
+        changed = true;
+    }
     let visible = ui.window.as_ref().is_none_or(rune::AppHandle::is_visible);
     let showing = visible && ui.pane == Pane::Chats && !ui.labs_open;
     if showing && !ui.chats.listed {
@@ -679,6 +690,11 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
     if !showing {
         // Read again when it next shows.
         ui.chats.listed = false;
+        if ui.chats.live.is_some() {
+            // Nothing shows it: its stream stops.
+            live_view::close(ui);
+            changed = true;
+        }
     }
     let now = Instant::now();
     ui.chats.watch(now);
@@ -727,8 +743,12 @@ pub(super) fn window_closed(ui: &mut Ui) {
     ui.chats.delete_armed = None;
 }
 
-/// Escape: disarms a delete. True when it did.
+/// Escape: closes a browser shown large, or disarms a delete. True when it
+/// did.
 pub(super) fn escape(ui: &mut Ui) -> bool {
+    if ui.chats.live.is_some() {
+        return live_view::close(ui);
+    }
     ui.chats.delete_armed.take().is_some()
 }
 
@@ -749,6 +769,7 @@ pub(super) fn pane(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> (Vec<El>, El) {
         }
         View::Chats => {
             layer.extend(schedules::sheet(ui, p));
+            layer.extend(live_view::sheet(ui, p));
             (header_actions(ui, p), list::body(ui, p, layer))
         }
     }
