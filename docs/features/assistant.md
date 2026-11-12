@@ -212,6 +212,101 @@ real press on a Mac, the recorder rows' rendering (macOS only, so no golden
 changes), Escape against a running question, or ⌃⌥Esc reaching Hex past
 macOS.
 
+## The Action shortcut on Linux
+
+The Linux listener (`linux::input`, `linux::dictation`) runs the same
+gestures through the shared `assistant::shortcut`. While the assistant is
+on, `HotkeyOptions::action` and `stop_all` carry `active_action_hotkey` and
+`active_stop_all_hotkey` (Ctrl+Alt+A and Ctrl+Alt+Q by default; a keyless
+binding, such as a macOS right ⌘, registers nothing, since Linux shortcuts
+need a key), and the listener registers them beside the others, restarting
+when they change. X11 grabs them; on Wayland the GlobalShortcuts portal binds
+them as `assistant-action` ("Ask the assistant (hold)") and
+`assistant-stop-all` ("Stop all assistant tasks"), Hyprland's
+`anomaly.hex:assistant-action` and `anomaly.hex:assistant-stop-all`.
+
+```ts
+Shortcut::Action (ShortcutState::action_pressed / action_released; always Hold)
+├── Press -> HotkeyEvent::Ask { after_tap }: a capture with DictationFlavour::Assistant
+│   (same microphone, HUD with Asking { agent: after_tap }, sounds, short-tap discard;
+│   no Live typing, never locks or toggles); shortcut::press(after_tap) settles the lane
+├── Hold real (MINIMUM_HOLD_DURATION) -> Question::intend, prewarm(lane), once
+├── Release -> Finish: shortcut::reply(question) is the capture's print reply, so the
+│   transcript is processed like a paste and asked, never pasted, copied, kept for
+│   Paste last, saved to History, or kept as a recording
+├── Tap, then press within 300 ms of its release -> after_tap (Background when held)
+├── Double tap (second press within 300 ms of a tap's release, itself a tap)
+│   -> HotkeyEvent::DoubleTap: its capture is discarded, shortcut::double_tap()
+└── Not ready (applied_assistant_ready false) -> nothing recorded; the release
+    calls shortcut::unready_release(held)
+Shortcut::StopAll -> HotkeyEvent::StopAll -> shortcut::stop_all(), once per press
+Escape (X11 only) -> HotkeyEvent::AssistantEscape -> shortcut::escape()
+```
+
+The Action shortcut and dictation never share a capture (whichever pressed
+first owns it). `hex dictation stop` and `toggle` leave a question alone
+(`stop --print` answers "not recording"); `hex dictation cancel` discards it.
+On X11 the dictation loop refreshes whether the assistant takes Escape
+(`claims_escape`, every 100 ms; `linux::input::set_assistant_escape`) and
+the listener grabs Escape only then. The portal can't bind Escape, so on
+Wayland Escape always stays with the app: use Stop all tasks. Checks: the
+`*action_shortcut*`, `stop_all_presses_once_per_press`,
+`escape_is_the_assistants_only_while_it_claims_it_and_nothing_records`, and
+`dictation_stop_leaves_a_question_alone_and_cancel_discards_it` tests in
+[linux/input.rs](../../src/linux/input.rs);
+`the_assistant_shortcuts_are_registered_only_while_it_is_on` in
+[linux/dictation.rs](../../src/linux/dictation.rs). Not yet observed: a real
+press on X11 or through a portal, or the HUD's Asking look on Linux.
+
+## Windows
+
+The Windows listener (`windows::input`'s keyboard hook, `windows::dictation`'s
+loop) runs the Action shortcut and Stop all tasks through the shared
+`assistant::shortcut` while `active_action_hotkey` and
+`active_stop_all_hotkey` return them (right Ctrl alone and Ctrl+Alt+Esc by
+default); settings changes restart the hook with them.
+
+```ts
+Action shortcut (Windows; DictationFlavour::Assistant, its own capture)
+├── a modifier alone (right Ctrl) or a key chord; always Hold, whatever the
+│   dictation shortcut's mode; no lock, no Toggle cancel key
+├── hold -> Here question: shortcut::press(false) at the press, intend() and
+│   service::prewarm(lane) once the hold is real, shortcut::reply(question)
+│   as the capture's print reply at the release; the HUD gets
+│   Asking { agent } after Started
+├── tap, then press within 300 ms and hold -> Background (after_tap)
+├── two taps under 300 ms, the second within 300 ms -> HotkeyAction::DoubleTap:
+│   the capture is discarded, shortcut::double_tap()
+├── right Ctrl with another key or button (Ctrl+C) -> the capture is
+│   discarded and the key reaches the app; right Ctrl starts nothing until up
+├── processed like a paste (modes, vocabulary, replacements), never pasted,
+│   copied, kept for Paste last dictation, or written to History
+├── not ready (applied_assistant_ready false) -> nothing records; the release
+│   calls shortcut::unready_release(held_for)
+└── owns its capture: dictation shortcuts never finish it, nor it theirs;
+    `hex dictation stop` refuses while it records, `cancel` discards it
+Stop all tasks -> its key swallowed (repeats and release too), once per press;
+    shortcut::stop_all() on the listener's loop, not the hook's thread
+Escape -> taken (down, repeats, up) only while shortcut::claims_escape(bound,
+    nothing records), refreshed every loop turn; shortcut::escape()
+Tray (shared tray_menu, Windows) -> while assistant::enabled: Stop all tasks
+    (disabled under its own id while nothing runs) and Chats…
+```
+
+Checks: `an_action_hold_asks_here`,
+`an_action_tap_then_hold_asks_in_the_background`,
+`an_action_double_tap_is_a_gesture`, `right_control_with_a_key_is_the_apps_chord`,
+`an_action_key_chord_is_held_and_swallowed`,
+`the_action_shortcut_and_dictation_never_share_a_capture`,
+`stop_all_presses_once_per_press`, and
+`escape_is_the_assistants_only_while_claimed_and_nothing_records` in
+[windows/input.rs](../../src/windows/input.rs) (compile-checked from Linux,
+not run); `tray_menu_ids_round_trip_and_show_the_state` in
+[desktop/tray_menu.rs](../../src/desktop/tray_menu.rs). Not yet observed: any
+of it on Windows. Chats… opens the window (`rune_ui::show` with
+`Destination::Chats`), but the Chats pane is still macOS-only
+(`chats::available`), so it lands on the current pane there.
+
 ## Chats
 
 The assistant's window (`rune_ui/chats`, macOS): Chats is in the sidebar
@@ -275,3 +370,59 @@ the tests in [rune_ui/chats/tests.rs](../../src/rune_ui/chats/tests.rs),
 [status_item.rs](../../src/macos_rune/status_item.rs); scenes `mac-chats*`
 and `mac-assistant-setup*` (macOS only, so no golden changes). Not yet
 observed: the live service, real grants, or a real question on a Mac.
+
+## Agents on Linux and Windows
+
+The agent backends (Claude Code, Codex, OpenCode, agent-desktop,
+agent-browser) run the same way on every OS; what differs:
+
+- **Process trees** (`backends/run.rs` `own_group`/`Tree`): Unix puts each
+  agent in its own process group (on Linux a helper Hex waits for also gets
+  `PR_SET_PDEATHSIG`); Windows puts it in a Job Object (shared with
+  `personal_commands/process.rs`) that Cancel, steering, and a failure end
+  at once, and that ends everything if Hex dies. A normal exit releases the
+  job, so a daemon an agent left on purpose (agent-browser's) keeps running,
+  as on Unix.
+- **Finding programs** (`backends/search.rs`): Linux asks the login shell
+  (bash, else sh, when `$SHELL` is unset) and adds Linuxbrew, pnpm, snaps,
+  and `~/.npm-global/bin`. Windows has no shell to ask: the PATH comes from
+  the registry (machine, then user, `%VAR%` expanded), plus npm's
+  `%APPDATA%\npm`, WinGet's links, `%USERPROFILE%\.local\bin`, Bun, Scoop,
+  pnpm, Volta, fnm, nvm-windows, `%ProgramFiles%\nodejs`, and System32.
+  `name.exe` beats an npm `name.cmd` shim, and a shim runs as the
+  `node.exe <script>` (or `.exe`) it wraps (`search::launch`), in Hex's own
+  commands and in the MCP server configs given to agents, because batch
+  files can't take the newlines and quotes in the agents' arguments. MCP
+  servers get `SystemRoot`, `PATHEXT`, `ComSpec`, `APPDATA`, `LOCALAPPDATA`,
+  `USERPROFILE`, and the other variables Windows programs need besides PATH.
+- **Installs** (`backends/install.rs`, `Os`): macOS is unchanged
+  (Homebrew, npm, script). Linux uses Claude Code's native script, then npm
+  (into `~/.local` when npm is the system's), then the project's script,
+  then a Linuxbrew formula. Windows uses `winget install
+  Anthropic.ClaudeCode`, else npm (`@openai/codex`, `@opencode/cli`,
+  `agent-desktop`, `agent-browser`), else the project's PowerShell script.
+  Lightpanda has no Windows build: its install and self-test are hidden
+  there. "Copy install command" quotes for PowerShell on Windows and joins
+  with `;`. Sign-in opens Terminal on macOS, the desktop's terminal on Linux
+  (`xdg-terminal-exec`, `x-terminal-emulator`, GNOME Terminal, Konsole, …),
+  and a console window on Windows.
+- **Sandboxes**: Claude Code's job shell is sandboxed on macOS and, with
+  bubblewrap and socat installed, on Linux. Without a sandbox (Windows, or
+  Linux without them) a job gets no shell (`Bash` denied, file tools still
+  scoped to the workspace), and the self-test says so. Windows permission
+  rules use Claude Code's `//c/Users/...` form. Codex uses its unelevated
+  Windows sandbox.
+- **Liveness and time**: process start times come from `/proc` on Linux and
+  `GetProcessTimes` on Windows; liveness from `OpenProcess` +
+  `GetExitCodeProcess` on Windows, so conversations no longer look
+  interrupted there. Local time uses `localtime_s` on Windows
+  (`schedules::local_tm`). Job folders live in `app_paths::document_dir()`
+  and their names avoid what Windows refuses.
+- **Guard**: on Linux and Windows Ctrl counts as ⌘ for the consequential
+  shortcuts, and Delete / Shift+Delete in Explorer, Nautilus, Dolphin (and
+  the other file managers), Ctrl+Enter in Outlook or Thunderbird count too.
+  On Linux a desktop-permissions failure checks the AT-SPI bus
+  (`org.a11y.Bus`) and asks for at-spi2-core when it's missing.
+
+Not yet observed on a real Linux desktop or Windows PC: installs, sign-in
+windows, the shim launch, job objects, or the agents' sandboxes.

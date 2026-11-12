@@ -38,7 +38,7 @@ pub(crate) fn open_assistant_setup() {
     #[cfg(not(target_os = "macos"))]
     if let Some(window) = WINDOW.get() {
         window.open();
-        window.update(|ui, tx| super::open_assistant_setup(ui, tx));
+        window.update(super::open_assistant_setup);
     }
 }
 

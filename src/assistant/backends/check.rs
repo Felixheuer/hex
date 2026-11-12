@@ -63,11 +63,12 @@ impl Check {
             checks.push(Self::DesktopThroughAgent(backend));
         }
         if background_browser {
-            checks.extend([
-                Self::BrowserRoundTrip,
-                Self::LightBrowser,
-                Self::BrowserThroughAgent(backend),
-            ]);
+            checks.push(Self::BrowserRoundTrip);
+            // Lightpanda has no Windows build.
+            if super::install::Tool::Lightpanda.available_on(super::install::Os::current()) {
+                checks.push(Self::LightBrowser);
+            }
+            checks.push(Self::BrowserThroughAgent(backend));
         }
         checks
     }
@@ -386,14 +387,18 @@ fn answers(check: Check, backend: AssistantBackend, settings: &AssistantSettings
     let events = parse_events(&ran.stdout);
     let text = answer_text(&events);
     if text.to_ascii_uppercase().contains("OK") {
-        return CheckResult::passed(
-            check,
-            format!(
-                "Replied “{}” in {:.1} s",
-                run::shorten(text.trim(), 40),
-                ran.took.as_secs_f32()
-            ),
+        let mut detail = format!(
+            "Replied “{}” in {:.1} s",
+            run::shorten(text.trim(), 40),
+            ran.took.as_secs_f32()
         );
+        // Without its sandbox a job gets no shell; say so here.
+        if backend == AssistantBackend::ClaudeCode
+            && let Err(why) = crate::assistant::provider::claude_code_sandbox()
+        {
+            detail.push_str(&format!(". Jobs run without a shell: {why}"));
+        }
+        return CheckResult::passed(check, detail);
     }
     let problem = event_error(&events).unwrap_or_else(|| {
         if ran.timed_out() {
@@ -660,7 +665,16 @@ fn desktop_permissions(check: Check) -> CheckResult {
         Ok(path) => path,
         Err(failed) => return failed,
     };
-    match super::agent_desktop_grants(&path) {
+    let grants = super::agent_desktop_grants(&path);
+    // On Linux agent-desktop reads apps through the AT-SPI accessibility
+    // bus; when it can't, a missing bus is the likely reason.
+    #[cfg(target_os = "linux")]
+    if !grants.as_ref().is_ok_and(|grants| grants.accessibility)
+        && let Some(Err(why)) = atspi_bus()
+    {
+        return CheckResult::failed(check, why, Some(Fix::Retry));
+    }
+    match grants {
         Ok(grants) => judge_grants(check, grants, "started by Hex"),
         Err(error) => CheckResult::failed(
             check,
@@ -668,6 +682,51 @@ fn desktop_permissions(check: Check) -> CheckResult {
             Some(Fix::InstallAgentDesktop),
         ),
     }
+}
+
+/// Whether the session's AT-SPI accessibility bus answers (`org.a11y.Bus`
+/// on the session D-Bus); `None` when there's nothing to ask it with.
+#[cfg(target_os = "linux")]
+fn atspi_bus() -> Option<Result<(), String>> {
+    const MISSING: &str = "The accessibility bus (AT-SPI) isn't running, so agent-desktop \
+                           can't read apps. Install at-spi2-core and sign in to a desktop \
+                           session again";
+    if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none()
+        && std::env::var_os("XDG_RUNTIME_DIR")
+            .is_none_or(|dir| !Path::new(&dir).join("bus").exists())
+    {
+        return Some(Err(
+            "There's no desktop session bus (D-Bus), so agent-desktop can't read apps".into(),
+        ));
+    }
+    let gdbus: &[&str] = &[
+        "call",
+        "--session",
+        "--dest",
+        "org.a11y.Bus",
+        "--object-path",
+        "/org/a11y/bus",
+        "--method",
+        "org.a11y.Bus.GetAddress",
+    ];
+    let dbus_send: &[&str] = &[
+        "--session",
+        "--print-reply",
+        "--dest=org.a11y.Bus",
+        "/org/a11y/bus",
+        "org.a11y.Bus.GetAddress",
+    ];
+    let (program, args) = search::find("gdbus")
+        .map(|program| (program, gdbus))
+        .or_else(|| search::find("dbus-send").map(|program| (program, dbus_send)))?;
+    let mut command = crate::desktop::background_process::command(program);
+    command.args(args);
+    let ran = run::bounded(command, Duration::from_secs(5)).ok()?;
+    Some(if ran.success() {
+        Ok(())
+    } else {
+        Err(MISSING.into())
+    })
 }
 
 fn round_trip(check: Check) -> CheckResult {
@@ -688,13 +747,19 @@ fn round_trip(check: Check) -> CheckResult {
     if apps.is_empty() {
         return failed_round_trip(check, "list the running apps", "it listed none");
     }
-    let dock = match call(&["snapshot", "--surface", "dock", "--skeleton", "--compact"]) {
-        Ok(data) => data.get("ref_count").and_then(Value::as_u64).unwrap_or(0),
-        Err(error) => return failed_round_trip(check, "read the Dock", &error),
+    // Only macOS has a Dock.
+    let dock = if cfg!(target_os = "macos") {
+        let dock = match call(&["snapshot", "--surface", "dock", "--skeleton", "--compact"]) {
+            Ok(data) => data.get("ref_count").and_then(Value::as_u64).unwrap_or(0),
+            Err(error) => return failed_round_trip(check, "read the Dock", &error),
+        };
+        if dock == 0 {
+            return failed_round_trip(check, "read the Dock", "it found nothing in it");
+        }
+        Some(dock)
+    } else {
+        None
     };
-    if dock == 0 {
-        return failed_round_trip(check, "read the Dock", "it found nothing in it");
-    }
     let windows = match call(&["list-windows"]) {
         Ok(data) => desktop::windows(&data),
         Err(error) => return failed_round_trip(check, "list the windows", &error),
@@ -714,10 +779,13 @@ fn round_trip(check: Check) -> CheckResult {
             Some(Fix::Retry),
         );
     }
+    let dock = dock
+        .map(|dock| format!(", {dock} items in the Dock"))
+        .unwrap_or_default();
     CheckResult::passed(
         check,
         format!(
-            "{} apps running, {} windows, {dock} items in the Dock",
+            "{} apps running, {} windows{dock}",
             apps.len(),
             windows.len()
         ),
@@ -972,14 +1040,26 @@ mod tests {
                 Check::DesktopThroughAgent(AssistantBackend::Codex),
             ]
         );
-        assert_eq!(
-            Check::for_backend(AssistantBackend::Codex, true)[5..],
-            [
-                Check::BrowserRoundTrip,
-                Check::LightBrowser,
-                Check::BrowserThroughAgent(AssistantBackend::Codex),
-            ]
-        );
+        let browser = Check::for_backend(AssistantBackend::Codex, true)[5..].to_vec();
+        if cfg!(windows) {
+            // No Lightpanda for Windows.
+            assert_eq!(
+                browser,
+                [
+                    Check::BrowserRoundTrip,
+                    Check::BrowserThroughAgent(AssistantBackend::Codex),
+                ]
+            );
+        } else {
+            assert_eq!(
+                browser,
+                [
+                    Check::BrowserRoundTrip,
+                    Check::LightBrowser,
+                    Check::BrowserThroughAgent(AssistantBackend::Codex),
+                ]
+            );
+        }
         assert_eq!(
             Check::BrowserThroughAgent(AssistantBackend::Codex).needs(),
             [

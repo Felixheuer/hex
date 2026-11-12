@@ -22,6 +22,8 @@ use crate::desktop::host::{DesktopGrantedShortcut, DesktopShortcut, DesktopShort
 use crate::dictation::DictationFlavour;
 use crate::linux::session::LinuxSession;
 
+#[path = "input/wayland.rs"]
+mod wayland;
 #[path = "input/x11.rs"]
 mod x11;
 pub(crate) use x11::{Keymap, MouseCapture, connect_x11};
@@ -288,6 +290,21 @@ pub(crate) enum HotkeyEvent {
     Capture,
     /// It came up: a tap stops the recording, a hold stops drawing.
     CaptureUp,
+    /// The assistant's Action shortcut went down and starts a question's
+    /// capture (`DictationFlavour::Assistant`): a Background task when it
+    /// followed a tap (`after_tap`), else a Here question. Its release
+    /// sends [`HotkeyEvent::Finish`].
+    Ask {
+        after_tap: bool,
+    },
+    /// The Action shortcut was tapped twice: the second tap's capture is
+    /// discarded unheard, and the task list shows or hides.
+    DoubleTap,
+    /// The Stop all tasks shortcut, once per press.
+    StopAll,
+    /// Escape while the assistant took it (X11): stops the Here tasks and
+    /// the speech.
+    AssistantEscape,
 }
 
 /// What a `hex` command asks of the running listener. Each one is
@@ -348,6 +365,26 @@ pub(crate) struct HotkeyOptions {
     /// Toggle mode's cancel shortcut, which Hex takes only while a
     /// recording runs; `None` in Hold mode, which has no cancel.
     pub(crate) cancel: Option<LinuxHotkey>,
+    /// The assistant's Action shortcut, while the assistant is on and it
+    /// is bound to its own keys (`AppSettings::active_action_hotkey`).
+    pub(crate) action: Option<LinuxHotkey>,
+    /// The assistant's Stop all tasks shortcut, likewise
+    /// (`AppSettings::active_stop_all_hotkey`).
+    pub(crate) stop_all: Option<LinuxHotkey>,
+}
+
+/// Whether the assistant takes Escape now: the dictation loop refreshes it
+/// from `assistant::shortcut::claims_escape`, and the X11 listener grabs
+/// Escape while it is set (the Wayland portal can't bind Escape).
+static ASSISTANT_ESCAPE: AtomicBool = AtomicBool::new(false);
+
+/// Sets whether the assistant takes Escape now (see [`ASSISTANT_ESCAPE`]).
+pub(crate) fn set_assistant_escape(claimed: bool) {
+    ASSISTANT_ESCAPE.store(claimed, Ordering::Release);
+}
+
+fn assistant_escape() -> bool {
+    ASSISTANT_ESCAPE.load(Ordering::Acquire)
 }
 
 /// Whether Annotate draws now, so Escape is Hex's (it stops drawing).
@@ -427,7 +464,7 @@ pub(crate) struct ShortcutKeys(Arc<Mutex<HeldKeys>>);
 #[derive(Debug, Default)]
 struct HeldKeys {
     /// Modifier shortcuts pressed without their release, by [`Shortcut::index`].
-    held: u8,
+    held: u16,
     last: Option<Instant>,
 }
 
@@ -588,10 +625,17 @@ enum Shortcut {
     TerminalPaste,
     /// Labs › Second dictation shortcut.
     SecondDictation,
+    /// The assistant's Action shortcut: hold to ask.
+    Action,
+    /// The assistant's Stop all tasks shortcut.
+    StopAll,
 }
 
+// Every shortcut has a bit in `HeldKeys::held`.
+const _: () = assert!(Shortcut::ALL.len() <= u16::BITS as usize);
+
 impl Shortcut {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 9] = [
         Self::Dictation,
         Self::PasteLast,
         Self::TypedText,
@@ -599,6 +643,8 @@ impl Shortcut {
         Self::RawDictation,
         Self::TerminalPaste,
         Self::SecondDictation,
+        Self::Action,
+        Self::StopAll,
     ];
 
     fn index(self) -> usize {
@@ -613,14 +659,16 @@ impl Shortcut {
             Self::RawDictation => Some(DictationFlavour::Raw),
             Self::TerminalPaste => Some(DictationFlavour::TerminalPaste),
             Self::SecondDictation => Some(DictationFlavour::Second),
-            Self::PasteLast | Self::TypedText | Self::Capture => None,
+            Self::Action => Some(DictationFlavour::Assistant),
+            Self::PasteLast | Self::TypedText | Self::Capture | Self::StopAll => None,
         }
     }
 
     /// The dictation shortcut that starts captures with `flavour`.
     fn for_flavour(flavour: DictationFlavour) -> Self {
         match flavour {
-            DictationFlavour::Normal | DictationFlavour::Assistant => Self::Dictation,
+            DictationFlavour::Normal => Self::Dictation,
+            DictationFlavour::Assistant => Self::Action,
             DictationFlavour::Raw => Self::RawDictation,
             DictationFlavour::TerminalPaste => Self::TerminalPaste,
             DictationFlavour::Second => Self::SecondDictation,
@@ -637,6 +685,8 @@ impl Shortcut {
             Self::RawDictation => ("raw-dictation", "Dictate without processing"),
             Self::TerminalPaste => ("terminal-paste", "Terminal paste shortcut"),
             Self::SecondDictation => ("second-dictation", "Second dictation shortcut"),
+            Self::Action => ("assistant-action", "Ask the assistant (hold)"),
+            Self::StopAll => ("assistant-stop-all", "Stop all assistant tasks"),
         }
     }
 }
@@ -645,7 +695,8 @@ impl Shortcut {
 enum Input {
     Pressed(Shortcut),
     Released(Shortcut),
-    /// Escape, which only stops Annotate's drawing (#786).
+    /// Escape, which stops Annotate's drawing (#786), else, while the
+    /// assistant took it (X11), its Here tasks and speech.
     Escape,
     /// The cancel shortcut, pressed while Hex held it.
     Cancel,
@@ -688,9 +739,17 @@ struct ShortcutState {
     /// stop mean its keys came up.
     repeating: bool,
     /// The shortcut that owns the capture (or the last one): dictation,
-    /// Dictate without processing, Labs › Terminal paste, or Labs › Second
-    /// dictation.
+    /// Dictate without processing, Labs › Terminal paste, Labs › Second
+    /// dictation, or the assistant's Action shortcut.
     flavour: DictationFlavour,
+    /// The Action shortcut is registered, so Escape may be the assistant's.
+    action: bool,
+    /// The assistant takes Escape now ([`set_assistant_escape`]), as last
+    /// read by the X11 listener.
+    escape_claimed: bool,
+    /// The Stop all tasks shortcut's last press while its release hasn't
+    /// arrived, so the desktop's repeats stop nothing twice.
+    stop_all_down: Option<Instant>,
 }
 
 impl ShortcutState {
@@ -708,7 +767,17 @@ impl ShortcutState {
             down: false,
             repeating: false,
             flavour: DictationFlavour::Normal,
+            action: options.action.is_some(),
+            escape_claimed: false,
+            stop_all_down: None,
         }
+    }
+
+    /// Whether Escape is the assistant's now (X11): the Action shortcut is
+    /// bound, the assistant claimed it (a Here task runs or an answer is
+    /// read aloud), and no shortcut records.
+    fn wants_assistant_escape(&self) -> bool {
+        self.action && self.escape_claimed && self.idle()
     }
 
     fn idle(&self) -> bool {
@@ -781,8 +850,13 @@ impl ShortcutState {
         event
     }
 
+    /// `hex dictation stop` (or `toggle`'s stop). An Action shortcut's
+    /// question is left alone: only its release asks it (`hex dictation
+    /// cancel` still discards it).
     fn stop_dictation(&mut self) -> Option<HotkeyEvent> {
-        if !matches!(self.capture, Capture::Held { .. } | Capture::Locked) {
+        if !matches!(self.capture, Capture::Held { .. } | Capture::Locked)
+            || self.flavour == DictationFlavour::Assistant
+        {
             return None;
         }
         self.capture = Capture::Idle;
@@ -795,9 +869,10 @@ impl ShortcutState {
             // Escape while Annotate draws stops drawing, never the recording,
             // and it ends no dictation (#786).
             Input::Escape => {
+                let drawing = annotate_drawing();
                 #[cfg(hex_capture)]
                 crate::capture_host::exit_drawing();
-                None
+                (!drawing && self.wants_assistant_escape()).then_some(HotkeyEvent::AssistantEscape)
             }
             Input::Lost => {
                 self.down = false;
@@ -906,6 +981,21 @@ impl ShortcutState {
                     Capture::Idle | Capture::Locked => None,
                 }
             }
+            Input::Pressed(Shortcut::Action) => self.action_pressed(now),
+            Input::Released(Shortcut::Action) => self.action_released(now),
+            Input::Pressed(Shortcut::StopAll) => {
+                // A press with no release since the last one, sooner than a
+                // new press could come, is the desktop repeating it.
+                let repeat = self
+                    .stop_all_down
+                    .is_some_and(|pressed| now.saturating_duration_since(pressed) < KEY_REPEAT_GAP);
+                self.stop_all_down = Some(now);
+                (!repeat).then_some(HotkeyEvent::StopAll)
+            }
+            Input::Released(Shortcut::StopAll) => {
+                self.stop_all_down = None;
+                None
+            }
             Input::Pressed(Shortcut::PasteLast) | Input::Command(ShortcutCommand::PasteLast) => {
                 self.idle().then_some(HotkeyEvent::PasteLast)
             }
@@ -935,6 +1025,73 @@ impl ShortcutState {
                 }
             },
         }
+    }
+}
+
+impl ShortcutState {
+    /// The Action shortcut went down. It always holds, never locks or
+    /// toggles, whatever the dictation shortcut's mode: a press starts a
+    /// question's capture at once, a Background task when it came within
+    /// [`DOUBLE_TAP_WINDOW`] of a tap's release.
+    fn action_pressed(&mut self, now: Instant) -> Option<HotkeyEvent> {
+        if !self.claim(DictationFlavour::Assistant) {
+            return None;
+        }
+        let repeat = self.down
+            && self
+                .last_press
+                .is_some_and(|pressed| now.saturating_duration_since(pressed) < KEY_REPEAT_GAP);
+        self.last_press = Some(now);
+        self.down = true;
+        self.repeating = repeat;
+        if repeat {
+            return None;
+        }
+        match self.capture {
+            Capture::Idle | Capture::Armed => {
+                let after_tap = self.last_release.take().is_some_and(|released| {
+                    now.checked_duration_since(released)
+                        .is_some_and(|gap| gap < DOUBLE_TAP_WINDOW)
+                });
+                self.capture = Capture::Held {
+                    second_tap: after_tap,
+                };
+                self.held_since = Some(now);
+                Some(HotkeyEvent::Ask { after_tap })
+            }
+            // The desktop dropped the release (see the dictation shortcut's
+            // arm): this new press finishes the question.
+            Capture::Held { .. } | Capture::Locked => {
+                self.capture = Capture::Idle;
+                self.last_release = None;
+                Some(HotkeyEvent::Finish)
+            }
+        }
+    }
+
+    /// The Action shortcut came up. A tap (shorter than the hold threshold)
+    /// may pair with the next press; a second tap that pairs is a double
+    /// tap; anything else finishes the question. A hold followed by a tap
+    /// never pairs.
+    fn action_released(&mut self, now: Instant) -> Option<HotkeyEvent> {
+        if self.flavour != DictationFlavour::Assistant {
+            return None;
+        }
+        self.down = false;
+        self.repeating = false;
+        let Capture::Held { second_tap } = self.capture else {
+            return None;
+        };
+        self.capture = Capture::Idle;
+        let tap = self.held_since.is_none_or(|pressed| {
+            now.saturating_duration_since(pressed) < crate::dictation::MINIMUM_HOLD_DURATION
+        });
+        if second_tap && tap {
+            self.last_release = None;
+            return Some(HotkeyEvent::DoubleTap);
+        }
+        self.last_release = (tap && !second_tap).then_some(now);
+        Some(HotkeyEvent::Finish)
     }
 }
 
@@ -1180,265 +1337,6 @@ impl Backend {
         self.started.store(true, Ordering::Release);
         self.ready.try_send(Ok(())).ok();
     }
-
-    fn run_wayland(
-        self,
-        mut dispatcher: Dispatcher,
-        binding: LinuxHotkey,
-        options: HotkeyOptions,
-    ) -> Result<()> {
-        let portal = match crate::linux::portal::Portal::connect(&self.stop)? {
-            Some(portal) => portal,
-            None => {
-                tracing::warn!(
-                    desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),
-                    "{}",
-                    crate::linux::portal::MISSING_SHORTCUTS_PORTAL
-                );
-                match self.wait_for_portal(&mut dispatcher, true)? {
-                    Some(portal) => portal,
-                    None => return Ok(()),
-                }
-            }
-        };
-        self.run_portal(portal, dispatcher, binding, options)
-    }
-
-    /// Serves `hex` commands, and with `probe` looks for the shortcuts
-    /// portal again from time to time: a portal started before the desktop's
-    /// session environment exposes none until it is restarted (#875).
-    /// Returns the portal once it appears, or `None` when the listener stops.
-    fn wait_for_portal(
-        &self,
-        dispatcher: &mut Dispatcher,
-        probe: bool,
-    ) -> Result<Option<crate::linux::portal::Portal>> {
-        self.mark_ready(DesktopShortcuts::Commands);
-        let mut probe = probe.then(|| crate::linux::portal::PortalProbe::new(self.stop.clone()));
-        while !self.stopping() {
-            // No portal: `hex` commands are the only input, so wait on their
-            // queue; the probe is due far less often than this.
-            dispatcher.wait_for_commands(COMMAND_WAIT);
-            if !dispatcher.flush()? {
-                return Ok(None);
-            }
-            if let Some(probe) = probe.as_mut()
-                && let Some(portal) = probe.poll()?
-            {
-                return Ok(Some(portal));
-            }
-        }
-        Ok(None)
-    }
-
-    fn run_portal(
-        self,
-        mut portal: crate::linux::portal::Portal,
-        mut dispatcher: Dispatcher,
-        binding: LinuxHotkey,
-        options: HotkeyOptions,
-    ) -> Result<()> {
-        let requested = [
-            Some((Shortcut::Dictation, &binding)),
-            options
-                .paste_last
-                .as_ref()
-                .map(|key| (Shortcut::PasteLast, key)),
-            options.capture.as_ref().map(|key| (Shortcut::Capture, key)),
-            options
-                .raw_dictation
-                .as_ref()
-                .map(|key| (Shortcut::RawDictation, key)),
-            options
-                .typed_text
-                .as_ref()
-                .map(|key| (Shortcut::TypedText, key)),
-            options
-                .terminal_paste
-                .as_ref()
-                .map(|key| (Shortcut::TerminalPaste, key)),
-            options
-                .second_dictation
-                .as_ref()
-                .map(|key| (Shortcut::SecondDictation, key)),
-        ];
-        let desktop_assigns = crate::linux::portal::desktop_assigns_triggers();
-        let mut shortcuts = Vec::new();
-        let mut ids: [Option<String>; Shortcut::ALL.len()] = Default::default();
-        let mut legacy_ids: [Option<String>; Shortcut::ALL.len()] = Default::default();
-        for (shortcut, key) in requested.into_iter().flatten() {
-            let (base, description) = shortcut.portal_id();
-            // Keep keyboard shortcuts usable after moving X11 settings to
-            // Wayland. Mouse actions remain available through the CLI.
-            if mouse_button(&key.key).is_some() {
-                continue;
-            }
-            let trigger = key.portal_trigger()?;
-            let id = portal_shortcut_id(base, &trigger, desktop_assigns);
-            ids[shortcut.index()] = Some(id.clone());
-            shortcuts.push(crate::linux::portal::Shortcut {
-                id,
-                description,
-                trigger: Some(trigger.clone()),
-            });
-            if desktop_assigns && let Some(legacy) = hyprland_legacy_id(shortcut, &trigger) {
-                legacy_ids[shortcut.index()] = Some(legacy.clone());
-                shortcuts.push(crate::linux::portal::Shortcut {
-                    id: legacy,
-                    description,
-                    trigger: Some(trigger),
-                });
-            }
-        }
-        // Every shortcut goes in this one bind: a second bind would replace
-        // the set on KDE. Escape is never among them (#786).
-        // On KDE, ids of shortcuts changed since keep holding their keys,
-        // which a new id could then never take; they go first (#898).
-        let keep = shortcuts
-            .iter()
-            .map(|shortcut| shortcut.id.as_str())
-            .collect::<Vec<_>>();
-        if let Err(error) = portal.forget_legacy_kde_shortcuts(&keep) {
-            tracing::warn!(
-                error = format!("{error:#}"),
-                "could not remove Hex's old shortcuts from KDE"
-            );
-        }
-        // GNOME asks for approval whenever Hex binds shortcuts it hasn't
-        // approved, as after a shortcut change; dismissing that dialog fails
-        // the bind (#723), and Enable binds again, so the dialog returns.
-        let granted = match portal.bind(&shortcuts, &self.stop) {
-            Ok(granted) => granted,
-            Err(error) if self.stopping() => return Err(error),
-            // The backend failed the bind rather than the person refusing it
-            // (niri with the GNOME backend and no GNOME Shell, #1014): treat
-            // the desktop as having no usable shortcuts portal. Binding again
-            // would fail the same way, so this run doesn't look for it again;
-            // a listener restart (Enable, a settings change) tries once more.
-            Err(error) if crate::linux::portal::is_backend_failure(&error) => {
-                tracing::warn!(
-                    error = format!("{error:#}"),
-                    desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),
-                    "the shortcuts portal's backend could not bind Hex's shortcuts; dictation follows the hex commands, which reach the service listener (`hex start`) but not a foreground `hex dictate`"
-                );
-                drop(portal);
-                self.wait_for_portal(&mut dispatcher, false)?;
-                return Ok(());
-            }
-            Err(error) => {
-                return Err(error.wrap_err(
-                    "the desktop did not approve Hex's shortcuts; choose Enable to ask again",
-                ));
-            }
-        };
-        let project = |granted: &std::collections::HashMap<String, Option<String>>| {
-            project_grants(granted, &requested, &ids, desktop_assigns)
-        };
-        let modifiers = |granted: &std::collections::HashMap<String, Option<String>>| {
-            Shortcut::ALL.map(|shortcut| {
-                requested.iter().flatten().any(|(requested, key)| {
-                    *requested == shortcut
-                        && trigger_has_modifiers(granted_trigger(granted, &ids, shortcut), key)
-                })
-            })
-        };
-        let mut with_modifiers = modifiers(&granted);
-        let granted = project(&granted);
-        for shortcut in &granted {
-            match &shortcut.trigger {
-                None if shortcut.unconfirmed => {
-                    tracing::info!(
-                        name = %shortcut.name,
-                        "the desktop assigns this Hex shortcut's key itself; Hex cannot confirm it"
-                    );
-                }
-                None => {
-                    tracing::warn!(
-                        name = %shortcut.name,
-                        "the desktop did not grant a Hex shortcut"
-                    );
-                }
-                Some(_) => {}
-            }
-        }
-        self.status
-            .configurable
-            .store(portal.configurable(), Ordering::Release);
-        self.status.configure.store(false, Ordering::Release);
-        self.mark_ready(DesktopShortcuts::Portal(granted));
-        let shortcut_for = |id: &str| {
-            Shortcut::ALL.into_iter().find(|shortcut| {
-                ids[shortcut.index()].as_deref() == Some(id)
-                    || legacy_ids[shortcut.index()].as_deref() == Some(id)
-            })
-        };
-        while !self.stopping() {
-            // Wakes on the desktop's signals; the timeout only lets queued
-            // `hex` commands through while nothing is pressed.
-            for event in portal.wait_events(PORTAL_WAIT) {
-                let input = match event {
-                    crate::linux::portal::Event::Pressed(id) => match shortcut_for(&id) {
-                        Some(shortcut) => {
-                            if with_modifiers[shortcut.index()] {
-                                dispatcher.keys.pressed(shortcut);
-                            }
-                            Input::Pressed(shortcut)
-                        }
-                        None => continue,
-                    },
-                    crate::linux::portal::Event::Released(id) => match shortcut_for(&id) {
-                        Some(shortcut) => {
-                            if with_modifiers[shortcut.index()] {
-                                dispatcher.keys.released(shortcut);
-                            }
-                            Input::Released(shortcut)
-                        }
-                        None => continue,
-                    },
-                    crate::linux::portal::Event::Changed(changed) => {
-                        with_modifiers = modifiers(&changed);
-                        self.status
-                            .set_shortcuts(DesktopShortcuts::Portal(project(&changed)));
-                        continue;
-                    }
-                    crate::linux::portal::Event::Closed => {
-                        dispatcher.keys.released_all();
-                        dispatcher.input(Input::Lost);
-                        let _ = dispatcher.flush();
-                        return Err(eyre!("the desktop closed Hex's shortcuts portal session"));
-                    }
-                };
-                dispatcher.input(input);
-            }
-            dispatcher.expire();
-            dispatcher.commands();
-            if self.status.configure.swap(false, Ordering::AcqRel)
-                && let Err(error) = portal.configure()
-            {
-                // The portal advertises ConfigureShortcuts even when the
-                // desktop's backend lacks it (GNOME, #723), so the call
-                // fails and opens nothing. Settings then drops its Open
-                // button rather than keep one that does nothing.
-                self.status.configurable.store(false, Ordering::Release);
-                tracing::warn!(
-                    error = format!("{error:#}"),
-                    "could not open the desktop's shortcut settings"
-                );
-            }
-            if !dispatcher.flush()? {
-                break;
-            }
-        }
-        if self.status.forget.load(Ordering::Acquire)
-            && let Err(error) = portal.forget()
-        {
-            tracing::warn!(
-                error = format!("{error:#}"),
-                "could not clear Hex's shortcuts from the desktop"
-            );
-        }
-        Ok(())
-    }
 }
 pub(crate) fn send_event(sender: &SyncSender<HotkeyEvent>, event: HotkeyEvent) -> Result<bool> {
     match sender.try_send(event) {
@@ -1594,6 +1492,226 @@ mod tests {
 
     /// #786: only the shortcuts Hex asked for show; a key the desktop still
     /// keeps for the removed Cancel dictation stays out.
+    /// A listener with the assistant's shortcuts registered.
+    fn assistant() -> HotkeyOptions {
+        HotkeyOptions {
+            action: Some(LinuxHotkey {
+                control: true,
+                alt: true,
+                key: "a".into(),
+                ..LinuxHotkey::default()
+            }),
+            stop_all: Some(LinuxHotkey {
+                control: true,
+                alt: true,
+                key: "q".into(),
+                ..LinuxHotkey::default()
+            }),
+            ..HotkeyOptions::default()
+        }
+    }
+
+    const ASK_HERE: HotkeyEvent = HotkeyEvent::Ask { after_tap: false };
+    const ASK_BACKGROUND: HotkeyEvent = HotkeyEvent::Ask { after_tap: true };
+
+    impl Test {
+        /// The Action shortcut down for `held`, then up.
+        fn action_for(&mut self, held: Duration) {
+            self.press(Shortcut::Action);
+            self.now += held;
+            self.release(Shortcut::Action);
+        }
+    }
+
+    #[test]
+    fn a_hold_of_the_action_shortcut_asks_here() {
+        let mut test = Test::with(assistant());
+        test.action_for(Duration::from_millis(900));
+        assert_eq!(test.events, [ASK_HERE, Finish]);
+        assert_eq!(test.state.flavour, DictationFlavour::Assistant);
+        assert_eq!(test.state.capture, Capture::Idle);
+        // A hold followed by a quick press never pairs.
+        test.now += Duration::from_millis(50);
+        test.action_for(Duration::from_millis(50));
+        assert_eq!(test.events, [ASK_HERE, Finish, ASK_HERE, Finish]);
+    }
+
+    #[test]
+    fn a_tap_then_a_hold_of_the_action_shortcut_asks_in_the_background() {
+        let mut test = Test::with(assistant());
+        test.action_for(Duration::from_millis(80));
+        test.now += Duration::from_millis(120);
+        test.action_for(Duration::from_millis(900));
+        assert_eq!(test.events, [ASK_HERE, Finish, ASK_BACKGROUND, Finish]);
+        // A tap whose next press comes after the double-tap window asks
+        // here again.
+        test.events.clear();
+        test.now += Duration::from_millis(500);
+        test.action_for(Duration::from_millis(80));
+        test.now += DOUBLE_TAP_WINDOW;
+        test.press(Shortcut::Action);
+        assert_eq!(test.events, [ASK_HERE, Finish, ASK_HERE]);
+    }
+
+    #[test]
+    fn a_double_tap_of_the_action_shortcut_toggles_the_task_list() {
+        let mut test = Test::with(assistant());
+        test.action_for(Duration::from_millis(80));
+        test.now += Duration::from_millis(100);
+        test.action_for(Duration::from_millis(80));
+        assert_eq!(
+            test.events,
+            [ASK_HERE, Finish, ASK_BACKGROUND, HotkeyEvent::DoubleTap]
+        );
+        // Nothing locks, and a third tap starts afresh.
+        assert_eq!(test.state.capture, Capture::Idle);
+        test.now += Duration::from_millis(100);
+        test.press(Shortcut::Action);
+        assert_eq!(test.events.last(), Some(&ASK_HERE));
+    }
+
+    #[test]
+    fn the_action_shortcut_holds_whatever_the_dictation_mode() {
+        for options in [
+            HotkeyOptions {
+                toggle: true,
+                ..assistant()
+            },
+            HotkeyOptions {
+                double_tap: true,
+                double_tap_only: true,
+                ..assistant()
+            },
+        ] {
+            let mut test = Test::with(options);
+            test.action_for(Duration::from_millis(900));
+            assert_eq!(test.events, [ASK_HERE, Finish]);
+            assert_eq!(test.state.capture, Capture::Idle);
+        }
+    }
+
+    #[test]
+    fn the_action_shortcut_and_dictation_never_share_a_capture() {
+        let mut test = Test::with(assistant());
+        test.press(Shortcut::Action);
+        test.tap();
+        test.now += Duration::from_millis(900);
+        test.release(Shortcut::Action);
+        assert_eq!(test.events, [ASK_HERE, Finish]);
+
+        test.events.clear();
+        test.now += Duration::from_secs(2);
+        test.press(Shortcut::Dictation);
+        test.action_for(Duration::from_millis(900));
+        test.release(Shortcut::Dictation);
+        assert_eq!(test.events, [START, Finish]);
+    }
+
+    #[test]
+    fn a_question_whose_repeats_stop_without_a_release_finishes_by_itself() {
+        let mut test = Test::with(assistant());
+        test.press(Shortcut::Action);
+        for _ in 0..3 {
+            test.now += Duration::from_millis(40);
+            test.press(Shortcut::Action);
+        }
+        test.now += KEY_REPEAT_GAP;
+        test.expire();
+        assert_eq!(test.events, [ASK_HERE, Finish]);
+        assert!(!test.state.down);
+    }
+
+    #[test]
+    fn dictation_stop_leaves_a_question_alone_and_cancel_discards_it() {
+        let mut test = Test::with(assistant());
+        test.press(Shortcut::Action);
+        test.command(Command::DictationStop);
+        test.command(Command::DictationToggle);
+        test.command(Command::DictationStart);
+        assert_eq!(test.events, [ASK_HERE]);
+        assert_eq!(test.state.stop_dictation(), None);
+        test.command(Command::DictationCancel);
+        assert_eq!(test.events, [ASK_HERE, Cancel]);
+        // Its release after the cancel asks nothing.
+        test.release(Shortcut::Action);
+        assert_eq!(test.events, [ASK_HERE, Cancel]);
+    }
+
+    #[test]
+    fn stop_all_presses_once_per_press() {
+        let mut test = Test::with(assistant());
+        test.press(Shortcut::StopAll);
+        // The desktop repeating the held press.
+        for _ in 0..3 {
+            test.now += Duration::from_millis(40);
+            test.press(Shortcut::StopAll);
+        }
+        test.release(Shortcut::StopAll);
+        assert_eq!(test.events, [HotkeyEvent::StopAll]);
+        test.now += Duration::from_millis(100);
+        test.press(Shortcut::StopAll);
+        assert_eq!(test.events, [HotkeyEvent::StopAll, HotkeyEvent::StopAll]);
+        // A release the desktop dropped: a press past the repeat gap counts.
+        test.now += KEY_REPEAT_GAP;
+        test.press(Shortcut::StopAll);
+        assert_eq!(test.events.len(), 3);
+        // It never touches a capture.
+        assert_eq!(test.state.capture, Capture::Idle);
+    }
+
+    #[test]
+    fn escape_is_the_assistants_only_while_it_claims_it_and_nothing_records() {
+        let mut test = Test::with(assistant());
+        // Nothing to stop: Escape stays with the app.
+        assert!(!test.state.wants_assistant_escape());
+        test.input(Input::Escape);
+        assert!(test.events.is_empty());
+
+        test.state.escape_claimed = true;
+        assert!(test.state.wants_assistant_escape());
+        test.input(Input::Escape);
+        assert_eq!(test.events, [HotkeyEvent::AssistantEscape]);
+
+        // A recording holds Escape for itself.
+        test.events.clear();
+        test.press(Shortcut::Dictation);
+        assert!(!test.state.wants_assistant_escape());
+        test.input(Input::Escape);
+        assert_eq!(test.events, [START]);
+
+        // Without the Action shortcut bound, the assistant never takes it.
+        let mut unbound = Test::new(false);
+        unbound.state.escape_claimed = true;
+        assert!(!unbound.state.wants_assistant_escape());
+    }
+
+    #[test]
+    fn the_assistant_shortcuts_have_their_own_portal_ids() {
+        assert_eq!(
+            Shortcut::Action.portal_id(),
+            ("assistant-action", "Ask the assistant (hold)")
+        );
+        assert_eq!(
+            Shortcut::StopAll.portal_id(),
+            ("assistant-stop-all", "Stop all assistant tasks")
+        );
+        assert_eq!(
+            Shortcut::for_flavour(DictationFlavour::Assistant),
+            Shortcut::Action
+        );
+        let mut ids = Shortcut::ALL
+            .map(|shortcut| shortcut.portal_id().0)
+            .to_vec();
+        ids.dedup();
+        assert_eq!(ids.len(), Shortcut::ALL.len());
+        // Their keys count toward a paste's held modifiers like any other.
+        let keys = ShortcutKeys::default();
+        keys.pressed(Shortcut::StopAll);
+        assert!(keys.any_held());
+        keys.released(Shortcut::StopAll);
+        assert!(!keys.any_held());
+    }
+
     #[test]
     fn only_requested_shortcuts_are_shown() {
         let binding = LinuxHotkey::default();

@@ -62,7 +62,7 @@ fn synthesize(text: &str, voice: Option<&str>) -> windows::core::Result<Vec<u8>>
     let synthesizer = SpeechSynthesizer::new()?;
     if let Some(id) = voice {
         for installed in SpeechSynthesizer::AllVoices()? {
-            if installed.Id()?.to_string() == id {
+            if installed.Id()? == id {
                 synthesizer.SetVoice(&installed)?;
                 break;
             }

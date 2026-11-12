@@ -213,14 +213,25 @@ pub enum HotkeyAction {
     /// The Annotate key went down, and came up (`CaptureUp`).
     Capture,
     CaptureUp,
+    /// The Action shortcut's second quick tap: its capture is discarded
+    /// unheard and the task list shows or hides.
+    DoubleTap,
+    /// Stop all tasks went down (once per press).
+    StopAll,
+    /// Escape went down while the assistant claimed it
+    /// ([`set_assistant_claims_escape`]).
+    AssistantEscape,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HotkeyEvent {
     pub action: HotkeyAction,
     /// The shortcut that started the capture: dictation, Dictate without
-    /// processing, Labs › Terminal paste, or Labs › Second dictation.
+    /// processing, Labs › Terminal paste, Labs › Second dictation, or the
+    /// assistant's Action shortcut.
     pub flavour: DictationFlavour,
+    /// An Action shortcut press that followed a tap: a Background task.
+    pub after_tap: bool,
     timestamp_ms: u32,
 }
 
@@ -276,6 +287,23 @@ struct CallbackState {
     cancel_vk: Option<u32>,
     /// The cancel key went down while Hex held it; its release is ours too.
     cancel_down: bool,
+    /// The assistant's Action shortcut, while the assistant is on and it is
+    /// bound: held to ask, a modifier alone (right Ctrl) or a key chord.
+    action: Option<WindowsHotkey>,
+    /// Its key; none for a modifier-only Action shortcut.
+    action_trigger_vk: Option<u32>,
+    action_trigger_down: bool,
+    /// A key joined the held modifier-only Action shortcut (right Ctrl with
+    /// C), so its modifiers start nothing until they are up.
+    action_dirty: bool,
+    /// The assistant's Stop all tasks shortcut, always a key chord.
+    stop_all: Option<WindowsHotkey>,
+    stop_all_vk: Option<u32>,
+    /// Its key went down; repeats and the release are ours too.
+    stop_all_down: bool,
+    /// Escape went down while the assistant claimed it; its repeats and
+    /// release are ours too.
+    assistant_escape_down: bool,
     modifiers: ModifierState,
     side_down: SideDownTimes,
     trigger_down: bool,
@@ -304,6 +332,10 @@ struct CaptureState {
     toggle: bool,
     /// The shortcut, not another, owns this capture (or the last one).
     flavour: DictationFlavour,
+    /// The Action shortcut's press in progress followed a tap.
+    after_tap: bool,
+    /// When the Action shortcut's press in progress went down.
+    pressed_ms: u32,
 }
 
 impl CaptureState {
@@ -352,6 +384,43 @@ impl CaptureState {
         Some(HotkeyAction::Start)
     }
 
+    /// The Action shortcut's press: always held, never locked or toggled,
+    /// whatever the dictation shortcut's mode. A press within the double-tap
+    /// window of a tap's release follows the tap (`after_tap`).
+    fn press_action(&mut self, timestamp_ms: u32) -> Option<HotkeyAction> {
+        if self.active || self.locked {
+            return None;
+        }
+        self.active = true;
+        self.recording = true;
+        self.second_tap = false;
+        self.after_tap = self
+            .last_release_ms
+            .take()
+            .is_some_and(|released| timestamp_ms.wrapping_sub(released) < DOUBLE_TAP_WINDOW_MS);
+        self.pressed_ms = timestamp_ms;
+        Some(HotkeyAction::Start)
+    }
+
+    /// The Action shortcut's release: a tap that followed a tap is a double
+    /// tap; anything else finishes the question. Only a tap (shorter than
+    /// the double-tap window) can start a double tap, so a hold followed by
+    /// a quick tap never pairs.
+    fn release_action(&mut self, timestamp_ms: u32) -> Option<HotkeyAction> {
+        if !self.active {
+            return None;
+        }
+        self.active = false;
+        self.recording = false;
+        let tap = timestamp_ms.wrapping_sub(self.pressed_ms) < DOUBLE_TAP_WINDOW_MS;
+        if std::mem::take(&mut self.after_tap) && tap {
+            self.last_release_ms = None;
+            return Some(HotkeyAction::DoubleTap);
+        }
+        self.last_release_ms = tap.then_some(timestamp_ms);
+        Some(HotkeyAction::Finish)
+    }
+
     fn release(&mut self, double_tap_enabled: bool, timestamp_ms: u32) -> Option<HotkeyAction> {
         if !self.active {
             return None;
@@ -382,15 +451,17 @@ impl CaptureState {
         let recording = self.recording;
         self.active = false;
         self.second_tap = false;
+        self.after_tap = false;
         self.recording = false;
         self.last_release_ms = None;
         recording.then_some(HotkeyAction::Cancel)
     }
 
     /// Whether Toggle's cancel shortcut is Hex's now: only while a toggled
-    /// capture records, so the key stays with every app otherwise.
+    /// capture records, so the key stays with every app otherwise. The
+    /// Action shortcut is always held, so it never takes the cancel key.
     fn wants_cancel(&self) -> bool {
-        self.toggle && (self.active || self.locked)
+        self.toggle && (self.active || self.locked) && self.flavour != DictationFlavour::Assistant
     }
 
     fn cancel(&mut self) -> Option<HotkeyAction> {
@@ -400,6 +471,7 @@ impl CaptureState {
         self.active = false;
         self.locked = false;
         self.second_tap = false;
+        self.after_tap = false;
         self.recording = false;
         self.last_release_ms = None;
         Some(HotkeyAction::Cancel)
@@ -425,7 +497,10 @@ impl CallbackState {
                 (self.terminal_paste_trigger_vk, self.terminal_paste.as_ref())
             }
             DictationFlavour::Second => (self.second_trigger_vk, self.second.as_ref()),
-            DictationFlavour::Normal | DictationFlavour::Assistant => return None,
+            // A key-chord Action shortcut; a modifier-only one has no key
+            // here and goes by its modifiers (`modifier_changed`).
+            DictationFlavour::Assistant => (self.action_trigger_vk, self.action.as_ref()),
+            DictationFlavour::Normal => return None,
         };
         let trigger_down = self.second_trigger_down(flavour);
         let matches = binding.is_some_and(|binding| self.modifiers.matches(binding));
@@ -448,10 +523,7 @@ impl CallbackState {
             self.set_second_trigger_down(flavour, true);
             self.capture.claim(flavour);
             let was_locked = self.capture.locked;
-            if let Some(action) =
-                self.capture
-                    .press(self.double_tap_enabled, self.double_tap_only, time)
-            {
+            if let Some(action) = self.press_capture(flavour, time) {
                 if was_locked {
                     self.dirty = true;
                 }
@@ -459,7 +531,7 @@ impl CallbackState {
             }
         } else if is_up && trigger_down {
             self.set_second_trigger_down(flavour, false);
-            if let Some(action) = self.capture.release(self.double_tap_enabled, time) {
+            if let Some(action) = self.release_capture(flavour, time) {
                 send_event(self, action, time);
             }
             if self.dirty && !required_down {
@@ -474,7 +546,8 @@ impl CallbackState {
             DictationFlavour::Raw => self.raw_trigger_down,
             DictationFlavour::TerminalPaste => self.terminal_paste_trigger_down,
             DictationFlavour::Second => self.second_trigger_down,
-            DictationFlavour::Normal | DictationFlavour::Assistant => false,
+            DictationFlavour::Assistant => self.action_trigger_down,
+            DictationFlavour::Normal => false,
         }
     }
 
@@ -483,7 +556,91 @@ impl CallbackState {
             DictationFlavour::Raw => self.raw_trigger_down = down,
             DictationFlavour::TerminalPaste => self.terminal_paste_trigger_down = down,
             DictationFlavour::Second => self.second_trigger_down = down,
-            DictationFlavour::Normal | DictationFlavour::Assistant => {}
+            DictationFlavour::Assistant => self.action_trigger_down = down,
+            DictationFlavour::Normal => {}
+        }
+    }
+
+    /// A press of `flavour`'s shortcut: the Action shortcut is always held;
+    /// the others follow the dictation shortcut's mode and double tap.
+    fn press_capture(&mut self, flavour: DictationFlavour, time: u32) -> Option<HotkeyAction> {
+        if flavour == DictationFlavour::Assistant {
+            self.capture.press_action(time)
+        } else {
+            self.capture
+                .press(self.double_tap_enabled, self.double_tap_only, time)
+        }
+    }
+
+    fn release_capture(&mut self, flavour: DictationFlavour, time: u32) -> Option<HotkeyAction> {
+        if flavour == DictationFlavour::Assistant {
+            self.capture.release_action(time)
+        } else {
+            self.capture.release(self.double_tap_enabled, time)
+        }
+    }
+
+    /// A modifier went down or came up, for the dictation shortcut
+    /// (`Normal`) or the Action shortcut (`Assistant`): a modifier-only
+    /// shortcut starts when exactly its modifiers go down together (and a
+    /// locked dictation finishes the same way), and a held capture of
+    /// either finishes once its modifiers no longer match.
+    fn modifier_changed(&mut self, flavour: DictationFlavour, is_down: bool, time: u32) {
+        let (binding, modifier_only, mut dirty) = match flavour {
+            DictationFlavour::Normal => {
+                (Some(&self.binding), self.trigger_vk.is_none(), self.dirty)
+            }
+            DictationFlavour::Assistant => (
+                self.action.as_ref(),
+                self.action_trigger_vk.is_none(),
+                self.action_dirty,
+            ),
+            _ => return,
+        };
+        let Some(binding) = binding else {
+            return;
+        };
+        let matches = self.modifiers.matches(binding);
+        let together = self.side_down.together(binding);
+        let required_down = self.modifiers.any_required_down(binding);
+        let masks_release = binding.masks_release();
+        let owned = self.capture.flavour == flavour;
+        if modifier_only && self.capture.locked && owned && !dirty && is_down && matches && together
+        {
+            // Only a modifier-only shortcut finishes on a modifier press. A
+            // key chord such as Ctrl+Space finishes on its key, so resting a
+            // finger on Ctrl never ends a locked or toggled capture.
+            if let Some(action) = self.press_capture(flavour, time) {
+                dirty = true;
+                send_event(self, action, time);
+            }
+        } else if self.capture.active && owned && !matches {
+            if let Some(action) = self.release_capture(flavour, time) {
+                dirty = required_down;
+                send_event(self, action, time);
+            }
+        } else if modifier_only
+            && !self.capture.active
+            && !self.capture.locked
+            && !dirty
+            && is_down
+            && matches
+            && together
+        {
+            self.capture.claim(flavour);
+            if let Some(action) = self.press_capture(flavour, time) {
+                send_event(self, action, time);
+            }
+        }
+        if is_down && masks_release && matches {
+            self.mask_release = true;
+        }
+        if dirty && !required_down {
+            dirty = false;
+        }
+        match flavour {
+            DictationFlavour::Assistant => self.action_dirty = dirty,
+            _ => self.dirty = dirty,
         }
     }
 }
@@ -497,6 +654,18 @@ static CALLBACK_STATE: Mutex<Option<CallbackState>> = Mutex::new(None);
 /// re-record the same chord. macOS suspends its hotkey handling the same
 /// way during capture.
 static CAPTURE_INHIBIT: AtomicBool = AtomicBool::new(false);
+
+/// Whether the assistant takes Escape now: the Action shortcut is bound,
+/// nothing records, and a Here task runs or an answer is read aloud
+/// (`assistant::shortcut::claims_escape`). The listener's loop refreshes it
+/// every turn; the hook then keeps Escape from the app and reports it.
+static ASSISTANT_ESCAPE: AtomicBool = AtomicBool::new(false);
+
+/// Lets the hook take Escape for the assistant (true) or leaves it with the
+/// app in front (false).
+pub(crate) fn set_assistant_claims_escape(claimed: bool) {
+    ASSISTANT_ESCAPE.store(claimed, Ordering::Relaxed);
+}
 
 /// Turns hook processing off (true) or back on (false) for the duration
 /// of a chord capture. Entering a capture also cancels any in-flight
@@ -516,6 +685,9 @@ pub(crate) fn set_capture_inhibited(inhibited: bool) {
         state.raw_trigger_down = false;
         state.terminal_paste_trigger_down = false;
         state.second_trigger_down = false;
+        state.action_trigger_down = false;
+        state.stop_all_down = false;
+        state.assistant_escape_down = false;
         if let Some(action) = state.capture.cancel() {
             send_event(state, action, now);
         }
@@ -548,21 +720,47 @@ pub struct WindowsHotkeyMonitor {
     worker: Option<JoinHandle<()>>,
 }
 
-impl WindowsHotkeyMonitor {
-    #[allow(clippy::too_many_arguments)]
-    pub fn start(
-        binding: WindowsHotkey,
-        paste_last: Option<WindowsHotkey>,
-        raw: Option<WindowsHotkey>,
-        terminal_paste: Option<WindowsHotkey>,
-        second: Option<WindowsHotkey>,
-        annotate: Option<WindowsHotkey>,
-        cancel: Option<WindowsHotkey>,
-        double_tap_enabled: bool,
-        double_tap_only: bool,
-        shortcut_mode: ShortcutMode,
-        share_trigger: bool,
+/// The shortcuts and options a listener's keyboard hook registers.
+pub struct HookConfig {
+    pub binding: WindowsHotkey,
+    pub paste_last: Option<WindowsHotkey>,
+    pub raw: Option<WindowsHotkey>,
+    pub terminal_paste: Option<WindowsHotkey>,
+    pub second: Option<WindowsHotkey>,
+    pub annotate: Option<WindowsHotkey>,
+    pub cancel: Option<WindowsHotkey>,
+    /// The assistant's Action shortcut, while it takes effect.
+    pub action: Option<WindowsHotkey>,
+    /// The assistant's Stop all tasks shortcut, while it takes effect.
+    pub stop_all: Option<WindowsHotkey>,
+    pub double_tap_enabled: bool,
+    pub double_tap_only: bool,
+    pub shortcut_mode: ShortcutMode,
+    pub share_trigger: bool,
+}
+
+impl CallbackState {
+    /// The hook's state for `config`, reporting to `events` and `errors`.
+    fn new(
+        config: HookConfig,
+        events: SyncSender<HotkeyEvent>,
+        errors: mpsc::Sender<String>,
     ) -> Result<Self> {
+        let HookConfig {
+            binding,
+            paste_last,
+            raw,
+            terminal_paste,
+            second,
+            annotate,
+            cancel,
+            action,
+            stop_all,
+            double_tap_enabled,
+            double_tap_only,
+            shortcut_mode,
+            share_trigger,
+        } = config;
         binding.validate()?;
         let cancel_vk = cancel
             .as_ref()
@@ -576,13 +774,18 @@ impl WindowsHotkeyMonitor {
             chord_virtual_key(terminal_paste.as_ref(), "Terminal paste shortcut")?;
         let second_trigger_vk = chord_virtual_key(second.as_ref(), "Second dictation shortcut")?;
         let annotate_trigger_vk = chord_virtual_key(annotate.as_ref(), "Annotate")?;
-        let label = binding.label();
-        let (event_sender, events) = mpsc::sync_channel(EVENT_CAPACITY);
-        let (error_sender, errors) = mpsc::channel();
-        let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
-        let state = CallbackState {
-            events: event_sender,
-            errors: error_sender,
+        // A modifier alone (right Ctrl, the default) or a key chord.
+        let action_trigger_vk = match &action {
+            Some(action) => {
+                action.validate()?;
+                action.key.as_deref().map(virtual_key).transpose()?
+            }
+            None => None,
+        };
+        let stop_all_vk = chord_virtual_key(stop_all.as_ref(), "Stop all tasks")?;
+        Ok(Self {
+            events,
+            errors,
             binding,
             trigger_vk,
             paste_last,
@@ -603,6 +806,14 @@ impl WindowsHotkeyMonitor {
             cancel,
             cancel_vk,
             cancel_down: false,
+            action,
+            action_trigger_vk,
+            action_trigger_down: false,
+            action_dirty: false,
+            stop_all,
+            stop_all_vk,
+            stop_all_down: false,
+            assistant_escape_down: false,
             modifiers: ModifierState::default(),
             side_down: SideDownTimes::default(),
             trigger_down: false,
@@ -616,7 +827,17 @@ impl WindowsHotkeyMonitor {
             },
             dirty: false,
             mask_release: false,
-        };
+        })
+    }
+}
+
+impl WindowsHotkeyMonitor {
+    pub fn start(config: HookConfig) -> Result<Self> {
+        let label = config.binding.label();
+        let (event_sender, events) = mpsc::sync_channel(EVENT_CAPACITY);
+        let (error_sender, errors) = mpsc::channel();
+        let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
+        let state = CallbackState::new(config, event_sender, error_sender)?;
         let worker = thread::Builder::new()
             .name("windows-hotkey".into())
             .spawn(move || run_hook(state, ready_sender))?;
@@ -813,385 +1034,277 @@ fn replay_masked_release(release: &KBDLLHOOKSTRUCT) -> bool {
     sent as usize == inputs.len()
 }
 
-fn mouse_message(message: u32, data: u32) -> Option<(u32, bool)> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP,
-        WM_XBUTTONDOWN, WM_XBUTTONUP,
-    };
-    let (button, down) = match message {
-        WM_LBUTTONDOWN => (0x01, true),
-        WM_LBUTTONUP => (0x01, false),
-        WM_RBUTTONDOWN => (0x02, true),
-        WM_RBUTTONUP => (0x02, false),
-        WM_MBUTTONDOWN => (0x04, true),
-        WM_MBUTTONUP => (0x04, false),
-        WM_XBUTTONDOWN | WM_XBUTTONUP => (
-            match data >> 16 {
-                1 => 0x05,
-                2 => 0x06,
-                _ => return None,
-            },
-            message == WM_XBUTTONDOWN,
-        ),
-        _ => return None,
-    };
-    Some((button, down))
-}
-
-unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if code == HC_ACTION as i32 {
-        // SAFETY: Windows supplies a live MSLLHOOKSTRUCT for this callback.
-        let event = unsafe { &*(lparam as *const MSLLHOOKSTRUCT) };
-        if crate::capture_host::wants_input() {
-            report_pointer(wparam as u32, event);
-        }
-        if let Some((vk, down)) = mouse_message(wparam as u32, event.mouseData)
-            && process_button(vk, down, event.time) != Disposition::Pass
-        {
-            return 1;
-        }
-    }
-    unsafe { CallNextHookEx(ptr::null_mut(), code, wparam, lparam) }
-}
-
-/// What a recording Annotate capture takes from the mouse hook: every move,
-/// click, and wheel turn, in physical screen pixels as the engine's Windows
-/// target frames are. The event still reaches the app beneath.
-fn report_pointer(message: u32, event: &MSLLHOOKSTRUCT) {
-    use crate::capture_host::{Tapped, report_input};
-    use scrawl_capture::hosted_input::HostInput;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        LLMHF_INJECTED, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL,
-        WM_RBUTTONDOWN, WM_RBUTTONUP,
-    };
-    if event.flags & LLMHF_INJECTED != 0 {
-        return;
-    }
-    let (x, y) = (f64::from(event.pt.x), f64::from(event.pt.y));
-    let modifiers = held_modifiers();
-    // One notch is 120 in the high word, signed; up and right are positive.
-    let notches = f64::from((event.mouseData >> 16) as i16) / 120.0;
-    let input = match message {
-        WM_MOUSEMOVE => HostInput::Moved { x, y, modifiers },
-        WM_LBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONDOWN | WM_RBUTTONUP => HostInput::Button {
-            down: matches!(message, WM_LBUTTONDOWN | WM_RBUTTONDOWN),
-            right: matches!(message, WM_RBUTTONDOWN | WM_RBUTTONUP),
-            x,
-            y,
-            modifiers,
-        },
-        WM_MOUSEWHEEL => HostInput::Scroll {
-            x,
-            y,
-            dx: 0.0,
-            dy: notches,
-        },
-        WM_MOUSEHWHEEL => HostInput::Scroll {
-            x,
-            y,
-            dx: notches,
-            dy: 0.0,
-        },
-        _ => return,
-    };
-    report_input(CaptureInstant::now(), Tapped::Pointer(input));
-}
-
-/// A modifier changed while an Annotate capture records: Shift alone inks.
-/// `held` includes the change, which the async key state does not yet.
-fn report_modifiers(held: &ModifierState) {
-    use crate::capture_host::{Tapped, report_input};
-    use scrawl_capture::hosted_input::HostInput;
-    let mut point = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
-    // SAFETY: `point` is a valid POINT to fill.
-    unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut point) };
-    report_input(
-        CaptureInstant::now(),
-        Tapped::Pointer(HostInput::ModifiersChanged {
-            x: f64::from(point.x),
-            y: f64::from(point.y),
-            modifiers: scrawl_capture::hosted_input::Modifiers {
-                command: held.left_windows || held.right_windows,
-                control: held.left_control || held.right_control,
-                option: held.left_alt || held.right_alt,
-                shift: held.left_shift || held.right_shift,
-            },
-        }),
-    );
-}
-
-/// The modifiers held now, as the engine names them: the Windows key is its
-/// Command, Alt its Option.
-fn held_modifiers() -> scrawl_capture::hosted_input::Modifiers {
-    scrawl_capture::hosted_input::Modifiers {
-        command: key_down(VK_LWIN) || key_down(VK_RWIN),
-        control: key_down(VK_CONTROL),
-        option: key_down(VK_MENU),
-        shift: key_down(VK_SHIFT),
-    }
-}
-
-// Both low-level hooks feed exactly the same capture and suppression rules.
 fn process_button(vk: u32, is_down: bool, time: u32) -> Disposition {
-    let is_up = !is_down;
-    let mut suppressed = false;
-    let mut mask = false;
+    let mut guard = CALLBACK_STATE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let Some(state) = guard.as_mut() else {
+        return Disposition::Pass;
+    };
+    // The hook never sees a release that lands on another desktop, such as
+    // the Windows key of Win+L or the modifiers of Ctrl+Alt+Delete, so
+    // tracked modifiers stayed held after unlocking and Ctrl+Space no longer
+    // matched. Re-read them on every event: the asynchronous key state does
+    // not include this event yet, so `update` applies it on top.
+    state.modifiers = ModifierState::current();
+    let modifier_event = state.modifiers.update(vk, is_down);
+    state.side_down.update(vk, is_down, time);
+    // During a chord capture the hook only tracks modifier state; it neither
+    // triggers actions nor suppresses keys, so the capture can observe every
+    // key through GetAsyncKeyState.
+    if CAPTURE_INHIBIT.load(Ordering::Relaxed) {
+        state.mask_release = false;
+        return Disposition::Pass;
+    }
+    // A dictation shortcut's modifiers are down and its key may follow: the
+    // HUD's GPU device and pipelines start on a thread now, so the HUD shows
+    // at once rather than after them (#1229).
+    if modifier_event
+        && is_down
+        && !state.capture.active
+        && [
+            Some(&state.binding),
+            state.raw.as_ref(),
+            state.terminal_paste.as_ref(),
+            state.second.as_ref(),
+            state.action.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|binding| state.modifiers.matches(binding))
     {
-        let mut guard = CALLBACK_STATE
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if let Some(state) = guard.as_mut() {
-            // The hook never sees a release that lands on another desktop,
-            // such as the Windows key of Win+L or the modifiers of
-            // Ctrl+Alt+Delete, so tracked modifiers stayed held after
-            // unlocking and Ctrl+Space no longer matched. Re-read them on
-            // every event: the asynchronous key state does not include this
-            // event yet, so `update` applies it on top.
-            state.modifiers = ModifierState::current();
-            let modifier_event = state.modifiers.update(vk, is_down);
-            state.side_down.update(vk, is_down, time);
-            // During a chord capture the hook only tracks modifier state;
-            // it neither triggers actions nor suppresses keys, so the
-            // capture can observe every key through GetAsyncKeyState.
-            if CAPTURE_INHIBIT.load(Ordering::Relaxed) {
-                state.mask_release = false;
-                return Disposition::Pass;
+        rune::warm_gpu_with(
+            crate::rune_hud::Painter::FEATURES,
+            crate::rune_hud::prepare_gpu,
+        );
+    }
+    if modifier_event && crate::capture_host::wants_input() {
+        report_modifiers(&state.modifiers);
+    }
+    state.handle(vk, is_down, time, modifier_event)
+}
+
+impl CallbackState {
+    /// What the shortcuts make of a key or button going down or up, once
+    /// `modifiers` include it (`modifier_event`: it was a modifier key).
+    fn handle(&mut self, vk: u32, is_down: bool, time: u32, modifier_event: bool) -> Disposition {
+        let state = self;
+        let is_up = !is_down;
+        let mut suppressed = false;
+        let mut mask = false;
+        if !modifier_event && is_down {
+            state.mask_release = false;
+        }
+        // A key or button joining the held modifier-only Action shortcut
+        // makes the app's chord (right Ctrl with C): the question is
+        // discarded unheard, and the key reaches the app.
+        if !modifier_event
+            && is_down
+            && state.action.is_some()
+            && state.action_trigger_vk.is_none()
+            && state.capture.active
+            && state.capture.flavour == DictationFlavour::Assistant
+        {
+            state.action_dirty = true;
+            if let Some(action) = state.capture.interrupt() {
+                send_event(state, action, time);
             }
-            if !modifier_event && is_down {
-                state.mask_release = false;
+        }
+        // Stop all tasks: once per press, its key never reaching the app,
+        // whatever records.
+        let stop_all_event = state.stop_all_vk == Some(vk)
+            && (state.stop_all_down
+                || (is_down
+                    && state
+                        .stop_all
+                        .as_ref()
+                        .is_some_and(|binding| state.modifiers.matches(binding))));
+        if stop_all_event {
+            state.mask_release |= is_down && holds_menu(state.stop_all.as_ref());
+            if is_down && !state.stop_all_down {
+                state.stop_all_down = true;
+                send_event(state, HotkeyAction::StopAll, time);
+            } else if is_up {
+                state.stop_all_down = false;
             }
-            // A dictation shortcut's modifiers are down and its key may
-            // follow: the HUD's GPU device and pipelines start on a thread
-            // now, so the HUD shows at once rather than after them (#1229).
-            if modifier_event
-                && is_down
-                && !state.capture.active
-                && [
-                    Some(&state.binding),
-                    state.raw.as_ref(),
-                    state.terminal_paste.as_ref(),
-                    state.second.as_ref(),
-                ]
-                .into_iter()
-                .flatten()
-                .any(|binding| state.modifiers.matches(binding))
-            {
-                rune::warm_gpu_with(
-                    crate::rune_hud::Painter::FEATURES,
-                    crate::rune_hud::prepare_gpu,
-                );
-            }
-            if modifier_event && crate::capture_host::wants_input() {
-                report_modifiers(&state.modifiers);
-            }
-            let annotate_event = state.annotate_trigger_vk == Some(vk)
-                && (state.annotate_trigger_down
-                    || (is_down
-                        && !state.capture.active
-                        && !state.capture.locked
-                        && !state.dirty
-                        && state
-                            .annotate
-                            .as_ref()
-                            .is_some_and(|binding| state.modifiers.matches(binding))));
-            if annotate_event {
-                state.mask_release |= is_down && holds_menu(state.annotate.as_ref());
-                if is_down && !state.annotate_trigger_down {
-                    state.annotate_trigger_down = true;
-                    send_event(state, HotkeyAction::Capture, time);
-                } else if is_up && state.annotate_trigger_down {
-                    state.annotate_trigger_down = false;
-                    send_event(state, HotkeyAction::CaptureUp, time);
-                }
-                return Disposition::Suppress;
-            }
-            // Toggle's cancel key discards the recording. Hex takes it only
-            // while a toggled capture records, and keeps its repeats and
-            // release, so the app in front never acts on it.
-            let cancel_event = state.cancel_vk == Some(vk)
-                && (state.cancel_down
-                    || (is_down
-                        && state.capture.wants_cancel()
-                        && state
-                            .cancel
-                            .as_ref()
-                            .is_some_and(|binding| state.modifiers.matches(binding))));
-            if cancel_event {
-                if is_down && !state.cancel_down {
-                    state.cancel_down = true;
-                    if let Some(action) = state.capture.cancel() {
-                        send_event(state, action, time);
-                    }
-                } else if is_up {
-                    state.cancel_down = false;
-                }
-                return Disposition::Suppress;
-            }
-            // Escape stops Annotate's drawing, never its recording, when no
-            // dictation takes it.
-            if vk == u32::from(VK_ESCAPE)
-                && !state.capture.active
-                && !state.capture.locked
-                && (state.drawing_escape_down || (is_down && crate::capture_host::exit_drawing()))
-            {
-                state.drawing_escape_down = is_down;
-                return Disposition::Suppress;
-            }
-            // Dictate without processing, Labs › Terminal paste, and Labs ›
-            // Second dictation: key chords held, locked, and finished like the
-            // dictation key, each owning the capture it starts.
-            for flavour in [
-                DictationFlavour::Raw,
-                DictationFlavour::TerminalPaste,
-                DictationFlavour::Second,
-            ] {
-                if let Some(disposition) = state.second_dictation(vk, is_down, is_up, time, flavour)
-                {
-                    return disposition;
-                }
-            }
-            let paste_event = state.paste_trigger_vk == Some(vk)
-                && (state.paste_trigger_down
-                    || (is_down
-                        && !state.capture.active
-                        && !state.capture.locked
-                        && !state.dirty
-                        && state
-                            .paste_last
-                            .as_ref()
-                            .is_some_and(|binding| state.modifiers.matches(binding))));
-            if paste_event {
-                suppressed = true;
-                state.mask_release |= is_down && holds_menu(state.paste_last.as_ref());
-                if is_down && !state.paste_trigger_down {
-                    state.paste_trigger_down = true;
-                    send_event(state, HotkeyAction::PasteLast, time);
-                } else if is_up {
-                    state.paste_trigger_down = false;
-                }
-            } else if state.trigger_vk == Some(vk) {
-                if is_down {
-                    if state.trigger_down {
-                        suppressed = !state.share_trigger;
-                    } else if !state.dirty
-                        && !state.capture.owned_by_other(DictationFlavour::Normal)
-                        && state.modifiers.matches(&state.binding)
-                    {
-                        state.trigger_down = true;
-                        suppressed = !state.share_trigger;
-                        state.capture.claim(DictationFlavour::Normal);
-                        let was_locked = state.capture.locked;
-                        if let Some(action) = state.capture.press(
-                            state.double_tap_enabled,
-                            state.double_tap_only,
-                            time,
-                        ) {
-                            if was_locked {
-                                state.dirty = true;
-                            }
-                            send_event(state, action, time);
-                        }
-                    }
-                    if suppressed && state.binding.holds_menu_modifier() {
-                        state.mask_release = true;
-                    }
-                } else if state.trigger_down {
-                    state.trigger_down = false;
-                    suppressed = !state.share_trigger;
-                    if let Some(action) = state.capture.release(state.double_tap_enabled, time) {
-                        send_event(state, action, time);
-                    }
-                    if state.dirty && !state.modifiers.any_required_down(&state.binding) {
-                        state.dirty = false;
-                    }
-                }
-            } else if vk == u32::from(VK_ESCAPE) {
-                // Escape ends no dictation, not even as a chord: it reaches
-                // the app (#786).
-            } else if !modifier_event {
-                // A key or button joining a held modifier-only shortcut makes
-                // a chord meant for another application, such as Alt+Tab.
-                if is_down
-                    && state.trigger_vk.is_none()
-                    && state.capture.active
-                    && state.capture.flavour.normal()
-                {
-                    state.dirty = true;
-                    if let Some(action) = state.capture.interrupt() {
-                        send_event(state, action, time);
-                    }
-                }
-            } else {
-                if is_up
-                    && state.mask_release
-                    && matches!(vk as u16, VK_LMENU | VK_RMENU | VK_MENU | VK_LWIN | VK_RWIN)
-                {
-                    state.mask_release = false;
-                    mask = !state.share_trigger;
-                }
-                if state.trigger_vk.is_none()
-                    && state.capture.locked
-                    && state.capture.flavour.normal()
-                    && !state.dirty
-                    && is_down
-                    && state.modifiers.matches(&state.binding)
-                    && state.side_down.together(&state.binding)
-                {
-                    // Only a modifier-only shortcut finishes on a modifier
-                    // press. A key chord such as Ctrl+Space finishes on its
-                    // key, so resting a finger on Ctrl never ends a locked
-                    // or toggled capture.
-                    if let Some(action) =
-                        state
-                            .capture
-                            .press(state.double_tap_enabled, state.double_tap_only, time)
-                    {
-                        state.dirty = true;
-                        send_event(state, action, time);
-                    }
-                } else if state.capture.active
-                    && state.capture.flavour.normal()
-                    && !state.modifiers.matches(&state.binding)
-                {
-                    if let Some(action) = state.capture.release(state.double_tap_enabled, time) {
-                        state.dirty = state.modifiers.any_required_down(&state.binding);
-                        send_event(state, action, time);
-                    }
-                } else if state.trigger_vk.is_none()
+            return Disposition::Suppress;
+        }
+        let annotate_event = state.annotate_trigger_vk == Some(vk)
+            && (state.annotate_trigger_down
+                || (is_down
                     && !state.capture.active
                     && !state.capture.locked
                     && !state.dirty
-                    && is_down
+                    && state
+                        .annotate
+                        .as_ref()
+                        .is_some_and(|binding| state.modifiers.matches(binding))));
+        if annotate_event {
+            state.mask_release |= is_down && holds_menu(state.annotate.as_ref());
+            if is_down && !state.annotate_trigger_down {
+                state.annotate_trigger_down = true;
+                send_event(state, HotkeyAction::Capture, time);
+            } else if is_up && state.annotate_trigger_down {
+                state.annotate_trigger_down = false;
+                send_event(state, HotkeyAction::CaptureUp, time);
+            }
+            return Disposition::Suppress;
+        }
+        // Toggle's cancel key discards the recording. Hex takes it only
+        // while a toggled capture records, and keeps its repeats and
+        // release, so the app in front never acts on it.
+        let cancel_event = state.cancel_vk == Some(vk)
+            && (state.cancel_down
+                || (is_down
+                    && state.capture.wants_cancel()
+                    && state
+                        .cancel
+                        .as_ref()
+                        .is_some_and(|binding| state.modifiers.matches(binding))));
+        if cancel_event {
+            if is_down && !state.cancel_down {
+                state.cancel_down = true;
+                if let Some(action) = state.capture.cancel() {
+                    send_event(state, action, time);
+                }
+            } else if is_up {
+                state.cancel_down = false;
+            }
+            return Disposition::Suppress;
+        }
+        // Escape stops Annotate's drawing, never its recording, when no
+        // dictation takes it.
+        if vk == u32::from(VK_ESCAPE)
+            && !state.capture.active
+            && !state.capture.locked
+            && (state.drawing_escape_down || (is_down && crate::capture_host::exit_drawing()))
+        {
+            state.drawing_escape_down = is_down;
+            return Disposition::Suppress;
+        }
+        // Escape is the assistant's while it claims it (a Here task runs or
+        // an answer is read aloud, and nothing records): it stops them, and
+        // the app never sees it, repeats and release included.
+        if vk == u32::from(VK_ESCAPE)
+            && (state.assistant_escape_down
+                || (is_down
+                    && ASSISTANT_ESCAPE.load(Ordering::Relaxed)
+                    && !state.capture.active
+                    && !state.capture.locked))
+        {
+            if is_down && !state.assistant_escape_down {
+                state.assistant_escape_down = true;
+                send_event(state, HotkeyAction::AssistantEscape, time);
+            } else if is_up {
+                state.assistant_escape_down = false;
+            }
+            return Disposition::Suppress;
+        }
+        // Dictate without processing, Labs › Terminal paste, Labs › Second
+        // dictation, and a key-chord Action shortcut: key chords held (and,
+        // but for the Action shortcut, locked) and finished like the
+        // dictation key, each owning the capture it starts.
+        for flavour in [
+            DictationFlavour::Raw,
+            DictationFlavour::TerminalPaste,
+            DictationFlavour::Second,
+            DictationFlavour::Assistant,
+        ] {
+            if let Some(disposition) = state.second_dictation(vk, is_down, is_up, time, flavour) {
+                return disposition;
+            }
+        }
+        let paste_event = state.paste_trigger_vk == Some(vk)
+            && (state.paste_trigger_down
+                || (is_down
+                    && !state.capture.active
+                    && !state.capture.locked
+                    && !state.dirty
+                    && state
+                        .paste_last
+                        .as_ref()
+                        .is_some_and(|binding| state.modifiers.matches(binding))));
+        if paste_event {
+            suppressed = true;
+            state.mask_release |= is_down && holds_menu(state.paste_last.as_ref());
+            if is_down && !state.paste_trigger_down {
+                state.paste_trigger_down = true;
+                send_event(state, HotkeyAction::PasteLast, time);
+            } else if is_up {
+                state.paste_trigger_down = false;
+            }
+        } else if state.trigger_vk == Some(vk) {
+            if is_down {
+                if state.trigger_down {
+                    suppressed = !state.share_trigger;
+                } else if !state.dirty
+                    && !state.capture.owned_by_other(DictationFlavour::Normal)
                     && state.modifiers.matches(&state.binding)
-                    && state.side_down.together(&state.binding)
                 {
+                    state.trigger_down = true;
+                    suppressed = !state.share_trigger;
                     state.capture.claim(DictationFlavour::Normal);
+                    let was_locked = state.capture.locked;
                     if let Some(action) =
                         state
                             .capture
                             .press(state.double_tap_enabled, state.double_tap_only, time)
                     {
+                        if was_locked {
+                            state.dirty = true;
+                        }
                         send_event(state, action, time);
                     }
                 }
-                if is_down
-                    && state.binding.masks_release()
-                    && state.modifiers.matches(&state.binding)
-                {
+                if suppressed && state.binding.holds_menu_modifier() {
                     state.mask_release = true;
+                }
+            } else if state.trigger_down {
+                state.trigger_down = false;
+                suppressed = !state.share_trigger;
+                if let Some(action) = state.capture.release(state.double_tap_enabled, time) {
+                    send_event(state, action, time);
                 }
                 if state.dirty && !state.modifiers.any_required_down(&state.binding) {
                     state.dirty = false;
                 }
             }
+        } else if vk == u32::from(VK_ESCAPE) {
+            // Escape ends no dictation, not even as a chord: it reaches the
+            // app (#786).
+        } else if !modifier_event {
+            // A key or button joining a held modifier-only shortcut makes a
+            // chord meant for another application, such as Alt+Tab.
+            if is_down
+                && state.trigger_vk.is_none()
+                && state.capture.active
+                && state.capture.flavour.normal()
+            {
+                state.dirty = true;
+                if let Some(action) = state.capture.interrupt() {
+                    send_event(state, action, time);
+                }
+            }
+        } else {
+            if is_up
+                && state.mask_release
+                && matches!(vk as u16, VK_LMENU | VK_RMENU | VK_MENU | VK_LWIN | VK_RWIN)
+            {
+                state.mask_release = false;
+                mask = !state.share_trigger;
+            }
+            // The dictation shortcut and the Action shortcut, whichever owns
+            // the capture or may start one.
+            state.modifier_changed(DictationFlavour::Normal, is_down, time);
+            state.modifier_changed(DictationFlavour::Assistant, is_down, time);
         }
-    }
-    if mask {
-        Disposition::Mask
-    } else if suppressed {
-        Disposition::Suppress
-    } else {
-        Disposition::Pass
+        if mask {
+            Disposition::Mask
+        } else if suppressed {
+            Disposition::Suppress
+        } else {
+            Disposition::Pass
+        }
     }
 }
 
@@ -1204,6 +1317,7 @@ fn send_event(state: &mut CallbackState, action: HotkeyAction, timestamp_ms: u32
     match state.events.try_send(HotkeyEvent {
         action,
         flavour: state.capture.flavour,
+        after_tap: action == HotkeyAction::Start && state.capture.after_tap,
         timestamp_ms,
     }) {
         Ok(()) => crate::windows::dictation::wake(),
@@ -1285,215 +1399,12 @@ mod chord;
 
 pub(crate) use chord::{ChordCapture, ChordPoll, NumpadWatch};
 
-/// Numpad Enter's code in a binding: Enter's virtual key with the extended
-/// flag, which no virtual key of its own names.
-const NUMPAD_ENTER: u32 = 0x100 | VK_RETURN as u32;
+mod keys;
+mod report;
 
-/// The numpad key a keyboard hook last saw go down and not yet up, by its
-/// `num` code, for the chord capture: polled key state can't tell Numpad 1
-/// with Num Lock off from End. Zero for none. The capture runs a hook of
-/// its own (`NumpadWatch`), so it doesn't depend on the listener's.
-static NUMPAD_DOWN: AtomicU32 = AtomicU32::new(0);
-
-/// The numpad digit and decimal keys by scan code. With Num Lock off they
-/// send the navigation keys' codes (Numpad 1 is End), but keep these scan
-/// codes without the extended flag, which the navigation cluster's keys
-/// carry.
-const NUMPAD_SCAN_CODES: [(u32, u32); 11] = [
-    (0x52, 0x60),
-    (0x4F, 0x61),
-    (0x50, 0x62),
-    (0x51, 0x63),
-    (0x4B, 0x64),
-    (0x4C, 0x65),
-    (0x4D, 0x66),
-    (0x47, 0x67),
-    (0x48, 0x68),
-    (0x49, 0x69),
-    (0x53, 0x6E),
-];
-
-/// Notes a numpad key going down or up for the chord capture
-/// (`NUMPAD_DOWN`), and returns its `num` code; `None` for any other key.
-/// Only a hook tells a numpad key from the key it stands for.
-fn track_numpad(event: &KBDLLHOOKSTRUCT, is_down: bool) -> Option<u32> {
-    let vk = numpad_key(event)?;
-    if is_down {
-        NUMPAD_DOWN.store(vk, Ordering::Relaxed);
-    } else {
-        let _ = NUMPAD_DOWN.compare_exchange(vk, 0, Ordering::Relaxed, Ordering::Relaxed);
-    }
-    Some(vk)
-}
-
-/// A numpad key's `num` code, whatever Num Lock says: the digits and the
-/// decimal by scan code, Numpad Enter by Enter's extended flag, and the
-/// operators by their own virtual keys.
-fn numpad_key(event: &KBDLLHOOKSTRUCT) -> Option<u32> {
-    let extended = event.flags & LLKHF_EXTENDED != 0;
-    if event.vkCode == u32::from(VK_RETURN) {
-        return extended.then_some(NUMPAD_ENTER);
-    }
-    if matches!(event.vkCode, 0x6A | 0x6B | 0x6D | 0x6F) {
-        return Some(event.vkCode);
-    }
-    if extended {
-        return None;
-    }
-    NUMPAD_SCAN_CODES
-        .into_iter()
-        .find(|&(scan, _)| scan == event.scanCode)
-        .map(|(_, vk)| vk)
-}
-
-/// Non-modifier keys the capture scans, paired with the names
-/// [`virtual_key`] accepts (letters, digits, function keys, and the
-/// layout's punctuation are scanned separately). Numpad keys are named
-/// `num 1`, `num *`, ...: their own keys, not the top row's.
-const CAPTURE_NAMED_KEYS: [(u16, &str); 45] = [
-    (VK_SPACE, "space"),
-    (VK_RETURN, "enter"),
-    (VK_TAB, "tab"),
-    (0x08, "backspace"),
-    (0x2e, "delete"),
-    (0x2d, "insert"),
-    (0x24, "home"),
-    (0x23, "end"),
-    (0x21, "pageup"),
-    (0x22, "pagedown"),
-    (0x25, "left"),
-    (0x26, "up"),
-    (0x27, "right"),
-    (0x28, "down"),
-    (0x13, "pause"),
-    (0x91, "scroll lock"),
-    (0x5D, "menu"),
-    // The punctuation keys, by their layout-independent virtual keys; the
-    // keycap shows what each types on the active layout (`keycap_label`).
-    (0xBA, "oem 1"),
-    (0xBF, "oem 2"),
-    (0xC0, "oem 3"),
-    (0xDB, "oem 4"),
-    (0xDC, "oem 5"),
-    (0xDD, "oem 6"),
-    (0xDE, "oem 7"),
-    (0xDF, "oem 8"),
-    (0xBB, "oem plus"),
-    (0xBC, "oem comma"),
-    (0xBD, "oem minus"),
-    (0xBE, "oem period"),
-    (0xE2, "oem 102"),
-    (0x60, "num 0"),
-    (0x61, "num 1"),
-    (0x62, "num 2"),
-    (0x63, "num 3"),
-    (0x64, "num 4"),
-    (0x65, "num 5"),
-    (0x66, "num 6"),
-    (0x67, "num 7"),
-    (0x68, "num 8"),
-    (0x69, "num 9"),
-    (0x6A, "num *"),
-    (0x6B, "num +"),
-    (0x6D, "num -"),
-    (0x6E, "num ."),
-    (0x6F, "num /"),
-];
-
-/// The keycap for a saved key label: a punctuation key shows the character
-/// it types on the active layout now (`;`, `ù`), else its name (`Oem 3`).
-pub(crate) fn keycap_label(label: &str) -> String {
-    let name = label.to_ascii_lowercase();
-    CAPTURE_NAMED_KEYS
-        .into_iter()
-        .find(|&(_, named)| named == name && named.starts_with("oem "))
-        .and_then(|(vk, _)| {
-            // SAFETY: a pure lookup in this thread's keyboard layout.
-            let mapped = unsafe { MapVirtualKeyW(u32::from(vk), MAPVK_VK_TO_CHAR) };
-            char::from_u32(mapped & 0xFFFF)
-                .filter(|character| !character.is_control() && !character.is_whitespace())
-        })
-        .map_or_else(
-            || label.to_string(),
-            |character| character.to_uppercase().collect(),
-        )
-}
-
-/// The punctuation key that types `character` on the active layout, for a
-/// shortcut written with the character (`ctrl+;`).
-fn punctuation_key(character: char) -> Option<u32> {
-    let mut units = [0u16; 2];
-    let [unit] = character.encode_utf16(&mut units) else {
-        return None;
-    };
-    // SAFETY: a pure lookup in this thread's keyboard layout.
-    let scanned = unsafe { VkKeyScanW(*unit) };
-    let vk = scanned as u16 & 0xFF;
-    (scanned != -1
-        && CAPTURE_NAMED_KEYS
-            .iter()
-            .any(|&(named, name)| named == vk && name.starts_with("oem ")))
-    .then_some(u32::from(vk))
-}
-
-const MOUSE_KEYS: [(u16, &str); 5] = [
-    (0x01, "mouse1"),
-    (0x02, "mouse2"),
-    (0x04, "mouse3"),
-    (0x05, "mouse4"),
-    (0x06, "mouse5"),
-];
-
-pub(crate) fn virtual_key(key: &str) -> Result<u32> {
-    let normalized = key.trim().to_ascii_lowercase();
-    if let Some(number) = HotkeyKey::mouse_number(&normalized) {
-        return MOUSE_KEYS
-            .get(usize::from(number - 1))
-            .map(|&(vk, _)| u32::from(vk))
-            .ok_or_else(|| eyre!("Windows supports Mouse 1 through Mouse 5"));
-    }
-    if let Some((vk, _)) = CAPTURE_NAMED_KEYS
-        .into_iter()
-        .find(|&(_, name)| name == normalized)
-    {
-        return Ok(u32::from(vk));
-    }
-    let virtual_key = match normalized.as_str() {
-        "return" => u32::from(VK_RETURN),
-        "escape" => u32::from(VK_ESCAPE),
-        "num enter" => NUMPAD_ENTER,
-        name if HotkeyKey::special_name(name) && name != "menu" && name != "pause" => 0x91,
-        "page_up" => 0x21,
-        "page_down" => 0x22,
-        _ => {
-            if let Some(number) = normalized
-                .strip_prefix('f')
-                .and_then(|number| number.parse::<u32>().ok())
-                .filter(|number| (1..=24).contains(number))
-            {
-                0x70 + number - 1
-            } else if let Some(character) = single_character(&normalized) {
-                if character.is_ascii_alphanumeric() {
-                    u32::from(character.to_ascii_uppercase() as u8)
-                } else if let Some(vk) = punctuation_key(character) {
-                    vk
-                } else {
-                    return Err(eyre!(
-                        "{key} isn't a key on the active Windows keyboard layout"
-                    ));
-                }
-            } else {
-                return Err(eyre!("unsupported Windows shortcut key: {key}"));
-            }
-        }
-    };
-    Ok(virtual_key)
-}
-
-fn single_character(name: &str) -> Option<char> {
-    let mut characters = name.chars();
-    characters.next().filter(|_| characters.next().is_none())
-}
+use self::keys::*;
+pub(crate) use self::keys::{keycap_label, virtual_key};
+use self::report::*;
 
 #[cfg(test)]
 mod tests {
@@ -1827,6 +1738,7 @@ mod tests {
         let event = HotkeyEvent {
             action: HotkeyAction::Finish,
             flavour: DictationFlavour::Normal,
+            after_tap: false,
             timestamp_ms: 1_000,
         };
         let captured = CaptureInstant::from_nanos(10_000_000_000);
@@ -1841,6 +1753,7 @@ mod tests {
         let event = HotkeyEvent {
             action: HotkeyAction::Start,
             flavour: DictationFlavour::Normal,
+            after_tap: false,
             timestamp_ms: u32::MAX - 4,
         };
         let captured = CaptureInstant::from_nanos(1_000_000_000);
@@ -1856,6 +1769,7 @@ mod tests {
             let event = HotkeyEvent {
                 action: HotkeyAction::Start,
                 flavour: DictationFlavour::Normal,
+                after_tap: false,
                 timestamp_ms,
             };
             assert_eq!(
@@ -2042,5 +1956,304 @@ mod tests {
         assert_eq!(state.press(true, true, 1_000), None);
         assert_eq!(state.release(true, 1_040), None);
         assert!(!state.locked);
+    }
+
+    /// The assistant's hook with the default dictation shortcut (Ctrl+Space),
+    /// `action`, and `stop_all`, and what it reports.
+    fn assistant_hook(
+        action: WindowsHotkey,
+        stop_all: Option<WindowsHotkey>,
+    ) -> (CallbackState, Receiver<HotkeyEvent>) {
+        let (events, received) = mpsc::sync_channel(64);
+        let (errors, _) = mpsc::channel();
+        let state = CallbackState::new(
+            HookConfig {
+                binding: WindowsHotkey::default(),
+                paste_last: None,
+                raw: None,
+                terminal_paste: None,
+                second: None,
+                annotate: None,
+                cancel: None,
+                action: Some(action),
+                stop_all,
+                double_tap_enabled: true,
+                double_tap_only: false,
+                // The Action shortcut is held whatever the dictation's mode.
+                shortcut_mode: ShortcutMode::Toggle,
+                share_trigger: false,
+            },
+            events,
+            errors,
+        )
+        .unwrap();
+        (state, received)
+    }
+
+    /// Right Ctrl alone, Windows' default Action shortcut.
+    fn right_control() -> WindowsHotkey {
+        WindowsHotkey {
+            control: Some(ModifierSide::Right),
+            windows: None,
+            alt: None,
+            shift: None,
+            key: None,
+        }
+    }
+
+    /// A key going down or up as the hook sees it.
+    fn key(state: &mut CallbackState, vk: u16, is_down: bool, time: u32) -> Disposition {
+        let modifier_event = state.modifiers.update(u32::from(vk), is_down);
+        state.side_down.update(u32::from(vk), is_down, time);
+        state.handle(u32::from(vk), is_down, time, modifier_event)
+    }
+
+    /// What the hook reported since the last look.
+    fn reported(events: &Receiver<HotkeyEvent>) -> Vec<(HotkeyAction, DictationFlavour, bool)> {
+        events
+            .try_iter()
+            .map(|event| (event.action, event.flavour, event.after_tap))
+            .collect()
+    }
+
+    const ASK: DictationFlavour = DictationFlavour::Assistant;
+
+    #[test]
+    fn an_action_hold_asks_here() {
+        let (mut state, events) = assistant_hook(right_control(), None);
+        assert_eq!(key(&mut state, VK_RCONTROL, true, 1_000), Disposition::Pass);
+        // Auto-repeat starts nothing more.
+        key(&mut state, VK_RCONTROL, true, 1_500);
+        assert_eq!(
+            key(&mut state, VK_RCONTROL, false, 2_000),
+            Disposition::Pass
+        );
+        assert_eq!(
+            reported(&events),
+            [
+                (HotkeyAction::Start, ASK, false),
+                (HotkeyAction::Finish, ASK, false)
+            ]
+        );
+        assert!(
+            !state.capture.active && !state.capture.locked,
+            "never locks"
+        );
+    }
+
+    #[test]
+    fn an_action_tap_then_hold_asks_in_the_background() {
+        let (mut state, events) = assistant_hook(right_control(), None);
+        key(&mut state, VK_RCONTROL, true, 1_000);
+        key(&mut state, VK_RCONTROL, false, 1_100);
+        key(&mut state, VK_RCONTROL, true, 1_250);
+        key(&mut state, VK_RCONTROL, false, 2_000);
+        assert_eq!(
+            reported(&events),
+            [
+                (HotkeyAction::Start, ASK, false),
+                // The tap is too short to ask anything.
+                (HotkeyAction::Finish, ASK, false),
+                (HotkeyAction::Start, ASK, true),
+                (HotkeyAction::Finish, ASK, false),
+            ]
+        );
+        // A hold followed by a quick tap never pairs.
+        key(&mut state, VK_RCONTROL, true, 2_100);
+        key(&mut state, VK_RCONTROL, false, 2_150);
+        assert_eq!(
+            reported(&events),
+            [
+                (HotkeyAction::Start, ASK, false),
+                (HotkeyAction::Finish, ASK, false)
+            ]
+        );
+    }
+
+    #[test]
+    fn an_action_double_tap_is_a_gesture() {
+        let (mut state, events) = assistant_hook(right_control(), None);
+        key(&mut state, VK_RCONTROL, true, 1_000);
+        key(&mut state, VK_RCONTROL, false, 1_100);
+        key(&mut state, VK_RCONTROL, true, 1_250);
+        key(&mut state, VK_RCONTROL, false, 1_350);
+        assert_eq!(
+            reported(&events),
+            [
+                (HotkeyAction::Start, ASK, false),
+                (HotkeyAction::Finish, ASK, false),
+                (HotkeyAction::Start, ASK, true),
+                (HotkeyAction::DoubleTap, ASK, false),
+            ]
+        );
+        // A third tap starts afresh, not another pair.
+        key(&mut state, VK_RCONTROL, true, 1_450);
+        assert_eq!(reported(&events), [(HotkeyAction::Start, ASK, false)]);
+        // Too slow a second press is a new question too.
+        key(&mut state, VK_RCONTROL, false, 1_500);
+        key(&mut state, VK_RCONTROL, true, 1_900);
+        assert_eq!(
+            reported(&events),
+            [
+                (HotkeyAction::Finish, ASK, false),
+                (HotkeyAction::Start, ASK, false)
+            ]
+        );
+    }
+
+    #[test]
+    fn right_control_with_a_key_is_the_apps_chord() {
+        const C: u16 = 0x43;
+        let (mut state, events) = assistant_hook(right_control(), None);
+        key(&mut state, VK_RCONTROL, true, 1_000);
+        assert_eq!(key(&mut state, C, true, 1_050), Disposition::Pass);
+        assert_eq!(key(&mut state, C, false, 1_100), Disposition::Pass);
+        assert_eq!(
+            reported(&events),
+            [
+                (HotkeyAction::Start, ASK, false),
+                (HotkeyAction::Cancel, ASK, false)
+            ]
+        );
+        // Still held, right Ctrl's repeats and release start nothing.
+        key(&mut state, VK_RCONTROL, true, 1_600);
+        key(&mut state, VK_RCONTROL, false, 1_700);
+        assert!(reported(&events).is_empty());
+        // Nor is the chord a tap toward a double tap.
+        key(&mut state, VK_RCONTROL, true, 1_800);
+        assert_eq!(reported(&events), [(HotkeyAction::Start, ASK, false)]);
+    }
+
+    #[test]
+    fn an_action_key_chord_is_held_and_swallowed() {
+        const A: u16 = 0x41;
+        let chord = WindowsHotkey {
+            control: Some(ModifierSide::Either),
+            shift: Some(ModifierSide::Either),
+            key: Some("a".into()),
+            ..right_control()
+        };
+        let (mut state, events) = assistant_hook(chord, None);
+        key(&mut state, VK_LCONTROL, true, 1_000);
+        key(&mut state, VK_LSHIFT, true, 1_010);
+        assert_eq!(key(&mut state, A, true, 1_020), Disposition::Suppress);
+        assert_eq!(key(&mut state, A, true, 1_400), Disposition::Suppress);
+        assert_eq!(key(&mut state, A, false, 2_000), Disposition::Suppress);
+        assert_eq!(
+            reported(&events),
+            [
+                (HotkeyAction::Start, ASK, false),
+                (HotkeyAction::Finish, ASK, false)
+            ]
+        );
+    }
+
+    #[test]
+    fn the_action_shortcut_and_dictation_never_share_a_capture() {
+        let (mut state, events) = assistant_hook(right_control(), None);
+        // Ctrl+Space dictates; right Ctrl joining it asks nothing.
+        key(&mut state, VK_LCONTROL, true, 1_000);
+        key(&mut state, VK_SPACE, true, 1_010);
+        key(&mut state, VK_RCONTROL, true, 1_100);
+        key(&mut state, VK_RCONTROL, false, 1_200);
+        let reported = reported(&events);
+        assert_eq!(
+            reported[0],
+            (HotkeyAction::Start, DictationFlavour::Normal, false)
+        );
+        assert!(reported.iter().all(|(_, flavour, _)| *flavour != ASK));
+        // Held, the Action shortcut owns its capture.
+        let mut capture = CaptureState {
+            toggle: true,
+            ..CaptureState::default()
+        };
+        capture.claim(ASK);
+        assert_eq!(capture.press_action(100), Some(HotkeyAction::Start));
+        assert!(capture.owned_by_other(DictationFlavour::Normal));
+        assert!(!capture.wants_cancel(), "Toggle's cancel key isn't its");
+        assert_eq!(capture.release_action(900), Some(HotkeyAction::Finish));
+        assert!(!capture.locked, "Toggle mode never locks a question");
+    }
+
+    #[test]
+    fn stop_all_presses_once_per_press() {
+        let stop_all = WindowsHotkey {
+            control: Some(ModifierSide::Either),
+            alt: Some(ModifierSide::Either),
+            key: Some("escape".into()),
+            ..right_control()
+        };
+        let (mut state, events) = assistant_hook(right_control(), Some(stop_all));
+        for press in [1_000, 3_000] {
+            key(&mut state, VK_LCONTROL, true, press);
+            key(&mut state, VK_LMENU, true, press + 10);
+            assert_eq!(
+                key(&mut state, VK_ESCAPE, true, press + 20),
+                Disposition::Suppress
+            );
+            assert_eq!(
+                key(&mut state, VK_ESCAPE, true, press + 520),
+                Disposition::Suppress,
+                "its repeats are swallowed"
+            );
+            assert_eq!(
+                key(&mut state, VK_ESCAPE, false, press + 600),
+                Disposition::Suppress
+            );
+            // Alt's release is masked, so the menu bar stays closed.
+            assert_eq!(
+                key(&mut state, VK_LMENU, false, press + 610),
+                Disposition::Mask
+            );
+            key(&mut state, VK_LCONTROL, false, press + 620);
+            assert_eq!(
+                reported(&events),
+                [(HotkeyAction::StopAll, DictationFlavour::Normal, false)]
+            );
+        }
+        // Escape alone stays the app's.
+        assert_eq!(key(&mut state, VK_ESCAPE, true, 5_000), Disposition::Pass);
+        assert!(reported(&events).is_empty());
+    }
+
+    #[test]
+    fn escape_is_the_assistants_only_while_claimed_and_nothing_records() {
+        let (mut state, events) = assistant_hook(right_control(), None);
+        assert_eq!(key(&mut state, VK_ESCAPE, true, 1_000), Disposition::Pass);
+        assert_eq!(key(&mut state, VK_ESCAPE, false, 1_050), Disposition::Pass);
+        set_assistant_claims_escape(true);
+        assert_eq!(
+            key(&mut state, VK_ESCAPE, true, 2_000),
+            Disposition::Suppress
+        );
+        assert_eq!(
+            key(&mut state, VK_ESCAPE, true, 2_500),
+            Disposition::Suppress
+        );
+        // Unclaimed meanwhile, its release is still Hex's.
+        set_assistant_claims_escape(false);
+        assert_eq!(
+            key(&mut state, VK_ESCAPE, false, 2_600),
+            Disposition::Suppress
+        );
+        assert_eq!(
+            reported(&events),
+            [(
+                HotkeyAction::AssistantEscape,
+                DictationFlavour::Normal,
+                false
+            )]
+        );
+        // A dictation recording keeps Escape with the app.
+        set_assistant_claims_escape(true);
+        key(&mut state, VK_LCONTROL, true, 3_000);
+        key(&mut state, VK_SPACE, true, 3_010);
+        assert_eq!(key(&mut state, VK_ESCAPE, true, 3_100), Disposition::Pass);
+        set_assistant_claims_escape(false);
+        assert!(
+            reported(&events)
+                .iter()
+                .all(|(action, _, _)| *action != HotkeyAction::AssistantEscape)
+        );
     }
 }

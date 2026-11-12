@@ -170,6 +170,11 @@ pub fn mcp_server(spec: &TaskSpec) -> Option<McpServer> {
     Some(server_for(spec, &hex, &desktop, store.root()))
 }
 
+/// Whether process `pid` is running (for the store's conversations).
+pub fn process_alive(pid: u32) -> bool {
+    state::alive(pid)
+}
+
 fn server_for(spec: &TaskSpec, hex: &Path, desktop: &McpServer, state_dir: &Path) -> McpServer {
     let mut wire = WireSpec::new(spec);
     wire.agent_desktop = Some(desktop.command.clone());

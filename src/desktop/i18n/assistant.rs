@@ -39,6 +39,7 @@ assistant_strings![
     ("The assistant is off", ["Asystent jest wyłączony", "助手已关闭", "アシスタントはオフです", "Der Assistent ist aus", "El asistente está desactivado", "Асистента вимкнено", "O assistente está desativado", "L'assistant est désactivé", "Ассистент выключен"]),
     ("Turn on", ["Włącz", "打开", "オンにする", "Einschalten", "Activar", "Увімкнути", "Ativar", "Activer", "Включить"]),
     ("Chats", ["Czaty", "聊天", "チャット", "Chats", "Chats", "Чати", "Chats", "Discussions", "Чаты"]),
+    ("Chats…", ["Czaty…", "聊天…", "チャット…", "Chats…", "Chats…", "Чати…", "Chats…", "Discussions…", "Чаты…"]),
     ("Conversations", ["Rozmowy", "对话", "会話", "Unterhaltungen", "Conversaciones", "Розмови", "Conversas", "Conversations", "Разговоры"]),
     ("Working in {}", ["Pracuje w {}", "正在 {} 中工作", "{} で作業中", "Arbeitet in {}", "Trabajando en {}", "Працює в {}", "Trabalhando no {}", "Travaille dans {}", "Работает в {}"]),
     ("The assistant didn't take the message. Try again in a moment.", ["Asystent nie przyjął wiadomości. Spróbuj ponownie za chwilę.", "助手没有接收这条消息。请稍后再试。", "アシスタントがメッセージを受け取れませんでした。少ししてからもう一度お試しください。", "Der Assistent hat die Nachricht nicht angenommen. Versuche es gleich noch einmal.", "El asistente no recibió el mensaje. Inténtalo de nuevo en un momento.", "Асистент не прийняв повідомлення. Спробуйте ще раз за мить.", "O assistente não recebeu a mensagem. Tente de novo em instantes.", "L'assistant n'a pas pris le message. Réessayez dans un instant.", "Ассистент не принял сообщение. Попробуйте ещё раз через минуту."]),

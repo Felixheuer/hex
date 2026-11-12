@@ -62,6 +62,11 @@ fn arguments(run: &Run) -> Vec<String> {
         }
         None => config.push(r#"sandbox_mode="read-only""#.into()),
     }
+    // Windows: the sandbox that needs no administrator setup (the elevated
+    // one asks for it once, which `codex exec` can't).
+    if cfg!(windows) {
+        config.push(r#"windows.sandbox="unelevated""#.into());
+    }
     for value in config {
         args.extend(["-c".into(), value]);
     }
