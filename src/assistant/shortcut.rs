@@ -10,6 +10,7 @@
 //! [`Request`] on the question's own thread, so nothing is pasted, copied,
 //! or kept for History.
 
+mod barge_in;
 mod latin;
 mod spoken_stop;
 use std::sync::Mutex;
@@ -246,10 +247,26 @@ impl Question {
         let spawned = std::thread::Builder::new()
             .name("hex-assistant-question".into())
             .spawn(move || {
+                // A barge-in paused the reading: what was heard decides
+                // whether it resumes or the person takes over.
+                let barged = crate::assistant::speech::paused();
                 let Ok(PrintedTranscript::Text(text)) = transcript.recv_timeout(TRANSCRIPT_WAIT)
                 else {
+                    if barged {
+                        barge_in::settle(barge_in::AfterBargeIn::Resume("empty"));
+                    }
                     return;
                 };
+                if barged {
+                    let after = barge_in::after_barge_in(
+                        Some(&text),
+                        crate::assistant::speech::own_echo::heard_back,
+                    );
+                    barge_in::settle(after);
+                    if matches!(after, barge_in::AfterBargeIn::Resume(_)) {
+                        return;
+                    }
+                }
                 // "Stopp" ends the speech (and the Here task), asking
                 // nothing; "Stopp alle Aufgaben" stops every task.
                 // Hex's own reading, heard back through the speakers.

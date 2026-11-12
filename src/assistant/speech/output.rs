@@ -57,6 +57,26 @@ impl Shared {
         self.cut.fetch_add(1, Ordering::AcqRel);
     }
 
+    /// Holds what plays, at once (a barge-in): the audio thread drops the
+    /// chunk it holds, and the sentence starts over on resume. Whether
+    /// anything was being read.
+    pub fn pause(&self) -> bool {
+        let paused = self.playback().pause(Instant::now());
+        if paused {
+            self.cut.fetch_add(1, Ordering::AcqRel);
+        }
+        paused
+    }
+
+    /// Reads on after [`pause`](Self::pause).
+    pub fn resume(&self) -> bool {
+        let resumed = self.playback().resume();
+        if resumed {
+            self.wake.notify_all();
+        }
+        resumed
+    }
+
     /// The linear RMS (0..1) of the last 30 ms played.
     pub fn level(&self) -> f32 {
         f32::from_bits(self.level.load(Ordering::Acquire))

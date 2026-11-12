@@ -7,8 +7,11 @@
 //!   answers aren't read, a capture opens without a tone and the HUD gets
 //!   `DictationIndicatorEvent::Listening` for `conversation_seconds`.
 //! - With `barge_in` on, the capture opens as soon as Hex starts reading,
-//!   unshown; a voice over it stops the reading at once
-//!   (`speech::stop()`).
+//!   unshown; a voice over it pauses the reading at once
+//!   (`speech::pause()`). Its transcript decides: the person's words drop
+//!   the answer and ask; nothing, or Hex's own voice heard back, resumes
+//!   the reading from the sentence it cut, watched again
+//!   (`assistant::shortcut::barge_in`).
 //! - Speech makes the capture a question (`Started`, `Asking`, the desktop
 //!   read); 900 ms without speech finishes it as a follow-up in the same
 //!   conversation, through the Action shortcut's own finish.
@@ -53,6 +56,13 @@ pub(super) struct Talk {
     other: OtherAudio,
     /// Tells the person's voice from the echo of Hex's on the speakers.
     echo: Option<super::echo::EchoGate>,
+    /// A barge-in paused the reading and its capture is being heard.
+    barging: bool,
+    /// The conversation whose paused reading waits for its barge-in's
+    /// transcript; watched again if it resumes.
+    barged: Option<ConversationId>,
+    /// `speech::resumed_count` when the barge-in finished.
+    resumed_seen: u64,
 }
 
 impl Default for Talk {
@@ -66,6 +76,9 @@ impl Default for Talk {
             pending: Vec::new(),
             other: OtherAudio::default(),
             echo: None,
+            barging: false,
+            barged: None,
+            resumed_seen: 0,
         }
     }
 }
@@ -135,6 +148,22 @@ impl Talk {
             for conversation in answered() {
                 self.machine.answered(conversation, now);
             }
+            // A barge-in that was only Hex's own voice (or nothing): the
+            // reading resumed, so its rest is watched again.
+            match rearm(
+                self.barged.is_some(),
+                self.resumed_seen,
+                crate::assistant::speech::resumed_count(),
+                crate::assistant::speech::paused(),
+            ) {
+                Rearm::Watch => {
+                    if let Some(conversation) = self.barged.take() {
+                        self.machine.answered(conversation, now);
+                    }
+                }
+                Rearm::Forget => self.barged = None,
+                Rearm::Wait => {}
+            }
         }
         let blocked = blocked || !ready || crate::meeting::watcher::recording();
         let options = Options {
@@ -183,7 +212,13 @@ impl Talk {
             }
             Step::Heard | Step::BargeIn => {
                 if step == Step::BargeIn {
-                    crate::assistant::speech::stop();
+                    // Paused, not stopped: on speakers the voice may have
+                    // been Hex's own; its transcript decides
+                    // (`assistant::shortcut::barge_in`).
+                    if crate::assistant::speech::pause() {
+                        tracing::info!("barge-in: paused");
+                    }
+                    self.barging = true;
                 }
                 if self.capture.is_none() {
                     return Ok(());
@@ -201,6 +236,10 @@ impl Talk {
             Step::Finish(conversation) => {
                 if self.capture.is_none() {
                     return Ok(());
+                }
+                if std::mem::take(&mut self.barging) {
+                    self.barged = Some(conversation.clone());
+                    self.resumed_seen = crate::assistant::speech::resumed_count();
                 }
                 let question = self.question.take().unwrap_or_else(|| {
                     Question::press(false, || {
@@ -300,6 +339,29 @@ fn echo_judge(
             Verdict::Unsure => None,
             Verdict::OverEcho(over) => Some(over),
         }
+    }
+}
+
+/// What to do about a barge-in's paused reading.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Rearm {
+    /// It resumed: watch the rest of the answer again.
+    Watch,
+    /// It ended (taken over, stopped, or dropped): nothing to watch.
+    Forget,
+    /// Its transcript isn't in yet.
+    Wait,
+}
+
+fn rearm(barged: bool, seen: u64, resumed: u64, paused: bool) -> Rearm {
+    if !barged {
+        Rearm::Wait
+    } else if resumed != seen {
+        Rearm::Watch
+    } else if paused {
+        Rearm::Wait
+    } else {
+        Rearm::Forget
     }
 }
 
@@ -455,5 +517,14 @@ mod tests {
         )));
         assert!(!ends_conversation(key(false)));
         assert!(!ends_conversation(InputEvent::MouseDown));
+    }
+
+    #[test]
+    fn a_resumed_reading_is_watched_again_and_a_taken_over_one_forgotten() {
+        use super::{Rearm, rearm};
+        assert_eq!(rearm(false, 0, 1, false), Rearm::Wait, "no barge-in");
+        assert_eq!(rearm(true, 3, 3, true), Rearm::Wait, "transcript not in");
+        assert_eq!(rearm(true, 3, 4, false), Rearm::Watch, "resumed");
+        assert_eq!(rearm(true, 3, 3, false), Rearm::Forget, "taken over");
     }
 }
