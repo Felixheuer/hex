@@ -11,9 +11,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use color_eyre::eyre::{Result, bail, eyre};
 use sha2::{Digest, Sha256};
 
-/// Where the files come from: Supertone's archived release, at the commit
-/// these pins were taken from. A mirror only needs the same paths.
-pub const SOURCE: &str = "https://huggingface.co/supertone-oss-archive/supertonic-3/resolve/aafc6e32416a594460b32413efc49d7fe4ce6d46";
+/// Where the files come from: Pilot's own mirror of Supertone's archived
+/// release (`supertone-oss-archive/supertonic-3` on Hugging Face), at the
+/// commit these pins were taken from, under the same paths. The upstream
+/// project is archived, so the voice doesn't depend on it staying online.
+pub const SOURCE: &str = "https://ai.sms-pilot.de/release/hex/models/supertonic-3/aafc6e32416a594460b32413efc49d7fe4ce6d46";
 
 /// The folder under the models folder that holds them.
 pub const FOLDER: &str = "supertonic-3";
