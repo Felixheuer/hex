@@ -107,6 +107,11 @@ pub enum TranscriptionTarget {
     Print,
     /// A printing stop of a raw dictation: the transcript as heard.
     RawPrint,
+    /// Labs › Assistant's Action shortcut: processed as a paste, then handed
+    /// to the question waiting for it. Never pasted, copied, kept for Paste
+    /// last dictation, or saved to History: the question lives in its
+    /// conversation instead.
+    Assistant,
 }
 
 struct InferenceJob {
@@ -415,6 +420,17 @@ impl DictationWorker {
         self.submit(clip, target, context, Some(print))
     }
 
+    /// A Labs › Assistant question: the transcript, processed as a paste,
+    /// goes to `reply` and nowhere else.
+    pub fn transcribe_for_assistant(
+        &self,
+        clip: DictationClip,
+        reply: crate::control::PrintReply,
+        context: ContextSnapshot,
+    ) -> Result<DictationJobId, &'static str> {
+        self.submit(clip, TranscriptionTarget::Assistant, context, Some(reply))
+    }
+
     fn submit(
         &self,
         mut clip: DictationClip,
@@ -448,7 +464,7 @@ impl DictationWorker {
         let samples = clip.into_transcription_samples();
         crate::dictation::diagnostics::persist(&samples);
         let recording = match target {
-            TranscriptionTarget::Service => None,
+            TranscriptionTarget::Service | TranscriptionTarget::Assistant => None,
             _ => crate::history::Recording::keep(&samples),
         };
         let prepare_ms = submitted_at.elapsed().as_millis();
@@ -868,6 +884,7 @@ fn run_inference_worker(
                     TranscriptionTarget::Paste
                         | TranscriptionTarget::CopyOnlyPaste
                         | TranscriptionTarget::Print
+                        | TranscriptionTarget::Assistant
                 ) && !text.trim().is_empty() =>
             {
                 if processor_jobs
@@ -1092,7 +1109,8 @@ fn finish_output(
                         }
                         TranscriptionTarget::Service
                         | TranscriptionTarget::Print
-                        | TranscriptionTarget::RawPrint => commit()
+                        | TranscriptionTarget::RawPrint
+                        | TranscriptionTarget::Assistant => commit()
                             .then_some(())
                             .ok_or_else(|| eyre!("dictation was cancelled")),
                     }
@@ -1123,7 +1141,9 @@ fn finish_output(
             });
             if matches!(
                 target,
-                TranscriptionTarget::Print | TranscriptionTarget::RawPrint
+                TranscriptionTarget::Print
+                    | TranscriptionTarget::RawPrint
+                    | TranscriptionTarget::Assistant
             ) && !control.is_cancelled()
             {
                 control.answer_print(match &result {
@@ -1178,7 +1198,8 @@ fn record_history(
         TranscriptionTarget::Paste | TranscriptionTarget::CopyOnlyPaste => HistoryKind::Dictation,
         TranscriptionTarget::RawPaste | TranscriptionTarget::RawCopyOnlyPaste => HistoryKind::Raw,
         TranscriptionTarget::Print | TranscriptionTarget::RawPrint => HistoryKind::Printed,
-        TranscriptionTarget::Service => return,
+        // An assistant question is kept in its conversation, not History.
+        TranscriptionTarget::Service | TranscriptionTarget::Assistant => return,
     };
     let draft = HistoryDraft {
         kind,
@@ -1640,6 +1661,64 @@ mod tests {
             assert_eq!(entries[0].application.as_deref(), Some("Call"));
             let _ = std::fs::remove_dir_all(&directory);
         }
+    }
+
+    /// Labs › Assistant: a question's transcript goes only to the question
+    /// waiting for it: never pasted or copied, never Paste last dictation's,
+    /// and never in History.
+    #[test]
+    fn an_assistant_question_is_only_answered_never_pasted_or_kept() {
+        let directory =
+            std::env::temp_dir().join(format!("hex-parakeet-assistant-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let history = History::new(crate::history::HistoryStore::open(
+            directory.join("history.json"),
+            crate::history::HistoryRetention::Week,
+            crate::history::now_ms(),
+        ));
+        let (reply, question) = crate::control::PrintReply::channel();
+        let text = "what is on my calendar today";
+        let mut last_transcript = None;
+        let event = finish_output(
+            OutputJob::Completed {
+                job_id: DictationJobId(1),
+                control: Arc::new(JobControl {
+                    print: Mutex::new(Some(reply)),
+                    ..JobControl::default()
+                }),
+                target: TranscriptionTarget::Assistant,
+                result: Box::new(Ok(CompletedTranscript {
+                    text: text.into(),
+                    raw: text.into(),
+                    application: Some("Mail".into()),
+                    return_to: None,
+                    timings: JobTimings {
+                        total_started: Instant::now(),
+                        queue_ms: 0,
+                        audio_ms: 2_000,
+                        prepare_ms: 0,
+                        inference_ms: 0,
+                    },
+                    processing: None,
+                    recording: None,
+                })),
+            },
+            &mut |_, _, _| panic!("an assistant question is never pasted or copied"),
+            &mut last_transcript,
+            Some(&history),
+        );
+        assert!(matches!(
+            event,
+            WorkerEvent::Completed { result: Ok(_), .. }
+        ));
+        assert_eq!(
+            question.try_recv(),
+            Ok(crate::control::PrintedTranscript::Text(text.into()))
+        );
+        assert_eq!(last_transcript, None);
+        assert!(history.recent(1).is_empty());
+        let _ = std::fs::remove_dir_all(&directory);
     }
 
     #[test]

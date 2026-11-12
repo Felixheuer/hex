@@ -22,6 +22,11 @@ pub(in crate::rune_ui) fn shortcut_rows(
         .child(keys_button(ui, p, target));
     // The optional shortcuts can be turned off.
     let second = target == ShortcutTarget::SecondDictation;
+    // Labs › Assistant's Action shortcut (macOS).
+    #[cfg(target_os = "macos")]
+    let action = target == ShortcutTarget::Action;
+    #[cfg(not(target_os = "macos"))]
+    let action = false;
     #[cfg(target_os = "linux")]
     let typed_text = target == ShortcutTarget::TypedText;
     #[cfg(not(target_os = "linux"))]
@@ -31,6 +36,7 @@ pub(in crate::rune_ui) fn shortcut_rows(
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     let terminal = false;
     let optional = second
+        || action
         || typed_text
         || terminal
         || matches!(
@@ -49,6 +55,7 @@ pub(in crate::rune_ui) fn shortcut_rows(
                     #[cfg(target_os = "linux")]
                     ShortcutTarget::TypedText => settings.typed_text_hotkey = None,
                     _ if second => settings.second_dictation_hotkey = None,
+                    _ if action => settings.assistant.action_hotkey = None,
                     _ if terminal => settings.terminal_paste_hotkey = None,
                     _ => settings.paste_last_hotkey = None,
                 });
@@ -67,6 +74,9 @@ pub(in crate::rune_ui) fn shortcut_rows(
             Some(crate::app_settings::HotkeyBinding::paste_last_default())
         }
         ShortcutTarget::Cancel => Some(crate::app_settings::HotkeyBinding::cancel_default()),
+        // The Action shortcut's default, right Command, offered once it is
+        // something else or off.
+        _ if action => Some(crate::app_settings::HotkeyBinding::action_default()),
         _ => None,
     };
     if let Some(default) = default {

@@ -587,12 +587,14 @@ unsafe extern "C" fn physical_event_callback(
 /// Escape ends no dictation, and Hex's own shortcuts act through their session events.
 fn is_chord_evidence(code: u16, flags: u64, hotkeys: RuntimeHotkeys) -> bool {
     // The Globe key's own event is the shortcut itself for the dictation
-    // shortcuts that can hold Fn: the main, second, raw, and extra ones. Any
-    // other shortcut's Fn chord is still evidence of one.
+    // shortcuts that can hold Fn: the main, second, raw, and extra ones, and
+    // Labs › Assistant's Action shortcut. Any other shortcut's Fn chord is
+    // still evidence of one.
     let own_globe_key = std::iter::once(hotkeys.dictation)
         .chain(hotkeys.second_dictation)
         .chain(hotkeys.raw_dictation)
         .chain(hotkeys.extra_dictation.into_iter().flatten())
+        .chain(hotkeys.action)
         .any(|binding| is_own_globe_key(code, binding));
     code != ESCAPE_KEY_CODE
         && !own_globe_key

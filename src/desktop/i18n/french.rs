@@ -262,6 +262,8 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("Add a space before a dictation pasted right after a word", "Ajoute une espace avant une dictée collée juste après un mot"),
     ("Sided modifier chords", "Combinaisons de modificateurs avec côté"),
     ("Record which side each modifier of a shortcut is on, such as Right ⌘ + Right ⌥", "Enregistre de quel côté se trouve chaque modificateur d'un raccourci, par exemple ⌘ droite + ⌥ droite"),
+    ("Action shortcut", "Raccourci d'action"),
+    ("Hold to ask the assistant; double-tap for Agent mode", "Maintenez pour interroger l'assistant ; touchez deux fois pour le mode agent"),
     ("Dictates like the shortcut above", "Dicte comme le raccourci ci-dessus"),
     ("Discards the recording", "Abandonne l'enregistrement"),
     ("Bind hex dictation cancel to a key in your desktop's keyboard shortcuts", "Associez hex dictation cancel à une touche dans les raccourcis clavier de votre bureau"),

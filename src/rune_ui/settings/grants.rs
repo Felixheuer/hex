@@ -67,7 +67,8 @@ pub(in crate::rune_ui) fn portal_grant(
         #[cfg(target_os = "macos")]
         ShortcutTarget::Screenshot
         | ShortcutTarget::ScreenshotRecord
-        | ShortcutTarget::ExtraDictation(_) => return None,
+        | ShortcutTarget::ExtraDictation(_)
+        | ShortcutTarget::Action => return None,
     };
     granted.iter().find(|shortcut| shortcut.name == name)
 }

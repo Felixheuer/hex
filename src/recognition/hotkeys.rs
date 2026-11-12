@@ -1,7 +1,8 @@
 //! The dictation shortcut machines: dictation, Labs › Second dictation
 //! shortcut while it is on and bound, Dictate without processing while it is
-//! bound, Labs › Caps Lock dictation's hands-free toggle, and Labs › More
-//! dictation shortcuts' rows while that Lab is on.
+//! bound, Labs › Caps Lock dictation's hands-free toggle, Labs › More
+//! dictation shortcuts' rows while that Lab is on, and Labs › Assistant's
+//! Action shortcut while that Lab is on and it is bound.
 
 use crate::app_settings::MAX_EXTRA_DICTATION_SHORTCUTS;
 use crate::audio::CaptureInstant;
@@ -21,17 +22,22 @@ pub(super) enum Shortcut {
     CapsLock,
     /// Labs › More dictation shortcuts, by row.
     Extra(usize),
+    /// Labs › Assistant's Action shortcut: records as dictation does, but
+    /// its transcript asks the assistant, and a double tap turns Agent mode
+    /// on or off (`recognition::ask`).
+    Action,
 }
 
 impl Shortcut {
     /// Every machine in matching order: the fixed shortcuts first, then the
     /// extra dictation rows.
     fn all() -> impl Iterator<Item = Self> {
-        const FIXED: [Shortcut; 4] = [
+        const FIXED: [Shortcut; 5] = [
             Shortcut::Dictation,
             Shortcut::Second,
             Shortcut::Raw,
             Shortcut::CapsLock,
+            Shortcut::Action,
         ];
         FIXED
             .into_iter()
@@ -54,6 +60,9 @@ pub(super) struct Hotkeys {
     /// Labs › Caps Lock dictation's hands-free toggle. Its binding is empty:
     /// presses arrive from the caps-lock worker, not the shortcut matcher.
     pub(super) caps_lock: DictationHotkey,
+    /// Labs › Assistant's Action shortcut: Hold, with a double tap as a
+    /// gesture rather than a lock, whatever the dictation shortcut's mode.
+    pub(super) action: Option<DictationHotkey>,
     /// The recording (or the last) skips processing: the raw shortcut or
     /// `hex dictation start --raw` started it.
     pub(super) raw_capture: bool,
@@ -75,6 +84,7 @@ impl Hotkeys {
             raw: None,
             extra: std::array::from_fn(|_| None),
             caps_lock,
+            action: None,
             raw_capture: false,
             print_capture: None,
             suspended: false,
@@ -96,6 +106,7 @@ impl Hotkeys {
             .chain(self.raw.as_mut())
             .chain(Some(&mut self.caps_lock))
             .chain(self.extra.iter_mut().flatten())
+            .chain(self.action.as_mut())
     }
 
     fn machine(&self, shortcut: Shortcut) -> Option<&DictationHotkey> {
@@ -105,6 +116,7 @@ impl Hotkeys {
             Shortcut::Raw => self.raw.as_ref(),
             Shortcut::CapsLock => Some(&self.caps_lock),
             Shortcut::Extra(index) => self.extra.get(index).and_then(|machine| machine.as_ref()),
+            Shortcut::Action => self.action.as_ref(),
         }
     }
 
@@ -118,6 +130,7 @@ impl Hotkeys {
                 .extra
                 .get_mut(index)
                 .and_then(|machine| machine.as_mut()),
+            Shortcut::Action => self.action.as_mut(),
         }
     }
 
@@ -142,6 +155,13 @@ impl Hotkeys {
         Shortcut::all()
             .filter_map(|shortcut| self.machine(shortcut))
             .any(DictationHotkey::is_recording)
+    }
+
+    /// Whether Labs › Assistant's Action shortcut records a question.
+    pub(super) fn action_recording(&self) -> bool {
+        self.action
+            .as_ref()
+            .is_some_and(DictationHotkey::is_recording)
     }
 
     /// Whether one of the Labs › More dictation shortcuts records.
@@ -216,6 +236,7 @@ impl Hotkeys {
         let raw_cancelled = rebind(&mut self.raw, hotkeys.raw_dictation, now);
         let second_cancelled = rebind(&mut self.second, hotkeys.second_dictation, now);
         let extra_cancelled = self.rebind_extra(hotkeys.extra_dictation, now);
+        let action_cancelled = rebind(&mut self.action, hotkeys.action, now);
         self.dictation.set_binding(hotkeys.dictation);
         for machine in self.fixed_machines() {
             machine.set_double_tap_enabled(crate::app_settings::double_tap_lock());
@@ -246,7 +267,10 @@ impl Hotkeys {
             machine.set_cancel(Some(extra_cancel));
             machine.set_cancel_in_any_mode(true);
         }
-        raw_cancelled || second_cancelled || extra_cancelled
+        if let Some(action) = &mut self.action {
+            configure_action(action);
+        }
+        raw_cancelled || second_cancelled || extra_cancelled || action_cancelled
     }
 
     /// Rebinds the extra rows by binding identity, so clearing or adding one
@@ -328,7 +352,9 @@ impl Hotkeys {
         let print = self.print_capture.take()?;
         match action {
             HotkeyAction::Finish => return Some(print),
-            HotkeyAction::Discard(_) => print.send(PrintedTranscript::NoSpeech),
+            HotkeyAction::Discard(_) | HotkeyAction::DoubleTap => {
+                print.send(PrintedTranscript::NoSpeech);
+            }
             HotkeyAction::Start => {
                 print.send(PrintedTranscript::Failed(
                     "its recording already ended".into(),
@@ -399,6 +425,17 @@ impl Hotkeys {
     }
 }
 
+/// The Action shortcut holds to ask and double-taps for Agent mode in every
+/// shortcut mode, whatever the dictation shortcut's settings, and has no
+/// cancel key of its own: a double tap is a gesture, never a lock.
+pub(super) fn configure_action(action: &mut DictationHotkey) {
+    action.set_double_tap_enabled(true);
+    action.set_double_tap_only(false);
+    action.set_toggle(false);
+    action.set_cancel(None);
+    action.set_double_tap_gesture(true);
+}
+
 /// Creates, rebinds, or removes an optional shortcut machine. Returns
 /// whether a removed machine was recording.
 pub(super) fn rebind(
@@ -441,6 +478,151 @@ mod tests {
             DictationHotkey::new(base, true, option),
             DictationHotkey::new(base, false, RuntimeHotkey::default()),
         )
+    }
+
+    /// Option dictates; right Command alone is Labs › Assistant's Action
+    /// shortcut, configured as the listener configures it.
+    fn action_hotkeys() -> Hotkeys {
+        let mut hotkeys = hotkeys();
+        let mut action = DictationHotkey::new(
+            CaptureInstant::ZERO,
+            false,
+            crate::app_settings::HotkeyBinding::action_default().runtime(),
+        );
+        configure_action(&mut action);
+        hotkeys.action = Some(action);
+        hotkeys
+    }
+
+    const RIGHT_COMMAND: u64 =
+        crate::app_settings::COMMAND_KEY_MASK | crate::app_settings::RIGHT_COMMAND_MASK;
+    const ACTION: Shortcut = Shortcut::Action;
+
+    /// A hold records and its release finishes: the listener asks the
+    /// assistant with what was said (`recognition::ask`).
+    #[test]
+    fn holding_the_action_shortcut_records_and_its_release_asks() {
+        let at =
+            |ms: u64| CaptureInstant::ZERO + Duration::from_secs(60) + Duration::from_millis(ms);
+        let mut hotkeys = action_hotkeys();
+        let mut press = |flags: u64, ms: u64| hotkeys.process(InputEvent::Flags(flags), at(ms));
+        assert_eq!(press(RIGHT_COMMAND, 0), [(ACTION, HotkeyAction::Start)]);
+        assert_eq!(press(0, 1_500), [(ACTION, HotkeyAction::Finish)]);
+        // A second hold right after the first asks again; it never locks.
+        assert_eq!(press(RIGHT_COMMAND, 1_600), [(ACTION, HotkeyAction::Start)]);
+        assert_eq!(press(0, 3_000), [(ACTION, HotkeyAction::Finish)]);
+        assert!(!hotkeys.any_recording());
+    }
+
+    /// Two complete taps turn Agent mode on or off: the second tap's capture
+    /// ends as a gesture, nothing locks, and the next hold asks again. One
+    /// tap only starts and finishes a capture too short to transcribe.
+    #[test]
+    fn a_double_tap_is_a_gesture_and_a_tap_asks_nothing() {
+        let at =
+            |ms: u64| CaptureInstant::ZERO + Duration::from_secs(60) + Duration::from_millis(ms);
+        let mut hotkeys = action_hotkeys();
+        let mut press = |flags: u64, ms: u64| hotkeys.process(InputEvent::Flags(flags), at(ms));
+        assert_eq!(press(RIGHT_COMMAND, 0), [(ACTION, HotkeyAction::Start)]);
+        assert_eq!(press(0, 70), [(ACTION, HotkeyAction::Finish)]);
+        assert_eq!(press(RIGHT_COMMAND, 150), [(ACTION, HotkeyAction::Start)]);
+        assert_eq!(press(0, 220), [(ACTION, HotkeyAction::DoubleTap)]);
+        // A third tap starts over rather than pairing with the gesture.
+        assert_eq!(press(RIGHT_COMMAND, 300), [(ACTION, HotkeyAction::Start)]);
+        assert_eq!(press(0, 360), [(ACTION, HotkeyAction::Finish)]);
+
+        // One tap alone, then a later press: a fresh capture, not a gesture.
+        assert_eq!(press(RIGHT_COMMAND, 2_000), [(ACTION, HotkeyAction::Start)]);
+        assert_eq!(press(0, 2_080), [(ACTION, HotkeyAction::Finish)]);
+        assert_eq!(press(RIGHT_COMMAND, 2_500), [(ACTION, HotkeyAction::Start)]);
+        assert_eq!(press(0, 4_000), [(ACTION, HotkeyAction::Finish)]);
+
+        // A question held, then a quick tap: the hold asked, the tap pairs
+        // with nothing.
+        assert_eq!(press(RIGHT_COMMAND, 6_000), [(ACTION, HotkeyAction::Start)]);
+        assert_eq!(press(0, 7_000), [(ACTION, HotkeyAction::Finish)]);
+        assert_eq!(press(RIGHT_COMMAND, 7_080), [(ACTION, HotkeyAction::Start)]);
+        assert_eq!(press(0, 7_150), [(ACTION, HotkeyAction::Finish)]);
+        assert!(!hotkeys.any_recording());
+    }
+
+    /// Right Command with another key is the app's ⌘ chord: the capture its
+    /// press began is discarded, and left Command never starts one.
+    #[test]
+    fn right_command_with_a_key_is_a_normal_chord() {
+        let at =
+            |ms: u64| CaptureInstant::ZERO + Duration::from_secs(60) + Duration::from_millis(ms);
+        let mut hotkeys = action_hotkeys();
+        let key = |code: u16, down: bool, flags: u64| InputEvent::Key { code, down, flags };
+        assert_eq!(
+            hotkeys.process(InputEvent::Flags(RIGHT_COMMAND), at(0)),
+            [(ACTION, HotkeyAction::Start)]
+        );
+        // C, as in ⌘C.
+        assert_eq!(
+            hotkeys.process(key(8, true, RIGHT_COMMAND), at(60)),
+            [(
+                ACTION,
+                HotkeyAction::Discard(crate::suppression::DiscardCause::Key)
+            )]
+        );
+        assert!(
+            hotkeys
+                .process(key(8, false, RIGHT_COMMAND), at(120))
+                .is_empty()
+        );
+        assert!(hotkeys.process(InputEvent::Flags(0), at(200)).is_empty());
+        assert!(!hotkeys.any_recording());
+
+        let left_command =
+            crate::app_settings::COMMAND_KEY_MASK | crate::app_settings::LEFT_COMMAND_MASK;
+        assert!(
+            hotkeys
+                .process(InputEvent::Flags(left_command), at(1_000))
+                .is_empty()
+        );
+        assert!(hotkeys.process(InputEvent::Flags(0), at(2_000)).is_empty());
+    }
+
+    /// The shortcut that starts a capture owns it: dictation and the Action
+    /// shortcut each stand down while the other records.
+    #[test]
+    fn the_action_shortcut_and_dictation_never_share_a_capture() {
+        let option = crate::app_settings::OPTION_KEY_MASK;
+        let at =
+            |ms: u64| CaptureInstant::ZERO + Duration::from_secs(60) + Duration::from_millis(ms);
+        let mut hotkeys = action_hotkeys();
+        let mut press = |flags: u64, ms: u64| hotkeys.process(InputEvent::Flags(flags), at(ms));
+        assert_eq!(
+            press(option, 0),
+            [(Shortcut::Dictation, HotkeyAction::Start)]
+        );
+        assert!(press(option | RIGHT_COMMAND, 500).is_empty());
+        assert_eq!(
+            press(0, 1_000),
+            [(Shortcut::Dictation, HotkeyAction::Finish)]
+        );
+
+        assert_eq!(press(RIGHT_COMMAND, 2_000), [(ACTION, HotkeyAction::Start)]);
+        assert!(press(RIGHT_COMMAND | option, 2_500).is_empty());
+        assert_eq!(press(0, 3_000), [(ACTION, HotkeyAction::Finish)]);
+        assert!(!hotkeys.any_recording());
+    }
+
+    /// With the Lab off or the shortcut unbound there is no Action machine:
+    /// right Command does nothing.
+    #[test]
+    fn without_its_machine_right_command_does_nothing() {
+        let mut hotkeys = hotkeys();
+        let at =
+            |ms: u64| CaptureInstant::ZERO + Duration::from_secs(60) + Duration::from_millis(ms);
+        assert!(
+            hotkeys
+                .process(InputEvent::Flags(RIGHT_COMMAND), at(0))
+                .is_empty()
+        );
+        assert!(hotkeys.process(InputEvent::Flags(0), at(1_000)).is_empty());
+        assert!(!hotkeys.action_recording());
     }
 
     #[test]
