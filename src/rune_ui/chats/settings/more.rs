@@ -301,7 +301,7 @@ pub(super) fn conversation_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<C
             "assistant-barge-in",
             tr("Interrupt by speaking"),
             tr(
-                "Talk over an answer to stop it. Works best with headphones; off while other audio plays",
+                "Just talk over an answer to interrupt it, ask something else, or change a task, also on the Mac's speakers. Off while other audio plays",
             ),
             ui.settings.assistant.barge_in,
             |ui: &mut Ui| {

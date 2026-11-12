@@ -592,6 +592,36 @@ fn a_request_naming_a_running_task_is_routed_to_it() {
     });
 }
 
+/// Said over an answer (or hands-free after it), a follow-up belongs to the
+/// answered conversation, unless its words name a running task: then that
+/// task is steered, as from a fresh hold.
+#[test]
+fn a_follow_up_naming_a_running_task_steers_it() {
+    let world = World::new(8);
+    let runner = world.runner();
+    let shop = runner.submit(request("Baue den Shop", Origin::Background));
+    world.job_for("Baue den Shop");
+    let here = runner.submit(request("Wie spät ist es?", Origin::ActionShortcut));
+    world.job_for("Wie spät ist es?");
+    let mut over = request(
+        "bei der Shop-Aufgabe mach den Button blau",
+        Origin::ActionShortcut,
+    );
+    over.conversation = Some(here.clone());
+    assert_eq!(runner.submit(over), shop);
+    let steered = world.job_for("bei der Shop-Aufgabe mach den Button blau");
+    assert_eq!(steered.conversation, shop);
+    assert!(matches!(steered.kind, JobKind::Steer { .. }));
+    // An ordinary follow-up stays in the answered conversation.
+    let mut follow = request("und in Tokio?", Origin::ActionShortcut);
+    follow.conversation = Some(here.clone());
+    assert_eq!(runner.submit(follow), here);
+    runner.cancel_all();
+    world.wait_for("all to stop", |events| {
+        [&shop, &here].iter().all(|id| ended(id)(events))
+    });
+}
+
 #[test]
 fn the_frame_shows_while_background_work_runs_with_one_desktop_session() {
     let world = World::new(1);

@@ -2288,6 +2288,7 @@ dependencies = [
  "pollster",
  "procwatch",
  "ratatui",
+ "realfft",
  "regex",
  "rmcp",
  "rodio",

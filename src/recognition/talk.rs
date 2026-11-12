@@ -51,6 +51,8 @@ pub(super) struct Talk {
     pending: Vec<Step>,
     /// Whether another app plays audio, which closes the hands-free window.
     other: OtherAudio,
+    /// Tells the person's voice from the echo of Hex's on the speakers.
+    echo: Option<super::echo::EchoGate>,
 }
 
 impl Default for Talk {
@@ -63,6 +65,7 @@ impl Default for Talk {
             output: Output::Speakers,
             pending: Vec::new(),
             other: OtherAudio::default(),
+            echo: None,
         }
     }
 }
@@ -80,7 +83,15 @@ impl Talk {
             indicator.meter(samples);
         }
         let playback = crate::assistant::speech::level().map(db);
-        let steps = self.machine.hear(samples, rate, self.output, playback);
+        if self.echo.as_ref().is_none_or(|gate| gate.rate() != rate) {
+            self.echo = Some(super::echo::EchoGate::new(rate));
+        }
+        let gate = self.echo.as_mut();
+        let arrived = crate::audio::instant::CaptureInstant::now();
+        let mut judge = echo_judge(gate, arrived, rate);
+        let steps = self
+            .machine
+            .hear(samples, rate, self.output, playback, &mut judge);
         self.pending.extend(steps);
     }
 
@@ -131,7 +142,9 @@ impl Talk {
             barge_in: settings.barge_in,
             spoken: settings.speak_answers,
         };
-        let speaking = crate::assistant::speech::speaking();
+        // Between two sentences the engine can be idle while more of the
+        // answer is still to come: the reading goes on until both are done.
+        let speaking = crate::assistant::speech::speaking() || crate::assistant::reading_aloud();
         // Music on the speakers would be heard as a follow-up; Core Audio
         // is only asked while conversation mode is under way.
         if self.machine.is_active() {
@@ -254,6 +267,42 @@ impl Talk {
 
 /// Whether `event` ends conversation mode: a key going down or a modifier
 /// changing, Escape and the Action shortcut included.
+/// Judges each frame of a block that `arrived` at `rate` against what Hex
+/// played (`audio::playback_reference`): `Some(true)` when it holds the
+/// person (or Hex played nothing lately), `Some(false)` when only Hex's
+/// echo, `None` while the gate is still learning the room.
+fn echo_judge(
+    mut gate: Option<&mut super::echo::EchoGate>,
+    arrived: crate::audio::instant::CaptureInstant,
+    rate: u32,
+) -> impl FnMut(&[f32], usize) -> Option<bool> + '_ {
+    use super::echo::Verdict;
+    move |frame: &[f32], later: usize| {
+        let gate = gate.as_deref_mut()?;
+        if gate.frame_len() != frame.len() || rate == 0 {
+            return None;
+        }
+        let length = Duration::from_secs_f64(frame.len() as f64 / f64::from(rate));
+        let later =
+            u64::try_from(Duration::from_secs_f64(later as f64 / f64::from(rate)).as_nanos())
+                .unwrap_or(0);
+        let end = arrived.as_nanos().saturating_sub(later);
+        let reference = |delay: Duration| {
+            let delay = u64::try_from(delay.as_nanos()).unwrap_or(0);
+            crate::audio::playback_reference::recent(
+                crate::audio::instant::CaptureInstant::from_nanos(end.saturating_sub(delay)),
+                length,
+                rate,
+            )
+        };
+        match gate.judge(frame, &reference) {
+            Verdict::NoEcho => Some(true),
+            Verdict::Unsure => None,
+            Verdict::OverEcho(over) => Some(over),
+        }
+    }
+}
+
 fn ends_conversation(event: InputEvent) -> bool {
     matches!(
         event,
