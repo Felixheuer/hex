@@ -324,7 +324,24 @@ fn follow(id: &str, events: &mpsc::Receiver<Event>, speak: bool) -> bool {
                     );
                 }
             }
-            Event::Question { text, .. } => println!("[question] {text}"),
+            Event::Question { text, .. } => {
+                println!("[question] {text}");
+                // The answer: a line from standard input, as a hold would
+                // give it.
+                let mut answer = String::new();
+                let _ = std::io::stdin().read_line(&mut answer);
+                if answer.trim().is_empty() {
+                    service::cancel(id);
+                } else {
+                    println!("[answering] {}", answer.trim());
+                    service::submit(Request {
+                        conversation: Some(id.to_owned()),
+                        text: answer.trim().to_owned(),
+                        origin: Origin::ActionShortcut,
+                        context: Context::default(),
+                    });
+                }
+            }
             Event::Escalated { .. } => println!("[escalated] continues in the background"),
             Event::Queued { .. } => println!("[queued]"),
             Event::Started { origin, .. } => println!("[started] {origin:?}"),

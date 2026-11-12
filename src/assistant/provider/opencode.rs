@@ -29,6 +29,10 @@ pub(super) fn run(
 ) -> Result<Finished> {
     let executable = super::executable(AssistantBackend::OpenCode)?;
     let mut command = super::command(&executable, &run.workdir, run.desktop.as_ref());
+    // TODO(integration, bring-your-own-key providers): add
+    // `backends::agent_env_for(AssistantBackend::OpenCode, &settings)` to
+    // this command's environment (the key travels by env reference only).
+    // `Run` will need the settings (or that env) for it; not in this branch.
     command.env("OPENCODE_CONFIG_CONTENT", config(run).to_string());
     command.args(arguments(run));
     let mut process = Process::spawn(command, Stdin::Null, control)?;
@@ -107,6 +111,9 @@ fn config(run: &Run) -> Value {
     if let Some(mcp) = super::servers::opencode_config(run) {
         config["mcp"] = mcp;
     }
+    // TODO(integration, bring-your-own-key providers): merge
+    // `backends::opencode_provider_config(&settings)` (its `provider` entry)
+    // into `config` here; not in this branch.
     config
 }
 
