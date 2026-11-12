@@ -171,7 +171,7 @@ pub(in crate::rune_ui) mod schedules {
 pub(in crate::rune_ui) mod voices {
     use crate::assistant::speech;
 
-    pub(in crate::rune_ui) use crate::assistant::speech::{Quality, open_voice_settings};
+    pub(in crate::rune_ui) use crate::assistant::speech::Quality;
 
     /// An installed voice's quality, by the name Settings shows.
     pub(in crate::rune_ui) fn quality(name: &str) -> Quality {
@@ -179,33 +179,5 @@ pub(in crate::rune_ui) mod voices {
             .into_iter()
             .find(|voice| voice.name == name)
             .map_or(Quality::Default, |voice| voice.quality)
-    }
-
-    /// A hint when a much better voice than the installed ones can be
-    /// downloaded for the system's language.
-    pub(in crate::rune_ui) fn better_voice_available(
-        _installed: &[String],
-    ) -> Option<&'static str> {
-        let language = speech::language_of(&system_sample())?;
-        speech::better_voice_available(language).map(|_| "Premium voices sound far more natural")
-    }
-
-    /// A short phrase in the system's language, for picking its language.
-    fn system_sample() -> String {
-        let preferred = std::process::Command::new("/usr/bin/defaults")
-            .args(["read", "-g", "AppleLocale"])
-            .output()
-            .ok()
-            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-            .unwrap_or_default();
-        if preferred.starts_with("de") {
-            "Das ist ein kurzer Satz auf Deutsch.".into()
-        } else if preferred.starts_with("fr") {
-            "C'est une courte phrase en français.".into()
-        } else if preferred.starts_with("es") {
-            "Esta es una frase corta en español.".into()
-        } else {
-            "This is a short sentence in English.".into()
-        }
     }
 }

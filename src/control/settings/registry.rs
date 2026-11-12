@@ -322,7 +322,7 @@ pub(super) const KEYS: &[Key] = &[
     ),
     key(
         "assistant.max_parallel",
-        Kind::Integer { min: 1, max: 64 },
+        Kind::Integer { min: 1, max: 50 },
         "At most this many assistant tasks run at once; later ones wait (macOS)",
     ),
     optional(

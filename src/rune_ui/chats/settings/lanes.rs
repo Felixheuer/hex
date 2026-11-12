@@ -3,12 +3,12 @@
 //! touch, how long a task may run and whether it waits out a usage limit,
 //! and the agents' own Space (experimental).
 
-use rune::{El, Tx, row, text};
+use rune::{El, row, text};
 use rune_kit::TextInput;
 
 use super::super::super::Menu;
 use super::super::super::controls::{
-    CardRow, Paint, described_row, keycaps, note, pressable_row, row_switch, section, section_with,
+    CardRow, Paint, described_row, note, pressable_row, row_switch, section, section_with,
     setting_row, toggle_row,
 };
 use super::super::super::general::quiet_select;
@@ -24,43 +24,6 @@ const TIMEOUTS: [u32; 7] = [0, 5, 10, 15, 30, 60, 120];
 const BUDGETS: [u32; 4] = [60, 24 * 60, 7 * 24 * 60, 0];
 
 static REMOVE_ICON: &rune::Icon = &rune_theme_opencode::icons::CLOSE_SMALL;
-
-/// Stop all's shortcut, shown here and changed in General.
-pub(in crate::rune_ui) fn stop_all_row(ui: &Ui, p: Paint) -> El {
-    let caps = ui
-        .settings
-        .assistant
-        .stop_all_hotkey
-        .as_ref()
-        .map(|binding| super::super::super::settings::shortcut_caps(binding, false));
-    let keys = match caps {
-        Some(caps) => keycaps(p, "keys", &caps),
-        None => text(tr("Off"))
-            .key("keys")
-            .font(p.k.ty.small)
-            .color(p.muted()),
-    };
-    setting_row(
-        p,
-        "assistant-stop-all",
-        tr("Stop all tasks"),
-        Some(tr("Stops every task at once, from any app")),
-        row()
-            .key("stop-all-controls")
-            .gap(8.0)
-            .center_y()
-            .child(keys)
-            .child(small_button(
-                p,
-                "change-stop-all",
-                tr("Change in General…"),
-                |ui: &mut Ui, tx: &mut Tx| {
-                    super::flush(ui);
-                    ui.select_pane(super::super::super::Pane::General, tx);
-                },
-            )),
-    )
-}
 
 /// Whether a question about the window in front may use the real pointer
 /// and keys there.

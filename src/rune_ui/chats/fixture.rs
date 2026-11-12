@@ -571,7 +571,11 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
             | Scene::Escalated
             | Scene::NewSchedule
     );
-    ui.pane = super::Pane::Chats;
+    ui.pane = if matches!(scene, Scene::Settings) {
+        super::Pane::Assistant
+    } else {
+        super::Pane::Chats
+    };
     let store = match scene {
         Scene::Empty => Store::default(),
         Scene::Tasks => {
@@ -703,7 +707,6 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
             pane.tasks.clear();
         }
         Scene::Settings => {
-            pane.view = super::View::Settings;
             pane.settings.found = Some(super::setup::fixture_found());
             pane.settings.voices = Some(vec![
                 "Ava (Premium)".into(),

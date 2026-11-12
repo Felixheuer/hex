@@ -65,9 +65,12 @@ pub(super) enum Pane {
     /// Recorded calls and their settings, or the opt-in (macOS beta).
     Meetings,
     History,
-    /// The assistant's conversations, transcript, and settings (macOS; off,
-    /// it offers to turn the assistant on).
+    /// The assistant's conversations and transcript (macOS; off, it offers
+    /// to turn the assistant on).
     Chats,
+    /// The assistant's settings: its agent and model, how freely it acts,
+    /// how long jobs run, apps and windows, the web, its voice, memory.
+    Assistant,
     /// The shots and recordings Labs › Screenshots saved (macOS, while
     /// it's on).
     #[cfg(hex_capture)]
@@ -95,6 +98,7 @@ impl Pane {
         Pane::Meetings,
         Pane::History,
         Pane::Chats,
+        Pane::Assistant,
         #[cfg(hex_capture)]
         Pane::Captures,
         #[cfg(hex_capture)]
@@ -109,7 +113,7 @@ impl Pane {
         match self {
             Pane::Modes | Pane::HudLab | Pane::Activity => false,
             Pane::Meetings => caps.meetings && meetings::available(ui),
-            Pane::Chats => chats::available(ui),
+            Pane::Chats | Pane::Assistant => chats::available(ui),
             // On from Labs (dev builds), or while its driver is installed.
             Pane::VoiceFilter => caps.fun && fun::running(ui),
             #[cfg(hex_capture)]
@@ -131,6 +135,7 @@ impl Pane {
             Pane::Captures => tr("Captures"),
             Pane::Meetings => tr("Meetings"),
             Pane::Chats => tr("Chats"),
+            Pane::Assistant => tr("Assistant"),
             #[cfg(hex_capture)]
             Pane::Annotate => tr("Annotate"),
             Pane::VoiceFilter => tr("Voice Filter"),
@@ -149,6 +154,7 @@ impl Pane {
             Pane::Captures => "nav-captures",
             Pane::Meetings => "nav-meetings",
             Pane::Chats => "nav-chats",
+            Pane::Assistant => "nav-assistant",
             #[cfg(hex_capture)]
             Pane::Annotate => "nav-annotate",
             Pane::VoiceFilter => "nav-voice-filter",
@@ -167,6 +173,7 @@ impl Pane {
             Pane::Captures => &captures::CAPTURES_ICON,
             Pane::Meetings => &MEETINGS_ICON,
             Pane::Chats => &chats::CHATS_ICON,
+            Pane::Assistant => &super::icons::SPARKLES,
             #[cfg(hex_capture)]
             Pane::Annotate => &SCRAWL_ICON,
             Pane::VoiceFilter => &VOICE_FILTER_ICON,

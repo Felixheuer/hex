@@ -30,6 +30,7 @@ pub mod agent;
 pub mod autonomy;
 pub mod backends;
 pub mod browser;
+pub mod capacity;
 pub mod cli;
 pub mod computer;
 pub mod credentials;
