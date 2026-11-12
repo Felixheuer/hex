@@ -420,6 +420,11 @@ pub(super) const KEYS: &[Key] = &[
         "The assistant's setup sheet was finished (macOS)",
     ),
     key(
+        "assistant.setup_version",
+        Kind::Integer { min: 0, max: 1000 },
+        "The assistant setup version finished; a lower one brings back the steps a release added",
+    ),
+    key(
         "show_dock_icon",
         Kind::Bool,
         "Keep Hex in the Dock when Settings is closed (macOS)",

@@ -119,7 +119,12 @@ impl Asker {
         let action = press.action;
         // Not set up yet: the press records nothing, and a hold (never a
         // tap or a ⌘C chord) opens the setup as it comes up.
-        if action == HotkeyAction::Start && !crate::app_settings::applied_assistant_ready() {
+        // Set up, but something essential went missing since (a permission,
+        // the agent): the hold says what and opens the guide.
+        if action == HotkeyAction::Start
+            && (!crate::app_settings::applied_assistant_ready()
+                || crate::assistant::setup_gap().is_some())
+        {
             self.question = None;
             self.setup_press = Some(at);
             return Ok(true);

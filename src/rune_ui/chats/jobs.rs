@@ -32,6 +32,8 @@ pub(in crate::rune_ui) enum Job {
     SelfTests(Box<AssistantSettings>, Vec<Check>),
     /// What else takes the tested shortcuts.
     Conflicts(Box<AppSettings>),
+    /// What setup misses now (`desktop::setup_gaps`).
+    Gaps(Box<AppSettings>),
     /// Saves the Claude API key in the Keychain (empty deletes it).
     SaveKey(String),
     /// The installed voices.
@@ -72,6 +74,8 @@ pub(in crate::rune_ui) enum Job {
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::rune_ui) enum Done {
     Detected(Vec<Found>),
+    /// What setup misses now.
+    Gaps(Vec<crate::desktop::setup_gaps::Gap>),
     Desktop(AgentDesktop),
     Permissions(Permissions),
     /// A line of what a fix is doing (an installer's output).
@@ -208,6 +212,9 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             });
             send(Done::AllChecked);
         }
+        Job::Gaps(settings) => send(Done::Gaps(crate::desktop::setup_gaps::setup_gaps(
+            &super::setup::repair::read_facts(&settings),
+        ))),
         Job::Conflicts(settings) => send(Done::Conflicts(
             super::setup::TESTED
                 .iter()
@@ -304,6 +311,10 @@ pub(super) fn poll(ui: &mut Ui) -> bool {
 /// One answer, wherever it shows: the setup flow, and Settings' lists.
 pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
     if super::agents::receive(ui, &done) {
+        return;
+    }
+    if let Done::Gaps(gaps) = done {
+        super::setup::repair::received(ui, gaps);
         return;
     }
     match &done {

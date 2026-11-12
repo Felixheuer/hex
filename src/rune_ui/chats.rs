@@ -216,6 +216,8 @@ pub(super) struct ChatsPane {
     pub(super) handed_off: bool,
     /// A task's browser shown large (task, session), from its preview.
     pub(super) live: Option<(ConversationId, String)>,
+    /// What setup misses now, checked at launch and every few minutes.
+    pub(super) repair: setup::repair::Watch,
 }
 
 impl Default for ChatsPane {
@@ -256,6 +258,7 @@ impl Default for ChatsPane {
             follow: follow::Follow::default(),
             handed_off: false,
             live: None,
+            repair: setup::repair::Watch::default(),
         }
     }
 }
@@ -623,7 +626,15 @@ pub(super) fn open_setup(ui: &mut Ui) {
 /// A hold of the Action shortcut before setup finished: the onboarding
 /// where it was left (or as it is, when it shows), saying so.
 pub(super) fn open_setup_from_hold(ui: &mut Ui, tx: &mut Tx) {
-    if !on(ui) || ui.settings.assistant.setup_done {
+    if !on(ui) {
+        return;
+    }
+    if ui.settings.assistant.setup_done {
+        // Set up before: the guide for what's missing now.
+        if ui.pane != Pane::Chats {
+            ui.select_pane(Pane::Chats, tx);
+        }
+        setup::repair::open_from_hold(ui, tx);
         return;
     }
     if ui.pane != Pane::Chats {
@@ -723,6 +734,7 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
     changed |= set_focus(ui, focus);
     work::poll(ui, tx);
     changed |= setup::poll(ui, tx);
+    changed |= setup::repair::poll(ui, tx);
     changed |= settings::poll(ui, now);
     changed
 }

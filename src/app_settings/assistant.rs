@@ -68,6 +68,9 @@ pub struct AssistantSettings {
     pub max_parallel: u32,
     /// The setup sheet (agents found, agent-desktop, permissions) was finished.
     pub setup_done: bool,
+    /// The setup version finished (`desktop::setup_gaps::SETUP_VERSION`): a
+    /// lower one brings back the setup steps a release added.
+    pub setup_version: u32,
     /// Stops every task at once, and the speech: Control-Option-Escape by
     /// default. Never Command-Option-Escape, which is macOS's Force Quit.
     pub stop_all_hotkey: Option<HotkeyBinding>,
@@ -142,6 +145,7 @@ impl Default for AssistantSettings {
             follow_up_seconds: 120,
             max_parallel: 8,
             setup_done: false,
+            setup_version: crate::desktop::setup_gaps::SETUP_VERSION,
             stop_all_hotkey: Some(HotkeyBinding::stop_all_default()),
             here_physical_input: true,
             background_browser: true,
