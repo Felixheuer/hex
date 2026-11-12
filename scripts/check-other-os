@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Checks the Windows and Linux builds from a Mac, since the fork has no CI.
+#
+#   scripts/check-other-os windows          clippy for x86_64-pc-windows-msvc
+#   scripts/check-other-os linux            clippy in a Linux container
+#   scripts/check-other-os linux test [f]   the Linux tests (matching f)
+#   scripts/check-other-os                  both clippy checks
+#
+# Windows cross-compiles with cargo-xwin (cargo install --locked cargo-xwin)
+# and Homebrew's llvm, against an empty stand-in for transcribe.cpp: clippy
+# only type-checks, so the C++ library (and the Vulkan SDK it needs) is never
+# built. Linux runs in Docker (scripts/linux.Dockerfile), building into a
+# Docker volume, so its tests run there too, away from this Mac's audio.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+windows() {
+    command -v cargo-xwin >/dev/null || {
+        echo "Needs cargo-xwin: cargo install --locked cargo-xwin" >&2
+        exit 1
+    }
+    local llvm
+    llvm="$(brew --prefix llvm)/bin"
+    local stub=target/other-os/transcribe-stub
+    mkdir -p "$stub/lib"
+    echo '{"shared":false,"libraries":[]}' >"$stub/lib/transcribe-link.json"
+    rustup target add x86_64-pc-windows-msvc >/dev/null
+    PATH="$llvm:$PATH" TRANSCRIBE_DIR="$PWD/$stub" CARGO_TARGET_DIR=target/other-os \
+        cargo xwin clippy --locked --target x86_64-pc-windows-msvc --bin hex --tests \
+        -- -D warnings
+}
+
+linux() {
+    docker info >/dev/null 2>&1 || {
+        echo "Start Docker Desktop first." >&2
+        exit 1
+    }
+    docker build -q -t hex-linux-check -f scripts/linux.Dockerfile scripts >/dev/null
+    local command=(cargo clippy --locked --bin hex --tests -- -D warnings)
+    if [[ "${1:-}" == test ]]; then
+        shift
+        command=(cargo nextest run --locked --bin hex --no-tests=warn "$@")
+    fi
+    docker run --rm -t \
+        -v "$PWD:/hex" \
+        -v hex-linux-target:/target \
+        -v hex-linux-cargo:/usr/local/cargo/registry \
+        -e CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-6}" \
+        hex-linux-check \
+        xvfb-run -a dbus-run-session -- "${command[@]}"
+}
+
+case "${1:-all}" in
+    windows) windows ;;
+    linux) shift; linux "$@" ;;
+    all) windows && linux ;;
+    *)
+        echo "Usage: scripts/check-other-os [windows | linux [test [filter]]]" >&2
+        exit 1
+        ;;
+esac
