@@ -17,6 +17,13 @@ use crate::app_settings::AssistantBackend;
 
 #[derive(Subcommand, Debug)]
 pub enum AssistantCommand {
+    /// Show how much voice a barge-in needs on this Mac, as learnt from the
+    /// last barge-ins, and how they turned out.
+    BargeIn {
+        /// Forget what was learnt: back to the defaults.
+        #[arg(long)]
+        reset: bool,
+    },
     /// Ask one question and print what happens until it's answered.
     Ask {
         text: String,
@@ -214,6 +221,16 @@ pub fn run(command: AssistantCommand) -> u8 {
         }),
         AssistantCommand::Resume { id } => resume(&id),
         AssistantCommand::StopAll => send(remote::ALL, remote::Verb::Stop),
+        AssistantCommand::BargeIn { reset } => {
+            if reset {
+                super::interaction::tuning::reset();
+            }
+            print!("{}", super::interaction::tuning::report());
+            if reset {
+                println!("Hex picks the defaults up the next time it starts.");
+            }
+            Ok(true)
+        }
         AssistantCommand::TakeOver { id } => send(&id, remote::Verb::TakeOver),
         AssistantCommand::HandBack { id } => send(&id, remote::Verb::HandBack),
         AssistantCommand::Schedules { command } => schedules(command),

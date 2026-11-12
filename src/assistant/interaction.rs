@@ -19,6 +19,8 @@
 //! | other audio plays           | an answer ends                     | no hands-free listening, no barge-in                        |
 //! | any task works              | —                                  | the screen frame shows (`service::frame_shown`)             |
 
+pub mod tuning;
+
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 /// A microphone capture the person starts.

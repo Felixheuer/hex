@@ -42,6 +42,12 @@ pub(crate) fn after_barge_in(
 
 /// Carries out `after` for a reading paused by a barge-in, and logs it.
 pub(crate) fn settle(after: AfterBargeIn) {
+    use crate::assistant::interaction::tuning::{self, Outcome};
+    tuning::settle(match after {
+        AfterBargeIn::Resume(_) => Outcome::FalseAlarm,
+        AfterBargeIn::TakeOver => Outcome::TookOver,
+        AfterBargeIn::Stop => Outcome::Stopped,
+    });
     match after {
         AfterBargeIn::Resume(why) => {
             tracing::info!(why, "barge-in: resumed");

@@ -37,6 +37,7 @@
 use std::time::{Duration, Instant};
 
 use crate::assistant::ConversationId;
+use crate::assistant::interaction::tuning::{Fired, Route, Thresholds};
 use crate::transcription::pause_segmenter::SpeechFrames;
 
 /// How long an answer may wait to start being read aloud before Hex counts
@@ -49,21 +50,18 @@ const READING_SETTLE: Duration = Duration::from_millis(400);
 /// Speech frames in a run that start a follow-up: 160 ms, the speech
 /// detector's shortest speech.
 const ONSET_FRAMES: u32 = 8;
-/// Speech frames in a run that interrupt an answer: 240 ms.
-const BARGE_IN_FRAMES: u32 = 12;
-/// On speakers, judged against the echo of Hex's own voice: 500 ms. The
-/// echo judge errs on loud built-in speakers, and a false interruption
-/// cuts the answer, so the person's voice must hold longer.
-const SPEAKER_BARGE_IN_FRAMES: u32 = 25;
+// The speech frames a run needs to interrupt an answer (240 ms on
+// headphones; 500 ms on speakers, judged against the echo of Hex's own voice,
+// since the echo judge errs on loud built-in speakers and a false
+// interruption cuts the answer) and the margin over the answer's playback
+// level before the echo is learnt start from guesses and learn from each
+// barge-in's outcome (`assistant::interaction::tuning`).
 /// Quiet frames a run forgives.
 const RUN_GAP_FRAMES: u32 = 2;
 /// Quiet frames that end a follow-up: 900 ms.
 const END_FRAMES: u32 = 45;
 /// The longest follow-up: 60 s.
 const MAX_FRAMES: u32 = 3_000;
-/// On speakers, how far a frame must be above the answer's own playback
-/// level to be the person rather than Hex's voice.
-const SPEAKER_MARGIN_DB: f32 = 6.0;
 /// 20 ms frames.
 const FRAMES_PER_SECOND: u32 = 50;
 
@@ -198,6 +196,10 @@ pub(super) struct Conversation {
     /// Speech frames in the current run, and quiet frames since its last.
     run: u32,
     gap: u32,
+    /// The voice a barge-in needs, as learnt (`set_thresholds`).
+    thresholds: Thresholds,
+    /// The last barge-in, until the listener takes it (`take_fired`).
+    fired: Option<Fired>,
 }
 
 impl Default for Conversation {
@@ -207,6 +209,8 @@ impl Default for Conversation {
             ears: Ears::default(),
             other_audio: false,
             run: 0,
+            thresholds: Thresholds::DEFAULT,
+            fired: None,
             gap: 0,
         }
     }
@@ -390,15 +394,26 @@ impl Conversation {
                         // The echo of Hex's voice taken out: the person.
                         (Output::Speakers, Some(over)) => over,
                         // Not learnt yet: only a voice clearly over Hex's.
-                        (Output::Speakers, None) => playback_db
-                            .is_some_and(|playback| frame.level_db > playback + SPEAKER_MARGIN_DB),
+                        (Output::Speakers, None) => playback_db.is_some_and(|playback| {
+                            frame.level_db > playback + self.thresholds.speaker_margin_db
+                        }),
                     };
                 let conversation = conversation.clone();
-                let needed = match (output, frame.over_echo) {
-                    (Output::Speakers, Some(_)) => SPEAKER_BARGE_IN_FRAMES,
-                    _ => BARGE_IN_FRAMES,
-                };
-                (self.count(voice) >= needed).then(|| self.hearing(conversation, Step::BargeIn))
+                let needed = self.needed(output, frame.over_echo.is_some());
+                if self.count(voice) < needed {
+                    return None;
+                }
+                self.fired = Some(Fired {
+                    route: match output {
+                        Output::Headphones => Route::Headphones,
+                        Output::Speakers => Route::Speakers,
+                    },
+                    needed,
+                    echo_judged: output == Output::Speakers && frame.over_echo.is_some(),
+                    level_db: Some(frame.level_db),
+                    playback_db,
+                });
+                Some(self.hearing(conversation, Step::BargeIn))
             }
             Phase::Listening { .. } if self.other_audio => None,
             Phase::Listening { conversation, .. } => {
@@ -406,6 +421,26 @@ impl Conversation {
                 (self.count(frame.speech) >= ONSET_FRAMES)
                     .then(|| self.hearing(conversation, Step::Heard))
             }
+        }
+    }
+
+    /// What the last barge-in looked like when it fired, once.
+    pub(super) fn take_fired(&mut self) -> Option<Fired> {
+        self.fired.take()
+    }
+
+    /// The voice a barge-in needs from now on.
+    pub(super) fn set_thresholds(&mut self, thresholds: Thresholds) {
+        self.thresholds = thresholds;
+    }
+
+    /// Speech frames a barge-in needs on `output`: the speakers' count once
+    /// the echo judge decides, else the headphones' (a margin over the
+    /// playback level judges those frames instead).
+    pub(super) fn needed(&self, output: Output, echo_judged: bool) -> u32 {
+        match (output, echo_judged) {
+            (Output::Speakers, true) => self.thresholds.frames(Route::Speakers),
+            _ => self.thresholds.frames(Route::Headphones),
         }
     }
 

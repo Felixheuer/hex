@@ -143,6 +143,8 @@ impl Talk {
         }
         let ready = crate::app_settings::applied_assistant_ready();
         let settings = crate::app_settings::applied_assistant();
+        self.machine
+            .set_thresholds(crate::assistant::interaction::tuning::thresholds());
         let now = Instant::now();
         if ready {
             for conversation in answered() {
@@ -220,6 +222,10 @@ impl Talk {
                     // (`assistant::shortcut::barge_in`).
                     if crate::assistant::speech::pause() {
                         tracing::info!("barge-in: paused");
+                    }
+                    // Its outcome tunes how much voice the next one needs.
+                    if let Some(fired) = self.machine.take_fired() {
+                        crate::assistant::interaction::tuning::fired(fired);
                     }
                     self.barging = true;
                 }
