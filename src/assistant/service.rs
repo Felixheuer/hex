@@ -60,12 +60,6 @@ use super::types::{
 /// own thread or wake your loop).
 pub type Subscriber = Box<dyn Fn(&Event) + Send + Sync>;
 
-/// Each task colour's accent, by colour index: its cursor here, and its
-/// outline and stack row in the HUD.
-pub const COLOURS: [&str; 8] = [
-    "#4299FF", "#FF6B4A", "#34C759", "#AF52DE", "#FF9F0A", "#FF375F", "#30B0C7", "#A2845E",
-];
-
 /// How long a Background task waits for the desktop session to start.
 const SESSION_WAIT: Duration = Duration::from_secs(8);
 /// How long a backend started ahead is kept for its question.

@@ -140,31 +140,38 @@ pub(super) mod desktop_session {
         let _ = agent_desktop(&["session", "end", session]);
     }
 
-    /// Gives the agent's cursor its task colour (outline and body) and,
-    /// when known, a label with what it is doing (at most six words).
+    /// Gives the agent's cursor its task colour (`palette`), its cursor
+    /// image when the overlay drew one, and, when known, a label with what
+    /// it is doing (at most six words).
     pub(in crate::assistant::service) fn style(
         session: &str,
         agent_id: &str,
         colour: u8,
         label: Option<&str>,
     ) {
-        let colours = super::super::COLOURS;
-        let accent = colours[usize::from(colour) % colours.len()];
-        let mut args = vec![
+        let mut args: Vec<String> = [
             "--session",
             session,
             "--agent-id",
             agent_id,
             "cursor-overlay",
             "enable",
-            "--accent",
-            accent,
-            "--fill",
-            accent,
-        ];
-        if let Some(label) = label.filter(|label| !label.trim().is_empty()) {
-            args.extend(["--label", label, "--max-words", "6"]);
+        ]
+        .map(str::to_owned)
+        .into();
+        args.extend(crate::assistant::palette::cursor_flags(colour));
+        if let Some(image) = crate::rune_ui::assistant_overlay::cursor_image(colour) {
+            args.extend(["--image".to_owned(), image.display().to_string()]);
         }
+        if let Some(label) = label.filter(|label| !label.trim().is_empty()) {
+            args.extend([
+                "--label".to_owned(),
+                label.to_owned(),
+                "--max-words".to_owned(),
+                "6".to_owned(),
+            ]);
+        }
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let _ = agent_desktop(&args);
     }
 
