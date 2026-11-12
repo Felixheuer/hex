@@ -71,6 +71,16 @@ pub fn show(note: &Note) {
     let _ = note;
 }
 
+/// Registers what a click on a notification does (opening Chats on that
+/// conversation): called with the conversation's id. macOS opens a
+/// `hex://chats` link instead.
+// The platform lane's Windows and Linux notifications call it on a click;
+// until they land, the runtime's wiring has nothing to call yet.
+#[cfg(not(target_os = "macos"))]
+pub fn set_on_click(open: impl Fn(&str) + Send + Sync + 'static) {
+    let _ = open;
+}
+
 /// `text` as an AppleScript string literal.
 fn applescript(text: &str) -> String {
     let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");

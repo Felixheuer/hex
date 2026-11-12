@@ -1,4 +1,5 @@
-//! The overlays on macOS: Rune panels fed by `assistant::subscribe`.
+//! The overlays: Rune panels fed by `assistant::subscribe`, on every OS;
+//! what each OS can do differently sits in `native`.
 //!
 //! - One frame panel per display, shown while Background work runs, waits,
 //!   or is queued (`Event::ModeChanged`), and one outline panel per window
@@ -11,23 +12,32 @@
 //!   "Hands off" pill while a task moves the real pointer (Esc stops it).
 //!
 //! Every panel is click-through except the orb's and the bubble's own
-//! parts, joins every Space and full-screen Space, is left out of screen
-//! captures (so the agents' screenshots stay clean), and holds no window or
-//! GPU surface while hidden. The service sends nothing while the assistant
-//! is off, and nothing floats before its setup is done.
+//! parts, is left out of screen captures where the OS allows (so the
+//! agents' screenshots stay clean), joins every Space and full-screen Space
+//! on macOS, and holds no window or GPU surface while hidden. The service
+//! sends nothing while the assistant is off, and nothing floats before its
+//! setup is done.
+//!
+//! Windows reads its displays and places the panels on them as macOS does.
+//! Linux places nothing at global coordinates: Wayland has none (a
+//! layer-shell surface sits on an output, at its edge), so the orb, the
+//! bubble, and the pills sit at the HUD's edge of the HUD's display, the
+//! frame covers that display, and no window is outlined there.
 
 mod answer;
+#[cfg(target_os = "macos")]
 mod displays;
 mod follow;
+#[cfg_attr(target_os = "macos", path = "host/macos.rs")]
+#[cfg_attr(target_os = "windows", path = "host/windows.rs")]
+#[cfg_attr(target_os = "linux", path = "host/linux.rs")]
+mod native;
 mod watcher;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use objc2::MainThreadMarker;
-use objc2::rc::Retained;
-use objc2_app_kit::{NSApplication, NSWindow, NSWindowCollectionBehavior};
 use rune::{DisplayTarget, OverlayHandle, OverlayInput, OverlayOptions, OverlaySpec, Tx};
 
 use super::board::{Board, Look, Outlined};
@@ -83,20 +93,14 @@ pub(crate) fn set_open_setup(open: impl Fn() + Send + Sync + 'static) {
 fn open_chats(id: &str) {
     match OPEN_CHATS.get() {
         Some(open) => open(id),
-        None => {
-            tracing::info!(
-                conversation = id,
-                "assistant: Chats isn't wired yet; showing the window"
-            );
-            crate::macos_rune::bring_window_forward();
-        }
+        None => tracing::info!(conversation = id, "assistant: Chats isn't wired yet"),
     }
 }
 
 fn open_setup() {
     match OPEN_SETUP.get() {
         Some(open) => open(),
-        None => crate::macos_rune::bring_window_forward(),
+        None => tracing::info!("assistant: the setup isn't wired yet"),
     }
 }
 
@@ -117,7 +121,7 @@ fn passive<T: 'static>(
 ) -> rune::ConfiguredOverlay<T> {
     OverlaySpec::new(title, size, view)
         .options(options(OverlayInput::None))
-        .on_created(|created| leave_out_of_mission_control(created.window_number))
+        .on_created(|created| native::leave_out_of_mission_control(created.window_number))
         .release_gpu_when_hidden()
 }
 
@@ -145,7 +149,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
     }
     .options(options(OverlayInput::Regions))
     .poll(orb_poll)
-    .on_created(|created| leave_out_of_mission_control(created.window_number))
+    .on_created(|created| native::leave_out_of_mission_control(created.window_number))
     .release_gpu_when_hidden();
     let orb = app.overlay(
         orb_spec,
@@ -181,7 +185,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
     }
     .options(options(OverlayInput::Regions))
     .poll(bubble_poll)
-    .on_created(|created| leave_out_of_mission_control(created.window_number))
+    .on_created(|created| native::leave_out_of_mission_control(created.window_number))
     .release_gpu_when_hidden();
     let bubble = app.overlay(
         bubble_spec,
@@ -241,7 +245,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
     crate::assistant::trigger::set_toggle_tasks(toggle_tasks);
     // Displays coming, going, or moving: frames, outlines, and the HUD-side
     // panels follow at once.
-    displays::watch(|| {
+    native::watch(|| {
         watcher::displays_changed();
         follow::follow(true);
     });
@@ -280,7 +284,7 @@ fn window_frame(
         let (x, y, w, h) = super::fixture::frame(window, (main[2], main[3]))?;
         return Some((main[0] + x, main[1] + y, w, h));
     }
-    crate::assistant::computer::window_frame(window)
+    crate::assistant::computer::window_frame(window).map(native::from_desktop)
 }
 
 /// The subscriber: on the service's thread (or the watcher's), so it only
@@ -468,7 +472,7 @@ pub(crate) fn ask_hint(asking: Option<bool>) {
     };
     let hint = match asking {
         Some(true) if ready() => Some(Hint::Background),
-        Some(false) if ready() => frontmost_app().map(Hint::Here),
+        Some(false) if ready() => native::frontmost_app().map(Hint::Here),
         _ => None,
     };
     *shown = asking;
@@ -495,12 +499,6 @@ fn answer_key() -> String {
 /// Whether the assistant is on and set up.
 fn ready() -> bool {
     crate::app_settings::assistant_runtime().is_some_and(|(on, settings)| on && settings.setup_done)
-}
-
-/// The app in front, which a Here question is about.
-fn frontmost_app() -> Option<String> {
-    let app = objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication()?;
-    Some(app.localizedName()?.to_string()).filter(|name| !name.is_empty())
 }
 
 // ---------------------------------------------------------------------------
@@ -599,31 +597,4 @@ fn set_hands(task: Option<ConversationId>) {
         }
         false
     });
-}
-
-// ---------------------------------------------------------------------------
-// Native touches on the panels (main thread)
-
-fn panel(number: Option<u32>) -> Option<Retained<NSWindow>> {
-    let mtm = MainThreadMarker::new()?;
-    let number = number? as isize;
-    NSApplication::sharedApplication(mtm)
-        .windows()
-        .iter()
-        .find(|window| window.windowNumber() == number)
-}
-
-/// Hides the panel from Mission Control and Exposé (Transient) while it
-/// still joins every Space and full-screen Space; Rune's own mask keeps it
-/// in place there (Stationary) instead.
-fn leave_out_of_mission_control(number: Option<u32>) {
-    let Some(panel) = panel(number) else {
-        return;
-    };
-    let behavior = (panel.collectionBehavior() - NSWindowCollectionBehavior::Stationary)
-        | NSWindowCollectionBehavior::Transient
-        | NSWindowCollectionBehavior::CanJoinAllSpaces
-        | NSWindowCollectionBehavior::FullScreenAuxiliary
-        | NSWindowCollectionBehavior::IgnoresCycle;
-    panel.setCollectionBehavior(behavior);
 }
