@@ -28,6 +28,8 @@ pub(in crate::rune_ui) struct Store {
     pub(in crate::rune_ui) files: HashMap<String, Vec<String>>,
     /// Folders, files, and links opened, in order.
     pub(in crate::rune_ui) opened: Vec<String>,
+    /// Scheduled requests.
+    pub(in crate::rune_ui) schedules: Vec<super::round3_shim::schedules::Schedule>,
     /// The conversation last named as the one showing.
     pub(in crate::rune_ui) focus: Option<ConversationId>,
 }
@@ -261,7 +263,27 @@ pub(in crate::rune_ui) fn store(now: u64) -> Store {
         ("book-table".to_owned(), Outcome::Failed),
         ("sort-downloads".to_owned(), Outcome::Interrupted),
     ]);
+    use super::round3_shim::schedules::{Repeat, Schedule};
+    let schedules = vec![
+        Schedule {
+            id: "inbox".into(),
+            text: "Summarize my inbox and flag what needs me".into(),
+            minute_of_day: 8 * 60,
+            repeat: Repeat::Weekdays,
+            enabled: true,
+            next_ms: None,
+        },
+        Schedule {
+            id: "invoices".into(),
+            text: "File last week's invoices in Accounting".into(),
+            minute_of_day: 17 * 60 + 30,
+            repeat: Repeat::Weekly,
+            enabled: false,
+            next_ms: None,
+        },
+    ];
     Store {
+        schedules,
         conversations: vec![reply, rename, downloads, regex, weather, failed],
         outcomes,
         tasks: vec![TaskStatus {
@@ -522,6 +544,8 @@ pub(in crate::rune_ui) enum Scene {
     Restart,
     /// The agent page in each of its states.
     Agent(AgentPage),
+    /// The New schedule sheet over Chats.
+    NewSchedule,
 }
 
 /// Sets `ui` up for a Chats scene: the Lab on, with fake conversations.
@@ -539,6 +563,7 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
             | Scene::Job
             | Scene::Results
             | Scene::Escalated
+            | Scene::NewSchedule
     );
     ui.pane = super::Pane::Chats;
     let store = match scene {
@@ -628,6 +653,16 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
         Scene::Results => {
             pane.select("q3-report".into());
         }
+        Scene::NewSchedule => {
+            pane.turns.insert("reply-to-maya".into(), running_turn());
+            pane.select("rename-screenshots".into());
+            pane.new_schedule = Some(super::schedules::NewSchedule {
+                text: rune::TextEdit::new("Summarize the news about our competitors"),
+                time: rune::TextEdit::new("7:30"),
+                repeat: super::round3_shim::schedules::Repeat::Weekdays,
+                error: None,
+            });
+        }
         Scene::Escalated => {
             let mut turn = super::Turn::new(
                 "What does this error mean?".into(),
@@ -670,6 +705,10 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
                 "Zoe".into(),
             ]);
             ui.settings.assistant.voice = Some("Ava (Premium)".into());
+            pane.settings.memory = rune::TextEdit::new(
+                "- Works at Acme as a product designer\n- Manager: Sam\n- Prefers short emails",
+            );
+            pane.settings.memory_saved = true;
             pane.settings.browser = Some(crate::assistant::browser::AgentBrowser {
                 path: Some("/opt/homebrew/bin/agent-browser".into()),
                 version: Some("0.9.3".into()),

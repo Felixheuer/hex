@@ -597,6 +597,8 @@ fn page(rt: &Runtime<Ui>) -> Page {
 fn continue_waits_for_each_page_and_later_marks_it_unfinished() {
     let mut rt = onboarding();
     tap(&mut rt, "continue");
+    assert_eq!(page(&rt), Page::Privacy);
+    tap(&mut rt, "continue");
     assert_eq!(page(&rt), Page::Agent);
     // Nothing found yet: Continue stays put.
     tap(&mut rt, "continue");
@@ -788,6 +790,53 @@ fn the_display_row_shows_only_with_two_displays() {
     rt.invalidate();
     settle(&mut rt);
     assert!(rt.find("agent-display").is_none());
+}
+
+#[test]
+fn the_privacy_page_sets_autonomy_and_blocked_apps() {
+    let mut rt = scene("mac-assistant-setup-privacy");
+    assert!(shows(&rt, "Dictation stays on your Mac."));
+    assert_eq!(
+        rt.state.settings.assistant.autonomy,
+        crate::assistant::autonomy::Autonomy::Smart
+    );
+    rt.state.chats.settings.blocked = TextEdit::new("Banking");
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "add-blocked-app");
+    assert!(
+        rt.state
+            .settings
+            .assistant
+            .blocked_apps
+            .contains(&"Banking".to_owned())
+    );
+}
+
+#[test]
+fn schedules_list_toggle_run_and_add_by_hand() {
+    let mut rt = chats();
+    assert!(shows(&rt, "Summarize my inbox and flag what needs me"));
+    tap(&mut rt, "new-schedule");
+    let sheet = rt.state.chats.new_schedule.as_mut().unwrap();
+    sheet.text = TextEdit::new("Back up my notes");
+    sheet.time = TextEdit::new("25:00");
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "save-schedule");
+    assert!(shows(&rt, "Use a time like 8:00 or 17:30"));
+    rt.state.chats.new_schedule.as_mut().unwrap().time = TextEdit::new("21:15");
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "save-schedule");
+    assert!(rt.state.chats.new_schedule.is_none());
+    assert_eq!(rt.state.chats.schedules.len(), 3);
+    assert_eq!(rt.state.chats.schedules[2].minute_of_day, 21 * 60 + 15);
+    rt.update(|ui, _| ui.chats.run_schedule("inbox"));
+    settle(&mut rt);
+    let sent = rt.state.chats.store().unwrap().submitted.last().unwrap();
+    assert_eq!(sent.text, "Summarize my inbox and flag what needs me");
+    assert_eq!(sent.conversation, None, "a new conversation");
 }
 
 #[test]

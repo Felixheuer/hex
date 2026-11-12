@@ -7,6 +7,7 @@
 mod browser;
 mod checks;
 mod desktop;
+mod privacy;
 mod shortcut;
 mod try_it;
 
@@ -45,6 +46,8 @@ pub(in crate::rune_ui) fn overlay(ui: &Ui, p: Paint) -> Option<El> {
     let flow = ui.chats.setup.as_ref()?;
     let page = match flow.page {
         Page::Welcome => welcome(ui, p),
+        Page::Privacy => privacy::privacy(ui, flow, p),
+        Page::About => privacy::about(ui, flow, p),
         Page::Agent => agent(ui, flow, p),
         Page::Desktop => desktop::desktop(ui, flow, p),
         Page::Browser => browser::browser(ui, flow, p),

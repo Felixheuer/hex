@@ -134,7 +134,10 @@ fn group(updated_ms: u64, now_ms: u64) -> &'static str {
 fn list(ui: &Ui, p: Paint) -> El {
     let pane = &ui.chats;
     let rows = pane.rows();
-    let mut list = col().key("chats-list").label(tr("Chats"));
+    let mut list = col()
+        .key("chats-list")
+        .label(tr("Chats"))
+        .children(pane.search.text.trim().is_empty().then(|| super::schedules::group(ui, p)));
     if rows.is_empty() {
         let empty = if pane.search.text.trim().is_empty() {
             tr("No chats yet.")

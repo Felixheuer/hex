@@ -777,6 +777,18 @@ pub(super) const SCENES: &[Scene] = &[
     #[cfg(target_os = "macos")]
     ("mac-chats-job", |ui| mac_chats(ui, chats::fixture::Scene::Job)),
     #[cfg(target_os = "macos")]
+    ("mac-chats-new-schedule", |ui| {
+        mac_chats(ui, chats::fixture::Scene::NewSchedule)
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-privacy", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Privacy))
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-about", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::About))
+    }),
+    #[cfg(target_os = "macos")]
     ("mac-chats-results", |ui| {
         mac_chats(ui, chats::fixture::Scene::Results)
     }),

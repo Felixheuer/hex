@@ -43,6 +43,8 @@ const RECHECK: Duration = Duration::from_millis(1500);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::rune_ui) enum Page {
     Welcome,
+    /// Where your words go, how freely it acts, the apps it never touches.
+    Privacy,
     Agent,
     /// Screen Recording (and the Microphone and Accessibility, when the
     /// voice setup didn't already grant them), and agent-desktop with its
@@ -53,18 +55,22 @@ pub(in crate::rune_ui) enum Page {
     Checks,
     /// Nothing else takes the Action shortcut, and Hex receives it.
     Shortcut,
+    /// Optional: company, website, and colleagues, remembered.
+    About,
     /// The three gestures, tried for real.
     Try,
 }
 
 impl Page {
-    pub(in crate::rune_ui) const ALL: [Page; 7] = [
+    pub(in crate::rune_ui) const ALL: [Page; 9] = [
         Page::Welcome,
+        Page::Privacy,
         Page::Agent,
         Page::Desktop,
         Page::Browser,
         Page::Checks,
         Page::Shortcut,
+        Page::About,
         Page::Try,
     ];
 
@@ -72,6 +78,8 @@ impl Page {
     pub(in crate::rune_ui) fn name(self) -> &'static str {
         match self {
             Page::Welcome => "welcome",
+            Page::Privacy => "privacy",
+            Page::About => "about",
             Page::Agent => "agent",
             Page::Desktop => "desktop",
             Page::Browser => "browser",
@@ -199,6 +207,8 @@ pub(in crate::rune_ui) struct SetupFlow {
     pub(in crate::rune_ui) fix_command: Option<String>,
     /// Opened by a hold of the Action shortcut before setup finished.
     pub(in crate::rune_ui) from_hold: bool,
+    /// "Tell Hex about you": company, website, colleagues.
+    pub(in crate::rune_ui) about: [rune::TextEdit; 3],
 }
 
 impl Default for SetupFlow {
@@ -231,6 +241,7 @@ impl Default for SetupFlow {
             fix_log: Vec::new(),
             fix_command: None,
             from_hold: false,
+            about: Default::default(),
         }
     }
 }
@@ -254,7 +265,9 @@ pub(in crate::rune_ui) fn fix_for(found: &Found) -> Option<Fix> {
     Some(match (found.backend, found.path.is_some()) {
         (AssistantBackend::ClaudeApi, _) => Fix::AddApiKey,
         (backend, false) => Fix::Install(backend),
-        (AssistantBackend::OpenCode, true) => Fix::StartOpenCode,
+        // OpenCode installed but not answering: it needs a key (or a
+        // provider sign-in), which the agent picker's own-key panel takes.
+        (AssistantBackend::OpenCode, true) => Fix::UseApiKey(AssistantBackend::OpenCode),
         (backend, true) => Fix::SignIn(backend),
     })
 }
@@ -362,7 +375,7 @@ fn passed(flow: &SetupFlow, check: Check) -> bool {
 pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bool {
     let backend = ui.settings.assistant.backend;
     match page {
-        Page::Welcome => true,
+        Page::Welcome | Page::Privacy | Page::About => true,
         Page::Agent => chosen(ui).is_some_and(|found| found.ready),
         Page::Desktop => {
             Grant::HEX
@@ -571,8 +584,37 @@ pub(in crate::rune_ui) fn advance(ui: &mut Ui) {
     if let Some(flow) = ui.chats.setup.as_mut() {
         flow.later.retain(|later| *later != page);
     }
+    if page == Page::About {
+        remember_about(ui);
+    }
     if let Some(next) = page.next() {
         go(ui, next);
+    }
+}
+
+/// What "Tell Hex about you" filled in, added to what Hex knows.
+pub(in crate::rune_ui) fn remember_about(ui: &mut Ui) {
+    use super::round3_shim::memory;
+    let Some(flow) = ui.chats.setup.as_ref() else {
+        return;
+    };
+    let labels = ["Company", "Website", "Colleagues"];
+    let lines: Vec<String> = labels
+        .iter()
+        .zip(&flow.about)
+        .filter(|(_, field)| !field.text.trim().is_empty())
+        .map(|(label, field)| format!("- {label}: {}", field.text.trim()))
+        .collect();
+    if lines.is_empty() || !ui.chats.live() {
+        return;
+    }
+    let mut known = memory::read();
+    if !known.trim().is_empty() {
+        known.push('\n');
+    }
+    known.push_str(&lines.join("\n"));
+    if let Err(error) = memory::write(&known) {
+        tracing::warn!(error = %format!("{error:#}"), "could not remember what the person told");
     }
 }
 

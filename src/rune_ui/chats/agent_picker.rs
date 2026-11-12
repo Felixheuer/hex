@@ -169,6 +169,14 @@ fn codex_key(ui: &Ui, p: Paint) -> El {
         .pl(30.0);
     };
     let mut block = col().key("codex-key").pl(30.0).gap(6.0).child(
+        text(tr("This replaces Codex's ChatGPT sign-in on this Mac for all apps."))
+            .key("warning")
+            .role("status")
+            .font(p.k.ty.small_medium)
+            .color(p.warning())
+            .wrap(),
+    );
+    block = block.child(
         row()
             .key("field-row")
             .gap(8.0)

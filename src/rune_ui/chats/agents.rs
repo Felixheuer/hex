@@ -67,7 +67,7 @@ pub(in crate::rune_ui) fn status(found: Option<&Found>) -> Status {
         return Status::Ready;
     }
     match super::setup::fix_for(found) {
-        Some(Fix::AddApiKey) => Status::AddKey,
+        Some(Fix::AddApiKey | Fix::UseApiKey(_)) => Status::AddKey,
         Some(Fix::Install(_)) => Status::Install,
         // OpenCode installed but not running answers on its own key too.
         _ if found.backend == AssistantBackend::OpenCode => Status::AddKey,
@@ -144,7 +144,7 @@ pub(in crate::rune_ui) fn provider(byok: &Byok) -> Provider {
     providers
         .get(byok.provider)
         .cloned()
-        .unwrap_or_else(|| providers[0].clone())
+        .unwrap_or(providers[0])
 }
 
 /// Checks the key, installing OpenCode first when it isn't; on success,
@@ -248,7 +248,7 @@ fn set_up_now(
         let Some(fix) = found.as_ref().and_then(super::setup::fix_for) else {
             break;
         };
-        if fix == Fix::AddApiKey {
+        if matches!(fix, Fix::AddApiKey | Fix::UseApiKey(_)) {
             return Err("Add an API key for this agent".into());
         }
         backends::apply_fix_with(fix, progress).map_err(|error| format!("{error:#}"))?;

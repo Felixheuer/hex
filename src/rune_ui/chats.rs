@@ -20,6 +20,8 @@ mod follow;
 pub(super) mod fixture;
 mod jobs;
 mod list;
+mod round3_shim;
+mod schedules;
 mod settings;
 mod work;
 mod setup;
@@ -184,6 +186,10 @@ pub(super) struct ChatsPane {
     pub(super) focus_answer: bool,
     /// Here conversations that became Background jobs while shown.
     pub(super) escalated: Vec<ConversationId>,
+    /// The scheduled requests, as last read.
+    pub(super) schedules: Vec<round3_shim::schedules::Schedule>,
+    /// The New schedule sheet, while it shows.
+    pub(super) new_schedule: Option<schedules::NewSchedule>,
     /// The files in each job folder an answer named, by folder.
     pub(super) folders: HashMap<String, Vec<String>>,
     /// A conversation whose Delete waits for its confirmation.
@@ -233,6 +239,8 @@ impl Default for ChatsPane {
             focus_answer: false,
             escalated: Vec::new(),
             folders: HashMap::new(),
+            schedules: Vec::new(),
+            new_schedule: None,
             delete_armed: None,
             unfolded: Vec::new(),
             focus: None,
@@ -285,6 +293,7 @@ impl ChatsPane {
         self.listed = true;
         self.reload_shown();
         self.tasks = self.source.tasks();
+        self.schedules = self.source.schedules();
     }
 
     fn reload_shown(&mut self) {
@@ -713,7 +722,10 @@ pub(super) fn pane(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> (Vec<El>, El) {
             vec![setup_button(p)],
             super::scroll_body(p.k, "chats-settings-scroll", settings::page(ui, p, layer)),
         ),
-        View::Chats => (header_actions(ui, p), list::body(ui, p, layer)),
+        View::Chats => {
+            layer.extend(schedules::sheet(ui, p));
+            (header_actions(ui, p), list::body(ui, p, layer))
+        }
     }
 }
 

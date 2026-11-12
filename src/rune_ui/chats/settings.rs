@@ -5,16 +5,16 @@
 //! all's shortcut (`lanes`).
 
 mod lanes;
+pub(super) mod more;
 
 use std::time::Instant;
 
-use rune::{El, TextEdit, row};
+use rune::{El, TextEdit};
 use rune_kit::TextInput;
 
 use super::super::Menu;
 use super::super::controls::{CardRow, Paint, described_row, section, setting_row, toggle_row};
 use super::super::general::quiet_select;
-use super::super::lists::small_button;
 use super::{BACKENDS, Job, Ui};
 use crate::app_settings::{AssistantBackend, AssistantSettings};
 use crate::assistant::backends::Found;
@@ -50,6 +50,9 @@ pub(in crate::rune_ui) struct SettingsState {
     pub(in crate::rune_ui) browser: Option<AgentBrowser>,
     /// The connected displays, read when Settings or the onboarding opens.
     pub(in crate::rune_ui) displays: Vec<super::display_shim::Display>,
+    /// What Hex knows about you, as edited, and whether that's saved.
+    pub(in crate::rune_ui) memory: TextEdit,
+    pub(in crate::rune_ui) memory_saved: bool,
     /// The agent picker's setups and key panels.
     pub(in crate::rune_ui) agents: super::agents::Agents,
     /// The engine clean browsers run, once read.
@@ -104,6 +107,7 @@ pub(super) fn opened(ui: &mut Ui) {
     }
     ui.chats.settings.model_typed = None;
     super::displays::read(ui);
+    more::opened(ui);
     ui.chats.jobs.run(Job::Detect);
     ui.chats.jobs.run(Job::Browser);
     ui.chats.jobs.run(Job::RunningApps);
@@ -156,38 +160,25 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         )
         .into(),
     ];
-    let mut voice = vec![toggle_row(
-        p,
-        "assistant-speak",
-        tr("Read answers aloud"),
-        tr("Quick questions answer out loud as well as in the HUD"),
-        assistant.speak_answers,
-        |ui: &mut Ui| {
-            ui.update(|settings| settings.assistant.speak_answers ^= true);
-        },
-    )];
-    if assistant.speak_answers {
-        voice.push(setting_row(
+    let mut voice: Vec<CardRow> = vec![
+        toggle_row(
             p,
-            "assistant-voice",
-            tr("Voice"),
-            None,
-            row()
-                .key("voice-controls")
-                .gap(8.0)
-                .center_y()
-                .child(voice_select(ui, p, layer))
-                .child(small_button(
-                    p,
-                    "test-voice",
-                    tr("Test voice"),
-                    |ui: &mut Ui, _| {
-                        let voice = ui.settings.assistant.voice.clone();
-                        ui.chats.jobs.run(Job::Speak(voice));
-                    },
-                )),
-        ));
+            "assistant-speak",
+            tr("Read answers aloud"),
+            tr("Quick questions answer out loud as well as in the HUD"),
+            assistant.speak_answers,
+            |ui: &mut Ui| {
+                ui.update(|settings| settings.assistant.speak_answers ^= true);
+            },
+        )
+        .into(),
+    ];
+    if assistant.speak_answers {
+        voice.push(more::voice_row(ui, p, layer).into());
+        voice.extend(more::better_voice_row(ui, p));
     }
+    voice.extend(more::conversation_rows(ui, p, layer));
+    voice.push(more::notifications_row(ui, p));
     let physical = if assistant.physical_input {
         Some((
             tr("Tasks move your pointer and type with your keyboard. Don't use them while a task runs").to_owned(),
@@ -267,8 +258,10 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
     tasks.extend(lanes::task_rows(ui, p, layer));
     vec![
         section(p, "assistant-agent", tr("Agent"), agent),
+        more::autonomy_section(ui, p),
         section(p, "assistant-voice-section", tr("Answers"), voice),
         section(p, "assistant-tasks", tr("Tasks"), tasks),
+        more::memory_section(ui, p),
         section(p, "assistant-desktop", tr("Desktop"), desktop),
         lanes::web_section(ui, p),
         lanes::blocked_section(ui, p, layer),
@@ -299,32 +292,6 @@ fn model_field(ui: &Ui, p: Paint) -> El {
         .on_change(|ui: &mut Ui, _| ui.chats.settings.model_typed = Some(Instant::now()))
         .build(p.k)
         .key("assistant-model-field")
-}
-
-fn voice_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
-    let voices = ui.chats.settings.voices.clone().unwrap_or_default();
-    let mut labels = vec![tr("System voice").to_owned()];
-    labels.extend(voices.iter().cloned());
-    let current = ui.settings.assistant.voice.as_deref();
-    let selected = current
-        .and_then(|voice| voices.iter().position(|known| known == voice))
-        .map_or(0, |index| index + 1);
-    quiet_select(
-        ui,
-        p,
-        Menu::Pick("assistant-voice"),
-        "assistant-voice-control".to_owned(),
-        tr("Voice"),
-        labels,
-        selected,
-        move |ui, chosen| {
-            let voice = chosen
-                .checked_sub(1)
-                .and_then(|index| voices.get(index).cloned());
-            ui.update(|settings| settings.assistant.voice = voice);
-        },
-        layer,
-    )
 }
 
 fn seconds_label(seconds: u32) -> String {

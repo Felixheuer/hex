@@ -3,6 +3,7 @@
 //! [`fixture::Store`] (scenes, tests, a window not yet connected).
 
 use super::fixture;
+use super::round3_shim::schedules::{self, Repeat, Schedule};
 use crate::assistant::{
     Context, Conversation, ConversationId, ConversationSummary, Request, TaskState, TaskStatus,
     TaskWindow,
@@ -143,6 +144,66 @@ impl Source {
                     tracing::warn!(%error, "could not open a job's result");
                 }
             }
+        }
+    }
+
+    /// The scheduled requests.
+    pub(super) fn schedules(&self) -> Vec<Schedule> {
+        match self {
+            Self::Fixture(store) => store.schedules.clone(),
+            Self::Live => schedules::list(),
+        }
+    }
+
+    pub(super) fn add_schedule(&mut self, text: &str, minute: u32, repeat: Repeat) -> Result<(), String> {
+        match self {
+            Self::Fixture(store) => {
+                if text.is_empty() {
+                    return Err("Say what it should do".into());
+                }
+                store.schedules.push(Schedule {
+                    id: format!("schedule-{}", store.schedules.len() + 1),
+                    text: text.into(),
+                    minute_of_day: minute,
+                    repeat,
+                    enabled: true,
+                    next_ms: None,
+                });
+                Ok(())
+            }
+            Self::Live => schedules::add(text, minute, repeat)
+                .map(|_| ())
+                .map_err(|error| format!("{error:#}")),
+        }
+    }
+
+    pub(super) fn remove_schedule(&mut self, id: &str) {
+        match self {
+            Self::Fixture(store) => store.schedules.retain(|schedule| schedule.id != id),
+            Self::Live => schedules::remove(id),
+        }
+    }
+
+    pub(super) fn set_schedule_enabled(&mut self, id: &str, on: bool) {
+        match self {
+            Self::Fixture(store) => {
+                for schedule in store.schedules.iter_mut().filter(|schedule| schedule.id == id) {
+                    schedule.enabled = on;
+                }
+            }
+            Self::Live => schedules::set_enabled(id, on),
+        }
+    }
+
+    /// What schedule `id` asks, to run it now.
+    pub(super) fn run_schedule(&self, id: &str) -> Option<String> {
+        match self {
+            Self::Fixture(store) => store
+                .schedules
+                .iter()
+                .find(|schedule| schedule.id == id)
+                .map(|schedule| schedule.text.clone()),
+            Self::Live => schedules::run_now(id),
         }
     }
 
