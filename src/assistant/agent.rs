@@ -843,7 +843,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
     });
     if browser {
         prompt.push_str(
-            "You have your own hidden browsers (the browser tools): prefer them for anything on the web (looking things up, web apps, forms), over the person's browser windows. Every browser tool takes `session` (omit it, or \"main\", for the main browser; any other short name opens another, at most 8). Web apps that need the person's accounts (Gmail, Google Sheets, …) need `signedIn: true` on the call that opens them; a clean browser has no sign-ins. If a page shows a captcha or a Cloudflare challenge in a clean browser, retry it in a `signedIn: true` browser.\n",
+            "You have your own hidden browsers (the browser tools): prefer them for anything on the web (looking things up, web apps, forms), over the person's browser windows. Every browser tool takes `session` (omit it, or \"main\", for the main browser; any other short name opens another, at most 12). For research, or when the person asks for several browsers, open one per source or subtopic and work them in parallel (several tool calls in one turn), so the job is done fast. Web apps that need the person's accounts (Gmail, Google Sheets, …) need `signedIn: true` on the call that opens them; a clean browser has no sign-ins. If a page shows a captcha or a Cloudflare challenge in a clean browser, retry it in a `signedIn: true` browser.\n",
         );
     }
     let Some(desktop) = desktop else {
