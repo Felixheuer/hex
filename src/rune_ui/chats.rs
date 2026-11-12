@@ -10,6 +10,8 @@
 //! to it (`connect`); before that, and in every scene and test, it works on
 //! an in-memory [`fixture::Store`] and never touches the service.
 
+#[allow(dead_code, reason = "wired into the merged Assistant settings pane")]
+pub(super) mod accounts;
 mod agent_picker;
 mod agents;
 mod bridge;

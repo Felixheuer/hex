@@ -123,7 +123,7 @@ pub(super) fn opened(ui: &mut Ui) {
     super::displays::read(ui);
     more::opened(ui);
     ui.chats.jobs.run(Job::Detect);
-    ui.chats.jobs.run(Job::Browser);
+    super::accounts::read(ui);
     ui.chats.jobs.run(Job::RunningApps);
     if ui.chats.settings.voices.is_none() {
         ui.chats.jobs.run(Job::Voices);
@@ -356,7 +356,7 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         section(p, "assistant-tasks", tr("How it works"), works),
         section(p, "assistant-desktop", tr("Apps & windows"), desktop),
         lanes::blocked_section(ui, p, layer),
-        lanes::web_section(ui, p),
+        lanes::web_section(ui, p, layer),
         section(p, "assistant-voice-section", tr("Voice"), voice),
         section(
             p,

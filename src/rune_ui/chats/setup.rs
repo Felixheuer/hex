@@ -956,6 +956,7 @@ pub(super) fn receive(ui: &mut Ui, done: super::Done) {
         | Done::VoiceProgress(_)
         | Done::VoiceDownloaded(_)
         | Done::RunningApps(_)
+        | Done::Accounts(_)
         | Done::Browser(..)
         | Done::SignIn(..)
         | Done::BrowserCheck(_)

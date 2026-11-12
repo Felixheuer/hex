@@ -792,7 +792,7 @@ pub fn job_rules(workspace: &std::path::Path, browser: bool, unrestricted: bool)
         },
     );
     if browser && !crate::assistant::browser::signed_in() {
-        rules.push_str("The hidden browser isn't signed in to any account. If the job needs Gmail, Google Sheets, or another account, include in your one question that the person should sign in to it in Hex's browser (Chats has a Sign in button) and answer when done.\n");
+        rules.push_str("The hidden browser isn't signed in to any account. If the job needs Gmail, Google Sheets, or another account, include in your one question that the person should take their logins over from Chrome or sign in by hand in Hex's settings (Accounts) and answer when done.\n");
     }
     rules
 }
@@ -995,7 +995,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
     });
     if browser {
         prompt.push_str(
-            "You have your own hidden browsers (the browser tools): prefer them for anything on the web (looking things up, web apps, forms), over the person's browser windows. Every browser tool takes `session` (omit it, or \"main\", for the main browser; any other short name opens another, at most 12). For research, or when the person asks for several browsers, open one per source or subtopic and work them in parallel (several tool calls in one turn), so the job is done fast. Web apps that need the person's accounts (Gmail, Google Sheets, …) need `signedIn: true` on the call that opens them; a clean browser has no sign-ins. If a page shows a captcha or a Cloudflare challenge in a clean browser, retry it in a `signedIn: true` browser.\n",
+            "You have your own hidden browsers (the browser tools): prefer them for anything on the web (looking things up, web apps, forms), over the person's browser windows. Every browser tool takes `session` (omit it, or \"main\", for the main browser; any other short name opens another, at most 12). For research, or when the person asks for several browsers, open one per source or subtopic and work them in parallel (several tool calls in one turn), so the job is done fast. Your browsers start with the person's accounts (the sites they signed in to for Hex) when there are any, in a light browser; pass `signedIn: true` on the call that opens one for web apps that need real Chrome (Gmail, Google Sheets, …), or `signedIn: false` for a clean one with no accounts. Never ask the person to sign in unless a page still shows a login after that. If a page shows a captcha or a Cloudflare challenge, retry it in a `signedIn: true` browser.\n",
         );
     }
     let Some(desktop) = desktop else {

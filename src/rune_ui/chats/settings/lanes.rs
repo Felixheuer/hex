@@ -88,7 +88,7 @@ pub(in crate::rune_ui) fn front_window_row(ui: &Ui, p: Paint) -> CardRow {
 }
 
 /// The hidden browser for web tasks, and whether agent-browser is here.
-pub(in crate::rune_ui) fn web_section(ui: &Ui, p: Paint) -> El {
+pub(in crate::rune_ui) fn web_section(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     let on = ui.settings.assistant.background_browser;
     let mut rows: Vec<CardRow> = vec![
         toggle_row(
@@ -111,7 +111,9 @@ pub(in crate::rune_ui) fn web_section(ui: &Ui, p: Paint) -> El {
         .is_some_and(|found| found.path.is_none() || !found.browser_ready);
     if on && !missing && ui.chats.settings.browser.is_some() {
         rows.push(engine_row(ui, p));
-        rows.push(sign_in_row(ui, p));
+        // Logins: taken from Chrome or signed in by hand, for every new
+        // browser (`chats::accounts`).
+        rows.extend(super::super::accounts::rows(ui, p, layer));
     }
     if on && missing {
         rows.push(
@@ -356,49 +358,6 @@ pub(in crate::rune_ui) fn experimental_section(ui: &Ui, p: Paint) -> El {
         },
     );
     section(p, "assistant-experimental", tr("Experimental"), vec![row])
-}
-
-/// Signing in to sites in Hex's own browser, which every task's hidden
-/// browser then starts from.
-fn sign_in_row(ui: &Ui, p: Paint) -> CardRow {
-    let state = &ui.chats.settings;
-    let (detail, ink) = match &state.sign_in_error {
-        Some(error) => (error.clone(), p.danger()),
-        None if state.signing_in => (
-            tr("Sign in in Hex's browser window, then press Done").to_owned(),
-            p.accent(),
-        ),
-        None if state.signed_in => (super::super::site_sign_in::summary(ui), p.muted()),
-        None => (
-            tr("Hidden browsers start signed out. Sign in once in Hex's own browser").to_owned(),
-            p.muted(),
-        ),
-    };
-    let mut controls = row()
-        .key("sign-in-controls")
-        .gap(8.0)
-        .center_y()
-        .child(super::super::sheet::sign_in_button(ui, p, "sign-in-sites"));
-    if state.signed_in && !state.signing_in {
-        controls = controls.child(small_button(
-            p,
-            "forget-sign-ins",
-            tr("Sign out everywhere"),
-            |ui: &mut Ui, _| ui.chats.jobs.run(super::super::Job::ForgetSignIn),
-        ));
-    }
-    rune::col()
-        .key("site-sign-in")
-        .w_full()
-        .child(described_row(
-            p,
-            "assistant-sign-in",
-            tr("Sites tasks may use"),
-            Some((detail, ink)),
-            controls,
-        ))
-        .children(super::super::site_sign_in::editor(ui, p).map(|editor| editor.px(16.0).pb(12.0)))
-        .into()
 }
 
 /// Which engine clean browsers run: Lightpanda (light, for many at once)

@@ -13,15 +13,19 @@
 //! seven named ones) in Hex's own namespace and withholds the arguments that
 //! would show a window, reach another task, or persist state.
 //!
-//! **Sign-ins.** A hidden browser has none of the person's cookies, and Hex
-//! never copies them from Chrome or Safari. Instead the person may sign in
-//! once in a visible window of Hex's own ([`sign_in`]); agent-browser keeps
-//! that window's cookies and storage under a restore key, and a task's
-//! browser that asks for it (`signedIn`) starts in Chrome from a read-only
-//! copy of them (it never saves back).
+//! **Sign-ins.** A hidden browser has none of the person's cookies. The
+//! person signs in once: by taking the logins of one of their Chrome
+//! profiles over ([`accounts::import_from_chrome`], refreshed daily), or by
+//! hand in a visible window of Hex's own ([`sign_in`]). agent-browser keeps
+//! them under one restore key, and every task's browser starts from a
+//! read-only copy of them (it never saves back): in real Chrome when it asks
+//! for `signedIn`, else in the light engine, which loads them too
+//! (`assistant.browser_signed_in_by_default`; `signedIn: false` starts one
+//! clean).
 //!
 //! OWNER: browser.
 
+pub mod accounts;
 pub mod consent;
 mod proxy;
 pub mod sessions;
@@ -358,8 +362,28 @@ pub fn signed_in() -> bool {
     !saved_sites().is_empty()
 }
 
+/// Whether a task's browser that asks for nothing starts with the person's
+/// accounts: the setting is on (read fresh) and some are saved.
+pub fn accounts_by_default() -> bool {
+    let on = crate::app_settings::assistant_runtime()
+        .map(|(_, settings)| settings.browser_signed_in_by_default)
+        .or_else(|| {
+            crate::app_settings::AppSettings::read()
+                .ok()
+                .map(|settings| settings.assistant.browser_signed_in_by_default)
+        })
+        .unwrap_or(true);
+    on && signed_in()
+}
+
+/// The sign-in state file every browser restores (the sign-in window's own).
+pub(crate) fn sign_in_state_file() -> Option<PathBuf> {
+    Some(state_dir()?.join(format!("{SIGN_IN}-{SIGN_IN}.json")))
+}
+
 /// Forgets every sign-in: the next tasks start signed out.
 pub fn forget_sign_in() -> Result<()> {
+    accounts::forget_import();
     let Some(dir) = state_dir() else {
         return Ok(());
     };

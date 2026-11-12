@@ -42,7 +42,7 @@ pub fn serve(task: &str) -> Result<()> {
     );
     relay(
         command,
-        Sessions::new(task, super::clean_engine()),
+        Sessions::new(task, super::clean_engine()).with_accounts(super::accounts_by_default()),
         consent,
         Pause::task(task),
         move || super::running(&path, &task_id),

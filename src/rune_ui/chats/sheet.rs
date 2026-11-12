@@ -11,7 +11,6 @@ mod privacy;
 mod shortcut;
 mod try_it;
 
-pub(super) use browser::sign_in_button;
 pub(super) use desktop::install_failure;
 
 use rune::{Align, El, col, el, icon, row, text};
