@@ -740,7 +740,7 @@ pub fn run(
                     // Reads nothing yet: a chord (right Ctrl+C) or a short tap
                     // is discarded before the hold is real.
                     question = (flavour == DictationFlavour::Assistant)
-                        .then(|| crate::assistant::shortcut::press(after_tap));
+                        .then(|| crate::assistant::shortcut::press(false));
                     if audio_ready {
                         capture.start_hotkey_at(
                             occurred_at,
@@ -777,7 +777,7 @@ pub fn run(
                         // tap says "New task"), so a question never looks like
                         // a dictation.
                         if flavour == DictationFlavour::Assistant {
-                            indicator.send(crate::rune_hud::HudEvent::Asking { agent: after_tap });
+                            indicator.send(crate::rune_hud::HudEvent::Asking { agent: false });
                         }
                     }
                     events.dictation(DictationPhase::Started, "")?;

@@ -102,6 +102,8 @@ pub enum Outcome {
     Escalate {
         title: String,
         reply: String,
+        /// Further jobs to start beside it: (title, what each does).
+        more: Vec<(String, String)>,
     },
     /// Hex refused a consequential action; the person's yes to `question`
     /// allows that kind of action for the task.
@@ -251,9 +253,9 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
                 keep_reply(store, &mut stored, actions, &question, emit);
                 return Outcome::Confirm { category, question };
             }
-            markers::Marker::Job { title, reply } if job.workspace.is_none() => {
+            markers::Marker::Job { title, reply, more } if job.workspace.is_none() => {
                 keep_reply(store, &mut stored, actions, &reply, emit);
-                return Outcome::Escalate { title, reply };
+                return Outcome::Escalate { title, reply, more };
             }
             // Already a job: go on as if it had answered.
             markers::Marker::Job { reply, .. } => {
@@ -616,7 +618,7 @@ pub fn autonomy_rules(
 }
 
 /// How a Here or Chat agent hands a job to Hex instead of doing it.
-pub const ROUTING: &str = "\nIf the request is a job rather than a quick question or a small action, don't start it. A job has several steps, many items, several apps or websites, research, or documents, or takes more than a minute or two. Reply with exactly two lines instead: first `HEX_JOB: <a short title, at most six words>`, then one or two short, speakable sentences in the person's language saying you're on it and what it covers, such as “On it: 50 suppliers, Gmail drafts, and a sheet. I'll ask what I need.” Hex then runs it in the background with every tool it needs.\n";
+pub const ROUTING: &str = "\nYou decide how to handle each request; the person only holds a key and speaks. Answer a quick question or do a small action yourself, right away. If the request is a job rather than that, don't start it. A job has several steps, many items, several apps or websites, research, or documents, or takes more than a minute or two. Reply instead with: first `HEX_JOB: <a short title, at most six words>`; if the request holds several independent jobs (such as researching three topics), add one line per further job right after it, `HEX_JOB: <title> | <that job in one self-contained sentence>`, so they run in parallel; then one or two short, speakable sentences in the person's language saying you're on it and what it covers, such as “On it: 50 suppliers, Gmail drafts, and a sheet. I'll ask what I need.” Hex then runs each in the background with every tool it needs, and each job asks the person what it needs to know.\n";
 
 /// A job's rules: its workspace, plan, one batched question, files, and
 /// what it may never do on its own.

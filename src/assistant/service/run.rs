@@ -268,11 +268,22 @@ impl Runner {
                 self.voice.drop_answer(&conversation);
                 self.emit(&Event::Cancelled { conversation });
             }
-            Outcome::Escalate { title, reply } => {
+            Outcome::Escalate { title, reply, more } => {
                 if voice && settings.speak_answers && !reply.is_empty() {
                     self.voice.finish(self, &conversation, &reply);
                 }
                 self.escalate(request, title, new_conversation, voice);
+                for (title, text) in more {
+                    self.submit_as(
+                        Request {
+                            conversation: None,
+                            text,
+                            origin: Origin::Background,
+                            context: Context::default(),
+                        },
+                        JobKind::Job { title },
+                    );
+                }
             }
             Outcome::Steered
             | Outcome::Limited { .. }
