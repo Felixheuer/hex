@@ -17,6 +17,8 @@ pub struct Doctor {
     pub context: Option<PathBuf>,
     /// Read this aloud.
     pub say: Option<String>,
+    /// Run only the hidden browser's self-tests.
+    pub browser: bool,
 }
 
 pub fn run(doctor: Doctor) -> color_eyre::Result<()> {
@@ -37,6 +39,20 @@ pub fn run(doctor: Doctor) -> color_eyre::Result<()> {
         );
     }
     println!("agent_desktop(): {:?}", super::agent_desktop());
+    for tool in super::BACKENDS
+        .into_iter()
+        .filter(|backend| *backend != crate::app_settings::AssistantBackend::ClaudeApi)
+        .map(super::Tool::Agent)
+        .chain([super::Tool::AgentDesktop, super::Tool::AgentBrowser])
+    {
+        let plan = super::plan(tool, &super::Installers::here(tool));
+        println!("install plan for {}: {plan:?}", tool.name());
+    }
+    println!(
+        "browser::agent_browser(): {:?} signed_in={}",
+        crate::assistant::browser::agent_browser(),
+        crate::assistant::browser::signed_in()
+    );
     println!(
         "computer::permissions_now(): {:?}",
         computer::permissions_now()
@@ -90,21 +106,38 @@ pub fn run(doctor: Doctor) -> color_eyre::Result<()> {
         }
     }
 
-    if doctor.checks {
+    if doctor.checks || doctor.browser {
         let settings = AssistantSettings::default();
-        let mut checks = vec![
-            super::Check::HexPermissions,
-            super::Check::DesktopPermissions,
-            super::Check::DesktopRoundTrip,
-        ];
-        for found in &found {
-            let installed = found.path.is_some()
-                || found.backend == crate::app_settings::AssistantBackend::ClaudeApi;
+        let api = crate::app_settings::AssistantBackend::ClaudeApi;
+        let mut checks = if doctor.browser {
+            Vec::new()
+        } else {
+            vec![
+                super::Check::HexPermissions,
+                super::Check::DesktopPermissions,
+                super::Check::DesktopRoundTrip,
+            ]
+        };
+        checks.push(super::Check::BrowserRoundTrip);
+        if doctor.browser {
+            // Hex's own MCP path, as the Claude API's tasks use it, then
+            // each agent that is ready (a tiny prompt each).
+            checks.push(super::Check::BrowserThroughAgent(api));
+            checks.extend(
+                found
+                    .iter()
+                    .filter(|found| found.ready && found.path.is_some())
+                    .map(|found| super::Check::BrowserThroughAgent(found.backend)),
+            );
+        }
+        for found in found.iter().filter(|_| doctor.checks) {
+            let installed = found.path.is_some() || found.backend == api;
             if installed {
                 checks.push(super::Check::Answers(found.backend));
-                if found.backend != crate::app_settings::AssistantBackend::ClaudeApi {
+                if found.backend != api {
                     checks.push(super::Check::DesktopThroughAgent(found.backend));
                 }
+                checks.push(super::Check::BrowserThroughAgent(found.backend));
             }
         }
         println!("self-tests:");

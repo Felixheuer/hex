@@ -12,11 +12,12 @@
 //! OWNER: hands.
 
 mod check;
-mod desktop;
+pub(in crate::assistant) mod desktop;
 #[cfg(debug_assertions)]
 pub mod doctor;
+mod install;
 pub(in crate::assistant) mod run;
-mod search;
+pub(in crate::assistant) mod search;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -27,8 +28,9 @@ use color_eyre::{Result, eyre::eyre};
 use crate::app_settings::AssistantBackend;
 
 pub use check::{
-    Check, CheckResult, CheckState, Fix, apply_fix, opencode_recent_model, self_test, self_tests,
+    Check, CheckResult, CheckState, Fix, opencode_recent_model, self_test, self_tests,
 };
+pub use install::{Installers, Plan, Step, Tool, apply_fix, apply_fix_with, install_command, plan};
 
 /// One agent found on this computer.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -162,7 +164,7 @@ fn opencode_running() -> bool {
 }
 
 /// The version `path --version` prints, or why it didn't run.
-fn version_of(path: &Path) -> std::result::Result<Option<String>, String> {
+pub(in crate::assistant) fn version_of(path: &Path) -> std::result::Result<Option<String>, String> {
     let mut command = agent_command(path);
     command.arg("--version");
     let ran = run::bounded(command, QUICK).map_err(|error| error.to_string())?;
@@ -327,7 +329,10 @@ fn agent_desktop_grants(path: &Path) -> std::result::Result<desktop::Grants, Str
 }
 
 /// Runs one read-only agent-desktop command from Hex and reads its reply.
-fn desktop_call(path: &Path, args: &[&str]) -> std::result::Result<desktop::Reply, String> {
+pub(in crate::assistant) fn desktop_call(
+    path: &Path,
+    args: &[&str],
+) -> std::result::Result<desktop::Reply, String> {
     let mut command = agent_command(path);
     command.args(args);
     let ran = run::bounded(command, Duration::from_secs(15)).map_err(|error| error.to_string())?;
@@ -344,43 +349,11 @@ fn desktop_call(path: &Path, args: &[&str]) -> std::result::Result<desktop::Repl
     })
 }
 
-/// Installs agent-desktop with Homebrew (`brew install agent-desktop`);
-/// blocks until done (minutes at most). Fails with a person-readable reason
-/// when Homebrew is missing.
+/// Installs agent-desktop (Homebrew, else npm); blocks until done (minutes
+/// at most). Fails with a person-readable reason when neither is there
+/// ([`install_command`] has what to paste in Terminal instead).
 pub fn install_agent_desktop() -> Result<()> {
-    let brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
-        .map(PathBuf::from)
-        .into_iter()
-        .find(|path| search::is_executable(path))
-        .or_else(|| search::find("brew"))
-        .ok_or_else(|| {
-            eyre!(
-                "Homebrew isn't installed. Install it from brew.sh, or run \
-                 `npm install -g agent-desktop` in Terminal"
-            )
-        })?;
-    let mut command = agent_command(&brew);
-    command
-        .args(["install", "agent-desktop"])
-        .env("HOMEBREW_NO_ENV_HINTS", "1");
-    let ran = run::bounded(command, Duration::from_secs(600))
-        .map_err(|error| eyre!("Homebrew didn't start: {error}"))?;
-    if ran.timed_out() {
-        return Err(eyre!("Installing agent-desktop took more than 10 minutes"));
-    }
-    if !ran.success() {
-        return Err(eyre!(
-            "Homebrew couldn't install agent-desktop: {}",
-            ran.last_words()
-        ));
-    }
-    refresh();
-    if search::find("agent-desktop").is_none() {
-        return Err(eyre!(
-            "Homebrew installed agent-desktop, but Hex can't find it"
-        ));
-    }
-    Ok(())
+    install::install(Tool::AgentDesktop, &mut |_| {})
 }
 
 /// Opens System Settings at agent-desktop's missing permission
@@ -440,24 +413,36 @@ pub fn mcp_server(args: &[&str]) -> Option<McpServer> {
 impl McpServer {
     /// For `claude --mcp-config <this> --strict-mcp-config`.
     pub fn claude_config(&self) -> String {
+        self.claude_config_as(MCP_NAME)
+    }
+
+    /// [`Self::claude_config`] with the server under `name` (another
+    /// server, such as `browser::MCP_NAME`).
+    pub fn claude_config_as(&self, name: &str) -> String {
+        serde_json::json!({ "mcpServers": { name: self.claude_entry() } }).to_string()
+    }
+
+    /// The server's entry in a Claude Code `mcpServers` map, for a config
+    /// with several servers.
+    pub fn claude_entry(&self) -> serde_json::Value {
         serde_json::json!({
-            "mcpServers": {
-                MCP_NAME: {
-                    "type": "stdio",
-                    "command": self.command,
-                    "args": self.args,
-                    "env": { "PATH": self.path_env },
-                }
-            }
+            "type": "stdio",
+            "command": self.command,
+            "args": self.args,
+            "env": { "PATH": self.path_env },
         })
-        .to_string()
     }
 
     /// `-c` overrides for `codex exec` that add the server, with only
     /// `tools` enabled (all when empty), approved without asking: `codex
     /// exec` can't ask.
     pub fn codex_args(&self, tools: &[&str]) -> Vec<String> {
-        let key = format!("mcp_servers.{MCP_NAME}");
+        self.codex_args_as(MCP_NAME, tools)
+    }
+
+    /// [`Self::codex_args`] with the server under `name`.
+    pub fn codex_args_as(&self, name: &str, tools: &[&str]) -> Vec<String> {
+        let key = format!("mcp_servers.{name}");
         let toml = |value: serde_json::Value| value.to_string();
         let mut args = vec![
             format!(
@@ -482,10 +467,15 @@ impl McpServer {
     /// The `mcp` entry of an OpenCode config (`OPENCODE_CONFIG_CONTENT` for
     /// `opencode run --standalone`).
     pub fn opencode_config(&self) -> serde_json::Value {
+        self.opencode_config_as(MCP_NAME)
+    }
+
+    /// [`Self::opencode_config`] with the server under `name`.
+    pub fn opencode_config_as(&self, name: &str) -> serde_json::Value {
         let mut command = vec![self.command.to_string_lossy().into_owned()];
         command.extend(self.args.iter().cloned());
         serde_json::json!({
-            MCP_NAME: {
+            name: {
                 "type": "local",
                 "command": command,
                 "environment": { "PATH": self.path_env },
