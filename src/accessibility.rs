@@ -78,6 +78,22 @@ pub fn focused_window_title(pid: i32) -> Option<String> {
     copy_string(&window, c"AXTitle").filter(|title| !title.is_empty())
 }
 
+/// The text selected in the application's focused element (Labs ›
+/// Assistant's question context), read through Accessibility, never the
+/// clipboard. `None` when nothing is selected or the app doesn't say.
+pub fn selected_text(pid: i32) -> Option<String> {
+    let application = foreign_application(pid)?;
+    let focused = copy_element(&application, c"AXFocusedUIElement")?;
+    if let Some(text) = copy_string(&focused, c"AXSelectedText").filter(|text| !text.is_empty()) {
+        return Some(text);
+    }
+    // Some text views (and web areas) answer only for a range.
+    let range = copy_range(&focused, c"AXSelectedTextRange")?;
+    (range.length > 0)
+        .then(|| copy_string_for_range(&focused, range))
+        .flatten()
+}
+
 /// The page address of the web area holding the application's focused
 /// element, for browsers without a scripting dictionary (Firefox, Zen).
 /// The outermost web area wins, so focus inside an iframe still reports
@@ -365,6 +381,7 @@ mod tests {
         assert_eq!(focused_window_title(i32::MAX), None);
         assert_eq!(focused_web_url(i32::MAX), None);
         assert_eq!(char_before_caret(i32::MAX), None);
+        assert_eq!(selected_text(i32::MAX), None);
     }
 
     /// Hex's own tree belongs to the main thread that updates it: the
@@ -377,6 +394,7 @@ mod tests {
         assert_eq!(focused_window_title(own_pid), None);
         assert_eq!(focused_web_url(own_pid), None);
         assert_eq!(char_before_caret(own_pid), None);
+        assert_eq!(selected_text(own_pid), None);
         assert!(browser_pages(own_pid).urls.is_empty());
     }
 }
