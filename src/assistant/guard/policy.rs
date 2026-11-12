@@ -32,6 +32,8 @@ pub enum Kind {
     InstalledApps,
     /// Hex's own `hex_open_app`.
     OpenApp,
+    /// Hex's own `hex_displays`.
+    Displays,
     /// Never forwarded; the text says why.
     Refused(&'static str),
 }
@@ -62,6 +64,10 @@ pub const INSTALLED_APPS_TOOL: &str = "hex_installed_apps";
 /// Hex's safer `launch`: opens an app (or a fresh instance of it) and makes
 /// its new window the task's (Background lane).
 pub const OPEN_APP_TOOL: &str = "hex_open_app";
+
+/// Hex's display layout: which display the person works on, and which one
+/// Background tasks' windows go to.
+pub const DISPLAYS_TOOL: &str = "hex_displays";
 
 const MANAGED: &str = "Hex manages agent-desktop's sessions, cursors, traces, and permissions; \
 this tool isn't available to tasks.";
@@ -133,6 +139,7 @@ pub fn kind(tool: &str, args: &Map<String, Value>) -> Kind {
         CLAIM_TOOL => return Kind::Claim,
         INSTALLED_APPS_TOOL => return Kind::InstalledApps,
         OPEN_APP_TOOL => return Kind::OpenApp,
+        DISPLAYS_TOOL => return Kind::Displays,
         _ => {}
     }
     let Some(name) = tool.strip_prefix("desktop_") else {

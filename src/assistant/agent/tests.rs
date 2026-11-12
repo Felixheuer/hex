@@ -36,6 +36,7 @@ fn a_quick_question_carries_what_was_on_screen() {
         frontmost_app: Some("Mail".into()),
         window_title: Some("Inbox".into()),
         window: Some(mail()),
+        display: Some("The person is working on M27Q (display 5).".into()),
     };
     let prompt = prompt(
         &job("What's this?", Origin::ActionShortcut, context),
@@ -44,7 +45,7 @@ fn a_quick_question_carries_what_was_on_screen() {
     );
     assert_eq!(
         prompt,
-        "What the person has on screen as they ask:\nFrontmost app: Mail\nIts window: Inbox\nYour only window, the one in front: Mail (window id w-3)\nSelected text:\n<<<\nthe invoice total\n>>>\n\nThe person asks: What's this?"
+        "What the person has on screen as they ask:\nFrontmost app: Mail\nIts window: Inbox\nYour only window, the one in front: Mail (window id w-3)\nDisplays: The person is working on M27Q (display 5).\nSelected text:\n<<<\nthe invoice total\n>>>\n\nThe person asks: What's this?"
     );
     let plain = job("Hi", Origin::ActionShortcut, Context::default());
     assert_eq!(super::prompt(&plain, &[], true), "Hi");

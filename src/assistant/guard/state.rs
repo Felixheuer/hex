@@ -232,6 +232,19 @@ impl Store {
         }
     }
 
+    /// What the person authorized `task` to do without asking
+    /// (`authorized/<task>.json`, written by the brain); nothing when absent.
+    pub fn authorized(&self, task: &str) -> crate::assistant::autonomy::Authorized {
+        std::fs::read(
+            self.root
+                .join("authorized")
+                .join(format!("{}.json", file_name(task))),
+        )
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+    }
+
     /// Forgets every pause (no task of an earlier run is still taken over).
     pub fn clear_paused(&self) {
         let _ = std::fs::remove_dir_all(self.paused_dir());

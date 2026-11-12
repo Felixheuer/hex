@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 use serde_json::{Map, Value, json};
 
 mod apps;
+mod consent;
+mod displays;
 mod lookup;
 
 use super::child::{self, Desktop, Window};
@@ -24,6 +26,10 @@ pub struct Config {
     pub here_window: Option<TaskWindow>,
     pub physical_input: bool,
     pub blocked_apps: Vec<String>,
+    /// `assistant.agent_display`: where new Background windows go.
+    pub agent_display: Option<String>,
+    /// `assistant.autonomy`: how freely it takes consequential actions.
+    pub autonomy: crate::assistant::autonomy::Autonomy,
 }
 
 /// Where a snapshot's refs point.
@@ -89,6 +95,12 @@ pub struct Guard<D: Desktop> {
     /// adopted).
     known: Option<HashSet<String>>,
     watched: HashMap<String, Instant>,
+    /// Windows this call made the task's, to move to the agents' display.
+    arrived: Vec<Window>,
+    /// Windows moved to a display, by window id: the display's id.
+    placed: HashMap<String, String>,
+    /// Labels and secure fields by ref, from results.
+    elements: HashMap<String, consent::Element>,
     /// The last look at the windows on screen, and when.
     looked: Option<(Instant, Vec<Window>)>,
     notes: Vec<String>,
@@ -124,6 +136,9 @@ impl<D: Desktop> Guard<D> {
             snapshots: HashMap::new(),
             known: None,
             watched: HashMap::new(),
+            arrived: Vec::new(),
+            placed: HashMap::new(),
+            elements: HashMap::new(),
             looked: None,
             notes: Vec::new(),
             resumed,
@@ -150,7 +165,11 @@ impl<D: Desktop> Guard<D> {
         tools.retain(|tool| {
             let name = tool.get("name").and_then(Value::as_str).unwrap_or_default();
             match policy::kind(name, &Map::new()) {
-                Kind::Refused(_) | Kind::Claim | Kind::InstalledApps | Kind::OpenApp => false,
+                Kind::Refused(_)
+                | Kind::Claim
+                | Kind::InstalledApps
+                | Kind::OpenApp
+                | Kind::Displays => false,
                 Kind::Physical => physical,
                 Kind::Clipboard => !background || physical,
                 Kind::Launch | Kind::FocusWindow => background == (name == "desktop_launch"),
@@ -161,6 +180,7 @@ impl<D: Desktop> Guard<D> {
             tools.push(claim_tool());
         }
         tools.extend(apps::tools(background));
+        tools.push(displays::tool());
         Ok(tools)
     }
 
@@ -201,7 +221,11 @@ impl<D: Desktop> Guard<D> {
         self.forwarding = Duration::ZERO;
         self.notice_resume();
         let mut args = args;
+        if self.config.lane == Lane::Background {
+            self.return_orphans();
+        }
         let outcome = self.run(tool, &mut args);
+        self.place_arrivals();
         tracing::debug!(
             tool,
             guard_ms = started
@@ -246,6 +270,7 @@ impl<D: Desktop> Guard<D> {
             Kind::Refused(why) => return Err(refusal(tool, "POLICY_DENIED", why)),
             Kind::Claim => return self.claim(tool, args),
             Kind::InstalledApps => return Ok(self.installed_apps(args)),
+            Kind::Displays => return Ok(self.displays_tool()),
             Kind::Clipboard
                 if self.config.lane == Lane::Background && !self.config.physical_input =>
             {
@@ -313,7 +338,9 @@ impl<D: Desktop> Guard<D> {
         for window in &resolved {
             self.check(tool, kind, window, &held)?;
         }
+        self.secure_read(tool, args)?;
         if kind.acts() {
+            self.consent(tool, args, &resolved)?;
             if self.config.lane == Lane::Background {
                 for window in &resolved {
                     self.watch(&window.app);
@@ -326,7 +353,8 @@ impl<D: Desktop> Guard<D> {
             .then(|| self.store.hands_on(&self.config.task, self.pid));
         let result = self.forward(tool, args);
         drop(hands);
-        let result = result?;
+        let mut result = result?;
+        self.learn_and_redact(&mut result);
         self.record(&result, &resolved);
         if kind.acts() {
             let _ = self.list(Look::AfterAction);
@@ -484,6 +512,9 @@ impl<D: Desktop> Guard<D> {
                 crate::desktop::events::now_ms(),
             );
             if acquired == Acquire::Acquired {
+                if self.config.lane == Lane::Background {
+                    self.arrived.push(window.clone());
+                }
                 self.notes.push(format!(
                     "the new window {} is yours now.",
                     describe(&window.id, &window.app, &window.title)

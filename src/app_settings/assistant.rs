@@ -81,6 +81,10 @@ pub struct AssistantSettings {
     /// Experimental: windows Background tasks open move to a Space of their
     /// own, out of the person's way.
     pub agent_space: bool,
+    /// The display new Background windows go to, by agent-desktop id ("5")
+    /// or name ("M27Q"); `None` is the one the person isn't working on
+    /// (with two or more displays; with one, windows stay where they open).
+    pub agent_display: Option<String>,
     /// How freely tasks take consequential actions (send, delete, pay,
     /// share, publish): ask each time, only what the request named, or yolo.
     pub autonomy: crate::assistant::autonomy::Autonomy,
@@ -131,6 +135,7 @@ impl Default for AssistantSettings {
             task_timeout_minutes: 30,
             retry_on_limit: true,
             agent_space: false,
+            agent_display: None,
             autonomy: crate::assistant::autonomy::Autonomy::Smart,
             memory: true,
             conversation_seconds: 8,

@@ -73,7 +73,23 @@ pub struct Authorized {
 /// in English, German, French, and Spanish. A label that undoes, cancels,
 /// or discards a draft is none ("Discard draft", "Entwurf verwerfen");
 /// keyboard hints such as the "(⌘Enter)" in Gmail's "Send (⌘Enter)" are ignored.
+///
+/// A label that ends in an ellipsis ("Share…", "Delete…") only opens a
+/// dialog or menu, so it is none: the dialog's own button is classified
+/// when it is pressed. Desktop commands that merely begin like one ("Send
+/// to Back", "Share Screen", "Delete Backward") are none too.
 pub fn classify(label: &str) -> Option<Category> {
+    let trimmed = label.trim();
+    if trimmed.ends_with('…') || trimmed.ends_with("...") {
+        return None;
+    }
+    let flat = normalize(trimmed);
+    if NOT_CONSEQUENTIAL
+        .iter()
+        .any(|phrase| starts_with(&flat, phrase))
+    {
+        return None;
+    }
     let words = words(label);
     if words.is_empty() || SAFE.iter().any(|phrase| has(&words, phrase)) {
         return None;
@@ -164,6 +180,7 @@ const DELETE: &[&str] = &[
     "endgültig löschen",
     "entfernen",
     "papierkorb leeren",
+    "papierkorb entleeren",
     "in den papierkorb",
     "supprimer",
     "supprimer définitivement",
@@ -241,6 +258,38 @@ fn has(words: &[String], phrase: &str) -> bool {
         .windows(phrase.len())
         .any(|window| window.iter().zip(&phrase).all(|(word, part)| word == part))
 }
+
+/// Lowercase words, without punctuation and price tags.
+fn normalize(label: &str) -> String {
+    label
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `words` is `phrase`, or begins with it as whole words.
+fn starts_with(words: &str, phrase: &str) -> bool {
+    words == phrase
+        || words
+            .strip_prefix(phrase)
+            .is_some_and(|rest| rest.starts_with(' '))
+}
+
+/// Labels that begin like a consequential one but aren't.
+const NOT_CONSEQUENTIAL: &[&str] = &[
+    "send to back",
+    "send backward",
+    "nach hinten",
+    "share screen",
+    "delete backward",
+    "delete forward",
+    "post it",
+];
+
 
 /// Whether an action of `category` may run now for this task.
 pub fn allowed(mode: Autonomy, category: Category, authorized: &Authorized) -> bool {
@@ -398,5 +447,55 @@ mod tests {
         let authorized: Authorized = serde_json::from_str(json).unwrap();
         assert!(authorized.categories.contains(&Category::Share));
         assert_eq!(serde_json::to_string(&authorized).unwrap(), json);
+    }
+}
+
+#[cfg(test)]
+mod desktop_tests {
+    use super::*;
+
+    #[test]
+    fn consequential_labels_are_classified_in_english_and_german() {
+        for (label, category) in [
+            ("Send", Category::Send),
+            ("Senden", Category::Send),
+            ("send message", Category::Send),
+            ("Move to Trash", Category::Delete),
+            ("In den Papierkorb legen", Category::Delete),
+            ("Empty Trash", Category::Delete),
+            ("Papierkorb entleeren", Category::Delete),
+            ("Delete", Category::Delete),
+            ("Löschen", Category::Delete),
+            ("Buy Now", Category::Pay),
+            ("Jetzt kaufen", Category::Pay),
+            ("Zahlungspflichtig bestellen", Category::Pay),
+            ("Place your order", Category::Pay),
+            ("Share", Category::Share),
+            ("Freigeben", Category::Share),
+            ("Publish", Category::Publish),
+            ("Veröffentlichen", Category::Publish),
+            ("Post", Category::Publish),
+        ] {
+            assert_eq!(classify(label), Some(category), "{label}");
+        }
+    }
+
+    #[test]
+    fn dialogs_and_lookalikes_are_not_consequential() {
+        for label in [
+            "Share…",
+            "Delete...",
+            "Send to Back",
+            "Sender",
+            "Sendung verfolgen",
+            "Deleted Items",
+            "Postfach",
+            "Buyer guide",
+            "Reply",
+            "Cancel",
+            "",
+        ] {
+            assert_eq!(classify(label), None, "{label}");
+        }
     }
 }

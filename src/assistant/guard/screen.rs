@@ -7,6 +7,7 @@
 use std::path::PathBuf;
 
 use super::child::{Desktop, Window};
+pub use crate::assistant::computer::Display;
 
 /// An installed app.
 #[derive(Clone, Debug, PartialEq)]
@@ -31,6 +32,11 @@ pub trait Screen: Send {
     fn running_apps(&mut self) -> Vec<PathBuf> {
         Vec::new()
     }
+
+    /// The displays, with the one the person works on marked.
+    fn displays(&mut self) -> Vec<Display> {
+        Vec::new()
+    }
 }
 
 /// This Mac, read in process.
@@ -45,6 +51,8 @@ impl CoreGraphics {
             .name("hex-guard-warm".into())
             .spawn(|| {
                 let _ = Self.windows();
+                // Starts learning the displays' names (system_profiler).
+                let _ = Self.displays();
                 crate::application_catalog::discover();
             });
     }
@@ -74,6 +82,10 @@ impl Screen for CoreGraphics {
                 path: app.path,
             })
             .collect()
+    }
+
+    fn displays(&mut self) -> Vec<Display> {
+        crate::assistant::computer::displays()
     }
 
     fn running_apps(&mut self) -> Vec<PathBuf> {
