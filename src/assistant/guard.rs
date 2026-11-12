@@ -309,6 +309,17 @@ pub fn set_paused(task: &str, paused: bool) {
     }
 }
 
+/// Whether the person took `task` over (`set_paused`): its browser tool
+/// waits too (`browser::proxy`).
+pub fn paused(task: &str) -> bool {
+    state::Store::standard().is_some_and(|store| store.paused(task))
+}
+
+/// When `task` was last handed back, as stored; it changes on each resume.
+pub fn resumed(task: &str) -> Option<String> {
+    state::Store::standard()?.resumed(task)
+}
+
 /// The task moving the real pointer or pressing real keys right now.
 pub fn hands_off() -> Option<ConversationId> {
     state::Store::standard()?.hands_off()

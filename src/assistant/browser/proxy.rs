@@ -5,12 +5,14 @@
 //! reach another task, keep state, or pass raw flags; the tool list and the
 //! server's instructions offer Hex's `session` and `signedIn` instead, plus
 //! a tool listing the task's browsers that Hex answers itself. Before a
-//! consequential action the autonomy mode is enforced ([`Consent`]).
+//! consequential action the autonomy mode is enforced ([`Consent`]), and
+//! while the person has the task (Take over) its calls wait ([`Pause`]).
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use color_eyre::{Result, eyre::eyre};
 use serde_json::{Value, json};
@@ -42,10 +44,87 @@ pub fn serve(task: &str) -> Result<()> {
         command,
         Sessions::new(task, super::clean_engine()),
         consent,
+        Pause::task(task),
         move || super::running(&path, &task_id),
         BufReader::new(std::io::stdin()),
         std::io::stdout(),
     )
+}
+
+/// What the agent hears when it acts after the person had the task.
+pub const RESUMED: &str = "The person took this task over and may have used its browsers; \
+take a fresh snapshot before acting. (The action you asked for was not sent.)";
+
+/// Take over for the browser: while the person has the task, each browser
+/// call waits; the first one after Hand back (or one that waited) is not
+/// sent, since the page may have changed.
+pub struct Pause {
+    paused: Box<dyn Fn() -> bool + Send>,
+    resumed: Box<dyn Fn() -> Option<String> + Send>,
+    /// The hand-back last seen.
+    seen: Option<String>,
+    poll: Duration,
+}
+
+impl Pause {
+    /// `task`'s pause, as the guard stores it.
+    pub fn task(task: &str) -> Self {
+        let (paused, resumed) = (task.to_owned(), task.to_owned());
+        Self::new(
+            Box::new(move || crate::assistant::guard::paused(&paused)),
+            Box::new(move || crate::assistant::guard::resumed(&resumed)),
+            Duration::from_millis(250),
+        )
+    }
+
+    pub fn new(
+        paused: Box<dyn Fn() -> bool + Send>,
+        resumed: Box<dyn Fn() -> Option<String> + Send>,
+        poll: Duration,
+    ) -> Self {
+        let seen = resumed();
+        Self {
+            paused,
+            resumed,
+            seen,
+            poll,
+        }
+    }
+
+    /// Never paused.
+    #[cfg(test)]
+    pub fn never() -> Self {
+        Self::new(Box::new(|| false), Box::new(|| None), Duration::ZERO)
+    }
+
+    /// `Err` with the refusal when `tool` must not be sent now.
+    fn gate(&mut self, tool: &str) -> Result<(), Value> {
+        let waited = (self.paused)();
+        while (self.paused)() {
+            std::thread::sleep(self.poll);
+        }
+        let resumed = (self.resumed)();
+        let handed_back = resumed != self.seen;
+        self.seen = resumed;
+        if waited || handed_back {
+            return Err(taken_over(tool));
+        }
+        Ok(())
+    }
+}
+
+fn taken_over(tool: &str) -> Value {
+    let error = json!({
+        "ok": false,
+        "command": tool,
+        "error": {"code": "TAKEN_OVER", "message": RESUMED,
+            "details": {"kind": "hex_guard", "retryable": true}},
+    });
+    json!({
+        "content": [{"type": "text", "text": error.to_string()}],
+        "structuredContent": error,
+        "isError": true,
+    })
 }
 
 /// What a pending request was, to rewrite or learn from its response.
@@ -67,6 +146,7 @@ pub fn relay<W: Write + Send + 'static>(
     mut server: Command,
     sessions: Sessions,
     consent: Consent,
+    pause: Pause,
     running: impl Fn() -> Vec<String> + Send + 'static,
     input: impl BufRead + Send + 'static,
     output: W,
@@ -92,8 +172,15 @@ pub fn relay<W: Write + Send + 'static>(
     let gate = consent.clone();
     let forward = std::thread::spawn(move || {
         let mut sessions = sessions;
+        let mut pause = pause;
         for line in input.lines() {
             let Ok(line) = line else { break };
+            if let Some(refused) = held(&line, &mut pause) {
+                if write(&answers, &refused).is_err() {
+                    break;
+                }
+                continue;
+            }
             let mut consent = gate.lock().unwrap_or_else(|error| error.into_inner());
             let rewritten = rewrite_request(&line, &mut sessions, &mut consent, &running, &asked);
             drop(consent);
@@ -129,6 +216,23 @@ enum Forward {
     Server(String),
     /// Answered by Hex: the list tool, or a call it refused.
     Agent(String),
+}
+
+/// The reply refusing `line` when it calls a browser tool while the person
+/// has (or just had) the task; Hex's own list tool always passes.
+fn held(line: &str, pause: &mut Pause) -> Option<String> {
+    let message = serde_json::from_str::<Value>(line).ok()?;
+    let calls: Vec<&Value> = match &message {
+        Value::Array(batch) => batch.iter().collect(),
+        single => vec![single],
+    };
+    let call = calls.into_iter().find(|request| {
+        request.get("method").and_then(Value::as_str) == Some("tools/call")
+            && request["params"].get("name").and_then(Value::as_str) != Some(LIST_TOOL)
+    })?;
+    let tool = call["params"]["name"].as_str().unwrap_or_default();
+    let refused = pause.gate(tool).err()?;
+    Some(reply(call, refused).to_string())
 }
 
 /// One line from the agent, pinned to the task's browsers; `initialize`
@@ -382,6 +486,7 @@ done"#;
                 Box::new(SendButton),
                 Box::new(|| (Autonomy::Smart, Authorized::default())),
             ),
+            Pause::never(),
             || vec!["hex-t1_a".to_owned()],
             Cursor::new(input.into_bytes()),
             output.clone(),
@@ -422,6 +527,55 @@ done"#;
         assert_eq!(
             replies[&5]["result"]["structuredContent"]["browsers"],
             json!([{"session": "a", "signedIn": false, "engine": "lightpanda", "running": true}])
+        );
+    }
+
+    #[test]
+    fn browser_calls_wait_while_taken_over_and_look_again_after() {
+        use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+        let paused = Arc::new(AtomicBool::new(false));
+        let resumes = Arc::new(AtomicU64::new(0));
+        let (is_paused, resumed) = (paused.clone(), resumes.clone());
+        let mut pause = Pause::new(
+            Box::new(move || is_paused.load(Ordering::SeqCst)),
+            Box::new(move || Some(resumed.load(Ordering::SeqCst).to_string())),
+            Duration::from_millis(1),
+        );
+        let call = |name: &str| {
+            json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                "params": {"name": name, "arguments": {}}})
+            .to_string()
+        };
+        assert_eq!(held(&call("agent_browser_click"), &mut pause), None);
+        // Handed back while the agent was idle: its next call looks again.
+        resumes.store(1, Ordering::SeqCst);
+        let refused: Value =
+            serde_json::from_str(&held(&call("agent_browser_click"), &mut pause).unwrap()).unwrap();
+        assert_eq!(refused["id"], 3);
+        assert_eq!(
+            refused["result"]["structuredContent"]["error"]["code"],
+            "TAKEN_OVER"
+        );
+        assert_eq!(held(&call("agent_browser_click"), &mut pause), None);
+        // Taken over: the call waits until Hand back, then is refused.
+        paused.store(true, Ordering::SeqCst);
+        let (flag, count) = (paused.clone(), resumes.clone());
+        let hand_back = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(20));
+            count.store(2, Ordering::SeqCst);
+            flag.store(false, Ordering::SeqCst);
+        });
+        assert!(held(&call("agent_browser_type"), &mut pause).is_some());
+        hand_back.join().unwrap();
+        // Hex's own list tool and other messages are never held.
+        paused.store(true, Ordering::SeqCst);
+        assert_eq!(held(&call(LIST_TOOL), &mut pause), None);
+        assert_eq!(
+            held(
+                r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+                &mut pause
+            ),
+            None
         );
     }
 }
