@@ -238,6 +238,10 @@ pub struct Run {
     pub workspace: Option<PathBuf>,
     /// Hex's own tools (`assistant::tools`): memory and schedules.
     pub tools: Option<McpServer>,
+    /// A job in Yolo mode: no sandbox and no permission prompts. Its shell
+    /// runs as the person, with the whole network and every folder they can
+    /// reach (git, gh, npm, tailscale, brew, …).
+    pub unrestricted: bool,
     /// The backend's whole environment when it needs more than Hex's usual
     /// one (OpenCode with a bring-your-own-key provider: the key by env).
     pub backend_env: Option<Vec<(String, String)>>,
@@ -264,6 +268,7 @@ impl Run {
             keep_warm: None,
             workspace: None,
             tools: None,
+            unrestricted: false,
             backend_env: None,
             provider_config: None,
         }

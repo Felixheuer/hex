@@ -717,7 +717,12 @@ fn hands_off_follows_the_guard_while_a_here_task_runs() {
 #[test]
 fn a_task_running_too_long_fails_with_a_clear_message() {
     let world = World::new(8);
-    world.settings.lock().unwrap().task_timeout_minutes = 30;
+    // A Background job runs on its budget (seven days by default).
+    assert_eq!(
+        world.settings.lock().unwrap().job_budget_minutes,
+        7 * 24 * 60
+    );
+    world.settings.lock().unwrap().job_budget_minutes = 30;
     let runner = world.runner();
     let id = runner.submit(request("slow", Origin::Background));
     world.wait_for("the task", started(&id));
@@ -732,8 +737,7 @@ fn a_task_running_too_long_fails_with_a_clear_message() {
     assert!(!ended(&id)(&world.events.lock().unwrap()));
     world.advance(31 * 60_000);
     world.wait_for("the timeout", ended(&id));
-    let message =
-        "Stopped after 30 minutes: a task may run at most 30 minutes (Settings › Assistant).";
+    let message = "Stopped after 30 minutes: it may run at most 30 minutes (Settings › Assistant).";
     assert_eq!(
         world.finals(),
         [Event::Failed {
@@ -1037,6 +1041,38 @@ fn a_here_request_that_is_a_job_continues_as_a_background_job() {
         text.ends_with(&format!("Files: {}", workspace.display())),
         "{text}"
     );
+}
+
+#[test]
+fn asking_how_far_a_job_is_tells_its_status_without_running_anything() {
+    let world = World::new(8);
+    world.script("research suppliers", Script::Escalate);
+    let runner = world.runner();
+    let id = runner.submit(request("research suppliers", Origin::ActionShortcut));
+    world.wait_until("the job's run", || world.jobs.lock().unwrap().len() == 2);
+    world.advance(3 * 60 * 60_000);
+    let asked = runner.submit(request("Wie weit ist die Aufgabe?", Origin::ActionShortcut));
+    assert_ne!(asked, id);
+    let told = world
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|event| match event {
+            Event::Answer {
+                conversation, text, ..
+            } if *conversation == asked => Some(text.clone()),
+            _ => None,
+        })
+        .expect("the status is answered at once");
+    assert!(
+        told.starts_with("research suppliers: läuft seit 3 Stunden"),
+        "{told}"
+    );
+    // Nothing ran for it, and the job goes on.
+    assert_eq!(world.jobs.lock().unwrap().len(), 2);
+    world.release("research suppliers");
+    world.wait_for("the job's answer", ended(&id));
 }
 
 #[test]

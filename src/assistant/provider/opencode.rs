@@ -127,6 +127,9 @@ fn config(run: &Run) -> Value {
     // A job may edit and run commands in its workspace (the working
     // folder); nothing outside it.
     let permission = match run.workspace {
+        // Yolo: everything, anywhere.
+        Some(_) if run.unrestricted => json!({"bash": "allow", "edit": "allow",
+            "webfetch": "allow", "external_directory": "allow"}),
         Some(_) => json!({"bash": "allow", "edit": "allow", "webfetch": "allow",
             "external_directory": "deny"}),
         None => json!({"bash": "deny", "edit": "deny", "webfetch": "allow"}),
@@ -340,6 +343,19 @@ mod tests {
             done: "Checked open apps".into()
         }));
         assert_eq!(stream.finish().unwrap().unwrap().text, "69");
+    }
+
+    #[test]
+    fn a_yolo_job_may_work_outside_its_workspace() {
+        let mut run = Run {
+            workspace: Some("/tmp/job".into()),
+            ..Run::fixture(AssistantBackend::OpenCode)
+        };
+        let permission = |run: &Run| config(run)["agent"][AGENT]["permission"].clone();
+        assert_eq!(permission(&run)["external_directory"], "deny");
+        run.unrestricted = true;
+        assert_eq!(permission(&run)["external_directory"], "allow");
+        assert_eq!(permission(&run)["bash"], "allow");
     }
 
     #[test]

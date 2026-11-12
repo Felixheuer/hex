@@ -1,9 +1,13 @@
 //! Hex's own small MCP server for a task's agent (`hex assistant tools-mcp
 //! --task <id>`): `hex_remember` adds a fact to the person's memory note,
-//! and `hex_schedule`, `hex_schedules`, `hex_unschedule` manage scheduled
-//! jobs. Newline-delimited JSON-RPC on stdio, like the other servers.
+//! `hex_schedule`, `hex_schedules`, `hex_unschedule` manage scheduled
+//! jobs, and `hex_compare_images` tells how alike two screenshots look (a
+//! job's own check, `agent::goal`). Newline-delimited JSON-RPC on stdio,
+//! like the other servers.
 //!
 //! OWNER: brain.
+
+mod images;
 
 use std::io::{BufRead, Write};
 
@@ -41,6 +45,14 @@ pub fn definitions() -> Vec<Value> {
             "inputSchema": {"type": "object", "properties": {}},
         }),
         json!({
+            "name": "hex_compare_images",
+            "description": "How alike two images look (PNG or JPEG files, such as screenshots of a reference page and of your own result at the same window size): a similarity from 0 to 100 and the regions that differ most, as fractions of the image. Use it to check visual work against a reference.",
+            "inputSchema": {"type": "object", "properties": {
+                "a": {"type": "string", "description": "Absolute path of the first image (the reference)."},
+                "b": {"type": "string", "description": "Absolute path of the second image."}
+            }, "required": ["a", "b"]},
+        }),
+        json!({
             "name": "hex_unschedule",
             "description": "Remove a scheduled job by its id (from hex_schedules).",
             "inputSchema": {"type": "object", "properties": {
@@ -60,6 +72,7 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             .ok_or_else(|| format!("{name} needs “{key}”"))
     };
     match name {
+        "hex_compare_images" => images::compare(&text("a")?, &text("b")?),
         "hex_remember" => {
             if !memory_on() {
                 return Err("The person turned memory off; nothing is remembered.".into());
@@ -210,6 +223,7 @@ mod tests {
                 "hex_remember",
                 "hex_schedule",
                 "hex_schedules",
+                "hex_compare_images",
                 "hex_unschedule"
             ]
         );

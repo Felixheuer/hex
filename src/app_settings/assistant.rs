@@ -82,8 +82,12 @@ pub struct AssistantSettings {
     /// Background tasks may also operate the window in front of the
     /// person, as the ChatGPT app's agent does; off keeps that window theirs.
     pub background_front_window: bool,
-    /// A task running longer than this many minutes is stopped; 0 never.
+    /// A question or chat running longer than this many minutes is stopped;
+    /// 0 never.
     pub task_timeout_minutes: u32,
+    /// A Background job's time budget in minutes (up to seven days, its
+    /// default); 0 never stops it. It survives restarts (`resume_jobs`).
+    pub job_budget_minutes: u32,
     /// A task that hits its agent's usage limit waits and retries.
     pub retry_on_limit: bool,
     /// Experimental: windows Background tasks open move to a Space of their
@@ -109,6 +113,9 @@ pub struct AssistantSettings {
     /// macOS notifications when a job finishes, fails, or asks something.
     pub notifications: bool,
 }
+
+/// The longest a job may run: seven days.
+pub const JOB_BUDGET_MAX_MINUTES: u32 = 7 * 24 * 60;
 
 impl Default for AssistantSettings {
     fn default() -> Self {
@@ -147,6 +154,7 @@ impl Default for AssistantSettings {
             .to_vec(),
             background_front_window: false,
             task_timeout_minutes: 30,
+            job_budget_minutes: JOB_BUDGET_MAX_MINUTES,
             retry_on_limit: true,
             agent_space: false,
             agent_display: None,
