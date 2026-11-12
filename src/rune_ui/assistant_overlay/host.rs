@@ -501,7 +501,8 @@ fn answer_key() -> String {
 
 /// Whether the assistant is on and set up.
 fn ready() -> bool {
-    crate::app_settings::assistant_runtime().is_some_and(|(on, settings)| on && settings.setup_done)
+    crate::app_settings::assistant_runtime()
+        .is_some_and(|(on, settings)| on && (settings.setup_done || crate::assistant::trying()))
 }
 
 /// The app in front, which a Here question is about.

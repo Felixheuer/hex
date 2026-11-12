@@ -683,7 +683,7 @@ impl Runner {
         if !enabled {
             return refuse("Turn on the assistant first.");
         }
-        if !settings.setup_done {
+        if !settings.setup_done && !super::trying() {
             return refuse("Finish setting up the assistant first (Settings › Assistant).");
         }
         let now = self.now();

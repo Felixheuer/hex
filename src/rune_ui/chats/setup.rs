@@ -863,6 +863,7 @@ pub(in crate::rune_ui) fn finish(ui: &mut Ui, tx: &mut rune::Tx) {
 /// one goes on to "Hex is ready".
 pub(in crate::rune_ui) fn close(ui: &mut Ui) {
     stop_probe(ui);
+    crate::assistant::set_trying(false);
     let merged = ui.chats.setup.as_ref().is_some_and(|flow| flow.merged);
     if ui.chats.setup.is_some() && !ui.settings.assistant.setup_done {
         resume::dismiss(ui);
@@ -987,10 +988,21 @@ fn forget_granted(ui: &mut Ui) {
     }
 }
 
+/// Whether the gestures the Try page asks for really work: it shows, and
+/// Finish could finish. `setup_done` waits for Finish, so without this the
+/// page would ask for gestures the assistant then refuses.
+pub(in crate::rune_ui) fn gestures_work(ui: &Ui) -> bool {
+    ui.chats
+        .setup
+        .as_ref()
+        .is_some_and(|flow| flow.page == Page::Try && can_finish(ui, flow))
+}
+
 /// Reads the grants again every moment while a page waits on them, and
 /// what the probe heard while the Shortcut page shows.
 pub(super) fn poll(ui: &mut Ui, tx: &mut rune::Tx) -> bool {
     let live = ui.chats.live();
+    crate::assistant::set_trying(live && gestures_work(ui));
     let Some(flow) = ui.chats.setup.as_mut() else {
         return false;
     };
