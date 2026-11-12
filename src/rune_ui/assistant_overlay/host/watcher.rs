@@ -13,15 +13,17 @@ use objc2_foundation::{NSNumber, NSString};
 use rune::{DisplayTarget, OverlayPlacement};
 
 use super::super::board::Outlined;
-use super::super::frame;
-use super::super::outline::{self, Outline};
-use super::{FADE, OVERLAYS, panel};
+use super::super::frame::{self, Frame};
+use super::super::outline::{self, LabelSide, Outline};
+use super::super::screens::{self, Screen, Seams};
+use super::{FADE, OVERLAYS, displays, panel};
 use crate::assistant::{ConversationId, Event, TaskWindow};
 
-/// Displays that get a frame; more are rare, and go without.
-pub(super) const MAX_DISPLAYS: usize = 4;
-/// Windows outlined at once (the list still shows every task).
-pub(super) const MAX_OUTLINES: usize = 8;
+/// Frame panels: one per display, as many as macOS drives at once.
+pub(super) const MAX_DISPLAYS: usize = 16;
+/// Outline panels: a window spanning two displays takes one per display
+/// (the list still shows every task).
+pub(super) const MAX_OUTLINES: usize = 16;
 /// How the frame comes and goes.
 const FRAME_IN: Duration = Duration::from_millis(700);
 const FRAME_OUT: Duration = Duration::from_millis(500);
@@ -70,6 +72,11 @@ pub(super) fn publish(outlined: Vec<Outlined>, live: bool) {
     });
 }
 
+/// Displays came, went, or changed: look again now.
+pub(super) fn displays_changed() {
+    change(|_| true);
+}
+
 fn change(apply: impl FnOnce(&mut Watch) -> bool) {
     let mut watch = watch();
     if !apply(&mut watch) {
@@ -91,18 +98,23 @@ fn start() {
     });
 }
 
-/// A display's id (`CGDirectDisplayID`, the `NSScreenNumber` Rune pins
-/// overlays by) and bounds in global points, y down.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct Display {
-    pub(super) id: u32,
-    pub(super) bounds: [f64; 4],
+/// One outline piece to draw: its task window, the display it's on, the
+/// whole outline's rect and this piece's (global points), where the label
+/// goes, and the window's size.
+type Piece<'a> = (&'a Outlined, u32, [f64; 4], [f64; 4], LabelSide, (f64, f64));
+
+/// What one frame panel shows: its display and how it meets the others.
+#[derive(Clone, Debug, PartialEq)]
+struct FrameSlot {
+    screen: Screen,
+    seams: Seams,
 }
 
-/// What one outline panel shows.
+/// What one outline panel shows: one task window's outline, or its piece
+/// on one display.
 #[derive(Clone, Debug, PartialEq)]
 struct Slot {
-    key: (ConversationId, TaskWindow),
+    key: (ConversationId, TaskWindow, u32),
     rect: Option<[f32; 4]>,
     outline: Outline,
     /// The window's CoreGraphics number, when its id names one: the
@@ -115,13 +127,15 @@ struct Slot {
 #[derive(Default)]
 struct Watcher {
     /// The display each frame panel covers.
-    frames: Vec<Option<Display>>,
+    frames: Vec<Option<FrameSlot>>,
     displays_read: Option<Instant>,
-    displays: Vec<Display>,
+    displays: Vec<Screen>,
     slots: Vec<Option<Slot>>,
     /// When the guard was last asked, and who held the pointer then.
     asked: Option<Instant>,
     hands: Option<ConversationId>,
+    /// When the HUD-side panels were last asked to follow the person.
+    followed: Option<Instant>,
 }
 
 impl Watcher {
@@ -146,9 +160,18 @@ impl Watcher {
                 seen = watch.generation;
                 (watch.frame, watch.outlined.clone(), watch.live)
             };
+            if displays::take_changed() {
+                // Read them again now, not within the second.
+                self.displays_read = None;
+            }
             self.frames(frame);
             self.outlines(&outlined);
             self.ask_guard(live);
+            if (frame || live) && self.followed.is_none_or(|at| at.elapsed() >= DISPLAY_POLL) {
+                self.followed = Some(Instant::now());
+                // The orb and bubble move to the display the person works on.
+                super::follow::follow(false);
+            }
             let pause = if !outlined.is_empty() {
                 OUTLINE_POLL
             } else if frame || live {
@@ -204,51 +227,85 @@ impl Watcher {
         self.hands = now;
     }
 
-    /// Reads the displays when a second has passed since the last read;
-    /// whether it did.
+    /// Reads the displays when a second has passed since the last read (or
+    /// they changed); whether it did.
     fn read_displays(&mut self) -> bool {
         let due = self
             .displays_read
             .is_none_or(|at| at.elapsed() >= DISPLAY_POLL);
         if due {
-            self.displays = displays();
+            self.displays = displays::read();
             self.displays_read = Some(Instant::now());
         }
         due
     }
 
-    /// Shows a frame on each display while Background work runs, follows
-    /// displays coming, going, and resizing, and keeps each breathing.
+    /// Shows a frame on every display while Background work runs, each
+    /// joined to its neighbours, follows displays coming, going, moving,
+    /// and resizing (a panel stays with its display), and keeps each
+    /// breathing.
     fn frames(&mut self, on: bool) {
         let Some(overlays) = OVERLAYS.get() else {
             return;
         };
         let read = on && self.read_displays();
-        for (index, handle) in overlays.frames.iter().enumerate() {
-            let want = on.then(|| self.displays.get(index).copied()).flatten();
-            let have = self.frames[index];
-            match (have, want) {
-                (_, Some(display)) if have != want => {
-                    let [x, y, width, height] = display.bounds.map(|v| v as f32);
-                    handle.update(move |frame, _| frame.display = Some(display.id));
-                    handle.set_display(DisplayTarget::Primary);
-                    handle.set_placement(Some(OverlayPlacement::Rect {
-                        x,
-                        y,
-                        width,
-                        height,
-                    }));
-                    if have.is_none() {
-                        handle.fade_in(FRAME_IN);
-                    }
-                }
-                (Some(_), None) => handle.fade_out(FRAME_OUT),
-                _ => {}
+        let wanted: Vec<FrameSlot> = if on {
+            self.displays
+                .iter()
+                .map(|screen| FrameSlot {
+                    screen: screen.clone(),
+                    seams: screens::seams(screen, &self.displays),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        // Displays that went: their panels go.
+        for (index, slot) in self.frames.iter_mut().enumerate() {
+            let gone = slot
+                .as_ref()
+                .is_some_and(|have| !wanted.iter().any(|want| want.screen.id == have.screen.id));
+            if gone {
+                overlays.frames[index].fade_out(FRAME_OUT);
+                *slot = None;
             }
-            let moved = have != want;
-            self.frames[index] = want;
+        }
+        for want in wanted {
+            let index = match self.frames.iter().position(|slot| {
+                slot.as_ref()
+                    .is_some_and(|have| have.screen.id == want.screen.id)
+            }) {
+                Some(index) => index,
+                None => match self.frames.iter().position(Option::is_none) {
+                    Some(free) => free,
+                    None => continue,
+                },
+            };
+            let handle = &overlays.frames[index];
+            let have = self.frames[index].clone();
+            if have.as_ref() != Some(&want) {
+                let [x, y, width, height] = want.screen.frame.map(|v| v as f32);
+                let state = Frame {
+                    display: Some(want.screen.id),
+                    size: (width, height),
+                    seams: want.seams.clone(),
+                };
+                handle.update(move |frame, _| *frame = state);
+                handle.set_display(DisplayTarget::Primary);
+                handle.set_placement(Some(OverlayPlacement::Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                }));
+                if have.is_none() {
+                    handle.fade_in(FRAME_IN);
+                }
+            }
+            let moved = have.as_ref() != Some(&want);
+            self.frames[index] = Some(want);
             // Checked with each read of the displays, not each outline poll.
-            if want.is_some() && (read || moved) {
+            if read || moved {
                 let breathing = handle.clone();
                 // On the main thread; no redraw.
                 handle.update_if(move |_, _| {
@@ -259,7 +316,9 @@ impl Watcher {
         }
     }
 
-    /// Moves each live task window's outline to where its window is now.
+    /// Moves each live task window's outline to where its window is now: in
+    /// one piece per display it spans, and none for a window on no display
+    /// (one left where an unplugged display was).
     fn outlines(&mut self, outlined: &[Outlined]) {
         let Some(overlays) = OVERLAYS.get() else {
             return;
@@ -267,11 +326,34 @@ impl Watcher {
         if !outlined.is_empty() {
             self.read_displays();
         }
-        let keys: Vec<_> = outlined
+        // Each outline's pieces now.
+        let mut wanted: Vec<Piece<'_>> = Vec::new();
+        for item in outlined {
+            let Some(window) = super::window_frame(&item.window, &self.displays)
+                .filter(|(_, _, w, h)| *w >= 1.0 && *h >= 1.0)
+            else {
+                continue;
+            };
+            let window_rect = [window.0, window.1, window.2, window.3];
+            if !self
+                .displays
+                .iter()
+                .any(|screen| screens::intersect(screen.frame, window_rect).is_some())
+            {
+                continue;
+            }
+            let top = display_top(&self.displays, window);
+            let (rect, label) = outline::rect(window, top);
+            let full = rect.map(f64::from);
+            for (display, piece) in screens::pieces(full, &self.displays) {
+                wanted.push((item, display, full, piece, label, (window.2, window.3)));
+            }
+        }
+        let keys: Vec<_> = wanted
             .iter()
-            .map(|o| (o.task.clone(), o.window.clone()))
+            .map(|(item, display, ..)| (item.task.clone(), item.window.clone(), *display))
             .collect();
-        // Free the slots of windows no longer outlined.
+        // Free the panels of outlines (and pieces) no longer drawn.
         for (index, slot) in self.slots.iter_mut().enumerate() {
             if slot.as_ref().is_some_and(|slot| !keys.contains(&slot.key)) {
                 if slot.as_ref().is_some_and(|slot| slot.rect.is_some()) {
@@ -280,8 +362,7 @@ impl Watcher {
                 *slot = None;
             }
         }
-        for item in outlined {
-            let key = (item.task.clone(), item.window.clone());
+        for ((item, _, full, piece, label, size), key) in wanted.into_iter().zip(keys) {
             let index = match self
                 .slots
                 .iter()
@@ -299,7 +380,7 @@ impl Watcher {
                         });
                         free
                     }
-                    // Every panel is taken; this window goes without.
+                    // Every panel is taken; this piece goes without.
                     None => continue,
                 },
             };
@@ -307,28 +388,20 @@ impl Watcher {
             let Some(slot) = self.slots[index].as_mut() else {
                 continue;
             };
-            let found = super::window_frame(&item.window, &self.displays)
-                .filter(|(_, _, w, h)| *w >= 1.0 && *h >= 1.0);
-            let Some(window) = found else {
-                if slot.rect.take().is_some() {
-                    handle.fade_out(FADE);
-                }
-                continue;
-            };
-            let top = display_top(&self.displays, window);
-            let (rect, label) = outline::rect(window, top);
             let drawn = Outline {
                 colour: item.colour,
                 title: item.title.clone(),
-                size: (window.2 as f32, window.3 as f32),
+                size: (size.0 as f32, size.1 as f32),
                 label,
                 look: item.look,
                 progress: item.progress,
+                origin: ((full[0] - piece[0]) as f32, (full[1] - piece[1]) as f32),
             };
             if drawn != slot.outline {
                 slot.outline = drawn.clone();
                 handle.update(move |outline, _| *outline = drawn);
             }
+            let rect = piece.map(|v| v as f32);
             if slot.rect != Some(rect) {
                 let [x, y, width, height] = rect;
                 handle.set_display(DisplayTarget::Primary);
@@ -390,61 +463,9 @@ fn order_above(number: Option<u32>, target: u32) {
 }
 
 /// The top of the display the window's top edge is on (its centre's, else
-/// the nearest display's).
-fn display_top(displays: &[Display], (x, y, w, _): (f64, f64, f64, f64)) -> f64 {
-    let centre = x + w / 2.0;
-    displays
-        .iter()
-        .find(|d| {
-            let [dx, dy, dw, dh] = d.bounds;
-            centre >= dx && centre < dx + dw && y >= dy && y < dy + dh
-        })
-        .or_else(|| {
-            displays.iter().min_by(|a, b| {
-                let distance = |d: &&Display| (d.bounds[0] + d.bounds[2] / 2.0 - centre).abs();
-                distance(a).total_cmp(&distance(b))
-            })
-        })
-        .map_or(0.0, |d| d.bounds[1])
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct CgRect {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-}
-
-#[link(name = "CoreGraphics", kind = "framework")]
-unsafe extern "C" {
-    fn CGGetActiveDisplayList(max: u32, displays: *mut u32, count: *mut u32) -> i32;
-    fn CGDisplayBounds(display: u32) -> CgRect;
-}
-
-/// The active displays, the main one first, in global points (y down from
-/// the main display's top: Rune's global space and Accessibility's).
-fn displays() -> Vec<Display> {
-    let mut ids = [0u32; 16];
-    let mut count = 0u32;
-    // SAFETY: the buffer holds `ids.len()` entries and CoreGraphics writes
-    // at most that many; these calls are thread-safe.
-    let status = unsafe { CGGetActiveDisplayList(ids.len() as u32, ids.as_mut_ptr(), &mut count) };
-    if status != 0 {
-        return Vec::new();
-    }
-    ids[..count as usize]
-        .iter()
-        .map(|&id| {
-            // SAFETY: a display id CoreGraphics just listed.
-            let r = unsafe { CGDisplayBounds(id) };
-            Display {
-                id,
-                bounds: [r.x, r.y, r.width, r.height],
-            }
-        })
-        .collect()
+/// the nearest display's), so its label stays on that display.
+fn display_top(displays: &[Screen], (x, y, w, _): (f64, f64, f64, f64)) -> f64 {
+    screens::at(displays, (x + w / 2.0, y)).map_or(0.0, |screen| screen.frame[1])
 }
 
 /// Whether macOS asks for less motion (Accessibility › Display › Reduce
@@ -518,22 +539,19 @@ mod tests {
 
     #[test]
     fn an_outlines_label_measures_from_its_own_displays_top() {
-        let displays = [
-            Display {
-                id: 1,
-                bounds: [0.0, 0.0, 1512.0, 982.0],
-            },
-            Display {
-                id: 2,
-                bounds: [-1000.0, -1080.0, 1920.0, 1080.0],
-            },
-        ];
+        // This Mac: the built-in display, and the M27Q above it.
+        let displays = screens::tests::two();
         assert_eq!(display_top(&displays, (100.0, 300.0, 600.0, 400.0)), 0.0);
         assert_eq!(
             display_top(&displays, (100.0, -900.0, 600.0, 400.0)),
-            -1080.0
+            -1440.0
+        );
+        // Spanning both, its top on the M27Q: the M27Q's top.
+        assert_eq!(
+            display_top(&displays, (200.0, -100.0, 900.0, 700.0)),
+            -1440.0
         );
         // Off every display: the nearest one's.
-        assert_eq!(display_top(&displays, (5000.0, 300.0, 600.0, 400.0)), 0.0);
+        assert_eq!(display_top(&displays, (2500.0, 1100.0, 600.0, 400.0)), 0.0);
     }
 }

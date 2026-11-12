@@ -8,14 +8,15 @@ use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{NSEvent, NSEventMask};
-use rune::{Align, DisplayTarget, OverlayHandle, OverlayPlacement, ScreenEdge, Tx};
+use rune::{OverlayHandle, Tx};
 
 use super::super::board::{Bubble, Due};
 use super::super::bubble::{self, BubbleOverlay};
 use super::super::hands;
+use super::super::screens;
+use super::follow;
 use super::{FADE, OVERLAYS, answer_key, hands_task};
 use crate::assistant::Event;
-use crate::rune_ui::live_text::Spot;
 
 /// The bubble's panel fades a little slower, so its card can shrink back.
 const BUBBLE_OUT: Duration = Duration::from_millis(260);
@@ -141,42 +142,29 @@ pub(super) fn dismiss_bubble(state: &mut BubbleOverlay) {
     hide_bubble(state);
 }
 
-/// Places the bubble where Live text would show, just past the HUD's plate
-/// (and past the Hands off pill while it shows); whether it hangs below
-/// that spot.
+/// Places the bubble where Live text would show on the display the person
+/// works on, just past the HUD's plate (and past the Hands off pill while
+/// it shows); whether it hangs below that spot.
 pub(super) fn place_bubble(handle: &OverlayHandle<BubbleOverlay>) -> bool {
-    let (width, height) = bubble::SIZE;
+    let Some((screen, all)) = follow::working() else {
+        return true;
+    };
+    let (width, height) = (f64::from(bubble::SIZE.0), f64::from(bubble::SIZE.1));
+    let inset = f64::from(bubble::INSET);
     let room = if hands_task().is_some() {
-        hands::SIZE.1
+        f64::from(hands::SIZE.1)
     } else {
         0.0
     };
-    match crate::rune_hud::live_text_place() {
-        Spot::Global { x, y, below } => {
-            handle.set_display(DisplayTarget::Primary);
-            handle.set_placement(Some(OverlayPlacement::Rect {
-                x: x - width / 2.0,
-                y: if below {
-                    y - bubble::INSET + room
-                } else {
-                    y - height + bubble::INSET - room
-                },
-                width,
-                height,
-            }));
-            below
-        }
-        Spot::Edge(edge, margin) => {
-            handle.set_display(DisplayTarget::UnderPointer);
-            handle.set_placement(Some(OverlayPlacement::Edge {
-                edge,
-                margin: margin - bubble::INSET + room,
-                align: Align::Center,
-                inset: 0.0,
-            }));
-            edge == ScreenEdge::Top
-        }
-    }
+    let (x, y, below) = follow::hud_spot(&screen, &all);
+    let top = if below {
+        y - inset + room
+    } else {
+        y - height + inset - room
+    };
+    let rect = screens::snap([x - width / 2.0, top, width, height], screen.scale);
+    follow::set_rect(handle, rect.map(|v| v as f32));
+    below
 }
 
 // ---------------------------------------------------------------------------

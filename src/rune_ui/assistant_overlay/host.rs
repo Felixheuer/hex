@@ -17,6 +17,8 @@
 //! is off, and nothing floats before its setup is done.
 
 mod answer;
+mod displays;
+mod follow;
 mod watcher;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,11 +27,8 @@ use std::time::{Duration, Instant};
 
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSApplication, NSEvent, NSWindow, NSWindowCollectionBehavior};
-use rune::{
-    Align, DisplayTarget, OverlayHandle, OverlayInput, OverlayOptions, OverlayPlacement,
-    OverlaySpec, ScreenEdge, Tx,
-};
+use objc2_app_kit::{NSApplication, NSWindow, NSWindowCollectionBehavior};
+use rune::{DisplayTarget, OverlayHandle, OverlayInput, OverlayOptions, OverlaySpec, Tx};
 
 use super::board::{Board, Look, Outlined};
 use super::bubble::{self, BubbleOverlay};
@@ -38,12 +37,11 @@ use super::hands::{self, Hands};
 use super::hint::{self, Hint};
 use super::orb::{self, Orb};
 use super::outline::{self, Outline};
-use super::place::{self, Area};
 use super::{stack, when};
 use crate::assistant::{ConversationId, Event, TaskWindow};
-use crate::rune_ui::live_text::Spot;
 pub(crate) use answer::setup_needed;
 use answer::{bubble_event, bubble_poll, dismiss_bubble, place_bubble, want_escape};
+use follow::{drag_orb, place_orb, place_past_hud};
 
 /// How the orb's parts, outlines, pills, and bubble come and go.
 const FADE: Duration = Duration::from_millis(160);
@@ -232,6 +230,12 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
     crate::assistant::subscribe(Box::new(on_event));
     // The Action shortcut's double tap unfolds the list.
     crate::recognition::ask::set_toggle_tasks(toggle_tasks);
+    // Displays coming, going, or moving: frames, outlines, and the HUD-side
+    // panels follow at once.
+    displays::watch(|| {
+        watcher::displays_changed();
+        follow::follow(true);
+    });
     if std::env::var_os("HEX_ASSISTANT_FAKE").is_some() {
         play_fixture();
     }
@@ -260,10 +264,10 @@ fn play_fixture() {
 /// layout while it plays.
 fn window_frame(
     window: &TaskWindow,
-    displays: &[watcher::Display],
+    displays: &[super::screens::Screen],
 ) -> Option<(f64, f64, f64, f64)> {
     if FAKE.load(Ordering::Acquire) {
-        let main = displays.first()?.bounds;
+        let main = displays.first()?.frame;
         let (x, y, w, h) = super::fixture::frame(window, (main[2], main[3]))?;
         return Some((main[0] + x, main[1] + y, w, h));
     }
@@ -423,119 +427,19 @@ fn orb_poll(orb: &mut Orb, _clock: f64, tx: &mut Tx) -> bool {
     false
 }
 
-/// Where the orb's centre is now, in global points.
-static ORB_AT: Mutex<Option<(f64, f64)>> = Mutex::new(None);
-
-fn set_orb_at(anchor: (f64, f64)) {
-    *ORB_AT.lock().unwrap_or_else(|error| error.into_inner()) = Some(anchor);
-}
-
-/// The pointer's display: its id, its visible area in global points (y
-/// down), and the pointer there.
-fn pointer_display() -> Option<(Option<u32>, Area, (f64, f64))> {
-    let (screen, primary_top, _, id) =
-        MainThreadMarker::new().and_then(crate::rune_hud::pointer_screen)?;
-    let v = screen.visible;
-    let visible = [v.x, primary_top - (v.y + v.height), v.width, v.height];
-    let pointer = NSEvent::mouseLocation();
-    Some((id, visible, (pointer.x, primary_top - pointer.y)))
-}
-
-/// Puts the orb on the pointer's display: where it was dragged there, else
-/// beside the HUD.
-fn place_orb(handle: &OverlayHandle<Orb>, orb: &mut Orb) {
-    let Some((display, visible, _)) = pointer_display() else {
-        return;
-    };
-    let hud = match crate::rune_hud::live_text_place() {
-        Spot::Global { x, below, .. }
-            if f64::from(x) >= visible[0] && f64::from(x) < visible[0] + visible[2] =>
-        {
-            Some((f64::from(x), below))
-        }
-
-        Spot::Edge(edge, _) => Some((visible[0] + visible[2] / 2.0, edge == ScreenEdge::Top)),
-        Spot::Global { .. } => None,
-    };
-    let anchor = place::anchor(display, visible, hud);
-    orb.grow = place::grow(anchor, visible);
-    set_orb_at(anchor);
-    set_rect(handle, place::rect(anchor, orb.grow));
-}
-
-fn set_rect<T>(handle: &OverlayHandle<T>, [x, y, width, height]: [f32; 4]) {
-    handle.set_display(DisplayTarget::Primary);
-    handle.set_placement(Some(OverlayPlacement::Rect {
-        x,
-        y,
-        width,
-        height,
-    }));
-}
-
-/// A point in global points.
-type Point = (f64, f64);
-
-thread_local! {
-    /// While the orb is dragged: the pointer and the orb's centre when it
-    /// was pressed.
-    static DRAG: std::cell::Cell<Option<(Point, Point)>> =
-        const { std::cell::Cell::new(None) };
-}
-
-/// Drags the orb with the pointer; on release, keeps it inside the display
-/// it was dropped on, turns what unfolds from it toward that display, and
-/// remembers the spot for that display.
-fn drag_orb(orb: &mut Orb, drag: &rune::Drag) {
-    let Some(overlays) = OVERLAYS.get() else {
-        return;
-    };
-    let Some((_, _, pointer)) = pointer_display() else {
-        return;
-    };
-    let at = *ORB_AT.lock().unwrap_or_else(|error| error.into_inner());
-    match drag.phase {
-        rune::Phase::Down => {
-            DRAG.set(at.map(|anchor| (pointer, anchor)));
-        }
-        rune::Phase::Move => {
-            if let Some((from, anchor)) = DRAG.get() {
-                let moved = (anchor.0 + pointer.0 - from.0, anchor.1 + pointer.1 - from.1);
-                set_rect(&overlays.orb, place::rect(moved, orb.grow));
-            }
-        }
-        rune::Phase::Up => {
-            let Some((from, anchor)) = DRAG.take() else {
-                return;
-            };
-            let Some((display, visible, _)) = pointer_display() else {
-                return;
-            };
-            let dropped = if drag.cancelled() {
-                anchor
-            } else {
-                place::clamp(
-                    (anchor.0 + pointer.0 - from.0, anchor.1 + pointer.1 - from.1),
-                    visible,
-                )
-            };
-            orb.grow = place::grow(dropped, visible);
-            set_rect(&overlays.orb, place::rect(dropped, orb.grow));
-            if let Some(id) = display
-                && !drag.cancelled()
-            {
-                place::remember(id, visible, dropped);
-            }
-            set_orb_at(dropped);
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // The hint past the HUD
 
 /// What the hint shows now: `None`, or whether it's the Background pill.
 static HINT_SHOWN: Mutex<Option<bool>> = Mutex::new(None);
+
+/// Whether the hint shows now.
+fn hint_shown() -> bool {
+    HINT_SHOWN
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .is_some()
+}
 
 /// What the HUD says past itself while the Action shortcut is held:
 /// `asking` is `Some(true)` for a Background task (tap+hold: "New
@@ -586,36 +490,6 @@ fn ready() -> bool {
 fn frontmost_app() -> Option<String> {
     let app = objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication()?;
     Some(app.localizedName()?.to_string()).filter(|name| !name.is_empty())
-}
-
-/// Places a pill where Live text would start, past its plate when Live text
-/// may show one there.
-fn place_past_hud<T>(handle: &OverlayHandle<T>, (width, height): (f32, f32)) {
-    let past = if crate::labs::live_text() {
-        crate::rune_ui::live_text::SIZE.1
-    } else {
-        0.0
-    };
-    match crate::rune_hud::live_text_place() {
-        Spot::Global { x, y, below } => {
-            handle.set_display(DisplayTarget::Primary);
-            handle.set_placement(Some(OverlayPlacement::Rect {
-                x: x - width / 2.0,
-                y: if below { y + past } else { y - height - past },
-                width,
-                height,
-            }));
-        }
-        Spot::Edge(edge, margin) => {
-            handle.set_display(DisplayTarget::UnderPointer);
-            handle.set_placement(Some(OverlayPlacement::Edge {
-                edge,
-                margin: margin + past,
-                align: Align::Center,
-                inset: 0.0,
-            }));
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

@@ -72,30 +72,43 @@ pub(crate) fn rect((ax, ay): (f64, f64), grow: Grow) -> [f32; 4] {
 }
 
 /// Where the person dragged the orb on each display: its centre from the
-/// visible area's top-left, by display id.
-static DRAGGED: Mutex<Option<HashMap<u32, (f64, f64)>>> = Mutex::new(None);
+/// visible area's top-left, by the display's lasting key (its UUID).
+static DRAGGED: Mutex<Option<Dragged>> = Mutex::new(None);
 
-fn with_dragged<T>(f: impl FnOnce(&mut HashMap<u32, (f64, f64)>) -> T) -> T {
+type Dragged = HashMap<String, (f64, f64)>;
+
+fn with_dragged<T>(f: impl FnOnce(&mut Dragged) -> T) -> T {
     let mut dragged = DRAGGED.lock().unwrap_or_else(|error| error.into_inner());
     f(dragged.get_or_insert_with(load))
 }
 
-/// The orb's centre on display `id`: where it was dragged, else beside the
-/// HUD.
-pub(crate) fn anchor(id: Option<u32>, visible: Area, hud: Option<(f64, bool)>) -> (f64, f64) {
-    let dragged = id.and_then(|id| with_dragged(|dragged| dragged.get(&id).copied()));
+/// The orb's centre on the display keyed `key`: where it was dragged
+/// there, else beside the HUD.
+pub(crate) fn anchor(key: &str, visible: Area, hud: Option<(f64, bool)>) -> (f64, f64) {
+    let dragged = with_dragged(|dragged| dragged.get(key).copied());
+    placed(dragged, visible, hud)
+}
+
+/// The orb's centre from where it was dragged on a display (`dragged`, from
+/// its visible area's top-left), else beside the HUD, kept on the display.
+pub(crate) fn placed(
+    dragged: Option<(f64, f64)>,
+    visible: Area,
+    hud: Option<(f64, bool)>,
+) -> (f64, f64) {
     match dragged {
         Some((dx, dy)) => clamp((visible[0] + dx, visible[1] + dy), visible),
         None => default_anchor(visible, hud),
     }
 }
 
-/// Remembers that the orb was dropped at `anchor` on display `id`.
-pub(crate) fn remember(id: u32, visible: Area, anchor: (f64, f64)) {
+/// Remembers that the orb was dropped at `anchor` on the display keyed
+/// `key`.
+pub(crate) fn remember(key: &str, visible: Area, anchor: (f64, f64)) {
     let (ax, ay) = clamp(anchor, visible);
     let offset = (ax - visible[0], ay - visible[1]);
     let saved = with_dragged(|dragged| {
-        dragged.insert(id, offset);
+        dragged.insert(key.to_owned(), offset);
         dragged.clone()
     });
     // Off the main thread: a write never holds up the drop.
@@ -112,30 +125,29 @@ fn file() -> Option<std::path::PathBuf> {
     )
 }
 
-fn load() -> HashMap<u32, (f64, f64)> {
+fn load() -> Dragged {
     file()
         .and_then(|path| std::fs::read(path).ok())
         .map(|bytes| parse(&bytes))
         .unwrap_or_default()
 }
 
-fn parse(bytes: &[u8]) -> HashMap<u32, (f64, f64)> {
+fn parse(bytes: &[u8]) -> Dragged {
     serde_json::from_slice::<HashMap<String, [f64; 2]>>(bytes)
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|(id, [x, y])| {
-            (x.is_finite() && y.is_finite()).then_some((id.parse().ok()?, (x, y)))
-        })
+        .filter(|(_, [x, y])| x.is_finite() && y.is_finite())
+        .map(|(key, [x, y])| (key, (x, y)))
         .collect()
 }
 
-fn save(dragged: &HashMap<u32, (f64, f64)>) {
+fn save(dragged: &Dragged) {
     let Some(path) = file() else {
         return;
     };
-    let json: HashMap<String, [f64; 2]> = dragged
+    let json: HashMap<&str, [f64; 2]> = dragged
         .iter()
-        .map(|(id, (x, y))| (id.to_string(), [*x, *y]))
+        .map(|(key, (x, y))| (key.as_str(), [*x, *y]))
         .collect();
     if let Ok(bytes) = serde_json::to_vec(&json)
         && let Err(error) = std::fs::write(&path, bytes)
@@ -202,8 +214,47 @@ mod tests {
     fn remembered_spots_read_back_and_bad_ones_are_dropped() {
         let parsed = parse(br#"{"1": [900.5, 40], "x": [1, 2], "2": [1, 2, 3]}"#);
         assert_eq!(parsed.len(), 0, "a malformed file is ignored whole");
-        let parsed = parse(br#"{"1": [900.5, 40], "7": [10, 20]}"#);
-        assert_eq!(parsed.get(&1), Some(&(900.5, 40.0)));
-        assert_eq!(parsed.get(&7), Some(&(10.0, 20.0)));
+        let parsed = parse(br#"{"37D8832A-2D66": [900.5, 40], "7": [10, 20]}"#);
+        assert_eq!(parsed.get("37D8832A-2D66"), Some(&(900.5, 40.0)));
+        assert_eq!(parsed.get("7"), Some(&(10.0, 20.0)));
+        assert_eq!(parsed.len(), 2);
+    }
+
+    #[test]
+    fn on_this_macs_two_displays_the_orb_sits_beside_the_hud_on_each() {
+        let screens = super::super::screens::tests::two();
+        let (built_in, external) = (screens[0].visible, screens[1].visible);
+        let inside = |[x, y, w, h]: [f32; 4], [fx, fy, fw, fh]: [f64; 4]| {
+            f64::from(x) >= fx
+                && f64::from(y) >= fy
+                && f64::from(x + w) <= fx + fw
+                && f64::from(y + h) <= fy + fh
+        };
+        // Beside the HUD at the top centre of the built-in display.
+        let here = default_anchor(built_in, Some((900.0, true)));
+        assert_eq!(here, (1168.0, 37.0 + EDGE));
+        assert_eq!(grow(here, built_in), Grow::default());
+        assert!(inside(rect(here, Grow::default()), screens[0].frame));
+        // On the M27Q above, beside the HUD carried there.
+        let there = default_anchor(external, Some((676.0, true)));
+        assert_eq!(there, (944.0, -1415.0 + EDGE));
+        assert!(inside(rect(there, grow(there, external)), screens[1].frame));
+        // Dragged to the M27Q's lower right: kept there, unfolding up and
+        // left into it.
+        let dragged = placed(Some((2400.0, 1300.0)), external, None);
+        assert_eq!(dragged, (1796.0, -115.0));
+        let toward = grow(dragged, external);
+        assert_eq!(
+            toward,
+            Grow {
+                down: false,
+                right: false
+            }
+        );
+        assert!(inside(rect(dragged, toward), screens[1].frame));
+        // A spot remembered on a bigger display, shown on the built-in one:
+        // kept on it.
+        let squeezed = placed(Some((2400.0, 1300.0)), built_in, None);
+        assert_eq!(squeezed, (1800.0 - EDGE, 37.0 + 1132.0 - EDGE));
     }
 }
