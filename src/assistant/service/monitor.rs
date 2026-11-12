@@ -26,9 +26,8 @@ impl Runner {
 
     /// One look; false once no task is left (the monitor ends).
     pub(super) fn tick(self: &Arc<Self>) -> bool {
-        let (_, settings) = (self.hooks.settings)();
         let now = self.now();
-        let mut expired: Vec<Arc<Control>> = Vec::new();
+        let mut expired: Vec<(Arc<Control>, u32)> = Vec::new();
         let here: Vec<String> = {
             let mut state = self.state();
             if state.tasks.is_empty() {
@@ -40,7 +39,7 @@ impl Runner {
                     && task.deadline_ms.is_some_and(|deadline| now >= deadline)
                 {
                     task.deadline_ms = None;
-                    expired.push(Arc::clone(&task.control));
+                    expired.push((Arc::clone(&task.control), task.limit_minutes));
                 }
             }
             state
@@ -50,10 +49,10 @@ impl Runner {
                 .map(|task| task.status.conversation.clone())
                 .collect()
         };
-        let minutes = settings.task_timeout_minutes;
-        for control in expired {
+        for (control, minutes) in expired {
+            let limit = super::run::limit_words(minutes);
             control.fail(&format!(
-                "Stopped after {minutes} minutes: a task may run at most {minutes} minutes (Settings › Assistant)."
+                "Stopped after {limit}: it may run at most {limit} (Settings › Assistant)."
             ));
         }
         self.check_hands_off(&here);

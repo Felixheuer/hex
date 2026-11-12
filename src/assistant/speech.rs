@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-pub use language::language_of;
+pub use language::{language_of, system_language};
 use output::Shared;
 use playback::{Engine, Request};
 pub use voices::{Quality, Voice, VoiceHint};

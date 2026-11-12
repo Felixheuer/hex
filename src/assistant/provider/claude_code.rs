@@ -172,6 +172,16 @@ fn settings(run: &Run, sandboxed: bool) -> String {
     let Some(workspace) = &run.workspace else {
         return r#"{"disableAllHooks":true}"#.into();
     };
+    // Yolo: the person lifted every limit. No sandbox, every path, the
+    // whole network, no prompts (`--permission-mode bypassPermissions`).
+    if run.unrestricted {
+        return json!({
+            "disableAllHooks": true,
+            "sandbox": {"enabled": false},
+            "permissions": {"defaultMode": "bypassPermissions"},
+        })
+        .to_string();
+    }
     // `//` starts an absolute path in a permission rule.
     let scope = format!("/{}/**", rule_path(&workspace.to_string_lossy()));
     let allow: Vec<String> = ["Read", "Write", "Edit", "Glob", "Grep"]
@@ -216,7 +226,7 @@ fn rule_path(path: &str) -> String {
 }
 
 fn arguments(run: &Run) -> Vec<String> {
-    let sandboxed = run.workspace.is_some() && sandbox().is_ok();
+    let sandboxed = run.workspace.is_some() && !run.unrestricted && sandbox().is_ok();
     arguments_with(run, sandboxed)
 }
 
@@ -232,7 +242,11 @@ fn arguments_with(run: &Run, sandboxed: bool) -> Vec<String> {
         "--verbose",
         "--include-partial-messages",
         "--permission-mode",
-        "dontAsk",
+        if run.unrestricted {
+            "bypassPermissions"
+        } else {
+            "dontAsk"
+        },
         "--strict-mcp-config",
     ]
     .map(str::to_owned)
@@ -241,14 +255,18 @@ fn arguments_with(run: &Run, sandboxed: bool) -> Vec<String> {
     let mut tools = vec!["WebSearch".to_owned(), "WebFetch".to_owned()];
     let mut allowed = tools.clone();
     if let Some(workspace) = &run.workspace {
+        let shell = sandboxed || run.unrestricted;
         tools.extend(
             JOB_TOOLS
                 .iter()
-                .filter(|tool| sandboxed || **tool != "Bash")
+                .filter(|tool| shell || **tool != "Bash")
                 .map(|tool| (*tool).to_owned()),
         );
-        if sandboxed {
+        if shell {
             allowed.push("Bash".to_owned());
+        }
+        if run.unrestricted {
+            allowed.extend(["Read", "Write", "Edit", "Glob", "Grep"].map(str::to_owned));
         }
         allowed.push("Task".to_owned());
         args.extend(["--add-dir".into(), workspace.display().to_string()]);
@@ -598,6 +616,48 @@ mod tests {
         .unwrap();
         assert_eq!(settings["sandbox"]["enabled"], false);
         assert_eq!(settings["permissions"]["deny"], json!(["Bash"]));
+    }
+
+    #[test]
+    fn a_yolo_job_runs_without_sandbox_or_prompts() {
+        let mut run = Run::fixture(AssistantBackend::ClaudeCode);
+        run.workspace = Some("/Users/p/Documents/Hex/2026-11-12 Shop".into());
+        run.unrestricted = true;
+        // Even where a sandbox exists, Yolo doesn't use it.
+        for args in [arguments(&run), arguments_with(&run, false)] {
+            assert!(
+                args.windows(2)
+                    .any(|pair| pair == ["--permission-mode", "bypassPermissions"])
+            );
+            assert!(args.windows(2).any(|pair| pair
+                == [
+                    "--tools",
+                    "WebSearch,WebFetch,Read,Write,Edit,Glob,Grep,Bash,Task"
+                ]));
+            let allowed = &args[args.iter().position(|arg| arg == "--allowedTools").unwrap() + 1];
+            assert!(
+                allowed.contains("Bash") && allowed.contains("Write"),
+                "{allowed}"
+            );
+            let settings: Value = serde_json::from_str(
+                &args[args.iter().position(|arg| arg == "--settings").unwrap() + 1],
+            )
+            .unwrap();
+            assert_eq!(settings["sandbox"]["enabled"], false);
+            assert!(settings["permissions"]["deny"].is_null());
+            assert!(
+                settings["permissions"]["allow"].is_null(),
+                "no workspace-only scope"
+            );
+            assert!(!settings.to_string().contains("allowedDomains"));
+        }
+        // Outside Yolo a job keeps its sandbox and asks nothing it can't.
+        run.unrestricted = false;
+        let args = arguments_with(&run, true);
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--permission-mode", "dontAsk"])
+        );
     }
 
     #[test]

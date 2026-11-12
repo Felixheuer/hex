@@ -195,7 +195,22 @@ fn the_prompt_explains_the_autonomy_mode_and_memory() {
     let nothing = autonomy_rules(Autonomy::Smart, &Authorized::default());
     assert!(nothing.contains("prepare (draft, save, fill in), nothing consequential"));
     assert!(autonomy_rules(Autonomy::Ask, &Authorized::default()).contains("every send, delete"));
-    assert!(autonomy_rules(Autonomy::Yolo, &share).contains("drafts unless"));
+    let yolo = autonomy_rules(Autonomy::Yolo, &share);
+    assert!(
+        yolo.contains("never ask for permission") && !yolo.contains("drafts"),
+        "{yolo}"
+    );
+    let workspace = std::path::Path::new("/tmp/job");
+    let free = job_rules(workspace, true, true);
+    assert!(
+        free.contains("without a sandbox") && free.contains("## Done when"),
+        "{free}"
+    );
+    assert!(free.contains("open -na Ghostty"));
+    let kept = job_rules(workspace, true, false);
+    assert!(
+        kept.contains("Shell commands run sandboxed") && kept.contains("save emails as drafts")
+    );
     let memory = memory_rules(Some("- Company: blabla.com"));
     assert!(memory.contains("hex_remember"));
     assert!(memory.contains("<<<\n- Company: blabla.com\n>>>"));

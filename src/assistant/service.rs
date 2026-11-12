@@ -38,6 +38,7 @@ mod monitor;
 pub mod remote;
 mod run;
 mod session;
+mod status;
 mod voice;
 mod warm;
 
@@ -334,10 +335,20 @@ fn runner() -> &'static Arc<Runner> {
                 super::guard::startup();
                 start_scheduler();
             }
+            let app = !WITHOUT_LAB.load(Ordering::Acquire) && current_settings().0;
             if let Ok(store) = Store::open() {
                 let recovered = store.recover_interrupted();
                 if !recovered.is_empty() {
                     tracing::info!(count = recovered.len(), "assistant tasks were interrupted");
+                }
+                // Jobs go on by themselves: a restart, a crash, or an
+                // update doesn't end days of work.
+                if app {
+                    let budget = u64::from(current_settings().1.job_budget_minutes) * 60_000;
+                    for id in store.resumable_jobs(&recovered, store::now_ms(), budget) {
+                        tracing::info!(conversation = id, "resuming an interrupted job");
+                        let _ = runner().resume_interrupted(&id);
+                    }
                 }
             }
         });
@@ -602,6 +613,10 @@ struct Task {
     steps: VecDeque<String>,
     /// When it times out (runner clock), while running.
     deadline_ms: Option<u64>,
+    /// Its time limit in minutes, for the message when it runs out.
+    limit_minutes: u32,
+    /// When it was queued (runner clock), for the status told on request.
+    started_ms: u64,
     /// Since when it has been paused or waiting (not counted to its time).
     held_since: Option<u64>,
     /// Its state before it was taken over.
@@ -742,6 +757,13 @@ impl Runner {
         if !settings.setup_done && !super::trying() {
             return refuse("Finish setting up the assistant first (Settings › Assistant).");
         }
+        // "Wie weit ist der Shop?": told from the jobs' plans, never asked
+        // of an agent; jobs don't announce their steps on their own.
+        if kind == JobKind::Ask
+            && let Some(told) = self.status_reply(&request)
+        {
+            return told;
+        }
         if kind == JobKind::Ask
             && let Some(handled) = self.route_hold(&mut request)
         {
@@ -866,6 +888,7 @@ impl Runner {
         let colour = (0..8u8)
             .find(|colour| !used.contains(colour))
             .unwrap_or((key % 8) as u8);
+        let started_ms = self.now();
         state.tasks.push(Task {
             key,
             status: TaskStatus {
@@ -888,6 +911,8 @@ impl Runner {
             voice,
             steps: VecDeque::new(),
             deadline_ms: None,
+            limit_minutes: 0,
+            started_ms,
             held_since: None,
             before_pause: TaskState::Running,
             workspace: None,

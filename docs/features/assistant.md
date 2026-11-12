@@ -450,7 +450,25 @@ agent-browser) run the same way on every OS; what differs:
   Linux without them) a job gets no shell (`Bash` denied, file tools still
   scoped to the workspace), and the self-test says so. Windows permission
   rules use Claude Code's `//c/Users/...` form. Codex uses its unelevated
-  Windows sandbox.
+  Windows sandbox. In **Yolo** (`assistant.autonomy = "yolo"`) a job has
+  no sandbox at all: Claude Code runs with `--permission-mode
+  bypassPermissions` and Bash, Codex with `sandbox_mode="danger-full-access"`,
+  OpenCode with `external_directory: allow` — every folder, the whole
+  network, and the person's tools (git, gh, npm, tailscale, …), and the
+  guard and browser never ask for a yes.
+- **Autonomous jobs** (`agent::goal`): a job writes `## Done when` in its
+  `plan.md`; when it answers, an independent check (a fresh session of the
+  same backend, told to change nothing, its steps neither shown nor kept)
+  verifies each criterion and answers `HEX_VERIFIED` or `HEX_NOT_DONE:` with
+  the gaps, which go back to the job until it is verified, it asks the
+  person (`HEX_QUESTION`, after rounds without progress), or it wraps up.
+  In-between answers aren't streamed or spoken. Jobs run on
+  `job_budget_minutes` (7 days by default; questions and chats keep
+  `task_timeout_minutes`), keep retrying usage limits for their budget, and
+  resume by themselves after Hex restarts or crashes. Asked by voice
+  ("Wie weit ist der Shop?", "status"), Hex tells each job's plan progress,
+  time, and last check (`service::status`) without running an agent.
+  `hex_compare_images` gives jobs a screenshot similarity score.
 - **Liveness and time**: process start times come from `/proc` on Linux and
   `GetProcessTimes` on Windows; liveness from `OpenProcess` +
   `GetExitCodeProcess` on Windows, so conversations no longer look

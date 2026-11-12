@@ -30,7 +30,9 @@ fn explain(mode: Autonomy) -> &'static str {
             tr("Asks you before it sends, deletes, pays, shares, or publishes anything")
         }
         Autonomy::Smart => tr("Does what you asked for; anything else that matters asks first"),
-        Autonomy::Yolo => tr("Does everything without asking. Use it only for tasks you trust"),
+        Autonomy::Yolo => tr(
+            "Does everything without asking: no sandbox, the whole internet, every folder and tool (git, npm, Tailscale, …), and it sends, deletes, pays, and publishes when you ask. Only for tasks you trust",
+        ),
     }
 }
 

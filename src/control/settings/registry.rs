@@ -354,7 +354,12 @@ pub(super) const KEYS: &[Key] = &[
     key(
         "assistant.task_timeout_minutes",
         Kind::Integer { min: 0, max: 1440 },
-        "An assistant task running longer than this is stopped; 0 never (macOS)",
+        "An assistant question or chat running longer than this is stopped; 0 never (macOS)",
+    ),
+    key(
+        "assistant.job_budget_minutes",
+        Kind::Integer { min: 0, max: 10080 },
+        "A background assistant job works until its goal is met, through restarts, for at most this many minutes (default 7 days); 0 never stops it (macOS)",
     ),
     key(
         "assistant.retry_on_limit",
