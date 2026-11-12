@@ -273,6 +273,11 @@ pub(super) const KEYS: &[Key] = &[
         Kind::Text,
         "Labs: OpenCode's provider/model for the assistant; none is its default (macOS)",
     ),
+    optional(
+        "assistant.opencode_provider",
+        Kind::Text,
+        "Labs: the provider whose API key (saved in the Keychain) OpenCode uses for the assistant, such as deepseek or openrouter; none uses OpenCode's own sign-ins (macOS)",
+    ),
     key(
         "assistant.claude_api_model",
         Kind::Text,
@@ -349,6 +354,33 @@ pub(super) const KEYS: &[Key] = &[
         "assistant.agent_space",
         Kind::Bool,
         "Labs: experimental; windows Background tasks open move to a Space of their own (macOS)",
+    ),
+    key(
+        "assistant.autonomy",
+        Kind::Choice(&["ask", "smart", "yolo"]),
+        "Labs: how freely assistant tasks send, delete, pay, share, or publish: ask each \
+         time, smart (only what your request named, the default), or yolo (macOS)",
+    ),
+    key(
+        "assistant.memory",
+        Kind::Bool,
+        "Labs: assistant tasks read your note about you (business, people, tone) (macOS)",
+    ),
+    key(
+        "assistant.conversation_seconds",
+        Kind::Integer { min: 0, max: 60 },
+        "Labs: after a spoken answer Hex listens this long for a follow-up without the \
+         shortcut; 0 turns conversation mode off (macOS)",
+    ),
+    key(
+        "assistant.barge_in",
+        Kind::Bool,
+        "Labs: speaking while an answer is read aloud interrupts it (macOS)",
+    ),
+    key(
+        "assistant.notifications",
+        Kind::Bool,
+        "Labs: macOS notifications when an assistant job finishes, fails, or asks (macOS)",
     ),
     key(
         "assistant.setup_done",

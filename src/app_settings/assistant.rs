@@ -36,6 +36,10 @@ pub struct AssistantSettings {
     pub codex_model: Option<String>,
     /// OpenCode's `provider/model`.
     pub opencode_model: Option<String>,
+    /// OpenCode with the person's own API key for this provider
+    /// (`assistant::backends::providers`), the key in the Keychain; `None`
+    /// uses OpenCode's own sign-ins.
+    pub opencode_provider: Option<String>,
     pub claude_api_model: String,
     /// The Here lane's model on Claude Code and the Claude API, for fast
     /// spoken answers; `None` uses the model above. Codex and OpenCode keep
@@ -77,6 +81,21 @@ pub struct AssistantSettings {
     /// Experimental: windows Background tasks open move to a Space of their
     /// own, out of the person's way.
     pub agent_space: bool,
+    /// How freely tasks take consequential actions (send, delete, pay,
+    /// share, publish): ask each time, only what the request named, or yolo.
+    pub autonomy: crate::assistant::autonomy::Autonomy,
+    /// A short note about the person (business, people, tone) every task
+    /// reads; edited in Settings and by `hex_remember`. Stored beside the
+    /// conversations, not here; this only turns it on.
+    pub memory: bool,
+    /// After a spoken answer, Hex keeps listening this many seconds for a
+    /// follow-up without the shortcut; 0 turns conversation mode off.
+    pub conversation_seconds: u32,
+    /// Speaking while an answer is read aloud interrupts it (needs
+    /// headphones or Hex's echo suppression).
+    pub barge_in: bool,
+    /// macOS notifications when a job finishes, fails, or asks something.
+    pub notifications: bool,
 }
 
 impl Default for AssistantSettings {
@@ -87,6 +106,7 @@ impl Default for AssistantSettings {
             claude_code_model: None,
             codex_model: None,
             opencode_model: None,
+            opencode_provider: None,
             claude_api_model: "claude-sonnet-5-5".into(),
             here_model: Some("claude-haiku-5-5".into()),
             speak_answers: true,
@@ -111,6 +131,11 @@ impl Default for AssistantSettings {
             task_timeout_minutes: 30,
             retry_on_limit: true,
             agent_space: false,
+            autonomy: crate::assistant::autonomy::Autonomy::Smart,
+            memory: true,
+            conversation_seconds: 8,
+            barge_in: true,
+            notifications: true,
         }
     }
 }

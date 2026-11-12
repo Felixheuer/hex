@@ -298,6 +298,28 @@ impl World {
         }
     }
 
+    /// Waits until the backend ran `question`, and returns that run.
+    fn job_for(&self, question: &str) -> Job {
+        let started = Instant::now();
+        loop {
+            if let Some(job) = self
+                .jobs
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|job| job.request.text == question)
+            {
+                return job.clone();
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "timed out waiting for the run of {question}: {:#?}",
+                self.log.lock().unwrap()
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
     fn finals(&self) -> Vec<Event> {
         self.events
             .lock()
@@ -484,20 +506,22 @@ fn a_request_naming_a_running_task_is_routed_to_it() {
     let runner = world.runner();
     let mail = runner.submit(request("Antworte Anna auf ihre Mail", Origin::Background));
     let invoice = runner.submit(request("Lade die Hetzner Rechnung", Origin::Background));
-    world.wait_for("both", |events| {
-        started(&mail)(events) && started(&invoice)(events)
-    });
+    // Both are at work (a task steered before its backend starts never runs
+    // the first instruction at all, which is right but not this test).
+    world.job_for("Antworte Anna auf ihre Mail");
+    world.job_for("Lade die Hetzner Rechnung");
     let routed = runner.submit(request(
         "bei der Anna-Aufgabe nimm Freitag",
         Origin::ActionShortcut,
     ));
     assert_eq!(routed, mail);
-    world.wait_until("the steered run", || world.jobs.lock().unwrap().len() == 3);
+    let steered = world.job_for("bei der Anna-Aufgabe nimm Freitag");
+    assert_eq!(steered.conversation, mail);
+    assert!(matches!(steered.kind, JobKind::Steer { .. }));
     // Anything else starts a new task that knows what else is going on.
     let other = runner.submit(request("mach das auch für Bob", Origin::Background));
     assert_ne!(other, mail);
-    world.wait_until("the new task", || world.jobs.lock().unwrap().len() == 4);
-    let job = world.jobs.lock().unwrap()[3].clone();
+    let job = world.job_for("mach das auch für Bob");
     let digest = job.digest.unwrap();
     assert!(
         digest.contains("“Lade die Hetzner Rechnung” (background)"),
@@ -522,8 +546,7 @@ fn the_frame_shows_while_background_work_runs_with_one_desktop_session() {
     let queued = runner.submit(request("queued", Origin::Chat));
     assert_eq!(world.modes(), [true]);
     world.wait_for("the first background task", started(&first));
-    world.wait_until("its job", || world.jobs.lock().unwrap().len() == 2);
-    let job = world.jobs.lock().unwrap()[1].clone();
+    let job = world.job_for("first");
     assert_eq!(job.desktop_session.as_deref(), Some("S1"));
     assert!(world.logged(&format!("style S1 {} 1 None", job.agent_id)));
     // Its cursor's label follows its steps.

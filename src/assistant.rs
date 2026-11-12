@@ -24,6 +24,7 @@
 #![allow(dead_code, unused_imports)]
 
 pub mod agent;
+pub mod autonomy;
 pub mod backends;
 pub mod browser;
 pub mod cli;

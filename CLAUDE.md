@@ -18,3 +18,7 @@ for the section you need instead of reading it whole.
   using it. Read-only desktop checks only.
 - This is a fork: commit and push to `Felixheuer/hex`, never to
   `anomalyco/hex`. Its default branch is `dev`; there is no `main`.
+- The fork has no CI: `.github/workflows` is removed and GitHub Actions is
+  turned off for the repository. Where AGENTS.md or docs mention workflows,
+  CI, golden artifacts from `check-linux.yml`, or release jobs, they describe
+  upstream. Verify locally instead (filtered tests, `scripts/check`).
