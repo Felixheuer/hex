@@ -69,22 +69,29 @@ impl Runner {
             settings.keep_display_awake,
             working,
         );
-        let mut start = false;
-        let (on, end) = {
+        let (frame, frame_changed, start, end) = {
             let mut state = self.state();
             let busy = state
                 .tasks
                 .iter()
                 .any(|task| task.lane() == Lane::Background);
-            if busy == state.background_on {
-                return;
+            let working = state
+                .tasks
+                .iter()
+                .any(|task| task.status.state != crate::assistant::TaskState::NeedsInput);
+            let frame = frame_visible(busy, working);
+            let frame_changed = std::mem::replace(&mut state.frame_on, frame) != frame;
+            let mut start = false;
+            let mut end = None;
+            if busy != state.background_on {
+                state.background_on = busy;
+                if busy && settings.control_desktop && state.session == Session::Off {
+                    state.session = Session::Starting;
+                    start = true;
+                }
+                end = self.session_to_end(&mut state);
             }
-            state.background_on = busy;
-            if busy && settings.control_desktop && state.session == Session::Off {
-                state.session = Session::Starting;
-                start = true;
-            }
-            (busy, self.session_to_end(&mut state))
+            (frame, frame_changed, start, end)
         };
         if let Some(session) = end {
             (self.hooks.end_session)(&session);
@@ -104,7 +111,30 @@ impl Runner {
                 }
             });
         }
-        self.emit(&Event::ModeChanged { on });
+        if frame_changed {
+            self.emit(&Event::ModeChanged { on: frame });
+        }
+    }
+}
+
+/// Whether the screen frame shows: Background work is queued, running,
+/// waiting, or paused, or any task (a Here question too) is working rather
+/// than waiting for the person's answer. Since one hold does everything, a
+/// question is work the person should see going on, as a job is.
+pub(super) fn frame_visible(background_busy: bool, any_working: bool) -> bool {
+    background_busy || any_working
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::frame_visible;
+
+    #[test]
+    fn the_frame_shows_while_anything_works() {
+        assert!(!frame_visible(false, false), "nothing runs");
+        assert!(frame_visible(false, true), "a Here question thinks or acts");
+        assert!(frame_visible(true, false), "a job waits for an answer");
+        assert!(frame_visible(true, true));
     }
 }
 

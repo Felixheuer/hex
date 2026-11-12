@@ -144,6 +144,15 @@ pub fn set_listening(on: bool) {
     voice::set_listening(on, store::now_ms());
 }
 
+/// Hex goes quiet at once: the line being read stops and the rest of that
+/// answer is dropped; questions and summaries waiting their turn stay
+/// (`interaction::hush`).
+pub fn hush() {
+    let runner = runner();
+    runner.voice.stop();
+    (runner.hooks.stop_speaking)();
+}
+
 /// Whether questions and finished jobs are read aloud (the default), or
 /// only shown, for a surface that plays a soft chime instead.
 #[allow(dead_code, reason = "for the overlay's chime setting")]
@@ -178,10 +187,17 @@ pub fn busy() -> bool {
     !runner().state().tasks.is_empty()
 }
 
-/// The screen frame's state, as `background_busy` (Agent mode is gone: the
-/// frame follows Background work).
+/// The screen frame's state (Agent mode is gone: the frame follows the
+/// work, `frame_shown`).
 pub fn agent_mode() -> bool {
-    background_busy()
+    frame_shown()
+}
+
+/// Whether the screen frame shows: any task is working (a Here question
+/// thinking or acting, or Background work), not just waiting for the
+/// person's answer (`session::frame_visible`).
+pub fn frame_shown() -> bool {
+    runner().state().frame_on
 }
 
 /// Kept for callers of the old Agent mode switch: turning it off stops every
@@ -568,8 +584,11 @@ pub(crate) struct Runner {
 #[derive(Default)]
 pub(crate) struct State {
     tasks: Vec<Task>,
-    /// The screen frame shows (`background_busy`).
+    /// Background work is queued, running, waiting, or paused (the desktop
+    /// session runs around it; `background_busy`).
     background_on: bool,
+    /// The screen frame shows (`frame_shown`): any task working.
+    frame_on: bool,
     session: Session,
     focus: Option<ConversationId>,
     /// The last Here conversation answered, and when (runner clock).

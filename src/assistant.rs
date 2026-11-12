@@ -35,6 +35,7 @@ pub mod cli;
 pub mod computer;
 pub mod credentials;
 pub mod guard;
+pub mod interaction;
 pub mod memory;
 pub mod notify;
 pub mod palette;

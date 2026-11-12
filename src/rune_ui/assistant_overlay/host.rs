@@ -256,7 +256,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             .orb
             .update(|orb, tx| board_changed(orb, tx, Instant::now()));
     }
-    if crate::assistant::service::background_busy() {
+    if crate::assistant::service::frame_shown() {
         watcher::set_frame(true);
     }
     crate::assistant::subscribe(Box::new(on_event));
