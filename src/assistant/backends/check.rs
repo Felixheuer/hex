@@ -740,8 +740,8 @@ fn round_trip(check: Check) -> CheckResult {
             desktop::Reply::Failed { code, message } => Err(format!("{code}: {message}")),
         }
     };
-    let apps = match call(&["list-apps"]) {
-        Ok(data) => desktop::apps(&data),
+    let (apps, foreground) = match call(&["list-apps"]) {
+        Ok(data) => (desktop::apps(&data), desktop::foreground_apps(&data)),
         Err(error) => return failed_round_trip(check, "list the running apps", &error),
     };
     if apps.is_empty() {
@@ -762,6 +762,15 @@ fn round_trip(check: Check) -> CheckResult {
     };
     let windows = match call(&["list-windows"]) {
         Ok(data) => desktop::windows(&data),
+        // One busy background app (Universal Control, a menu bar tool whose
+        // windows come and go) keeps the global inventory from settling,
+        // though every app a task works in lists fine on its own.
+        Err(error) if error.starts_with("TIMEOUT") => {
+            match windows_app_by_app(&call, &foreground) {
+                Some(windows) => windows,
+                None => return failed_round_trip(check, "list the windows", &error),
+            }
+        }
         Err(error) => return failed_round_trip(check, "list the windows", &error),
     };
     let visible: Vec<_> = windows.iter().filter(|window| window.visible).collect();
@@ -790,6 +799,30 @@ fn round_trip(check: Check) -> CheckResult {
             windows.len()
         ),
     )
+}
+
+/// The windows of each foreground app, asked one app at a time; `None`
+/// when no app answered.
+fn windows_app_by_app(
+    call: &dyn Fn(&[&str]) -> Result<Value, String>,
+    apps: &[String],
+) -> Option<Vec<desktop::Window>> {
+    let mut answered = false;
+    let mut windows = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for app in apps {
+        if !seen.insert(app.as_str()) {
+            continue;
+        }
+        match call(&["list-windows", "--app", app, "--timeout-ms", "2000"]) {
+            Ok(data) => {
+                answered = true;
+                windows.extend(desktop::windows(&data));
+            }
+            Err(error) => tracing::info!(%app, %error, "agent-desktop skipped an app's windows"),
+        }
+    }
+    answered.then_some(windows)
 }
 
 fn failed_round_trip(check: Check, what: &str, why: &str) -> CheckResult {
@@ -1114,5 +1147,24 @@ mod tests {
                 (Check::DesktopThroughAgent(api), CheckState::Failed),
             ]
         );
+    }
+
+    #[test]
+    fn windows_are_listed_app_by_app_skipping_apps_that_fail() {
+        let call = |args: &[&str]| -> Result<Value, String> {
+            match args[2] {
+                "Finder" => Ok(serde_json::json!([{"id": "w-1", "app_name": "Finder"}])),
+                _ => Err("APP_UNRESPONSIVE: busy".into()),
+            }
+        };
+        let apps = [
+            "Hidden Bar".to_owned(),
+            "Finder".to_owned(),
+            "Finder".to_owned(),
+        ];
+        let windows = windows_app_by_app(&call, &apps).unwrap();
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0].app, "Finder");
+        assert!(windows_app_by_app(&call, &apps[..1]).is_none());
     }
 }

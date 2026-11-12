@@ -141,6 +141,20 @@ pub fn apps(data: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The running apps people see (`presentation: "foreground"`) in
+/// `list-apps`' data: the ones with windows worth listing one by one.
+pub fn foreground_apps(data: &Value) -> Vec<String> {
+    data.get("apps")
+        .and_then(Value::as_array)
+        .map(|apps| {
+            apps.iter()
+                .filter(|app| app.get("presentation").and_then(Value::as_str) == Some("foreground"))
+                .filter_map(|app| app.get("name").and_then(Value::as_str).map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,5 +235,15 @@ mod tests {
         )
         .unwrap();
         assert_eq!(apps(&data), ["Finder"]);
+    }
+
+    #[test]
+    fn only_foreground_apps_are_listed_one_by_one() {
+        let data = serde_json::json!({"apps": [
+            {"name": "Finder", "presentation": "foreground"},
+            {"name": "Universelle Steuerung", "presentation": "background"},
+            {"name": "imagent"},
+        ]});
+        assert_eq!(foreground_apps(&data), ["Finder"]);
     }
 }

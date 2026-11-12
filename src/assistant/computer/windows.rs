@@ -278,8 +278,9 @@ pub fn window_frame(window: &TaskWindow) -> Option<Frame> {
         win::top_level_windows().into_iter().find(|candidate| {
             candidate.on_screen()
                 && candidate.is_app_window()
-                && win::app_identity(candidate.pid)
-                    .is_some_and(|(name, id)| blocked(&name, &id, std::slice::from_ref(&window.app)))
+                && win::app_identity(candidate.pid).is_some_and(|(name, id)| {
+                    blocked(&name, &id, std::slice::from_ref(&window.app))
+                })
         })
     })?;
     let [x, y, width, height] = found.rect;
