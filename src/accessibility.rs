@@ -75,6 +75,66 @@ unsafe extern "C" {
     static kCFBooleanTrue: CfTypeRef;
 }
 
+/// Where the secure text fields (passwords) in `pid`'s windows are, in
+/// global points, looking until `deadline`: the focused element first, then
+/// the windows' trees breadth first (at most a few thousand elements), so a
+/// screenshot can black them out. A tree too big to finish in time is cut.
+pub fn secure_field_frames(pid: i32, deadline: std::time::Instant) -> Vec<[f64; 4]> {
+    const MAX_ELEMENTS: usize = 4000;
+    let Some(application) = foreign_application(pid) else {
+        return Vec::new();
+    };
+    fn add(element: &CfObject, frames: &mut Vec<[f64; 4]>) {
+        if is_secure_field(element)
+            && let Some(frame) = element_frame(element)
+            && !frames.contains(&frame)
+        {
+            frames.push(frame);
+        }
+    }
+    let mut frames = Vec::new();
+    if let Some(focused) = copy_element(&application, c"AXFocusedUIElement") {
+        add(&focused, &mut frames);
+    }
+    let mut queue: std::collections::VecDeque<CfObject> =
+        copy_elements(&application, c"AXWindows").into();
+    let mut seen = 0;
+    while let Some(element) = queue.pop_front() {
+        seen += 1;
+        if seen > MAX_ELEMENTS || std::time::Instant::now() >= deadline {
+            break;
+        }
+        add(&element, &mut frames);
+        queue.extend(copy_elements(&element, c"AXChildren"));
+    }
+    frames
+}
+
+fn is_secure_field(element: &CfObject) -> bool {
+    copy_string(element, c"AXRole").as_deref() == Some("AXSecureTextField")
+        || copy_string(element, c"AXSubrole").as_deref() == Some("AXSecureTextField")
+}
+
+/// `kAXValueCGPointType` and `kAXValueCGSizeType`.
+const AX_VALUE_CG_POINT: u32 = 1;
+const AX_VALUE_CG_SIZE: u32 = 2;
+
+/// An element's frame (`AXPosition`, `AXSize`) in global points.
+fn element_frame(element: &CfObject) -> Option<[f64; 4]> {
+    let pair = |name: &CStr, kind: u32| -> Option<[f64; 2]> {
+        let value = copy_attribute(element, name)?;
+        if unsafe { CFGetTypeID(value.0) } != unsafe { AXValueGetTypeID() } {
+            return None;
+        }
+        let mut out = [0.0_f64; 2];
+        // SAFETY: `value` is an AXValue; CGPoint and CGSize are two f64s.
+        unsafe { AXValueGetValue(value.0, kind, out.as_mut_ptr().cast()) }.then_some(out)
+    };
+    let [x, y] = pair(c"AXPosition", AX_VALUE_CG_POINT)?;
+    let [width, height] = pair(c"AXSize", AX_VALUE_CG_SIZE)?;
+    (width > 0.0 && height > 0.0).then_some([x, y, width, height])
+}
+
 /// The CoreGraphics window number of the application's focused window
 /// (agent-desktop names it `w-<number>`). An app's frontmost CoreGraphics
 /// window can be a strip or panel of its own; this is the window it says

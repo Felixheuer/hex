@@ -283,6 +283,7 @@ fn here(scratch: &Scratch, fake: &Fake, window: &str, app: &str, physical: bool)
             physical_input: physical,
             blocked_apps: vec!["1Password".into(), "com.agilebits.onepassword7".into()],
             agent_display: None,
+            autonomy: Default::default(),
         },
         scratch.store(),
         std::process::id(),
@@ -303,6 +304,7 @@ fn background(scratch: &Scratch, fake: &Fake, task: &str, physical: bool) -> Gua
             physical_input: physical,
             blocked_apps: vec!["Ghostty".into()],
             agent_display: None,
+            autonomy: Default::default(),
         },
         scratch.store(),
         std::process::id(),
@@ -747,6 +749,7 @@ fn real_input_needs_permission_and_shows_hands_off_while_it_runs() {
             physical_input: true,
             blocked_apps: Vec::new(),
             agent_display: None,
+            autonomy: Default::default(),
         },
         store.clone(),
         std::process::id(),
@@ -940,6 +943,7 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
             "here_window": {"app": "Mail", "window_id": "w-7"},
             "physical_input": true, "blocked_apps": ["1Password"],
             "agent_desktop": "/opt/homebrew/bin/agent-desktop",
+            "autonomy": "smart",
             "state_dir": "/Users/me/Library/Application Support/hex/assistant",
         })
     );
@@ -951,5 +955,6 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
     assert_eq!(claude["mcpServers"]["agent-desktop"]["args"][1], "mcp");
 }
 
+mod consent;
 mod displays;
 mod round_two;

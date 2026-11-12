@@ -93,6 +93,9 @@ pub struct WireSpec {
     /// (an id or name); `None` is the one the person isn't working on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_display: Option<String>,
+    /// `assistant.autonomy`: "ask", "smart" (the default), or "yolo".
+    #[serde(default)]
+    pub autonomy: crate::assistant::autonomy::Autonomy,
 }
 
 /// Where the guard reads the windows on screen.
@@ -137,6 +140,7 @@ impl WireSpec {
             state_dir: None,
             windows: WindowSource::default(),
             agent_display: None,
+            autonomy: crate::assistant::autonomy::Autonomy::default(),
         }
     }
 
@@ -171,6 +175,9 @@ fn server_for(spec: &TaskSpec, hex: &Path, desktop: &McpServer, state_dir: &Path
     wire.agent_desktop = Some(desktop.command.clone());
     wire.state_dir = Some(state_dir.to_path_buf());
     wire.agent_display = crate::assistant::computer::agent_display_setting();
+    if let Some((_, settings)) = crate::app_settings::assistant_runtime() {
+        wire.autonomy = settings.autonomy;
+    }
     McpServer {
         command: hex.to_path_buf(),
         args: vec![
@@ -234,6 +241,7 @@ fn config(wire: &WireSpec) -> proxy::Config {
         physical_input: wire.physical_input,
         blocked_apps: wire.blocked_apps.clone(),
         agent_display: wire.agent_display.clone(),
+        autonomy: wire.autonomy,
     }
 }
 

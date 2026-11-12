@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Map, Value, json};
 
 mod apps;
+mod consent;
 mod displays;
 mod lookup;
 
@@ -27,6 +28,8 @@ pub struct Config {
     pub blocked_apps: Vec<String>,
     /// `assistant.agent_display`: where new Background windows go.
     pub agent_display: Option<String>,
+    /// `assistant.autonomy`: how freely it takes consequential actions.
+    pub autonomy: crate::assistant::autonomy::Autonomy,
 }
 
 /// Where a snapshot's refs point.
@@ -96,6 +99,8 @@ pub struct Guard<D: Desktop> {
     arrived: Vec<Window>,
     /// Windows moved to a display, by window id: the display's id.
     placed: HashMap<String, String>,
+    /// Labels and secure fields by ref, from results.
+    elements: HashMap<String, consent::Element>,
     /// The last look at the windows on screen, and when.
     looked: Option<(Instant, Vec<Window>)>,
     notes: Vec<String>,
@@ -133,6 +138,7 @@ impl<D: Desktop> Guard<D> {
             watched: HashMap::new(),
             arrived: Vec::new(),
             placed: HashMap::new(),
+            elements: HashMap::new(),
             looked: None,
             notes: Vec::new(),
             resumed,
@@ -332,7 +338,9 @@ impl<D: Desktop> Guard<D> {
         for window in &resolved {
             self.check(tool, kind, window, &held)?;
         }
+        self.secure_read(tool, args)?;
         if kind.acts() {
+            self.consent(tool, args, &resolved)?;
             if self.config.lane == Lane::Background {
                 for window in &resolved {
                     self.watch(&window.app);
@@ -345,7 +353,8 @@ impl<D: Desktop> Guard<D> {
             .then(|| self.store.hands_on(&self.config.task, self.pid));
         let result = self.forward(tool, args);
         drop(hands);
-        let result = result?;
+        let mut result = result?;
+        self.learn_and_redact(&mut result);
         self.record(&result, &resolved);
         if kind.acts() {
             let _ = self.list(Look::AfterAction);

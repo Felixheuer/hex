@@ -27,6 +27,7 @@ pub const LONG_SIDE: u32 = 1280;
 const MAX_SELECTION: usize = 20_000;
 
 mod displays;
+mod privacy;
 
 pub use displays::{
     Display, agents_display, cascade, describe as describe_displays, display_of, displays, relation,
@@ -447,18 +448,23 @@ mod macos {
         let focused = super::displays()
             .into_iter()
             .find(|display| display.has_focus)
-            .and_then(|display| display.id.parse::<u32>().ok());
-        let id = match focused {
-            Some(id) => id,
+            .and_then(|display| {
+                let (x, y, w, h) = display.frame;
+                Some((display.id.parse::<u32>().ok()?, [x, y, w, h]))
+            });
+        let (id, frame) = match focused {
+            Some(found) => found,
             None => {
                 let at = screens::pointer().unwrap_or_default();
                 let displays = screens::displays();
                 screens::index_at(&displays, at)
-                    .map(|index| displays[index].id)
+                    .map(|index| (displays[index].id, displays[index].frame))
                     .ok_or_else(|| eyre!("No display to take a screenshot of"))?
             }
         };
-        let image = capture_core::screenshot_with(
+        // Password fields, found before the shot (they don't move in it).
+        let secure = super::privacy::secure_fields_on(frame);
+        let mut image = capture_core::screenshot_with(
             &capture_core::Source::Display(id),
             &exclusions(),
             Some(LONG_SIDE),
@@ -471,6 +477,7 @@ mod macos {
                 eyre!("Hex needs Screen Recording to see the screen")
             }
         })?;
+        super::privacy::black_out(&mut image.rgba, (image.width, image.height), frame, &secure);
         let (width, height) = fit(image.width, image.height, LONG_SIDE);
         let rgba = resize(&image.rgba, (image.width, image.height), (width, height));
         Ok(Screenshot {
@@ -481,12 +488,15 @@ mod macos {
     }
 
     /// Every window of Hex's (the HUD, Agent mode's frame and outlines,
-    /// Chats): never part of what the model sees. The filter leaves out the
-    /// app, so a window Hex shows while the shot is taken is left out too.
+    /// Chats) and of the apps the person blocked: never part of what the
+    /// model sees. The filter leaves out whole apps, so a window one shows
+    /// while the shot is taken is left out too.
     fn exclusions() -> capture_core::Exclusions {
+        let mut apps = vec![std::process::id() as i32];
+        apps.extend(super::privacy::blocked_pids_now());
         capture_core::Exclusions {
             windows: Vec::new(),
-            apps: vec![std::process::id() as i32],
+            apps,
         }
     }
 
