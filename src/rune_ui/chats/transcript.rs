@@ -1,25 +1,24 @@
 //! The selected conversation in the detail card: its header, the
 //! transcript (questions on the right, answers as Markdown, what the
 //! assistant did as compact muted steps, screenshots, errors), the request
-//! in flight with its answer streaming and Stop, and the composer.
+//! in flight with its answer streaming and what was sent while it worked,
+//! and the composer (`composer`).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use rune::{El, Tx, Waker, col, el, icon, row, text};
-use rune_kit::{ControlSize, IconButton, IconButtonVariant, Markdown, Spinner, TextArea};
+use rune::{El, Waker, col, el, icon, row, text};
+use rune_kit::{Markdown, Spinner};
 
 use super::super::controls::{DESCRIPTION, Paint};
 use super::super::list_detail::{self as ld, FOLDED, UNFOLDED};
 use super::super::lists::{Tone, small_button, tone_tag};
 use super::list::{AGENT_ICON, origin_label};
-use super::{ChatsPane, Phase, Turn, Ui};
+use super::{ChatsPane, Hold, Phase, Turn, Ui, composer, follow};
 use crate::assistant::{Conversation, Message, Part, Role};
 use crate::desktop::i18n::{tr, tr_fill};
 
-static SEND_ICON: &rune::Icon = &rune_theme_opencode::icons::ARROW_UP;
-static STOP_ICON: &rune::Icon = &rune_theme_opencode::icons::STOP;
 static ERROR_ICON: &rune::Icon = &rune_theme_opencode::icons::CIRCLE_X;
 
 /// The widest a question's bubble grows.
@@ -92,19 +91,73 @@ impl Thumbnails {
 }
 
 /// The detail card: a new chat, or the selected conversation.
-pub(super) fn detail(ui: &Ui, p: Paint) -> El {
+pub(super) fn detail(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     let pane = &ui.chats;
+    // Until its onboarding finished, the assistant offers to finish it
+    // instead of a chat.
+    let ready = crate::assistant::ready(&ui.settings);
     let content = match pane.selected.as_deref() {
+        None if !ready => finish_setup(ui, p),
         None => new_chat(ui, p),
         Some(id) => conversation(ui, p, id),
     };
+    let banner = pane
+        .selected
+        .as_deref()
+        .and_then(|id| composer::interrupted_banner(ui, p, id));
     col()
         .key("chat-detail")
         .grow(1.0)
         .shrink()
         .min_h(0.0)
         .child(content)
-        .child(composer(ui, p))
+        .children(banner)
+        .children(ready.then(|| composer::composer(ui, p, layer)))
+}
+
+/// Setup isn't finished: a calm card that picks it up where it was left.
+fn finish_setup(ui: &Ui, p: Paint) -> El {
+    use super::super::onboarding_kit::{LEAD, title_font};
+    let saved = super::setup::resume::saved_page(ui);
+    let detail = match saved {
+        Some(page) if page != super::setup::Page::Welcome => {
+            tr("It picks up where you left off, and checks that page again.")
+        }
+        _ => tr("Hex checks that the agent, its permissions, and the shortcuts work, then you try it once."),
+    };
+    col()
+        .key("finish-setup")
+        .grow(1.0)
+        .shrink()
+        .center()
+        .gap(10.0)
+        .pb(40.0)
+        .child(
+            text(tr("Finish setting up the assistant"))
+                .key("title")
+                .role("heading")
+                .level(2)
+                .font(title_font(p))
+                .color(p.text()),
+        )
+        .child(
+            text(detail)
+                .key("detail")
+                .font(LEAD)
+                .color(p.muted())
+                .align(rune::Align::Center)
+                .wrap()
+                .max_w(420.0),
+        )
+        .child(
+            rune_kit::Button::new(tr("Continue setup"))
+                .variant(rune_kit::ButtonVariant::Contrast)
+                .on_press(super::open_setup)
+                .build(p.k)
+                .key("continue-setup")
+                .mt(8.0),
+        )
+        .transition(super::super::onboarding_kit::arrives())
 }
 
 /// Nothing selected: what the assistant is for, over the composer.
@@ -173,7 +226,19 @@ fn conversation(ui: &Ui, p: Paint, id: &str) -> El {
     let running = pane.running(id);
     let mut meta = Vec::new();
     if let Some(origin) = origin {
-        meta.push(ld::meta_text(p, origin_label(origin)));
+        // Keyed by lane, so a Here question that becomes a job changes its
+        // badge with a transition.
+        meta.push(
+            ld::meta_text(p, origin_label(origin))
+                .key(format!("origin-{origin:?}"))
+                .transition(super::super::onboarding_kit::arrives()),
+        );
+    }
+    if super::work::escalated(ui, &id.to_owned()) && running {
+        meta.push(
+            tone_tag(p, "escalated", tr("Moved to the background"), Tone::Accent)
+                .transition(super::super::onboarding_kit::arrives()),
+        );
     }
     if let Some(updated) = stored.map(|conversation| conversation.updated_ms) {
         meta.push(ld::meta_text(
@@ -182,7 +247,12 @@ fn conversation(ui: &Ui, p: Paint, id: &str) -> El {
         ));
     }
     if running {
-        meta.push(tone_tag(p, "running", tr("Running"), Tone::Accent));
+        meta.push(match pane.task(id).and_then(|task| pane.hold(task)) {
+            Some(Hold::Asking(_)) => tone_tag(p, "running", tr("Needs your answer"), Tone::Accent),
+            Some(Hold::Paused) => tone_tag(p, "running", tr("You have it"), Tone::Warning),
+            Some(Hold::Waiting { .. }) => tone_tag(p, "running", tr("Waiting"), Tone::Neutral),
+            None => tone_tag(p, "running", tr("Running"), Tone::Accent),
+        });
     }
     let header = ld::card_header(ld::card_title(p, &title), meta, actions(pane, p, id));
     let mut column = col().key("transcript").gap(18.0).pb(8.0);
@@ -193,6 +263,12 @@ fn conversation(ui: &Ui, p: Paint, id: &str) -> El {
             Role::Assistant => answer(ui, p, id, index, message),
         });
     }
+    if turn.is_none()
+        && let Some(stored) = stored
+        && let Some(results) = super::work::results(ui, p, stored)
+    {
+        column = column.child(results);
+    }
     if let Some(turn) = turn {
         let asked = messages
             .last()
@@ -200,19 +276,33 @@ fn conversation(ui: &Ui, p: Paint, id: &str) -> El {
         if !asked {
             column = column.child(bubble(p, "pending-question", &turn.question));
         }
-        column = column.child(in_flight(pane, p, id, turn));
+        column = column.child(in_flight(ui, p, id, turn));
     } else if let Some(failure) = pane.failures.get(id)
         && !stored.is_some_and(ends_in_error)
     {
         column = column.child(error_row(p, "failure", failure));
     }
-    col()
-        .key("chat")
+    // The transcript keeps to its end while it streams, unless scrolled up;
+    // the pills float over it.
+    let scroll = ld::card_scroll_sticky(p, follow::SCROLL, column, true)
+        .on_scroll_offset(follow::on_scroll(pane.follow.scroll.clone()));
+    let body = col()
+        .key("scroll-stack")
         .grow(1.0)
         .shrink()
         .min_h(0.0)
+        .children(super::work::plan_card(ui, p, id))
+        .child(scroll)
+        .children(composer::pills(ui, p));
+    // Keyed by conversation, so a switch arrives rather than snaps.
+    col()
+        .key(format!("transcript-{id}"))
+        .grow(1.0)
+        .shrink()
+        .min_h(0.0)
+        .transition(super::super::onboarding_kit::arrives())
         .child(header.pb(4.0))
-        .child(ld::card_scroll_sticky(p, "chat-scroll", column, true))
+        .child(body)
 }
 
 fn ends_in_error(conversation: &Conversation) -> bool {
@@ -265,7 +355,7 @@ fn question(ui: &Ui, p: Paint, id: &str, index: usize, message: &Message) -> El 
 }
 
 /// A question's words in a bubble on the right.
-fn bubble(p: Paint, key: &str, words: &str) -> El {
+pub(super) fn bubble(p: Paint, key: &str, words: &str) -> El {
     row().key(key.to_owned()).justify_end().child(
         text(words.to_owned())
             .key("words")
@@ -410,7 +500,8 @@ fn step_row(p: Paint, index: usize, step: &str, ink: rune::Color) -> El {
 
 /// A request in flight: its steps, its answer so far, and what it's doing
 /// with Stop.
-fn in_flight(pane: &ChatsPane, p: Paint, id: &str, turn: &Turn) -> El {
+fn in_flight(ui: &Ui, p: Paint, id: &str, turn: &Turn) -> El {
+    let pane = &ui.chats;
     let mut block = col().key("in-flight").gap(10.0);
     if !turn.steps.is_empty() {
         let key = format!("{id}/live");
@@ -418,16 +509,47 @@ fn in_flight(pane: &ChatsPane, p: Paint, id: &str, turn: &Turn) -> El {
         let steps: Vec<&str> = turn.steps.iter().map(String::as_str).collect();
         block = block.child(step_block(p, &key, &steps, folded));
     }
+    for (index, (question, answer)) in turn.answers.iter().enumerate() {
+        block = block.child(super::work::answered(p, index, question, answer));
+    }
+    for (index, words) in turn.steered.iter().enumerate() {
+        block = block.child(
+            col()
+                .key(format!("steered{index}"))
+                .gap(4.0)
+                .items_end()
+                .child(bubble(p, "bubble", words))
+                .child(
+                    text(tr("Sent while working"))
+                        .key("caption")
+                        .font(p.k.ty.small)
+                        .color(p.faint()),
+                ),
+        );
+    }
     if !turn.answer.is_empty() {
         block = block.child(markdown(p, "streaming", &turn.answer, true));
     }
-    let doing = match turn.phase {
-        Phase::Sending => tr("Sending…"),
-        Phase::Queued => tr("Waiting for a free slot"),
-        Phase::Thinking => tr("Thinking…"),
-        Phase::Working => tr("Working…"),
-        Phase::Answering => tr("Writing…"),
+    if let Some(question) = super::work::question_block(ui, p, id) {
+        return block.child(question);
+    }
+    let doing = match pane.task(id).and_then(|task| pane.hold(task)) {
+        Some(Hold::Asking(_)) => tr("Waiting for your answer").to_owned(),
+        Some(Hold::Paused) => tr("Paused while you have it. Hand it back to go on").to_owned(),
+        Some(Hold::Waiting { until_ms, .. }) => tr_fill(
+            "Hit a usage limit. Retries in {}",
+            &super::strip::countdown(until_ms, crate::history::now_ms()),
+        ),
+        None => match turn.phase {
+            Phase::Sending => tr("Sending…"),
+            Phase::Queued => tr("Waiting for a free slot"),
+            Phase::Thinking => tr("Thinking…"),
+            Phase::Working => tr("Working…"),
+            Phase::Answering => tr("Writing…"),
+        }
+        .to_owned(),
     };
+    let doing = doing.as_str();
     block.child(
         row()
             .key("status")
@@ -523,68 +645,4 @@ fn screenshot(ui: &Ui, p: Paint, id: &str, index: usize, file: &str) -> El {
         });
     }
     thumb
-}
-
-/// The composer: Return sends, Shift-Return starts a new line. While the
-/// conversation runs and nothing is typed, its button stops it.
-fn composer(ui: &Ui, p: Paint) -> El {
-    let pane = &ui.chats;
-    let empty = pane.composer.text.trim().is_empty();
-    let placeholder = if pane.selected.is_some() {
-        tr("Reply…")
-    } else {
-        tr("Ask anything…")
-    };
-    let field = TextArea::new(&pane.composer)
-        .placeholder(placeholder)
-        .label(tr("Message"))
-        .width(None)
-        .auto_grow(1, 8)
-        .on_edit(|ui: &mut Ui| &mut ui.chats.composer)
-        .on_key(|ui: &mut Ui, event: &rune::KeyEvent, tx: &mut Tx| {
-            if event.key != rune::Key::Enter || event.mods.shift || event.mods.alt {
-                return false;
-            }
-            if ui.chats.send() {
-                tx.instant();
-            }
-            true
-        })
-        .build(p.k)
-        .key("composer-input")
-        .grow(1.0)
-        .shrink();
-    let running = pane.selected.as_deref().is_some_and(|id| pane.running(id));
-    let action = if running && empty {
-        let stop = pane.selected.clone().unwrap_or_default();
-        IconButton::new(STOP_ICON)
-            .variant(IconButtonVariant::Neutral)
-            .control_size(ControlSize::Large)
-            .label(tr("Stop"))
-            .on_press(move |ui: &mut Ui| ui.chats.stop(&stop))
-            .build(p.k)
-            .key("composer-stop")
-    } else {
-        IconButton::new(SEND_ICON)
-            .variant(IconButtonVariant::Submit)
-            .control_size(ControlSize::Large)
-            .label(tr("Send"))
-            .disabled(empty)
-            .on_press_tx(|ui: &mut Ui, tx: &mut Tx| {
-                if ui.chats.send() {
-                    tx.instant();
-                }
-            })
-            .build(p.k)
-            .key("composer-send")
-    };
-    row()
-        .key("composer")
-        .gap(8.0)
-        .items_end()
-        .pt(10.0)
-        .pb(16.0)
-        .pr(12.0)
-        .child(field)
-        .child(action)
 }

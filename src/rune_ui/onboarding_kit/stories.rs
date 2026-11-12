@@ -112,6 +112,10 @@ pub(crate) struct Onboard {
     pub(crate) caps: Vec<String>,
     shortcut_index: usize,
     pub(crate) step: Step,
+    /// The assistant's pages come before "Hex is ready": while set, the
+    /// story waits where it is and notes `wants_ready` instead.
+    pub(crate) hold_ready: bool,
+    pub(crate) wants_ready: bool,
     pub(crate) language: Option<Language>,
     pub(crate) now: f64,
     pub(crate) reduced: Cell<bool>,
@@ -269,6 +273,8 @@ impl Onboard {
                 .keycaps(),
             shortcut_index: 0,
             step: Step::Pick,
+            hold_ready: false,
+            wants_ready: false,
             language: None,
             now: 0.0,
             reduced: Cell::new(false),
@@ -668,6 +674,10 @@ impl Onboard {
     }
 
     pub(crate) fn jump_to_ready(&mut self) {
+        if self.hold_ready {
+            self.wants_ready = true;
+            return;
+        }
         self.manual_override = true;
         self.auto_due_at = None;
         self.practice.focused = false;

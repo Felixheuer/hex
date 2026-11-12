@@ -1,29 +1,31 @@
 //! The Chats view: the setup notice, the running tasks, the conversations
 //! grouped by age, and the selected conversation's transcript.
 
-use rune::{El, Tx, col, el, row, text};
+use rune::{El, col, el, icon, row, text};
 use rune_kit::TextInput;
 
-use super::super::controls::{ButtonKind, DESCRIPTION, Paint, button, pulsing_dot, status_dot};
-use super::super::icons::{KEYBOARD, MIC};
-use super::super::list_detail::{self as ld, HANG, Item};
-use super::super::lists::{dismissible_error_panel, message, small_button};
-use super::{Ui, transcript};
-use crate::assistant::{ConversationSummary, Origin, TaskState, TaskStatus};
+use super::super::controls::{ButtonKind, DESCRIPTION, Paint, button, pulsing_dot};
+use super::super::icons::{KEYBOARD, MIC, SPARKLES};
+use super::super::list_detail::{self as ld, Item};
+use super::super::lists::{dismissible_error_panel, message};
+use super::{Ui, strip, transcript};
+use crate::assistant::{ConversationSummary, Origin, Outcome};
 use crate::desktop::i18n::tr;
 
 /// The list's width: narrower than Meetings', so the transcript has room.
 const LIST_WIDTH: f32 = 272.0;
 const DAY: u64 = 24 * 60 * 60 * 1_000;
 
+/// A step's icon in the transcript: something done on the desktop.
 pub(super) static AGENT_ICON: &rune::Icon = &rune_theme_opencode::icons::WINDOW_CURSOR;
-static STOP_ICON: &rune::Icon = &rune_theme_opencode::icons::STOP;
+static FAILED_ICON: &rune::Icon = &rune_theme_opencode::icons::CIRCLE_X;
+pub(super) static INTERRUPTED_ICON: &rune::Icon = &rune_theme_opencode::icons::WARNING;
 
-/// The icon before a conversation: how it was asked.
+/// The icon before a conversation: its lane, and how it was asked.
 pub(super) fn origin_icon(origin: Origin) -> &'static rune::Icon {
     match origin {
         Origin::ActionShortcut => &MIC,
-        Origin::Background => AGENT_ICON,
+        Origin::Background => &SPARKLES,
         Origin::Chat => &KEYBOARD,
     }
 }
@@ -31,16 +33,18 @@ pub(super) fn origin_icon(origin: Origin) -> &'static rune::Icon {
 /// How it was asked, for the transcript's meta line.
 pub(super) fn origin_label(origin: Origin) -> &'static str {
     match origin {
-        Origin::ActionShortcut => tr("Asked by voice"),
-        Origin::Background => tr("Agent mode task"),
+        Origin::ActionShortcut => tr("Here: about the window in front"),
+        Origin::Background => tr("Background task"),
         Origin::Chat => tr("Typed in Chats"),
     }
 }
 
-pub(super) fn body(ui: &Ui, p: Paint) -> El {
+pub(super) fn body(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     let pane = &ui.chats;
     let mut notices = Vec::new();
-    if !ui.settings.assistant.setup_done {
+    // Unfinished setup shows in the detail card while nothing is selected,
+    // and here once something is.
+    if !ui.settings.assistant.setup_done && pane.selected.is_some() {
         notices.push(setup_notice(p));
     }
     if let Some(error) = &pane.error {
@@ -58,8 +62,8 @@ pub(super) fn body(ui: &Ui, p: Paint) -> El {
         .grow(1.0)
         .shrink()
         .children((!notices.is_empty()).then(|| ld::notices(notices)))
-        .children(task_strip(ui, p))
-        .child(ld::body(p, "chats-body", column, transcript::detail(ui, p)))
+        .children(strip::task_strip(ui, p))
+        .child(ld::body(p, "chats-body", column, transcript::detail(ui, p, layer)))
 }
 
 fn search(ui: &Ui, p: Paint) -> El {
@@ -116,102 +120,6 @@ fn setup_notice(p: Paint) -> El {
         ))
 }
 
-/// The tasks running or waiting, each with Stop; none while nothing runs.
-fn task_strip(ui: &Ui, p: Paint) -> Option<El> {
-    let tasks = &ui.chats.tasks;
-    if tasks.is_empty() {
-        return None;
-    }
-    let mut strip = row()
-        .key("chats-tasks")
-        .role("list")
-        .label(tr("Running tasks"))
-        .px(HANG)
-        .pb(12.0)
-        .gap(8.0)
-        .flex_wrap()
-        .center_y()
-        .children(
-            tasks
-                .iter()
-                .enumerate()
-                .map(|(index, task)| chip(p, index, task)),
-        );
-    if tasks.len() > 1 {
-        strip = strip.child(small_button(
-            p,
-            "stop-all-tasks",
-            tr("Stop all"),
-            |ui: &mut Ui, _| ui.chats.stop_all(),
-        ));
-    }
-    Some(strip)
-}
-
-/// One task: its state, question, and latest step, with Stop.
-fn chip(p: Paint, index: usize, task: &TaskStatus) -> El {
-    let c = &p.k.c;
-    // The task's own colour, as its cursor, outline, and stack row show it.
-    let colour = super::super::assistant_overlay::task_colour(task.colour, p.k.dark);
-    let dot = if task.state == TaskState::Running {
-        pulsing_dot(colour)
-    } else {
-        status_dot(p.faint())
-    };
-    let detail = match (&task.step, task.state) {
-        (_, TaskState::Queued) => tr("Waiting for a free slot").to_owned(),
-        (Some(step), _) => step.clone(),
-        (None, _) => tr("Working…").to_owned(),
-    };
-    let open = task.conversation.clone();
-    let stop = task.conversation.clone();
-    row()
-        .key(format!("task{index}"))
-        .role("listitem")
-        .label(task.title.clone())
-        .description(detail.clone())
-        .h(30.0)
-        .pl(10.0)
-        .pr(2.0)
-        .gap(8.0)
-        .center_y()
-        .max_w(340.0)
-        .radius(p.k.radius.md)
-        .fill(c.layer_01)
-        .border(p.hair, c.border_weak)
-        .hover(c.hover)
-        .on_press_tx(move |ui: &mut Ui, tx: &mut Tx| {
-            tx.instant();
-            ui.chats.select(open.clone());
-        })
-        .child(el().key("mark").size(8.0, 8.0).child(dot).a11y_hidden())
-        .child(
-            text(task.title.clone())
-                .key("title")
-                .font(p.k.ty.small_medium)
-                .color(p.text())
-                .shrink()
-                .truncate()
-                .a11y_hidden(),
-        )
-        .child(
-            text(detail)
-                .key("step")
-                .font(p.k.ty.small)
-                .color(p.muted())
-                .shrink()
-                .truncate()
-                .a11y_hidden(),
-        )
-        .child(ld::ghost_icon(
-            p,
-            "stop-task",
-            STOP_ICON,
-            tr("Stop task"),
-            move |ui: &mut Ui, _| ui.chats.stop(&stop),
-        ))
-}
-
 /// Which group a conversation lists under, by its last change.
 fn group(updated_ms: u64, now_ms: u64) -> &'static str {
     match crate::meeting::day_label(updated_ms, now_ms).as_str() {
@@ -226,7 +134,10 @@ fn group(updated_ms: u64, now_ms: u64) -> &'static str {
 fn list(ui: &Ui, p: Paint) -> El {
     let pane = &ui.chats;
     let rows = pane.rows();
-    let mut list = col().key("chats-list").label(tr("Chats"));
+    let mut list = col()
+        .key("chats-list")
+        .label(tr("Chats"))
+        .children(pane.search.text.trim().is_empty().then(|| super::schedules::group(ui, p)));
     if rows.is_empty() {
         let empty = if pane.search.text.trim().is_empty() {
             tr("No chats yet.")
@@ -254,26 +165,38 @@ fn list(ui: &Ui, p: Paint) -> El {
     list
 }
 
-/// One conversation's row: a live dot while it runs, else how it was asked.
+/// One conversation's row: its task's mark while it runs, a mark for how
+/// it ended when that went wrong, else how it was asked.
 fn item(ui: &Ui, p: Paint, summary: &ConversationSummary, now: u64) -> El {
     let pane = &ui.chats;
     let running = pane.running(&summary.id);
-    let failed = pane.failures.contains_key(&summary.id);
-    let (meta, meta_ink) = if running {
-        let step = pane
-            .turns
+    let task = pane.task(&summary.id);
+    let failed = pane.failures.contains_key(&summary.id)
+        || (!running && summary.outcome == Outcome::Failed);
+    let interrupted = !running && summary.outcome == Outcome::Interrupted;
+    let latest_step = || {
+        pane.turns
             .get(&summary.id)
             .and_then(|turn| turn.steps.last().cloned())
-            .or_else(|| {
-                pane.tasks
-                    .iter()
-                    .find(|task| task.conversation == summary.id)
-                    .and_then(|task| task.step.clone())
-            })
-            .unwrap_or_else(|| tr("Working…").to_owned());
+    };
+    let (meta, meta_ink) = if let Some(task) = task {
+        match strip::doing(ui, p, task) {
+            // A state (taken over, waiting, queued) says so.
+            (words, Some(ink)) => (words, Some(ink)),
+            (words, None) => (latest_step().unwrap_or(words), None),
+        }
+    } else if running {
+        let step = latest_step().unwrap_or_else(|| tr("Working…").to_owned());
         (step, None)
     } else if failed {
         (tr("Failed").to_owned(), Some(p.danger()))
+    } else if interrupted {
+        (
+            tr("Interrupted: Hex quit while it ran").to_owned(),
+            Some(p.warning()),
+        )
+    } else if summary.outcome == Outcome::Cancelled {
+        (tr("Stopped").to_owned(), Some(p.faint()))
     } else {
         (plain(&summary.preview), None)
     };
@@ -291,20 +214,26 @@ fn item(ui: &Ui, p: Paint, summary: &ConversationSummary, now: u64) -> El {
         hover: Vec::new(),
         selected: pane.selected.as_deref() == Some(summary.id.as_str()),
     };
-    let select = move |ui: &mut Ui| ui.chats.select(id.clone());
-    if running {
-        let colour = pane
-            .tasks
-            .iter()
-            .find(|task| task.conversation == summary.id)
-            .map_or(p.accent(), |task| {
-                super::super::assistant_overlay::task_colour(task.colour, p.k.dark)
-            });
+    let select = move |ui: &mut Ui| ui.chats.pick(id.clone());
+    let outcome_mark = |glyph: &'static rune::Icon, ink| {
+        el().key("outcome")
+            .size(14.0, 14.0)
+            .center()
+            .child(icon(glyph, 14.0).color(ink))
+    };
+    if let Some(task) = task {
+        ld::item_with_mark(p, entry, strip::mark(ui, p, task), select)
+    } else if running {
         let mark = el()
             .key("live")
             .size(14.0, 14.0)
             .center()
-            .child(pulsing_dot(colour));
+            .child(pulsing_dot(p.accent()));
+        ld::item_with_mark(p, entry, mark, select)
+    } else if failed {
+        ld::item_with_mark(p, entry, outcome_mark(FAILED_ICON, p.danger()), select)
+    } else if interrupted {
+        let mark = outcome_mark(INTERRUPTED_ICON, p.warning());
         ld::item_with_mark(p, entry, mark, select)
     } else {
         ld::item_with_icon(p, entry, Some(origin_icon(summary.origin)), select)

@@ -3,6 +3,11 @@
 //! microphone", which the tour shows only while it is off. Linux has no such
 //! grants, so only the transcription model step applies.
 
+mod assistant;
+
+#[cfg_attr(not(target_os = "macos"), allow(unused_imports))]
+pub use assistant::{AssistantProgress, record_assistant, saved_assistant};
+
 use std::fs::{self, OpenOptions};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};

@@ -1,6 +1,8 @@
-//! Chats (Labs › Assistant, macOS): every conversation with the assistant,
-//! the selected one's transcript with its answers streaming in, a composer
-//! that asks by typing, the running tasks with Stop, Agent mode, and the
+//! Chats (Labs › Assistant, macOS): every conversation with the assistant
+//! and how it ended, the selected one's transcript with its answers
+//! streaming in, a composer that asks about the window in front (Here) or
+//! starts a Background task, the running tasks with Take over, Hand back,
+//! and Stop, and the
 //! assistant's settings. The setup sheet (`setup`) checks, live, that every
 //! piece the assistant needs works on this Mac.
 //!
@@ -8,13 +10,25 @@
 //! to it (`connect`); before that, and in every scene and test, it works on
 //! an in-memory [`fixture::Store`] and never touches the service.
 
+mod agent_picker;
+mod agents;
+mod composer;
+mod display_shim;
+mod displays;
+mod events;
+mod follow;
 pub(super) mod fixture;
 mod jobs;
 mod list;
+mod round3_shim;
+mod schedules;
 mod settings;
+mod work;
 mod setup;
 mod sheet;
 mod shortcut;
+mod source;
+mod strip;
 #[cfg(all(test, target_os = "macos"))]
 mod tests;
 mod transcript;
@@ -23,19 +37,22 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use rune::{El, TextEdit, Tx, Waker, row, text};
+use rune::{El, TextEdit, Tx, Waker, text};
 
 use super::controls::{ButtonKind, Paint, button, segmented_tx};
 use super::{Pane, Ui};
 use crate::app_settings::AssistantBackend;
 use crate::assistant::{
-    Context, Conversation, ConversationId, ConversationSummary, Event, Origin, Request, TaskStatus,
+    Context, Conversation, ConversationId, ConversationSummary, Event, Origin, Request, TaskState,
+    TaskStatus,
 };
 use crate::desktop::i18n::{tr, tr_fill};
+use source::Source;
 
 pub(super) use fixture::scene as fixture_scene;
 pub(super) use jobs::{Done, Job, Jobs};
 pub(super) use setup::Page;
+pub(crate) use setup::tutorial::tasks_opened;
 pub(super) use sheet::overlay as setup_overlay;
 
 /// The sidebar's Chats icon: a speech bubble.
@@ -80,83 +97,54 @@ pub(super) struct Turn {
     pub(super) steps: Vec<String>,
     /// The answer's text so far.
     pub(super) answer: String,
+    /// What the person sent while it worked, in order (steering).
+    pub(super) steered: Vec<String>,
+    /// Questions it asked while it worked, each with the person's answer.
+    pub(super) answers: Vec<(String, String)>,
+    /// When it started (Unix ms), for the plan's elapsed time.
+    pub(super) started_ms: u64,
+}
+
+impl Turn {
+    fn new(question: String, origin: Origin, phase: Phase) -> Self {
+        Self {
+            question,
+            origin,
+            phase,
+            steps: Vec::new(),
+            answer: String::new(),
+            steered: Vec::new(),
+            answers: Vec::new(),
+            started_ms: crate::history::now_ms(),
+        }
+    }
+}
+
+/// Where the composer sends a new message.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) enum SendMode {
+    /// The assistant decides: about the window in front, or a job of its
+    /// own (it can move a Here question to the background as it grows).
+    #[default]
+    Auto,
+    Here,
+    Background,
 }
 
 /// The most steps a turn keeps while it runs; the stored conversation has
 /// them all.
 const MAX_STEPS: usize = 200;
 
-/// Where the pane reads conversations and sends requests.
-enum Source {
-    /// Scenes, tests, and a window that hasn't connected yet.
-    Fixture(fixture::Store),
-    /// The assistant service.
-    Live,
-}
-
-impl Source {
-    fn conversations(&self) -> Vec<ConversationSummary> {
-        match self {
-            Self::Fixture(store) => store.conversations(),
-            Self::Live => crate::assistant::conversations(),
-        }
-    }
-
-    fn conversation(&self, id: &str) -> Option<Conversation> {
-        match self {
-            Self::Fixture(store) => store.conversation(id),
-            Self::Live => crate::assistant::conversation(id),
-        }
-    }
-
-    fn tasks(&self) -> Vec<TaskStatus> {
-        match self {
-            Self::Fixture(store) => store.tasks.clone(),
-            Self::Live => crate::assistant::tasks(),
-        }
-    }
-
-    fn agent_mode(&self) -> bool {
-        match self {
-            Self::Fixture(store) => store.agent_mode,
-            Self::Live => crate::assistant::agent_mode(),
-        }
-    }
-
-    fn submit(&mut self, request: Request) -> ConversationId {
-        match self {
-            Self::Fixture(store) => store.submit(request),
-            Self::Live => crate::assistant::submit(request),
-        }
-    }
-
-    fn cancel(&mut self, id: &str) {
-        match self {
-            Self::Fixture(store) => store.cancelled.push(id.to_owned()),
-            Self::Live => crate::assistant::cancel(id),
-        }
-    }
-
-    fn delete(&mut self, id: &str) {
-        match self {
-            Self::Fixture(store) => store.delete(id),
-            Self::Live => crate::assistant::delete(id),
-        }
-    }
-
-    fn set_agent_mode(&mut self, on: bool) {
-        match self {
-            Self::Fixture(store) => store.agent_mode = on,
-            Self::Live => crate::assistant::set_agent_mode(on),
-        }
-    }
-
-    fn set_focus(&mut self, id: Option<ConversationId>) {
-        match self {
-            Self::Fixture(store) => store.focus = id,
-            Self::Live => crate::assistant::set_focus(id),
-        }
-    }
+/// Why a running task isn't moving: the person has it, or its agent hit a
+/// usage limit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum Hold {
+    /// Taken over: its desktop actions wait until it's handed back.
+    Paused,
+    /// Retries at `until_ms` (Unix ms).
+    Waiting { until_ms: u64, reason: String },
+    /// It asked the person something and waits for the answer.
+    Asking(String),
 }
 
 /// The Chats pane's state.
@@ -177,9 +165,33 @@ pub(super) struct ChatsPane {
     /// Why a conversation's last request failed, until it asks again.
     pub(super) failures: HashMap<ConversationId, String>,
     pub(super) tasks: Vec<TaskStatus>,
-    pub(super) agent_mode: bool,
+    /// Tasks taken over or waiting on a usage limit, by conversation, as
+    /// their events said (the reason isn't in `TaskStatus`).
+    pub(super) holds: HashMap<ConversationId, Hold>,
+    /// The Here task moving the real pointer or keys now.
+    pub(super) hands_off: Option<ConversationId>,
     pub(super) search: TextEdit,
     pub(super) composer: TextEdit,
+    /// Where the composer sends a new message: Auto, or Here or Background.
+    pub(super) lane: SendMode,
+    /// Each running job's plan, by conversation.
+    pub(super) plans: HashMap<ConversationId, Vec<crate::assistant::PlanStep>>,
+    /// Plans folded to their one line.
+    pub(super) plan_folded: Vec<ConversationId>,
+    /// The question each waiting job asked.
+    pub(super) questions: HashMap<ConversationId, String>,
+    /// The answer to the shown conversation's question, as typed.
+    pub(super) answer: TextEdit,
+    /// A question arrived in the shown conversation: its field takes focus.
+    pub(super) focus_answer: bool,
+    /// Here conversations that became Background jobs while shown.
+    pub(super) escalated: Vec<ConversationId>,
+    /// The scheduled requests, as last read.
+    pub(super) schedules: Vec<round3_shim::schedules::Schedule>,
+    /// The New schedule sheet, while it shows.
+    pub(super) new_schedule: Option<schedules::NewSchedule>,
+    /// The files in each job folder an answer named, by folder.
+    pub(super) folders: HashMap<String, Vec<String>>,
     /// A conversation whose Delete waits for its confirmation.
     pub(super) delete_armed: Option<ConversationId>,
     /// Step blocks the person unfolded, by key.
@@ -196,13 +208,17 @@ pub(super) struct ChatsPane {
     pub(super) setup: Option<setup::SetupFlow>,
     /// The assistant settings' text fields and lists.
     pub(super) settings: settings::SettingsState,
+    /// Following new activity, and the transcript's scroll.
+    pub(super) follow: follow::Follow,
+    /// The voice first run handed over to the assistant's pages already.
+    pub(super) handed_off: bool,
 }
 
 impl Default for ChatsPane {
     fn default() -> Self {
         Self {
             view: View::Chats,
-            source: Source::Fixture(fixture::Store::default()),
+            source: Source::Fixture(Box::default()),
             inbox: Arc::default(),
             list: Vec::new(),
             listed: false,
@@ -211,9 +227,20 @@ impl Default for ChatsPane {
             turns: HashMap::new(),
             failures: HashMap::new(),
             tasks: Vec::new(),
-            agent_mode: false,
+            holds: HashMap::new(),
+            hands_off: None,
             search: TextEdit::default(),
             composer: TextEdit::default(),
+            lane: SendMode::Auto,
+            plans: HashMap::new(),
+            plan_folded: Vec::new(),
+            questions: HashMap::new(),
+            answer: TextEdit::default(),
+            focus_answer: false,
+            escalated: Vec::new(),
+            folders: HashMap::new(),
+            schedules: Vec::new(),
+            new_schedule: None,
             delete_armed: None,
             unfolded: Vec::new(),
             focus: None,
@@ -222,6 +249,8 @@ impl Default for ChatsPane {
             jobs: Jobs::default(),
             setup: None,
             settings: settings::SettingsState::default(),
+            follow: follow::Follow::default(),
+            handed_off: false,
         }
     }
 }
@@ -230,7 +259,7 @@ impl ChatsPane {
     /// The pane over `store`, for scenes and tests.
     pub(super) fn fixture(store: fixture::Store) -> Self {
         let mut pane = Self {
-            source: Source::Fixture(store),
+            source: Source::Fixture(Box::new(store)),
             ..Self::default()
         };
         pane.reload();
@@ -241,7 +270,7 @@ impl ChatsPane {
     #[cfg(test)]
     pub(super) fn store(&self) -> Option<&fixture::Store> {
         match &self.source {
-            Source::Fixture(store) => Some(store),
+            Source::Fixture(store) => Some(store.as_ref()),
             Source::Live => None,
         }
     }
@@ -258,14 +287,13 @@ impl ChatsPane {
         }
     }
 
-    /// Reads the list, the shown conversation, the tasks, and Agent mode
-    /// again.
+    /// Reads the list, the shown conversation, and the tasks again.
     fn reload(&mut self) {
         self.list = self.source.conversations();
         self.listed = true;
         self.reload_shown();
         self.tasks = self.source.tasks();
-        self.agent_mode = self.source.agent_mode();
+        self.schedules = self.source.schedules();
     }
 
     fn reload_shown(&mut self) {
@@ -273,6 +301,23 @@ impl ChatsPane {
             .selected
             .as_deref()
             .and_then(|id| self.source.conversation(id));
+        // The job folder its answer names, listed once.
+        if let Some(folder) = self.shown.as_ref().and_then(work::folder_of) {
+            let files = self.source.files(&folder);
+            self.folders.insert(folder, files);
+        }
+        if let Some(id) = self.selected.clone()
+            && self.live()
+            && !self.plans.contains_key(&id)
+        {
+            let plan = crate::assistant::service::plan(&id);
+            if !plan.is_empty() {
+                self.plans.insert(id.clone(), plan);
+            }
+            if let Some(question) = crate::assistant::service::question(&id) {
+                self.questions.insert(id, question);
+            }
+        }
     }
 
     /// Shows conversation `id`.
@@ -286,7 +331,9 @@ impl ChatsPane {
     }
 
     /// Starts a new conversation: nothing selected, the composer empty.
+    /// Chats stops following until something is picked again.
     pub(super) fn new_chat(&mut self) {
+        self.follow.pinned = true;
         self.selected = None;
         self.shown = None;
         self.delete_armed = None;
@@ -297,129 +344,37 @@ impl ChatsPane {
         self.turns.contains_key(id) || self.tasks.iter().any(|task| task.conversation == id)
     }
 
-    /// Takes in one event. True when what the pane shows changed.
-    pub(super) fn apply(&mut self, event: &Event) -> bool {
-        let mut reload_list = false;
-        let mut reload_shown = false;
-        match event {
-            Event::Queued {
-                conversation,
-                origin,
-                question,
-            }
-            | Event::Started {
-                conversation,
-                origin,
-                question,
-            } => {
-                let phase = if matches!(event, Event::Queued { .. }) {
-                    Phase::Queued
-                } else {
-                    Phase::Thinking
-                };
-                let turn = self.turns.entry(conversation.clone()).or_insert(Turn {
-                    question: question.clone(),
-                    origin: *origin,
-                    phase,
-                    steps: Vec::new(),
-                    answer: String::new(),
-                });
-                turn.phase = phase;
-                self.failures.remove(conversation);
-                reload_list = !self.list.iter().any(|row| &row.id == conversation);
-            }
-            Event::Thinking { conversation } => {
-                if let Some(turn) = self.turns.get_mut(conversation) {
-                    turn.phase = Phase::Thinking;
-                }
-            }
-            Event::Step {
-                conversation,
-                description,
-            } => {
-                if let Some(turn) = self.turns.get_mut(conversation) {
-                    turn.phase = Phase::Working;
-                    if turn.steps.len() < MAX_STEPS {
-                        turn.steps.push(description.clone());
-                    }
-                }
-            }
-            Event::Window {
-                conversation,
-                window,
-            } => {
-                if let Some(turn) = self.turns.get_mut(conversation)
-                    && turn.steps.len() < MAX_STEPS
-                {
-                    turn.steps.push(tr_fill("Working in {}", &window.app));
-                }
-            }
-            Event::AnswerDelta { conversation, text } => {
-                if let Some(turn) = self.turns.get_mut(conversation) {
-                    turn.phase = Phase::Answering;
-                    turn.answer.push_str(text);
-                }
-            }
-            Event::Answer { conversation, .. } | Event::Cancelled { conversation } => {
-                self.turns.remove(conversation);
-                reload_list = true;
-                reload_shown = self.selected.as_ref() == Some(conversation);
-            }
-            Event::Failed {
-                conversation,
-                message,
-            } => {
-                self.turns.remove(conversation);
-                self.failures.insert(conversation.clone(), message.clone());
-                reload_list = true;
-                reload_shown = self.selected.as_ref() == Some(conversation);
-            }
-            Event::ConversationsChanged => {
-                reload_list = true;
-                reload_shown = true;
-            }
-            Event::ModeChanged { on } => self.agent_mode = *on,
-            // The UI engineer shows these (paused, waiting).
-            Event::Paused { .. }
-            | Event::Resumed { .. }
-            | Event::Waiting { .. }
-            | Event::HandsOff { .. }
-            | Event::Plan { .. }
-            | Event::Question { .. }
-            | Event::Escalated { .. } => {}
-        }
-        if reload_list {
-            self.list = self.source.conversations();
-            self.listed = true;
-        }
-        if reload_shown {
-            self.reload_shown();
-            // A deleted conversation leaves the transcript for a new chat.
-            if self.shown.is_none()
-                && let Some(id) = &self.selected
-                && !self.turns.contains_key(id)
-                && !self.failures.contains_key(id)
-                && !self.list.iter().any(|row| &row.id == id)
-            {
-                self.selected = None;
-            }
-        }
-        self.tasks = self.source.tasks();
-        true
-    }
-
-    /// Sends the composer's text: a new conversation, or the selected one
-    /// continued. Nothing for an empty composer.
+    /// Sends the composer's text into the shown conversation (a new one
+    /// when none shows). While that conversation runs, it steers it: the
+    /// agent hears it as the person interrupting. Nothing for an empty
+    /// composer.
     pub(super) fn send(&mut self) -> bool {
         let question = self.composer.text.trim().to_owned();
         if question.is_empty() {
             return false;
         }
+        if let Some(id) = self.selected.clone()
+            && self.running(&id)
+        {
+            if self.questions.contains_key(&id) {
+                self.composer.clear();
+                return self.answer_question(&id, question);
+            }
+            return self.steer(id, question);
+        }
+        // Here asks about the window in front of Hex, read now; Background
+        // looks for itself; Auto lets the assistant choose, knowing the
+        // window in front.
+        let (origin, context) = match self.lane {
+            SendMode::Here => (Origin::ActionShortcut, self.source.here_context()),
+            SendMode::Auto => (Origin::Chat, self.source.here_context()),
+            SendMode::Background => (Origin::Chat, Context::default()),
+        };
         let id = self.source.submit(Request {
             conversation: self.selected.clone(),
             text: question.clone(),
-            origin: Origin::Chat,
-            context: Context::default(),
+            origin,
+            context,
         });
         if id.is_empty() {
             self.error =
@@ -429,21 +384,49 @@ impl ChatsPane {
         self.error = None;
         self.composer.clear();
         self.failures.remove(&id);
-        self.turns.insert(
-            id.clone(),
-            Turn {
-                question,
-                origin: Origin::Chat,
-                phase: Phase::Sending,
-                steps: Vec::new(),
-                answer: String::new(),
-            },
-        );
+        self.turns
+            .insert(id.clone(), Turn::new(question, origin, Phase::Sending));
         self.delete_armed = None;
+        self.follow.to_end = true;
         if self.selected.as_deref() != Some(id.as_str()) {
             self.selected = Some(id);
             self.reload_shown();
         }
+        true
+    }
+
+    /// Sends `words` to running conversation `id`, shown in its turn as
+    /// sent while it worked.
+    fn steer(&mut self, id: ConversationId, words: String) -> bool {
+        let origin = self
+            .turns
+            .get(&id)
+            .map(|turn| turn.origin)
+            .or_else(|| self.task(&id).map(|task| task.origin))
+            .unwrap_or(Origin::Chat);
+        let sent = self.source.submit(Request {
+            conversation: Some(id.clone()),
+            text: words.clone(),
+            origin,
+            context: Context::default(),
+        });
+        if sent.is_empty() {
+            self.error =
+                Some(tr("The assistant didn't take the message. Try again in a moment.").into());
+            return true;
+        }
+        self.error = None;
+        self.composer.clear();
+        let question = self
+            .task(&id)
+            .map(|task| task.title.clone())
+            .unwrap_or_default();
+        self.turns
+            .entry(id)
+            .or_insert_with(|| Turn::new(question, origin, Phase::Working))
+            .steered
+            .push(words);
+        self.follow.to_end = true;
         true
     }
 
@@ -457,10 +440,78 @@ impl ChatsPane {
             .iter()
             .map(|task| task.conversation.clone())
             .collect();
-        match &mut self.source {
-            Source::Fixture(store) => store.cancelled.extend(ids),
-            Source::Live => crate::assistant::cancel_all(),
+        self.source.stop_all(ids);
+    }
+
+    /// The person takes task `id` over: it waits while they work.
+    pub(super) fn take_over(&mut self, id: &str) {
+        self.source.take_over(id, true);
+        self.holds.insert(id.to_owned(), Hold::Paused);
+        self.tasks = self.source.tasks();
+    }
+
+    /// Gives task `id` back; it looks again before acting.
+    pub(super) fn hand_back(&mut self, id: &str) {
+        self.source.take_over(id, false);
+        self.holds.remove(id);
+        self.tasks = self.source.tasks();
+    }
+
+    /// Continues conversation `id` after Hex quit while it ran.
+    pub(super) fn resume(&mut self, id: &str) {
+        let Some(resumed) = self.source.resume(id) else {
+            self.error = Some(tr("Couldn't resume this task. Try asking again.").into());
+            return;
+        };
+        self.error = None;
+        let question = self
+            .shown
+            .as_ref()
+            .filter(|shown| shown.id == id)
+            .and_then(|shown| {
+                shown
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|message| message.role == crate::assistant::Role::User)
+            })
+            .map(|message| message.text().trim().to_owned())
+            .unwrap_or_default();
+        let origin = self
+            .list
+            .iter()
+            .find(|row| row.id == id)
+            .map_or(Origin::Background, |row| row.origin);
+        self.failures.remove(&resumed);
+        self.turns
+            .insert(resumed.clone(), Turn::new(question, origin, Phase::Sending));
+        self.follow.to_end = true;
+        self.select(resumed);
+    }
+
+    /// Why `task` isn't moving, if it isn't: what its events said, else its
+    /// state as the service lists it.
+    pub(super) fn hold(&self, task: &TaskStatus) -> Option<Hold> {
+        if let Some(hold) = self.holds.get(&task.conversation) {
+            return Some(hold.clone());
         }
+        if let Some(question) = self.questions.get(&task.conversation) {
+            return Some(Hold::Asking(question.clone()));
+        }
+        match task.state {
+            TaskState::NeedsInput => Some(Hold::Asking(String::new())),
+            TaskState::Paused => Some(Hold::Paused),
+            TaskState::Waiting { until_ms } => Some(Hold::Waiting {
+                until_ms,
+                reason: String::new(),
+            }),
+            TaskState::Queued | TaskState::Running => None,
+        }
+    }
+
+    /// The task running conversation `id`, if one is.
+    pub(super) fn task(&self, id: &str) -> Option<&TaskStatus> {
+        self.tasks.iter().find(|task| task.conversation == id)
     }
 
     /// Deletes the armed conversation.
@@ -475,11 +526,6 @@ impl ChatsPane {
             self.new_chat();
         }
         self.list = self.source.conversations();
-    }
-
-    pub(super) fn set_agent_mode(&mut self, on: bool) {
-        self.source.set_agent_mode(on);
-        self.agent_mode = on;
     }
 
     /// The rows the list shows: stored conversations, and new ones whose
@@ -517,7 +563,6 @@ impl ChatsPane {
 pub(super) fn available(ui: &Ui) -> bool {
     ui.platform.caps.os == super::platform::Os::Macos
         && crate::assistant::enabled(&ui.settings)
-        && crate::labs::Feature::Assistant.managed().is_none()
 }
 
 /// Connects the pane to the assistant service: the window shows what it
@@ -535,27 +580,47 @@ pub(super) fn connect(ui: &mut Ui, waker: Waker) {
         }
         waker();
     }));
+    // A relaunch reopens the onboarding where it was.
+    setup::resume::launch(ui);
 }
 
-/// Opens the window's Chats pane on `conversation` (or where it was), from
-/// the menu bar, a `hex://chats` link, or the HUD's task stack.
+/// Opens the window's Chats pane on `conversation`, from the menu bar, a
+/// `hex://chats?id=` link, the HUD's bubble, or its task stack; without
+/// one, on the most relevant conversation.
 pub(super) fn show(ui: &mut Ui, conversation: Option<ConversationId>, tx: &mut Tx) {
     if !available(ui) {
         return;
     }
     ui.select_pane(Pane::Chats, tx);
     ui.chats.view = View::Chats;
-    if !ui.chats.listed {
-        ui.chats.reload();
+    ui.chats.reload();
+    match conversation {
+        Some(id) => ui.chats.land(id),
+        None => ui.chats.auto_select(),
     }
-    if let Some(id) = conversation {
-        ui.chats.select(id);
-    }
+    ui.chats.follow.landed = true;
 }
 
 /// Opens the assistant's onboarding, and starts its checks.
 pub(super) fn open_setup(ui: &mut Ui) {
     setup::open(ui);
+}
+
+/// A hold of the Action shortcut before setup finished: the onboarding
+/// where it was left (or as it is, when it shows), saying so.
+pub(super) fn open_setup_from_hold(ui: &mut Ui, tx: &mut Tx) {
+    if !available(ui) || ui.settings.assistant.setup_done {
+        return;
+    }
+    if ui.pane != Pane::Chats {
+        ui.select_pane(Pane::Chats, tx);
+    }
+    if ui.chats.setup.is_none() {
+        setup::open(ui);
+    }
+    if let Some(flow) = ui.chats.setup.as_mut() {
+        flow.from_hold = true;
+    }
 }
 
 /// Runs before every frame: takes in the service's events, reads the list
@@ -587,15 +652,34 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
         set_focus(ui, None);
         return changed;
     }
+    changed |= setup::resume::follow_first_run(ui);
     let visible = ui.window.as_ref().is_none_or(rune::AppHandle::is_visible);
     let showing = visible && ui.pane == Pane::Chats && !ui.labs_open;
     if showing && !ui.chats.listed {
         ui.chats.reload();
         changed = true;
     }
+    if showing && !ui.chats.follow.was_showing && !ui.chats.follow.landed {
+        // Brought forward: the most relevant conversation.
+        ui.chats.auto_select();
+        changed = true;
+    }
+    ui.chats.follow.was_showing = showing;
+    ui.chats.follow.landed = false;
     if !showing {
         // Read again when it next shows.
         ui.chats.listed = false;
+    }
+    let now = Instant::now();
+    ui.chats.watch(now);
+    if std::mem::take(&mut ui.chats.follow.to_end) {
+        tx.scroll_to_bottom_instant(follow::SCROLL);
+    }
+    if ui.chats.holds.values().any(|hold| matches!(hold, Hold::Waiting { .. }))
+        || ui.chats.tasks.iter().any(|task| matches!(task.state, TaskState::Waiting { .. }))
+    {
+        // The countdown ticks.
+        tx.wake_after(Duration::from_secs(1));
     }
     let focus = if showing && ui.chats.view == View::Chats {
         ui.chats.selected.clone()
@@ -603,8 +687,9 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
         None
     };
     changed |= set_focus(ui, focus);
+    work::poll(ui, tx);
     changed |= setup::poll(ui, tx);
-    changed |= settings::poll(ui, Instant::now());
+    changed |= settings::poll(ui, now);
     changed
 }
 
@@ -637,7 +722,10 @@ pub(super) fn pane(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> (Vec<El>, El) {
             vec![setup_button(p)],
             super::scroll_body(p.k, "chats-settings-scroll", settings::page(ui, p, layer)),
         ),
-        View::Chats => (header_actions(ui, p), list::body(ui, p)),
+        View::Chats => {
+            layer.extend(schedules::sheet(ui, p));
+            (header_actions(ui, p), list::body(ui, p, layer))
+        }
     }
 }
 
@@ -691,21 +779,14 @@ pub(super) const BACKENDS: [AssistantBackend; 4] = [
     AssistantBackend::ClaudeApi,
 ];
 
-/// The Chats view's header: which agent answers, Agent mode, and New chat.
+/// The Chats view's header: which agent answers, how many tasks run with
+/// Stop all while any does, and New chat.
 fn header_actions(ui: &Ui, p: Paint) -> Vec<El> {
     let backend = text(backend_name(ui.settings.assistant.backend))
         .key("chats-backend")
         .font(p.k.ty.small)
         .color(p.faint())
         .help(tr("The agent that answers. Change it in Settings"));
-    let agent_mode = rune_kit::Switch::new(ui.chats.agent_mode)
-        .label(tr("Agent mode"))
-        .on_toggle(|ui: &mut Ui| {
-            let on = !ui.chats.agent_mode;
-            ui.chats.set_agent_mode(on);
-        })
-        .build(p.k)
-        .key("agent-mode");
     let new_chat = button(
         p,
         "new-chat",
@@ -716,11 +797,10 @@ fn header_actions(ui: &Ui, p: Paint) -> Vec<El> {
             tx.focus("composer-input", false);
         },
     );
-    vec![
-        backend,
-        row().key("agent-mode-slot").px(8.0).child(agent_mode),
-        new_chat,
-    ]
+    let mut actions = vec![backend];
+    actions.extend(strip::header_running(ui, p));
+    actions.push(new_chat);
+    actions
 }
 
 /// Settings' header action: the setup sheet again.

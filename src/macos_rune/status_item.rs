@@ -38,8 +38,8 @@ pub enum StatusItemAction {
     OpenMeetings,
     /// Chats… (Labs › Assistant): the window on Chats.
     OpenChats,
-    /// Agent Mode (Labs › Assistant): on or off.
-    ToggleAgentMode,
+    /// Stop all tasks (Labs › Assistant), while any runs.
+    StopAllTasks,
     /// The update item: check, download, or restart into an update.
     Update,
     Quit,
@@ -110,14 +110,21 @@ objc2::define_class!(
             refresh_recent_dictations();
             refresh_restore_capture();
             update_pause();
-            refresh_agent_mode();
         }
 
         /// Restore Last Capture is dimmed while no closed card can come
-        /// back; every other item stays enabled.
+        /// back, and Stop all tasks while none runs; every other item stays
+        /// enabled.
         #[unsafe(method(validateMenuItem:))]
         fn validate_menu_item(&self, item: &NSMenuItem) -> bool {
-            item.action() != Some(sel!(restoreCapture:)) || restore_capture_enabled()
+            let action = item.action();
+            if action == Some(sel!(restoreCapture:)) {
+                restore_capture_enabled()
+            } else if action == Some(sel!(stopAllTasks:)) {
+                crate::assistant::busy()
+            } else {
+                true
+            }
         }
 
         #[unsafe(method(startMeeting:))]
@@ -162,9 +169,9 @@ objc2::define_class!(
             let _ = self.ivars().actions.try_send(StatusItemAction::OpenChats);
         }
 
-        #[unsafe(method(toggleAgentMode:))]
-        fn toggle_agent_mode(&self, _sender: &AnyObject) {
-            let _ = self.ivars().actions.try_send(StatusItemAction::ToggleAgentMode);
+        #[unsafe(method(stopAllTasks:))]
+        fn stop_all_tasks(&self, _sender: &AnyObject) {
+            let _ = self.ivars().actions.try_send(StatusItemAction::StopAllTasks);
         }
 
         #[unsafe(method(checkForUpdates:))]
@@ -198,9 +205,9 @@ enum Row {
     CopySection,
     RecordMeeting,
     MeetingSeparator,
-    /// Labs › Assistant: Agent mode's checkmark, then Chats, hidden while
-    /// it's off.
-    AgentMode,
+    /// Labs › Assistant: Stop all tasks (enabled while any runs), then
+    /// Chats, hidden while it's off.
+    StopAllTasks,
     Chats,
     AssistantSeparator,
     /// Labs › Pause from menu bar: hidden until the menu opens with it on.
@@ -224,7 +231,7 @@ const ROWS: [Row; 18] = [
     Row::CopySection,
     Row::RecordMeeting,
     Row::MeetingSeparator,
-    Row::AgentMode,
+    Row::StopAllTasks,
     Row::Chats,
     Row::AssistantSeparator,
     Row::PauseHex,
@@ -248,7 +255,7 @@ impl Row {
             Row::StopMeeting => "Stop & Transcribe",
             Row::CopySection => "Copy Section",
             Row::RecordMeeting => "Record Meeting",
-            Row::AgentMode => "Agent Mode",
+            Row::StopAllTasks => "Stop All Tasks",
             Row::Chats => "Chats…",
             Row::PauseHex => pause_title(false),
             Row::PasteLast => "Paste Last Dictation",
@@ -268,7 +275,7 @@ impl Row {
             Row::MeetingStatus => sel!(openMeetings:),
             Row::StopMeeting => sel!(stopMeeting:),
             Row::RecordMeeting => sel!(startMeeting:),
-            Row::AgentMode => sel!(toggleAgentMode:),
+            Row::StopAllTasks => sel!(stopAllTasks:),
             Row::Chats => sel!(openChats:),
             Row::PauseHex => sel!(togglePause:),
             Row::PasteLast => sel!(pasteLast:),
@@ -305,7 +312,7 @@ impl Row {
                 | Row::CopySection
                 | Row::RecordMeeting
                 | Row::MeetingSeparator
-                | Row::AgentMode
+                | Row::StopAllTasks
                 | Row::Chats
                 | Row::AssistantSeparator
                 | Row::PauseHex
@@ -382,7 +389,7 @@ struct StatusItemController {
     pause_title: RefCell<String>,
     recent: Retained<NSMenuItem>,
     recent_menu: Retained<NSMenu>,
-    /// Labs › Assistant's rows: Agent Mode, Chats…, and their separator.
+    /// Labs › Assistant's rows: Stop All Tasks, Chats…, and their separator.
     assistant: [Retained<NSMenuItem>; 3],
     restore_capture: Retained<NSMenuItem>,
     update: Option<Retained<NSMenuItem>>,
@@ -536,7 +543,7 @@ pub fn install() -> Result<Receiver<StatusItemAction>> {
             recent: row(Row::CopyRecentDictation),
             recent_menu,
             assistant: [
-                row(Row::AgentMode),
+                row(Row::StopAllTasks),
                 row(Row::Chats),
                 row(Row::AssistantSeparator),
             ],
@@ -809,7 +816,7 @@ fn refresh_restore_capture() {
 /// Labs › Assistant's rows show while it's on; off, the menu is as it was.
 static ASSISTANT_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Shows Agent Mode and Chats… while Labs › Assistant is on (`on`), and
+/// Shows Stop All Tasks and Chats… while Labs › Assistant is on (`on`), and
 /// hides them while it's off.
 pub fn update_assistant(on: bool) {
     let was = ASSISTANT_SHOWN.swap(on, std::sync::atomic::Ordering::Relaxed);
@@ -821,20 +828,6 @@ pub fn update_assistant(on: bool) {
             for item in &controller.assistant {
                 item.setHidden(!on);
             }
-        }
-    });
-    refresh_agent_mode();
-}
-
-/// Agent Mode's checkmark follows the assistant, as the menu opens.
-fn refresh_agent_mode() {
-    if !ASSISTANT_SHOWN.load(std::sync::atomic::Ordering::Relaxed) {
-        return;
-    }
-    let on = crate::assistant::agent_mode();
-    STATUS_ITEM.with(|controller| {
-        if let Some(controller) = controller.borrow().as_ref() {
-            controller.assistant[0].setState(if on { 1 } else { 0 });
         }
     });
 }
@@ -1082,7 +1075,7 @@ mod tests {
                 "Copy Section".into(),
                 "Record Meeting".into(),
                 "—".into(),
-                "Agent Mode".into(),
+                "Stop All Tasks".into(),
                 "Chats…".into(),
                 "—".into(),
                 "Pause Hex".into(),
@@ -1144,10 +1137,10 @@ mod tests {
 
     #[test]
     fn the_assistant_rows_start_hidden_and_do_something() {
-        for row in [Row::AgentMode, Row::Chats, Row::AssistantSeparator] {
+        for row in [Row::StopAllTasks, Row::Chats, Row::AssistantSeparator] {
             assert!(row.starts_hidden(), "{row:?}");
         }
-        assert_eq!(Row::AgentMode.action(), Some(sel!(toggleAgentMode:)));
+        assert_eq!(Row::StopAllTasks.action(), Some(sel!(stopAllTasks:)));
         assert_eq!(Row::Chats.action(), Some(sel!(openChats:)));
         assert_eq!(Row::AssistantSeparator.title(), None);
     }

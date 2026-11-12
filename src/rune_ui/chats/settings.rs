@@ -1,19 +1,24 @@
 //! Chats › Settings: the agent that answers and its model, the Claude API
-//! key, reading answers aloud, how far tasks may act on the desktop, the
-//! follow-up window, and how many tasks run at once.
+//! key, reading answers aloud, how far tasks may act on the desktop (real
+//! input in the window in front, the hidden browser, blocked apps), the
+//! follow-up window, how many tasks run at once and for how long, and Stop
+//! all's shortcut (`lanes`).
+
+mod lanes;
+pub(super) mod more;
 
 use std::time::Instant;
 
-use rune::{El, TextEdit, row};
+use rune::{El, TextEdit};
 use rune_kit::TextInput;
 
 use super::super::Menu;
 use super::super::controls::{CardRow, Paint, described_row, section, setting_row, toggle_row};
 use super::super::general::quiet_select;
-use super::super::lists::small_button;
-use super::{BACKENDS, Job, Ui, backend_name};
+use super::{BACKENDS, Job, Ui};
 use crate::app_settings::{AssistantBackend, AssistantSettings};
 use crate::assistant::backends::Found;
+use crate::assistant::browser::AgentBrowser;
 use crate::desktop::i18n::{tr, tr_fill};
 
 /// Follow-up windows offered, in seconds; 0 always starts a new conversation.
@@ -37,6 +42,28 @@ pub(in crate::rune_ui) struct SettingsState {
     /// The Claude API key as typed; cleared once saved.
     pub(in crate::rune_ui) key: TextEdit,
     pub(in crate::rune_ui) key_error: Option<String>,
+    /// The apps running now, once listed, to block one.
+    pub(in crate::rune_ui) running: Option<Vec<String>>,
+    /// An app to block, as typed.
+    pub(in crate::rune_ui) blocked: TextEdit,
+    /// agent-browser, once read.
+    pub(in crate::rune_ui) browser: Option<AgentBrowser>,
+    /// The connected displays, read when Settings or the onboarding opens.
+    pub(in crate::rune_ui) displays: Vec<super::display_shim::Display>,
+    /// What Hex knows about you, as edited, and whether that's saved.
+    pub(in crate::rune_ui) memory: TextEdit,
+    pub(in crate::rune_ui) memory_saved: bool,
+    /// The agent picker's setups and key panels.
+    pub(in crate::rune_ui) agents: super::agents::Agents,
+    /// The engine clean browsers run, once read.
+    pub(in crate::rune_ui) engine: Option<crate::assistant::browser::Engine>,
+    /// Lightpanda installs from Settings now.
+    pub(in crate::rune_ui) installing_lightpanda: bool,
+    /// Someone signed in to sites in Hex's own browser.
+    pub(in crate::rune_ui) signed_in: bool,
+    /// Hex's browser shows for signing in.
+    pub(in crate::rune_ui) signing_in: bool,
+    pub(in crate::rune_ui) sign_in_error: Option<String>,
 }
 
 fn index(backend: AssistantBackend) -> usize {
@@ -79,7 +106,11 @@ pub(super) fn opened(ui: &mut Ui) {
             TextEdit::new(saved_model(&ui.settings.assistant, backend));
     }
     ui.chats.settings.model_typed = None;
+    super::displays::read(ui);
+    more::opened(ui);
     ui.chats.jobs.run(Job::Detect);
+    ui.chats.jobs.run(Job::Browser);
+    ui.chats.jobs.run(Job::RunningApps);
     if ui.chats.settings.voices.is_none() {
         ui.chats.jobs.run(Job::Voices);
     }
@@ -117,17 +148,9 @@ pub(super) fn save_key(ui: &mut Ui) {
 
 pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
     let assistant = &ui.settings.assistant;
-    let mut agent: Vec<CardRow> = vec![
-        setting_row(
-            p,
-            "assistant-backend",
-            tr("Agent"),
-            Some(tr(
-                "Answers and does the tasks, signed in with your own account",
-            )),
-            backend_select(ui, p, layer),
-        )
-        .into(),
+    let agent: Vec<CardRow> = vec![
+        // The onboarding's agent picker: switch agents or keys here.
+        super::agent_picker::picker(ui, p).px(4.0).into(),
         setting_row(
             p,
             "assistant-model",
@@ -137,41 +160,25 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         )
         .into(),
     ];
-    if assistant.backend == AssistantBackend::ClaudeApi {
-        agent.push(key_row(ui, p).into());
-    }
-    let mut voice = vec![toggle_row(
-        p,
-        "assistant-speak",
-        tr("Read answers aloud"),
-        tr("Quick questions answer out loud as well as in the HUD"),
-        assistant.speak_answers,
-        |ui: &mut Ui| {
-            ui.update(|settings| settings.assistant.speak_answers ^= true);
-        },
-    )];
-    if assistant.speak_answers {
-        voice.push(setting_row(
+    let mut voice: Vec<CardRow> = vec![
+        toggle_row(
             p,
-            "assistant-voice",
-            tr("Voice"),
-            None,
-            row()
-                .key("voice-controls")
-                .gap(8.0)
-                .center_y()
-                .child(voice_select(ui, p, layer))
-                .child(small_button(
-                    p,
-                    "test-voice",
-                    tr("Test voice"),
-                    |ui: &mut Ui, _| {
-                        let voice = ui.settings.assistant.voice.clone();
-                        ui.chats.jobs.run(Job::Speak(voice));
-                    },
-                )),
-        ));
+            "assistant-speak",
+            tr("Read answers aloud"),
+            tr("Quick questions answer out loud as well as in the HUD"),
+            assistant.speak_answers,
+            |ui: &mut Ui| {
+                ui.update(|settings| settings.assistant.speak_answers ^= true);
+            },
+        )
+        .into(),
+    ];
+    if assistant.speak_answers {
+        voice.push(more::voice_row(ui, p, layer).into());
+        voice.extend(more::better_voice_row(ui, p));
     }
+    voice.extend(more::conversation_rows(ui, p, layer));
+    voice.push(more::notifications_row(ui, p));
     let physical = if assistant.physical_input {
         Some((
             tr("Tasks move your pointer and type with your keyboard. Don't use them while a task runs").to_owned(),
@@ -183,17 +190,21 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
             p.muted(),
         ))
     };
-    let mut desktop = vec![toggle_row(
-        p,
-        "assistant-control-desktop",
-        tr("Operate apps"),
-        tr("Tasks click, type, and read apps through agent-desktop"),
-        assistant.control_desktop,
-        |ui: &mut Ui| {
-            ui.update(|settings| settings.assistant.control_desktop ^= true);
-        },
-    )];
+    let mut desktop: Vec<CardRow> = vec![
+        toggle_row(
+            p,
+            "assistant-control-desktop",
+            tr("Operate apps"),
+            tr("Tasks click, type, and read apps through agent-desktop"),
+            assistant.control_desktop,
+            |ui: &mut Ui| {
+                ui.update(|settings| settings.assistant.control_desktop ^= true);
+            },
+        )
+        .into(),
+    ];
     if assistant.control_desktop {
+        desktop.push(lanes::here_input_row(ui, p));
         desktop.push(
             super::super::controls::pressable_row(
                 described_row(
@@ -207,20 +218,26 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
             )
             .on_press(|ui: &mut Ui| {
                 ui.update(|settings| settings.assistant.physical_input ^= true);
-            }),
+            })
+            .into(),
         );
     }
-    desktop.push(toggle_row(
-        p,
-        "assistant-screenshot",
-        tr("Send a screenshot"),
-        tr("A quick question includes the screen the pointer is on"),
-        assistant.include_screenshot,
-        |ui: &mut Ui| {
-            ui.update(|settings| settings.assistant.include_screenshot ^= true);
-        },
-    ));
-    let tasks = vec![
+    desktop.push(super::displays::settings_row(ui, p, layer).into());
+    desktop.push(
+        toggle_row(
+            p,
+            "assistant-screenshot",
+            tr("Send a screenshot"),
+            tr("A quick question includes the screen the pointer is on"),
+            assistant.include_screenshot,
+            |ui: &mut Ui| {
+                ui.update(|settings| settings.assistant.include_screenshot ^= true);
+            },
+        )
+        .into(),
+    );
+    let mut tasks = vec![
+        lanes::stop_all_row(ui, p),
         setting_row(
             p,
             "assistant-follow-up",
@@ -238,11 +255,17 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
             parallel_select(ui, p, layer),
         ),
     ];
+    tasks.extend(lanes::task_rows(ui, p, layer));
     vec![
         section(p, "assistant-agent", tr("Agent"), agent),
+        more::autonomy_section(ui, p),
         section(p, "assistant-voice-section", tr("Answers"), voice),
-        section(p, "assistant-desktop", tr("Desktop"), desktop),
         section(p, "assistant-tasks", tr("Tasks"), tasks),
+        more::memory_section(ui, p),
+        section(p, "assistant-desktop", tr("Desktop"), desktop),
+        lanes::web_section(ui, p),
+        lanes::blocked_section(ui, p, layer),
+        lanes::experimental_section(ui, p),
     ]
 }
 
@@ -251,34 +274,6 @@ pub(super) fn page(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     super::super::controls::page("chats-settings")
         .pb(24.0)
         .children(page_rows(ui, p, layer))
-}
-
-fn backend_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
-    let found = ui.chats.settings.found.as_deref();
-    let labels: Vec<String> = BACKENDS
-        .iter()
-        .map(|backend| {
-            let name = backend_name(*backend);
-            match found.and_then(|found| found.iter().find(|entry| entry.backend == *backend)) {
-                Some(entry) if !entry.ready => tr_fill("{} (not ready)", name),
-                _ => name.to_owned(),
-            }
-        })
-        .collect();
-    quiet_select(
-        ui,
-        p,
-        Menu::Pick("assistant-backend"),
-        "assistant-backend-control".to_owned(),
-        tr("Agent"),
-        labels,
-        index(ui.settings.assistant.backend),
-        |ui, chosen| {
-            flush(ui);
-            ui.update(|settings| settings.assistant.backend = BACKENDS[chosen]);
-        },
-        layer,
-    )
 }
 
 fn model_field(ui: &Ui, p: Paint) -> El {
@@ -297,72 +292,6 @@ fn model_field(ui: &Ui, p: Paint) -> El {
         .on_change(|ui: &mut Ui, _| ui.chats.settings.model_typed = Some(Instant::now()))
         .build(p.k)
         .key("assistant-model-field")
-}
-
-/// The Claude API key: a secure field and Save; the key goes to the
-/// Keychain, never to settings.
-pub(super) fn key_row(ui: &Ui, p: Paint) -> El {
-    let state = &ui.chats.settings;
-    let description = match &state.key_error {
-        Some(error) => (error.clone(), p.danger()),
-        None => (
-            tr("Kept in your Keychain, never in Hex's settings").to_owned(),
-            p.muted(),
-        ),
-    };
-    described_row(
-        p,
-        "assistant-api-key",
-        tr("API key"),
-        Some(description),
-        row()
-            .key("key-controls")
-            .gap(8.0)
-            .center_y()
-            .child(
-                TextInput::new(&state.key)
-                    .secure()
-                    .placeholder("sk-ant-…")
-                    .label(tr("API key"))
-                    .width(Some(180.0))
-                    .on_edit(|ui: &mut Ui| &mut ui.chats.settings.key)
-                    .on_submit(|ui: &mut Ui, _| save_key(ui))
-                    .build(p.k)
-                    .key("api-key-field"),
-            )
-            .child(small_button(
-                p,
-                "save-api-key",
-                tr("Save"),
-                |ui: &mut Ui, _| save_key(ui),
-            )),
-    )
-}
-
-fn voice_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
-    let voices = ui.chats.settings.voices.clone().unwrap_or_default();
-    let mut labels = vec![tr("System voice").to_owned()];
-    labels.extend(voices.iter().cloned());
-    let current = ui.settings.assistant.voice.as_deref();
-    let selected = current
-        .and_then(|voice| voices.iter().position(|known| known == voice))
-        .map_or(0, |index| index + 1);
-    quiet_select(
-        ui,
-        p,
-        Menu::Pick("assistant-voice"),
-        "assistant-voice-control".to_owned(),
-        tr("Voice"),
-        labels,
-        selected,
-        move |ui, chosen| {
-            let voice = chosen
-                .checked_sub(1)
-                .and_then(|index| voices.get(index).cloned());
-            ui.update(|settings| settings.assistant.voice = voice);
-        },
-        layer,
-    )
 }
 
 fn seconds_label(seconds: u32) -> String {
