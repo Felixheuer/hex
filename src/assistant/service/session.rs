@@ -53,6 +53,22 @@ impl Runner {
     /// desktop session around it (`Event::ModeChanged`).
     pub(super) fn refresh_mode(self: &Arc<Self>) {
         let (_, settings) = (self.hooks.settings)();
+        // Working background jobs keep the computer awake; one waiting for
+        // the person's answer doesn't.
+        let working = self
+            .state()
+            .tasks
+            .iter()
+            .filter(|task| {
+                task.lane() == Lane::Background
+                    && task.status.state != crate::assistant::TaskState::NeedsInput
+            })
+            .count();
+        crate::desktop::keep_awake::update(
+            settings.keep_awake,
+            settings.keep_display_awake,
+            working,
+        );
         let mut start = false;
         let (on, end) = {
             let mut state = self.state();

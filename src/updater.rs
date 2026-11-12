@@ -261,7 +261,8 @@ impl Updater {
         let method = platform::method();
         let disabled = if option_env!("HEX_TEST_BUILD") == Some("1") || updates_off_by_env() {
             Some(DesktopUpdateStatus::Unavailable)
-        } else if crate::app_paths::is_local_build() {
+        } else if crate::app_paths::is_local_build() || crate::app_paths::is_macos_dev_build() {
+            // Hex Dev is a build of a checkout; Live is what updates.
             Some(DesktopUpdateStatus::SourceBuild)
         } else if managed_by_policy() {
             Some(DesktopUpdateStatus::Managed)

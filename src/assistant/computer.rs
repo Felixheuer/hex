@@ -639,6 +639,18 @@ mod macos {
             Permission::Accessibility => PermissionKind::Accessibility,
             Permission::ScreenRecording => PermissionKind::ScreenRecording,
         };
+        // macOS lists an app in these panes only once it has asked, so ask
+        // first: otherwise Settings opens on a list without Hex.
+        match permission {
+            Permission::Accessibility => {
+                let _ = crate::desktop::permission_guide::prompt_accessibility_trust();
+            }
+            Permission::ScreenRecording => {
+                if !crate::meeting::screen_recording_permitted() {
+                    let _ = crate::meeting::request_screen_recording();
+                }
+            }
+        }
         if objc2::MainThreadMarker::new().is_some() {
             crate::desktop::permission_guide::show(kind);
             return;

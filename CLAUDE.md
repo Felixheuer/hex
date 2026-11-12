@@ -18,11 +18,19 @@ for the section you need instead of reading it whole.
   using it. Read-only desktop checks only.
 - This is a fork: commit and push to `Felixheuer/hex`, never to
   `anomalyco/hex`. Its default branch is `dev`; there is no `main`.
-- Installing on this Mac: `scripts/install-fork.sh` builds, signs with the
-  Apple Development certificate (so macOS permissions survive rebuilds),
-  and installs `/Applications/Hex.app`. `scripts/update-fork.sh` pulls
-  `origin/dev` and reinstalls; `scripts/sync-upstream.sh [--merge]` brings
-  in anomalyco's `dev` on a `sync/upstream-<date>` branch first.
+- Two apps on this Mac, side by side: **Live** is `/Applications/Hex.app`
+  (`anomaly.hex`), the published Pilot release that updates itself; **Dev**
+  is `/Applications/Hex Dev.app` (`anomaly.hex.dev`, `HEX_DEV_BUILD=1`),
+  this checkout, with its own data (`hex-dev`), URL scheme (`hex-dev://`),
+  and a DEV band on its icon. Starting one quits the other (shared
+  shortcuts and microphone). `scripts/install-fork.sh` builds, signs with
+  the Apple Development certificate (so Dev's permissions survive rebuilds),
+  installs Hex Dev without opening it (`--open` opens it), and removes every
+  other copy of Hex (old `target/app` bundles, Hex Test, stray downloads;
+  `--dry-run` lists them; `hex dev copies`). Never install a source build
+  over Live. `scripts/update-fork.sh` pulls `origin/dev` and reinstalls Dev;
+  `scripts/sync-upstream.sh [--merge]` brings in anomalyco's `dev` on a
+  `sync/upstream-<date>` branch first.
 - The fork has no CI: `.github/workflows` is removed and GitHub Actions is
   turned off for the repository. Where AGENTS.md or docs mention workflows,
   CI, golden artifacts from `check-linux.yml`, or release jobs, they describe

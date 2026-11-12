@@ -644,11 +644,7 @@ pub fn classify_tccutil_reset(code: Option<i32>, stderr: &str) -> TccResetOutcom
 /// Fallback bundle identifier when `NSBundle.mainBundle.bundleIdentifier` is
 /// unavailable (such as a loose binary).
 pub fn default_mac_bundle_id(test_build: Option<&str>) -> &'static str {
-    if test_build == Some("1") {
-        "anomaly.hex.test"
-    } else {
-        "anomaly.hex"
-    }
+    crate::app_paths::Variant::from_env(test_build, option_env!("HEX_DEV_BUILD")).bundle_id()
 }
 
 /// How long after returning from System Settings an asked permission must stay
@@ -1082,6 +1078,21 @@ pub fn spawn_relaunch() -> bool {
         ))
         .spawn()
         .inspect_err(|error| tracing::error!(%error, "could not schedule relaunch"))
+        .is_ok()
+}
+
+/// Opens `bundle` (another copy of Hex, such as the original of a
+/// translocated one) once this process has exited.
+#[cfg(target_os = "macos")]
+pub fn spawn_open_after_exit(bundle: &Path) -> bool {
+    Command::new("/bin/sh")
+        .args(relaunch_arguments(
+            std::process::id(),
+            bundle,
+            std::env::vars_os(),
+        ))
+        .spawn()
+        .inspect_err(|error| tracing::error!(%error, "could not schedule opening Hex"))
         .is_ok()
 }
 

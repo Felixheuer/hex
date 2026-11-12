@@ -1243,7 +1243,7 @@ fn start(output: Output) -> u8 {
     }
     let arguments = open_arguments(
         installed_bundle().as_deref(),
-        crate::app_paths::is_macos_test_build(),
+        crate::app_paths::variant().bundle_id(),
         std::env::vars_os(),
     );
     match std::process::Command::new("/usr/bin/open")
@@ -1353,21 +1353,13 @@ fn reopen_after_restart() -> ControlReply {
 #[cfg(target_os = "macos")]
 fn open_arguments(
     bundle: Option<&std::path::Path>,
-    test_build: bool,
+    bundle_id: &str,
     vars: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
 ) -> Vec<std::ffi::OsString> {
     let mut arguments = crate::desktop::onboarding::open_env_arguments(vars);
     match bundle {
         Some(bundle) => arguments.push(bundle.into()),
-        None => arguments.extend([
-            "-b".into(),
-            if test_build {
-                "anomaly.hex.test"
-            } else {
-                "anomaly.hex"
-            }
-            .into(),
-        ]),
+        None => arguments.extend(["-b".into(), bundle_id.into()]),
     }
     arguments
 }
@@ -1530,15 +1522,15 @@ mod tests {
         ];
         let bundle = std::path::Path::new("/Applications/Hex.app");
         assert_eq!(
-            strings(open_arguments(Some(bundle), false, vars())),
+            strings(open_arguments(Some(bundle), "anomaly.hex", vars())),
             [&env[..], &["/Applications/Hex.app"]].concat()
         );
         assert_eq!(
-            strings(open_arguments(None, false, vars())),
+            strings(open_arguments(None, "anomaly.hex", vars())),
             [&env[..], &["-b", "anomaly.hex"]].concat()
         );
         assert_eq!(
-            strings(open_arguments(None, true, [])),
+            strings(open_arguments(None, "anomaly.hex.test", [])),
             ["-b", "anomaly.hex.test"]
         );
     }

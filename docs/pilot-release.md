@@ -62,6 +62,22 @@ selbst gehostet: `ORIGIN` in `src/updater.rs` ist
   Build an der SHA-256 der Datei, macOS an der exakten Version. Was im
   Manifest steht, wird installiert – auch ein Rollback.
 
+**Live und Dev (macOS).** Auf dem Mac stehen genau zwei Hex-Apps:
+
+- **Live**: `/Applications/Hex.app` (`anomaly.hex`), der veröffentlichte
+  Pilot-Build, der sich selbst aktualisiert (`pilot-release-macos.sh
+  --install` oder `Pilot.dmg`).
+- **Dev**: `/Applications/Hex Dev.app` (`anomaly.hex.dev`), gebaut aus dem
+  Checkout mit `scripts/install-fork.sh`: eigene Daten
+  (`~/Library/Application Support/hex-dev`, `~/.config/hex-dev`), eigenes
+  URL-Schema (`hex-dev://`), DEV-Band im Icon, nie Updates.
+
+Startet eine, beendet sie die andere (gleiche Kurzbefehle, gleiches
+Mikrofon). `install-fork.sh` entfernt jede andere Kopie (alte
+`target/app`-Bundles, Hex Test, Downloads), damit eine Freigabe in den
+Systemeinstellungen immer Live oder Dev gehört; `--dry-run` zeigt die
+Liste vorher, `--open` startet Hex Dev danach.
+
 **Wichtig – Quell-Builds updaten nie.** `scripts/install-fork.sh` (macOS)
 und `scripts/install-linux.sh` bauen „lokale Builds“ (`HEX_LOCAL_BUILD`,
 `source-build`-Marker); die zeigen „Lokaler Build · Updates aus“ und fragen

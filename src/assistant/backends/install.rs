@@ -650,7 +650,38 @@ pub fn apply_fix_with(fix: Fix, mut progress: impl FnMut(&str)) -> Result<()> {
             computer::open_settings(permission);
             Ok(())
         }
+        Fix::RepairHex | Fix::RemoveCopies => repair_copy(),
+        Fix::RestartHex => restart_hex(),
     }
+}
+
+/// Repairs what the permission doctor finds now.
+#[cfg(target_os = "macos")]
+fn repair_copy() -> Result<()> {
+    if let Some(finding) = crate::desktop::permission_doctor::diagnose() {
+        crate::desktop::permission_doctor::repair(&finding)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn repair_copy() -> Result<()> {
+    Ok(())
+}
+
+/// Opens Hex again once this process quits, then quits.
+#[cfg(target_os = "macos")]
+fn restart_hex() -> Result<()> {
+    if !crate::desktop::onboarding::spawn_relaunch() {
+        return Err(eyre!("Hex couldn't schedule its restart"));
+    }
+    crate::macos_rune::quit();
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn restart_hex() -> Result<()> {
+    Ok(())
 }
 
 fn open_url(url: &str) -> Result<()> {
