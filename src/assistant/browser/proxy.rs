@@ -4,7 +4,8 @@
 //! browsers ([`Sessions`]), losing the arguments that would show a window,
 //! reach another task, keep state, or pass raw flags; the tool list and the
 //! server's instructions offer Hex's `session` and `signedIn` instead, plus
-//! a tool listing the task's browsers that Hex answers itself.
+//! a tool listing the task's browsers that Hex answers itself. Before a
+//! consequential action the autonomy mode is enforced ([`Consent`]).
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -14,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use color_eyre::{Result, eyre::eyre};
 use serde_json::{Value, json};
 
+use super::consent::Consent;
 use super::sessions::{self, LIST_TOOL, Sessions};
 
 /// What Hex tells the agent about the browser, after agent-browser's own
@@ -32,30 +34,39 @@ pub fn serve(task: &str) -> Result<()> {
     let mut command = super::command(&path, &super::session(task));
     command.arg("mcp");
     let task_id = task.to_owned();
+    let consent = Consent::new(
+        Box::new(super::PageProbe { path: path.clone() }),
+        super::policy(task),
+    );
     relay(
         command,
         Sessions::new(task, super::clean_engine()),
+        consent,
         move || super::running(&path, &task_id),
         BufReader::new(std::io::stdin()),
         std::io::stdout(),
     )
 }
 
-/// What a pending request was, to rewrite its response.
-#[derive(Clone, Copy, Debug)]
+/// What a pending request was, to rewrite or learn from its response.
+#[derive(Clone, Debug)]
 enum Asked {
     Initialize,
     ToolsList,
+    /// A tool call for this session: its result shows the page.
+    Call(String),
 }
 
 type Pending = Arc<Mutex<HashMap<String, Asked>>>;
 
 /// Starts `server` and relays `input` to it and its replies to `output`,
-/// pinned to `sessions`, until either side ends. `running` lists the
-/// agent-browser sessions that are open, for the list tool.
+/// pinned to `sessions` and checked by `consent`, until either side ends.
+/// `running` lists the agent-browser sessions that are open, for the list
+/// tool.
 pub fn relay<W: Write + Send + 'static>(
     mut server: Command,
     sessions: Sessions,
+    consent: Consent,
     running: impl Fn() -> Vec<String> + Send + 'static,
     input: impl BufRead + Send + 'static,
     output: W,
@@ -77,11 +88,16 @@ pub fn relay<W: Write + Send + 'static>(
     let pending = Pending::default();
     let asked = pending.clone();
     let answers = output.clone();
+    let consent = Arc::new(Mutex::new(consent));
+    let gate = consent.clone();
     let forward = std::thread::spawn(move || {
         let mut sessions = sessions;
         for line in input.lines() {
             let Ok(line) = line else { break };
-            let sent = match rewrite_request(&line, &mut sessions, &running, &asked) {
+            let mut consent = gate.lock().unwrap_or_else(|error| error.into_inner());
+            let rewritten = rewrite_request(&line, &mut sessions, &mut consent, &running, &asked);
+            drop(consent);
+            let sent = match rewritten {
                 Forward::Server(line) => {
                     writeln!(to_server, "{line}").and_then(|()| to_server.flush())
                 }
@@ -95,7 +111,8 @@ pub fn relay<W: Write + Send + 'static>(
     });
     for line in BufReader::new(from_server).lines() {
         let Ok(line) = line else { break };
-        if write(&output, &rewrite_response(&line, &pending)).is_err() {
+        let line = rewrite_response(&line, &pending, &consent);
+        if write(&output, &line).is_err() {
             break;
         }
     }
@@ -119,6 +136,7 @@ enum Forward {
 fn rewrite_request(
     line: &str,
     sessions: &mut Sessions,
+    consent: &mut Consent,
     running: &dyn Fn() -> Vec<String>,
     pending: &Pending,
 ) -> Forward {
@@ -126,17 +144,16 @@ fn rewrite_request(
         return Forward::Server(line.to_owned());
     };
     // Batches went away in MCP 2025-06-18; one is passed on only once
-    // every call in it is pinned.
+    // every call in it is pinned and allowed.
     if let Some(batch) = message.as_array_mut() {
         for request in batch.iter_mut() {
-            remember(request, pending);
-            if let Err(why) = pin(request, sessions) {
-                return Forward::Agent(tool_error(request, &why).to_string());
+            if let Err(refused) = pin(request, sessions, consent) {
+                return Forward::Agent(reply(request, refused).to_string());
             }
+            remember(request, pending);
         }
         return Forward::Server(message.to_string());
     }
-    remember(&message, pending);
     if message.get("method").and_then(Value::as_str) == Some("tools/call")
         && message["params"].get("name").and_then(Value::as_str) == Some(LIST_TOOL)
     {
@@ -148,9 +165,12 @@ fn rewrite_request(
         }});
         return Forward::Agent(reply.to_string());
     }
-    match pin(&mut message, sessions) {
-        Ok(()) => Forward::Server(message.to_string()),
-        Err(why) => Forward::Agent(tool_error(&message, &why).to_string()),
+    match pin(&mut message, sessions, consent) {
+        Ok(()) => {
+            remember(&message, pending);
+            Forward::Server(message.to_string())
+        }
+        Err(refused) => Forward::Agent(reply(&message, refused).to_string()),
     }
 }
 
@@ -158,6 +178,10 @@ fn remember(request: &Value, pending: &Pending) {
     let asked = match request.get("method").and_then(Value::as_str) {
         Some("initialize") => Asked::Initialize,
         Some("tools/list") => Asked::ToolsList,
+        Some("tools/call") => match request["params"]["arguments"]["session"].as_str() {
+            Some(session) => Asked::Call(session.to_owned()),
+            None => return,
+        },
         _ => return,
     };
     if let Some(id) = request.get("id") {
@@ -168,9 +192,9 @@ fn remember(request: &Value, pending: &Pending) {
     }
 }
 
-/// A `tools/call` request's arguments, pinned (other messages pass as they
-/// are).
-fn pin(request: &mut Value, sessions: &mut Sessions) -> Result<(), String> {
+/// A `tools/call` request's arguments, pinned and checked (other messages
+/// pass as they are); `Err` is the tool result to answer with instead.
+fn pin(request: &mut Value, sessions: &mut Sessions, consent: &mut Consent) -> Result<(), Value> {
     if request.get("method").and_then(Value::as_str) != Some("tools/call") {
         return Ok(());
     }
@@ -188,22 +212,23 @@ fn pin(request: &mut Value, sessions: &mut Sessions) -> Result<(), String> {
     if !arguments.is_object() {
         *arguments = Value::Object(Default::default());
     }
-    match arguments.as_object_mut() {
-        Some(arguments) => sessions.pin(&tool, arguments),
-        None => Ok(()),
-    }
+    let Some(arguments) = arguments.as_object_mut() else {
+        return Ok(());
+    };
+    sessions
+        .pin(&tool, arguments)
+        .map_err(|why| json!({"content": [{"type": "text", "text": why}], "isError": true}))?;
+    consent.check(&tool, arguments)
 }
 
-/// A tool result that reports `why` as the call's error.
-fn tool_error(request: &Value, why: &str) -> Value {
-    json!({"jsonrpc": "2.0", "id": request.get("id"), "result": {
-        "content": [{"type": "text", "text": why}],
-        "isError": true,
-    }})
+/// The JSON-RPC reply to `request` carrying `result`.
+fn reply(request: &Value, result: Value) -> Value {
+    json!({"jsonrpc": "2.0", "id": request.get("id"), "result": result})
 }
 
-/// One line from agent-browser, with Hex's arguments in what it offers.
-fn rewrite_response(line: &str, pending: &Pending) -> String {
+/// One line from agent-browser, with Hex's arguments in what it offers;
+/// a tool result teaches `consent` what the page shows.
+fn rewrite_response(line: &str, pending: &Pending, consent: &Mutex<Consent>) -> String {
     let Ok(mut message) = serde_json::from_str::<Value>(line) else {
         return line.to_owned();
     };
@@ -230,6 +255,13 @@ fn rewrite_response(line: &str, pending: &Pending) -> String {
         match asked {
             Some(Asked::Initialize) => instruct(result),
             Some(Asked::ToolsList) => sessions::describe_tools(result),
+            Some(Asked::Call(session)) => {
+                consent
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .observe(&session, result);
+                continue;
+            }
             None => continue,
         }
         changed = true;
@@ -269,7 +301,21 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
+    use crate::assistant::autonomy::{Authorized, Autonomy};
+    use crate::assistant::browser::consent::{Inspection, Probe};
     use crate::assistant::browser::sessions::Engine;
+
+    /// A page whose `#send` is Gmail's Send button.
+    struct SendButton;
+
+    impl Probe for SendButton {
+        fn inspect(&self, _: &str, _: Option<&str>) -> Option<Inspection> {
+            None
+        }
+        fn label(&self, _: &str, selector: &str) -> Option<String> {
+            (selector == "#send").then(|| "Send".to_owned())
+        }
+    }
 
     #[test]
     fn the_instructions_lose_the_optional_arguments() {
@@ -323,6 +369,7 @@ done"#;
             ),
             call(4, "agent_browser_open", json!({"session": "../other"})),
             call(5, LIST_TOOL, json!({})),
+            call(6, "agent_browser_click", json!({"selector": "#send"})),
         ]
         .map(|message| message.to_string())
         .join("\n");
@@ -330,6 +377,10 @@ done"#;
         relay(
             server,
             Sessions::new("t1", Engine::Lightpanda),
+            Consent::new(
+                Box::new(SendButton),
+                Box::new(|| (Autonomy::Smart, Authorized::default())),
+            ),
             || vec!["hex-t1_a".to_owned()],
             Cursor::new(input.into_bytes()),
             output.clone(),
@@ -341,7 +392,17 @@ done"#;
             .map(|line| serde_json::from_str::<Value>(line).unwrap())
             .map(|reply| (reply["id"].as_u64().unwrap(), reply))
             .collect();
-        assert_eq!(replies.len(), 5, "{text}");
+        assert_eq!(replies.len(), 6, "{text}");
+        let refused = &replies[&6]["result"];
+        assert_eq!(refused["isError"], true);
+        assert_eq!(
+            refused["structuredContent"]["error"]["code"],
+            "NEEDS_CONFIRMATION"
+        );
+        assert_eq!(
+            refused["structuredContent"]["error"]["details"]["category"],
+            "send"
+        );
         assert!(
             replies[&1]["result"]["instructions"]
                 .as_str()
