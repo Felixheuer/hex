@@ -483,7 +483,12 @@ pub fn prepare(
             )
             .ok_or(
                 "agent-desktop isn't installed, so the assistant can't use apps. Install it in Chats › Settings, or turn off “Use apps”.",
-            )?,
+            )
+            .map(|mut desktop| {
+                desktop.front_window =
+                    spec.lane == Lane::Background && settings.background_front_window;
+                desktop
+            })?,
         )
     } else {
         None
@@ -873,9 +878,14 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
             "- Work only in the window in front, named in the message: read it, and act in it only if asked. Never touch any other window or app, and don't bring another one forward.\n",
         ),
         Lane::Background => prompt.push_str(&format!(
-            "- You run beside the person and other agents, each with its own cursor; yours is agent “{}”. Work only in your own windows: open apps with hex_open_app, which gives you your own window, or claim a free window that is already open with desktop_claim_window (its window_id from desktop_list_windows). Never the person's window (the one in front), and never another task's windows: don't move, close, or type into them. The clipboard is Here-only: don't use it. Once you know a window's id, always pass it (--window-id / window_id), and don't bring windows to the front.\n\
+            "- You run beside the person and other agents, each with its own cursor; yours is agent “{}”. Work only in your own windows: open apps with hex_open_app, which gives you your own window, or claim a free window that is already open with desktop_claim_window (its window_id from desktop_list_windows). {}Never another task's windows: don't move, close, or type into them. The clipboard is Here-only: don't use it. Once you know a window's id, always pass it (--window-id / window_id), and don't bring windows to the front.\n\
              - {}\n",
             desktop.agent_id,
+            if desktop.front_window {
+                "The person allowed you to use the window in front of them too: claim it like any other when the job needs it (for example their browser tab or document), act in it without bringing other windows forward, and leave it as you found it apart from what the job changes. "
+            } else {
+                "Never the person's window (the one in front). "
+            },
             if browser {
                 "Use the browser tools for anything on the web; use the desktop only for native apps."
             } else {

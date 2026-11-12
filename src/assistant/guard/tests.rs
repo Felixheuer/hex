@@ -284,6 +284,7 @@ fn here(scratch: &Scratch, fake: &Fake, window: &str, app: &str, physical: bool)
             blocked_apps: vec!["1Password".into(), "com.agilebits.onepassword7".into()],
             agent_display: None,
             autonomy: Default::default(),
+            front_window: false,
         },
         scratch.store(),
         std::process::id(),
@@ -305,6 +306,7 @@ fn background(scratch: &Scratch, fake: &Fake, task: &str, physical: bool) -> Gua
             blocked_apps: vec!["Ghostty".into()],
             agent_display: None,
             autonomy: Default::default(),
+            front_window: false,
         },
         scratch.store(),
         std::process::id(),
@@ -613,6 +615,42 @@ fn a_background_task_never_acts_in_the_window_in_front() {
 }
 
 #[test]
+fn with_the_persons_leave_a_background_task_uses_the_window_in_front() {
+    let scratch = Scratch::new();
+    let fake = Fake::recorded();
+    let mut guard = Guard::new(
+        Config {
+            task: "bg".into(),
+            lane: Lane::Background,
+            here_window: None,
+            physical_input: false,
+            blocked_apps: Vec::new(),
+            agent_display: None,
+            autonomy: Default::default(),
+            front_window: true,
+        },
+        scratch.store(),
+        std::process::id(),
+        fake.clone(),
+        Box::new(fake.clone()),
+    );
+    guard.poll = Duration::from_millis(20);
+    guard.window_wait = Duration::from_millis(200);
+    guard.fresh_for = Duration::ZERO;
+    let claim = guard.call("desktop_claim_window", args(json!({"window_id": FRONT})));
+    assert_eq!(error_code(&claim), None, "claims the window in front");
+    let reference = child::data(&guard.call("desktop_snapshot", args(json!({"window_id": FRONT}))))
+        .unwrap()["tree"]["children"][0]["ref_id"]
+        .clone();
+    fake.focus(FRONT);
+    let click = guard.call("desktop_click", args(json!({"ref_id": reference})));
+    assert_eq!(error_code(&click), None, "acts while it is in front");
+    // Without a window_id it still never guesses the window in front.
+    let unnamed = guard.call("desktop_press", args(json!({"combo": "return"})));
+    assert_eq!(error_code(&unnamed).as_deref(), Some("NOT_YOUR_WINDOW"));
+}
+
+#[test]
 fn another_tasks_window_is_refused_before_anything_is_sent() {
     let scratch = Scratch::new();
     let other = Other::new();
@@ -750,6 +788,7 @@ fn real_input_needs_permission_and_shows_hands_off_while_it_runs() {
             blocked_apps: Vec::new(),
             agent_display: None,
             autonomy: Default::default(),
+            front_window: false,
         },
         store.clone(),
         std::process::id(),

@@ -36,6 +36,7 @@ fn guard_with(scratch: &Scratch, fake: &Fake, autonomy: Autonomy) -> Guard<Fake>
             blocked_apps: Vec::new(),
             agent_display: None,
             autonomy,
+            front_window: false,
         },
         scratch.store(),
         std::process::id(),

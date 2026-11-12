@@ -90,6 +90,37 @@ pub(in crate::rune_ui) fn here_input_row(ui: &Ui, p: Paint) -> CardRow {
     .into()
 }
 
+/// Whether Background tasks may operate the window in front, as the
+/// ChatGPT app's agent does.
+pub(in crate::rune_ui) fn front_window_row(ui: &Ui, p: Paint) -> CardRow {
+    let on = ui.settings.assistant.background_front_window;
+    let description = if on {
+        (
+            tr("Like the ChatGPT app: a background task may also click and type in the window you're using. If you type there at the same time, your input and its input mix").to_owned(),
+            p.warning(),
+        )
+    } else {
+        (
+            tr("Off keeps the window you're using yours: background tasks open their own windows or take other free ones").to_owned(),
+            p.muted(),
+        )
+    };
+    pressable_row(
+        described_row(
+            p,
+            "assistant-front-window",
+            tr("Background tasks may use the window in front"),
+            Some(description),
+            row_switch(p, on),
+        ),
+        on,
+    )
+    .on_press(|ui: &mut Ui| {
+        ui.update(|settings| settings.assistant.background_front_window ^= true);
+    })
+    .into()
+}
+
 /// The hidden browser for web tasks, and whether agent-browser is here.
 pub(in crate::rune_ui) fn web_section(ui: &Ui, p: Paint) -> El {
     let on = ui.settings.assistant.background_browser;
