@@ -861,12 +861,17 @@ pub fn autonomy_rules(
     authorized: &crate::assistant::autonomy::Authorized,
 ) -> String {
     use crate::assistant::autonomy::Autonomy;
+    // A yes covers its batch only (`autonomy::CONFIRMED_FOR_MS`).
+    let now = crate::assistant::store::now_ms();
+    let confirmed: std::collections::BTreeSet<_> = authorized
+        .confirmed
+        .iter()
+        .copied()
+        .filter(|category| authorized.confirmed_now(*category, now))
+        .collect();
     let allowed = match mode {
-        Autonomy::Ask => authorized.confirmed.iter().collect::<Vec<_>>(),
-        _ => authorized
-            .categories
-            .union(&authorized.confirmed)
-            .collect::<Vec<_>>(),
+        Autonomy::Ask => confirmed.iter().collect::<Vec<_>>(),
+        _ => authorized.categories.union(&confirmed).collect::<Vec<_>>(),
     };
     let allowed = allowed
         .into_iter()

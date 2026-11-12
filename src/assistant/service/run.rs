@@ -202,7 +202,9 @@ impl Runner {
                     let allowed = autonomy::is_yes(&answer);
                     if allowed {
                         job.authorized = (self.hooks.authorized)(&conversation);
-                        job.authorized.confirmed.insert(category);
+                        // For the batch it asked about, not the rest of the
+                        // job (`autonomy::CONFIRMED_FOR_MS`).
+                        job.authorized.confirm(category, self.now());
                         (self.hooks.authorize)(&conversation, &job.authorized);
                     }
                     job.kind = JobKind::Confirm { question, allowed };
