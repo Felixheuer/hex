@@ -1407,6 +1407,18 @@ pub fn applied_assistant() -> AssistantSettings {
         .unwrap_or_default()
 }
 
+/// The transcription language as last applied (`de`, `auto`, …), for the
+/// Action shortcut's question; `None` until settings load.
+pub fn applied_transcription_language() -> Option<String> {
+    HOTKEYS
+        .get_or_init(Default::default)
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .settings
+        .as_ref()
+        .map(|settings| settings.transcription.language.clone())
+}
+
 pub fn runtime_hotkeys() -> RuntimeHotkeys {
     #[cfg_attr(not(hex_capture), allow(unused_mut))]
     let mut hotkeys = HOTKEYS

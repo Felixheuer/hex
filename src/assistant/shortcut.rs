@@ -10,6 +10,7 @@
 //! [`Request`] on the question's own thread, so nothing is pasted, copied,
 //! or kept for History.
 
+mod latin;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -195,7 +196,9 @@ impl Question {
         text: &str,
         focus: impl FnOnce() -> Option<ConversationId>,
     ) -> Option<Request> {
-        let text = text.trim();
+        let language = crate::app_settings::applied_transcription_language();
+        let spelled = latin::latin_strays(text.trim(), language.as_deref());
+        let text = spelled.as_ref();
         let background = |text: &str| {
             (!text.is_empty()).then(|| Request {
                 conversation: None,
