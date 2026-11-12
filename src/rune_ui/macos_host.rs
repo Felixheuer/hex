@@ -399,6 +399,9 @@ fn hotkey_key(
         119 => Some("End"),
         117 => Some("Forward Delete"),
         114 => Some("Help"),
+        // Never recorded (Escape ends the recorder); `hex settings` names it
+        // for Stop all tasks.
+        53 => Some("Esc"),
         122 => Some("F1"),
         120 => Some("F2"),
         99 => Some("F3"),
@@ -480,6 +483,7 @@ pub(super) fn hotkey_key_named(name: &str) -> Result<HotkeyKey, &'static str> {
         "end" => Some(119),
         "forwarddelete" => Some(117),
         "help" => Some(114),
+        "escape" | "esc" => Some(53),
         function => function
             .strip_prefix('f')
             .and_then(|number| number.parse::<u8>().ok())
@@ -522,6 +526,7 @@ pub(super) fn validate_hotkey(
         target,
         ShortcutTarget::PasteLast
             | ShortcutTarget::Cancel
+            | ShortcutTarget::StopAll
             | ShortcutTarget::Screenshot
             | ShortcutTarget::ScreenshotRecord
     ) && binding.key.is_none()

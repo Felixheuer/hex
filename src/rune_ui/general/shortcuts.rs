@@ -27,6 +27,11 @@ pub(in crate::rune_ui) fn shortcut_rows(
     let action = target == ShortcutTarget::Action;
     #[cfg(not(target_os = "macos"))]
     let action = false;
+    // Labs › Assistant's Stop all tasks (macOS).
+    #[cfg(target_os = "macos")]
+    let stop_all = target == ShortcutTarget::StopAll;
+    #[cfg(not(target_os = "macos"))]
+    let stop_all = false;
     #[cfg(target_os = "linux")]
     let typed_text = target == ShortcutTarget::TypedText;
     #[cfg(not(target_os = "linux"))]
@@ -37,6 +42,7 @@ pub(in crate::rune_ui) fn shortcut_rows(
     let terminal = false;
     let optional = second
         || action
+        || stop_all
         || typed_text
         || terminal
         || matches!(
@@ -56,6 +62,7 @@ pub(in crate::rune_ui) fn shortcut_rows(
                     ShortcutTarget::TypedText => settings.typed_text_hotkey = None,
                     _ if second => settings.second_dictation_hotkey = None,
                     _ if action => settings.assistant.action_hotkey = None,
+                    _ if stop_all => settings.assistant.stop_all_hotkey = None,
                     _ if terminal => settings.terminal_paste_hotkey = None,
                     _ => settings.paste_last_hotkey = None,
                 });
@@ -77,6 +84,9 @@ pub(in crate::rune_ui) fn shortcut_rows(
         // The Action shortcut's default, right Command, offered once it is
         // something else or off.
         _ if action => Some(crate::app_settings::HotkeyBinding::action_default()),
+        // Stop all's default, ⌃⌥Esc, can't be recorded either (Escape ends
+        // the recorder), so it is offered the same way.
+        _ if stop_all => Some(crate::app_settings::HotkeyBinding::stop_all_default()),
         _ => None,
     };
     if let Some(default) = default {

@@ -50,9 +50,8 @@ pub fn enabled(settings: &AppSettings) -> bool {
     crate::labs::Feature::Assistant.on(settings)
 }
 
-/// Whether the assistant is on and its onboarding finished: until then,
-/// Chats offers to finish setting it up instead of a chat.
-/// (Stub for the lead's contract; the lead owns it at integration.)
+/// Whether the assistant may answer: enabled, and its setup finished. Until
+/// then a hold of the Action shortcut opens the setup instead of asking.
 pub fn ready(settings: &AppSettings) -> bool {
     enabled(settings) && settings.assistant.setup_done
 }
