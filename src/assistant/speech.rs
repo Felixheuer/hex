@@ -211,6 +211,38 @@ pub fn stop() {
     say::stop();
 }
 
+/// Holds the reading for a barge-in: the person may be talking, or it may
+/// be Hex's own voice heard back. [`resume`] reads on from the start of the
+/// sentence it cut; [`stop`] (the person's words were a request) drops it;
+/// a pause neither ends within `playback::PAUSE_LIMIT` drops itself.
+/// While paused, [`speaking`] stays true. Whether anything was being read.
+pub fn pause() -> bool {
+    started().is_some_and(|shared| shared.pause())
+}
+
+/// Reads on after [`pause`]; whether it was paused.
+pub fn resume() -> bool {
+    let resumed = started().is_some_and(|shared| shared.resume());
+    if resumed {
+        RESUMED.fetch_add(1, Ordering::AcqRel);
+    }
+    resumed
+}
+
+/// Bumped by every [`resume`], so conversation mode watches the rest of the
+/// answer again.
+static RESUMED: AtomicU64 = AtomicU64::new(0);
+
+/// How many readings have resumed after a barge-in.
+pub fn resumed_count() -> u64 {
+    RESUMED.load(Ordering::Acquire)
+}
+
+/// Whether the reading is paused for a barge-in.
+pub fn paused() -> bool {
+    started().is_some_and(|shared| shared.playback().paused())
+}
+
 /// Whether something is being read now, or waits its turn.
 pub fn speaking() -> bool {
     started().is_some_and(|shared| shared.playback().busy())
