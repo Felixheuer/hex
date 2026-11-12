@@ -9,8 +9,10 @@
 //! └── answered(c) -> Answer(c)
 //!     ├── barge_in, and Hex reads it aloud -> Step::Watch: a capture opens, unshown
 //!     │   └── a voice for 240 ms -> Step::BargeIn -> Hearing(c)
-//!     │       headphones: any speech; speakers: speech louder than the answer
-//!     │       itself (speech::level() + 6 dB), never without that level
+//!     │       headphones: any speech; speakers: speech the echo of Hex's
+//!     │       own voice doesn't explain (`echo`, from what Hex played), or,
+//!     │       until that has learnt the room, speech louder than the answer
+//!     │       itself (speech::level() + 6 dB)
 //!     └── the reading ends (quiet for 400 ms: a gap between two sentences,
 //!         or a sentence still being made, isn't the end), or never starts
 //!         within 1.5 s, or answers aren't read aloud
@@ -130,6 +132,10 @@ enum Phase {
 pub(super) struct Frame {
     pub(super) speech: bool,
     pub(super) level_db: f32,
+    /// Whether it holds more than the echo of Hex's own voice
+    /// (`echo::EchoGate`): `Some(true)` also when Hex played nothing lately;
+    /// `None` while it can't tell yet.
+    pub(super) over_echo: Option<bool>,
 }
 
 /// Cuts microphone audio into 20 ms frames and classifies them.
@@ -140,7 +146,15 @@ struct Ears {
 }
 
 impl Ears {
-    fn push(&mut self, samples: &[f32], rate: u32, mut each: impl FnMut(Frame)) {
+    /// `echo(frame, later)` judges a frame against Hex's own voice; `later`
+    /// is how many samples of this block arrived after the frame ended.
+    fn push(
+        &mut self,
+        samples: &[f32],
+        rate: u32,
+        echo: &mut dyn FnMut(&[f32], usize) -> Option<bool>,
+        mut each: impl FnMut(Frame),
+    ) {
         let size = (rate / FRAMES_PER_SECOND).max(1) as usize;
         let mut samples = samples;
         while !samples.is_empty() {
@@ -151,6 +165,7 @@ impl Ears {
                 each(Frame {
                     speech: self.speech.is_speech(&self.frame),
                     level_db: level_db(&self.frame),
+                    over_echo: echo(&self.frame, samples.len()),
                 });
                 self.frame.clear();
             }
@@ -309,20 +324,27 @@ impl Conversation {
 
     /// Microphone audio at `rate` from its open capture. `output` is where
     /// the answer plays; `playback_db`, how loud Hex reads it now (dBFS),
-    /// if known.
+    /// if known; `echo`, the judge of each frame against Hex's own voice
+    /// (see [`Frame::over_echo`]), asked only while an answer plays.
     pub(super) fn hear(
         &mut self,
         samples: &[f32],
         rate: u32,
         output: Output,
         playback_db: Option<f32>,
+        echo: &mut dyn FnMut(&[f32], usize) -> Option<bool>,
     ) -> Vec<Step> {
         let mut steps = Vec::new();
         if !self.is_open() {
             return steps;
         }
+        let judging = matches!(self.phase, Phase::Answer { .. }) && output == Output::Speakers;
+        let mut none = |_: &[f32], _: usize| None;
+        let echo: &mut dyn FnMut(&[f32], usize) -> Option<bool> =
+            if judging { echo } else { &mut none };
         let mut frames = Vec::new();
-        self.ears.push(samples, rate, |frame| frames.push(frame));
+        self.ears
+            .push(samples, rate, echo, |frame| frames.push(frame));
         for frame in frames {
             steps.extend(self.frame(frame, output, playback_db));
         }
@@ -359,9 +381,12 @@ impl Conversation {
                     return None;
                 }
                 let voice = frame.speech
-                    && match output {
-                        Output::Headphones => true,
-                        Output::Speakers => playback_db
+                    && match (output, frame.over_echo) {
+                        (Output::Headphones, _) => true,
+                        // The echo of Hex's voice taken out: the person.
+                        (Output::Speakers, Some(over)) => over,
+                        // Not learnt yet: only a voice clearly over Hex's.
+                        (Output::Speakers, None) => playback_db
                             .is_some_and(|playback| frame.level_db > playback + SPEAKER_MARGIN_DB),
                     };
                 let conversation = conversation.clone();
@@ -437,12 +462,14 @@ mod tests {
         Frame {
             speech: true,
             level_db,
+            over_echo: None,
         }
     }
 
     const QUIET: Frame = Frame {
         speech: false,
         level_db: -70.0,
+        over_echo: None,
     };
 
     /// Feeds `count` copies of `frame` and returns the steps they made.
@@ -556,6 +583,66 @@ mod tests {
             machine.tick(after(start, 6_400), false, false, off),
             Some(Step::Listen)
         );
+    }
+
+    /// On speakers, with the echo of Hex's voice taken out, the person
+    /// interrupts at a normal voice: no need to be louder than the answer.
+    #[test]
+    fn barge_in_on_speakers_with_the_echo_taken_out() {
+        let start = Instant::now();
+        let mut machine = Conversation::default();
+        machine.answered("c1".into(), start);
+        assert_eq!(
+            machine.tick(after(start, 100), true, false, ON),
+            Some(Step::Watch)
+        );
+        let echo_only = Frame {
+            over_echo: Some(false),
+            ..speech(-20.0)
+        };
+        let person = Frame {
+            over_echo: Some(true),
+            ..speech(-35.0)
+        };
+        // Hex's own voice, loud in the microphone: no barge-in, whatever its
+        // level against the answer's.
+        assert!(feed(&mut machine, echo_only, 100, Output::Speakers, Some(-60.0)).is_empty());
+        // The person, quieter than the answer: 240 ms interrupt.
+        assert!(feed(&mut machine, person, 11, Output::Speakers, Some(-12.0)).is_empty());
+        assert_eq!(
+            feed(&mut machine, person, 1, Output::Speakers, Some(-12.0)),
+            [Step::BargeIn]
+        );
+        assert!(machine.is_hearing());
+    }
+
+    /// The echo judge is only asked on speakers, under an answer.
+    #[test]
+    fn the_echo_is_judged_only_under_an_answer_on_speakers() {
+        let start = Instant::now();
+        let mut machine = Conversation::default();
+        machine.answered("c1".into(), start);
+        machine.tick(after(start, 100), true, false, ON);
+        let tone: Vec<f32> = (0..9_600).map(|i| 0.3 * (i as f32 * 0.06).sin()).collect();
+        let mut asked = 0;
+        machine.hear(
+            &tone,
+            48_000,
+            Output::Speakers,
+            Some(-12.0),
+            &mut |frame, _| {
+                asked += 1;
+                assert_eq!(frame.len(), 960);
+                Some(false)
+            },
+        );
+        assert_eq!(asked, 10);
+        let mut headphones = 0;
+        machine.hear(&tone, 48_000, Output::Headphones, None, &mut |_, _| {
+            headphones += 1;
+            None
+        });
+        assert_eq!(headphones, 0);
     }
 
     /// Nothing said in `conversation_seconds`: it quietly stops.
@@ -804,7 +891,13 @@ mod tests {
         let mut machine = Conversation::default();
         assert!(
             machine
-                .hear(&[0.5; 4_800], 48_000, Output::Speakers, None)
+                .hear(
+                    &[0.5; 4_800],
+                    48_000,
+                    Output::Speakers,
+                    None,
+                    &mut |_, _| None
+                )
                 .is_empty()
         );
         machine.answered("c1".into(), start);
@@ -820,14 +913,14 @@ mod tests {
         let quiet = vec![0.0001_f32; 48_000 / 2];
         assert!(
             machine
-                .hear(&quiet, 48_000, Output::Speakers, None)
+                .hear(&quiet, 48_000, Output::Speakers, None, &mut |_, _| None)
                 .is_empty()
         );
         let tone: Vec<f32> = (0..48_000 / 2)
             .map(|i| 0.3 * (i as f32 * 0.05).sin())
             .collect();
         assert_eq!(
-            machine.hear(&tone, 48_000, Output::Speakers, None),
+            machine.hear(&tone, 48_000, Output::Speakers, None, &mut |_, _| None),
             [Step::Heard]
         );
         assert!((db(0.1) + 20.0).abs() < 0.01);

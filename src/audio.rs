@@ -16,6 +16,7 @@ mod mix_format;
 pub(crate) mod output_ducking;
 pub(crate) mod output_route;
 mod overloads;
+pub(crate) mod playback_reference;
 #[cfg(target_os = "macos")]
 pub(crate) mod recording_environment;
 mod recovery;
