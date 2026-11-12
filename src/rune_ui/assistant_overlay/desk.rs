@@ -1,9 +1,9 @@
 //! A pretend desktop with every assistant overlay drawn on it, for the
 //! playground and the render tests: the frame, the window outlines over
-//! made-up windows, the task stack, and the quick question's bubble below
-//! a stand-in HUD. The real overlays are separate panels (`host`); this
-//! draws the same views together, so they can be looked at side by side
-//! without Agent mode.
+//! made-up windows, the orb with its bubbles or list beside a stand-in HUD,
+//! the Here question's bubble below the HUD, and the hint or the Hands off
+//! pill past it. The real overlays are separate panels (`host`); this draws
+//! the same views together, so they can be looked at side by side.
 
 use std::time::Instant;
 
@@ -11,9 +11,9 @@ use rune::{Cx, El, el, row, text};
 
 use super::super::controls::Paint;
 use super::board::{Board, Bubble, Due};
-use super::fixture;
+use super::hint::Hint;
 use super::outline::{self, Outline};
-use super::{bubble, frame, hint, stack};
+use super::{bubble, fixture, frame, hands, hint, orb, place, stack};
 use crate::assistant::Event;
 
 /// The pretend desktop's size, in points.
@@ -26,10 +26,16 @@ pub(crate) struct Desk {
     pub(crate) board: Board,
     pub(crate) bubble: Option<Bubble>,
     pub(crate) frame: bool,
-    /// The frame breathes (the playground), or holds still (renders).
+    /// Breathe and pulse (the playground), or hold still (renders).
     pub(crate) breathe: bool,
-    /// The Action shortcut is held in Agent mode: "New task" past the HUD.
-    pub(crate) holding: bool,
+    /// What the HUD says past itself while the Action shortcut is held.
+    pub(crate) hint: Option<Hint>,
+    /// The orb's list is unfolded.
+    pub(crate) expanded: bool,
+    /// The Here answer is read aloud.
+    pub(crate) speaking: bool,
+    /// "Finish setting up the assistant first" instead of the bubble.
+    pub(crate) setup: bool,
     /// What the last press asked for, for the stage's caption.
     pub(crate) note: String,
 }
@@ -41,7 +47,10 @@ impl Desk {
             bubble: None,
             frame: false,
             breathe: true,
-            holding: false,
+            hint: None,
+            expanded: false,
+            speaking: false,
+            setup: false,
             note: String::new(),
         }
     }
@@ -53,8 +62,7 @@ impl Desk {
             bubble: fixture::bubble_at(f64::MAX),
             frame: true,
             breathe: false,
-            holding: false,
-            note: String::new(),
+            ..Self::empty()
         }
     }
 
@@ -68,7 +76,7 @@ impl Desk {
         Bubble::apply(&mut self.bubble, event, now);
     }
 
-    /// Finished tasks and an answered bubble leave on time.
+    /// Finished tasks, bubbles, and an answered Here bubble leave on time.
     pub(crate) fn tick(&mut self, _clock: f64, tx: &mut rune::Tx) -> bool {
         let now = Instant::now();
         let mut changed = self.board.expire(now);
@@ -88,15 +96,72 @@ impl Desk {
         changed
     }
 
+    fn event(&mut self, event: Event, note: String) {
+        self.apply(&event);
+        self.note = note;
+    }
+
     fn stop(&mut self, id: &str) {
-        self.apply(&Event::Cancelled {
-            conversation: id.into(),
-        });
-        self.note = format!("Stopped {id}");
+        self.event(
+            Event::Cancelled {
+                conversation: id.into(),
+            },
+            format!("Stopped {id}"),
+        );
     }
 
     fn open(&mut self, id: &str) {
         self.note = format!("Would open “{id}” in Chats");
+    }
+
+    fn take_over(&mut self, id: &str) {
+        self.event(
+            Event::Paused {
+                conversation: id.into(),
+            },
+            format!("You have {id}"),
+        );
+    }
+
+    fn hand_back(&mut self, id: &str) {
+        self.event(
+            Event::Resumed {
+                conversation: id.into(),
+            },
+            format!("Handed {id} back"),
+        );
+    }
+
+    fn stop_all(&mut self) {
+        let live: Vec<String> = self
+            .board
+            .tasks
+            .iter()
+            .filter(|task| task.phase.live())
+            .map(|task| task.id.clone())
+            .collect();
+        for id in live {
+            self.stop(&id);
+        }
+        self.note = "Stopped all".into();
+    }
+
+    fn actions() -> orb::Actions<Desk> {
+        orb::Actions {
+            list: stack::Actions {
+                stop: Desk::stop,
+                open: Desk::open,
+                take_over: Desk::take_over,
+                hand_back: Desk::hand_back,
+                stop_all: Desk::stop_all,
+                toggle: |desk| desk.expanded = !desk.expanded,
+                dismiss: |desk, id| {
+                    desk.board.dismiss_question(id);
+                },
+            },
+            hover: |_, _| {},
+            drag: |_, _| {},
+        }
     }
 }
 
@@ -109,6 +174,7 @@ pub(crate) fn view(desk: &Desk, cx: &mut Cx<Desk>) -> El {
 /// The desktop at [`SIZE`].
 pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
     let c = &p.k.c;
+    let still = !desk.breathe || reduced;
     let mut root = el()
         .key("desk")
         .size(SIZE.0, SIZE.1)
@@ -145,6 +211,8 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
             title: item.title.clone(),
             size: (rect.2 as f32, rect.3 as f32),
             label,
+            look: item.look,
+            progress: item.progress,
         };
         root = root.child(
             el().key(format!("outline-{}", item.task))
@@ -164,59 +232,91 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
             .fill(c.bg_inverse)
             .a11y_hidden(),
     );
-    if desk.holding {
+    let mut past = hud_y + HUD.1 + 4.0;
+    if desk.board.hands_off().is_some() {
+        let (w, h) = hands::SIZE;
+        root = root.child(
+            el().key("hands-layer")
+                .absolute((SIZE.0 - w) / 2.0, past)
+                .size(w, h)
+                .center()
+                .child(hands::pill(p)),
+        );
+        past += h;
+    }
+    if let Some(shown) = &desk.hint {
         let (w, h) = hint::SIZE;
         root = root.child(
             el().key("hint-layer")
-                .absolute((SIZE.0 - w) / 2.0, hud_y + HUD.1 + 4.0)
+                .absolute((SIZE.0 - w) / 2.0, past)
                 .size(w, h)
                 .center()
-                .child(hint::pill(p)),
+                .child(hint::drawn(p, shown)),
         );
-    } else if let Some(bubble) = &desk.bubble {
+    } else if desk.setup || desk.bubble.is_some() {
         let (w, _) = bubble::SIZE;
+        let actions = bubble::Actions {
+            dismiss: |desk: &mut Desk| {
+                desk.bubble = None;
+                desk.setup = false;
+            },
+            open: Desk::open,
+            setup: |desk: &mut Desk| desk.note = "Would open the assistant's setup".into(),
+        };
+        let card = match &desk.bubble {
+            _ if desk.setup => bubble::setup_card(p, actions),
+            Some(shown) => bubble::card(
+                p,
+                shown,
+                bubble::Voice {
+                    speaking: desk.speaking,
+                    still,
+                },
+                fixture::ANSWER_KEY,
+                actions,
+            ),
+            None => el(),
+        };
         root = root.child(
             el().key("bubble")
-                .absolute((SIZE.0 - w) / 2.0, hud_y + HUD.1 + 6.0)
+                .absolute((SIZE.0 - w) / 2.0, past + 2.0)
                 .w(w)
                 .padding(bubble::INSET)
-                .child(bubble::card(
-                    p,
-                    bubble,
-                    bubble::Actions {
-                        dismiss: |desk: &mut Desk| desk.bubble = None,
-                        open: Desk::open,
-                    },
-                )),
+                .child(card),
         );
     }
-    let tasks = desk.board.stack();
-    if !tasks.is_empty() {
-        let (w, h) = stack::SIZE;
-        root = root.child(
-            el().key("stack")
-                .absolute(
-                    SIZE.0 - w - (stack::MARGIN - stack::INSET),
-                    SIZE.1 - h - 4.0,
-                )
-                .size(w, h)
-                .padding(stack::INSET)
-                .child(stack::plates(
-                    p,
-                    &tasks,
-                    stack::Actions {
-                        stop: Desk::stop,
-                        open: Desk::open,
-                    },
-                )),
-        );
-    }
+    let visible = [
+        0.0,
+        f64::from(MENU_BAR),
+        size.0,
+        size.1 - f64::from(MENU_BAR),
+    ];
+    let anchor = place::default_anchor(visible, Some((size.0 / 2.0, true)));
+    let grow = place::grow(anchor, visible);
+    let [x, y, w, h] = place::rect(anchor, grow);
+    root = root.child(
+        el().key("orb-layer")
+            .absolute(x, y)
+            .size(w, h)
+            .padding(orb::INSET)
+            .child(orb::content(
+                p,
+                &desk.board,
+                &orb::Look {
+                    open: desk.expanded,
+                    grow,
+                    still,
+                    answer_key: fixture::ANSWER_KEY.into(),
+                },
+                Desk::actions(),
+            )),
+    );
     if desk.frame {
         root = root.child(
             el().key("frame-layer")
                 .absolute(0.0, 0.0)
                 .size(SIZE.0, SIZE.1)
-                .child(frame::glow(p.k.dark, desk.breathe && !reduced)),
+                .child(frame::glow(p.k.dark, !still)),
         );
     }
     if !desk.note.is_empty() {

@@ -30,6 +30,7 @@ pub mod cli;
 pub mod computer;
 pub mod credentials;
 pub mod guard;
+pub mod palette;
 pub mod provider;
 pub mod service;
 pub mod space;
