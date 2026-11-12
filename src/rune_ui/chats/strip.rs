@@ -115,10 +115,7 @@ pub(super) fn task_strip(ui: &Ui, p: Paint) -> Option<El> {
 
 /// The chips the strip shows: what waits on the person first, then the
 /// rest in order, at most [`STRIP_MAX`].
-fn strip_order<'a>(
-    tasks: &'a [TaskStatus],
-    held: impl Fn(&TaskStatus) -> bool,
-) -> Vec<&'a TaskStatus> {
+fn strip_order(tasks: &[TaskStatus], held: impl Fn(&TaskStatus) -> bool) -> Vec<&TaskStatus> {
     let mut ordered: Vec<&TaskStatus> = tasks.iter().filter(|task| held(task)).collect();
     ordered.extend(tasks.iter().filter(|task| !held(task)));
     ordered.truncate(STRIP_MAX);
