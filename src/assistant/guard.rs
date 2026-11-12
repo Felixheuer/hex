@@ -200,6 +200,18 @@ pub fn process_alive(pid: u32) -> bool {
     state::alive(pid)
 }
 
+/// When process `pid` started (µs since the epoch), to tell it from a later
+/// process given the same pid.
+pub fn process_started_us(pid: u32) -> Option<u64> {
+    state::started_us(pid)
+}
+
+/// Whether process `pid` still runs and is the one that started at
+/// `started` (any process with that pid when `None`).
+pub fn process_running(pid: u32, started: Option<u64>) -> bool {
+    state::running(pid, started)
+}
+
 fn server_for(spec: &TaskSpec, hex: &Path, desktop: &McpServer, state_dir: &Path) -> McpServer {
     let mut wire = WireSpec::new(spec);
     wire.agent_desktop = Some(desktop.command.clone());

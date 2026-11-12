@@ -379,10 +379,30 @@ fn runner() -> &'static Arc<Runner> {
                 });
             }
             let app = !WITHOUT_LAB.load(Ordering::Acquire) && current_settings().0;
+            // Agents an earlier Hex left running (a crash, a force quit)
+            // end before their jobs resume beside them.
+            if app {
+                let ended = super::provider::orphans::sweep();
+                if ended > 0 {
+                    tracing::info!(ended, "ended agents an earlier Hex left running");
+                }
+            }
             if let Ok(store) = Store::open() {
                 let recovered = store.recover_interrupted();
                 if !recovered.is_empty() {
                     tracing::info!(count = recovered.len(), "assistant tasks were interrupted");
+                }
+                // Their browsers go too, all at once and before any job
+                // resumes (it opens fresh ones under the same names).
+                if app {
+                    let closing: Vec<_> = recovered
+                        .iter()
+                        .cloned()
+                        .map(|id| std::thread::spawn(move || super::browser::close(&id)))
+                        .collect();
+                    for closed in closing {
+                        let _ = closed.join();
+                    }
                 }
                 // Jobs go on by themselves: a restart, a crash, or an
                 // update doesn't end days of work.

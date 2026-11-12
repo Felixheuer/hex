@@ -21,6 +21,7 @@ pub mod desktop;
 pub mod limit;
 mod mcp;
 mod opencode;
+pub mod orphans;
 pub mod servers;
 mod warm;
 
@@ -374,6 +375,7 @@ impl Control {
     }
 
     fn track(&self, tree: &Tree) {
+        orphans::note(tree.pid());
         self.groups
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -384,6 +386,7 @@ impl Control {
     }
 
     fn untrack(&self, pid: u32) {
+        orphans::forget(pid);
         self.groups
             .lock()
             .unwrap_or_else(|e| e.into_inner())
