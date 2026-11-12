@@ -40,3 +40,5 @@ pub(crate) use host::install;
 #[cfg(target_os = "macos")]
 #[allow(unused_imports)]
 pub(crate) use host::set_open_chats;
+/// A task's colour, for Chats' running tasks.
+pub(super) use palette::task as task_colour;

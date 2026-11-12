@@ -247,9 +247,9 @@ pub(in crate::rune_ui) enum Scene {
     /// No conversations yet.
     Empty,
     Settings,
-    /// The setup sheet part way: some checks passed, one failed, one running.
-    Setup,
-    /// The setup sheet with every check passed.
+    /// The onboarding at `Page`, part way: a check failed, one runs.
+    Setup(super::setup::Page),
+    /// The onboarding's last page with every check passed.
     SetupDone,
 }
 
@@ -257,7 +257,7 @@ pub(in crate::rune_ui) enum Scene {
 pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
     let now = crate::history::now_ms();
     ui.settings.labs.assistant = true;
-    ui.settings.assistant.setup_done = !matches!(scene, Scene::Setup | Scene::SetupDone);
+    ui.settings.assistant.setup_done = !matches!(scene, Scene::Setup(_) | Scene::SetupDone);
     ui.pane = super::Pane::Chats;
     let store = if scene == Scene::Empty {
         Store::default()
@@ -267,7 +267,7 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
     let mut pane = super::ChatsPane::fixture(store);
     pane.images.fixture();
     match scene {
-        Scene::Conversation | Scene::Setup | Scene::SetupDone => {
+        Scene::Conversation | Scene::Setup(_) | Scene::SetupDone => {
             pane.turns.insert("reply-to-maya".into(), running_turn());
             pane.select("rename-screenshots".into());
         }
@@ -291,8 +291,8 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
     }
     ui.chats = pane;
     match scene {
-        Scene::Setup => super::setup::fixture(ui, false),
-        Scene::SetupDone => super::setup::fixture(ui, true),
+        Scene::Setup(page) => super::setup::fixture(ui, page, false),
+        Scene::SetupDone => super::setup::fixture(ui, super::setup::Page::Try, true),
         _ => {}
     }
 }

@@ -21,7 +21,6 @@ use crate::desktop::i18n::{tr, tr_fill};
 static SEND_ICON: &rune::Icon = &rune_theme_opencode::icons::ARROW_UP;
 static STOP_ICON: &rune::Icon = &rune_theme_opencode::icons::STOP;
 static ERROR_ICON: &rune::Icon = &rune_theme_opencode::icons::CIRCLE_X;
-static EMPTY_ICON: &rune::Icon = &rune_theme_opencode::icons::SPEECH_BUBBLE;
 
 /// The widest a question's bubble grows.
 const BUBBLE_MAX: f32 = 380.0;
@@ -110,17 +109,40 @@ pub(super) fn detail(ui: &Ui, p: Paint) -> El {
 
 /// Nothing selected: what the assistant is for, over the composer.
 fn new_chat(ui: &Ui, p: Paint) -> El {
-    let keys = ui
-        .settings
-        .assistant
-        .action_hotkey
-        .as_ref()
-        .map(|binding| super::super::settings::shortcut_caps(binding, false).join(" "));
-    let hint = match keys {
-        Some(keys) => tr_fill("Type below, or hold {} anywhere and ask out loud", &keys),
-        None => tr("Type below to ask the assistant").to_owned(),
+    use super::super::onboarding_kit::{LEAD, keys, title_font};
+    let hint = match ui.settings.assistant.action_hotkey.as_ref() {
+        Some(binding) => {
+            let caps = super::super::settings::shortcut_caps(binding, false);
+            row()
+                .key("hint")
+                .gap(8.0)
+                .center_y()
+                .child(text(tr("Type below, or hold")).key("type").font(LEAD).color(p.muted()))
+                .child(keys(p, "keys", &caps, false))
+                .child(text(tr("anywhere")).key("anywhere").font(LEAD).color(p.muted()))
+        }
+        None => text(tr("Type below to ask the assistant"))
+            .key("hint")
+            .font(LEAD)
+            .color(p.muted()),
     };
-    ld::empty_state(p, "new-chat-empty", EMPTY_ICON, tr("What can I help with?"), Some(&hint))
+    col()
+        .key("new-chat-empty")
+        .grow(1.0)
+        .shrink()
+        .center()
+        .gap(10.0)
+        .pb(40.0)
+        .child(
+            text(tr("What can I help with?"))
+                .key("title")
+                .role("heading")
+                .level(2)
+                .font(title_font(p))
+                .color(p.text()),
+        )
+        .child(hint)
+        .transition(super::super::onboarding_kit::arrives())
 }
 
 /// The selected conversation: its header and transcript.
@@ -152,7 +174,7 @@ fn conversation(ui: &Ui, p: Paint, id: &str) -> El {
     if running {
         meta.push(tone_tag(p, "running", tr("Running"), Tone::Accent));
     }
-    let header = ld::card_header(ld::card_title(p, &title), meta, actions(pane, p, id, running));
+    let header = ld::card_header(ld::card_title(p, &title), meta, actions(pane, p, id));
     let mut column = col().key("transcript").gap(18.0).pb(8.0);
     let messages = stored.map_or(&[][..], |conversation| &conversation.messages[..]);
     for (index, message) in messages.iter().enumerate() {
@@ -192,7 +214,7 @@ fn ends_in_error(conversation: &Conversation) -> bool {
 }
 
 /// Stop while it runs; Delete…, then its confirmation.
-fn actions(pane: &ChatsPane, p: Paint, id: &str, running: bool) -> Vec<El> {
+fn actions(pane: &ChatsPane, p: Paint, id: &str) -> Vec<El> {
     if pane.delete_armed.as_deref() == Some(id) {
         return vec![
             small_button(p, "cancel-delete", tr("Cancel"), |ui: &mut Ui, _| {
@@ -206,16 +228,6 @@ fn actions(pane: &ChatsPane, p: Paint, id: &str, running: bool) -> Vec<El> {
         ];
     }
     let mut actions = Vec::new();
-    if running {
-        let stop = id.to_owned();
-        actions.push(ld::ghost_icon(
-            p,
-            "stop-chat",
-            STOP_ICON,
-            tr("Stop"),
-            move |ui: &mut Ui, _| ui.chats.stop(&stop),
-        ));
-    }
     let delete = id.to_owned();
     actions.push(ld::ghost_icon(
         p,
@@ -409,7 +421,6 @@ fn in_flight(pane: &ChatsPane, p: Paint, id: &str, turn: &Turn) -> El {
         Phase::Working => tr("Working…"),
         Phase::Answering => tr("Writing…"),
     };
-    let stop = id.to_owned();
     block.child(
         row()
             .key("status")
@@ -425,11 +436,7 @@ fn in_flight(pane: &ChatsPane, p: Paint, id: &str, turn: &Turn) -> El {
                     .font(DESCRIPTION)
                     .color(p.muted())
                     .a11y_hidden(),
-            )
-            .child(el().key("spacer").grow(1.0))
-            .child(small_button(p, "stop-request", tr("Stop"), move |ui: &mut Ui, _| {
-                ui.chats.stop(&stop);
-            })),
+            ),
     )
 }
 

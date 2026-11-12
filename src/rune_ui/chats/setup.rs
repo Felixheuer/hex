@@ -4,8 +4,9 @@
 //! installed, signed in), that Hex and agent-desktop have every permission
 //! (each missing one opens its exact System Settings page with Hex's
 //! floating guide, and the page waits until macOS reports the grant), runs
-//! the live self-tests until they're green, and ends with one real spoken
-//! question through the Action shortcut.
+//! the live self-tests until they're green, makes sure the Action shortcut
+//! is free and that Hex really receives it (hold and double-tap), and ends
+//! with one real spoken question through it.
 //!
 //! Nothing shows as working until its check ran and saw it work. Continue
 //! waits for a page's checks; Later moves on and leaves that page marked
@@ -16,7 +17,8 @@ use std::time::{Duration, Instant};
 
 use super::super::platform::PlatformRequest;
 use super::{Job, Ui};
-use crate::app_settings::AssistantBackend;
+use super::shortcut_stub::{self as shortcut, Conflict, ConflictFix, Heard};
+use crate::app_settings::{AssistantBackend, HotkeySlot};
 use crate::assistant::backends::{AgentDesktop, Check, CheckResult, CheckState, Fix, Found};
 use crate::assistant::computer::{Permission, Permissions};
 use crate::assistant::{ConversationId, Event, Origin};
@@ -34,16 +36,19 @@ pub(in crate::rune_ui) enum Page {
     Permissions,
     Desktop,
     Checks,
+    /// Nothing else takes the Action shortcut, and Hex receives it.
+    Shortcut,
     Try,
 }
 
 impl Page {
-    pub(in crate::rune_ui) const ALL: [Page; 6] = [
+    pub(in crate::rune_ui) const ALL: [Page; 7] = [
         Page::Welcome,
         Page::Agent,
         Page::Permissions,
         Page::Desktop,
         Page::Checks,
+        Page::Shortcut,
         Page::Try,
     ];
 
@@ -127,6 +132,12 @@ pub(in crate::rune_ui) struct SetupFlow {
     pub(in crate::rune_ui) checks_running: bool,
     /// The agent the checks ran against.
     pub(in crate::rune_ui) checked_backend: Option<AssistantBackend>,
+    /// What else takes the Action shortcut, once checked (or why it
+    /// couldn't be).
+    pub(in crate::rune_ui) conflicts: Option<Result<Vec<Conflict>, String>>,
+    /// What the live probe heard of the Action shortcut.
+    pub(in crate::rune_ui) heard_keys: Heard,
+    probing: bool,
     /// The try-it question: heard, then answered.
     pub(in crate::rune_ui) asked_question: Option<ConversationId>,
     pub(in crate::rune_ui) heard: Option<String>,
@@ -150,6 +161,9 @@ impl Default for SetupFlow {
             checks: Vec::new(),
             checks_running: false,
             checked_backend: None,
+            conflicts: None,
+            heard_keys: Heard::default(),
+            probing: false,
             asked_question: None,
             heard: None,
             answer: None,
@@ -290,6 +304,11 @@ pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bo
                 && !flow.checks.is_empty()
                 && flow.checks.iter().all(CheckResult::ok)
         }
+        Page::Shortcut => {
+            matches!(&flow.conflicts, Some(Ok(found)) if found.is_empty())
+                && flow.heard_keys.hold
+                && flow.heard_keys.double_tap
+        }
         Page::Try => matches!(flow.answer, Some(Ok(_))),
     }
 }
@@ -340,11 +359,56 @@ pub(in crate::rune_ui) fn go(ui: &mut Ui, page: Page) {
     let Some(flow) = ui.chats.setup.as_mut() else {
         return;
     };
+    let left = flow.page;
     flow.page = page;
     flow.fix_error = None;
     let stale = flow.checked_backend != Some(ui.settings.assistant.backend);
     if page == Page::Checks && (flow.checks.is_empty() || stale) {
         run_checks(ui);
+    }
+    if left == Page::Shortcut && page != Page::Shortcut {
+        stop_probe(ui);
+    }
+    if page == Page::Shortcut {
+        check_shortcut(ui);
+    }
+}
+
+/// Looks for other apps on the Action shortcut, and starts listening for
+/// it.
+pub(in crate::rune_ui) fn check_shortcut(ui: &mut Ui) {
+    let settings = ui.settings.clone();
+    let live = ui.chats.live();
+    let Some(flow) = ui.chats.setup.as_mut() else {
+        return;
+    };
+    flow.conflicts = None;
+    flow.heard_keys = Heard::default();
+    ui.chats.jobs.run(Job::Conflicts(Box::new(settings)));
+    if live {
+        shortcut::start_probe(HotkeySlot::Action);
+        if let Some(flow) = ui.chats.setup.as_mut() {
+            flow.probing = true;
+        }
+    }
+}
+
+fn stop_probe(ui: &mut Ui) {
+    if let Some(flow) = ui.chats.setup.as_mut()
+        && std::mem::take(&mut flow.probing)
+    {
+        shortcut::stop_probe(HotkeySlot::Action);
+    }
+}
+
+/// Clears a conflict on the Action shortcut.
+pub(in crate::rune_ui) fn clear_conflict(ui: &mut Ui, fix: ConflictFix, tx: &mut rune::Tx) {
+    match fix {
+        ConflictFix::ChooseAnother => {
+            close(ui);
+            ui.select_pane(super::super::Pane::General, tx);
+        }
+        fix => ui.chats.jobs.run(Job::ClearConflict(fix)),
     }
 }
 
@@ -483,12 +547,13 @@ pub(in crate::rune_ui) fn finish(ui: &mut Ui, tx: &mut rune::Tx) {
         return;
     }
     if ui.update(|settings| settings.assistant.setup_done = true) {
-        ui.chats.setup = None;
+        close(ui);
         super::show(ui, None, tx);
     }
 }
 
 pub(in crate::rune_ui) fn close(ui: &mut Ui) {
+    stop_probe(ui);
     ui.chats.setup = None;
 }
 
@@ -573,6 +638,12 @@ pub(super) fn receive(ui: &mut Ui, done: super::Done) {
                 flow.fix_error = Some(error);
             }
         }
+        Done::Conflicts(found) => flow.conflicts = Some(found),
+        Done::ConflictCleared(Err(error)) => flow.fix_error = Some(error),
+        Done::ConflictCleared(Ok(())) => {
+            check_shortcut(ui);
+            return;
+        }
         Done::KeySaved(_) | Done::Voices(_) => {}
     }
     if fixed {
@@ -598,8 +669,22 @@ fn forget_granted(ui: &mut Ui) {
     }
 }
 
-/// Reads the grants again every moment while a page waits on them.
+/// Reads the grants again every moment while a page waits on them, and
+/// what the probe heard while the Shortcut page shows.
 pub(super) fn poll(ui: &mut Ui, tx: &mut rune::Tx) -> bool {
+    let Some(flow) = ui.chats.setup.as_mut() else {
+        return false;
+    };
+    if flow.probing {
+        let heard = shortcut::probe(HotkeySlot::Action);
+        let changed = heard != flow.heard_keys;
+        flow.heard_keys.hold |= heard.hold;
+        flow.heard_keys.double_tap |= heard.double_tap;
+        tx.wake_after(Duration::from_millis(100));
+        if changed {
+            return true;
+        }
+    }
     let Some(flow) = ui.chats.setup.as_ref() else {
         return false;
     };
@@ -674,7 +759,7 @@ pub(in crate::rune_ui) fn fixture(ui: &mut Ui, page: Page, all_passed: bool) {
     };
     ui.chats.setup = Some(SetupFlow {
         page,
-        later: if all_passed { Vec::new() } else { vec![Page::Desktop] },
+        later: if all_passed || page.index() <= Page::Desktop.index() { Vec::new() } else { vec![Page::Desktop] },
         desktop: Some(AgentDesktop {
             path: Some("/opt/homebrew/bin/agent-desktop".into()),
             version: Some("0.4.2".into()),
@@ -693,6 +778,21 @@ pub(in crate::rune_ui) fn fixture(ui: &mut Ui, page: Page, all_passed: bool) {
         checks,
         checks_running: !all_passed,
         checked_backend: Some(backend),
+        conflicts: Some(if all_passed {
+            Ok(Vec::new())
+        } else {
+            Ok(vec![Conflict {
+                owner: "Siri".into(),
+                detail: "Press right ⌘ twice talks to Siri".into(),
+                fix: Some(ConflictFix::OpenSettings(
+                    "x-apple.systempreferences:com.apple.Siri-Settings.extension".into(),
+                )),
+            }])
+        }),
+        heard_keys: Heard {
+            hold: true,
+            double_tap: all_passed,
+        },
         heard: all_passed.then(|| "What time is it in Tokyo?".into()),
         answer: all_passed.then(|| Ok("It's 9:41 PM in Tokyo.".into())),
         ..SetupFlow::default()

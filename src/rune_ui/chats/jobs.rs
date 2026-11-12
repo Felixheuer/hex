@@ -9,7 +9,8 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use rune::Waker;
 
 use super::Ui;
-use crate::app_settings::AssistantSettings;
+use super::shortcut_stub::{self, Conflict, ConflictFix};
+use crate::app_settings::{AppSettings, AssistantSettings, HotkeySlot};
 use crate::assistant::backends::{AgentDesktop, CheckResult, Fix, Found};
 use crate::assistant::computer::Permissions;
 
@@ -28,6 +29,10 @@ pub(in crate::rune_ui) enum Job {
     Fix(Fix),
     /// The self-tests for these settings' agent, in order.
     SelfTests(AssistantSettings),
+    /// What else takes the Action shortcut.
+    Conflicts(Box<AppSettings>),
+    /// Clears one: System Settings at its page, or its app quit.
+    ClearConflict(ConflictFix),
     /// Saves the Claude API key in the Keychain (empty deletes it).
     SaveKey(String),
     /// The installed voices.
@@ -47,6 +52,8 @@ pub(in crate::rune_ui) enum Done {
     /// A self-test started (`Running`) or ended.
     Check(CheckResult),
     ChecksDone,
+    Conflicts(Result<Vec<Conflict>, String>),
+    ConflictCleared(Result<(), String>),
     KeySaved(Result<(), String>),
     Voices(Vec<String>),
 }
@@ -137,6 +144,11 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             backends::self_tests(&checks, &settings, |result| send(Done::Check(result.clone())));
             send(Done::ChecksDone);
         }
+        Job::Conflicts(settings) => send(Done::Conflicts(shortcut_stub::conflicts(
+            HotkeySlot::Action,
+            &settings,
+        ))),
+        Job::ClearConflict(fix) => send(Done::ConflictCleared(clear(fix))),
         Job::SaveKey(key) => send(Done::KeySaved(
             credentials::set_api_key(&key).map_err(|error| format!("{error:#}")),
         )),
@@ -145,6 +157,29 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             crate::desktop::i18n::tr("Hi, I'm your assistant. Ask me anything."),
             voice.as_deref(),
         ),
+    }
+}
+
+/// Opens the page that owns a conflict, or quits its app.
+fn clear(fix: ConflictFix) -> Result<(), String> {
+    let mut command = match fix {
+        ConflictFix::OpenSettings(link) => {
+            let mut open = crate::desktop::background_process::command("/usr/bin/open");
+            open.arg(link);
+            open
+        }
+        ConflictFix::QuitApp(app) => {
+            let mut quit = crate::desktop::background_process::command("/usr/bin/osascript");
+            quit.arg("-e")
+                .arg(format!("quit app \"{}\"", app.replace('"', "")));
+            quit
+        }
+        ConflictFix::ChooseAnother => return Ok(()),
+    };
+    match command.status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(_) => Err(crate::desktop::i18n::tr("That didn't work. Try it by hand").into()),
+        Err(error) => Err(error.to_string()),
     }
 }
 

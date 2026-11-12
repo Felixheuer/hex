@@ -11,6 +11,7 @@ use super::setup::{
     self, Grant, Page, SetupFlow, State, can_finish, check_title, chosen, fix_for, fix_label,
     grant_state, needs_restart, page_done,
 };
+use super::shortcut_stub::ConflictFix;
 use super::{BACKENDS, Ui, backend_name};
 use crate::app_settings::AssistantBackend;
 use crate::assistant::backends::{CheckResult, CheckState, Fix};
@@ -38,6 +39,7 @@ pub(in crate::rune_ui) fn overlay(ui: &Ui, p: Paint) -> Option<El> {
         Page::Permissions => permissions(ui, flow, p),
         Page::Desktop => desktop(ui, flow, p),
         Page::Checks => checks(ui, flow, p),
+        Page::Shortcut => shortcut(ui, flow, p),
         Page::Try => try_it(ui, flow, p),
     };
     Some(
@@ -135,7 +137,7 @@ fn progress(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                 .size(if here { 18.0 } else { 6.0 }, 6.0)
                 .radius(3.0)
                 .fill(fill)
-                .motion(super::super::onboarding_kit::Motion::default().keyboard_spring())
+                .motion(rune::Spring::new(0.3, 0.0))
                 .a11y_hidden(),
         );
     }
@@ -722,6 +724,128 @@ fn checks(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         Some(rows_card(p, "checks-card", rows)),
         flow.fix_error.as_ref().map(|error| note(p, error)),
         actions,
+    )
+}
+
+/// A conflict's fix button.
+fn conflict_label(fix: &ConflictFix) -> String {
+    match fix {
+        ConflictFix::OpenSettings(_) => tr("Open Settings…").into(),
+        ConflictFix::QuitApp(app) => tr_fill("Quit {}", app),
+        ConflictFix::ChooseAnother => tr("Choose another…").into(),
+    }
+}
+
+/// A row that waits for a press of the shortcut, green once Hex heard it.
+fn press_row(ui: &Ui, p: Paint, key: &str, title: &str, heard: bool) -> El {
+    let control = if heard {
+        done_pill(p, "heard", tr("Hex heard it"))
+    } else {
+        waiting_pill(p, "waiting", tr("Press it now"))
+    };
+    let keys = action_keys(ui, p, "keys", false).unwrap_or_else(|| el().key("keys"));
+    row()
+        .key(key.to_owned())
+        .role("group")
+        .label(title.to_owned())
+        .description(if heard { tr("Hex heard it") } else { tr("Press it now") })
+        .min_h(ROW_H)
+        .py(8.0)
+        .px(16.0)
+        .gap(12.0)
+        .center_y()
+        .child(icon(&glyphs::KEYBOARD, 16.0).key("icon").color(p.k.c.icon_base).a11y_hidden())
+        .child(
+            row()
+                .key("copy")
+                .grow(1.0)
+                .w(0.0)
+                .gap(8.0)
+                .center_y()
+                .child(text(title.to_owned()).key("title").font(p.k.ty.ui_medium).color(p.text()).a11y_hidden())
+                .child(keys.a11y_hidden()),
+        )
+        .child(control)
+}
+
+/// The Action shortcut is free, and Hex receives it: other apps and macOS
+/// features that take it, each with its fix, then a live hold and
+/// double-tap.
+fn shortcut(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
+    let mut rows = Vec::new();
+    match &flow.conflicts {
+        None => rows.push(row_of(
+            p,
+            "conflicts",
+            &glyphs::SEARCH,
+            tr("Other apps"),
+            tr("Looking for apps and macOS features on this shortcut…"),
+            p.muted(),
+            spinner(p, "looking"),
+        )),
+        Some(Err(why)) => rows.push(row_of(
+            p,
+            "conflicts",
+            &glyphs::SEARCH,
+            tr("Other apps"),
+            why,
+            p.danger(),
+            push(p, "check-again", tr("Check again"), false, setup::check_shortcut),
+        )),
+        Some(Ok(found)) if found.is_empty() => rows.push(row_of(
+            p,
+            "conflicts",
+            &glyphs::SEARCH,
+            tr("Other apps"),
+            tr("Nothing else on this Mac uses it"),
+            p.muted(),
+            done_pill(p, "free", tr("Free")),
+        )),
+        Some(Ok(found)) => {
+            for (index, conflict) in found.iter().enumerate() {
+                let control = match &conflict.fix {
+                    Some(fix) => {
+                        let fix = fix.clone();
+                        Button::new(conflict_label(&fix))
+                            .variant(if index == 0 {
+                                ButtonVariant::Contrast
+                            } else {
+                                ButtonVariant::Neutral
+                            })
+                            .on_press_tx(move |ui: &mut Ui, tx: &mut Tx| {
+                                setup::clear_conflict(ui, fix.clone(), tx)
+                            })
+                            .build_push(p.k)
+                            .key("fix")
+                            .transition(arrives())
+                    }
+                    None => el().key("none"),
+                };
+                rows.push(row_of(
+                    p,
+                    &format!("conflict{index}"),
+                    &glyphs::CIRCLE_X,
+                    &conflict.owner,
+                    &conflict.detail,
+                    p.danger(),
+                    control,
+                ));
+            }
+        }
+    }
+    rows.push(press_row(ui, p, "hold-probe", tr("Hold"), flow.heard_keys.hold));
+    rows.push(press_row(ui, p, "double-tap-probe", tr("Double-tap"), flow.heard_keys.double_tap));
+    let free_again = matches!(&flow.conflicts, Some(Ok(found)) if !found.is_empty()).then(|| {
+        push(p, "check-again", tr("Check again"), false, setup::check_shortcut)
+    });
+    page(
+        p,
+        "shortcut",
+        tr("Make the shortcut yours"),
+        lead(p, tr("Nothing else may take it, and Hex has to hear it. Hold it once, then double-tap it.")),
+        Some(rows_card(p, "shortcut-card", rows)),
+        flow.fix_error.as_ref().map(|error| note(p, error)),
+        actions(p, page_done(ui, flow, Page::Shortcut), true).children(free_again),
     )
 }
 

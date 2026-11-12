@@ -14,6 +14,7 @@ mod list;
 mod settings;
 mod setup;
 mod sheet;
+mod shortcut_stub;
 #[cfg(test)]
 mod tests;
 mod transcript;
@@ -28,13 +29,14 @@ use super::controls::{ButtonKind, Paint, button, segmented_tx};
 use super::{Pane, Ui};
 use crate::app_settings::AssistantBackend;
 use crate::assistant::{
-    Context, Conversation, ConversationId, ConversationSummary, Event, Origin, Request, Role,
+    Context, Conversation, ConversationId, ConversationSummary, Event, Origin, Request,
     TaskStatus,
 };
 use crate::desktop::i18n::{tr, tr_fill};
 
 pub(super) use fixture::scene as fixture_scene;
 pub(super) use jobs::{Done, Job, Jobs};
+pub(super) use setup::Page;
 pub(super) use sheet::overlay as setup_overlay;
 
 /// The sidebar's Chats icon: a speech bubble.
@@ -191,8 +193,8 @@ pub(super) struct ChatsPane {
     pub(super) images: transcript::Thumbnails,
     /// Detection, installs, and checks off the window's thread.
     pub(super) jobs: Jobs,
-    /// The setup sheet, while it shows.
-    pub(super) setup: Option<setup::SetupSheet>,
+    /// The setup flow, while it shows.
+    pub(super) setup: Option<setup::SetupFlow>,
     /// The assistant settings' text fields and lists.
     pub(super) settings: settings::SettingsState,
 }
@@ -249,7 +251,8 @@ impl ChatsPane {
         matches!(self.source, Source::Live)
     }
 
-    /// An event as the service reports it, for the next poll.
+    /// An event as the service reports it, for the next poll (tests).
+    #[cfg(test)]
     pub(super) fn deliver(&self, event: Event) {
         if let Ok(mut inbox) = self.inbox.lock() {
             inbox.push(event);
@@ -540,11 +543,9 @@ pub(super) fn show(ui: &mut Ui, conversation: Option<ConversationId>, tx: &mut T
     }
 }
 
-/// Opens the setup sheet, and runs its checks.
+/// Opens the assistant's onboarding, and starts its checks.
 pub(super) fn open_setup(ui: &mut Ui) {
-    let sheet = setup::SetupSheet::new();
-    ui.chats.setup = Some(sheet);
-    setup::start(ui);
+    setup::open(ui);
 }
 
 /// Runs before every frame: takes in the service's events, reads the list
@@ -625,7 +626,7 @@ pub(super) fn pane(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> (Vec<El>, El) {
 
 /// The header's `Chats | Settings` switch, beside the title.
 pub(super) fn view_switch(ui: &Ui, p: Paint) -> El {
-    let views = [tr("Chats"), tr("Settings")];
+    let views = [tr("Conversations"), tr("Settings")];
     let selected = match ui.chats.view {
         View::Chats => 0,
         View::Settings => 1,
@@ -726,14 +727,4 @@ pub(super) fn age(at_ms: u64, now_ms: u64) -> String {
         _ => ("{}d ago", seconds / 86_400),
     };
     tr_fill(template, &value.to_string())
-}
-
-/// The last user message's text in `conversation`.
-pub(super) fn last_question(conversation: &Conversation) -> Option<String> {
-    conversation
-        .messages
-        .iter()
-        .rev()
-        .find(|message| message.role == Role::User)
-        .map(crate::assistant::Message::text)
 }

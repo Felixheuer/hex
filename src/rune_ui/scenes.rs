@@ -759,7 +759,33 @@ pub(super) const SCENES: &[Scene] = &[
     #[cfg(target_os = "macos")]
     ("mac-chats-settings", |ui| mac_chats(ui, chats::fixture::Scene::Settings)),
     #[cfg(target_os = "macos")]
-    ("mac-assistant-setup", |ui| mac_chats(ui, chats::fixture::Scene::Setup)),
+    ("mac-assistant-setup", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Welcome))
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-agent", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Agent))
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-permissions", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Permissions))
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-desktop", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Desktop))
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-checks", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Checks))
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-shortcut", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Shortcut))
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-try", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Try))
+    }),
     #[cfg(target_os = "macos")]
     ("mac-assistant-setup-done", |ui| {
         mac_chats(ui, chats::fixture::Scene::SetupDone)

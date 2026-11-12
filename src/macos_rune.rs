@@ -501,6 +501,8 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     // Labs › Assistant: the frame, window outlines, task stack, and quick
     // answer; hidden, without windows, until the assistant reports work.
     crate::rune_ui::assistant_overlay::install(&mut app);
+    // Its task stack and "Open in Chats" open the conversation in Chats.
+    crate::rune_ui::assistant_overlay::set_open_chats(|id| open_chat(Some(id.to_owned())));
     // The capture capsule, picker, and ink.
     #[cfg(hex_capture)]
     let capture_overlays =

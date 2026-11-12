@@ -144,9 +144,10 @@ fn task_strip(ui: &Ui, p: Paint) -> Option<El> {
 /// One task: its state, question, and latest step, with Stop.
 fn chip(p: Paint, index: usize, task: &TaskStatus) -> El {
     let c = &p.k.c;
-    let running = task.state == TaskState::Running;
-    let dot = if running {
-        pulsing_dot(p.accent())
+    // The task's own colour, as its cursor, outline, and stack row show it.
+    let colour = super::super::assistant_overlay::task_colour(task.colour, p.k.dark);
+    let dot = if task.state == TaskState::Running {
+        pulsing_dot(colour)
     } else {
         status_dot(p.faint())
     };
@@ -258,11 +259,11 @@ fn item(ui: &Ui, p: Paint, summary: &ConversationSummary, now: u64) -> El {
                     .and_then(|task| task.step.clone())
             })
             .unwrap_or_else(|| tr("Working…").to_owned());
-        (step, Some(p.accent()))
+        (step, None)
     } else if failed {
         (tr("Failed").to_owned(), Some(p.danger()))
     } else {
-        (summary.preview.clone(), None)
+        (plain(&summary.preview), None)
     };
     let id = summary.id.clone();
     let entry = Item {
@@ -280,13 +281,32 @@ fn item(ui: &Ui, p: Paint, summary: &ConversationSummary, now: u64) -> El {
     };
     let select = move |ui: &mut Ui| ui.chats.select(id.clone());
     if running {
+        let colour = pane
+            .tasks
+            .iter()
+            .find(|task| task.conversation == summary.id)
+            .map_or(p.accent(), |task| {
+                super::super::assistant_overlay::task_colour(task.colour, p.k.dark)
+            });
         let mark = el()
             .key("live")
             .size(14.0, 14.0)
             .center()
-            .child(pulsing_dot(p.accent()));
+            .child(pulsing_dot(colour));
         ld::item_with_mark(p, entry, mark, select)
     } else {
         ld::item_with_icon(p, entry, Some(origin_icon(summary.origin)), select)
     }
+}
+
+/// A preview line without its Markdown marks: `**bold**` reads as bold's
+/// words, `# Title` as the title.
+pub(super) fn plain(markdown: &str) -> String {
+    let line = markdown.trim_start_matches(['#', '>', '-', '*', ' ']);
+    line.replace("**", "")
+        .replace("__", "")
+        .replace('`', "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
