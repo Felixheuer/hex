@@ -904,6 +904,16 @@ pub fn listen(
             // sees that way asks when it finishes instead.
             context.intend();
             asker.intend();
+            let capture = if hotkeys.action_recording() {
+                crate::assistant::interaction::Capture::Hold
+            } else {
+                crate::assistant::interaction::Capture::Dictation
+            };
+            if crate::assistant::interaction::hushes(capture)
+                && (crate::assistant::speech::speaking() || crate::assistant::reading_aloud())
+            {
+                crate::assistant::interaction::hush();
+            }
             if microphone_policy.release_while_idle {
                 feedback::play(Tone::DictationStart);
             }

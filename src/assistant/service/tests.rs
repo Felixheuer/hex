@@ -623,12 +623,14 @@ fn a_follow_up_naming_a_running_task_steers_it() {
 }
 
 #[test]
-fn the_frame_shows_while_background_work_runs_with_one_desktop_session() {
+fn the_frame_shows_while_any_task_works_with_one_desktop_session() {
     let world = World::new(1);
     let runner = world.runner();
     let here = runner.submit(request("here", Origin::ActionShortcut));
     world.wait_for("the Here task", started(&here));
-    assert!(world.modes().is_empty());
+    // A Here question working shows the frame too, without a desktop
+    // session of its own.
+    assert_eq!(world.modes(), [true]);
     assert!(!runner.state().background_on);
 
     let first = runner.submit(request("first", Origin::Background));
@@ -652,12 +654,15 @@ fn the_frame_shows_while_background_work_runs_with_one_desktop_session() {
     assert_eq!(world.modes(), [true]);
     world.release("queued");
     world.wait_for("the queued answer", ended(&queued));
-    world.wait_until("the frame to go off", || world.modes() == [true, false]);
-    assert!(!runner.state().background_on);
-    // The Here task still runs, so the session stays until it ends.
+    world.wait_until("the background work to end", || {
+        !runner.state().background_on
+    });
+    // The Here task still runs: the frame and the session stay until it ends.
+    assert_eq!(world.modes(), [true]);
     assert!(!world.logged("end session S1"));
     world.release("here");
     world.wait_for("the Here answer", ended(&here));
+    world.wait_until("the frame to go off", || world.modes() == [true, false]);
     world.wait_until("the session to end", || world.logged("end session S1"));
 
     // The old switch: off stops every task.

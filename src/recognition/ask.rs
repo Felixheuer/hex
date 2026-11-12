@@ -253,7 +253,7 @@ impl Asker {
         for conversation in here_tasks(&crate::assistant::tasks()) {
             crate::assistant::cancel(&conversation);
         }
-        crate::assistant::speech::stop();
+        crate::assistant::interaction::hush();
     }
 
     /// Microphone audio for conversation mode, which hears only its own

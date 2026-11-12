@@ -311,7 +311,7 @@ pub(crate) fn escape() {
     for conversation in here_tasks(&crate::assistant::tasks()) {
         crate::assistant::cancel(&conversation);
     }
-    crate::assistant::speech::stop();
+    crate::assistant::interaction::hush();
 }
 
 /// The Stop all tasks shortcut: every task and the speech stop.
