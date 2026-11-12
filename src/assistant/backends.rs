@@ -15,7 +15,7 @@ mod check;
 mod desktop;
 #[cfg(debug_assertions)]
 pub mod doctor;
-mod run;
+pub(in crate::assistant) mod run;
 mod search;
 
 use std::path::{Path, PathBuf};
