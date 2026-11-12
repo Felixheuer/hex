@@ -137,4 +137,9 @@ if [ -n "$install" ]; then
   /usr/bin/open "$installed"
   echo "Installed $installed: it now updates itself from ai.sms-pilot.de." >&2
 fi
+# The built bundle in target/app is a second copy of Hex with the same
+# bundle id: the zip and DMG carry it, so it goes, and LaunchServices
+# forgets it (the permission doctor would otherwise report it).
+rm -rf "$bundle"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$bundle" 2> /dev/null || true
 echo "Pilot $version for macOS: $dmg" >&2
