@@ -88,3 +88,26 @@ impl HotkeyBinding {
         }
     }
 }
+
+/// The assistant's settings as last applied, and whether its Lab is on, for
+/// the task runner's threads; `None` until settings are applied (a `hex`
+/// command that never loads them reads the file instead).
+pub fn assistant_runtime() -> Option<(bool, AssistantSettings)> {
+    ASSISTANT_RUNTIME
+        .get_or_init(Default::default)
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone()
+}
+
+pub(super) fn apply_assistant(settings: &AppSettings) {
+    *ASSISTANT_RUNTIME
+        .get_or_init(Default::default)
+        .write()
+        .unwrap_or_else(|error| error.into_inner()) = Some((
+        crate::labs::Feature::Assistant.on(settings),
+        settings.assistant.clone(),
+    ));
+}
+
+static ASSISTANT_RUNTIME: OnceLock<RwLock<Option<(bool, AssistantSettings)>>> = OnceLock::new();
