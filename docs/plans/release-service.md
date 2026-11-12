@@ -1,5 +1,10 @@
 # Hex on the Anomaly release service
 
+> **Fork note (Pilot):** this fork hosts the same protocol itself at
+> `https://ai.sms-pilot.de/release` (`scripts/pilot-publish.sh`), with every
+> target signed by the fork's ed25519 key as `<target>-sig` on all OSes; see
+> [`docs/pilot-release.md`](../pilot-release.md). The names below are upstream's.
+
 Contract between Hex's release workflow (publishing) and Hex's in-app updater
 (client). The service and its rules are `anomalyco/release`
 (`docs/protocol.md`, `docs/publishing.md`); this file pins Hex's names.

@@ -51,7 +51,8 @@ if [ -z "$version" ]; then
 fi
 echo "Pilot $version (Linux, $channel channel) from $(git -C "$root" rev-parse --short HEAD)" >&2
 
-dist=$(mktemp -d "${TMPDIR:-/tmp}/pilot-linux-$version.XXXXXX")
+mkdir -p "$pilot_root/incoming"
+dist=$(mktemp -d "$pilot_root/incoming/linux-$version.XXXXXX")
 restore() {
   git -C "$root" checkout -- Cargo.toml Cargo.lock 2>/dev/null || true
 }
