@@ -208,6 +208,13 @@ fn ask(ask: Ask) -> Result<bool> {
             Event::Resumed { .. } => println!("[resumed]"),
             Event::Waiting { reason, .. } => println!("[waiting] {reason}"),
             Event::HandsOff { on, .. } => println!("[hands off] {on}"),
+            Event::Plan { steps, .. } => {
+                for step in steps {
+                    println!("[plan] {} {}", if step.done { "✓" } else { "·" }, step.title);
+                }
+            }
+            Event::Question { text, .. } => println!("[question] {text}"),
+            Event::Escalated { .. } => println!("[escalated] continues in the background"),
             Event::Queued { .. } => println!("[queued]"),
             Event::Started { origin, .. } => println!("[started] {origin:?}"),
             Event::Thinking { .. } => println!("[thinking]"),
