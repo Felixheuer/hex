@@ -68,30 +68,26 @@ pub fn opener(os: Os) -> Option<(&'static str, &'static [&'static str])> {
 /// would. Returns once it is handed over.
 pub fn open(target: impl AsRef<OsStr>) -> std::io::Result<()> {
     let target = target.as_ref();
-    #[cfg(windows)]
-    {
-        windows_open(target)
-    }
-    #[cfg(not(windows))]
-    {
-        let Some((program, args)) = opener(Os::HERE) else {
-            return Err(std::io::Error::other("no opener on this OS"));
-        };
-        let status = crate::desktop::background_process::command(program)
-            .args(args)
-            .arg(target)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(std::io::Error::other(format!(
-                "`{program}` couldn't open {}",
-                target.to_string_lossy()
-            )))
-        }
+    let Some((program, args)) = opener(Os::HERE) else {
+        #[cfg(windows)]
+        return windows_open(target);
+        #[cfg(not(windows))]
+        return Err(std::io::Error::other("no opener on this OS"));
+    };
+    let status = crate::desktop::background_process::command(program)
+        .args(args)
+        .arg(target)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!(
+            "`{program}` couldn't open {}",
+            target.to_string_lossy()
+        )))
     }
 }
 

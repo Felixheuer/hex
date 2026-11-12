@@ -56,6 +56,10 @@ pub fn plausible(key: &str) -> bool {
 }
 
 /// "couldn't open the Keychain: …" for this OS.
+#[cfg_attr(
+    not(any(target_os = "macos", test)),
+    expect(dead_code, reason = "only the Keychain is reached through a program")
+)]
 pub(super) fn unreachable(os: Os, error: impl std::fmt::Display) -> color_eyre::Report {
     eyre!("couldn't open the {}: {error}", store_name(os))
 }
