@@ -137,6 +137,9 @@ pub enum SchedulesCommand {
     Watch {
         #[arg(long, default_value_t = 2.0)]
         minutes: f64,
+        /// Don't let the runs use apps (no agent-desktop).
+        #[arg(long)]
+        no_desktop: bool,
     },
 }
 
@@ -495,8 +498,14 @@ fn schedules(command: Option<SchedulesCommand>) -> Result<bool> {
         SchedulesCommand::Remove { id } => Ok(schedules::remove(&id)),
         SchedulesCommand::Enable { id } => Ok(schedules::set_enabled(&id, true)),
         SchedulesCommand::Disable { id } => Ok(schedules::set_enabled(&id, false)),
-        SchedulesCommand::Watch { minutes } => {
+        SchedulesCommand::Watch {
+            minutes,
+            no_desktop,
+        } => {
             service::allow_without_lab();
+            if no_desktop {
+                service::adjust_settings(|settings| settings.control_desktop = false);
+            }
             let (sender, events) = mpsc::channel();
             service::subscribe(Box::new(move |event| {
                 let _ = sender.send(event.clone());
