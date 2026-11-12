@@ -11,6 +11,7 @@
 //! or kept for History.
 
 mod latin;
+mod spoken_stop;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -249,6 +250,13 @@ impl Question {
                 else {
                     return;
                 };
+                // "Stopp" ends the speech (and the Here task), asking
+                // nothing; "Stopp alle Aufgaben" stops every task.
+                match spoken_stop::spoken_stop(&text) {
+                    Some(spoken_stop::SpokenStop::Quiet) => return escape(),
+                    Some(spoken_stop::SpokenStop::All) => return stop_all(),
+                    None => {}
+                }
                 if let Some(request) = self.request(&text, focus) {
                     submit(request);
                 }
