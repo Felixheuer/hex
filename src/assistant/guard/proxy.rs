@@ -33,6 +33,8 @@ pub struct Config {
     pub autonomy: crate::assistant::autonomy::Autonomy,
     /// A Background task may claim the window in front of the person.
     pub front_window: bool,
+    /// Reads only (a job's check): every action is refused.
+    pub observe_only: bool,
 }
 
 /// Where a snapshot's refs point.
@@ -88,7 +90,7 @@ pub const RESUMED: &str = "The person used this window while this task was pause
 snapshot before acting. (The action you asked for was not sent.)";
 
 pub struct Guard<D: Desktop> {
-    config: Config,
+    pub(super) config: Config,
     store: Store,
     pid: u32,
     desktop: D,
@@ -273,6 +275,18 @@ impl<D: Desktop> Guard<D> {
         }
         if self.config.lane == Lane::Here {
             self.ensure_here();
+        }
+        if self.config.observe_only
+            && !matches!(
+                kind,
+                Kind::Free | Kind::Observe | Kind::InstalledApps | Kind::Displays
+            )
+        {
+            return Err(refusal(
+                tool,
+                "POLICY_DENIED",
+                "This is a check: look and read only, change nothing.",
+            ));
         }
         match kind {
             Kind::Refused(why) => return Err(refusal(tool, "POLICY_DENIED", why)),

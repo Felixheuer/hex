@@ -377,6 +377,20 @@ fn check(
     checker.image = None;
     checker.keep_warm = None;
     checker.history = Vec::new();
+    // The check only looks: its desktop reads but never acts, its browsers
+    // never send, post, or pay, its shell is sandboxed without the network
+    // even in Yolo, and it has none of Hex's own tools (no helpers).
+    checker.unrestricted = false;
+    checker.tools = None;
+    if let Some(desktop) = checker.desktop.as_mut() {
+        desktop.server = crate::assistant::guard::observe_only(&desktop.server);
+    }
+    if let Some(browser) = checker.browser.as_mut()
+        && browser.args.first().map(String::as_str) == Some("assistant")
+        && !browser.args.iter().any(|arg| arg == "--observe")
+    {
+        browser.args.push("--observe".into());
+    }
     checker.prompt = goal::check_prompt(&job.request.text, answer);
     let check_key = format!("{key}.check");
     let mut seen = Seen {

@@ -31,15 +31,26 @@ signedIn: true, which starts real Chrome with the sites the person signed in to 
 
 /// Serves `task`'s browser tool on stdin and stdout until the agent closes
 /// it.
-pub fn serve(task: &str) -> Result<()> {
+///
+/// `observe`: a job's check, which must change nothing. Its consequential
+/// actions are refused whatever the autonomy mode (Ask with nothing
+/// authorized), Yolo included.
+pub fn serve(task: &str, observe: bool) -> Result<()> {
     let path = super::executable().ok_or_else(|| eyre!("agent-browser isn't installed"))?;
     let mut command = super::command(&path, &super::session(task));
     command.arg("mcp");
     let task_id = task.to_owned();
-    let consent = Consent::new(
-        Box::new(super::PageProbe { path: path.clone() }),
-        super::policy(task),
-    );
+    let policy = if observe {
+        Box::new(|| {
+            (
+                crate::assistant::autonomy::Autonomy::Ask,
+                crate::assistant::autonomy::Authorized::default(),
+            )
+        }) as super::consent::Policy
+    } else {
+        super::policy(task)
+    };
+    let consent = Consent::new(Box::new(super::PageProbe { path: path.clone() }), policy);
     relay(
         command,
         Sessions::new(task, super::clean_engine()).with_accounts(super::accounts_by_default()),

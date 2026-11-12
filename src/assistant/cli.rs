@@ -112,6 +112,9 @@ pub enum AssistantCommand {
     BrowserMcp {
         #[arg(long)]
         task: String,
+        /// A job's check: no consequential action, whatever the mode.
+        #[arg(long)]
+        observe: bool,
     },
     /// Closes every hidden browser a task opened.
     #[command(hide = true)]
@@ -253,7 +256,9 @@ pub fn run(command: AssistantCommand) -> u8 {
         AssistantCommand::Show { id } => show(&id).map(|()| true),
         AssistantCommand::Key => key().map(|()| true),
         AssistantCommand::Mcp { spec } => super::guard::serve(&spec).map(|()| true),
-        AssistantCommand::BrowserMcp { task } => super::browser::serve(&task).map(|()| true),
+        AssistantCommand::BrowserMcp { task, observe } => {
+            super::browser::serve(&task, observe).map(|()| true)
+        }
         AssistantCommand::BrowserClose { task } => {
             super::browser::close(&task);
             Ok(true)
