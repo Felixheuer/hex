@@ -412,6 +412,13 @@ fn apply(member: &mut Member, event: &Event) {
 /// What a lead learns in its rules: when and how to use helpers.
 pub const RULES: &str = "\nA team for big jobs: when the work splits into parts that can run beside each other (many sites or suppliers to research, several deliverables, a build beside a comparison), start helpers with hex_team_start: each is a full background job with its own browsers, apps, and folder inside yours, and asks the person on its own what it must know. Give each a self-contained task (every detail it needs, and which files to write in its folder), at most 12 at once. A step that needs their results (a sheet of everything they found, a message with the final link) comes after them: do it yourself once they're done, or start a helper for it then, naming the files to use. While they work, do your own part, or call hex_team_status with wait_seconds (up to 240) to wait for the next to finish; never poll it quickly. Read their answers and files, check them, and finish with one answer for all of it. Small jobs need no team.\n";
 
+/// What a helper learns in its rules: it does one part of its lead's job.
+pub fn helper_rules(lead: &str) -> String {
+    format!(
+        "\nYou are a helper: the job “{lead}” gave you one part of it and combines what its helpers make. Do only your part, fully. Put your results as files in your folder (the lead reads it), and end with a short summary naming each file and any links. Don't start helpers of your own. Ask the person only what you can't find out and your lead couldn't have told you.\n"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -554,6 +561,13 @@ mod tests {
         );
         assert!(done.contains("Every helper has ended"), "{done}");
         assert!(report(&[]).contains("no helpers"));
+    }
+
+    #[test]
+    fn a_helper_knows_its_lead_and_its_part() {
+        let rules = helper_rules("50 Lieferanten vergleichen");
+        assert!(rules.contains("\u{201c}50 Lieferanten vergleichen\u{201d}"));
+        assert!(rules.contains("Don't start helpers"));
     }
 
     #[test]

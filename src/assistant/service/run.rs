@@ -136,6 +136,13 @@ impl Runner {
             workspace: workspace.clone(),
             authorized,
             memory,
+            helps: parent.as_ref().and_then(|lead| {
+                self.state()
+                    .tasks
+                    .iter()
+                    .find(|task| &task.status.conversation == lead)
+                    .map(|task| task.status.title.clone())
+            }),
         };
         let mut attempts = 0;
         let outcome = loop {

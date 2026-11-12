@@ -20,6 +20,7 @@ fn job(text: &str, origin: Origin, context: Context) -> Job {
         workspace: None,
         authorized: Default::default(),
         memory: None,
+        helps: None,
     }
 }
 

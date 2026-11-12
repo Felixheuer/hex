@@ -55,6 +55,8 @@ pub struct Job {
     pub authorized: crate::assistant::autonomy::Authorized,
     /// The person's memory note, when memory is on.
     pub memory: Option<String>,
+    /// The job this one helps (`agent::team`): its lead's title.
+    pub helps: Option<String>,
 }
 
 /// Why this run of a conversation happens.
@@ -768,6 +770,9 @@ pub fn prepare(
         )),
         None if origin != Origin::Background => system.push_str(ROUTING),
         None => {}
+    }
+    if let Some(lead) = &job.helps {
+        system.push_str(&team::helper_rules(lead));
     }
     system.push_str(&autonomy_rules(settings.autonomy, &job.authorized));
     // A background job reads pages and files the person never saw, with
