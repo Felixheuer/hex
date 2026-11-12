@@ -46,6 +46,13 @@ pub enum AssistantCommand {
     /// Save the Anthropic API key read from standard input in the Keychain
     /// (an empty input deletes it).
     Key,
+    /// A task's hidden browser as an MCP server on stdio (agent-browser's
+    /// own, pinned to the task's session). Started by the task's agent.
+    #[command(hide = true)]
+    BrowserMcp {
+        #[arg(long)]
+        task: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -109,6 +116,7 @@ pub fn run(command: AssistantCommand) -> u8 {
         }
         AssistantCommand::Show { id } => show(&id).map(|()| true),
         AssistantCommand::Key => key().map(|()| true),
+        AssistantCommand::BrowserMcp { task } => super::browser::serve(&task).map(|()| true),
     };
     match result {
         Ok(true) => 0,

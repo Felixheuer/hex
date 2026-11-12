@@ -139,7 +139,8 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             backends::apply_fix(fix).map_err(|error| format!("{error:#}")),
         )),
         Job::SelfTests(settings) => {
-            let checks = backends::Check::for_backend(settings.backend);
+            let checks =
+                backends::Check::for_backend(settings.backend, settings.background_browser);
             backends::self_tests(&checks, &settings, |result| {
                 send(Done::Check(result.clone()))
             });

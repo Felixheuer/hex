@@ -12,11 +12,11 @@
 //! OWNER: hands.
 
 mod check;
-mod desktop;
+pub(in crate::assistant) mod desktop;
 #[cfg(debug_assertions)]
 pub mod doctor;
 pub(in crate::assistant) mod run;
-mod search;
+pub(in crate::assistant) mod search;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -162,7 +162,7 @@ fn opencode_running() -> bool {
 }
 
 /// The version `path --version` prints, or why it didn't run.
-fn version_of(path: &Path) -> std::result::Result<Option<String>, String> {
+pub(in crate::assistant) fn version_of(path: &Path) -> std::result::Result<Option<String>, String> {
     let mut command = agent_command(path);
     command.arg("--version");
     let ran = run::bounded(command, QUICK).map_err(|error| error.to_string())?;
@@ -327,7 +327,10 @@ fn agent_desktop_grants(path: &Path) -> std::result::Result<desktop::Grants, Str
 }
 
 /// Runs one read-only agent-desktop command from Hex and reads its reply.
-fn desktop_call(path: &Path, args: &[&str]) -> std::result::Result<desktop::Reply, String> {
+pub(in crate::assistant) fn desktop_call(
+    path: &Path,
+    args: &[&str],
+) -> std::result::Result<desktop::Reply, String> {
     let mut command = agent_command(path);
     command.args(args);
     let ran = run::bounded(command, Duration::from_secs(15)).map_err(|error| error.to_string())?;
@@ -440,24 +443,36 @@ pub fn mcp_server(args: &[&str]) -> Option<McpServer> {
 impl McpServer {
     /// For `claude --mcp-config <this> --strict-mcp-config`.
     pub fn claude_config(&self) -> String {
+        self.claude_config_as(MCP_NAME)
+    }
+
+    /// [`Self::claude_config`] with the server under `name` (another
+    /// server, such as `browser::MCP_NAME`).
+    pub fn claude_config_as(&self, name: &str) -> String {
+        serde_json::json!({ "mcpServers": { name: self.claude_entry() } }).to_string()
+    }
+
+    /// The server's entry in a Claude Code `mcpServers` map, for a config
+    /// with several servers.
+    pub fn claude_entry(&self) -> serde_json::Value {
         serde_json::json!({
-            "mcpServers": {
-                MCP_NAME: {
-                    "type": "stdio",
-                    "command": self.command,
-                    "args": self.args,
-                    "env": { "PATH": self.path_env },
-                }
-            }
+            "type": "stdio",
+            "command": self.command,
+            "args": self.args,
+            "env": { "PATH": self.path_env },
         })
-        .to_string()
     }
 
     /// `-c` overrides for `codex exec` that add the server, with only
     /// `tools` enabled (all when empty), approved without asking: `codex
     /// exec` can't ask.
     pub fn codex_args(&self, tools: &[&str]) -> Vec<String> {
-        let key = format!("mcp_servers.{MCP_NAME}");
+        self.codex_args_as(MCP_NAME, tools)
+    }
+
+    /// [`Self::codex_args`] with the server under `name`.
+    pub fn codex_args_as(&self, name: &str, tools: &[&str]) -> Vec<String> {
+        let key = format!("mcp_servers.{name}");
         let toml = |value: serde_json::Value| value.to_string();
         let mut args = vec![
             format!(
@@ -482,10 +497,15 @@ impl McpServer {
     /// The `mcp` entry of an OpenCode config (`OPENCODE_CONFIG_CONTENT` for
     /// `opencode run --standalone`).
     pub fn opencode_config(&self) -> serde_json::Value {
+        self.opencode_config_as(MCP_NAME)
+    }
+
+    /// [`Self::opencode_config`] with the server under `name`.
+    pub fn opencode_config_as(&self, name: &str) -> serde_json::Value {
         let mut command = vec![self.command.to_string_lossy().into_owned()];
         command.extend(self.args.iter().cloned());
         serde_json::json!({
-            MCP_NAME: {
+            name: {
                 "type": "local",
                 "command": command,
                 "environment": { "PATH": self.path_env },
