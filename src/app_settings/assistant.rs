@@ -140,7 +140,7 @@ impl Default for AssistantSettings {
             physical_input: false,
             include_screenshot: true,
             follow_up_seconds: 120,
-            max_parallel: 8,
+            max_parallel: crate::assistant::capacity::recommended_parallel(),
             setup_done: false,
             stop_all_hotkey: Some(HotkeyBinding::stop_all_default()),
             here_physical_input: true,

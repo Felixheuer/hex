@@ -31,20 +31,26 @@ pub(super) static LABS_ICON: Icon = Icon {
 };
 
 /// The main sidebar's panes, in order: General, Output, History, then
-/// Chats (macOS) and the features turned on (Meetings and Voice Filter from
+/// Chats and Assistant (macOS) and the features turned on (Meetings and Voice Filter from
 /// Labs, Annotate in dev builds).
 pub(super) fn main_panes(ui: &Ui) -> Vec<Pane> {
     let mut panes = vec![Pane::General, Pane::Output, Pane::History];
     #[cfg(hex_capture)]
     let optional = [
         Pane::Chats,
+        Pane::Assistant,
         Pane::Captures,
         Pane::Meetings,
         Pane::Annotate,
         Pane::VoiceFilter,
     ];
     #[cfg(not(hex_capture))]
-    let optional = [Pane::Chats, Pane::Meetings, Pane::VoiceFilter];
+    let optional = [
+        Pane::Chats,
+        Pane::Assistant,
+        Pane::Meetings,
+        Pane::VoiceFilter,
+    ];
     panes.extend(optional.into_iter().filter(|pane| pane.shown(ui)));
     panes
 }

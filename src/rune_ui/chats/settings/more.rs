@@ -82,21 +82,6 @@ pub(in crate::rune_ui) fn autonomy_choice(ui: &Ui, p: Paint) -> El {
         )
 }
 
-pub(in crate::rune_ui) fn autonomy_section(ui: &Ui, p: Paint) -> El {
-    section(
-        p,
-        "assistant-autonomy",
-        tr("How freely it acts"),
-        vec![
-            row()
-                .key("autonomy-row")
-                .px(16.0)
-                .py(12.0)
-                .child(autonomy_choice(ui, p).grow(1.0)),
-        ],
-    )
-}
-
 /// A voice's name without its quality, and the quality as a word.
 fn voice_label(name: &str) -> String {
     if let Some(preset) = crate::assistant::speech::neural::preset(name) {
@@ -217,44 +202,6 @@ pub(super) fn hex_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
             tr("Hex voice"),
             Some((description, color)),
             control,
-        )
-        .into(),
-    )
-}
-
-/// "Get a better voice", when none installed sounds natural.
-pub(super) fn better_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
-    // Linux's voices are packages (Piper, Pico, eSpeak), with no page to
-    // download one from.
-    if !crate::assistant::speech::has_voice_settings() {
-        return None;
-    }
-    let installed = ui.chats.settings.voices.as_ref()?;
-    voices::better_voice_available(installed)?;
-    Some(
-        described_row(
-            p,
-            "assistant-better-voice",
-            tr("Get a better voice"),
-            Some((
-                if cfg!(target_os = "macos") {
-                    tr("Premium voices sound far more natural. Download one in System Settings")
-                } else {
-                    tr("More natural voices are in Settings › Time & language › Speech")
-                }
-                .to_owned(),
-                p.muted(),
-            )),
-            small_button(
-                p,
-                "get-better-voice",
-                tr("Open Settings…"),
-                |ui: &mut Ui, _| {
-                    if ui.chats.live() {
-                        voices::open_voice_settings();
-                    }
-                },
-            ),
         )
         .into(),
     )

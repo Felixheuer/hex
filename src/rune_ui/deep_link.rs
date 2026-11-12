@@ -46,11 +46,12 @@ impl LabsLink {
 }
 
 /// The main panes a `hex://settings/<pane>` link names.
-const PANES: [(&str, Pane); 6] = [
+const PANES: [(&str, Pane); 7] = [
     ("general", Pane::General),
     ("output", Pane::Output),
     ("history", Pane::History),
     ("chats", Pane::Chats),
+    ("assistant", Pane::Assistant),
     ("meetings", Pane::Meetings),
     ("voice-filter", Pane::VoiceFilter),
 ];

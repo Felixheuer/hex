@@ -1,8 +1,9 @@
-//! Chats › Settings: the agent that answers and its model, the Claude API
-//! key, reading answers aloud, how far tasks may act on the desktop (real
-//! input in the window in front, the hidden browser, blocked apps), the
-//! follow-up window, how many tasks run at once and for how long, and Stop
-//! all's shortcut (`lanes`).
+//! The Assistant pane (the main window's sidebar): the agent that answers
+//! and its model, how freely it acts and how long and how many jobs run,
+//! apps and windows (real input, the window in front, blocked apps,
+//! displays), the web, its voice (one picker: the system voices and Hex's
+//! own), notifications, and what it remembers. The Action and Stop all
+//! shortcuts live in General.
 
 mod lanes;
 pub(super) mod more;
@@ -23,8 +24,9 @@ use crate::desktop::i18n::{tr, tr_fill};
 
 /// Follow-up windows offered, in seconds; 0 always starts a new conversation.
 const FOLLOW_UP: [u32; 6] = [0, 10, 20, 30, 60, 120];
-/// Parallel task limits offered.
-const PARALLEL: [u32; 12] = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64];
+/// Parallel task limits offered (the saved one and this Mac's
+/// recommendation join them).
+const PARALLEL: [u32; 12] = [1, 2, 4, 6, 8, 12, 16, 20, 24, 32, 40, 50];
 /// How long typing in a model field pauses before it's saved.
 const SAVE_AFTER: f64 = super::MODEL_SAVE_DELAY.as_secs_f64();
 
@@ -166,26 +168,71 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         )
         .into(),
     ];
-    let mut voice: Vec<CardRow> = vec![
+    // How freely it acts, how long and how many jobs run, and keeping the
+    // Mac awake for them.
+    let mut works: Vec<CardRow> = vec![
+        rune::row()
+            .key("autonomy-row")
+            .px(16.0)
+            .py(12.0)
+            .child(more::autonomy_choice(ui, p).grow(1.0))
+            .into(),
+    ];
+    works.extend(
+        lanes::task_rows(ui, p, layer)
+            .into_iter()
+            .map(CardRow::from),
+    );
+    works.push(
+        setting_row(
+            p,
+            "assistant-parallel",
+            tr("Tasks at once"),
+            Some(parallel_note(assistant.max_parallel)),
+            parallel_select(ui, p, layer),
+        )
+        .into(),
+    );
+    works.push(
+        setting_row(
+            p,
+            "assistant-follow-up",
+            tr("Follow-up window"),
+            Some(tr(
+                "A question this soon after an answer continues that chat",
+            )),
+            follow_up_select(ui, p, layer),
+        )
+        .into(),
+    );
+    works.push(
         toggle_row(
             p,
-            "assistant-speak",
-            tr("Read answers aloud"),
-            tr("Quick questions answer out loud as well as in the HUD"),
-            assistant.speak_answers,
+            "assistant-keep-awake",
+            tr("Keep the Mac awake while tasks run"),
+            tr("Background tasks can run for hours or days. The display may sleep, but closing a laptop's lid on battery still sleeps it"),
+            assistant.keep_awake,
             |ui: &mut Ui| {
-                ui.update(|settings| settings.assistant.speak_answers ^= true);
+                ui.update(|settings| settings.assistant.keep_awake ^= true);
             },
         )
         .into(),
-    ];
-    if assistant.speak_answers {
-        voice.push(more::voice_row(ui, p, layer).into());
-        voice.extend(more::hex_voice_row(ui, p));
-        voice.extend(more::better_voice_row(ui, p));
+    );
+    if assistant.keep_awake {
+        works.push(
+            toggle_row(
+                p,
+                "assistant-keep-display-awake",
+                tr("Keep the display awake too"),
+                tr("The screen stays on while tasks run, so you can watch them"),
+                assistant.keep_display_awake,
+                |ui: &mut Ui| {
+                    ui.update(|settings| settings.assistant.keep_display_awake ^= true);
+                },
+            )
+            .into(),
+        );
     }
-    voice.extend(more::conversation_rows(ui, p, layer));
-    voice.push(more::notifications_row(ui, p));
     let physical = if assistant.physical_input {
         Some((
             tr("Tasks move your pointer and type with your keyboard. Don't use them while a task runs").to_owned(),
@@ -233,35 +280,6 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
     desktop.push(
         toggle_row(
             p,
-            "assistant-keep-awake",
-            tr("Keep the Mac awake while tasks run"),
-            tr("Background tasks can run for hours or days. The display may sleep, but closing a laptop's lid on battery still sleeps it"),
-            assistant.keep_awake,
-            |ui: &mut Ui| {
-                ui.update(|settings| settings.assistant.keep_awake ^= true);
-            },
-        )
-        .into(),
-    );
-    if assistant.keep_awake {
-        desktop.push(
-            toggle_row(
-                p,
-                "assistant-keep-display-awake",
-                tr("Keep the display awake too"),
-                tr("The screen stays on while tasks run, so you can watch them"),
-                assistant.keep_display_awake,
-                |ui: &mut Ui| {
-                    ui.update(|settings| settings.assistant.keep_display_awake ^= true);
-                },
-            )
-            .into(),
-        );
-    }
-    desktop.push(super::displays::settings_row(ui, p, layer).into());
-    desktop.push(
-        toggle_row(
-            p,
             "assistant-screenshot",
             tr("Send a screenshot"),
             tr("A quick question includes the screen the pointer is on"),
@@ -272,36 +290,41 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         )
         .into(),
     );
-    let mut tasks = vec![
-        lanes::stop_all_row(ui, p),
-        setting_row(
+    desktop.push(super::displays::settings_row(ui, p, layer).into());
+    // One voice picker: the system voices and Hex's own, with its download.
+    let mut voice: Vec<CardRow> = vec![
+        toggle_row(
             p,
-            "assistant-follow-up",
-            tr("Follow-up window"),
-            Some(tr(
-                "A question this soon after an answer continues that chat",
-            )),
-            follow_up_select(ui, p, layer),
-        ),
-        setting_row(
-            p,
-            "assistant-parallel",
-            tr("Tasks at once"),
-            Some(tr("More wait their turn")),
-            parallel_select(ui, p, layer),
-        ),
+            "assistant-speak",
+            tr("Read answers aloud"),
+            tr("Quick questions answer out loud as well as in the HUD"),
+            assistant.speak_answers,
+            |ui: &mut Ui| {
+                ui.update(|settings| settings.assistant.speak_answers ^= true);
+            },
+        )
+        .into(),
     ];
-    tasks.extend(lanes::task_rows(ui, p, layer));
+    if assistant.speak_answers {
+        voice.push(more::voice_row(ui, p, layer).into());
+        voice.extend(more::hex_voice_row(ui, p));
+    }
+    voice.extend(more::conversation_rows(ui, p, layer));
     vec![
         super::switch::settings_card(ui, p),
-        section(p, "assistant-agent", tr("Agent"), agent),
-        more::autonomy_section(ui, p),
-        section(p, "assistant-voice-section", tr("Answers"), voice),
-        section(p, "assistant-tasks", tr("Tasks"), tasks),
-        more::memory_section(ui, p),
-        section(p, "assistant-desktop", tr("Desktop"), desktop),
-        lanes::web_section(ui, p),
+        section(p, "assistant-agent", tr("Agent & model"), agent),
+        section(p, "assistant-tasks", tr("How it works"), works),
+        section(p, "assistant-desktop", tr("Apps & windows"), desktop),
         lanes::blocked_section(ui, p, layer),
+        lanes::web_section(ui, p),
+        section(p, "assistant-voice-section", tr("Voice"), voice),
+        section(
+            p,
+            "assistant-notifications",
+            tr("Notifications"),
+            vec![more::notifications_row(ui, p)],
+        ),
+        more::memory_section(ui, p),
         lanes::experimental_section(ui, p),
     ]
 }
@@ -371,16 +394,49 @@ fn follow_up_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     )
 }
 
+/// "More wait their turn", and a warning above this Mac's recommendation.
+fn parallel_note(saved: u32) -> &'static str {
+    if saved > crate::assistant::capacity::recommended_parallel() {
+        tr("More wait their turn. Above the recommendation this Mac may get slow")
+    } else {
+        tr("More wait their turn")
+    }
+}
+
+/// The parallel limits offered: the steps, the saved one, and this Mac's
+/// recommendation, each label marking the recommendation.
+fn parallel_choices(saved: u32, recommended: u32) -> (Vec<u32>, usize, Vec<String>) {
+    let (mut values, _) = with_saved(&PARALLEL, saved);
+    if !values.contains(&recommended) {
+        values.push(recommended);
+        values.sort_unstable();
+    }
+    let selected = values.iter().position(|value| *value == saved).unwrap_or(0);
+    let labels = values
+        .iter()
+        .map(|value| {
+            if *value == recommended {
+                tr_fill("{} · Recommended", &value.to_string())
+            } else {
+                value.to_string()
+            }
+        })
+        .collect();
+    (values, selected, labels)
+}
+
 fn parallel_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
-    let saved = ui.settings.assistant.max_parallel.clamp(1, 64);
-    let (values, selected) = with_saved(&PARALLEL, saved);
+    let max = crate::assistant::capacity::MAX_PARALLEL;
+    let saved = ui.settings.assistant.max_parallel.clamp(1, max);
+    let recommended = crate::assistant::capacity::recommended_parallel();
+    let (values, selected, labels) = parallel_choices(saved, recommended);
     quiet_select(
         ui,
         p,
         Menu::Pick("assistant-parallel"),
         "assistant-parallel-control".to_owned(),
         tr("Tasks at once"),
-        values.iter().map(u32::to_string).collect(),
+        labels,
         selected,
         move |ui, chosen| {
             let limit = values[chosen];
@@ -407,9 +463,19 @@ mod tests {
 
     #[test]
     fn a_saved_value_outside_the_choices_stays_choosable() {
-        assert_eq!(with_saved(&PARALLEL, 8), (PARALLEL.to_vec(), 5));
+        assert_eq!(with_saved(&PARALLEL, 8), (PARALLEL.to_vec(), 4));
         let (values, index) = with_saved(&PARALLEL, 5);
         assert_eq!(values[index], 5);
         assert_eq!(values.len(), PARALLEL.len() + 1);
+    }
+
+    #[test]
+    fn the_recommendation_is_offered_and_marked() {
+        let (values, selected, labels) = parallel_choices(32, 10);
+        assert_eq!(values[selected], 32, "the saved limit stays chosen");
+        let at = values.iter().position(|value| *value == 10).unwrap();
+        assert!(labels[at].starts_with("10 ·"), "{}", labels[at]);
+        assert_eq!(values.last(), Some(&50));
+        assert_eq!(labels.iter().filter(|label| label.contains('·')).count(), 1);
     }
 }
