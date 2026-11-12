@@ -182,11 +182,23 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
     let backend = job.settings.backend;
     let key = provider::session_key(backend, job.request.origin.lane());
     let key = key.as_str();
-    let resume = stored.sessions.get(key).cloned();
+    let mut resume = stored.sessions.get(key).cloned();
     let mut run = match prepare(job, &history, resume.clone(), image) {
         Ok(run) => run,
         Err(message) => return finish(store, &mut stored, Vec::new(), Err(message), emit),
     };
+    // A saved session keeps the rules it started with: when Hex's rules
+    // changed (an update), start a new one that is told the conversation.
+    let rules_key = format!("{key}.rules");
+    let rules = rules_fingerprint(&run.system);
+    if resume.is_some() && stored.sessions.get(&rules_key) != Some(&rules) {
+        tracing::info!("the assistant's rules changed; starting a new session");
+        resume = None;
+        stored.sessions.remove(key);
+        run.resume = None;
+        run.prompt = prompt(job, &history, true);
+    }
+    stored.sessions.insert(rules_key, rules);
 
     // A job works until its goal is met (`goal`): its in-between answers
     // aren't streamed, and an independent check decides when it is done.
@@ -366,6 +378,18 @@ fn check(
         tracing::debug!(%error, "couldn't record the job's check");
     }
     verdict
+}
+
+/// A short fingerprint of a system prompt, to tell when a saved session's
+/// rules are out of date. What follows the autonomy section (this request's
+/// permissions, the memory note) changes from request to request without
+/// changing the rules, so only the text before it counts.
+fn rules_fingerprint(system: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let rules = system.split("\nAutonomy (").next().unwrap_or(system);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    rules.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 /// What a backend run reported that the conversation keeps.

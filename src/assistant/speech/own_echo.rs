@@ -62,10 +62,22 @@ fn heard_back_at(
     found as f32 / heard.len() as f32 >= OWN_SHARE
 }
 
+/// Numbers come back spelled out ("1,9" heard as "eins komma neun"), so
+/// they and their words never count either way.
+const NUMBER_WORDS: &[&str] = &[
+    "null", "eins", "ein", "eine", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht",
+    "neun", "zehn", "elf", "zwölf", "zwanzig", "dreißig", "hundert", "tausend", "komma", "punkt",
+    "prozent", "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+    "ten", "hundred", "thousand", "point", "percent",
+];
+
 fn words(text: &str) -> Vec<String> {
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|word| !word.is_empty())
         .map(str::to_lowercase)
+        .filter(|word| {
+            !word.chars().all(|c| c.is_ascii_digit()) && !NUMBER_WORDS.contains(&word.as_str())
+        })
         .collect()
 }
 
@@ -122,6 +134,22 @@ mod tests {
             &spoken,
             now + RECENT + Duration::from_secs(1),
             "Starte den Browser bitte selbst."
+        ));
+    }
+
+    #[test]
+    fn numbers_read_aloud_and_heard_spelled_out_still_match() {
+        let spoken = Mutex::new(VecDeque::new());
+        let now = Instant::now();
+        note_at(
+            &spoken,
+            now,
+            "Hamburg ist mit rund 1,9 Millionen Einwohnern die zweitgrößte Stadt Deutschlands.",
+        );
+        assert!(heard_back_at(
+            &spoken,
+            now + Duration::from_secs(2),
+            "Hamburg ist mit rund eins komma neun Millionen."
         ));
     }
 }

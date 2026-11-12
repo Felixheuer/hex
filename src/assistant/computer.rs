@@ -590,7 +590,9 @@ mod macos {
     }
 
     pub fn quick_context() -> Context {
-        let front = objc2::rc::autoreleasepool(|_| scrawl_capture::capture::frontmost_app_info());
+        // Hex's own window in front (Chats) means the person's window behind it.
+        let front =
+            objc2::rc::autoreleasepool(|_| scrawl_capture::capture::frontmost_external_app_info());
         let (selected_text, window_title) = match &front {
             Some((pid, _, _)) => (
                 crate::accessibility::selected_text(*pid).map(clip_selection),
