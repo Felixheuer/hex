@@ -1679,8 +1679,10 @@ fn the_mac_first_run_asks_each_permission_then_practices() {
         rt.state.tour.as_ref().unwrap().flow.view().practice,
         Practice::Landed
     );
-    // Done leaves the game at any point; Start using Hex closes onboarding.
+    // Done leaves the game at any point; the assistant's setup follows,
+    // then Start using Hex closes onboarding.
     tap(&mut rt, "done");
+    leave_assistant_setup(&mut rt);
     tap(&mut rt, "start-using-hex");
     assert!(rt.state.tour.is_none());
     assert!(rt.state.first_run.is_none());

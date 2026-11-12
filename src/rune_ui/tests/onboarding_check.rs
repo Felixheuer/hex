@@ -59,7 +59,8 @@ const OPTIONAL: &[&str] = &[
 
 /// Skip shows only on the optional pages, the demo and the practice, and
 /// passes over them to the next step setup still needs: permissions, then
-/// the model, else Hex is ready. It never closes onboarding.
+/// the model, else the assistant's setup and Hex is ready. It never closes
+/// onboarding.
 #[test]
 fn onboarding_skip() {
     for scene in SCENES {
@@ -94,7 +95,18 @@ fn onboarding_skip() {
     let mut rt = runtime("onboarding-demo", true, PANE_SIZE);
     skip(&mut rt, "onboarding-demo", Page::Waiting);
 
-    // Nothing left to set up: the demo and the practice skip to Hex is ready.
+    // Nothing left to set up: the demo and the practice skip to the end of
+    // the voice first run, where the assistant's setup opens over the page
+    // Skip left; once it's left, Hex is ready.
+    let to_ready = |rt: &mut Runtime<Ui>, scene: &str, from: Page| {
+        tap(rt, "skip");
+        settle(rt);
+        assert_eq!(page(rt), Some(from), "{scene}: held for the assistant");
+        leave_assistant_setup(rt);
+        assert_eq!(page(rt), Some(Page::Ready), "{scene}: then Hex is ready");
+        assert!(rt.state.tour.is_some(), "{scene}: onboarding stays open");
+        assert!(rt.find("skip").is_none(), "{scene}: no Skip on Ready");
+    };
     let mut rt = runtime("onboarding-demo", true, PANE_SIZE);
     rt.update(|ui, tx| {
         ui.picker.installed = Some(vec![ui.settings.transcription.model]);
@@ -103,10 +115,10 @@ fn onboarding_skip() {
         }
         super::super::onboarding_kit::live::poll(ui, tx);
     });
-    skip(&mut rt, "onboarding-demo, model ready", Page::Ready);
+    to_ready(&mut rt, "onboarding-demo, model ready", Page::Demo);
     for scene in ["onboarding-try", "mac-onboarding-try"] {
         let mut rt = runtime(scene, true, PANE_SIZE);
-        skip(&mut rt, scene, Page::Ready);
+        to_ready(&mut rt, scene, Page::Try);
     }
 }
 
@@ -279,7 +291,8 @@ fn onboarding_goldens() {
 /// `HEX_APPLICATION_SUPPORT_DIR` names (no settings, no models, an empty
 /// Hugging Face cache): the real settings load, the real decision to open
 /// onboarding, the real download and verification of the model it picks,
-/// and every page to Hex is ready. Downloads the recommended model, so only
+/// and every page to Hex is ready, the assistant's setup left for later on
+/// the way. Downloads the recommended model, so only
 /// scripts/check-onboarding.sh runs it. The window here is a fixture, not
 /// connected to a service: the test does the service's download itself,
 /// plays the story on its own clock, and nothing writes the completion
@@ -364,7 +377,7 @@ fn onboarding_walkthrough() {
     rt.state.picker.installed = Some(vec![model]);
 
     // The story plays on: the demo, then the practice game ("With Hex")
-    // once the model is ready, then Hex is ready.
+    // once the model is ready, the assistant's setup, then Hex is ready.
     settle(&mut rt);
     rt.update(|ui, _| super::super::onboarding_kit::live::fixture_resume(ui, Page::Try));
     settle(&mut rt);
@@ -372,6 +385,7 @@ fn onboarding_walkthrough() {
     assert!(texts(&rt).contains(&"With Hex".to_owned()));
     assert!(rt.find("skip").is_some(), "Skip shows on the practice too");
     tap(&mut rt, "done");
+    leave_assistant_setup(&mut rt);
     assert!(texts(&rt).contains(&"Hex is ready".to_owned()));
     tap(&mut rt, "start-using-hex");
     assert!(rt.state.tour.is_none(), "Start using Hex closes onboarding");

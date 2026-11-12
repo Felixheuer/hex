@@ -66,6 +66,31 @@ fn tap(rt: &mut Runtime<Ui>, key: &str) {
     settle(rt);
 }
 
+/// The voice first run's end: before "Hex is ready", the assistant's setup
+/// opens over it, continuing the same flow. A person leaves it for later
+/// with Close, and "Hex is ready" follows.
+fn leave_assistant_setup(rt: &mut Runtime<Ui>) {
+    assert!(
+        rt.find("assistant-setup").is_some(),
+        "the assistant's setup follows the voice first run"
+    );
+    assert!(
+        texts(rt).contains(&"Now, your assistant".to_owned()),
+        "it continues the first run: {:?}",
+        texts(rt)
+    );
+    assert!(
+        rt.find("start-using-hex").is_none(),
+        "Hex is ready waits for it"
+    );
+    tap(rt, "close-setup");
+    assert!(rt.find("assistant-setup").is_none(), "Close leaves it");
+    assert!(
+        !rt.state.settings.assistant.setup_done,
+        "left unfinished, it waits in Chats"
+    );
+}
+
 /// Opens Labs with every group unfolded, so each card is on screen.
 fn open_labs(rt: &mut Runtime<Ui>) {
     tap(rt, "nav-labs");
@@ -2941,8 +2966,10 @@ fn onboarding_downloads_the_model_through_the_service() {
     settle(&mut rt);
     let step = |rt: &Runtime<Ui>| rt.state.tour.as_ref().unwrap().flow.step();
     assert_eq!(step(&rt), crate::desktop::onboarding::Step::TryIt);
-    // The practice can be left with Done; Start using Hex closes onboarding.
+    // The practice can be left with Done; the assistant's setup follows,
+    // then Start using Hex closes onboarding.
     tap(&mut rt, "done");
+    leave_assistant_setup(&mut rt);
     tap(&mut rt, "start-using-hex");
     assert!(rt.state.tour.is_none(), "Start using Hex closes setup");
     assert!(rt.state.first_run.is_none());
