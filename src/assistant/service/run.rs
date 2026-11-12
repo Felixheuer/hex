@@ -242,9 +242,9 @@ impl Runner {
                     if lane == Lane::Here {
                         self.voice.finish(self, &conversation, &text);
                     } else if voice {
-                        // A job asked by voice: its first sentence.
+                        // A job asked by voice: its spoken summary.
                         self.voice
-                            .finish(self, &conversation, first_sentence(&text));
+                            .finish(self, &conversation, &spoken_summary(&text));
                     }
                 }
                 let event = Event::Answer {
@@ -395,19 +395,29 @@ fn with_workspace(text: String, workspace: Option<&std::path::Path>) -> String {
     }
 }
 
-/// The first sentence of `text` (all of it when it has one).
-fn first_sentence(text: &str) -> &str {
+/// Sentences of a spoken summary: enough to tell a research result, short
+/// enough to listen to.
+const SPOKEN_SENTENCES: usize = 4;
+
+/// What a job asked by voice reads aloud: its answer's first paragraph (the
+/// summary the job rules ask for), at most [`SPOKEN_SENTENCES`] sentences.
+/// Lists, files, and sources below it stay in Chats.
+fn spoken_summary(text: &str) -> String {
     let text = text.trim();
-    text.char_indices()
-        .find(|(index, c)| {
-            matches!(c, '.' | '!' | '?' | '\n')
-                && text[index + c.len_utf8()..]
-                    .chars()
-                    .next()
-                    .is_none_or(char::is_whitespace)
-                && *index > 8
-        })
-        .map_or(text, |(index, c)| &text[..index + c.len_utf8()])
+    let paragraph = text.split("\n\n").next().unwrap_or(text).trim();
+    let mut end = paragraph.len();
+    let mut sentences = 0;
+    for (index, c) in paragraph.char_indices() {
+        let next = paragraph[index + c.len_utf8()..].chars().next();
+        if matches!(c, '.' | '!' | '?') && next.is_none_or(char::is_whitespace) && index > 8 {
+            sentences += 1;
+            if sentences == SPOKEN_SENTENCES {
+                end = index + c.len_utf8();
+                break;
+            }
+        }
+    }
+    paragraph[..end].replace('\n', " ")
 }
 
 #[cfg(test)]
@@ -424,9 +434,15 @@ mod tests {
         let named = format!("Saved in {}.", path.display());
         assert_eq!(with_workspace(named.clone(), Some(path)), named);
         assert_eq!(
-            first_sentence("Found 3 suppliers. The sheet is in the workspace."),
-            "Found 3 suppliers."
+            spoken_summary("Found 3 suppliers. The sheet is in the workspace.\n\n- A\n- B"),
+            "Found 3 suppliers. The sheet is in the workspace."
         );
-        assert_eq!(first_sentence("Done"), "Done");
+        assert_eq!(spoken_summary("Done"), "Done");
+        assert_eq!(
+            spoken_summary(
+                "Eins ist gut. Zwei ist gut. Drei ist gut. Vier ist gut. Fünf ist zu viel."
+            ),
+            "Eins ist gut. Zwei ist gut. Drei ist gut. Vier ist gut."
+        );
     }
 }

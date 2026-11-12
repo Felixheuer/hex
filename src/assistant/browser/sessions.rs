@@ -18,7 +18,7 @@ use serde_json::{Map, Value, json};
 use super::SIGN_IN;
 
 /// Browsers one task may have open at once, its main one included.
-pub const MAX_SESSIONS: usize = 8;
+pub const MAX_SESSIONS: usize = 12;
 
 /// Arguments no task passes through to agent-browser: they would show a
 /// window, reach another task's browsers, keep state, or pass raw flags.
@@ -316,15 +316,17 @@ mod tests {
     }
 
     #[test]
-    fn a_task_has_at_most_eight_browsers_and_closing_frees_one() {
+    fn a_task_has_at_most_twelve_browsers_and_closing_frees_one() {
         let mut sessions = Sessions::new("t1", Engine::Chrome);
-        for name in ["main", "a", "b", "c", "d", "e", "f", "g"] {
+        for name in [
+            "main", "a", "b", "c", "d", "e", "f", "g", "i", "j", "k", "l",
+        ] {
             sessions
                 .pin("agent_browser_open", &mut args(json!({"session": name})))
                 .unwrap();
         }
         let refused = sessions.pin("agent_browser_open", &mut args(json!({"session": "h"})));
-        assert!(refused.unwrap_err().contains("already has 8 browsers"));
+        assert!(refused.unwrap_err().contains("already has 12 browsers"));
         let mut close = args(json!({"session": "c", "all": true}));
         sessions.pin("agent_browser_close", &mut close).unwrap();
         assert_eq!(Value::Object(close), json!({"session": "hex-t1_c"}));
@@ -363,7 +365,7 @@ mod tests {
             json!({"browsers": [
                 {"session": "main", "signedIn": false, "engine": "lightpanda", "running": true},
                 {"session": "a", "signedIn": true, "engine": "chrome", "running": false},
-            ], "max": 8})
+            ], "max": 12})
         );
     }
 
