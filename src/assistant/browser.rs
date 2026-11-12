@@ -5,21 +5,25 @@
 //! it for anything on the web.
 //!
 //! agent-browser runs headless Chrome for Testing (`agent-browser install`)
-//! behind a daemon per session, and has its own MCP server (`agent-browser
-//! mcp`). A task gets that server through `hex assistant browser-mcp --task
-//! <id>` ([`proxy`]), which pins every call to the task's own session in
-//! Hex's own namespace and withholds the arguments that would show a window,
-//! reach another session, or persist state.
+//! or, for clean reading, Lightpanda (a light headless browser, about a
+//! tenth of Chrome's memory) behind a daemon per session, and has its own
+//! MCP server (`agent-browser mcp`). A task gets that server through `hex
+//! assistant browser-mcp --task <id>` ([`proxy`]), which pins every call to
+//! one of the task's own browsers ([`sessions`]: its main one and up to
+//! seven named ones) in Hex's own namespace and withholds the arguments that
+//! would show a window, reach another task, or persist state.
 //!
 //! **Sign-ins.** A hidden browser has none of the person's cookies, and Hex
 //! never copies them from Chrome or Safari. Instead the person may sign in
 //! once in a visible window of Hex's own ([`sign_in`]); agent-browser keeps
-//! that window's cookies and storage under a restore key, and every task's
-//! browser starts from a read-only copy of them (it never saves back).
+//! that window's cookies and storage under a restore key, and a task's
+//! browser that asks for it (`signedIn`) starts in Chrome from a read-only
+//! copy of them (it never saves back).
 //!
 //! OWNER: browser.
 
 mod proxy;
+pub mod sessions;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -31,6 +35,7 @@ use serde_json::Value;
 use crate::assistant::backends::{self, McpServer, run, search};
 
 pub use proxy::serve;
+pub use sessions::{Engine, MAX_SESSIONS};
 
 /// The server's name in each agent's config: its tools are then
 /// `mcp__agent-browser__agent_browser_*` (Claude Code), `agent_browser_*`
@@ -111,8 +116,29 @@ pub fn install_with(progress: impl FnMut(&str)) -> Result<()> {
     backends::apply_fix_with(backends::Fix::InstallAgentBrowser, progress)
 }
 
-/// The browser tool for `task`: its own session, closed when the task ends
-/// ([`close`]). `None` when agent-browser isn't installed, or while
+/// Lightpanda, if installed (`~/.local/bin/lightpanda` from its installer).
+pub fn lightpanda() -> Option<PathBuf> {
+    search::find("lightpanda")
+}
+
+/// The engine behind a task's clean browsers: Lightpanda when it's
+/// installed, else Chrome.
+pub fn clean_engine() -> Engine {
+    if lightpanda().is_some() {
+        Engine::Lightpanda
+    } else {
+        Engine::Chrome
+    }
+}
+
+/// Installs Lightpanda with its official script (into `~/.local/bin`);
+/// blocks. Nothing happens when it's installed.
+pub fn install_lightpanda_with(progress: impl FnMut(&str)) -> Result<()> {
+    backends::apply_fix_with(backends::Fix::InstallLightpanda, progress)
+}
+
+/// The browser tool for `task`: its own browsers, closed when the task
+/// ends ([`close`]). `None` when agent-browser isn't installed, or while
 /// `background_browser` is off.
 pub fn mcp_server(task: &str) -> Option<McpServer> {
     let enabled = crate::app_settings::assistant_runtime()
@@ -135,17 +161,41 @@ fn server(hex: PathBuf, task: &str, browser: &Path) -> McpServer {
     }
 }
 
-/// Closes `task`'s browser session (nothing is saved). Blocks for a moment;
+/// Closes every browser of `task` (nothing is saved). Blocks for a moment;
 /// quick when it never opened one.
 pub fn close(task: &str) {
     let Some(path) = executable() else {
         return;
     };
-    let session = session(task);
-    match call(&path, &session, &["close"]) {
-        Ok(_) => tracing::debug!(session, "closed the task's browser"),
-        Err(error) => tracing::warn!(session, error, "could not close the task's browser"),
+    let mut open = running(&path, task);
+    let main = session(task);
+    if !open.contains(&main) {
+        // Listed or not, the main one is closed (a quick no-op if absent).
+        open.push(main);
     }
+    std::thread::scope(|scope| {
+        for session in &open {
+            let path = &path;
+            scope.spawn(move || match call(path, session, &["close"]) {
+                Ok(_) => tracing::debug!(session, "closed a task's browser"),
+                Err(error) => tracing::warn!(session, error, "could not close a task's browser"),
+            });
+        }
+    });
+}
+
+/// `task`'s browsers that agent-browser has open.
+pub(crate) fn running(path: &Path, task: &str) -> Vec<String> {
+    let listed = call(path, &session(task), &["session", "list"]).unwrap_or_default();
+    listed
+        .get("sessions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|session| sessions::belongs(task, session))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// `task`'s session name: agent-browser takes letters, digits, `-`, `_`.
@@ -239,20 +289,26 @@ fn private_state() {
     }
 }
 
-/// agent-browser with Hex's agent PATH and none of the person's own
-/// `AGENT_BROWSER_*` settings.
+/// agent-browser with Hex's agent PATH (and Lightpanda's folder) and none
+/// of the person's own `AGENT_BROWSER_*` settings.
 fn base_command(path: &Path) -> Command {
     let mut command = crate::desktop::background_process::command(path);
+    let extra: Vec<PathBuf> = [Some(path.to_owned()), lightpanda()]
+        .into_iter()
+        .flatten()
+        .collect();
     command.env_clear().envs(
         backends::agent_env()
             .into_iter()
-            .filter(|(key, _)| !key.starts_with("AGENT_BROWSER_")),
+            .filter(|(key, _)| key != "PATH" && !key.starts_with("AGENT_BROWSER_")),
     );
+    command.env("PATH", search::path_value(&extra));
     command
 }
 
-/// agent-browser for `session` in Hex's namespace, headless, starting from
-/// the saved sign-ins. The sign-in window's own session saves them back.
+/// agent-browser for `session` in Hex's namespace, headless and clean; a
+/// signed-in browser asks for the sign-ins per call ([`sessions`]). The
+/// sign-in window's own session loads and saves them.
 pub(crate) fn command(path: &Path, session: &str) -> Command {
     let mut command = base_command(path);
     command.envs(session_env(session, config().as_deref()));
@@ -261,23 +317,24 @@ pub(crate) fn command(path: &Path, session: &str) -> Command {
 
 /// The environment that pins agent-browser to `session`.
 pub fn session_env(session: &str, config: Option<&Path>) -> Vec<(String, String)> {
-    let save = if session == SIGN_IN {
-        "always"
-    } else {
-        "never"
-    };
     let mut env: Vec<(String, String)> = [
         ("AGENT_BROWSER_NAMESPACE", NAMESPACE),
         ("AGENT_BROWSER_SESSION", session),
-        ("AGENT_BROWSER_RESTORE", SIGN_IN),
-        ("AGENT_BROWSER_RESTORE_SAVE", save),
         ("AGENT_BROWSER_IDLE_TIMEOUT_MS", IDLE_MS),
         // Saved sign-ins otherwise lapse after 30 days.
         ("AGENT_BROWSER_STATE_EXPIRE_DAYS", "365"),
+        // Lightpanda says it is an old Chrome, which agent-browser would
+        // otherwise warn about in every reply.
+        ("AGENT_BROWSER_NO_VERSION_CHECK", "1"),
+        ("LIGHTPANDA_DISABLE_TELEMETRY", "true"),
     ]
     .into_iter()
     .map(|(key, value)| (key.to_owned(), value.to_owned()))
     .collect();
+    if session == SIGN_IN {
+        env.push(("AGENT_BROWSER_RESTORE".into(), SIGN_IN.into()));
+        env.push(("AGENT_BROWSER_RESTORE_SAVE".into(), "always".into()));
+    }
     if let Some(config) = config {
         env.push((
             "AGENT_BROWSER_CONFIG".into(),
@@ -385,7 +442,7 @@ mod tests {
     }
 
     #[test]
-    fn tasks_load_the_sign_ins_but_never_save_them() {
+    fn task_browsers_start_clean_and_only_the_sign_in_window_saves() {
         let env = |session| {
             session_env(session, Some(Path::new("/tmp/hex.json")))
                 .into_iter()
@@ -394,9 +451,10 @@ mod tests {
         let task = env("hex-t1");
         assert_eq!(task["AGENT_BROWSER_SESSION"], "hex-t1");
         assert_eq!(task["AGENT_BROWSER_NAMESPACE"], "hex");
-        assert_eq!(task["AGENT_BROWSER_RESTORE"], SIGN_IN);
-        assert_eq!(task["AGENT_BROWSER_RESTORE_SAVE"], "never");
+        assert!(!task.contains_key("AGENT_BROWSER_RESTORE"));
+        assert_eq!(task["LIGHTPANDA_DISABLE_TELEMETRY"], "true");
         assert_eq!(task["AGENT_BROWSER_CONFIG"], "/tmp/hex.json");
+        assert_eq!(env(SIGN_IN)["AGENT_BROWSER_RESTORE"], SIGN_IN);
         assert_eq!(env(SIGN_IN)["AGENT_BROWSER_RESTORE_SAVE"], "always");
         assert!(is_sign_in_state("hex-sign-in-hex-sign-in.json"));
         assert!(!is_sign_in_state("other-hex-t1.json"));
