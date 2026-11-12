@@ -149,6 +149,9 @@ pub(crate) struct Question {
     context: Option<ContextHandle>,
     /// The hold became real.
     real: bool,
+    /// The question a job waited on when the key went down: a hold answers
+    /// it only if the person could have heard or seen it by then.
+    asked_at_press: Option<ConversationId>,
 }
 
 impl Question {
@@ -166,6 +169,9 @@ impl Question {
             read,
             context: None,
             real: false,
+            asked_at_press: crate::assistant::inbox()
+                .active
+                .map(|asked| asked.conversation),
         }
     }
 
@@ -226,8 +232,23 @@ impl Question {
             .context
             .map(|context| context.wait(CONTEXT_WAIT))
             .unwrap_or_default();
+        // A job's question that came up while the person held the key
+        // (announcements wait meanwhile) wasn't heard: the hold goes where
+        // it would have gone without it.
+        let focused = focus();
+        let conversation = match (&focused, crate::assistant::inbox().active) {
+            (Some(focused), Some(active))
+                if *focused == active.conversation
+                    && self.asked_at_press.as_ref() != Some(focused) =>
+            {
+                crate::assistant::service::focus_past_inbox(
+                    crate::app_settings::applied_assistant().follow_up_seconds,
+                )
+            }
+            _ => focused,
+        };
         Some(Request {
-            conversation: focus(),
+            conversation,
             text: text.into(),
             origin: Origin::ActionShortcut,
             context,
@@ -281,6 +302,9 @@ impl Question {
                     return;
                 }
                 match spoken_stop::spoken_stop(&text) {
+                    // A job asks ("abschicken oder abbrechen?") and nothing
+                    // else is going on: „Abbrechen“ answers it.
+                    Some(spoken_stop::SpokenStop::Quiet) if answers_a_question() => {}
                     Some(spoken_stop::SpokenStop::Quiet) => return escape(),
                     Some(spoken_stop::SpokenStop::All) => return stop_all(),
                     None => {}
@@ -335,6 +359,21 @@ pub(crate) fn escape() {
         crate::assistant::cancel(&conversation);
     }
     crate::assistant::interaction::hush();
+    // „Sei still“ means it: jobs' summaries and questions wait a minute
+    // instead of starting 200 ms later (their bubbles still show).
+    crate::assistant::service::quiet_announcements(QUIET_AFTER_STOP);
+}
+
+/// How long announcements wait after Escape or a spoken stop.
+const QUIET_AFTER_STOP: Duration = Duration::from_secs(60);
+
+/// Whether a spoken stop word answers a job's question rather than
+/// stopping: one waits, nothing is read aloud, and no quick question runs.
+fn answers_a_question() -> bool {
+    crate::assistant::inbox().active.is_some()
+        && !crate::assistant::speech::speaking()
+        && !crate::assistant::reading_aloud()
+        && !quick_question_running()
 }
 
 /// The Stop all tasks shortcut: every task and the speech stop.

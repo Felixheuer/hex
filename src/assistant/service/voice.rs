@@ -59,6 +59,17 @@ const PUMP_EVERY: Duration = Duration::from_millis(200);
 const LISTENING_AT_MOST_MS: u64 = 30_000;
 
 static LISTENING_UNTIL: AtomicU64 = AtomicU64::new(0);
+/// Until when announcements wait after the person asked for quiet.
+static QUIET_UNTIL: AtomicU64 = AtomicU64::new(0);
+
+/// Announcements wait for `quiet` from `now_ms` (Escape, „Stopp“).
+pub(super) fn quiet_for(quiet: Duration, now_ms: u64) {
+    QUIET_UNTIL.store(now_ms + quiet.as_millis() as u64, Ordering::Release);
+}
+
+fn quiet(now_ms: u64) -> bool {
+    now_ms < QUIET_UNTIL.load(Ordering::Acquire)
+}
 static SPOKEN: AtomicBool = AtomicBool::new(true);
 static ANNOUNCED: AtomicU64 = AtomicU64::new(0);
 
@@ -354,7 +365,8 @@ impl Voice {
     /// Nothing is read or waits to be read (an answer between two streamed
     /// sentences is still being read), and the person isn't speaking.
     fn idle(&self, runner: &Runner) -> bool {
-        !self.reading() && !(runner.hooks.speaking)() && !listening(super::store::now_ms())
+        let now = super::store::now_ms();
+        !self.reading() && !(runner.hooks.speaking)() && !listening(now) && !quiet(now)
     }
 
     /// Starts the thread that speaks the queue, unless it runs.

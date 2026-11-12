@@ -316,6 +316,20 @@ pub fn focus(follow_up_seconds: u32) -> Option<ConversationId> {
     runner().focus(follow_up_seconds)
 }
 
+/// `focus` without the inbox's active question: for a hold during which
+/// that question came up, unheard.
+pub fn focus_past_inbox(follow_up_seconds: u32) -> Option<ConversationId> {
+    let runner = runner();
+    let now = runner.now();
+    focus_past(&runner.state(), follow_up_seconds, now)
+}
+
+/// Jobs' summaries and questions aren't read aloud for `quiet` (the person
+/// said „Stopp“ or pressed Escape); what they ask for still is.
+pub fn quiet_announcements(quiet: std::time::Duration) {
+    voice::quiet_for(quiet, store::now_ms());
+}
+
 /// Starts the scheduler (once): every half minute it starts the scheduled
 /// jobs that are due, as Background jobs; a run missed while the Mac slept
 /// or Hex was closed starts once. The app calls it at launch (the runner
@@ -1430,6 +1444,12 @@ fn focus_in(state: &State, follow_up_seconds: u32, now: u64) -> Option<Conversat
     if let Some(active) = inbox::of(state).active {
         return Some(active.conversation);
     }
+    focus_past(state, follow_up_seconds, now)
+}
+
+/// `focus_in` past the inbox: a running Here task, Chats' conversation, or
+/// the last Here answer within `follow_up_seconds`.
+fn focus_past(state: &State, follow_up_seconds: u32, now: u64) -> Option<ConversationId> {
     if let Some(task) = state
         .tasks
         .iter()
