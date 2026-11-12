@@ -893,7 +893,7 @@ fn schedules_list_toggle_run_and_add_by_hand() {
 
 #[test]
 fn page_names_round_trip_for_the_saved_progress() {
-    for page in Page::ALL {
+    for page in Page::shown().iter().copied() {
         assert_eq!(Page::named(page.name()), Some(page));
     }
     assert_eq!(Page::named("permissions"), None);

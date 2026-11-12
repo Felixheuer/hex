@@ -179,9 +179,11 @@ fn codex_key(ui: &Ui, p: Paint) -> El {
         .pl(30.0);
     };
     let mut block = col().key("codex-key").pl(30.0).gap(6.0).child(
-        text(tr(
-            "This replaces Codex's ChatGPT sign-in on this Mac for all apps.",
-        ))
+        text(if cfg!(target_os = "macos") {
+            tr("This replaces Codex's ChatGPT sign-in on this Mac for all apps.")
+        } else {
+            tr("This replaces Codex's ChatGPT sign-in on this computer for all apps.")
+        })
         .key("warning")
         .role("status")
         .font(p.k.ty.small_medium)
@@ -442,7 +444,13 @@ fn byok(ui: &Ui, p: Paint) -> Option<El> {
                             .color(p.text()),
                     )
                     .child(
-                        text(tr("OpenCode runs any provider's model on your key. Hex keeps the key in your Keychain."))
+                        text(if cfg!(target_os = "macos") {
+                            tr("OpenCode runs any provider's model on your key. Hex keeps the key in your Keychain.")
+                        } else if cfg!(target_os = "windows") {
+                            tr("OpenCode runs any provider's model on your key. Hex keeps the key in Credential Manager.")
+                        } else {
+                            tr("OpenCode runs any provider's model on your key. Hex keeps the key in your keyring.")
+                        })
                             .key("detail")
                             .font(k.ty.small)
                             .color(p.muted())
@@ -591,7 +599,11 @@ pub(super) fn picker(ui: &Ui, p: Paint) -> El {
         return picker.child(row().key("looking").px(16.0).py(12.0).child(progress(
             ui,
             p,
-            tr("Looking for the agents on this Mac…"),
+            if cfg!(target_os = "macos") {
+                tr("Looking for the agents on this Mac…")
+            } else {
+                tr("Looking for the agents on this computer…")
+            },
         )));
     }
     for (index, backend) in agents::all().into_iter().enumerate() {

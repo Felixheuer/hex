@@ -261,6 +261,35 @@ const PATHS: &[(&str, &str)] = &[
         "Window/Onboarding/Your turn · reopen",
     ),
     ("mac-onboarding-ready", "Window/Onboarding/Hex is ready"),
+    ("chats", "Window/Chats (Linux)/Conversation"),
+    ("chats-empty", "Window/Chats (Linux)/No conversations"),
+    ("chats-settings", "Window/Chats (Linux)/Settings"),
+    (
+        "assistant-setup-welcome",
+        "Window/Assistant setup (Linux)/Welcome",
+    ),
+    (
+        "assistant-setup-agent",
+        "Window/Assistant setup (Linux)/Choose an agent",
+    ),
+    (
+        "assistant-setup-desktop",
+        "Window/Assistant setup (Linux)/agent-desktop",
+    ),
+    (
+        "assistant-setup-try",
+        "Window/Assistant setup (Linux)/Try it",
+    ),
+    (
+        "assistant-setup-done",
+        "Window/Assistant setup (Linux)/Done",
+    ),
+    ("windows-chats", "Window/Chats (Windows)/Conversation"),
+    ("windows-chats-settings", "Window/Chats (Windows)/Settings"),
+    (
+        "windows-assistant-setup-desktop",
+        "Window/Assistant setup (Windows)/agent-desktop",
+    ),
     ("mac-chats", "Window/Chats/Conversation"),
     ("mac-chats-off", "Window/Chats/The assistant is off"),
     ("mac-chats-running", "Window/Chats/Tasks running"),
@@ -554,6 +583,12 @@ mod tests {
             assert!(path.matches('/').count() >= 1, "{path} names no group");
         }
         for (name, path) in PATHS {
+            // The assistant's macOS scenes are drawn only on macOS.
+            if !cfg!(target_os = "macos")
+                && (name.starts_with("mac-chats") || name.starts_with("mac-assistant"))
+            {
+                continue;
+            }
             assert!(
                 SCENES.iter().any(|(scene, _)| scene == name),
                 "{path} names no scene {name}"

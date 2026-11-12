@@ -132,7 +132,16 @@ pub(super) fn privacy(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             SEND_ICON,
             tr("Questions, screenshots, and page content go to the agent you choose (Claude, OpenAI, DeepSeek, …)."),
         ))
-        .child(fact(p, "stays", LOCAL_ICON, tr("Dictation stays on your Mac.")))
+        .child(fact(
+            p,
+            "stays",
+            LOCAL_ICON,
+            if cfg!(target_os = "macos") {
+                tr("Dictation stays on your Mac.")
+            } else {
+                tr("Dictation stays on your computer.")
+            },
+        ))
         .child(fact(
             p,
             "never",
@@ -164,7 +173,15 @@ pub(super) fn privacy(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         tr("Your privacy, your rules"),
         lead(
             p,
-            tr("In plain words: what leaves your Mac, and what the assistant may do on its own."),
+            if cfg!(target_os = "macos") {
+                tr(
+                    "In plain words: what leaves your Mac, and what the assistant may do on its own.",
+                )
+            } else {
+                tr(
+                    "In plain words: what leaves your computer, and what the assistant may do on its own.",
+                )
+            },
         ),
         Some(body),
         None,

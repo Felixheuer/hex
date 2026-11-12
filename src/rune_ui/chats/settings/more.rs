@@ -160,6 +160,11 @@ pub(super) fn voice_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
 
 /// "Get a better voice", when none installed sounds natural.
 pub(super) fn better_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
+    // Linux's voices are packages (Piper, Pico, eSpeak), with no page to
+    // download one from.
+    if !crate::assistant::speech::has_voice_settings() {
+        return None;
+    }
     let installed = ui.chats.settings.voices.as_ref()?;
     voices::better_voice_available(installed)?;
     Some(
@@ -168,8 +173,12 @@ pub(super) fn better_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
             "assistant-better-voice",
             tr("Get a better voice"),
             Some((
-                tr("Premium voices sound far more natural. Download one in System Settings")
-                    .to_owned(),
+                if cfg!(target_os = "macos") {
+                    tr("Premium voices sound far more natural. Download one in System Settings")
+                } else {
+                    tr("More natural voices are in Settings › Time & language › Speech")
+                }
+                .to_owned(),
                 p.muted(),
             )),
             small_button(

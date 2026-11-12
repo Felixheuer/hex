@@ -299,6 +299,25 @@ pub const fn asks_permissions() -> bool {
     cfg!(target_os = "macos")
 }
 
+/// The X11 monitors (XWayland's too on a Wayland desktop, where Rune puts
+/// overlays on GNOME), for the overlays.
+#[cfg(target_os = "linux")]
+pub fn x11_monitors() -> Vec<Display> {
+    linux::x11_monitors()
+}
+
+/// The pointer on X11 (XWayland's on Wayland).
+#[cfg(target_os = "linux")]
+pub fn x11_pointer() -> Option<(f64, f64)> {
+    linux::x11_pointer()
+}
+
+/// The active window's frame on X11 (`[x, y, width, height]`).
+#[cfg(target_os = "linux")]
+pub fn x11_front_window() -> Option<[f64; 4]> {
+    linux::x11_front_window()
+}
+
 /// Every running process's executable, for which apps run now.
 pub fn process_paths() -> Vec<std::path::PathBuf> {
     #[cfg(target_os = "linux")]

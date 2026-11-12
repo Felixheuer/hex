@@ -68,6 +68,10 @@ pub(crate) enum ShortcutTarget {
     SecondDictation,
     /// Toggle mode's cancel shortcut.
     Cancel,
+    /// The assistant's Action shortcut.
+    Action,
+    /// The assistant's Stop all tasks.
+    StopAll,
 }
 
 struct PreparedTranscription {
@@ -1120,6 +1124,10 @@ impl LinuxDesktopHost {
                             settings.second_dictation_hotkey = Some(binding)
                         }
                         ShortcutTarget::Cancel => settings.cancel_hotkey = binding,
+                        ShortcutTarget::Action => settings.assistant.action_hotkey = Some(binding),
+                        ShortcutTarget::StopAll => {
+                            settings.assistant.stop_all_hotkey = Some(binding)
+                        }
                     }
                 })
             }));

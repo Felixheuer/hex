@@ -559,10 +559,11 @@ impl ChatsPane {
     }
 }
 
-/// Whether the pane is in the sidebar: on macOS, whether or not the
-/// assistant is on (off, it offers to turn it on).
+/// Whether the pane is in the sidebar: on every desktop, whether or not
+/// the assistant is on (off, it offers to turn it on).
 pub(super) fn available(ui: &Ui) -> bool {
-    cfg!(target_os = "macos") && ui.platform.caps.os == super::platform::Os::Macos
+    let _ = ui;
+    crate::assistant::available()
 }
 
 /// Whether the assistant runs: the pane is here and its switch is on.
@@ -743,7 +744,7 @@ pub(super) fn pane(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> (Vec<El>, El) {
             super::scroll_body(p.k, "chats-settings-scroll", settings::page(ui, p, layer)),
         ),
         View::Chats if !crate::assistant::enabled(&ui.settings) => {
-            (Vec::new(), switch::off_card(p))
+            (Vec::new(), switch::off_card(ui, p))
         }
         View::Chats => {
             layer.extend(schedules::sheet(ui, p));

@@ -282,5 +282,18 @@ fn live_here_context() -> Context {
             });
         }
     }
+    // Linux and Windows: typing in Chats puts Hex in front, and Hex's own
+    // window is never what a question is about.
+    #[cfg(not(target_os = "macos"))]
+    if context
+        .frontmost_app
+        .as_deref()
+        .is_some_and(|app| app.eq_ignore_ascii_case("hex") || app.eq_ignore_ascii_case("hex.exe"))
+    {
+        context.selected_text = None;
+        context.frontmost_app = None;
+        context.window_title = None;
+        context.window = None;
+    }
     context
 }

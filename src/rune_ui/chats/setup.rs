@@ -89,20 +89,50 @@ impl Page {
         }
     }
 
+    /// The pages this OS shows: every one on macOS; Linux and Windows have
+    /// no shortcut page, since what takes a shortcut and the press test
+    /// read macOS's own settings and event tap (the Action shortcut's
+    /// recorder there refuses keys another shortcut holds).
+    pub(in crate::rune_ui) fn shown() -> &'static [Page] {
+        const OTHERS: [Page; 8] = [
+            Page::Welcome,
+            Page::Privacy,
+            Page::Agent,
+            Page::Desktop,
+            Page::Browser,
+            Page::Checks,
+            Page::About,
+            Page::Try,
+        ];
+        if cfg!(target_os = "macos") {
+            &Self::ALL
+        } else {
+            &OTHERS
+        }
+    }
+
     pub(in crate::rune_ui) fn named(name: &str) -> Option<Page> {
-        Self::ALL.into_iter().find(|page| page.name() == name)
+        Self::shown()
+            .iter()
+            .copied()
+            .find(|page| page.name() == name)
     }
 
     fn index(self) -> usize {
-        Self::ALL.iter().position(|page| *page == self).unwrap_or(0)
+        Self::shown()
+            .iter()
+            .position(|page| *page == self)
+            .unwrap_or(0)
     }
 
     fn next(self) -> Option<Page> {
-        Self::ALL.get(self.index() + 1).copied()
+        Self::shown().get(self.index() + 1).copied()
     }
 
     fn previous(self) -> Option<Page> {
-        self.index().checked_sub(1).map(|index| Self::ALL[index])
+        self.index()
+            .checked_sub(1)
+            .map(|index| Self::shown()[index])
     }
 }
 
@@ -147,6 +177,26 @@ impl Grant {
     ];
     pub(in crate::rune_ui) const DESKTOP: [Grant; 2] =
         [Grant::DesktopAccessibility, Grant::DesktopScreenRecording];
+
+    /// The grants Hex asks for itself here: macOS's; Linux and Windows ask
+    /// none.
+    pub(in crate::rune_ui) fn hex() -> &'static [Grant] {
+        if crate::assistant::computer::asks_permissions() {
+            &Self::HEX
+        } else {
+            &[]
+        }
+    }
+
+    /// agent-desktop's grants here: macOS's; Windows asks none, and on
+    /// Linux its self-test says whether AT-SPI is on.
+    pub(in crate::rune_ui) fn desktop() -> &'static [Grant] {
+        if crate::assistant::computer::asks_permissions() {
+            &Self::DESKTOP
+        } else {
+            &[]
+        }
+    }
 
     pub(in crate::rune_ui) fn key(self) -> &'static str {
         match self {
@@ -378,14 +428,14 @@ pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bo
         Page::Welcome | Page::Privacy | Page::About => true,
         Page::Agent => chosen(ui).is_some_and(|found| found.ready),
         Page::Desktop => {
-            Grant::HEX
+            Grant::hex()
                 .iter()
                 .all(|grant| grant_state(ui, flow, *grant) == State::Passed)
                 && flow
                     .desktop
                     .as_ref()
                     .is_some_and(|found| found.path.is_some())
-                && Grant::DESKTOP
+                && Grant::desktop()
                     .iter()
                     .all(|grant| grant_state(ui, flow, *grant) == State::Passed)
         }

@@ -1,4 +1,8 @@
-//! The overlays on macOS: Rune panels fed by `assistant::subscribe`.
+//! The overlays on every OS: Rune panels fed by `assistant::subscribe`.
+//! macOS also keeps them out of Mission Control, orders outlines among
+//! app windows, and breathes the frame in Core Animation; Linux and Windows
+//! draw the same panels above everything, read the displays from X11 or
+//! Win32 ([`displays`]), and leave Escape to the listener.
 //!
 //! - One frame panel per display, shown while Background work runs, waits,
 //!   or is queued (`Event::ModeChanged`), and one outline panel per window
@@ -25,8 +29,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "macos")]
 use objc2::MainThreadMarker;
+#[cfg(target_os = "macos")]
 use objc2::rc::Retained;
+#[cfg(target_os = "macos")]
 use objc2_app_kit::{NSApplication, NSWindow, NSWindowCollectionBehavior};
 use rune::{DisplayTarget, OverlayHandle, OverlayInput, OverlayOptions, OverlaySpec, Tx};
 
@@ -88,7 +95,7 @@ fn open_chats(id: &str) {
                 conversation = id,
                 "assistant: Chats isn't wired yet; showing the window"
             );
-            crate::macos_rune::bring_window_forward();
+            crate::rune_ui::window_link::bring_forward();
         }
     }
 }
@@ -96,7 +103,7 @@ fn open_chats(id: &str) {
 fn open_setup() {
     match OPEN_SETUP.get() {
         Some(open) => open(),
-        None => crate::macos_rune::bring_window_forward(),
+        None => crate::rune_ui::window_link::bring_forward(),
     }
 }
 
@@ -238,7 +245,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
     }
     crate::assistant::subscribe(Box::new(on_event));
     // The Action shortcut's double tap unfolds the list.
-    crate::recognition::ask::set_toggle_tasks(toggle_tasks);
+    crate::assistant::shortcut::set_toggle_tasks(toggle_tasks);
     // Displays coming, going, or moving: frames, outlines, and the HUD-side
     // panels follow at once.
     displays::watch(|| {
@@ -498,9 +505,16 @@ fn ready() -> bool {
 }
 
 /// The app in front, which a Here question is about.
+#[cfg(target_os = "macos")]
 fn frontmost_app() -> Option<String> {
     let app = objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication()?;
     Some(app.localizedName()?.to_string()).filter(|name| !name.is_empty())
+}
+
+/// The app in front, which a Here question is about.
+#[cfg(not(target_os = "macos"))]
+fn frontmost_app() -> Option<String> {
+    crate::assistant::computer::quick_context().frontmost_app
 }
 
 // ---------------------------------------------------------------------------
@@ -604,6 +618,7 @@ fn set_hands(task: Option<ConversationId>) {
 // ---------------------------------------------------------------------------
 // Native touches on the panels (main thread)
 
+#[cfg(target_os = "macos")]
 fn panel(number: Option<u32>) -> Option<Retained<NSWindow>> {
     let mtm = MainThreadMarker::new()?;
     let number = number? as isize;
@@ -613,9 +628,14 @@ fn panel(number: Option<u32>) -> Option<Retained<NSWindow>> {
         .find(|window| window.windowNumber() == number)
 }
 
+/// Linux and Windows have no Mission Control to leave.
+#[cfg(not(target_os = "macos"))]
+fn leave_out_of_mission_control(_number: Option<u32>) {}
+
 /// Hides the panel from Mission Control and Exposé (Transient) while it
 /// still joins every Space and full-screen Space; Rune's own mask keeps it
 /// in place there (Stationary) instead.
+#[cfg(target_os = "macos")]
 fn leave_out_of_mission_control(number: Option<u32>) {
     let Some(panel) = panel(number) else {
         return;

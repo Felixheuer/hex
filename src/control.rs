@@ -73,6 +73,8 @@ pub enum Pane {
     Modes,
     History,
     Meetings,
+    /// The assistant's Chats.
+    Chats,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

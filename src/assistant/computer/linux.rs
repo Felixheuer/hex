@@ -208,6 +208,25 @@ fn x11_displays() -> Option<Vec<Display>> {
     Some(displays)
 }
 
+/// The X11 monitors whatever the session (XWayland's on Wayland).
+pub fn x11_monitors() -> Vec<Display> {
+    x11_displays().unwrap_or_default()
+}
+
+/// The pointer on X11, whatever the session.
+pub fn x11_pointer() -> Option<(f64, f64)> {
+    pointer()
+}
+
+/// The active window's frame on X11, whatever the session.
+pub fn x11_front_window() -> Option<[f64; 4]> {
+    let id = active_window()?;
+    x11_windows()?
+        .into_iter()
+        .find(|window| window.id == id)
+        .map(|window| window.frame)
+}
+
 /// The pointer on X11.
 fn pointer() -> Option<(f64, f64)> {
     let (connection, screen) = x11rb::connect(None).ok()?;

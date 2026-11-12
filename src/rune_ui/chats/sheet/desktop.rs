@@ -151,8 +151,9 @@ pub(in crate::rune_ui) fn install_failure(p: Paint, error: &str, command: Option
 pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     // The voice setup asked for the Microphone and Accessibility already;
     // they show again only while missing.
-    let hex: Vec<Grant> = Grant::HEX
-        .into_iter()
+    let hex: Vec<Grant> = Grant::hex()
+        .iter()
+        .copied()
         .filter(|grant| {
             *grant == Grant::ScreenRecording || grant_state(ui, flow, *grant) != State::Passed
         })
@@ -161,7 +162,7 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     let installed = found.is_some_and(|found| found.path.is_some());
     let mut grants: Vec<Grant> = hex.clone();
     if installed {
-        grants.extend(Grant::DESKTOP);
+        grants.extend(Grant::desktop());
     }
     let first_missing = grants
         .iter()
@@ -202,7 +203,7 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     ));
     if installed {
         rows.extend(
-            Grant::DESKTOP
+            Grant::desktop()
                 .iter()
                 .map(|grant| grant_row(ui, flow, p, *grant, Some(*grant) == first_missing)),
         );
@@ -232,16 +233,33 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                 .children(failure),
         ),
     };
-    page(
-        p,
-        "desktop",
-        tr("Let the assistant see and use your Mac"),
-        lead(
-            p,
+    let (title, explained) = if crate::assistant::computer::asks_permissions() {
+        (
+            tr("Let the assistant see and use your Mac"),
             tr(
                 "Each one opens its page in System Settings, and this page waits until macOS turns it on. Hex starts agent-desktop, so macOS asks for Hex.",
             ),
-        ),
+        )
+    } else if cfg!(target_os = "windows") {
+        (
+            tr("Let the assistant see and use your PC"),
+            tr(
+                "agent-desktop operates apps through UI Automation, without your pointer. Windows asks for no permission.",
+            ),
+        )
+    } else {
+        (
+            tr("Let the assistant see and use your computer"),
+            tr(
+                "agent-desktop operates apps through AT-SPI, the desktop's accessibility bus, without your pointer.",
+            ),
+        )
+    };
+    page(
+        p,
+        "desktop",
+        title,
+        lead(p, explained),
         Some(rows_card(p, "desktop-card", rows)),
         below,
         actions(p, page_done(ui, flow, Page::Desktop), true),

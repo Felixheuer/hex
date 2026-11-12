@@ -391,7 +391,6 @@ impl Hud {
         }
         // The assistant's conversation mode: its overlays draw listening
         // until speech starts or it gives up.
-        #[cfg(target_os = "macos")]
         let listening = match &event {
             HudEvent::Listening => Some(true),
             HudEvent::Started | HudEvent::Discarded | HudEvent::Cancelled | HudEvent::Reset => {
@@ -409,13 +408,11 @@ impl Hud {
         // The assistant: holding the Action shortcut says past the HUD,
         // which has just placed itself, what the hold starts: "New
         // background task" (tap+hold), or "Here · <app>" (hold).
-        #[cfg(target_os = "macos")]
         crate::rune_ui::assistant_overlay::ask_hint(
             self.model
                 .asking()
                 .filter(|_| self.model.status() == Some("Recording")),
         );
-        #[cfg(target_os = "macos")]
         if let Some(on) = listening {
             crate::rune_ui::assistant_overlay::listening(on);
         }
