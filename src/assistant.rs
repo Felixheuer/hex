@@ -72,8 +72,23 @@ pub const fn available() -> bool {
     ))
 }
 
-/// Whether the assistant may answer: enabled, and its setup finished. Until
-/// then a hold of the Action shortcut opens the setup instead of asking.
+/// Whether the assistant may answer: enabled, and its setup finished (or
+/// its last page, where the gestures are tried, showing). Until then a hold
+/// of the Action shortcut opens the setup instead of asking.
 pub fn ready(settings: &AppSettings) -> bool {
-    enabled(settings) && settings.assistant.setup_done
+    enabled(settings) && (settings.assistant.setup_done || trying())
+}
+
+/// Set while the setup's last page shows with its checks passed: the
+/// gestures it asks the person to try must really work there, though
+/// `setup_done` waits for Finish.
+static TRYING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_trying(on: bool) {
+    TRYING.store(on, std::sync::atomic::Ordering::Release);
+}
+
+/// Whether the setup's gesture page lets the assistant answer now.
+pub fn trying() -> bool {
+    TRYING.load(std::sync::atomic::Ordering::Acquire)
 }

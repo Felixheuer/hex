@@ -950,8 +950,16 @@ fn checks_run_on_arrival_and_finish_waits_for_answers_and_agent_desktop() {
         Done::Check(ok(Check::DesktopThroughAgent(backend))),
     );
     assert!(finishable(&rt));
+    assert!(
+        !super::setup::gestures_work(&rt.state),
+        "not on the Try page"
+    );
     rt.update(|ui, _| super::setup::go(ui, Page::Try));
     settle(&mut rt);
+    assert!(
+        super::setup::gestures_work(&rt.state),
+        "the gestures the Try page asks for answer before Finish"
+    );
     tap(&mut rt, "finish");
     assert!(rt.state.settings.assistant.setup_done);
     assert!(rt.state.chats.setup.is_none());
