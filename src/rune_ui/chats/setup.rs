@@ -16,6 +16,7 @@
 //! agent-desktop.
 
 pub(in crate::rune_ui) mod browser;
+pub(in crate::rune_ui) mod permissions;
 pub(in crate::rune_ui) mod resume;
 pub(in crate::rune_ui) mod tutorial;
 
@@ -229,6 +230,7 @@ pub(in crate::rune_ui) struct SetupFlow {
     /// The self-tests' results for the chosen agent, in order.
     pub(in crate::rune_ui) checks: Vec<CheckResult>,
     pub(in crate::rune_ui) checks_running: bool,
+    permission_checks_pending: bool,
     /// The agent the checks ran against.
     pub(in crate::rune_ui) checked_backend: Option<AssistantBackend>,
     /// What else takes the tested shortcuts, by shortcut, once read.
@@ -276,6 +278,7 @@ impl Default for SetupFlow {
             fix_error: None,
             checks: Vec::new(),
             checks_running: false,
+            permission_checks_pending: false,
             checked_backend: None,
             conflicts: None,
             conflicts_checking: false,
@@ -366,10 +369,26 @@ pub(in crate::rune_ui) fn check_title(check: Check) -> String {
 /// Whether macOS reports `grant` on; `None` until it was read.
 fn granted(ui: &Ui, flow: &SetupFlow, grant: Grant) -> Option<bool> {
     let hex = |state: PermissionState| Some(state == PermissionState::Ready);
+    let shared = |hex: Option<bool>, accessibility: bool| {
+        if ui.platform.caps.os == super::super::platform::Os::Macos
+            && let Some(desktop) = flow.desktop.as_ref().filter(|found| found.path.is_some())
+        {
+            hex.map(|ready| {
+                ready
+                    && if accessibility {
+                        desktop.accessibility
+                    } else {
+                        desktop.screen_recording
+                    }
+            })
+        } else {
+            hex
+        }
+    };
     match grant {
         Grant::Microphone => hex(ui.platform.permissions.microphone),
-        Grant::Accessibility => hex(ui.platform.permissions.accessibility),
-        Grant::ScreenRecording => flow.permissions.map(|read| read.screen_recording),
+        Grant::Accessibility => shared(hex(ui.platform.permissions.accessibility), true),
+        Grant::ScreenRecording => shared(flow.permissions.map(|read| read.screen_recording), false),
         Grant::DesktopAccessibility => flow
             .desktop
             .as_ref()
@@ -398,8 +417,17 @@ pub(in crate::rune_ui) fn grant_state(ui: &Ui, flow: &SetupFlow, grant: Grant) -
 pub(in crate::rune_ui) fn needs_restart(ui: &Ui, grant: Grant) -> bool {
     let state = match grant {
         Grant::Microphone => ui.platform.permissions.microphone,
-        Grant::Accessibility => ui.platform.permissions.accessibility,
-        _ => return false,
+        Grant::Accessibility | Grant::DesktopAccessibility => ui.platform.permissions.accessibility,
+        Grant::ScreenRecording | Grant::DesktopScreenRecording => {
+            #[cfg(hex_capture)]
+            return ui
+                .platform
+                .scrawl
+                .as_ref()
+                .is_some_and(|view| view.screen_needs_restart);
+            #[cfg(not(hex_capture))]
+            return false;
+        }
     };
     state == PermissionState::NeedsRestart
 }
@@ -716,7 +744,10 @@ pub(in crate::rune_ui) fn run_checks(ui: &mut Ui) {
             took: Duration::ZERO,
         })
         .collect();
-    ui.chats.jobs.run(Job::SelfTests(Box::new(settings)));
+    let checks = flow.checks.iter().map(|result| result.check).collect();
+    ui.chats
+        .jobs
+        .run(Job::SelfTests(Box::new(settings), checks));
 }
 
 /// Asks for a permission: Hex's open their System Settings page with
@@ -734,6 +765,15 @@ pub(in crate::rune_ui) fn allow(ui: &mut Ui, grant: Grant) {
         ui.ask(PlatformRequest::Permission(PermissionAction::Restart));
         return;
     }
+    if let Some(kind) = permissions::kind(grant)
+        && ui.platform.stale(kind)
+    {
+        ui.ask(PlatformRequest::Permission(
+            PermissionAction::ResetAndPrompt(kind),
+        ));
+        recheck(ui);
+        return;
+    }
     match grant {
         Grant::Microphone => {
             let action = match ui.platform.permissions.microphone {
@@ -745,6 +785,18 @@ pub(in crate::rune_ui) fn allow(ui: &mut Ui, grant: Grant) {
         Grant::Accessibility => ui.ask(PlatformRequest::Permission(PermissionAction::ShowGuide(
             PermissionKind::Accessibility,
         ))),
+        Grant::ScreenRecording | Grant::DesktopScreenRecording
+            if ui.platform.caps.os == super::super::platform::Os::Macos =>
+        {
+            ui.ask(PlatformRequest::Permission(PermissionAction::ShowGuide(
+                PermissionKind::ScreenRecording,
+            )));
+        }
+        Grant::DesktopAccessibility if ui.platform.caps.os == super::super::platform::Os::Macos => {
+            ui.ask(PlatformRequest::Permission(PermissionAction::ShowGuide(
+                PermissionKind::Accessibility,
+            )));
+        }
         Grant::ScreenRecording => {
             ui.chats
                 .jobs
@@ -759,6 +811,11 @@ pub(in crate::rune_ui) fn allow(ui: &mut Ui, grant: Grant) {
 
 /// Does what a failed row offers.
 pub(in crate::rune_ui) fn apply(ui: &mut Ui, fix: Fix) {
+    if fix == Fix::GuidePermissions && ui.platform.caps.os == super::super::platform::Os::Macos {
+        let grant = permissions::desktop_grant(ui);
+        allow(ui, grant);
+        return;
+    }
     match fix {
         Fix::AddApiKey => {
             go(ui, Page::Agent);
@@ -826,6 +883,7 @@ pub(super) fn event(ui: &mut Ui, event: &Event) -> bool {
 
 /// A job's answer, for the flow.
 pub(super) fn receive(ui: &mut Ui, done: super::Done) {
+    let previous_permissions = permissions::fingerprint(ui);
     use super::Done;
     if browser::receive(ui, &done) {
         return;
@@ -910,6 +968,7 @@ pub(super) fn receive(ui: &mut Ui, done: super::Done) {
         detect(ui);
         recheck(ui);
     }
+    permissions::received(ui, previous_permissions);
 }
 
 /// Granted rows stop waiting.
@@ -979,7 +1038,7 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut rune::Tx) -> bool {
     let Some(flow) = ui.chats.setup.as_ref() else {
         return false;
     };
-    if !ui.chats.live() || flow.page != Page::Desktop {
+    if !ui.chats.live() || !matches!(flow.page, Page::Desktop | Page::Checks) {
         return false;
     }
     let due = flow.checked_at.is_none_or(|at| at.elapsed() >= RECHECK);

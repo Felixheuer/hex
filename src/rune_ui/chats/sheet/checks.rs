@@ -23,14 +23,29 @@ pub(super) fn result_row(
     detail: &str,
     control: El,
 ) -> El {
-    let ink = if state == CheckState::Failed {
+    let blocked = detail.starts_with("Needs “");
+    let ink = if state == CheckState::Failed && !blocked {
         p.danger()
     } else {
         p.muted()
     };
     let said = match state {
+        _ if blocked => tr("Waiting for a previous check").to_owned(),
         CheckState::Pending => tr("Waiting to run").to_owned(),
         CheckState::Running if detail.is_empty() => tr("Checking…").to_owned(),
+        CheckState::Ok => tr("Ready").to_owned(),
+        CheckState::Failed
+            if detail.starts_with("Hex needs Accessibility")
+                || detail.starts_with("agent-desktop has no Accessibility") =>
+        {
+            tr("Switch on Hex in System Settings").to_owned()
+        }
+        CheckState::Failed
+            if detail.starts_with("Hex needs Screen Recording")
+                || detail.starts_with("agent-desktop has no Screen Recording") =>
+        {
+            tr("Open Screen Recording…").to_owned()
+        }
         _ => detail.to_owned(),
     };
     row()
@@ -43,7 +58,7 @@ pub(super) fn result_row(
         .px(16.0)
         .gap(12.0)
         .center_y()
-        .child(mark(p, state))
+        .child(mark(p, if blocked { CheckState::Pending } else { state }))
         .child(
             col()
                 .key("copy")
@@ -72,14 +87,22 @@ pub(super) fn result_row(
 
 /// A failed check's fix: its button at once, even while later checks run
 /// (only Try again waits for them), and a spinner while it works.
-fn fix_control(flow: &SetupFlow, p: Paint, result: &CheckResult) -> El {
+fn fix_control(ui: &Ui, flow: &SetupFlow, p: Paint, result: &CheckResult) -> El {
+    if result.detail.starts_with("Needs “") {
+        return el().key("none");
+    }
     match result.fix {
         Some(fix) if result.state == CheckState::Failed && flow.fixing == Some(fix) => {
             spinner(p, "fixing")
         }
         Some(Fix::Retry) if flow.checks_running => el().key("none"),
         Some(fix) if result.state == CheckState::Failed => {
-            push(p, "fix", &fix_label(fix), false, move |ui: &mut Ui| {
+            let label = if setup::permissions::stale_fix(ui, fix) {
+                tr("Repair permission entry").to_owned()
+            } else {
+                fix_label(fix)
+            };
+            push(p, "fix", &label, false, move |ui: &mut Ui| {
                 setup::apply(ui, fix)
             })
         }
@@ -100,7 +123,7 @@ pub(super) fn checks(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                 check_title(result.check),
                 result.state,
                 &result.detail,
-                fix_control(flow, p, result),
+                fix_control(ui, flow, p, result),
             )
         })
         .collect();

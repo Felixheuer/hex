@@ -6,8 +6,8 @@ use rune::{El, el, row, text};
 
 use super::super::super::controls::Paint;
 use super::super::super::lists::small_button;
+use super::super::Ui;
 use super::super::setup::{self, Page, SetupFlow, check_title, page_done};
-use super::super::{Job, Ui};
 use super::checks::result_row;
 use super::desktop::install_failure;
 use super::{GLOBE, TOOL, actions, done_pill, lead, page, push, row_of, rows_card, spinner};
@@ -24,19 +24,12 @@ pub(super) fn installing(p: Paint, flow: &SetupFlow, fallback: &str) -> (String,
     (line, spinner(p, "installing"))
 }
 
-/// Sign in to sites…, then Done signing in while Hex's browser shows.
+/// First choose a website; opening this editor never navigates the browser.
 pub(in crate::rune_ui) fn sign_in_button(ui: &Ui, p: Paint, key: &str) -> El {
-    let settings = &ui.chats.settings;
-    if settings.signing_in {
-        small_button(p, key, tr("Done signing in"), |ui: &mut Ui, _| {
-            ui.chats.jobs.run(Job::FinishSignIn);
-        })
-    } else {
-        small_button(p, key, tr("Sign in to sites…"), |ui: &mut Ui, _| {
-            ui.chats.settings.sign_in_error = None;
-            ui.chats.jobs.run(Job::SignIn(None));
-        })
-    }
+    let _ = ui;
+    small_button(p, key, tr("Add website…"), |ui: &mut Ui, _| {
+        super::super::site_sign_in::open(ui);
+    })
 }
 
 /// Lightpanda, optional and recommended: much lighter browsers for many
@@ -47,7 +40,7 @@ fn lightpanda_row(p: Paint, flow: &SetupFlow, result: &CheckResult) -> El {
             installing(p, flow, tr("Installing Lightpanda…"))
         }
         CheckState::Ok => (
-            result.detail.clone(),
+            tr("Ready").to_owned(),
             done_pill(p, "lightpanda-ready", tr("Installed")),
         ),
         CheckState::Running | CheckState::Pending => (
@@ -178,20 +171,19 @@ pub(super) fn browser(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             ));
         }
         if step.ready() {
-            let signed_in = ui.chats.settings.signed_in;
+            let saved = super::super::site_sign_in::summary(ui);
             rows.push(row_of(
                 p,
                 "sign-in",
                 super::KEY,
                 tr("Sign in to sites (optional)"),
-                if signed_in {
-                    tr("Tasks start signed in where you signed in")
-                } else {
-                    tr("In Hex's own browser window. Tasks then start signed in there")
-                },
+                &saved,
                 p.muted(),
                 sign_in_button(ui, p, "sign-in-sites"),
             ));
+            rows.extend(
+                super::super::site_sign_in::editor(ui, p).map(|editor| editor.px(16.0).py(12.0)),
+            );
         }
     }
     let below = if !ui.settings.assistant.background_browser {

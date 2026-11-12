@@ -3328,6 +3328,16 @@ fn goldens() {
     for dark in [true, false] {
         check_golden("portal", dark, GOLDEN_SIZE);
         for scene in [
+            "mac-assistant-setup-desktop",
+            "mac-assistant-setup-browser",
+            "mac-assistant-setup-browser-sign-in",
+            "mac-assistant-setup-permission-repair",
+            "mac-assistant-setup-screen-restart",
+            "mac-assistant-setup-checks",
+        ] {
+            check_golden(scene, dark, PANE_SIZE);
+        }
+        for scene in [
             "history",
             "captures",
             "mac-labs",

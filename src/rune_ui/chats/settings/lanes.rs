@@ -337,10 +337,7 @@ fn sign_in_row(ui: &Ui, p: Paint) -> CardRow {
             tr("Sign in in Hex's browser window, then press Done").to_owned(),
             p.accent(),
         ),
-        None if state.signed_in => (
-            tr("Tasks start signed in where you signed in").to_owned(),
-            p.muted(),
-        ),
+        None if state.signed_in => (super::super::site_sign_in::summary(ui), p.muted()),
         None => (
             tr("Hidden browsers start signed out. Sign in once in Hex's own browser").to_owned(),
             p.muted(),
@@ -359,14 +356,18 @@ fn sign_in_row(ui: &Ui, p: Paint) -> CardRow {
             |ui: &mut Ui, _| ui.chats.jobs.run(super::super::Job::ForgetSignIn),
         ));
     }
-    described_row(
-        p,
-        "assistant-sign-in",
-        tr("Sites tasks may use"),
-        Some((detail, ink)),
-        controls,
-    )
-    .into()
+    rune::col()
+        .key("site-sign-in")
+        .w_full()
+        .child(described_row(
+            p,
+            "assistant-sign-in",
+            tr("Sites tasks may use"),
+            Some((detail, ink)),
+            controls,
+        ))
+        .children(super::super::site_sign_in::editor(ui, p).map(|editor| editor.px(16.0).pb(12.0)))
+        .into()
 }
 
 /// Which engine clean browsers run: Lightpanda (light, for many at once)

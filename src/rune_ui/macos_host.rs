@@ -759,6 +759,9 @@ impl NativeHost for MacHost {
                         == crate::capture_host::ScreenAccess::Off
                 {
                     self.note_permission_asked(kind);
+                    if kind == PermissionKind::Accessibility {
+                        let _ = crate::desktop::permission_guide::prompt_accessibility_trust();
+                    }
                     crate::desktop::permission_guide::show(kind);
                 }
             }
