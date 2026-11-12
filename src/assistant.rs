@@ -30,6 +30,7 @@ pub mod cli;
 pub mod computer;
 pub mod credentials;
 pub mod guard;
+pub mod palette;
 pub mod provider;
 pub mod service;
 pub mod space;
@@ -48,4 +49,10 @@ use crate::app_settings::AppSettings;
 /// Whether the assistant may run: its Lab is on and this OS has it.
 pub fn enabled(settings: &AppSettings) -> bool {
     crate::labs::Feature::Assistant.on(settings)
+}
+
+/// Whether the assistant may answer: enabled, and its setup finished. Until
+/// then a hold of the Action shortcut opens the setup instead of asking.
+pub fn ready(settings: &AppSettings) -> bool {
+    enabled(settings) && settings.assistant.setup_done
 }

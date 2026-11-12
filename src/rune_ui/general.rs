@@ -84,11 +84,12 @@ pub(super) fn basics(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Opt
                 ),
             );
         }
-        // Labs › Assistant (macOS): the Action shortcut, held to ask and
-        // double-tapped for Agent mode.
+        // Labs › Assistant (macOS): the Action shortcut (hold to ask, tap
+        // then hold for a Background task, double-tap for the task list),
+        // and Stop all tasks under it.
         #[cfg(target_os = "macos")]
         if crate::assistant::enabled(&ui.settings) {
-            let purpose = tr("Hold to ask the assistant; double-tap for Agent mode");
+            let purpose = tr("Hold to ask; tap, then hold for a background task");
             rows.extend_described(
                 tr("Action shortcut"),
                 Some(purpose),
@@ -100,6 +101,20 @@ pub(super) fn basics(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Opt
                     tr("Action shortcut"),
                     ShortcutTarget::Action,
                     Some(purpose),
+                ),
+            );
+            let stop = tr("Stops every assistant task and its speech");
+            rows.extend_described(
+                tr("Stop all tasks"),
+                Some(stop),
+                shortcut_rows(
+                    ui,
+                    p,
+                    "stop-all-shortcut",
+                    &KEYBOARD,
+                    tr("Stop all tasks"),
+                    ShortcutTarget::StopAll,
+                    Some(stop),
                 ),
             );
         }

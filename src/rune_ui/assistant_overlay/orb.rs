@@ -7,13 +7,19 @@
 //! step as a brief toast, ✓ or ✗ when it ends ([`super::pops`]). A task the
 //! person took over keeps a small "You have it" bubble with Hand back; one
 //! waiting out a usage limit keeps "Waiting for limit · resumes 14:05".
+//! A task's question (`Event::Question`) stays in a bubble in its colour,
+//! nearest the orb and newest first, with how to answer ("Hold ⌘ to
+//! answer"), until it's answered or put away. A task with a plan wears a
+//! small progress ring around its dot. A Here question that turns into a
+//! long job (`Event::Escalated`) flies into the cluster as a new dot.
+//!
 //! The full list ([`super::stack`]) unfolds from the orb on a press, a
 //! double-tap of the Action shortcut, or while the pointer rests on it, and
 //! folds back. Everything grows from the orb's side of the panel with
 //! springs, and nothing but the orb and its bubbles takes clicks.
 
-use rune::{Cx, El, Transition, Vec2, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize};
+use rune::{Cx, El, LineCap, Shape, Transition, Vec2, canvas, col, el, icon, row, text};
+use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant};
 use rune_motion::{LoopSpec, Spring};
 
 use super::super::controls::Paint;
@@ -37,6 +43,11 @@ const GAP: f32 = 8.0;
 /// A bubble's widest.
 const BUBBLE_MAX_W: f32 = 320.0;
 const BUBBLE_H: f32 = 30.0;
+/// A question's most lines.
+const QUESTION_LINES: usize = 3;
+/// A progress ring around a dot: its size and stroke.
+const RING: f32 = 13.0;
+const RING_W: f32 = 1.75;
 
 /// Which way things unfold from the orb, from where it sits on its display.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -88,16 +99,20 @@ pub(crate) struct Orb {
     /// The pointer rests on the orb: the list peeks open.
     pub(crate) peek: bool,
     pub(crate) grow: Grow,
+    /// The Action shortcut's keys, for "Hold ⌘ to answer".
+    pub(crate) answer_key: String,
     pub(crate) actions: Actions<Orb>,
 }
 
 /// What the view needs besides the board.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Look {
     pub(crate) open: bool,
     pub(crate) grow: Grow,
     /// Hold the breathing still (Reduce motion, or a render).
     pub(crate) still: bool,
+    /// The Action shortcut's keys, for "Hold ⌘ to answer".
+    pub(crate) answer_key: String,
 }
 
 pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
@@ -106,18 +121,19 @@ pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
         open: orb.expanded || orb.peek,
         grow: orb.grow,
         still: cx.system_reduced_motion(),
+        answer_key: orb.answer_key.clone(),
     };
     el().key("orb-root")
         .w_full()
         .h_full()
         .padding(INSET)
         .hover_motion_within(rune::Anim::INSTANT, rune::Anim::INSTANT)
-        .child(content(p, &orb.board, look, orb.actions))
+        .child(content(p, &orb.board, &look, orb.actions))
 }
 
 /// The orb and what unfolds from it, filling its parent from the orb's
 /// corner.
-pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: Look, actions: Actions<S>) -> El {
+pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions: Actions<S>) -> El {
     let tasks = board.stack();
     let grow = look.grow;
     let mut parts: Vec<El> = Vec::new();
@@ -129,10 +145,17 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: Look, actions: 
         parts
             .push(stack::sheet(p, &tasks, grow.down, max_h, actions.list).transition(unfold(grow)));
     } else {
-        let mut bubbles: Vec<El> = tasks
-            .iter()
-            .filter_map(|task| standing(p, task, grow, actions.list))
+        let mut bubbles: Vec<El> = board
+            .questions()
+            .into_iter()
+            .filter(|task| task.origin == crate::assistant::Origin::Background)
+            .map(|task| question(p, task, &look.answer_key, actions.list).transition(pop_in(grow)))
             .collect();
+        bubbles.extend(
+            tasks
+                .iter()
+                .filter_map(|task| standing(p, task, grow, actions.list)),
+        );
         bubbles.extend(
             board
                 .pops
@@ -176,7 +199,7 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: Look, actions: 
 }
 
 /// The orb: its glowing core and a dot per live task.
-fn orb<S: 'static>(p: Paint, tasks: &[Task], look: Look, actions: Actions<S>) -> El {
+fn orb<S: 'static>(p: Paint, tasks: &[Task], look: &Look, actions: Actions<S>) -> El {
     let c = &p.k.c;
     let (lead, trail) = palette::frame(p.k.dark);
     let core = el()
@@ -200,7 +223,9 @@ fn orb<S: 'static>(p: Paint, tasks: &[Task], look: Look, actions: Actions<S>) ->
     };
     let dots = tasks.iter().filter(|task| task.phase.live()).map(|task| {
         let colour = palette::task(task.colour, p.k.dark);
-        dot(task, colour, DOT).key(format!("orb-dot-{}", task.id))
+        marker(p, task, colour, DOT)
+            .key(format!("orb-dot-{}", task.id))
+            .transition(fly_in(look.grow))
     });
     let mut items: Vec<El> = vec![core];
     items.extend(dots);
@@ -250,10 +275,120 @@ pub(crate) fn dot(task: &Task, colour: rune::Color, size: f32) -> El {
             inset: false,
         }),
         Phase::Paused => base.border(1.5, colour),
+        Phase::NeedsInput => base.fill(colour.alpha(0.3)).border(1.5, colour),
         Phase::Waiting { .. } => base.fill(colour.alpha(0.35)),
         Phase::Queued => base.fill(colour.alpha(0.45)),
         Phase::Done | Phase::Failed | Phase::Stopped => base.fill(colour.alpha(0.4)),
     }
+}
+
+/// A task's dot, inside a ring that fills as its plan's steps get done.
+pub(crate) fn marker(p: Paint, task: &Task, colour: rune::Color, size: f32) -> El {
+    let Some((done, total)) = task.progress() else {
+        return el().center().child(dot(task, colour, size));
+    };
+    el().size(RING, RING)
+        .center()
+        .label(format!("{done}/{total}"))
+        .child(
+            canvas(ring(done as f32 / total as f32, colour, p.k.c.border_base))
+                .key("ring")
+                .absolute(0.0, 0.0)
+                .size(RING, RING)
+                .a11y_hidden(),
+        )
+        .child(dot(task, colour, size - 2.0))
+}
+
+/// A ring `RING` points across: a faint track, and `fraction` of it in
+/// `colour` clockwise from the top.
+fn ring(fraction: f32, colour: rune::Color, track: rune::Color) -> Shape {
+    let r = (RING - RING_W) / 2.0;
+    let c = RING / 2.0;
+    let point = |t: f32| {
+        let a = t * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+        [c + r * a.cos(), c + r * a.sin()]
+    };
+    const SEGMENTS: usize = 48;
+    let track_points: Vec<[f32; 2]> = (0..SEGMENTS)
+        .map(|i| point(i as f32 / SEGMENTS as f32))
+        .collect();
+    let shape = Shape::new().stroke_with(track_points, true, RING_W, LineCap::Round, track);
+    let fraction = fraction.clamp(0.0, 1.0);
+    if fraction <= 0.0 {
+        return shape;
+    }
+    let steps = ((SEGMENTS as f32 * fraction).ceil() as usize).max(2);
+    let arc: Vec<[f32; 2]> = (0..=steps)
+        .map(|i| point(fraction * i as f32 / steps as f32))
+        .collect();
+    shape.stroke_with(arc, false, RING_W, LineCap::Round, colour)
+}
+
+/// A task's question, in its colour, with how to answer it and × to put
+/// it away (it still waits for the answer).
+fn question<S: 'static>(p: Paint, task: &Task, answer_key: &str, actions: stack::Actions<S>) -> El {
+    let c = &p.k.c;
+    let colour = palette::task(task.colour, p.k.dark);
+    let open = actions.open;
+    let dismiss = actions.dismiss;
+    let (id, put_away) = (task.id.clone(), task.id.clone());
+    row()
+        .key(format!("question-{}", task.id))
+        .w(BUBBLE_MAX_W)
+        .pl(12.0)
+        .pr(4.0)
+        .py(8.0)
+        .gap(8.0)
+        .items_start()
+        .radius(16.0)
+        .fill(c.bg_base)
+        .border(1.0, colour.alpha(0.7))
+        .outline(3.0, 0.0, colour.alpha(0.16))
+        .box_shadow(rune::Shadow {
+            x: 0.0,
+            y: 3.0,
+            blur: 14.0,
+            spread: 0.0,
+            color: colour.alpha(if p.k.dark { 0.3 } else { 0.18 }),
+            inset: false,
+        })
+        .role("alert")
+        .live_region(rune::LiveRegion::Polite)
+        .hit()
+        .on_press(move |s: &mut S| open(s, &id))
+        .child(dot(task, colour, 8.0).mt(5.0))
+        .child(
+            col()
+                .key("question-lines")
+                .gap(3.0)
+                .grow(1.0)
+                .min_w(0.0)
+                .shrink()
+                .child(
+                    text(task.question.clone().unwrap_or_default())
+                        .key("question-text")
+                        .wrap()
+                        .max_lines(QUESTION_LINES)
+                        .font(p.k.ty.ui_medium)
+                        .color(p.text()),
+                )
+                .child(
+                    text(tr_fill("Hold {} to answer", answer_key))
+                        .key("question-hint")
+                        .font(p.k.ty.small)
+                        .color(colour),
+                ),
+        )
+        .child(
+            IconButton::new(p.k.glyph.close)
+                .variant(IconButtonVariant::GhostMuted)
+                .control_size(ControlSize::Small)
+                .label(tr("Hide question"))
+                .on_press(move |s: &mut S| dismiss(s, &put_away))
+                .build(p.k)
+                .key("put-away"),
+        )
 }
 
 /// The bubble a task keeps while the person has it, or while it waits out
@@ -406,6 +541,24 @@ fn pop_in(grow: Grow) -> Transition {
     .springs(rune::SpringPair::new(
         Spring::new(0.42, 0.32),
         Spring::new(0.28, 0.0),
+    ))
+}
+
+/// A new dot flies into the cluster from the HUD's side with a little
+/// overshoot (a Here question escalated, or a task started).
+fn fly_in(grow: Grow) -> Transition {
+    Transition::asymmetric(
+        Transition::scale(0.5)
+            .allow_small_scale()
+            .combined(Transition::offset(
+                if grow.right { -70.0 } else { 70.0 },
+                6.0,
+            )),
+        Transition::scale(0.5).allow_small_scale(),
+    )
+    .springs(rune::SpringPair::new(
+        Spring::new(0.55, 0.35),
+        Spring::new(0.25, 0.0),
     ))
 }
 

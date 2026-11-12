@@ -155,6 +155,9 @@ impl Desk {
                 hand_back: Desk::hand_back,
                 stop_all: Desk::stop_all,
                 toggle: |desk| desk.expanded = !desk.expanded,
+                dismiss: |desk, id| {
+                    desk.board.dismiss_question(id);
+                },
             },
             hover: |_, _| {},
             drag: |_, _| {},
@@ -209,6 +212,7 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
             size: (rect.2 as f32, rect.3 as f32),
             label,
             look: item.look,
+            progress: item.progress,
         };
         root = root.child(
             el().key(format!("outline-{}", item.task))
@@ -268,6 +272,7 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
                     speaking: desk.speaking,
                     still,
                 },
+                fixture::ANSWER_KEY,
                 actions,
             ),
             None => el(),
@@ -297,10 +302,11 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
             .child(orb::content(
                 p,
                 &desk.board,
-                orb::Look {
+                &orb::Look {
                     open: desk.expanded,
                     grow,
                     still,
+                    answer_key: fixture::ANSWER_KEY.into(),
                 },
                 Desk::actions(),
             )),

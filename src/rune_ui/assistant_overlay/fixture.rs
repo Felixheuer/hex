@@ -14,6 +14,33 @@ use super::when;
 
 /// How long the fixture's waiting task waits for its usage limit.
 pub(crate) const LIMIT_MINUTES: u64 = 23;
+/// The Action shortcut's keys, as "Hold ⌘ to answer" names them.
+pub(crate) const ANSWER_KEY: &str = "⌘";
+/// What the invoices task asks.
+pub(crate) const INVOICE_QUESTION: &str =
+    "Which folder should the October invoices go in: Finance or Archive?";
+
+/// The table task's plan, `done` steps of it done.
+fn table_plan(done: usize) -> Event {
+    let steps = [
+        "Search Resy for Nopa",
+        "Pick a time near 8 pm",
+        "Choose a table for two",
+        "Confirm with your saved card",
+        "Add it to your calendar",
+    ];
+    Event::Plan {
+        conversation: "table".into(),
+        steps: steps
+            .iter()
+            .enumerate()
+            .map(|(index, title)| crate::assistant::PlanStep {
+                title: (*title).into(),
+                done: index < done,
+            })
+            .collect(),
+    }
+}
 
 pub(crate) const QUICK: &str = "quick";
 pub(crate) const QUICK_QUESTION: &str = "What's on my calendar this afternoon?";
@@ -193,6 +220,25 @@ pub(crate) fn script() -> Vec<(f64, Event)> {
                 conversation: "mail".into(),
             },
         ),
+        (0.9, table_plan(0)),
+        (4.5, table_plan(1)),
+        (7.1, table_plan(2)),
+        (
+            5.0,
+            started(
+                "invoices",
+                agent,
+                "File this month's invoices from Mail into Finder",
+            ),
+        ),
+        (5.3, step("invoices", "Found 12 invoices in Mail")),
+        (
+            5.9,
+            Event::Question {
+                conversation: "invoices".into(),
+                text: INVOICE_QUESTION.into(),
+            },
+        ),
         (8.5, opened(QUICK, "calendar")),
         (
             8.6,
@@ -252,7 +298,17 @@ pub(crate) fn script_to_the_end() -> Vec<(f64, Event)> {
             conversation: "mail".into(),
         },
     ));
-    for (id, at) in [("table", 6.0), ("mail", 9.0), ("news", 13.0)] {
+    // The person answers the invoices question with a hold.
+    script.push((
+        end + 4.0,
+        started("invoices", Origin::Background, "Finance"),
+    ));
+    for (id, at) in [
+        ("table", 6.0),
+        ("mail", 9.0),
+        ("invoices", 10.0),
+        ("news", 13.0),
+    ] {
         script.push((
             end + at,
             Event::Answer {
@@ -272,8 +328,9 @@ pub(crate) fn script_to_the_end() -> Vec<(f64, Event)> {
     script
 }
 
-/// The board after the whole script, every task still listed: one running,
-/// one taken over, one queued, one done, one failed, one waiting.
+/// The board after the whole script, every task still listed: one running
+/// (with a plan), one taken over, one queued, one done, one failed, one
+/// waiting out a usage limit, and one asking a question.
 pub(crate) fn board() -> Board {
     board_at(f64::MAX)
 }
@@ -288,16 +345,40 @@ pub(crate) fn board_at(seconds: f64) -> Board {
     board
 }
 
-/// The orb with nothing to say: the live tasks only, no bubbles.
+/// The orb with nothing to say: the live tasks only, no bubbles, no
+/// questions up.
 pub(crate) fn quiet_board() -> Board {
     let mut board = board();
     board.tasks.retain(|task| task.phase.live());
     board.pops = Default::default();
+    for task in &mut board.tasks {
+        task.question = None;
+    }
     board
 }
 
-/// The quick question's bubble as it is after the script's events up to
+/// A Here question that turned out to be a long job, just escalated: its
+/// dot has joined the quiet orb, with its title popped beside it.
+pub(crate) fn escalated_board() -> Board {
+    let now = Instant::now();
+    let mut board = quiet_board();
+    for event in [
+        started(ESCALATED, Origin::ActionShortcut, ESCALATED_QUESTION),
+        step(ESCALATED, "Found 214 files in Downloads"),
+        Event::Escalated {
+            conversation: ESCALATED.into(),
+        },
+    ] {
+        board.apply(&event, None, now);
+    }
+    board
+}
 
+/// The Here question in [`escalated_board`].
+pub(crate) const ESCALATED: &str = "downloads";
+pub(crate) const ESCALATED_QUESTION: &str = "Sort my Downloads folder into folders by type";
+
+/// The quick question's bubble as it is after the script's events up to
 /// `seconds`.
 pub(crate) fn bubble_at(seconds: f64) -> Option<Bubble> {
     let now = Instant::now();

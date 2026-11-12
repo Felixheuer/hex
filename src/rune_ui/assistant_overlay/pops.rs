@@ -59,6 +59,11 @@ impl Pops {
     /// follow-up). Whether they changed.
     pub(crate) fn apply(&mut self, event: &Event, task: &Task, fresh: bool, now: Instant) -> bool {
         match event {
+            // A new task, or a Here question that became one.
+            Event::Escalated { .. } => {
+                self.push(task, PopKind::New, task.title.clone(), now + NEW);
+                true
+            }
             Event::Queued { .. } | Event::Started { .. } if fresh => {
                 self.clear(&task.id);
                 self.push(task, PopKind::New, task.title.clone(), now + NEW);

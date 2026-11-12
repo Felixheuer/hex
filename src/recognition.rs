@@ -23,7 +23,7 @@ use crate::feedback::{self, Tone};
 use crate::parakeet::{DictationWorker, TranscriptionTarget, WorkerEvent};
 use crate::suppression::{DictationHotkey, DiscardCause, HotkeyAction, InputMonitor};
 
-mod ask;
+pub(crate) mod ask;
 mod context_watch;
 mod guards;
 mod hotkeys;
@@ -839,7 +839,7 @@ pub fn listen(
                 hotkeys.track_key_state(input_event, capture_at);
                 continue;
             }
-            asker.escape(input_event);
+            asker.key(input_event);
             for (shortcut, action) in hotkeys.process(input_event, capture_at) {
                 if action == HotkeyAction::Start {
                     hotkeys.raw_capture = shortcut == Shortcut::Raw;
@@ -849,7 +849,7 @@ pub fn listen(
                 let device = input.device_name();
                 let accepted = if shortcut == Shortcut::Action {
                     asker.act(
-                        action,
+                        hotkeys.action_press(action),
                         capture_at,
                         &input,
                         &dictation_worker,

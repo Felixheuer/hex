@@ -50,6 +50,8 @@ pub(crate) struct Outline {
     pub(crate) size: (f32, f32),
     pub(crate) label: LabelSide,
     pub(crate) look: Look,
+    /// Its plan's steps done and in all, shown after its title.
+    pub(crate) progress: Option<(usize, usize)>,
 }
 
 /// The overlay's rect in global points (x, y, width, height) for a window
@@ -137,7 +139,10 @@ pub(crate) fn drawn(p: Paint, outline: &Outline, x: f32, y: f32) -> El {
         LabelSide::Inside => left + 8.0,
     };
     let words = match outline.look {
-        Look::Working => Some(outline.title.clone()),
+        Look::Working => Some(match outline.progress {
+            Some((done, total)) => format!("{} · {done}/{total}", outline.title),
+            None => outline.title.clone(),
+        }),
         Look::Paused => Some(tr("You have it").to_owned()),
         Look::Waiting { until_ms } => Some(tr_fill(
             "Waiting for limit · resumes {}",

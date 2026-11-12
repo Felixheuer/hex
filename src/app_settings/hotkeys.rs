@@ -1290,6 +1290,18 @@ impl AppSettings {
         {
             others.push(action.clone());
         }
+        // Labs › Assistant's Stop all tasks shortcut, while its Lab is on.
+        if slot != HotkeySlot::StopAll
+            && cfg!(target_os = "macos")
+            && crate::assistant::enabled(self)
+            && let Some(stop_all) = &self.assistant.stop_all_hotkey
+        {
+            others.push(stop_all.clone());
+        }
+        // macOS keeps ⌘⌥Esc for Force Quit, so Stop all never gets it.
+        if slot == HotkeySlot::StopAll {
+            others.push(HotkeyBinding::force_quit());
+        }
         if cfg!(target_os = "macos") && self.labs.more_dictation_shortcuts {
             for (index, row) in self.extra_dictation_hotkeys.iter().enumerate() {
                 if slot != HotkeySlot::ExtraDictation(index)
@@ -1357,6 +1369,9 @@ pub struct RuntimeHotkeys {
     /// Labs › Assistant's Action shortcut (macOS), while the Lab is on and it
     /// is bound and shares no key.
     pub action: Option<RuntimeHotkey>,
+    /// Labs › Assistant's Stop all tasks shortcut (macOS), while the Lab is
+    /// on and it is bound and shares no key.
+    pub stop_all: Option<RuntimeHotkey>,
     /// Toggle mode's cancel shortcut. Not among [`RuntimeHotkeys::all`]:
     /// Hex takes it only while a toggled recording runs.
     pub cancel: Option<RuntimeHotkey>,
@@ -1364,7 +1379,7 @@ pub struct RuntimeHotkeys {
 
 impl RuntimeHotkeys {
     /// Every shortcut Hex matches, for suppression and chord evidence.
-    pub fn all(self) -> [Option<RuntimeHotkey>; 9 + MAX_EXTRA_DICTATION_SHORTCUTS] {
+    pub fn all(self) -> [Option<RuntimeHotkey>; 10 + MAX_EXTRA_DICTATION_SHORTCUTS] {
         let named = [
             Some(self.dictation),
             self.paste_last,
@@ -1375,8 +1390,9 @@ impl RuntimeHotkeys {
             self.typed_text,
             self.second_dictation,
             self.action,
+            self.stop_all,
         ];
-        let mut all = [None; 9 + MAX_EXTRA_DICTATION_SHORTCUTS];
+        let mut all = [None; 10 + MAX_EXTRA_DICTATION_SHORTCUTS];
         all[..named.len()].copy_from_slice(&named);
         all[named.len()..].copy_from_slice(&self.extra_dictation);
         all
@@ -1399,6 +1415,7 @@ impl Default for RuntimeHotkeys {
             extra_dictation_modes: [ExtraDictationMode::HoldOrDoubleTap;
                 MAX_EXTRA_DICTATION_SHORTCUTS],
             action: None,
+            stop_all: None,
             cancel: None,
         }
     }

@@ -1043,6 +1043,7 @@ impl AppSettings {
             }),
             extra_dictation_modes: std::array::from_fn(|index| self.extra_dictation_mode(index)),
             action: self.active_action_hotkey().map(HotkeyBinding::runtime),
+            stop_all: self.active_stop_all_hotkey().map(HotkeyBinding::runtime),
             cancel: self.active_cancel_hotkey().map(HotkeyBinding::runtime),
         }
     }
@@ -1232,6 +1233,8 @@ pub enum HotkeySlot {
     ExtraDictation(usize),
     /// Labs › Assistant's Action shortcut (macOS).
     Action,
+    /// Labs › Assistant's Stop all tasks shortcut (macOS).
+    StopAll,
     /// Labs › Terminal paste shortcut (Windows, Linux).
     TerminalPaste,
     /// Toggle mode's cancel shortcut.
@@ -1837,6 +1840,54 @@ mod tests {
         assert!(settings.repair_action_shortcut());
         assert_eq!(settings.assistant.action_hotkey, None);
         assert_eq!(settings.runtime_hotkeys().action, None);
+    }
+
+    /// Labs › Assistant's Stop all tasks: inert while its Lab is off; on, it
+    /// is matched and swallowed (⌃⌥Esc by default), the other shortcuts refuse
+    /// its keys and it refuses theirs and Force Quit's, and a saved overlap
+    /// is unbound.
+    #[test]
+    fn stop_all_needs_its_lab_and_its_own_keys() {
+        let stop = HotkeyBinding::stop_all_default();
+        let mut settings = AppSettings::default();
+        assert_eq!(settings.assistant.stop_all_hotkey, Some(stop.clone()));
+        assert_eq!(settings.runtime_hotkeys().stop_all, None);
+        assert!(!settings.hotkey_in_use(HotkeySlot::Dictation, &stop));
+
+        settings.labs.assistant = true;
+        if !cfg!(target_os = "macos") {
+            assert_eq!(settings.runtime_hotkeys().stop_all, None);
+            return;
+        }
+        assert_eq!(settings.runtime_hotkeys().stop_all, Some(stop.runtime()));
+        assert!(
+            settings
+                .runtime_hotkeys()
+                .all()
+                .contains(&Some(stop.runtime()))
+        );
+        // Escape alone is Toggle's cancel, a different chord from ⌃⌥Esc.
+        assert!(settings.hotkey_in_use(HotkeySlot::StopAll, &HotkeyBinding::cancel_default()));
+        assert!(settings.hotkey_in_use(HotkeySlot::PasteLast, &stop));
+        assert!(settings.hotkey_in_use(HotkeySlot::Action, &stop));
+        assert!(settings.hotkey_in_use(HotkeySlot::StopAll, &HotkeyBinding::force_quit()));
+        let action = HotkeyBinding::action_default();
+        assert!(settings.hotkey_in_use(HotkeySlot::StopAll, &action));
+        assert!(!settings.repair_action_shortcut());
+
+        // Force Quit is never matched, even when saved by hand.
+        settings.assistant.stop_all_hotkey = Some(HotkeyBinding::force_quit());
+        assert_eq!(settings.runtime_hotkeys().stop_all, None);
+        assert!(settings.repair_action_shortcut());
+        assert_eq!(settings.assistant.stop_all_hotkey, None);
+
+        // Paste last moved onto it: Stop all stands down and is unbound.
+        settings.assistant.stop_all_hotkey = Some(stop.clone());
+        settings.paste_last_hotkey = Some(stop.clone());
+        assert_eq!(settings.runtime_hotkeys().stop_all, None);
+        assert!(settings.repair_action_shortcut());
+        assert_eq!(settings.assistant.stop_all_hotkey, None);
+        assert_eq!(settings.assistant.action_hotkey, Some(action));
     }
 
     /// A saved Screenshots record shortcut and Annotate's own capture

@@ -69,6 +69,7 @@ fn orb_state(board: Board, expanded: bool) -> Orb {
         expanded,
         peek: false,
         grow: orb::Grow::default(),
+        answer_key: fixture::ANSWER_KEY.into(),
         actions: orb::Actions {
             list: stack::Actions {
                 stop: |_, _| {},
@@ -77,6 +78,7 @@ fn orb_state(board: Board, expanded: bool) -> Orb {
                 hand_back: |_, _| {},
                 stop_all: |_| {},
                 toggle: |_| {},
+                dismiss: |_, _| {},
             },
             hover: |_, _| {},
             drag: |_, _| {},
@@ -91,6 +93,7 @@ fn bubble_state(bubble: Option<super::board::Bubble>) -> BubbleOverlay {
         shown: true,
         speaking: false,
         setup: None,
+        answer_key: fixture::ANSWER_KEY.into(),
         actions: bubble::Actions {
             dismiss: |_| {},
             open: |_, _| {},
@@ -114,7 +117,8 @@ fn the_fixture_has_a_task_in_every_state() {
             Phase::Queued,
             Phase::Done,
             Phase::Failed,
-            Phase::Waiting { .. }
+            Phase::Waiting { .. },
+            Phase::NeedsInput
         ]
     ));
 }
@@ -128,9 +132,16 @@ fn the_orb_shows_a_dot_per_live_task_and_its_bubbles() {
         assert!(core[0] < 40.0 && core[1] < 40.0, "in its corner: {core:?}");
         assert_eq!(
             count_prefix(&rt, "orb-dot-"),
-            4,
-            "running, taken over, queued, waiting"
+            5,
+            "running, taken over, queued, waiting, asking"
         );
+        assert_eq!(count(&rt, "ring"), 1, "the table task's plan");
+        let asked = rect(&rt, "question-invoices").expect("its question");
+        assert!(inside(asked, orb::SIZE), "{asked:?}");
+        assert!(rect(&rt, "question-hint").is_some(), "Hold ⌘ to answer");
+        let [_, asked_y, ..] = asked;
+        let [_, paused_y, ..] = rect(&rt, "standing-mail").unwrap();
+        assert!(asked_y < paused_y, "questions sit nearest the orb");
         assert!(rect(&rt, "standing-mail").is_some(), "You have it");
         assert!(rect(&rt, "standing-news").is_some(), "Waiting for limit");
         assert_eq!(count(&rt, "hand-back"), 1);
@@ -168,8 +179,11 @@ fn the_list_unfolds_with_every_task_its_state_and_controls() {
         let rt = runtime(orb_state(board.clone(), true), orb::view, orb::SIZE, dark);
         let sheet = rect(&rt, "sheet").expect("the list");
         assert!(inside(sheet, orb::SIZE), "{sheet:?}");
-        assert_eq!(count_prefix(&rt, "task-"), 6);
+        assert_eq!(count_prefix(&rt, "task-"), 7);
         assert_eq!(count(&rt, "spinner"), 1, "the running one spins");
+        assert_eq!(count(&rt, "needs-input"), 1);
+        assert_eq!(count(&rt, "plan-current"), 1, "the step it's on");
+        assert_eq!(count(&rt, "plan-text"), 5, "its whole plan");
         assert_eq!(count(&rt, "paused"), 1, "You have it");
         assert_eq!(count(&rt, "countdown"), 1, "minutes until the limit lifts");
         assert_eq!(count(&rt, "queued"), 1);
@@ -177,7 +191,7 @@ fn the_list_unfolds_with_every_task_its_state_and_controls() {
         assert_eq!(count(&rt, "failed"), 1);
         assert_eq!(count(&rt, "take-over"), 1);
         assert_eq!(count(&rt, "hand-back"), 1);
-        assert_eq!(count(&rt, "stop"), 4, "only live tasks can be stopped");
+        assert_eq!(count(&rt, "stop"), 5, "only live tasks can be stopped");
         assert!(rect(&rt, "stop-all").is_some(), "two or more live tasks");
         assert!(count(&rt, "place-glyph") >= 3, "where each works");
         assert_eq!(
@@ -190,6 +204,45 @@ fn the_list_unfolds_with_every_task_its_state_and_controls() {
         let [_, table_y, ..] = rect(&rt, "task-table").unwrap();
         assert!(news_y < table_y);
     }
+}
+
+#[test]
+fn an_escalated_question_flies_into_the_orb() {
+    let rt = runtime(
+        orb_state(fixture::escalated_board(), false),
+        orb::view,
+        orb::SIZE,
+        false,
+    );
+    assert!(rect(&rt, &format!("orb-dot-{}", fixture::ESCALATED)).is_some());
+    assert_eq!(count(&rt, "pop-text"), 1, "its title pops");
+    let mut flying = fixture::bubble_ended("Sort my Downloads", None, None);
+    flying.escalated = true;
+    assert_eq!(
+        flying.due(std::time::Instant::now(), false),
+        super::board::Due::Leave
+    );
+    let rt = runtime(
+        bubble_state(Some(flying)),
+        bubble::view,
+        bubble::SIZE,
+        false,
+    );
+    assert!(rect(&rt, "card").is_some(), "drawn once as it flies");
+}
+
+#[test]
+fn a_here_question_asks_in_its_bubble() {
+    let mut asking = fixture::bubble_at(9.1).unwrap();
+    asking.asks = Some("Reply to Maya or to the whole thread?".into());
+    let rt = runtime(
+        bubble_state(Some(asking)),
+        bubble::view,
+        bubble::SIZE,
+        false,
+    );
+    assert!(rect(&rt, "asks-text").is_some());
+    assert!(rect(&rt, "asks-hint").is_some());
 }
 
 #[test]
@@ -387,6 +440,7 @@ fn outline_of(look: Look) -> Runtime<Outline> {
         size: (600.0, 400.0),
         label: LabelSide::Above,
         look,
+        progress: None,
     };
     let (rect_global, _) = outline::rect((100.0, 200.0, 600.0, 400.0), 0.0);
     runtime(
@@ -505,6 +559,14 @@ fn snapshots() {
                 },
             ),
             (
+                "desktop-escalated",
+                Desk {
+                    board: fixture::escalated_board(),
+                    bubble: None,
+                    ..Desk::settled()
+                },
+            ),
+            (
                 "desktop-setup",
                 Desk {
                     setup: true,
@@ -527,6 +589,10 @@ fn snapshots() {
             ("orb-bubbles", orb_state(fixture::board(), false)),
             ("orb-quiet", orb_state(fixture::quiet_board(), false)),
             ("orb-list", orb_state(fixture::board(), true)),
+            (
+                "orb-escalated",
+                orb_state(fixture::escalated_board(), false),
+            ),
         ];
         for (name, state) in orbs {
             let mut rt = runtime(state, orb::view, orb::SIZE, dark);
@@ -556,6 +622,13 @@ fn snapshots() {
             hands::SIZE,
             backdrop(&gpu, &mut hands_rt, w, h, dark),
         );
+        #[cfg(target_os = "macos")]
+        if dark {
+            for index in 0..super::palette::COLOURS {
+                let pixels = super::cursor::render(&gpu, index);
+                save(&format!("cursor-{index}"), super::cursor::SIZE, pixels);
+            }
+        }
         for (name, state) in [
             ("hint-background", Hint::Background),
             ("hint-here", Hint::Here("Mail".into())),
@@ -564,7 +637,10 @@ fn snapshots() {
             let (w, h) = px(hint::SIZE);
             save(name, hint::SIZE, backdrop(&gpu, &mut rt, w, h, dark));
         }
+        let mut asking = fixture::bubble_at(9.1).unwrap();
+        asking.asks = Some("Reply to Maya, or to the whole thread?".into());
         let bubbles = [
+            ("bubble-question", bubble_state(Some(asking))),
             ("bubble-thinking", bubble_state(fixture::bubble_at(7.5))),
             ("bubble-working", bubble_state(fixture::bubble_at(9.1))),
             ("bubble-streaming", bubble_state(fixture::bubble_at(11.0))),

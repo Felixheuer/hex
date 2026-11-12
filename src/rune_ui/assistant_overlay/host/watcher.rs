@@ -323,6 +323,7 @@ impl Watcher {
                 size: (window.2 as f32, window.3 as f32),
                 label,
                 look: item.look,
+                progress: item.progress,
             };
             if drawn != slot.outline {
                 slot.outline = drawn.clone();

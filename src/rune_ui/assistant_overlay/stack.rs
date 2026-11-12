@@ -35,6 +35,8 @@ pub(crate) struct Actions<S> {
     pub(crate) stop_all: fn(&mut S),
     /// Fold the list back into the orb.
     pub(crate) toggle: fn(&mut S),
+    /// Put a task's question bubble away (it still waits for the answer).
+    pub(crate) dismiss: fn(&mut S, &str),
 }
 
 impl<S> Clone for Actions<S> {
@@ -135,13 +137,22 @@ pub(crate) fn sheet<S: 'static>(
 fn task_row<S: 'static>(p: Paint, task: &Task, actions: Actions<S>) -> El {
     let colour = palette::task(task.colour, p.k.dark);
     let live = task.phase.live();
-    let dot = super::orb::dot(task, colour, 10.0).mt(5.0);
+    let dot = super::orb::marker(p, task, colour, 10.0).mt(3.0);
     let title = text(task.title.clone())
         .key("title")
         .truncate()
         .font(p.k.ty.ui_medium)
         .color(if live { p.text() } else { p.muted() });
     let place = place_line(p, task);
+    // A plan's checklist stands for the latest steps; a question or a
+    // usage limit still says so above it.
+    let mut detail = steps(p, task);
+    if live && !task.plan.is_empty() {
+        if matches!(task.phase, Phase::Queued | Phase::Running | Phase::Paused) {
+            detail.clear();
+        }
+        detail.extend(checklist(p, task, colour));
+    }
     let lines = col()
         .key("lines")
         .grow(1.0)
@@ -149,7 +160,7 @@ fn task_row<S: 'static>(p: Paint, task: &Task, actions: Actions<S>) -> El {
         .gap(2.0)
         .child(title)
         .children(place)
-        .children(steps(p, task))
+        .children(detail)
         .children(buttons(p, task, actions));
     let open = actions.open;
     let id = task.id.clone();
@@ -218,6 +229,94 @@ fn place_line(p: Paint, task: &Task) -> Option<El> {
     )
 }
 
+/// How many plan steps the list shows around the current one.
+const PLAN_ROWS: usize = 6;
+
+/// Its plan as a checklist, the step it's on highlighted in its colour,
+/// with a window of [`PLAN_ROWS`] around it when the plan is long.
+fn checklist(p: Paint, task: &Task, colour: rune::Color) -> Vec<El> {
+    let current = task.current_step();
+    let len = task.plan.len();
+    let start = current
+        .unwrap_or(len)
+        .saturating_sub(2)
+        .min(len.saturating_sub(PLAN_ROWS));
+    let end = (start + PLAN_ROWS).min(len);
+    let mut rows: Vec<El> = Vec::new();
+    if start > 0 {
+        rows.push(
+            text(tr_fill("{} done", &start.to_string()))
+                .key("plan-earlier")
+                .font(p.k.ty.small)
+                .color(p.faint()),
+        );
+    }
+    for (index, step) in task.plan.iter().enumerate().take(end).skip(start) {
+        let now = current == Some(index) && task.phase.live();
+        let (mark, color, font): (El, _, _) = if step.done {
+            (
+                icon(p.k.glyph.check_small, 12.0).color(p.faint()),
+                p.faint(),
+                p.k.ty.small,
+            )
+        } else if now {
+            (
+                rune::el()
+                    .size(7.0, 7.0)
+                    .radius(3.5)
+                    .fill(colour)
+                    .ml(2.5)
+                    .mr(2.5),
+                p.text(),
+                p.k.ty.small_medium,
+            )
+        } else {
+            (
+                rune::el()
+                    .size(7.0, 7.0)
+                    .radius(3.5)
+                    .border(1.0, p.faint())
+                    .ml(2.5)
+                    .mr(2.5),
+                p.muted(),
+                p.k.ty.small,
+            )
+        };
+        let row_el = row()
+            .key(format!("plan-{index}"))
+            .gap(6.0)
+            .center_y()
+            .child(mark.key("plan-mark").a11y_hidden())
+            .child(
+                text(step.title.clone())
+                    .key("plan-text")
+                    .truncate()
+                    .font(font)
+                    .color(color)
+                    .min_w(0.0),
+            );
+        rows.push(if now {
+            row_el
+                .key("plan-current")
+                .px(4.0)
+                .ml(-4.0)
+                .radius(6.0)
+                .fill(colour.alpha(0.14))
+        } else {
+            row_el
+        });
+    }
+    if end < len {
+        rows.push(
+            text(tr_fill("+{} more", &(len - end).to_string()))
+                .key("plan-later")
+                .font(p.k.ty.small)
+                .color(p.faint()),
+        );
+    }
+    rows
+}
+
 /// Its last few steps while it's live (the newest last); once it's over,
 /// its outcome's first line.
 fn steps(p: Paint, task: &Task) -> Vec<El> {
@@ -245,6 +344,12 @@ fn steps(p: Paint, task: &Task) -> Vec<El> {
                 };
                 line("outcome".into(), detail, color)
             })
+            .into_iter()
+            .collect(),
+        Phase::NeedsInput => task
+            .question
+            .clone()
+            .map(|question| line("asked".into(), question, p.text()))
             .into_iter()
             .collect(),
         Phase::Queued | Phase::Running | Phase::Paused => {
@@ -324,6 +429,7 @@ pub(crate) fn status(p: Paint, task: &Task, colour: rune::Color) -> El {
             .key("spinner"),
         Phase::Queued => tag(p, tr("Queued"), "queued"),
         Phase::Paused => tag(p, tr("You have it"), "paused"),
+        Phase::NeedsInput => tag(p, tr("Waiting for your answer"), "needs-input"),
         Phase::Waiting { until_ms } => {
             let minutes = when::minutes_left(until_ms, when::now_ms()).max(1);
             tag(p, &tr_fill("{} min", &minutes.to_string()), "countdown")

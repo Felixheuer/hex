@@ -1,31 +1,18 @@
-//! The assistant's task colours: one per running task (`TaskStatus.colour`,
-//! 0..8), shared by its cursor, window outline, and stack row, and the two
-//! hues the screen frame glows in. The kit has no categorical palette, so
-//! this is the one place these colours are authored, in OKLCH at a
-//! lightness for each appearance: darker and more saturated over light
-//! desktops, lighter over dark ones, so every hue reads on both.
+//! The assistant's colours in Rune: each task's (`TaskStatus.colour`,
+//! 0..8) from `assistant::palette`, the single source its cursor, outline,
+//! title chip, orb dot, and rows share, and the two hues the screen frame
+//! glows in.
 
 use rune::{Color, oklch};
 
 /// How many task colours there are; `TaskStatus.colour` wraps at this.
-pub(crate) const COLOURS: u8 = 8;
+pub(crate) const COLOURS: u8 = crate::assistant::palette::COLOURS.len() as u8;
 
-/// The hues in the order tasks take them: each next one far from the ones
-/// before, so the first few tasks never look alike (blue, orange, green,
-/// violet, rose, teal, amber, indigo).
-const HUES: [f32; COLOURS as usize] = [252.0, 48.0, 150.0, 302.0, 0.0, 195.0, 85.0, 275.0];
-
-/// Task `index`'s colour (wrapping past [`COLOURS`]).
+/// Task `index`'s colour (wrapping past [`COLOURS`]): its deeper shade
+/// over light desktops, its lighter one over dark.
 pub(crate) fn task(index: u8, dark: bool) -> Color {
-    let hue = HUES[usize::from(index % COLOURS)];
-    // Amber and green are light by nature; they come down a little on light
-    // desktops to keep their edge against white windows.
-    let warm = matches!(index % COLOURS, 2 | 6);
-    match (dark, warm) {
-        (true, _) => oklch(0.74, 0.15, hue),
-        (false, true) => oklch(0.6, 0.16, hue),
-        (false, false) => oklch(0.6, 0.19, hue),
-    }
+    let colour = crate::assistant::palette::colour(index);
+    rune::color::hex(if dark { colour.dark } else { colour.light }).unwrap_or(Color::BLACK)
 }
 
 /// Text on a [`task`] colour's solid fill: the kit's black or white,
@@ -77,15 +64,20 @@ mod tests {
     }
 
     #[test]
-    fn neighbouring_colours_are_far_apart_and_wrap() {
-        for index in 0..COLOURS - 1 {
-            let (a, b) = (HUES[usize::from(index)], HUES[usize::from(index + 1)]);
-            let apart = (a - b).abs().min(360.0 - (a - b).abs());
-            assert!(
-                apart >= 45.0,
-                "hues {index} and {} are {apart}° apart",
-                index + 1
-            );
+    fn every_colour_stands_apart_from_every_other_and_wraps() {
+        for dark in [false, true] {
+            for a in 0..COLOURS {
+                for b in a + 1..COLOURS {
+                    // Perceptual distance (ΔE in Oklab).
+                    let ([l1, a1, b1, _], [l2, a2, b2, _]) =
+                        (task(a, dark).to_oklab(), task(b, dark).to_oklab());
+                    let apart = ((l1 - l2).powi(2) + (a1 - a2).powi(2) + (b1 - b2).powi(2)).sqrt();
+                    assert!(
+                        apart >= 0.1,
+                        "colours {a} and {b} (dark {dark}) look alike: {apart}"
+                    );
+                }
+            }
         }
         assert_eq!(task(9, true), task(1, true));
     }

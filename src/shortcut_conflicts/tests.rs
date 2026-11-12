@@ -403,4 +403,13 @@ fn each_slot_checks_its_own_shortcut() {
     settings.assistant.action_hotkey = None;
     assert_eq!(shortcut(HotkeySlot::Action, &settings), None);
     assert!(conflicts(HotkeySlot::Action, &settings).is_empty());
+    // Stop all tasks is a press, never double-tapped, even with the lock on.
+    settings.double_tap_lock = true;
+    assert_eq!(
+        shortcut(HotkeySlot::StopAll, &settings),
+        Some((HotkeyBinding::stop_all_default(), false))
+    );
+    settings.assistant.stop_all_hotkey = None;
+    assert_eq!(shortcut(HotkeySlot::StopAll, &settings), None);
+    assert!(conflicts(HotkeySlot::StopAll, &settings).is_empty());
 }

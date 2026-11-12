@@ -6,10 +6,13 @@
 
 use std::time::{Duration, Instant};
 
-use crate::assistant::{ConversationId, Event, Origin, TaskState, TaskStatus, TaskWindow};
+use crate::assistant::{
+    ConversationId, Event, Origin, PlanStep, TaskState, TaskStatus, TaskWindow,
+};
 
 use super::palette::COLOURS;
 use super::pops::Pops;
+pub(crate) use super::quick::{Bubble, BubblePhase, Due};
 
 /// How long a finished task stays in the stack with its ✓ or ✗.
 pub(crate) const FINISHED_LINGER: Duration = Duration::from_secs(5);
@@ -17,18 +20,6 @@ pub(crate) const FINISHED_LINGER: Duration = Duration::from_secs(5);
 pub(crate) const STOPPED_LINGER: Duration = Duration::from_millis(1500);
 /// The longest a title, step, or outcome line runs before "…".
 pub(crate) const LINE_CHARS: usize = 72;
-/// How many of a quick question's latest steps its bubble lists.
-pub(crate) const BUBBLE_STEPS: usize = 3;
-/// A quick answer stays at least this long once it's done (or once its
-/// speech ends).
-const BUBBLE_LINGER: Duration = Duration::from_secs(4);
-/// Reading time added per word of a quick answer that isn't read aloud
-/// (about 240 words a minute) …
-const READING_PER_WORD: Duration = Duration::from_millis(250);
-/// … up to this much.
-const READING_MAX: Duration = Duration::from_secs(20);
-/// A failed quick question's message stays as long as a failure notice.
-const BUBBLE_FAILED: Duration = Duration::from_secs(6);
 
 /// Where a task is in its life.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,6 +32,8 @@ pub(crate) enum Phase {
     Waiting {
         until_ms: u64,
     },
+    /// Asked the person something and waits for the answer.
+    NeedsInput,
     /// Answered (✓).
     Done,
     /// Failed (✗) with its message.
@@ -53,7 +46,7 @@ impl Phase {
     pub(crate) fn live(self) -> bool {
         matches!(
             self,
-            Self::Queued | Self::Running | Self::Paused | Self::Waiting { .. }
+            Self::Queued | Self::Running | Self::Paused | Self::Waiting { .. } | Self::NeedsInput
         )
     }
 
@@ -63,6 +56,7 @@ impl Phase {
             TaskState::Running => Self::Running,
             TaskState::Paused => Self::Paused,
             TaskState::Waiting { until_ms } => Self::Waiting { until_ms },
+            TaskState::NeedsInput => Self::NeedsInput,
         }
     }
 }
@@ -126,6 +120,12 @@ pub(crate) struct Task {
     pub(crate) error: Option<String>,
     /// It moves the real pointer or presses real keys now ("Hands off").
     pub(crate) hands_off: bool,
+    /// What it asked the person and waits on, until answered or dismissed.
+    pub(crate) question: Option<String>,
+    /// When it asked, in the board's order of questions (newest highest).
+    pub(crate) asked: u64,
+    /// Its plan, once it made one.
+    pub(crate) plan: Vec<PlanStep>,
     /// When it finished, for how long it lingers.
     ended: Option<Instant>,
 }
@@ -144,6 +144,9 @@ impl Task {
             answer: String::new(),
             error: None,
             hands_off: false,
+            question: None,
+            asked: 0,
+            plan: Vec::new(),
             ended: None,
         }
     }
@@ -152,9 +155,11 @@ impl Task {
     /// or the error once it's over.
     pub(crate) fn detail(&self) -> Option<String> {
         match self.phase {
-            Phase::Queued | Phase::Running | Phase::Paused | Phase::Waiting { .. } => {
-                self.step.clone()
-            }
+            Phase::Queued
+            | Phase::Running
+            | Phase::Paused
+            | Phase::Waiting { .. }
+            | Phase::NeedsInput => self.step.clone(),
             Phase::Done => Some(first_line(&self.answer)).filter(|line| !line.is_empty()),
             Phase::Failed => self.error.as_deref().map(first_line),
             Phase::Stopped => None,
@@ -177,6 +182,19 @@ impl Task {
             WEB_WORDS.iter().any(|word| step.contains(word))
         });
         if web { Place::Web } else { Place::Unknown }
+    }
+
+    /// Its plan's steps done, and in all, once it has a plan.
+    pub(crate) fn progress(&self) -> Option<(usize, usize)> {
+        (!self.plan.is_empty()).then(|| {
+            let done = self.plan.iter().filter(|step| step.done).count();
+            (done, self.plan.len())
+        })
+    }
+
+    /// The plan step it's on: the first not done.
+    pub(crate) fn current_step(&self) -> Option<usize> {
+        self.plan.iter().position(|step| !step.done)
     }
 
     fn note_step(&mut self, description: &str) {
@@ -221,6 +239,8 @@ pub(crate) struct Outlined {
     pub(crate) title: String,
     pub(crate) window: TaskWindow,
     pub(crate) look: Look,
+    /// Its plan's steps done and in all, for the title chip.
+    pub(crate) progress: Option<(usize, usize)>,
 }
 
 /// Every task the overlays know of, oldest first, and the bubbles that pop
@@ -229,6 +249,8 @@ pub(crate) struct Outlined {
 pub(crate) struct Board {
     pub(crate) tasks: Vec<Task>,
     pub(crate) pops: Pops,
+    /// Questions asked so far, to order them newest first.
+    asked: u64,
 }
 
 impl Board {
@@ -254,6 +276,7 @@ impl Board {
         Self {
             tasks,
             pops: Pops::default(),
+            asked: 0,
         }
     }
 
@@ -298,6 +321,8 @@ impl Board {
                     task.ended = None;
                     task.error = None;
                     task.answer.clear();
+                    // Answered: a follow-up is how an answer arrives.
+                    task.question = None;
                     if let Some(colour) = colour {
                         task.colour = colour % COLOURS;
                     }
@@ -376,6 +401,24 @@ impl Board {
             Event::HandsOff { conversation, on } => {
                 self.live(conversation, |task| set(&mut task.hands_off, *on))
             }
+            Event::Plan {
+                conversation,
+                steps,
+            } => self.live(conversation, |task| set(&mut task.plan, steps.clone())),
+            Event::Question { conversation, text } => {
+                self.asked += 1;
+                let asked = self.asked;
+                self.live(conversation, |task| {
+                    task.phase = Phase::NeedsInput;
+                    task.question = Some(text.trim().to_owned());
+                    task.asked = asked;
+                    true
+                })
+            }
+            Event::Escalated { conversation } => self.live(conversation, |task| {
+                // The Here question continues as a Background task.
+                set(&mut task.origin, Origin::Background)
+            }),
             Event::ConversationsChanged | Event::ModeChanged { .. } => false,
         }
     }
@@ -449,9 +492,28 @@ impl Board {
                     title: task.title.clone(),
                     window: window.clone(),
                     look,
+                    progress: task.progress(),
                 })
             })
             .collect()
+    }
+
+    /// The live tasks waiting on a question for the person, newest first.
+    pub(crate) fn questions(&self) -> Vec<&Task> {
+        let mut asking: Vec<&Task> = self
+            .tasks
+            .iter()
+            .filter(|task| task.phase.live() && task.question.is_some())
+            .collect();
+        asking.sort_by_key(|task| std::cmp::Reverse(task.asked));
+        asking
+    }
+
+    /// Puts away `id`'s question bubble (it still waits for the answer);
+    /// whether one was up.
+    pub(crate) fn dismiss_question(&mut self, id: &str) -> bool {
+        self.task_mut(id)
+            .is_some_and(|task| task.question.take().is_some())
     }
 
     pub(crate) fn task(&self, id: &str) -> Option<&Task> {
@@ -517,187 +579,10 @@ fn set<T: PartialEq>(slot: &mut T, value: T) -> bool {
 fn resumed(phase: Phase) -> Phase {
     match phase {
         Phase::Queued | Phase::Waiting { .. } => Phase::Running,
+        // Still waiting on the person; their answer starts it again.
+        Phase::NeedsInput => Phase::NeedsInput,
         other => other,
     }
-}
-
-/// What the quick question's bubble shows.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum BubblePhase {
-    /// Waiting on the model, nothing done yet.
-    Thinking,
-    /// Doing things on the desktop; its steps list.
-    Working,
-    /// The answer streams in.
-    Answering,
-    Answered,
-    Failed,
-}
-
-/// The quick question's bubble beside the HUD.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Bubble {
-    pub(crate) conversation: ConversationId,
-    pub(crate) question: String,
-    pub(crate) phase: BubblePhase,
-    /// The latest [`BUBBLE_STEPS`] steps, oldest first.
-    pub(crate) steps: Vec<String>,
-    pub(crate) answer: String,
-    pub(crate) error: Option<String>,
-    ended: Option<Instant>,
-    /// Its answer was read aloud at some point.
-    spoke: bool,
-    /// When reading aloud was last seen to have stopped, after the end.
-    quiet_since: Option<Instant>,
-}
-
-/// What a bubble wants next.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Due {
-    /// Stay; nothing timed yet (the question is still being answered).
-    Stay,
-    /// Look again at this time.
-    At(Instant),
-    /// Leave now.
-    Leave,
-}
-
-impl Bubble {
-    pub(crate) fn new(conversation: ConversationId, question: &str) -> Self {
-        Self {
-            conversation,
-            question: shorten(question),
-            phase: BubblePhase::Thinking,
-            steps: Vec::new(),
-            answer: String::new(),
-            error: None,
-            ended: None,
-            spoke: false,
-            quiet_since: None,
-        }
-    }
-
-    /// The quick question's bubble after `event`: a new quick question
-    /// replaces the old one's, a cancelled one goes, and others' events
-    /// pass by. Whether it changed.
-    pub(crate) fn apply(bubble: &mut Option<Self>, event: &Event, now: Instant) -> bool {
-        match event {
-            Event::Queued {
-                conversation,
-                origin: Origin::ActionShortcut,
-                question,
-            }
-            | Event::Started {
-                conversation,
-                origin: Origin::ActionShortcut,
-                question,
-            } => {
-                if bubble
-                    .as_ref()
-                    .is_some_and(|b| &b.conversation == conversation && b.ended.is_none())
-                {
-                    // Started after Queued: the same bubble.
-                    return false;
-                }
-                *bubble = Some(Self::new(conversation.clone(), question));
-                true
-            }
-            Event::Cancelled { conversation } => {
-                if bubble
-                    .as_ref()
-                    .is_some_and(|b| &b.conversation == conversation)
-                {
-                    *bubble = None;
-                    return true;
-                }
-                false
-            }
-            other => {
-                let Some(b) = bubble
-                    .as_mut()
-                    .filter(|b| Some(&b.conversation) == other.conversation())
-                else {
-                    return false;
-                };
-                b.step(other, now)
-            }
-        }
-    }
-
-    fn step(&mut self, event: &Event, now: Instant) -> bool {
-        if self.ended.is_some() {
-            return false;
-        }
-        match event {
-            Event::Thinking { .. } => false,
-            Event::Step { description, .. } => {
-                if self.phase == BubblePhase::Thinking {
-                    self.phase = BubblePhase::Working;
-                }
-                self.steps.push(shorten(description));
-                let extra = self.steps.len().saturating_sub(BUBBLE_STEPS);
-                self.steps.drain(..extra);
-                true
-            }
-            Event::AnswerDelta { text, .. } => {
-                self.phase = BubblePhase::Answering;
-                self.answer.push_str(text);
-                true
-            }
-            Event::Answer { text, .. } => {
-                self.phase = BubblePhase::Answered;
-                self.answer = text.trim().to_owned();
-                self.ended = Some(now);
-                true
-            }
-            Event::Failed { message, .. } => {
-                self.phase = BubblePhase::Failed;
-                self.error = Some(message.clone());
-                self.ended = Some(now);
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Whether the question is over (answered or failed).
-    pub(crate) fn over(&self) -> bool {
-        self.ended.is_some()
-    }
-
-    /// When the bubble leaves: never while the question is answered, nor
-    /// while its answer is read aloud; then [`BUBBLE_LINGER`] after the
-    /// speech, or, unread, the linger plus reading time from the answer.
-    pub(crate) fn due(&mut self, now: Instant, speaking: bool) -> Due {
-        let Some(ended) = self.ended else {
-            return Due::Stay;
-        };
-        if self.phase == BubblePhase::Failed {
-            return at_or_leave(ended + BUBBLE_FAILED, now);
-        }
-        if speaking {
-            self.spoke = true;
-            self.quiet_since = None;
-            // Speech has no end event to wait on: look again soon.
-            return Due::At(now + Duration::from_millis(400));
-        }
-        let leaves = if self.spoke {
-            *self.quiet_since.get_or_insert(now) + BUBBLE_LINGER
-        } else {
-            ended + BUBBLE_LINGER + reading_time(&self.answer)
-        };
-        at_or_leave(leaves, now)
-    }
-}
-
-fn at_or_leave(at: Instant, now: Instant) -> Due {
-    if now >= at { Due::Leave } else { Due::At(at) }
-}
-
-/// How long `text` takes to read, capped.
-pub(crate) fn reading_time(text: &str) -> Duration {
-    let words = text.split_whitespace().count() as u32;
-    (READING_PER_WORD * words).min(READING_MAX)
 }
 
 /// `text` as one line of at most [`LINE_CHARS`] characters: its first
@@ -1011,164 +896,6 @@ mod tests {
     }
 
     #[test]
-    fn a_quick_question_thinks_steps_streams_and_answers() {
-        let t0 = Instant::now();
-        let mut bubble = None;
-        assert!(!Bubble::apply(
-            &mut bubble,
-            &started(1, Origin::Background, "x"),
-            t0
-        ));
-        assert!(bubble.is_none(), "Background tasks never show the bubble");
-        assert!(Bubble::apply(&mut bubble, &quick(1), t0));
-        assert_eq!(bubble.as_ref().unwrap().phase, BubblePhase::Thinking);
-        for n in 0..5 {
-            Bubble::apply(
-                &mut bubble,
-                &Event::Step {
-                    conversation: id(1),
-                    description: format!("Step {n}"),
-                },
-                t0,
-            );
-        }
-        let b = bubble.as_ref().unwrap();
-        assert_eq!(b.phase, BubblePhase::Working);
-        assert_eq!(b.steps, ["Step 2", "Step 3", "Step 4"]);
-        for part in ["Sunny, ", "22 °C."] {
-            Bubble::apply(
-                &mut bubble,
-                &Event::AnswerDelta {
-                    conversation: id(1),
-                    text: part.into(),
-                },
-                t0,
-            );
-        }
-        assert_eq!(bubble.as_ref().unwrap().answer, "Sunny, 22 °C.");
-        assert_eq!(bubble.as_mut().unwrap().due(t0, false), Due::Stay);
-        Bubble::apply(
-            &mut bubble,
-            &Event::Answer {
-                conversation: id(1),
-                origin: Origin::ActionShortcut,
-                text: "Sunny, 22 °C. ".into(),
-            },
-            t0,
-        );
-        let b = bubble.as_mut().unwrap();
-        assert_eq!(b.phase, BubblePhase::Answered);
-        assert_eq!(b.answer, "Sunny, 22 °C.");
-        let unread = BUBBLE_LINGER + reading_time("Sunny, 22 °C.");
-        assert_eq!(b.due(t0, false), Due::At(t0 + unread));
-        assert_eq!(b.due(t0 + unread, false), Due::Leave);
-    }
-
-    #[test]
-    fn a_spoken_answer_stays_until_four_seconds_after_the_speech() {
-        let t0 = Instant::now();
-        let mut bubble = None;
-        Bubble::apply(&mut bubble, &quick(1), t0);
-        Bubble::apply(
-            &mut bubble,
-            &Event::Answer {
-                conversation: id(1),
-                origin: Origin::ActionShortcut,
-                text: "A long answer read aloud.".into(),
-            },
-            t0,
-        );
-        let b = bubble.as_mut().unwrap();
-        let later = t0 + Duration::from_secs(30);
-        assert!(
-            matches!(b.due(later, true), Due::At(_)),
-            "stays while speaking"
-        );
-        let quiet = later + Duration::from_secs(1);
-        assert_eq!(b.due(quiet, false), Due::At(quiet + BUBBLE_LINGER));
-        assert_eq!(
-            b.due(quiet + Duration::from_secs(1), false),
-            Due::At(quiet + BUBBLE_LINGER),
-            "measured from when the speech stopped"
-        );
-        assert_eq!(b.due(quiet + BUBBLE_LINGER, false), Due::Leave);
-    }
-
-    #[test]
-    fn a_new_quick_question_replaces_the_bubble_and_cancel_removes_it() {
-        let t0 = Instant::now();
-        let mut bubble = None;
-        Bubble::apply(&mut bubble, &quick(1), t0);
-        assert!(
-            !Bubble::apply(
-                &mut bubble,
-                &Event::Queued {
-                    conversation: id(1),
-                    origin: Origin::ActionShortcut,
-                    question: "again".into(),
-                },
-                t0,
-            ),
-            "Queued then Started is one bubble"
-        );
-        Bubble::apply(&mut bubble, &quick(2), t0);
-        assert_eq!(bubble.as_ref().unwrap().conversation, id(2));
-        assert!(
-            !Bubble::apply(
-                &mut bubble,
-                &Event::Step {
-                    conversation: id(1),
-                    description: "old".into(),
-                },
-                t0,
-            ),
-            "the replaced question's events pass by"
-        );
-        assert!(!Bubble::apply(
-            &mut bubble,
-            &Event::Cancelled {
-                conversation: id(1)
-            },
-            t0
-        ));
-        assert!(Bubble::apply(
-            &mut bubble,
-            &Event::Cancelled {
-                conversation: id(2)
-            },
-            t0
-        ));
-        assert!(bubble.is_none());
-    }
-
-    #[test]
-    fn a_failed_quick_question_shows_its_error_for_six_seconds() {
-        let t0 = Instant::now();
-        let mut bubble = None;
-        Bubble::apply(&mut bubble, &quick(1), t0);
-        Bubble::apply(
-            &mut bubble,
-            &Event::Failed {
-                conversation: id(1),
-                message: "Claude Code isn't signed in.".into(),
-            },
-            t0,
-        );
-        let b = bubble.as_mut().unwrap();
-        assert_eq!(b.phase, BubblePhase::Failed);
-        assert_eq!(b.error.as_deref(), Some("Claude Code isn't signed in."));
-        assert_eq!(b.due(t0, true), Due::At(t0 + BUBBLE_FAILED));
-        assert_eq!(b.due(t0 + BUBBLE_FAILED, false), Due::Leave);
-    }
-
-    #[test]
-    fn reading_time_grows_with_the_answer_up_to_a_cap() {
-        assert_eq!(reading_time(""), Duration::ZERO);
-        assert_eq!(reading_time("one two three four"), Duration::from_secs(1));
-        assert_eq!(reading_time(&"word ".repeat(1000)), READING_MAX);
-    }
-
-    #[test]
     fn a_task_taken_over_waits_for_its_hand_back_and_its_outline_says_so() {
         let t0 = Instant::now();
         let mut board = Board::default();
@@ -1282,6 +1009,87 @@ mod tests {
             t0,
         );
         assert!(board.hands_off().is_none(), "a finished task lets go");
+    }
+
+    #[test]
+    fn questions_wait_for_an_answer_newest_first_and_plans_count_their_steps() {
+        let t0 = Instant::now();
+        let mut board = Board::default();
+        for n in 1..=2 {
+            board.apply(&started(n, Origin::Background, "a"), None, t0);
+            board.apply(
+                &Event::Question {
+                    conversation: id(n),
+                    text: format!("Question {n}? "),
+                },
+                None,
+                t0,
+            );
+        }
+        assert_eq!(board.tasks[0].phase, Phase::NeedsInput);
+        let asking: Vec<_> = board.questions().iter().map(|t| t.id.clone()).collect();
+        assert_eq!(asking, [id(2), id(1)], "newest first");
+        assert_eq!(board.tasks[0].question.as_deref(), Some("Question 1?"));
+        board.apply(
+            &Event::Step {
+                conversation: id(1),
+                description: "Still looking".into(),
+            },
+            None,
+            t0,
+        );
+        assert_eq!(board.tasks[0].phase, Phase::NeedsInput, "until answered");
+        assert!(board.dismiss_question(&id(2)));
+        assert!(!board.dismiss_question(&id(2)));
+        assert_eq!(board.tasks[1].phase, Phase::NeedsInput, "still waits");
+        // The answer arrives as a follow-up in the same conversation.
+        board.apply(&started(1, Origin::Background, "Finance"), None, t0);
+        assert_eq!(board.tasks[0].phase, Phase::Running);
+        assert!(board.tasks[0].question.is_none());
+
+        let step = |title: &str, done| PlanStep {
+            title: title.into(),
+            done,
+        };
+        board.apply(
+            &Event::Plan {
+                conversation: id(1),
+                steps: vec![step("a", true), step("b", false), step("c", false)],
+            },
+            None,
+            t0,
+        );
+        assert_eq!(board.tasks[0].progress(), Some((1, 3)));
+        assert_eq!(board.tasks[0].current_step(), Some(1));
+    }
+
+    #[test]
+    fn an_escalated_here_question_joins_the_background_tasks() {
+        let t0 = Instant::now();
+        let mut board = Board::default();
+        board.apply(&quick(1), None, t0);
+        assert!(board.stack().is_empty());
+        assert!(board.apply(
+            &Event::Escalated {
+                conversation: id(1)
+            },
+            None,
+            t0
+        ));
+        assert_eq!(board.stack().len(), 1);
+        assert_eq!(board.pops.items.len(), 1, "its title pops from the orb");
+        let mut bubble = None;
+        Bubble::apply(&mut bubble, &quick(1), t0);
+        Bubble::apply(
+            &mut bubble,
+            &Event::Escalated {
+                conversation: id(1),
+            },
+            t0,
+        );
+        let b = bubble.as_mut().unwrap();
+        assert!(b.escalated);
+        assert_eq!(b.due(t0, false), Due::Leave, "it flies off at once");
     }
 
     #[test]

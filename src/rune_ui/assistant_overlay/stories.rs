@@ -91,6 +91,7 @@ fn orb_story() -> Story<OrbStory> {
     .variant("bubbles", with(fixture::board, false))
     .variant("quiet", with(fixture::quiet_board, false))
     .variant("list", with(fixture::board, true))
+    .variant("escalated", with(fixture::escalated_board, false))
 }
 
 fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
@@ -110,10 +111,11 @@ fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
             .child(orb::content(
                 p,
                 &state.board,
-                orb::Look {
+                &orb::Look {
                     open: state.open,
                     grow: orb::Grow::default(),
                     still: cx.system_reduced_motion(),
+                    answer_key: fixture::ANSWER_KEY.into(),
                 },
                 orb::Actions {
                     list: stack::Actions {
@@ -148,6 +150,9 @@ fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
                         },
                         stop_all: |s: &mut OrbStory| s.note = "Would stop every task".into(),
                         toggle: |s: &mut OrbStory| s.open = !s.open,
+                        dismiss: |s: &mut OrbStory, id| {
+                            s.board.dismiss_question(id);
+                        },
                     },
                     hover: |_, _| {},
                     drag: |_, _| {},
@@ -242,6 +247,7 @@ fn bubble_view(state: &BubbleStory, cx: &mut Cx<BubbleStory>) -> El {
                 speaking: state.speaking,
                 still: cx.system_reduced_motion(),
             },
+            fixture::ANSWER_KEY,
             actions,
         )
     };

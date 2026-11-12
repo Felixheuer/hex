@@ -64,6 +64,8 @@ pub(crate) struct BubbleOverlay {
     pub(crate) speaking: bool,
     /// "Finish setting up the assistant first" shows instead, until then.
     pub(crate) setup: Option<std::time::Instant>,
+    /// The Action shortcut's keys, for "Hold ⌘ to answer".
+    pub(crate) answer_key: String,
     pub(crate) actions: Actions<BubbleOverlay>,
 }
 
@@ -85,6 +87,7 @@ pub(crate) fn view(state: &BubbleOverlay, cx: &mut Cx<BubbleOverlay>) -> El {
         speaking: state.speaking,
         still: cx.system_reduced_motion(),
     };
+    let flying = state.bubble.as_ref().is_some_and(|b| b.escalated);
     let shown = if !state.shown {
         None
     } else if state.setup.is_some() {
@@ -93,9 +96,31 @@ pub(crate) fn view(state: &BubbleOverlay, cx: &mut Cx<BubbleOverlay>) -> El {
         state
             .bubble
             .as_ref()
-            .map(|bubble| card(p, bubble, voice_now, state.actions))
+            .map(|bubble| card(p, bubble, voice_now, &state.answer_key, state.actions))
     };
-    root.children(shown.map(|card| card.transition(grow(state.below))))
+    let motion = if flying {
+        fly(state.below)
+    } else {
+        grow(state.below)
+    };
+    root.children(shown.map(|card| card.transition(motion)))
+}
+
+/// A Here question that became a Background task: the card shrinks to a dot
+/// and flies off toward the orb, beside the HUD, as its dot arrives there.
+fn fly(below: bool) -> Transition {
+    let anchor = Vec2::new(1.0, if below { 0.0 } else { 1.0 });
+    Transition::asymmetric(
+        Transition::opacity(),
+        Transition::scale_anchor(0.5, anchor)
+            .allow_small_scale()
+            .combined(Transition::offset(240.0, if below { -24.0 } else { 24.0 }))
+            .combined(Transition::opacity()),
+    )
+    .springs(rune::SpringPair::new(
+        Spring::new(0.3, 0.0),
+        Spring::new(0.42, 0.1),
+    ))
 }
 
 /// "Finish setting up the assistant first", with Continue setup: what the
@@ -201,6 +226,7 @@ pub(crate) fn card<S: 'static>(
     p: Paint,
     bubble: &Bubble,
     voice_now: Voice,
+    answer_key: &str,
     actions: Actions<S>,
 ) -> El {
     let c = &p.k.c;
@@ -313,7 +339,36 @@ pub(crate) fn card<S: 'static>(
         .animate_layout()
         .child(question)
         .children(body)
+        .children(bubble.asks.as_ref().map(|asks| asking(p, asks, answer_key)))
         .children(footer)
+}
+
+/// What the task asks the person, with how to answer.
+fn asking(p: Paint, asks: &str, answer_key: &str) -> El {
+    let (lead, _) = palette::frame(p.k.dark);
+    col()
+        .key("asks")
+        .w_full()
+        .gap(3.0)
+        .pl(10.0)
+        .border_sides([0.0, 0.0, 0.0, 2.0], lead)
+        .child(
+            text(asks.to_owned())
+                .key("asks-text")
+                .wrap()
+                .max_lines(4)
+                .font(p.k.ty.ui_medium)
+                .color(p.text()),
+        )
+        .child(
+            text(crate::desktop::i18n::tr_fill(
+                "Hold {} to answer",
+                answer_key,
+            ))
+            .key("asks-hint")
+            .font(p.k.ty.small)
+            .color(lead),
+        )
 }
 
 /// A line with the activity spinner: what it's doing now.

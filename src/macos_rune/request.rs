@@ -54,6 +54,8 @@ pub(crate) enum ShortcutTarget {
     ExtraDictation(usize),
     /// Labs › Assistant's Action shortcut.
     Action,
+    /// Labs › Assistant's Stop all tasks shortcut.
+    StopAll,
     /// Toggle mode's cancel shortcut.
     Cancel,
     /// Labs › Screenshots.

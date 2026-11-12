@@ -34,5 +34,10 @@ overlay_strings![
     ("Esc to stop", ["Esc, aby zatrzymać", "按 Esc 停止", "Esc で停止", "Esc zum Stoppen", "Esc para detener", "Esc, щоб зупинити", "Esc para parar", "Échap pour arrêter", "Esc — остановить"]),
     ("On the web", ["W sieci", "在网页上", "ウェブ上", "Im Web", "En la web", "В інтернеті", "Na web", "Sur le web", "В интернете"]),
     ("Finish setting up the assistant first", ["Najpierw dokończ konfigurację asystenta", "请先完成助手设置", "先にアシスタントの設定を完了してください", "Richte zuerst den Assistenten fertig ein", "Primero termina de configurar el asistente", "Спершу завершіть налаштування асистента", "Primeiro termine de configurar o assistente", "Terminez d'abord la configuration de l'assistant", "Сначала завершите настройку ассистента"]),
+    ("Hold {} to answer", ["Przytrzymaj {}, aby odpowiedzieć", "按住 {} 回答", "{} を長押しして回答", "Halte {} zum Antworten", "Mantén {} para responder", "Утримуйте {}, щоб відповісти", "Segure {} para responder", "Maintenez {} pour répondre", "Удерживайте {}, чтобы ответить"]),
+    ("Hide question", ["Ukryj pytanie", "隐藏问题", "質問を隠す", "Frage ausblenden", "Ocultar pregunta", "Сховати запитання", "Ocultar pergunta", "Masquer la question", "Скрыть вопрос"]),
+    ("Waiting for your answer", ["Czeka na twoją odpowiedź", "等待你的回答", "回答を待っています", "Wartet auf deine Antwort", "Esperando tu respuesta", "Чекає на вашу відповідь", "Aguardando sua resposta", "En attente de votre réponse", "Ждёт вашего ответа"]),
+    ("{} done", ["Gotowe: {}", "已完成 {} 项", "{} 件完了", "{} erledigt", "{} hechos", "Виконано: {}", "{} concluídos", "{} terminées", "Готово: {}"]),
+    ("+{} more", ["+{} więcej", "另外 {} 个", "他 {} 件", "+{} weitere", "+{} más", "+{} ще", "+{} mais", "+{} de plus", "ещё {}"]),
     ("Continue setup", ["Kontynuuj konfigurację", "继续设置", "設定を続ける", "Einrichtung fortsetzen", "Continuar la configuración", "Продовжити налаштування", "Continuar configuração", "Continuer la configuration", "Продолжить настройку"]),
 ];

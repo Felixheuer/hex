@@ -23,8 +23,9 @@ pub(super) enum Shortcut {
     /// Labs › More dictation shortcuts, by row.
     Extra(usize),
     /// Labs › Assistant's Action shortcut: records as dictation does, but
-    /// its transcript asks the assistant, and a double tap turns Agent mode
-    /// on or off (`recognition::ask`).
+    /// its transcript asks the assistant; a tap then a hold starts a
+    /// Background task, and a double tap shows the task list
+    /// (`recognition::ask`).
     Action,
 }
 
@@ -162,6 +163,19 @@ impl Hotkeys {
         self.action
             .as_ref()
             .is_some_and(DictationHotkey::is_recording)
+    }
+
+    /// One of the Action machine's actions as the assistant takes it: a
+    /// start that followed a tap is a Background task once held.
+    pub(super) fn action_press(&self, action: HotkeyAction) -> super::ask::Press {
+        super::ask::Press {
+            action,
+            after_tap: action == HotkeyAction::Start
+                && self
+                    .action
+                    .as_ref()
+                    .is_some_and(DictationHotkey::follows_tap),
+        }
     }
 
     /// Whether one of the Labs › More dictation shortcuts records.
@@ -425,9 +439,10 @@ impl Hotkeys {
     }
 }
 
-/// The Action shortcut holds to ask and double-taps for Agent mode in every
-/// shortcut mode, whatever the dictation shortcut's settings, and has no
-/// cancel key of its own: a double tap is a gesture, never a lock.
+/// The Action shortcut holds to ask, taps then holds for a Background task,
+/// and double-taps for the task list in every shortcut mode, whatever the
+/// dictation shortcut's settings, and has no cancel key of its own: a double
+/// tap is a gesture, never a lock.
 pub(super) fn configure_action(action: &mut DictationHotkey) {
     action.set_double_tap_enabled(true);
     action.set_double_tap_only(false);
@@ -498,51 +513,113 @@ mod tests {
         crate::app_settings::COMMAND_KEY_MASK | crate::app_settings::RIGHT_COMMAND_MASK;
     const ACTION: Shortcut = Shortcut::Action;
 
-    /// A hold records and its release finishes: the listener asks the
-    /// assistant with what was said (`recognition::ask`).
+    /// Feeds right Command's modifier state at `ms` and returns the Action
+    /// machine's actions as the assistant takes them (`action_press`).
+    fn step(hotkeys: &mut Hotkeys, flags: u64, ms: u64) -> Vec<ask::Press> {
+        let at = CaptureInstant::ZERO + Duration::from_secs(60) + Duration::from_millis(ms);
+        hotkeys
+            .process(InputEvent::Flags(flags), at)
+            .into_iter()
+            .map(|(shortcut, action)| {
+                assert_eq!(shortcut, ACTION);
+                hotkeys.action_press(action)
+            })
+            .collect()
+    }
+
+    fn start(after_tap: bool) -> ask::Press {
+        ask::Press {
+            action: HotkeyAction::Start,
+            after_tap,
+        }
+    }
+
+    fn just(action: HotkeyAction) -> ask::Press {
+        ask::Press {
+            action,
+            after_tap: false,
+        }
+    }
+
+    use super::super::ask;
+
+    /// A hold records and its release finishes: the listener asks Here with
+    /// what was said (`recognition::ask`). A second hold right after the
+    /// first asks Here again; a hold is no tap, and nothing locks.
     #[test]
-    fn holding_the_action_shortcut_records_and_its_release_asks() {
-        let at =
-            |ms: u64| CaptureInstant::ZERO + Duration::from_secs(60) + Duration::from_millis(ms);
+    fn a_hold_asks_here() {
         let mut hotkeys = action_hotkeys();
-        let mut press = |flags: u64, ms: u64| hotkeys.process(InputEvent::Flags(flags), at(ms));
-        assert_eq!(press(RIGHT_COMMAND, 0), [(ACTION, HotkeyAction::Start)]);
-        assert_eq!(press(0, 1_500), [(ACTION, HotkeyAction::Finish)]);
-        // A second hold right after the first asks again; it never locks.
-        assert_eq!(press(RIGHT_COMMAND, 1_600), [(ACTION, HotkeyAction::Start)]);
-        assert_eq!(press(0, 3_000), [(ACTION, HotkeyAction::Finish)]);
+        let h = &mut hotkeys;
+        assert_eq!(step(h, RIGHT_COMMAND, 0), [start(false)]);
+        assert_eq!(step(h, 0, 1_500), [just(HotkeyAction::Finish)]);
+        assert_eq!(step(h, RIGHT_COMMAND, 1_600), [start(false)]);
+        assert_eq!(step(h, 0, 3_000), [just(HotkeyAction::Finish)]);
         assert!(!hotkeys.any_recording());
     }
 
-    /// Two complete taps turn Agent mode on or off: the second tap's capture
-    /// ends as a gesture, nothing locks, and the next hold asks again. One
-    /// tap only starts and finishes a capture too short to transcribe.
+    /// A tap, then within the double-tap window a press held past the hold
+    /// threshold: the press starts after a tap (a Background task) and its
+    /// release finishes it, as a hold's does. Nothing locks.
     #[test]
-    fn a_double_tap_is_a_gesture_and_a_tap_asks_nothing() {
-        let at =
-            |ms: u64| CaptureInstant::ZERO + Duration::from_secs(60) + Duration::from_millis(ms);
+    fn a_tap_then_a_hold_asks_in_the_background() {
         let mut hotkeys = action_hotkeys();
-        let mut press = |flags: u64, ms: u64| hotkeys.process(InputEvent::Flags(flags), at(ms));
-        assert_eq!(press(RIGHT_COMMAND, 0), [(ACTION, HotkeyAction::Start)]);
-        assert_eq!(press(0, 70), [(ACTION, HotkeyAction::Finish)]);
-        assert_eq!(press(RIGHT_COMMAND, 150), [(ACTION, HotkeyAction::Start)]);
-        assert_eq!(press(0, 220), [(ACTION, HotkeyAction::DoubleTap)]);
+        let h = &mut hotkeys;
+        assert_eq!(step(h, RIGHT_COMMAND, 0), [start(false)]);
+        assert_eq!(step(h, 0, 70), [just(HotkeyAction::Finish)]);
+        assert_eq!(step(h, RIGHT_COMMAND, 200), [start(true)]);
+        assert!(h.action_recording());
+        assert_eq!(step(h, 0, 2_000), [just(HotkeyAction::Finish)]);
+        assert!(!h.any_recording());
+        // The next hold is Here again: the Background hold was no tap.
+        assert_eq!(step(h, RIGHT_COMMAND, 2_100), [start(false)]);
+        assert_eq!(step(h, 0, 3_500), [just(HotkeyAction::Finish)]);
+
+        // A second press just past the window is a plain hold.
+        assert_eq!(step(h, RIGHT_COMMAND, 6_000), [start(false)]);
+        assert_eq!(step(h, 0, 6_070), [just(HotkeyAction::Finish)]);
+        assert_eq!(step(h, RIGHT_COMMAND, 6_400), [start(false)]);
+        assert_eq!(step(h, 0, 8_000), [just(HotkeyAction::Finish)]);
+        assert!(!hotkeys.any_recording());
+    }
+
+    /// Two complete taps show the task list: the second tap's capture ends
+    /// as a gesture, nothing locks, and the next press starts over. A second
+    /// tap released after the first's window is still a tap, never a hold.
+    #[test]
+    fn a_double_tap_is_a_gesture() {
+        let mut hotkeys = action_hotkeys();
+        let h = &mut hotkeys;
+        assert_eq!(step(h, RIGHT_COMMAND, 0), [start(false)]);
+        assert_eq!(step(h, 0, 70), [just(HotkeyAction::Finish)]);
+        assert_eq!(step(h, RIGHT_COMMAND, 150), [start(true)]);
+        assert_eq!(step(h, 0, 220), [just(HotkeyAction::DoubleTap)]);
         // A third tap starts over rather than pairing with the gesture.
-        assert_eq!(press(RIGHT_COMMAND, 300), [(ACTION, HotkeyAction::Start)]);
-        assert_eq!(press(0, 360), [(ACTION, HotkeyAction::Finish)]);
+        assert_eq!(step(h, RIGHT_COMMAND, 300), [start(false)]);
+        assert_eq!(step(h, 0, 360), [just(HotkeyAction::Finish)]);
 
-        // One tap alone, then a later press: a fresh capture, not a gesture.
-        assert_eq!(press(RIGHT_COMMAND, 2_000), [(ACTION, HotkeyAction::Start)]);
-        assert_eq!(press(0, 2_080), [(ACTION, HotkeyAction::Finish)]);
-        assert_eq!(press(RIGHT_COMMAND, 2_500), [(ACTION, HotkeyAction::Start)]);
-        assert_eq!(press(0, 4_000), [(ACTION, HotkeyAction::Finish)]);
+        assert_eq!(step(h, RIGHT_COMMAND, 2_000), [start(false)]);
+        assert_eq!(step(h, 0, 2_060), [just(HotkeyAction::Finish)]);
+        assert_eq!(step(h, RIGHT_COMMAND, 2_300), [start(true)]);
+        assert_eq!(step(h, 0, 2_420), [just(HotkeyAction::DoubleTap)]);
+        assert!(!hotkeys.any_recording());
+    }
 
-        // A question held, then a quick tap: the hold asked, the tap pairs
-        // with nothing.
-        assert_eq!(press(RIGHT_COMMAND, 6_000), [(ACTION, HotkeyAction::Start)]);
-        assert_eq!(press(0, 7_000), [(ACTION, HotkeyAction::Finish)]);
-        assert_eq!(press(RIGHT_COMMAND, 7_080), [(ACTION, HotkeyAction::Start)]);
-        assert_eq!(press(0, 7_150), [(ACTION, HotkeyAction::Finish)]);
+    /// One tap alone only starts and finishes a capture too short to
+    /// transcribe, so it asks nothing; a later press is a fresh one. A hold,
+    /// then a quick tap: the hold asked, and the tap pairs with nothing.
+    #[test]
+    fn a_tap_alone_asks_nothing() {
+        let mut hotkeys = action_hotkeys();
+        let h = &mut hotkeys;
+        assert_eq!(step(h, RIGHT_COMMAND, 0), [start(false)]);
+        assert_eq!(step(h, 0, 80), [just(HotkeyAction::Finish)]);
+        assert_eq!(step(h, RIGHT_COMMAND, 2_000), [start(false)]);
+        assert_eq!(step(h, 0, 3_500), [just(HotkeyAction::Finish)]);
+
+        assert_eq!(step(h, RIGHT_COMMAND, 6_000), [start(false)]);
+        assert_eq!(step(h, 0, 7_000), [just(HotkeyAction::Finish)]);
+        assert_eq!(step(h, RIGHT_COMMAND, 7_080), [start(false)]);
+        assert_eq!(step(h, 0, 7_150), [just(HotkeyAction::Finish)]);
         assert!(!hotkeys.any_recording());
     }
 

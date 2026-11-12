@@ -46,6 +46,21 @@ pub enum AssistantCommand {
     /// Save the Anthropic API key read from standard input in the Keychain
     /// (an empty input deletes it).
     Key,
+    /// The guard's MCP server for one task (Hex gives it to each task's
+    /// agent in place of agent-desktop): `--spec` is the task's JSON spec or
+    /// a file holding it.
+    #[command(hide = true)]
+    Mcp {
+        #[arg(long)]
+        spec: String,
+    },
+    /// A task's hidden browser as an MCP server on stdio (agent-browser's
+    /// own, pinned to the task's session). Started by the task's agent.
+    #[command(hide = true)]
+    BrowserMcp {
+        #[arg(long)]
+        task: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -109,6 +124,8 @@ pub fn run(command: AssistantCommand) -> u8 {
         }
         AssistantCommand::Show { id } => show(&id).map(|()| true),
         AssistantCommand::Key => key().map(|()| true),
+        AssistantCommand::Mcp { spec } => super::guard::serve(&spec).map(|()| true),
+        AssistantCommand::BrowserMcp { task } => super::browser::serve(&task).map(|()| true),
     };
     match result {
         Ok(true) => 0,
@@ -191,6 +208,13 @@ fn ask(ask: Ask) -> Result<bool> {
             Event::Resumed { .. } => println!("[resumed]"),
             Event::Waiting { reason, .. } => println!("[waiting] {reason}"),
             Event::HandsOff { on, .. } => println!("[hands off] {on}"),
+            Event::Plan { steps, .. } => {
+                for step in steps {
+                    println!("[plan] {} {}", if step.done { "✓" } else { "·" }, step.title);
+                }
+            }
+            Event::Question { text, .. } => println!("[question] {text}"),
+            Event::Escalated { .. } => println!("[escalated] continues in the background"),
             Event::Queued { .. } => println!("[queued]"),
             Event::Started { origin, .. } => println!("[started] {origin:?}"),
             Event::Thinking { .. } => println!("[thinking]"),

@@ -91,6 +91,13 @@ pub fn background_busy() -> bool {
     agent_mode()
 }
 
+/// A hold of the Action shortcut just became real: get ready to answer in
+/// `lane` (start its agent, warm its session) while the person speaks.
+/// Called on the listener's thread; return at once.
+pub fn prewarm(lane: super::types::Lane) {
+    let _ = lane;
+}
+
 /// The person takes `conversation` over: its desktop actions wait, and its
 /// window comes forward. `Event::Paused`.
 pub fn take_over(conversation: &str) {
@@ -107,6 +114,18 @@ pub fn hand_back(conversation: &str) {
 /// (`Outcome::Interrupted`), telling the agent to check what was already
 /// done before going on.
 pub fn resume_interrupted(conversation: &str) -> Option<ConversationId> {
+    let _ = conversation;
+    None
+}
+
+/// The plan of a running or finished conversation, if it made one.
+pub fn plan(conversation: &str) -> Vec<crate::assistant::PlanStep> {
+    let _ = conversation;
+    Vec::new()
+}
+
+/// The question a task is waiting on (`TaskState::NeedsInput`), if any.
+pub fn question(conversation: &str) -> Option<String> {
     let _ = conversation;
     None
 }
