@@ -396,11 +396,20 @@ fn sign_in_row(ui: &Ui, p: Paint) -> CardRow {
 }
 
 /// Which engine clean browsers run: Lightpanda (light, for many at once)
-/// or Chrome, with Lightpanda one click away.
+/// or Chrome, with Lightpanda one click away (but on Windows, which it has
+/// no build for).
 fn engine_row(ui: &Ui, p: Paint) -> CardRow {
     use crate::assistant::browser::Engine;
     let state = &ui.chats.settings;
     let (detail, control) = match state.engine {
+        // Lightpanda has no Windows build.
+        _ if ui.platform.caps.os == Os::Windows => (
+            tr("Chrome. Lightpanda, the lighter engine, has no Windows version").to_owned(),
+            text(tr("Chrome"))
+                .key("engine")
+                .font(p.k.ty.small_medium)
+                .color(p.muted()),
+        ),
         Some(Engine::Lightpanda) => (
             tr("Lightpanda: about ten times lighter, so many research tasks run at once")
                 .to_owned(),

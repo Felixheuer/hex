@@ -29,7 +29,7 @@ fn runtime_for(state: Ui) -> Runtime<Ui> {
     rt
 }
 
-fn scene(name: &str) -> Runtime<Ui> {
+pub(super) fn scene(name: &str) -> Runtime<Ui> {
     let mut state = Ui::with(AppSettings::default(), Service::Fixture(Vec::new()));
     let (_, apply) = SCENES
         .iter()
@@ -39,7 +39,7 @@ fn scene(name: &str) -> Runtime<Ui> {
     runtime_for(state)
 }
 
-fn settle(rt: &mut Runtime<Ui>) {
+pub(super) fn settle(rt: &mut Runtime<Ui>) {
     for _ in 0..60 {
         rt.frame(1.0 / 30.0);
     }
@@ -47,18 +47,18 @@ fn settle(rt: &mut Runtime<Ui>) {
     rt.frame(0.0);
 }
 
-fn tap(rt: &mut Runtime<Ui>, key: &str) {
+pub(super) fn tap(rt: &mut Runtime<Ui>, key: &str) {
     let (x, y) = rt.find(key).unwrap_or_else(|| panic!("no element {key}"));
     rt.pointer_down(x, y);
     rt.pointer_up(x, y);
     settle(rt);
 }
 
-fn texts(rt: &Runtime<Ui>) -> Vec<String> {
+pub(super) fn texts(rt: &Runtime<Ui>) -> Vec<String> {
     rt.elements().into_iter().filter_map(|e| e.text).collect()
 }
 
-fn shows(rt: &Runtime<Ui>, words: &str) -> bool {
+pub(super) fn shows(rt: &Runtime<Ui>, words: &str) -> bool {
     texts(rt).iter().any(|text| text == words)
 }
 
@@ -93,7 +93,7 @@ fn chats_stays_in_the_sidebar_while_the_assistant_is_off_and_offers_to_turn_it_o
 #[test]
 fn the_settings_switch_turns_the_assistant_off_and_on() {
     let mut rt = scene("mac-chats-settings");
-    assert!(shows(&rt, "Hold right ⌘ to ask, double-tap for your tasks"));
+    assert!(shows(&rt, "Hold Right ⌘ to ask, double-tap for your tasks"));
     assert!(rt.find("run-assistant-setup").is_some());
     tap(&mut rt, "assistant-enabled");
     assert!(!rt.state.settings.assistant.enabled);

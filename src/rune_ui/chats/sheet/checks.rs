@@ -72,17 +72,19 @@ pub(super) fn result_row(
 
 /// A failed check's fix: its button at once, even while later checks run
 /// (only Try again waits for them), and a spinner while it works.
-fn fix_control(flow: &SetupFlow, p: Paint, result: &CheckResult) -> El {
+fn fix_control(ui: &Ui, flow: &SetupFlow, p: Paint, result: &CheckResult) -> El {
     match result.fix {
         Some(fix) if result.state == CheckState::Failed && flow.fixing == Some(fix) => {
             spinner(p, "fixing")
         }
         Some(Fix::Retry) if flow.checks_running => el().key("none"),
-        Some(fix) if result.state == CheckState::Failed => {
-            push(p, "fix", &fix_label(fix), false, move |ui: &mut Ui| {
-                setup::apply(ui, fix)
-            })
-        }
+        Some(fix) if result.state == CheckState::Failed => push(
+            p,
+            "fix",
+            &fix_label(fix, ui.platform.caps.os),
+            false,
+            move |ui: &mut Ui| setup::apply(ui, fix),
+        ),
         _ => el().key("none"),
     }
 }
@@ -97,10 +99,10 @@ pub(super) fn checks(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             result_row(
                 p,
                 format!("check{index}"),
-                check_title(result.check),
+                check_title(result.check, ui.platform.caps.os),
                 result.state,
                 &result.detail,
-                fix_control(flow, p, result),
+                fix_control(ui, flow, p, result),
             )
         })
         .collect();

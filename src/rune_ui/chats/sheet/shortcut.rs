@@ -6,6 +6,7 @@ use rune_kit::{Button, ButtonVariant, glyphs};
 
 use super::super::super::controls::{Paint, PushSize};
 use super::super::super::onboarding_kit::keys;
+use super::super::super::platform::Os;
 use super::super::Ui;
 use super::super::setup::{self, Page, ProbeState, SetupFlow, page_done};
 use super::super::shortcut::{ConflictFix, Probe};
@@ -44,7 +45,7 @@ fn slot_keys(ui: &Ui, p: Paint, slot: HotkeySlot) -> Option<El> {
 
 /// What a press test found, for a person; `taker` names who took the keys
 /// when a conflict says so.
-fn probe_words(found: &Probe, taker: Option<&str>) -> (String, bool) {
+fn probe_words(found: &Probe, taker: Option<&str>, mac: bool) -> (String, bool) {
     match found {
         Probe::Works(held) => (
             tr_fill(
@@ -56,12 +57,18 @@ fn probe_words(found: &Probe, taker: Option<&str>) -> (String, bool) {
         Probe::Swallowed => (
             match taker {
                 Some(name) => tr_fill("{} took the keys before Hex could", name),
-                None => tr("Another app or macOS took the keys before Hex could").into(),
+                None if mac => tr("Another app or macOS took the keys before Hex could").into(),
+                None => tr("Another app or the system took the keys before Hex could").into(),
             },
             false,
         ),
         Probe::NothingReceived => (
-            tr("Nothing reached Hex. Another app or macOS may take it").into(),
+            if mac {
+                tr("Nothing reached Hex. Another app or macOS may take it")
+            } else {
+                tr("Nothing reached Hex. Another app or the system may take it")
+            }
+            .into(),
             false,
         ),
         Probe::WrongKeys(saw) => (tr_fill("Hex saw {} instead", saw), false),
@@ -97,7 +104,8 @@ fn probe_row(ui: &Ui, flow: &SetupFlow, p: Paint, slot: HotkeySlot) -> El {
             waiting_pill(p, "waiting", tr("Listening")),
         ),
         Some(ProbeState::Done(found)) => {
-            let (words, works) = probe_words(found, taker);
+            let mac = ui.platform.caps.os == Os::Macos;
+            let (words, works) = probe_words(found, taker, mac);
             let control = if works {
                 done_pill(p, "works", tr("Works"))
             } else {
@@ -164,6 +172,7 @@ fn probe_row(ui: &Ui, flow: &SetupFlow, p: Paint, slot: HotkeySlot) -> El {
 /// The shortcuts are free and Hex receives them: what else takes them,
 /// each with where it's fixed, then a live press of each.
 pub(super) fn shortcut(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
+    let mac = ui.platform.caps.os == Os::Macos;
     let mut rows = Vec::new();
     match &flow.conflicts {
         None => rows.push(row_of(
@@ -171,7 +180,11 @@ pub(super) fn shortcut(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             "conflicts",
             &glyphs::SEARCH,
             tr("Other apps"),
-            tr("Looking for apps and macOS features on these shortcuts…"),
+            if mac {
+                tr("Looking for apps and macOS features on these shortcuts…")
+            } else {
+                tr("Looking for apps on these shortcuts…")
+            },
             p.muted(),
             spinner(p, "looking"),
         )),
@@ -180,7 +193,11 @@ pub(super) fn shortcut(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             "conflicts",
             &glyphs::SEARCH,
             tr("Other apps"),
-            tr("Nothing else on this Mac uses them"),
+            if mac {
+                tr("Nothing else on this Mac uses them")
+            } else {
+                tr("Nothing else on this computer uses them")
+            },
             p.muted(),
             done_pill(p, "free", tr("Free")),
         )),

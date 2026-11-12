@@ -1,7 +1,7 @@
 //! Where the assistant's onboarding pages stand, kept beside the voice
 //! tour's own markers (`onboarding-step`, `onboarding-relaunch`) so a run
 //! cut short (a restart macOS asks for after a grant, Restart Hex and
-//! continue, ⌘Q) reopens on the page it was on. Only the page is kept:
+//! continue, quitting) reopens on the page it was on. Only the page is kept:
 //! every page checks again when it shows, so nothing counts as done until
 //! its check passes after the relaunch.
 

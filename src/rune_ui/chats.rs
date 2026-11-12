@@ -743,7 +743,7 @@ pub(super) fn pane(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> (Vec<El>, El) {
             super::scroll_body(p.k, "chats-settings-scroll", settings::page(ui, p, layer)),
         ),
         View::Chats if !crate::assistant::enabled(&ui.settings) => {
-            (Vec::new(), switch::off_card(p))
+            (Vec::new(), switch::off_card(ui, p))
         }
         View::Chats => {
             layer.extend(schedules::sheet(ui, p));

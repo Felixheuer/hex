@@ -162,7 +162,7 @@ pub(super) fn browser(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                 Some(fix) if result.state == CheckState::Failed && !busy => push(
                     p,
                     "fix",
-                    &setup::fix_label(fix),
+                    &setup::fix_label(fix, ui.platform.caps.os),
                     false,
                     move |ui: &mut Ui| setup::apply(ui, fix),
                 ),
@@ -171,7 +171,7 @@ pub(super) fn browser(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             rows.push(result_row(
                 p,
                 format!("browser-check{index}"),
-                check_title(result.check),
+                check_title(result.check, ui.platform.caps.os),
                 result.state,
                 &result.detail,
                 control,
