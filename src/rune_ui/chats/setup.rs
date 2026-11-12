@@ -380,7 +380,7 @@ pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bo
         Page::Checks => {
             flow.checked_backend == Some(backend)
                 && !flow.checks.is_empty()
-                && flow.checks.iter().all(CheckResult::ok)
+                && flow.checks.iter().all(browser::passed_or_optional)
         }
         // Nothing takes the Action shortcut for sure, and a press of it
         // really reached Hex.
@@ -737,7 +737,10 @@ pub(super) fn receive(ui: &mut Ui, done: super::Done) {
         return;
     }
     let fixed = matches!(done, Done::Fixed(..));
-    let browser_installed = matches!(done, Done::Fixed(Fix::InstallAgentBrowser, _));
+    let browser_installed = matches!(
+        done,
+        Done::Fixed(Fix::InstallAgentBrowser | Fix::InstallLightpanda, _)
+    );
     let Some(flow) = ui.chats.setup.as_mut() else {
         return;
     };

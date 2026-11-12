@@ -48,6 +48,10 @@ pub(in crate::rune_ui) struct SettingsState {
     pub(in crate::rune_ui) blocked: TextEdit,
     /// agent-browser, once read.
     pub(in crate::rune_ui) browser: Option<AgentBrowser>,
+    /// The engine clean browsers run, once read.
+    pub(in crate::rune_ui) engine: Option<crate::assistant::browser::Engine>,
+    /// Lightpanda installs from Settings now.
+    pub(in crate::rune_ui) installing_lightpanda: bool,
     /// Someone signed in to sites in Hex's own browser.
     pub(in crate::rune_ui) signed_in: bool,
     /// Hex's browser shows for signing in.

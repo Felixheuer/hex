@@ -12,7 +12,7 @@ use super::Ui;
 use super::shortcut::{self, Conflict};
 use crate::app_settings::{AppSettings, AssistantSettings, HotkeySlot};
 use crate::assistant::backends::{AgentDesktop, CheckResult, Fix, Found};
-use crate::assistant::browser::AgentBrowser;
+use crate::assistant::browser::{AgentBrowser, Engine};
 use crate::assistant::computer::Permissions;
 
 /// Something to find out or do off the window's thread.
@@ -72,8 +72,9 @@ pub(in crate::rune_ui) enum Done {
     Conflicts(Vec<(HotkeySlot, Conflict)>),
     KeySaved(Result<(), String>),
     Voices(Vec<String>),
-    /// agent-browser as found, and whether anyone signed in to it.
-    Browser(AgentBrowser, bool),
+    /// agent-browser as found, whether anyone signed in to it, and the
+    /// engine its clean browsers run.
+    Browser(AgentBrowser, bool, Engine),
     /// A browser self-test started (`Running`) or ended.
     BrowserCheck(CheckResult),
     BrowserChecked,
@@ -197,7 +198,7 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             crate::desktop::i18n::tr("Hi, I'm your assistant. Ask me anything."),
             voice.as_deref(),
         ),
-        Job::Browser => send(Done::Browser(browser::agent_browser(), browser::signed_in())),
+        Job::Browser => send(Done::Browser(browser::agent_browser(), browser::signed_in(), browser::clean_engine())),
         Job::BrowserChecks(settings) => super::setup::browser::perform_checks(&settings, send),
         Job::SignIn(_) | Job::FinishSignIn => {
             let open = matches!(job, Job::SignIn(_));
@@ -206,13 +207,13 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
                 _ => browser::finish_sign_in(),
             };
             send(Done::SignIn(open, result.map_err(|error| format!("{error:#}"))));
-            send(Done::Browser(browser::agent_browser(), browser::signed_in()));
+            send(Done::Browser(browser::agent_browser(), browser::signed_in(), browser::clean_engine()));
         }
         Job::ForgetSignIn => {
             if let Err(error) = browser::forget_sign_in() {
                 tracing::warn!(error = %format!("{error:#}"), "could not forget the sign-ins");
             }
-            send(Done::Browser(browser::agent_browser(), browser::signed_in()));
+            send(Done::Browser(browser::agent_browser(), browser::signed_in(), browser::clean_engine()));
         }
         Job::RunningApps => send(Done::RunningApps(running_apps())),
     }
@@ -261,9 +262,16 @@ pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
         Done::Detected(found) => ui.chats.settings.found = Some(found.clone()),
         Done::Voices(voices) => ui.chats.settings.voices = Some(voices.clone()),
         Done::RunningApps(apps) => ui.chats.settings.running = Some(apps.clone()),
-        Done::Browser(found, signed_in) => {
+        Done::Browser(found, signed_in, engine) => {
             ui.chats.settings.browser = Some(found.clone());
             ui.chats.settings.signed_in = *signed_in;
+            ui.chats.settings.engine = Some(*engine);
+        }
+        Done::Fixed(Fix::InstallLightpanda, result) if ui.chats.setup.is_none() => {
+            // Installed from Settings: read the engine again.
+            ui.chats.settings.installing_lightpanda = false;
+            ui.chats.settings.sign_in_error = result.clone().err();
+            ui.chats.jobs.run(Job::Browser);
         }
         Done::SignIn(open, result) => {
             ui.chats.settings.signing_in = *open && result.is_ok();

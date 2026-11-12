@@ -29,10 +29,16 @@ impl BrowserStep {
             .is_some_and(|found| found.path.is_some() && found.browser_ready)
     }
 
-    /// Ready, and every self-test passed.
+    /// Ready, and every self-test passed but the optional Lightpanda one.
     pub(in crate::rune_ui) fn done(&self) -> bool {
-        self.ready() && !self.checks.is_empty() && self.checks.iter().all(CheckResult::ok)
+        self.ready() && !self.checks.is_empty() && self.checks.iter().all(passed_or_optional)
     }
+}
+
+/// Whether `result` passed, or is the optional Lightpanda check (which
+/// never holds a page back).
+pub(in crate::rune_ui) fn passed_or_optional(result: &CheckResult) -> bool {
+    result.ok() || result.check == Check::LightBrowser
 }
 
 /// The browser's own checks, in order.
@@ -42,7 +48,7 @@ pub(in crate::rune_ui) fn checks_for(settings: &AssistantSettings) -> Vec<Check>
         .filter(|check| {
             matches!(
                 check,
-                Check::BrowserRoundTrip | Check::BrowserThroughAgent(_)
+                Check::BrowserRoundTrip | Check::LightBrowser | Check::BrowserThroughAgent(_)
             )
         })
         .collect()
@@ -111,9 +117,10 @@ pub(super) fn receive(ui: &mut Ui, done: &Done) -> bool {
         return false;
     };
     let here = flow.page == Page::Browser;
+
     let step = &mut flow.browser;
     match done {
-        Done::Browser(found, _) => {
+        Done::Browser(found, _, _) => {
             step.reading = false;
             step.found = Some(found.clone());
             if here && step.ready() && step.checks.is_empty() {
@@ -171,6 +178,21 @@ pub(in crate::rune_ui) fn fixture(
             "Opened example.com and read its title in 1.8 s",
             None,
         ),
+        if all_passed {
+            result(
+                Check::LightBrowser,
+                CheckState::Ok,
+                "Read example.com in Lightpanda in 0.3 s",
+                None,
+            )
+        } else {
+            result(
+                Check::LightBrowser,
+                CheckState::Failed,
+                "Lightpanda isn't installed, so clean browsers run Chrome (about ten times the memory)",
+                Some(Fix::InstallLightpanda),
+            )
+        },
         if all_passed {
             result(
                 Check::BrowserThroughAgent(backend),

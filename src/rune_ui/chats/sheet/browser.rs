@@ -11,7 +11,7 @@ use super::super::setup::{self, Page, SetupFlow, check_title, page_done};
 use super::checks::result_row;
 use super::desktop::install_failure;
 use super::{GLOBE, TOOL, actions, done_pill, lead, page, push, row_of, rows_card, spinner};
-use crate::assistant::backends::{CheckState, Fix};
+use crate::assistant::backends::{Check, CheckResult, CheckState, Fix};
 use crate::desktop::i18n::{tr, tr_fill};
 
 /// A spinner with the install's latest line beside it.
@@ -37,6 +37,45 @@ pub(in crate::rune_ui) fn sign_in_button(ui: &Ui, p: Paint, key: &str) -> El {
             ui.chats.jobs.run(Job::SignIn(None));
         })
     }
+}
+
+/// Lightpanda, optional and recommended: much lighter browsers for many
+/// research tasks at once, one click to install. It never holds the page.
+fn lightpanda_row(p: Paint, flow: &SetupFlow, result: &CheckResult) -> El {
+    let (detail, control) = match result.state {
+        _ if flow.fixing == Some(Fix::InstallLightpanda) => {
+            installing(p, flow, tr("Installing Lightpanda…"))
+        }
+        CheckState::Ok => (result.detail.clone(), done_pill(p, "lightpanda-ready", tr("Installed"))),
+        CheckState::Running | CheckState::Pending => (
+            tr("10× lighter for parallel research").to_owned(),
+            spinner(p, "lightpanda-checking"),
+        ),
+        CheckState::Failed => (
+            tr("10× lighter for parallel research").to_owned(),
+            match result.fix {
+                Some(Fix::InstallLightpanda) => push(
+                    p,
+                    "install-lightpanda",
+                    tr("Install"),
+                    false,
+                    |ui: &mut Ui| setup::apply(ui, Fix::InstallLightpanda),
+                ),
+                _ => push(p, "retry-lightpanda", tr("Try again"), false, |ui: &mut Ui| {
+                    setup::browser::run_checks(ui)
+                }),
+            },
+        ),
+    };
+    row_of(
+        p,
+        "lightpanda",
+        &super::SPARKLES,
+        tr("Lightpanda (recommended, optional)"),
+        &detail,
+        p.muted(),
+        control,
+    )
 }
 
 /// agent-browser: found or installed, its browser downloaded, its
@@ -99,6 +138,10 @@ pub(super) fn browser(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             control,
         ));
         for (index, result) in step.checks.iter().enumerate() {
+            if result.check == Check::LightBrowser {
+                rows.push(lightpanda_row(p, flow, result));
+                continue;
+            }
             let control = match result.fix {
                 Some(Fix::Retry) if result.state == CheckState::Failed => {
                     if step.checks_running {

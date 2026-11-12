@@ -113,6 +113,7 @@ pub(in crate::rune_ui) fn web_section(ui: &Ui, p: Paint) -> El {
         .as_ref()
         .is_some_and(|found| found.path.is_none() || !found.browser_ready);
     if on && !missing && ui.chats.settings.browser.is_some() {
+        rows.push(engine_row(ui, p));
         rows.push(sign_in_row(ui, p));
     }
     if on && missing {
@@ -357,6 +358,47 @@ fn sign_in_row(ui: &Ui, p: Paint) -> CardRow {
         tr("Sites tasks may use"),
         Some((detail, ink)),
         controls,
+    )
+    .into()
+}
+
+/// Which engine clean browsers run: Lightpanda (light, for many at once)
+/// or Chrome, with Lightpanda one click away.
+fn engine_row(ui: &Ui, p: Paint) -> CardRow {
+    use crate::assistant::browser::Engine;
+    let state = &ui.chats.settings;
+    let (detail, control) = match state.engine {
+        Some(Engine::Lightpanda) => (
+            tr("Lightpanda: about ten times lighter, so many research tasks run at once").to_owned(),
+            text(tr("Lightpanda"))
+                .key("engine")
+                .font(p.k.ty.small_medium)
+                .color(p.muted()),
+        ),
+        _ if state.installing_lightpanda => (
+            tr("Installing Lightpanda…").to_owned(),
+            rune_kit::Spinner::new()
+                .size(14.0)
+                .color(p.muted())
+                .build(p.k)
+                .key("installing"),
+        ),
+        _ => (
+            tr("Chrome. Lightpanda is about ten times lighter for parallel research").to_owned(),
+            small_button(p, "install-lightpanda", tr("Install Lightpanda"), |ui: &mut Ui, _| {
+                ui.chats.settings.installing_lightpanda = true;
+                ui.chats
+                    .jobs
+                    .run(super::super::Job::Fix(crate::assistant::backends::Fix::InstallLightpanda));
+            }),
+        ),
+    };
+    described_row(
+        p,
+        "assistant-browser-engine",
+        tr("Clean browsers run on"),
+        Some((detail, p.muted())),
+        control,
     )
     .into()
 }
