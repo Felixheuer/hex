@@ -36,6 +36,7 @@ mod bubble;
 #[cfg(target_os = "macos")]
 mod cursor;
 mod desk;
+mod enlarged;
 mod fixture;
 mod frame;
 mod hands;
@@ -43,6 +44,7 @@ mod hint;
 mod host;
 mod listening;
 pub(crate) mod live;
+pub(crate) mod live_card;
 mod markdown;
 #[cfg(test)]
 mod multi;
