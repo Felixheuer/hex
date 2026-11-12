@@ -117,9 +117,10 @@ impl Board {
                 phase: match status.state {
                     TaskState::Queued => Phase::Queued,
                     // The overlays engineer draws Paused and Waiting.
-                    TaskState::Running | TaskState::Paused | TaskState::Waiting { .. } => {
-                        Phase::Running
-                    }
+                    TaskState::Running
+                    | TaskState::Paused
+                    | TaskState::Waiting { .. }
+                    | TaskState::NeedsInput => Phase::Running,
                 },
                 step: status.step.as_deref().map(shorten),
                 windows: status.windows,
@@ -224,7 +225,10 @@ impl Board {
             | Event::Paused { .. }
             | Event::Resumed { .. }
             | Event::Waiting { .. }
-            | Event::HandsOff { .. } => false,
+            | Event::HandsOff { .. }
+            | Event::Plan { .. }
+            | Event::Question { .. }
+            | Event::Escalated { .. } => false,
         }
     }
 
