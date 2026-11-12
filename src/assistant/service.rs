@@ -49,7 +49,10 @@ use std::time::{Duration, Instant};
 use crate::app_settings::{AssistantBackend, AssistantSettings};
 
 use super::agent::{self, Job, JobKind, Outcome};
+use super::autonomy::Authorized;
+use super::notify::Note;
 use super::provider::{self, Control};
+use super::schedules::Schedule;
 use super::store::{self, Store};
 use super::types::{
     Context, Conversation, ConversationId, ConversationSummary, Event, Lane, Origin,
@@ -206,6 +209,7 @@ pub fn conversation(id: &str) -> Option<Conversation> {
 
 pub fn delete(id: &str) {
     runner().cancel(id);
+    super::autonomy::forget(id);
     if let Ok(store) = Store::open() {
         store.delete(id);
     }
@@ -239,6 +243,34 @@ pub fn focus(follow_up_seconds: u32) -> Option<ConversationId> {
     runner().focus(follow_up_seconds)
 }
 
+/// Starts the scheduler (once): every half minute it starts the scheduled
+/// jobs that are due, as Background jobs; a run missed while the Mac slept
+/// or Hex was closed starts once. The app calls it at launch (the runner
+/// also starts it when it first runs in the app).
+pub fn start_scheduler() {
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    if STARTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    std::thread::Builder::new()
+        .name("assistant-scheduler".into())
+        .spawn(|| {
+            loop {
+                if current_settings().0 {
+                    runner().run_due_schedules();
+                }
+                std::thread::sleep(Duration::from_secs(30));
+            }
+        })
+        .ok();
+}
+
+/// Starts the scheduled jobs due now (`hex assistant schedules watch`);
+/// their conversations.
+pub fn run_due_schedules() -> Vec<ConversationId> {
+    runner().run_due_schedules()
+}
+
 /// Lets tasks run while the assistant is off or not set up, for `hex
 /// assistant`, which a person runs on purpose.
 pub fn allow_without_lab() {
@@ -261,10 +293,12 @@ fn runner() -> &'static Arc<Runner> {
     RUNNER.get_or_init(|| {
         // Conversations a Hex that quit left running are interrupted, and
         // the guard forgets what ended tasks left (only in the app: a `hex
-        // assistant` command must not clear the app's pauses).
+        // assistant` command must not clear the app's pauses, or run its
+        // schedules).
         std::thread::spawn(|| {
             if !WITHOUT_LAB.load(Ordering::Acquire) && current_settings().0 {
                 super::guard::startup();
+                start_scheduler();
             }
             if let Ok(store) = Store::open() {
                 let recovered = store.recover_interrupted();
@@ -286,6 +320,8 @@ type TaskHook = OnTask;
 type Pause = dyn Fn(&str, bool) + Send + Sync;
 type BringForward = dyn Fn(&str, &[TaskWindow]) + Send + Sync;
 type Settle = dyn Fn(&str, Ended, &str) + Send + Sync;
+type Authorize = dyn Fn(&str, &Authorized) + Send + Sync;
+type DueSchedules = dyn Fn(u64) -> Vec<Schedule> + Send + Sync;
 
 /// What the runner does in the world; tests replace each part.
 pub(crate) struct Hooks {
@@ -331,6 +367,15 @@ pub(crate) struct Hooks {
     pub make_workspace: OnTask<Option<std::path::PathBuf>>,
     /// A conversation's workspace, if it is a job.
     pub workspace_of: OnTask<Option<std::path::PathBuf>>,
+    /// Reads and writes what the person authorized for a task (`autonomy`).
+    pub authorized: OnTask<Authorized>,
+    pub authorize: Box<Authorize>,
+    /// The person's memory note.
+    pub memory: Hook<String>,
+    /// Shows a job's notification.
+    pub notify: Box<dyn Fn(&Note) + Send + Sync>,
+    /// The schedules due at a time, marked as run (`schedules::take_due`).
+    pub due_schedules: Box<DueSchedules>,
 }
 
 impl Hooks {
@@ -387,6 +432,11 @@ impl Hooks {
             workspace_of: Box::new(|conversation| {
                 Store::open().ok()?.load(conversation)?.workspace
             }),
+            authorized: Box::new(super::autonomy::read),
+            authorize: Box::new(super::autonomy::write),
+            memory: Box::new(super::memory::read),
+            notify: Box::new(super::notify::show),
+            due_schedules: Box::new(super::schedules::take_due),
         }
     }
 }
@@ -505,6 +555,8 @@ struct Task {
     /// The question it waits on (`NeedsInput`), and the answer once given.
     question: Option<String>,
     reply: Option<String>,
+    /// The plan's `HEX_AUTHORIZED:` line last applied.
+    authorized_line: Option<String>,
 }
 
 impl Task {
@@ -773,6 +825,7 @@ impl Runner {
             plan_seen: None,
             question: None,
             reply: None,
+            authorized_line: None,
         });
     }
 
@@ -934,6 +987,23 @@ impl Runner {
             .tasks
             .iter()
             .map(|task| task.status.clone())
+            .collect()
+    }
+
+    /// Starts each due schedule as a Background job; their conversations.
+    pub(crate) fn run_due_schedules(self: &Arc<Self>) -> Vec<ConversationId> {
+        let now = self.now();
+        (self.hooks.due_schedules)(now)
+            .into_iter()
+            .map(|schedule| {
+                tracing::info!(id = schedule.id, "a scheduled job is due");
+                self.submit(Request {
+                    conversation: None,
+                    text: schedule.task,
+                    origin: Origin::Background,
+                    context: Context::default(),
+                })
+            })
             .collect()
     }
 

@@ -31,12 +31,16 @@ pub mod cli;
 pub mod computer;
 pub mod credentials;
 pub mod guard;
+pub mod memory;
+pub mod notify;
 pub mod palette;
 pub mod provider;
+pub mod schedules;
 pub mod service;
 pub mod space;
 pub mod speech;
 pub mod store;
+pub mod tools;
 pub mod types;
 
 pub use service::{

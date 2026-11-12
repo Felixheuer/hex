@@ -21,6 +21,36 @@ pub fn command(tool: &str) -> Option<&str> {
     tool.strip_prefix("desktop_")
 }
 
+/// A call of Hex's own tools as a step: "Remembered: …", "Scheduled: …".
+fn hex_step(tool: &str, args: &Value) -> Option<Report> {
+    let name = tool
+        .strip_prefix("mcp__hex__")
+        .or_else(|| tool.strip_prefix("hex_"))
+        .map(|name| name.strip_prefix("hex_").unwrap_or(name))?;
+    let (doing, done) = match name {
+        "remember" => {
+            let fact = text(args, "fact")?;
+            let line = format!("Remembered: {fact}");
+            (line.clone(), line)
+        }
+        "schedule" => {
+            let task = text(args, "task").unwrap_or("a job");
+            let when = text(args, "when").unwrap_or_default();
+            (
+                format!("Scheduling: {task} ({when})"),
+                format!("Scheduled: {task} ({when})"),
+            )
+        }
+        "unschedule" => (
+            "Removing a schedule".to_owned(),
+            "Removed a schedule".to_owned(),
+        ),
+        "schedules" => ("Checking the schedules".to_owned(), String::new()),
+        _ => return None,
+    };
+    Some(Report::Step { doing, done })
+}
+
 /// A hidden-browser call as a step: "Opening example.com in the browser".
 fn browser_step(tool: &str, args: &Value) -> Option<Report> {
     let name = tool
@@ -62,7 +92,10 @@ impl Describer {
     /// The reports for a call of `tool` with `args`, before its result.
     pub fn call(&mut self, tool: &str, args: &Value) -> Vec<Report> {
         let Some(command) = command(tool) else {
-            return browser_step(tool, args).into_iter().collect();
+            return hex_step(tool, args)
+                .or_else(|| browser_step(tool, args))
+                .into_iter()
+                .collect();
         };
         let mut reports = Vec::new();
         if let Some(window) = self.window_of(command, args) {

@@ -75,6 +75,14 @@ fn main() {
     println!("cargo:rustc-link-arg=-Wl,-weak_framework,FoundationModels");
     compile_swift_bridge("calendar", "HEXCalendarBridge", &[]);
     println!("cargo:rustc-link-lib=framework=EventKit");
+    // The assistant's job notifications (UNUserNotificationCenter; works
+    // only inside the bundled app, else `osascript` stands in).
+    compile_swift_bridge(
+        "assistant_notifications",
+        "HEXAssistantNotificationsBridge",
+        &[],
+    );
+    println!("cargo:rustc-link-lib=framework=UserNotifications");
     compile_permission_guide();
     println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
     for runtime in ["swift-5.5/macosx", "swift/macosx"] {

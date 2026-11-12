@@ -29,10 +29,21 @@ pub(super) fn run(
 ) -> Result<Finished> {
     let executable = super::executable(AssistantBackend::OpenCode)?;
     let mut command = super::command(&executable, &run.workdir, run.desktop.as_ref());
-    // TODO(integration, bring-your-own-key providers): add
-    // `backends::agent_env_for(AssistantBackend::OpenCode, &settings)` to
-    // this command's environment (the key travels by env reference only).
-    // `Run` will need the settings (or that env) for it; not in this branch.
+    // A bring-your-own-key provider's key travels in the environment only;
+    // the config names it by reference.
+    if let Some(env) = &run.backend_env {
+        command
+            .env_clear()
+            .envs(env.iter().map(|(key, value)| (key, value)));
+        for (key, value) in run
+            .desktop
+            .as_ref()
+            .map(super::Desktop::env)
+            .unwrap_or_default()
+        {
+            command.env(key, value);
+        }
+    }
     command.env("OPENCODE_CONFIG_CONTENT", config(run).to_string());
     command.args(arguments(run));
     let mut process = Process::spawn(command, Stdin::Null, control)?;
@@ -111,9 +122,9 @@ fn config(run: &Run) -> Value {
     if let Some(mcp) = super::servers::opencode_config(run) {
         config["mcp"] = mcp;
     }
-    // TODO(integration, bring-your-own-key providers): merge
-    // `backends::opencode_provider_config(&settings)` (its `provider` entry)
-    // into `config` here; not in this branch.
+    if let Some(provider) = &run.provider_config {
+        crate::assistant::backends::merge_config(&mut config, provider);
+    }
     config
 }
 
@@ -324,6 +335,23 @@ mod tests {
             calls[1],
             ("desktop_click".into(), json!({"ref_id": "@s1:e2"}))
         );
+    }
+
+    #[test]
+    fn a_bring_your_own_key_provider_is_merged_into_the_config() {
+        let mut run = Run::fixture(AssistantBackend::OpenCode);
+        run.provider_config = Some(json!({
+            "model": "deepseek/deepseek-chat",
+            "provider": {"deepseek": {"options": {"apiKey": "{env:DEEPSEEK_API_KEY}"}}},
+        }));
+        let config = config(&run);
+        assert_eq!(config["model"], "deepseek/deepseek-chat");
+        assert_eq!(
+            config["provider"]["deepseek"]["options"]["apiKey"],
+            "{env:DEEPSEEK_API_KEY}"
+        );
+        // Hex's own agent stays.
+        assert_eq!(config["agent"]["hex"]["mode"], "primary");
     }
 
     #[test]

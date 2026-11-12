@@ -9,6 +9,8 @@ use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::assistant::autonomy::{self, Authorized, Autonomy};
+
 use super::{
     BLIND_RETRIES, Context, ConversationSummary, Ended, Event, Job, JobKind, Lane, Origin, Outcome,
     Request, Runner, TaskState, TaskStatus, backoff, context,
@@ -73,6 +75,28 @@ impl Runner {
         let digest = (new_conversation && matches!(kind, JobKind::Ask | JobKind::Job { .. }))
             .then(|| self.digest(&conversation))
             .flatten();
+        // What the person's own words allow (never what a task reads).
+        let mut authorized = if new_conversation {
+            Authorized::default()
+        } else {
+            (self.hooks.authorized)(&conversation)
+        };
+        if settings.autonomy != Autonomy::Ask {
+            autonomy::merge(&mut authorized, autonomy::from_request(&request.text));
+        }
+        (self.hooks.authorize)(&conversation, &authorized);
+        let memory = settings
+            .memory
+            .then(|| crate::assistant::memory::for_prompt(&(self.hooks.memory)()))
+            .flatten();
+        let notify = |event: &Event| {
+            if lane == Lane::Background
+                && settings.notifications
+                && let Some(note) = crate::assistant::notify::for_event(event, &request.text)
+            {
+                (self.hooks.notify)(&note);
+            }
+        };
         let mut job = Job {
             conversation: conversation.clone(),
             request: request.clone(),
@@ -82,6 +106,8 @@ impl Runner {
             kind,
             digest,
             workspace: workspace.clone(),
+            authorized,
+            memory,
         };
         let mut attempts = 0;
         let outcome = loop {
@@ -115,11 +141,42 @@ impl Runner {
                     if voice && settings.speak_answers {
                         self.voice.finish(self, &conversation, &question);
                     }
+                    notify(&Event::Question {
+                        conversation: conversation.clone(),
+                        text: question.clone(),
+                    });
                     let Some(answer) = self.ask(key, &conversation, &control, question.clone())
                     else {
                         break Outcome::Cancelled;
                     };
+                    // The answer is the person's own words too.
+                    if settings.autonomy != Autonomy::Ask {
+                        autonomy::merge(&mut job.authorized, autonomy::from_request(&answer));
+                        (self.hooks.authorize)(&conversation, &job.authorized);
+                    }
                     job.kind = JobKind::Answer { question };
+                    job.request.text = answer;
+                    job.request.context = Context::default();
+                }
+                Outcome::Confirm { category, question } => {
+                    if voice && settings.speak_answers {
+                        self.voice.finish(self, &conversation, &question);
+                    }
+                    notify(&Event::Question {
+                        conversation: conversation.clone(),
+                        text: question.clone(),
+                    });
+                    let Some(answer) = self.ask(key, &conversation, &control, question.clone())
+                    else {
+                        break Outcome::Cancelled;
+                    };
+                    let allowed = autonomy::is_yes(&answer);
+                    if allowed {
+                        job.authorized = (self.hooks.authorized)(&conversation);
+                        job.authorized.confirmed.insert(category);
+                        (self.hooks.authorize)(&conversation, &job.authorized);
+                    }
+                    job.kind = JobKind::Confirm { question, allowed };
                     job.request.text = answer;
                     job.request.context = Context::default();
                 }
@@ -190,18 +247,22 @@ impl Runner {
                             .finish(self, &conversation, first_sentence(&text));
                     }
                 }
-                self.emit(&Event::Answer {
+                let event = Event::Answer {
                     conversation,
                     origin: request.origin,
                     text,
-                });
+                };
+                notify(&event);
+                self.emit(&event);
             }
             Outcome::Failed(message) => {
                 self.voice.drop_answer(&conversation);
-                self.emit(&Event::Failed {
+                let event = Event::Failed {
                     conversation,
                     message,
-                });
+                };
+                notify(&event);
+                self.emit(&event);
             }
             Outcome::Cancelled => {
                 self.voice.drop_answer(&conversation);
@@ -213,7 +274,10 @@ impl Runner {
                 }
                 self.escalate(request, title, new_conversation, voice);
             }
-            Outcome::Steered | Outcome::Limited { .. } | Outcome::Question(_) => {
+            Outcome::Steered
+            | Outcome::Limited { .. }
+            | Outcome::Question(_)
+            | Outcome::Confirm { .. } => {
                 self.voice.drop_answer(&conversation);
             }
         }

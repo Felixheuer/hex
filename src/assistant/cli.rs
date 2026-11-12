@@ -75,6 +75,18 @@ pub enum AssistantCommand {
     TakeOver { id: String },
     /// Ask the running Hex to give a task back after `take-over`.
     HandBack { id: String },
+    /// List, add, remove, or watch scheduled jobs.
+    Schedules {
+        #[command(subcommand)]
+        command: Option<SchedulesCommand>,
+    },
+    /// Hex's own tools for a task's agent (memory, schedules) as an MCP
+    /// server on stdio. Started by the task's agent.
+    #[command(hide = true)]
+    ToolsMcp {
+        #[arg(long)]
+        task: String,
+    },
     /// The guard's MCP server for one task (Hex gives it to each task's
     /// agent in place of agent-desktop): `--spec` is the task's JSON spec or
     /// a file holding it.
@@ -95,6 +107,39 @@ pub enum AssistantCommand {
     BrowserClose {
         #[arg(long)]
         task: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SchedulesCommand {
+    /// Every schedule with its next run (the default).
+    List,
+    /// Schedule a job: `--when "0 8 * * 1-5"` or an RRULE.
+    Add {
+        #[arg(long)]
+        when: String,
+        /// What to do each time.
+        task: String,
+    },
+    /// Remove a schedule.
+    Remove {
+        id: String,
+    },
+    /// Turn a schedule on or off.
+    Enable {
+        id: String,
+    },
+    Disable {
+        id: String,
+    },
+    /// Run due schedules here for a while, printing what happens (for
+    /// trying them without the app).
+    Watch {
+        #[arg(long, default_value_t = 2.0)]
+        minutes: f64,
+        /// Don't let the runs use apps (no agent-desktop).
+        #[arg(long)]
+        no_desktop: bool,
     },
 }
 
@@ -171,6 +216,8 @@ pub fn run(command: AssistantCommand) -> u8 {
         AssistantCommand::StopAll => send(remote::ALL, remote::Verb::Stop),
         AssistantCommand::TakeOver { id } => send(&id, remote::Verb::TakeOver),
         AssistantCommand::HandBack { id } => send(&id, remote::Verb::HandBack),
+        AssistantCommand::Schedules { command } => schedules(command),
+        AssistantCommand::ToolsMcp { task } => super::tools::serve(&task).map(|()| true),
         AssistantCommand::Conversations => {
             list();
             Ok(true)
@@ -415,6 +462,68 @@ fn resume(id: &str) -> Result<bool> {
         .ok_or_else(|| eyre!("“{id}” wasn't interrupted, or there is no such conversation"))?;
     println!("conversation {id}");
     Ok(follow(&id, &events, false))
+}
+
+fn schedules(command: Option<SchedulesCommand>) -> Result<bool> {
+    use super::schedules;
+    match command.unwrap_or(SchedulesCommand::List) {
+        SchedulesCommand::List => {
+            let list = schedules::list();
+            if list.is_empty() {
+                println!("No scheduled jobs.");
+            }
+            for schedule in list {
+                let next = schedule
+                    .next_due()
+                    .map_or_else(|| "never".into(), schedules::describe);
+                println!(
+                    "{}  {:<3}  {:<24}  next {next}  {}",
+                    schedule.id,
+                    if schedule.enabled { "on" } else { "off" },
+                    schedule.when,
+                    schedule.task
+                );
+            }
+            Ok(true)
+        }
+        SchedulesCommand::Add { when, task } => {
+            let schedule = schedules::add(&when, &task, Lane::Background)?;
+            let next: Vec<String> = schedules::next_runs(&schedule.when, 3)?
+                .into_iter()
+                .map(schedules::describe)
+                .collect();
+            println!("{}  next: {}", schedule.id, next.join(", "));
+            Ok(true)
+        }
+        SchedulesCommand::Remove { id } => Ok(schedules::remove(&id)),
+        SchedulesCommand::Enable { id } => Ok(schedules::set_enabled(&id, true)),
+        SchedulesCommand::Disable { id } => Ok(schedules::set_enabled(&id, false)),
+        SchedulesCommand::Watch {
+            minutes,
+            no_desktop,
+        } => {
+            service::allow_without_lab();
+            if no_desktop {
+                service::adjust_settings(|settings| settings.control_desktop = false);
+            }
+            let (sender, events) = mpsc::channel();
+            service::subscribe(Box::new(move |event| {
+                let _ = sender.send(event.clone());
+            }));
+            let _ = ctrlc::set_handler(service::stop_all);
+            let until = Instant::now() + Duration::from_secs_f64(minutes * 60.0);
+            let mut ran = false;
+            while Instant::now() < until {
+                for id in service::run_due_schedules() {
+                    println!("[scheduled run] conversation {id}");
+                    ran |= follow(&id, &events, false);
+                }
+                std::thread::sleep(Duration::from_secs(5));
+            }
+            service::stop_all();
+            Ok(ran)
+        }
+    }
 }
 
 /// Asks every running Hex to do `verb` to `target`.

@@ -444,7 +444,7 @@ mod tests {
     fn consent(mode: Autonomy, authorized: &[Category], page: Page) -> Consent {
         let authorized = Authorized {
             categories: authorized.iter().copied().collect(),
-            notes: Vec::new(),
+            ..Authorized::default()
         };
         let mut consent =
             Consent::new(Box::new(page), Box::new(move || (mode, authorized.clone())));

@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::*;
+use crate::assistant::autonomy::Category;
 use crate::assistant::types::{Context, TaskWindow};
 
 /// What the fake backend does with a question.
@@ -27,6 +28,10 @@ enum Script {
     Escalate,
     /// A job writes its plan, asks this, then answers with the answer.
     Ask(&'static str),
+    /// A job is refused a send, asks to confirm, then says what it did.
+    Confirm,
+    /// A job writes this plan (with its `HEX_AUTHORIZED:` line), then waits.
+    Plan(&'static str),
 }
 
 /// A fake world: tasks wait until their question is released or they are
@@ -47,6 +52,10 @@ struct World {
     requests: Mutex<Vec<(String, remote::Verb)>>,
     /// Where job workspaces go.
     workspaces: std::path::PathBuf,
+    /// Authorization files, by task.
+    authorizations: Mutex<std::collections::HashMap<String, Authorized>>,
+    memory: Mutex<String>,
+    due: Mutex<Vec<Schedule>>,
 }
 
 const START: u64 = 1_000_000;
@@ -80,6 +89,9 @@ impl World {
             recent: Mutex::default(),
             interrupted: Mutex::default(),
             requests: Mutex::default(),
+            authorizations: Mutex::default(),
+            memory: Mutex::default(),
+            due: Mutex::default(),
             workspaces: std::env::temp_dir().join(format!(
                 "hex-runner-{}-{}",
                 std::process::id(),
@@ -146,6 +158,23 @@ impl World {
                 std::thread::sleep(Duration::from_millis(400));
                 return Outcome::Question(question.into());
             }
+            Script::Confirm => {
+                if let JobKind::Confirm { allowed, .. } = job.kind {
+                    return Outcome::Answer(if allowed {
+                        "sent".into()
+                    } else {
+                        "skipped".into()
+                    });
+                }
+                return Outcome::Confirm {
+                    category: crate::assistant::autonomy::Category::Send,
+                    question: "Send the 3 emails now?".into(),
+                };
+            }
+            Script::Plan(plan) => {
+                let workspace = job.workspace.clone().expect("a job has a workspace");
+                std::fs::write(workspace.join("plan.md"), plan).unwrap();
+            }
             Script::Stream(pieces) => {
                 for piece in &pieces {
                     emit(Event::AnswerDelta {
@@ -191,6 +220,13 @@ impl World {
         );
         let (clock, pause, release, hands, forward, settle) = (
             world(self),
+            world(self),
+            world(self),
+            world(self),
+            world(self),
+            world(self),
+        );
+        let (authorized, authorize, memory, notify, due) = (
             world(self),
             world(self),
             world(self),
@@ -257,6 +293,27 @@ impl World {
                     .ok()
             }),
             workspace_of: Box::new(|_| None),
+            authorized: Box::new(move |task| {
+                authorized
+                    .authorizations
+                    .lock()
+                    .unwrap()
+                    .get(task)
+                    .cloned()
+                    .unwrap_or_default()
+            }),
+            authorize: Box::new(move |task, value| {
+                authorize
+                    .authorizations
+                    .lock()
+                    .unwrap()
+                    .insert(task.to_owned(), value.clone());
+            }),
+            memory: Box::new(move || memory.memory.lock().unwrap().clone()),
+            notify: Box::new(move |note| {
+                notify.log(format!("notify {}: {}", note.title, note.body));
+            }),
+            due_schedules: Box::new(move |_| std::mem::take(&mut *due.due.lock().unwrap())),
         });
         let events = Arc::clone(self);
         runner.subscribe(Box::new(move |event| {
@@ -1096,4 +1153,157 @@ fn a_typed_chat_question_stays_a_chat_until_the_agent_says_it_is_a_job() {
     assert_eq!(job.workspace, None);
     world.release("what's 2+2");
     world.wait_for("the answer", ended(&id));
+}
+
+#[test]
+fn smart_mode_authorizes_only_what_the_persons_request_names() {
+    let world = World::new(8);
+    world.script(
+        "Send the report to max@example.com",
+        Script::Plan(
+            "HEX_AUTHORIZED: send, pay (only to max@example.com)\n- [ ] Write the report\n",
+        ),
+    );
+    let runner = world.runner();
+    let id = runner.submit(request(
+        "Send the report to max@example.com",
+        Origin::Background,
+    ));
+    world.wait_until("the authorization", || {
+        world.authorizations.lock().unwrap().contains_key(&id)
+    });
+    let written = world.authorizations.lock().unwrap()[&id].clone();
+    assert_eq!(written.categories, [Category::Send].into());
+    assert_eq!(written.notes, ["only to max@example.com"]);
+    // The plan's line can't add a payment the person never asked for.
+    world.wait_for("the plan", |events| {
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Plan { .. }))
+    });
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(
+        world.authorizations.lock().unwrap()[&id].categories,
+        [Category::Send].into()
+    );
+    let job = world.job_for("Send the report to max@example.com");
+    assert_eq!(job.authorized.categories, [Category::Send].into());
+    runner.cancel(&id);
+    world.wait_for("the end", ended(&id));
+}
+
+#[test]
+fn a_refused_send_becomes_a_question_and_a_yes_allows_it() {
+    let world = World::new(8);
+    world.settings.lock().unwrap().autonomy = crate::assistant::autonomy::Autonomy::Ask;
+    world.script("draft and send the emails", Script::Confirm);
+    world.script("Ja, schick sie ab", Script::Confirm);
+    let runner = world.runner();
+    let id = runner.submit(request("draft and send the emails", Origin::Background));
+    world.wait_for("the question", |events| {
+        events.contains(&Event::Question {
+            conversation: id.clone(),
+            text: "Send the 3 emails now?".into(),
+        })
+    });
+    // Ask mode: the request's own words allow nothing.
+    assert!(
+        world.authorizations.lock().unwrap()[&id]
+            .categories
+            .is_empty()
+    );
+    assert!(
+        world.logged("notify Needs your answer: draft and send the emails: Send the 3 emails now?")
+    );
+    let mut yes = request("Ja, schick sie ab", Origin::ActionShortcut);
+    yes.conversation = runner.focus(120);
+    assert_eq!(runner.submit(yes), id);
+    world.wait_for("the answer", ended(&id));
+    assert_eq!(
+        world.authorizations.lock().unwrap()[&id].confirmed,
+        [Category::Send].into()
+    );
+    let job = world.job_for("Ja, schick sie ab");
+    assert_eq!(
+        job.kind,
+        JobKind::Confirm {
+            question: "Send the 3 emails now?".into(),
+            allowed: true
+        }
+    );
+    // Notified with the summary (and its workspace).
+    assert!(
+        world
+            .log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|line| line.starts_with("notify Done: draft and send the emails: sent"))
+    );
+}
+
+#[test]
+fn a_no_skips_the_action_and_allows_nothing() {
+    let world = World::new(8);
+    world.script("send the emails", Script::Confirm);
+    world.script("nein, lieber nicht", Script::Confirm);
+    let runner = world.runner();
+    let id = runner.submit(request("send the emails", Origin::Background));
+    world.wait_for("the question", |events| {
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Question { .. }))
+    });
+    let mut no = request("nein, lieber nicht", Origin::Chat);
+    no.conversation = Some(id.clone());
+    runner.submit(no);
+    world.wait_for("the answer", ended(&id));
+    assert!(
+        world.authorizations.lock().unwrap()[&id]
+            .confirmed
+            .is_empty()
+    );
+    assert!(matches!(
+        world.finals()[0],
+        Event::Answer { ref text, .. } if text.starts_with("skipped")
+    ));
+}
+
+#[test]
+fn a_due_schedule_starts_a_background_job_and_the_memory_note_goes_along() {
+    let world = World::new(8);
+    *world.memory.lock().unwrap() = "- Company: blabla.com".into();
+    world.due.lock().unwrap().push(Schedule {
+        id: "s1".into(),
+        when: "0 8 * * *".into(),
+        task: "Check the weather".into(),
+        lane: Lane::Background,
+        enabled: true,
+        created_ms: START,
+        last_run_ms: None,
+    });
+    let runner = world.runner();
+    let started = runner.run_due_schedules();
+    assert_eq!(started.len(), 1);
+    assert!(runner.run_due_schedules().is_empty());
+    let job = world.job_for("Check the weather");
+    assert_eq!(job.request.origin, Origin::Background);
+    assert!(matches!(job.kind, JobKind::Job { .. }));
+    assert_eq!(job.memory.as_deref(), Some("- Company: blabla.com"));
+    world.settings.lock().unwrap().memory = false;
+    runner.cancel(&started[0]);
+    world.wait_for("the end", ended(&started[0]));
+    let quick = runner.submit(request("quick", Origin::ActionShortcut));
+    assert_eq!(world.job_for("quick").memory, None);
+    runner.cancel(&quick);
+    world.wait_for("the quick end", ended(&quick));
+    // A Here answer never notifies.
+    assert!(
+        !world
+            .log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|line| line.starts_with("notify Done: quick"))
+    );
 }

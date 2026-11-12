@@ -49,7 +49,7 @@ fn guard_with(scratch: &Scratch, fake: &Fake, autonomy: Autonomy) -> Guard<Fake>
 fn authorize(scratch: &Scratch, categories: &[Category]) {
     let authorized = Authorized {
         categories: categories.iter().copied().collect(),
-        notes: Vec::new(),
+        ..Authorized::default()
     };
     let dir = scratch.0.join("authorized");
     std::fs::create_dir_all(&dir).unwrap();
