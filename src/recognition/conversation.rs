@@ -51,6 +51,10 @@ const READING_SETTLE: Duration = Duration::from_millis(400);
 const ONSET_FRAMES: u32 = 8;
 /// Speech frames in a run that interrupt an answer: 240 ms.
 const BARGE_IN_FRAMES: u32 = 12;
+/// On speakers, judged against the echo of Hex's own voice: 500 ms. The
+/// echo judge errs on loud built-in speakers, and a false interruption
+/// cuts the answer, so the person's voice must hold longer.
+const SPEAKER_BARGE_IN_FRAMES: u32 = 25;
 /// Quiet frames a run forgives.
 const RUN_GAP_FRAMES: u32 = 2;
 /// Quiet frames that end a follow-up: 900 ms.
@@ -390,7 +394,11 @@ impl Conversation {
                             .is_some_and(|playback| frame.level_db > playback + SPEAKER_MARGIN_DB),
                     };
                 let conversation = conversation.clone();
-                (self.count(voice) >= BARGE_IN_FRAMES)
+                let needed = match (output, frame.over_echo) {
+                    (Output::Speakers, Some(_)) => SPEAKER_BARGE_IN_FRAMES,
+                    _ => BARGE_IN_FRAMES,
+                };
+                (self.count(voice) >= needed)
                     .then(|| self.hearing(conversation, Step::BargeIn))
             }
             Phase::Listening { .. } if self.other_audio => None,
@@ -607,8 +615,8 @@ mod tests {
         // Hex's own voice, loud in the microphone: no barge-in, whatever its
         // level against the answer's.
         assert!(feed(&mut machine, echo_only, 100, Output::Speakers, Some(-60.0)).is_empty());
-        // The person, quieter than the answer: 240 ms interrupt.
-        assert!(feed(&mut machine, person, 11, Output::Speakers, Some(-12.0)).is_empty());
+        // The person, quieter than the answer: 500 ms interrupt.
+        assert!(feed(&mut machine, person, 24, Output::Speakers, Some(-12.0)).is_empty());
         assert_eq!(
             feed(&mut machine, person, 1, Output::Speakers, Some(-12.0)),
             [Step::BargeIn]
