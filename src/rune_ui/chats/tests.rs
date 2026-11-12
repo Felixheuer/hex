@@ -655,6 +655,7 @@ fn continue_waits_for_each_page_and_later_marks_it_unfinished() {
 #[test]
 fn a_permission_waits_after_allow_until_macos_reports_it() {
     let mut rt = onboarding();
+    rt.state.host = super::super::platform::PlatformHost::Fixture(Vec::new());
     rt.state.platform.permissions.microphone = crate::desktop::onboarding::PermissionState::Ready;
     rt.state.platform.permissions.accessibility =
         crate::desktop::onboarding::PermissionState::Ready;
@@ -673,10 +674,16 @@ fn a_permission_waits_after_allow_until_macos_reports_it() {
     assert_eq!(state(&rt), State::Failed);
     tap(&mut rt, "allow");
     assert_eq!(state(&rt), State::Waiting);
-    assert!(rt.state.chats.jobs.asked.iter().any(|job| matches!(
-        job,
-        Job::Fix(crate::assistant::backends::Fix::OpenSettings(_))
-    )));
+    let super::super::platform::PlatformHost::Fixture(sent) = &rt.state.host else {
+        panic!("fixture host");
+    };
+    assert!(
+        sent.contains(&super::super::platform::PlatformRequest::Permission(
+            crate::desktop::onboarding::PermissionAction::ShowGuide(
+                crate::desktop::onboarding::PermissionKind::ScreenRecording
+            )
+        ))
+    );
     answer(
         &mut rt,
         Done::Permissions(Permissions {
@@ -923,7 +930,7 @@ fn checks_run_on_arrival_and_finish_waits_for_answers_and_agent_desktop() {
             .jobs
             .asked
             .iter()
-            .any(|job| matches!(job, Job::SelfTests(_)))
+            .any(|job| matches!(job, Job::SelfTests(..)))
     );
     let backend = AssistantBackend::ClaudeCode;
     let ok = |check| CheckResult {
@@ -1043,4 +1050,132 @@ fn the_shortcut_page_waits_for_a_free_shortcut_and_a_real_press() {
     answer(&mut rt, Done::Conflicts(Vec::new()));
     assert!(done(&rt));
     assert!(shows(&rt, "Hex received it (held 0.4 s)"));
+}
+
+#[test]
+fn onboarding_polish_back_leaves_room_for_macos_window_controls() {
+    let rt = scene("mac-assistant-setup-desktop");
+    let back = rt
+        .elements()
+        .into_iter()
+        .find(|element| element.path.ends_with("/back"))
+        .expect("Back button");
+    assert!(
+        back.rect[0] >= 88.0,
+        "Back overlaps the native window controls: {:?}",
+        back.rect
+    );
+}
+
+#[test]
+fn onboarding_polish_sign_in_chooses_a_site_before_opening_a_browser() {
+    let mut rt = scene("mac-assistant-setup-browser");
+    tap(&mut rt, "sign-in-sites");
+    assert!(
+        rt.find("sign-in-website").is_some(),
+        "choose a website first"
+    );
+    assert!(
+        !rt.state
+            .chats
+            .jobs
+            .asked
+            .iter()
+            .any(|job| matches!(job, Job::SignIn(_))),
+        "opening the editor must not navigate"
+    );
+}
+
+#[test]
+fn onboarding_polish_screen_recording_restart_is_offered() {
+    let mut rt = scene("mac-assistant-setup-desktop");
+    rt.state.platform.scrawl = Some(super::super::platform::ScrawlView {
+        screen_needs_restart: true,
+        ..Default::default()
+    });
+    rt.invalidate();
+    settle(&mut rt);
+    assert!(
+        rt.find("restart").is_some(),
+        "a granted screen permission needs Restart, not another Allow"
+    );
+}
+
+#[test]
+fn onboarding_polish_refreshes_failed_checks_when_permissions_change() {
+    let mut rt = scene("mac-assistant-setup-checks");
+    {
+        let flow = rt.state.chats.setup.as_mut().unwrap();
+        flow.checks_running = false;
+        flow.permissions = Some(Permissions {
+            accessibility: false,
+            screen_recording: false,
+        });
+    }
+    let before = rt.state.chats.jobs.asked.len();
+    answer(
+        &mut rt,
+        Done::Permissions(Permissions {
+            accessibility: true,
+            screen_recording: true,
+        }),
+    );
+    assert!(
+        rt.state.chats.jobs.asked[before..]
+            .iter()
+            .any(|job| matches!(job, Job::SelfTests(..))),
+        "the Checks page must recheck a changed grant"
+    );
+}
+
+#[test]
+fn a_selected_sign_in_site_opens_once_and_failed_saves_can_be_retried() {
+    let mut rt = scene("mac-assistant-setup-browser");
+    tap(&mut rt, "sign-in-sites");
+    rt.state.chats.settings.site_address = TextEdit::new("mail.google.com");
+    super::site_sign_in::launch(&mut rt.state);
+    super::site_sign_in::launch(&mut rt.state);
+    let opens: Vec<_> = rt
+        .state
+        .chats
+        .jobs
+        .asked
+        .iter()
+        .filter_map(|job| match job {
+            Job::SignIn(url) => Some(url.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(opens, [Some("https://mail.google.com/".to_owned())]);
+    answer(&mut rt, Done::SignIn(true, Ok(())));
+    super::site_sign_in::save(&mut rt.state);
+    answer(
+        &mut rt,
+        Done::SignIn(false, Err("fixture save failed".into())),
+    );
+    assert!(
+        rt.state.chats.settings.signing_in,
+        "a failed close leaves the browser open"
+    );
+    assert!(!rt.state.chats.settings.sign_in_busy, "Save can be retried");
+    assert!(rt.state.chats.settings.sign_in_editor);
+}
+
+#[test]
+fn stale_assistant_grants_use_the_running_apps_permission_repair() {
+    use super::super::platform::{PlatformHost, PlatformRequest};
+    use crate::desktop::onboarding::{PermissionAction, PermissionKind};
+    let mut rt = scene("mac-assistant-setup-desktop");
+    rt.state.platform.note_stale(PermissionKind::Accessibility);
+    super::setup::allow(&mut rt.state, Grant::DesktopAccessibility);
+    let PlatformHost::Fixture(sent) = &rt.state.host else {
+        panic!("fixture host");
+    };
+    assert!(sent.contains(&PlatformRequest::Permission(
+        PermissionAction::ResetAndPrompt(PermissionKind::Accessibility)
+    )));
+    assert!(!rt.state.chats.jobs.asked.iter().any(|job| matches!(
+        job,
+        Job::Fix(crate::assistant::backends::Fix::GuidePermissions)
+    )));
 }

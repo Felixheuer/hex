@@ -24,6 +24,7 @@ mod schedules;
 mod settings;
 mod setup;
 mod sheet;
+mod site_sign_in;
 mod shortcut;
 mod source;
 mod strip;

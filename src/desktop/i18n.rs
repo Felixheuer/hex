@@ -1703,6 +1703,7 @@ mod tests {
         include_str!("../rune_ui/chats/setup/browser.rs"),
         include_str!("../rune_ui/chats/setup/tutorial.rs"),
         include_str!("../rune_ui/chats/sheet.rs"),
+        include_str!("../rune_ui/chats/site_sign_in.rs"),
         include_str!("../rune_ui/chats/sheet/browser.rs"),
         include_str!("../rune_ui/chats/sheet/checks.rs"),
         include_str!("../rune_ui/chats/sheet/desktop.rs"),

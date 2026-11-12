@@ -918,6 +918,31 @@ pub(super) const SCENES: &[Scene] = &[
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Browser))
     }),
     #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-browser-sign-in", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Browser));
+        ui.chats.settings.sign_in_editor = true;
+        ui.chats.settings.site_address = rune::TextEdit::new("mail.example.org");
+        ui.chats.settings.saved_sites = vec!["portal.example.org".into()];
+        ui.chats.settings.signed_in = true;
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-permission-repair", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Desktop));
+        ui.platform.permissions.accessibility =
+            crate::desktop::onboarding::PermissionState::NeedsSettings;
+        ui.platform
+            .note_stale(crate::desktop::onboarding::PermissionKind::Accessibility);
+    }),
+    #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-screen-restart", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Desktop));
+        ui.platform.scrawl = Some(platform::ScrawlView {
+            screen_recording: false,
+            screen_needs_restart: true,
+            ..Default::default()
+        });
+    }),
+    #[cfg(target_os = "macos")]
     ("mac-assistant-setup-checks", |ui| {
         mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Checks))
     }),

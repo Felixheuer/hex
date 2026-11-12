@@ -199,6 +199,15 @@ pub(super) fn title_bar(element: El) -> El {
     }
 }
 
+/// Leave the native close/minimize/zoom controls their own part of the bar.
+pub(super) fn onboarding_back_x(os: super::platform::Os) -> f32 {
+    if os == super::platform::Os::Macos {
+        88.0
+    } else {
+        20.0
+    }
+}
+
 /// The title bar of the content panel: the title, a view switch that stays
 /// beside it, and the pane's actions on the right. The title is the pane's
 /// level 1 heading.

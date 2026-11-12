@@ -11,7 +11,7 @@ use rune::Waker;
 use super::Ui;
 use super::shortcut::{self, Conflict};
 use crate::app_settings::{AppSettings, AssistantBackend, AssistantSettings, HotkeySlot};
-use crate::assistant::backends::{AgentDesktop, CheckResult, Fix, Found};
+use crate::assistant::backends::{AgentDesktop, Check, CheckResult, Fix, Found};
 use crate::assistant::browser::{AgentBrowser, Engine};
 use crate::assistant::computer::Permissions;
 
@@ -29,7 +29,7 @@ pub(in crate::rune_ui) enum Job {
     /// Settings guide runs on the window's thread, where the guide can show.
     Fix(Fix),
     /// The self-tests for these settings' agent, in order.
-    SelfTests(Box<AssistantSettings>),
+    SelfTests(Box<AssistantSettings>, Vec<Check>),
     /// What else takes the tested shortcuts.
     Conflicts(Box<AppSettings>),
     /// Saves the Claude API key in the Keychain (empty deletes it).
@@ -85,9 +85,9 @@ pub(in crate::rune_ui) enum Done {
     Conflicts(Vec<(HotkeySlot, Conflict)>),
     KeySaved(Result<(), String>),
     Voices(Vec<String>),
-    /// agent-browser as found, whether anyone signed in to it, and the
+    /// agent-browser as found, sites with saved browser data, and the
     /// engine its clean browsers run.
-    Browser(AgentBrowser, bool, Engine),
+    Browser(AgentBrowser, Vec<String>, Engine),
     /// A browser self-test started (`Running`) or ended.
     BrowserCheck(CheckResult),
     BrowserChecked,
@@ -196,9 +196,7 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             }
             send(Done::Fixed(fix, result));
         }
-        Job::SelfTests(settings) => {
-            let checks =
-                backends::Check::for_backend(settings.backend, settings.background_browser);
+        Job::SelfTests(settings, checks) => {
             backends::self_tests(&checks, &settings, |result| {
                 send(Done::Check(result.clone()))
             });
@@ -224,7 +222,7 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
         ),
         Job::Browser => send(Done::Browser(
             browser::agent_browser(),
-            browser::signed_in(),
+            browser::saved_sites(),
             browser::clean_engine(),
         )),
         Job::BrowserChecks(settings) => super::setup::browser::perform_checks(&settings, send),
@@ -240,7 +238,7 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             ));
             send(Done::Browser(
                 browser::agent_browser(),
-                browser::signed_in(),
+                browser::saved_sites(),
                 browser::clean_engine(),
             ));
         }
@@ -250,7 +248,7 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             }
             send(Done::Browser(
                 browser::agent_browser(),
-                browser::signed_in(),
+                browser::saved_sites(),
                 browser::clean_engine(),
             ));
         }
@@ -305,9 +303,10 @@ pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
         Done::Detected(found) => ui.chats.settings.found = Some(found.clone()),
         Done::Voices(voices) => ui.chats.settings.voices = Some(voices.clone()),
         Done::RunningApps(apps) => ui.chats.settings.running = Some(apps.clone()),
-        Done::Browser(found, signed_in, engine) => {
+        Done::Browser(found, sites, engine) => {
             ui.chats.settings.browser = Some(found.clone());
-            ui.chats.settings.signed_in = *signed_in;
+            ui.chats.settings.signed_in = !sites.is_empty();
+            ui.chats.settings.saved_sites = sites.clone();
             ui.chats.settings.engine = Some(*engine);
         }
         Done::Fixed(Fix::InstallLightpanda, result) if ui.chats.setup.is_none() => {
@@ -317,7 +316,13 @@ pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
             ui.chats.jobs.run(Job::Browser);
         }
         Done::SignIn(open, result) => {
-            ui.chats.settings.signing_in = *open && result.is_ok();
+            ui.chats.settings.sign_in_busy = false;
+            if result.is_ok() {
+                ui.chats.settings.signing_in = *open;
+                if !open {
+                    ui.chats.settings.sign_in_editor = false;
+                }
+            }
             ui.chats.settings.sign_in_error = result.clone().err();
         }
         Done::KeySaved(Ok(())) => {

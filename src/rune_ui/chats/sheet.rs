@@ -74,14 +74,18 @@ pub(in crate::rune_ui) fn overlay(ui: &Ui, p: Paint) -> Option<El> {
                 )
             }))
             .child(
-                col()
-                    .key("middle")
-                    .grow(1.0)
-                    .shrink()
-                    .w_full()
-                    .center()
-                    .pb(TOP_BAR)
-                    .child(page),
+                super::super::scroll_body(
+                    p.k,
+                    "assistant-setup-scroll",
+                    col()
+                        .key("middle")
+                        .w_full()
+                        .items_center()
+                        .py(32.0)
+                        .child(page),
+                )
+                .grow(1.0)
+                .shrink(),
             )
             .modal(true, setup::close),
     )
@@ -96,7 +100,10 @@ fn top_bar(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             .on_press(setup::back)
             .build_push(p.k)
             .key("back")
-            .absolute(20.0, 8.0)
+            .absolute(
+                super::super::sidebar::onboarding_back_x(ui.platform.caps.os),
+                8.0,
+            )
             .transition(arrives())
     });
     let quiet = p.muted();
@@ -190,7 +197,10 @@ fn page(
                     .role("heading")
                     .level(1)
                     .font(title_font(p))
-                    .color(p.text()),
+                    .color(p.text())
+                    .max_w(COL_W)
+                    .align(Align::Center)
+                    .wrap(),
             )
             .child(lead),
     );

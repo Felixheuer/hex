@@ -378,6 +378,38 @@ assistant handoff after the voice practice, closes its setup for later, and
 still requires “Hex is ready” before finishing. This checks the window's
 flow, not live assistant setup or a real spoken question.
 
+The assistant's setup keeps Back clear of macOS's native window controls.
+Its content scrolls independently below the header, so a long checks page
+or the website form remains reachable in a short window.
+
+```ts
+Optional website sign-in
+├── Add website → enter a web address → Open website
+│   └── opens that address in Hex's dedicated browser, once per pending request
+├── Sign in there → Save browser data → closes the browser and refreshes saved domains
+│   └── a failed save stays open and can be retried
+└── Saved browser data ≠ a verified login; each website can expire or reject it
+
+macOS permissions
+├── Allow → the running app's native permission guide and macOS registration
+├── Granted but requires relaunch → Restart Hex and continue
+├── Old entry remains unusable after returning from Settings → Repair permission entry
+│   └── explicit action resets that permission for the running bundle and reopens its guide
+└── A grant changes on Checks → refresh affected desktop checks
+    └── keep the unrelated agent/browser results; dependent checks wait for prerequisites
+```
+
+Sources: `chats/site_sign_in.rs`, `assistant/browser.rs`,
+`chats/setup/permissions.rs`, `chats/sheet/{browser,checks,desktop}.rs`, and
+`macos_host.rs`. Browser-state summaries read domain names, never display
+cookies or tokens, and do not import the person's normal browser profile.
+Available checks: `onboarding_polish_*`,
+`a_selected_sign_in_site_opens_once_and_failed_saves_can_be_retried`,
+`stale_assistant_grants_use_the_running_apps_permission_repair`, the browser
+URL/storage unit tests, and the named macOS assistant setup scenes. These fixture checks do not establish a real website login or
+that macOS granted a live app access; the native permission checks remain
+authoritative and are never forced green by the window.
+
 ## Agents on Linux and Windows
 
 The agent backends (Claude Code, Codex, OpenCode, agent-desktop,
