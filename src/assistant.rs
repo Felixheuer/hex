@@ -30,6 +30,7 @@ pub mod agent;
 pub mod autonomy;
 pub mod backends;
 pub mod browser;
+pub mod capacity;
 pub mod cli;
 pub mod computer;
 pub mod credentials;
@@ -75,6 +76,21 @@ pub const fn available() -> bool {
 
 /// Whether the assistant may answer: enabled, and its setup finished (or
 /// its last page, where the gestures are tried, showing). Until then a hold
+
+/// What essential piece of setup is missing now, as `desktop::setup_gaps`
+/// says it (English); `None` when nothing is. The window's launch check sets
+/// it; a hold of the Action shortcut then says it and opens the guide
+/// instead of asking.
+static SETUP_GAP: std::sync::Mutex<Option<&'static str>> = std::sync::Mutex::new(None);
+
+pub fn set_setup_gap(gap: Option<&'static str>) {
+    *SETUP_GAP.lock().unwrap_or_else(|error| error.into_inner()) = gap;
+}
+
+pub fn setup_gap() -> Option<&'static str> {
+    *SETUP_GAP.lock().unwrap_or_else(|error| error.into_inner())
+}
+
 /// of the Action shortcut opens the setup instead of asking.
 pub fn ready(settings: &AppSettings) -> bool {
     enabled(settings) && (settings.assistant.setup_done || trying())

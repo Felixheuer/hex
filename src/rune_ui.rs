@@ -1155,8 +1155,12 @@ impl Ui {
         if self.pane == Pane::HudLab {
             self.ask(platform::PlatformRequest::EndHudDemo);
         }
+        if self.pane == Pane::Assistant {
+            chats::settings_left(self);
+        }
         self.pane = pane;
         match pane {
+            Pane::Assistant => chats::settings_opened(self),
             Pane::History => self.history.reload(),
             Pane::HudLab => self.ask(platform::PlatformRequest::ConfigureHud(self.platform.hud)),
             #[cfg(hex_capture)]
@@ -1448,6 +1452,7 @@ fn view(ui: &Ui, cx: &mut Cx<Ui>) -> El {
         Pane::Captures => (Vec::new(), captures::pane(ui, p)),
         Pane::Meetings => meetings::pane(ui, p, &mut layer),
         Pane::Chats => chats::pane(ui, p, &mut layer),
+        Pane::Assistant => chats::settings_pane(ui, p, &mut layer),
         #[cfg(hex_capture)]
         Pane::Annotate => (Vec::new(), scrawl::pane(ui, p, &mut layer)),
         Pane::VoiceFilter => (Vec::new(), fun::pane(ui, p)),
@@ -1477,8 +1482,6 @@ fn view(ui: &Ui, cx: &mut Cx<Ui>) -> El {
             },
             if ui.labs_open {
                 Some(labs::search_field(ui, p))
-            } else if ui.pane == Pane::Chats {
-                Some(chats::view_switch(ui, p))
             } else {
                 (ui.pane == Pane::Meetings)
                     .then(|| meetings::view_switch(ui, p))

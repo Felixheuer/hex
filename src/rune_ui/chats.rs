@@ -10,6 +10,8 @@
 //! to it (`connect`); before that, and in every scene and test, it works on
 //! an in-memory [`fixture::Store`] and never touches the service.
 
+#[allow(dead_code, reason = "wired into the merged Assistant settings pane")]
+pub(super) mod accounts;
 mod agent_picker;
 mod agents;
 mod bridge;
@@ -41,7 +43,7 @@ use std::time::{Duration, Instant};
 
 use rune::{El, TextEdit, Tx, Waker, text};
 
-use super::controls::{ButtonKind, Paint, button, segmented_tx};
+use super::controls::{ButtonKind, Paint, button};
 use super::{Pane, Ui};
 use crate::app_settings::AssistantBackend;
 use crate::assistant::{
@@ -66,14 +68,6 @@ pub(super) static CHATS_ICON: rune::Icon = rune::Icon {
 
 /// How long typing pauses before a model name is saved.
 const MODEL_SAVE_DELAY: Duration = Duration::from_millis(400);
-
-/// Which view the pane shows.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(super) enum View {
-    #[default]
-    Chats,
-    Settings,
-}
 
 /// What a request is doing between its first event and its last.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -151,7 +145,6 @@ pub(super) enum Hold {
 
 /// The Chats pane's state.
 pub(super) struct ChatsPane {
-    pub(super) view: View,
     source: Source,
     /// Events the service reported, until the next poll reads them.
     inbox: Arc<Mutex<Vec<Event>>>,
@@ -216,12 +209,13 @@ pub(super) struct ChatsPane {
     pub(super) handed_off: bool,
     /// A task's browser shown large (task, session), from its preview.
     pub(super) live: Option<(ConversationId, String)>,
+    /// What setup misses now, checked at launch and every few minutes.
+    pub(super) repair: setup::repair::Watch,
 }
 
 impl Default for ChatsPane {
     fn default() -> Self {
         Self {
-            view: View::Chats,
             source: Source::Fixture(Box::default()),
             inbox: Arc::default(),
             list: Vec::new(),
@@ -256,6 +250,7 @@ impl Default for ChatsPane {
             follow: follow::Follow::default(),
             handed_off: false,
             live: None,
+            repair: setup::repair::Watch::default(),
         }
     }
 }
@@ -606,7 +601,6 @@ pub(super) fn show(ui: &mut Ui, conversation: Option<ConversationId>, tx: &mut T
         return;
     }
     ui.select_pane(Pane::Chats, tx);
-    ui.chats.view = View::Chats;
     ui.chats.reload();
     match conversation {
         Some(id) => ui.chats.land(id),
@@ -623,7 +617,15 @@ pub(super) fn open_setup(ui: &mut Ui) {
 /// A hold of the Action shortcut before setup finished: the onboarding
 /// where it was left (or as it is, when it shows), saying so.
 pub(super) fn open_setup_from_hold(ui: &mut Ui, tx: &mut Tx) {
-    if !on(ui) || ui.settings.assistant.setup_done {
+    if !on(ui) {
+        return;
+    }
+    if ui.settings.assistant.setup_done {
+        // Set up before: the guide for what's missing now.
+        if ui.pane != Pane::Chats {
+            ui.select_pane(Pane::Chats, tx);
+        }
+        setup::repair::open_from_hold(ui, tx);
         return;
     }
     if ui.pane != Pane::Chats {
@@ -715,7 +717,7 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
         // The countdown ticks.
         tx.wake_after(Duration::from_secs(1));
     }
-    let focus = if showing && ui.chats.view == View::Chats {
+    let focus = if showing {
         ui.chats.selected.clone()
     } else {
         None
@@ -723,6 +725,7 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
     changed |= set_focus(ui, focus);
     work::poll(ui, tx);
     changed |= setup::poll(ui, tx);
+    changed |= setup::repair::poll(ui, tx);
     changed |= settings::poll(ui, now);
     changed
 }
@@ -753,58 +756,37 @@ pub(super) fn escape(ui: &mut Ui) -> bool {
 }
 
 /// The pane: the setup notice, the running tasks, then the conversations
-/// and the transcript, or the settings.
+/// and the transcript.
 pub(super) fn pane(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> (Vec<El>, El) {
-    match ui.chats.view {
-        View::Settings => (
-            // Off, there is nothing to set up until it's turned on.
-            crate::assistant::enabled(&ui.settings)
-                .then(|| setup_button(p))
-                .into_iter()
-                .collect(),
-            super::scroll_body(p.k, "chats-settings-scroll", settings::page(ui, p, layer)),
-        ),
-        View::Chats if !crate::assistant::enabled(&ui.settings) => {
-            (Vec::new(), switch::off_card(ui, p))
-        }
-        View::Chats => {
-            layer.extend(schedules::sheet(ui, p));
-            layer.extend(live_view::sheet(ui, p));
-            (header_actions(ui, p), list::body(ui, p, layer))
-        }
+    if !crate::assistant::enabled(&ui.settings) {
+        return (Vec::new(), switch::off_card(ui, p));
     }
+    layer.extend(schedules::sheet(ui, p));
+    layer.extend(live_view::sheet(ui, p));
+    (header_actions(ui, p), list::body(ui, p, layer))
 }
 
-/// The header's `Chats | Settings` switch, beside the title.
-pub(super) fn view_switch(ui: &Ui, p: Paint) -> El {
-    let views = [tr("Conversations"), tr("Settings")];
-    let selected = match ui.chats.view {
-        View::Chats => 0,
-        View::Settings => 1,
-    };
-    segmented_tx(
-        p,
-        "chats-view",
-        &views,
-        selected,
-        |ui: &mut Ui, index: usize, tx: &mut Tx| {
-            let view = if index == 0 {
-                View::Chats
-            } else {
-                View::Settings
-            };
-            if ui.chats.view != view {
-                tx.settle();
-                settings::flush(ui);
-                ui.open = None;
-                ui.chats.view = view;
-                ui.chats.delete_armed = None;
-                if view == View::Settings {
-                    settings::opened(ui);
-                }
-            }
-        },
+/// The Assistant pane: every assistant setting, with Run setup… in its
+/// header while the assistant is on.
+pub(super) fn settings_pane(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> (Vec<El>, El) {
+    (
+        crate::assistant::enabled(&ui.settings)
+            .then(|| setup_button(p))
+            .into_iter()
+            .collect(),
+        super::scroll_body(p.k, "chats-settings-scroll", settings::page(ui, p, layer)),
     )
+}
+
+/// The Assistant pane opened: its fields show what's saved, and the agents,
+/// voices, browser, and running apps are looked up.
+pub(super) fn settings_opened(ui: &mut Ui) {
+    settings::opened(ui);
+}
+
+/// The Assistant pane closed: a model typed but not yet saved is saved.
+pub(super) fn settings_left(ui: &mut Ui) {
+    settings::flush(ui);
 }
 
 /// The agent's name, as Settings and the header show it.

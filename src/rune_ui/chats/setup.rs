@@ -17,6 +17,7 @@
 
 pub(in crate::rune_ui) mod browser;
 pub(in crate::rune_ui) mod permissions;
+pub(in crate::rune_ui) mod repair;
 pub(in crate::rune_ui) mod resume;
 pub(in crate::rune_ui) mod tutorial;
 
@@ -134,6 +135,16 @@ impl Page {
         self.index()
             .checked_sub(1)
             .map(|index| Self::shown()[index])
+    }
+
+    /// The next page this OS shows.
+    pub(in crate::rune_ui) fn next_shown(self) -> Option<Page> {
+        self.next()
+    }
+
+    /// The page before, as this OS shows them.
+    pub(in crate::rune_ui) fn previous_shown(self) -> Option<Page> {
+        self.previous()
     }
 }
 
@@ -261,6 +272,8 @@ pub(in crate::rune_ui) struct SetupFlow {
     pub(in crate::rune_ui) from_hold: bool,
     /// "Tell Hex about you": company, website, colleagues.
     pub(in crate::rune_ui) about: [rune::TextEdit; 3],
+    /// Set up before, and back for what's missing now: only these pages.
+    pub(in crate::rune_ui) repair: Option<repair::Repair>,
 }
 
 impl Default for SetupFlow {
@@ -295,6 +308,7 @@ impl Default for SetupFlow {
             fix_command: None,
             from_hold: false,
             about: Default::default(),
+            repair: None,
         }
     }
 }
@@ -668,8 +682,14 @@ pub(in crate::rune_ui) fn advance(ui: &mut Ui) {
     if page == Page::About {
         remember_about(ui);
     }
-    if let Some(next) = page.next() {
-        go(ui, next);
+    let Some(flow) = ui.chats.setup.as_ref() else {
+        return;
+    };
+    match repair::next_page(flow, page) {
+        Some(next) => go(ui, next),
+        // The guide's last page: setup is whole again.
+        None if flow.repair.is_some() => repair::finish(ui),
+        None => {}
     }
 }
 
@@ -704,6 +724,11 @@ pub(in crate::rune_ui) fn later(ui: &mut Ui) {
     let Some(flow) = ui.chats.setup.as_mut() else {
         return;
     };
+    if flow.repair.is_some() {
+        // The guide comes back when Hex next starts.
+        repair::snooze(ui);
+        return;
+    }
     let page = flow.page;
     if !flow.later.contains(&page) {
         flow.later.push(page);
@@ -719,7 +744,7 @@ pub(in crate::rune_ui) fn back(ui: &mut Ui) {
         .chats
         .setup
         .as_ref()
-        .and_then(|flow| flow.page.previous())
+        .and_then(|flow| repair::previous_page(flow, flow.page))
     {
         go(ui, previous);
     }
@@ -868,6 +893,16 @@ pub(in crate::rune_ui) fn close(ui: &mut Ui) {
     stop_probe(ui);
     crate::assistant::set_trying(false);
     let merged = ui.chats.setup.as_ref().is_some_and(|flow| flow.merged);
+    if ui
+        .chats
+        .setup
+        .as_ref()
+        .is_some_and(|flow| flow.repair.is_some())
+    {
+        // Closed with something still missing: not again until Hex next
+        // starts (a hold still opens it).
+        ui.chats.repair.snoozed = true;
+    }
     if ui.chats.setup.is_some() && !ui.settings.assistant.setup_done {
         resume::dismiss(ui);
     }
@@ -901,6 +936,8 @@ pub(super) fn receive(ui: &mut Ui, done: super::Done) {
         return;
     };
     match done {
+        // Taken by `repair` before it gets here.
+        Done::Gaps(_) => {}
         Done::Detected(_) => flow.detecting = false,
         Done::Desktop(found) => {
             flow.desktop_checking = false;
@@ -956,6 +993,7 @@ pub(super) fn receive(ui: &mut Ui, done: super::Done) {
         | Done::VoiceProgress(_)
         | Done::VoiceDownloaded(_)
         | Done::RunningApps(_)
+        | Done::Accounts(_)
         | Done::Browser(..)
         | Done::SignIn(..)
         | Done::BrowserCheck(_)

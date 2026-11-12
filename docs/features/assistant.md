@@ -410,6 +410,24 @@ URL/storage unit tests, and the named macOS assistant setup scenes. These fixtur
 that macOS granted a live app access; the native permission checks remain
 authoritative and are never forced green by the window.
 
+### Back for what's missing
+
+After setup was finished, Hex checks at launch and every five minutes
+(`desktop::setup_gaps`, read off the window's thread by `Job::Gaps`):
+Microphone, Accessibility and Screen Recording, a translocated or stray copy
+(`permission_doctor`), the speech model, the chosen agent installed and
+signed in, agent-desktop and its grants, agent-browser, the Action shortcut
+still free, the Hex voice's files, and `assistant.setup_version` against
+`SETUP_VERSION` (pages a release adds go in `setup_gaps::ADDED`). When
+something is missing, the onboarding opens on just the pages that fix it
+(`chats::setup::repair`), headed "Hex needs your help for a moment" with one
+line per gap, moves on by itself once a page works, and ends after the last.
+Later or Close puts it off until Hex next starts. A missing Hex voice
+downloads again without a page. While something essential is missing (a
+copy macOS can't grant, Microphone, Accessibility, the agent), a hold of the
+Action shortcut says what in the HUD instead of asking and opens the guide.
+Scene: `mac-assistant-setup-repair`.
+
 ## Agents on Linux and Windows
 
 The agent backends (Claude Code, Codex, OpenCode, agent-desktop,

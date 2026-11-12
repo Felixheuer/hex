@@ -47,7 +47,11 @@ pub const LIST_TOOL: &str = "hex_browser_sessions";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
     Clean,
+    /// Real Chrome with the person's accounts (`signedIn: true`).
     SignedIn,
+    /// The light engine with the person's accounts: every browser's
+    /// default while they have some (`browser_signed_in_by_default`).
+    Accounts,
 }
 
 /// The browser engine behind a clean session.
@@ -90,6 +94,8 @@ pub fn belongs(task: &str, session: &str) -> bool {
 pub struct Sessions {
     task: String,
     clean: Engine,
+    /// A browser that asks for nothing starts with the person's accounts.
+    accounts: bool,
     open: BTreeMap<String, Kind>,
 }
 
@@ -98,8 +104,15 @@ impl Sessions {
         Self {
             task: task.to_owned(),
             clean,
+            accounts: false,
             open: BTreeMap::new(),
         }
+    }
+
+    /// Browsers that ask for nothing start with the person's accounts.
+    pub fn with_accounts(mut self, accounts: bool) -> Self {
+        self.accounts = accounts;
+        self
     }
 
     pub fn task(&self) -> &str {
@@ -123,6 +136,9 @@ impl Sessions {
         }
         let wanted = signed_in.map(|on| if on { Kind::SignedIn } else { Kind::Clean });
         let kind = match (self.open.get(&name), wanted) {
+            // A browser started with the accounts by default is what a later
+            // `signedIn: true` would get in the light engine: keep it.
+            (Some(Kind::Accounts), Some(Kind::SignedIn)) => Kind::Accounts,
             (Some(kind), Some(wanted)) if *kind != wanted => {
                 return Err(format!(
                     "Browser “{}” started {}; use another session name for a {} one",
@@ -144,18 +160,22 @@ impl Sessions {
                             .join(", ")
                     ));
                 }
-                let kind = wanted.unwrap_or(Kind::Clean);
+                let kind = wanted.unwrap_or(if self.accounts {
+                    Kind::Accounts
+                } else {
+                    Kind::Clean
+                });
                 self.open.insert(name.clone(), kind);
                 kind
             }
         };
+        if kind != Kind::Clean {
+            arguments.insert("restore".into(), SIGN_IN.into());
+            arguments.insert("restoreSave".into(), "never".into());
+        }
         let engine = match kind {
-            Kind::SignedIn => {
-                arguments.insert("restore".into(), SIGN_IN.into());
-                arguments.insert("restoreSave".into(), "never".into());
-                Engine::Chrome
-            }
-            Kind::Clean => self.clean,
+            Kind::SignedIn => Engine::Chrome,
+            Kind::Clean | Kind::Accounts => self.clean,
         };
         arguments.insert("extraArgs".into(), json!(["--engine", engine.name()]));
         Ok(())
@@ -170,11 +190,11 @@ impl Sessions {
             .map(|(name, kind)| {
                 let engine = match kind {
                     Kind::SignedIn => Engine::Chrome,
-                    Kind::Clean => self.clean,
+                    Kind::Clean | Kind::Accounts => self.clean,
                 };
                 json!({
                     "session": shown(name),
-                    "signedIn": *kind == Kind::SignedIn,
+                    "signedIn": *kind != Kind::Clean,
                     "engine": engine.name(),
                     "running": running.contains(&full_name(&self.task, name)),
                 })
@@ -192,6 +212,7 @@ fn describe(kind: Kind) -> &'static str {
     match kind {
         Kind::Clean => "clean",
         Kind::SignedIn => "signed in",
+        Kind::Accounts => "light with the person's accounts",
     }
 }
 
@@ -250,9 +271,9 @@ pub fn describe_tools(result: &mut Value) {
                     "signedIn".into(),
                     json!({"type": "boolean", "description":
                         "On a browser's first call only: true starts it in real Chrome with \
-                         the sites the person signed in to for Hex (for web apps such as \
-                         Gmail or Google Sheets). Default false: a clean, light browser for \
-                         reading and research."}),
+                         the person's accounts (for web apps such as Gmail or Google Sheets); \
+                         false starts a clean browser with no accounts. Omitted: a light \
+                         browser, with the person's accounts when they have some."}),
                 );
             }
         }
@@ -397,5 +418,49 @@ mod tests {
                 .is_none()
         );
         assert_eq!(tools[2]["name"], LIST_TOOL);
+    }
+
+    #[test]
+    fn with_the_person_s_accounts_every_browser_starts_signed_in_unless_asked_clean() {
+        let mut sessions = Sessions::new("t1", Engine::Lightpanda).with_accounts(true);
+        // Asking for nothing: the light engine, with the accounts.
+        let mut plain = args(json!({"url": "https://github.com"}));
+        sessions.pin("agent_browser_open", &mut plain).unwrap();
+        assert_eq!(plain["restore"], SIGN_IN);
+        assert_eq!(plain["restoreSave"], "never");
+        assert_eq!(plain["extraArgs"], json!(["--engine", "lightpanda"]));
+        // A later signedIn: true keeps that browser as it started.
+        let mut again = args(json!({"signedIn": true}));
+        sessions.pin("agent_browser_snapshot", &mut again).unwrap();
+        assert_eq!(again["restore"], SIGN_IN);
+        // signedIn: true opens real Chrome with the accounts.
+        let mut chrome = args(json!({"session": "mail", "signedIn": true}));
+        sessions.pin("agent_browser_open", &mut chrome).unwrap();
+        assert_eq!(chrome["restore"], SIGN_IN);
+        assert_eq!(chrome["extraArgs"], json!(["--engine", "chrome"]));
+        // signedIn: false is a clean browser.
+        let mut clean = args(json!({"session": "c", "signedIn": false}));
+        sessions.pin("agent_browser_open", &mut clean).unwrap();
+        assert!(clean.get("restore").is_none());
+        let listed = sessions.list(&[]);
+        let by_name = |name: &str| {
+            listed["browsers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|browser| browser["session"] == name)
+                .unwrap()["signedIn"]
+                .clone()
+        };
+        assert_eq!(by_name("main"), true);
+        assert_eq!(by_name("c"), false);
+    }
+
+    #[test]
+    fn without_accounts_a_browser_that_asks_for_nothing_is_clean() {
+        let mut sessions = Sessions::new("t1", Engine::Lightpanda).with_accounts(false);
+        let mut plain = args(json!({}));
+        sessions.pin("agent_browser_open", &mut plain).unwrap();
+        assert!(plain.get("restore").is_none());
     }
 }

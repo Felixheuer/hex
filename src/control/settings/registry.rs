@@ -322,7 +322,7 @@ pub(super) const KEYS: &[Key] = &[
     ),
     key(
         "assistant.max_parallel",
-        Kind::Integer { min: 1, max: 64 },
+        Kind::Integer { min: 1, max: 50 },
         "At most this many assistant tasks run at once; later ones wait (macOS)",
     ),
     optional(
@@ -350,6 +350,16 @@ pub(super) const KEYS: &[Key] = &[
         "assistant.keep_display_awake",
         Kind::Bool,
         "With assistant.keep_awake, the display stays on too",
+    ),
+    key(
+        "assistant.browser_signed_in_by_default",
+        Kind::Bool,
+        "Every new assistant browser starts with the person's accounts (macOS)",
+    ),
+    optional(
+        "assistant.browser_import_profile",
+        Kind::Text,
+        "The Chrome profile whose logins Hex's browsers take over daily, such as Default; none takes none (macOS)",
     ),
     key(
         "assistant.background_browser",
@@ -418,6 +428,11 @@ pub(super) const KEYS: &[Key] = &[
         "assistant.setup_done",
         Kind::Bool,
         "The assistant's setup sheet was finished (macOS)",
+    ),
+    key(
+        "assistant.setup_version",
+        Kind::Integer { min: 0, max: 1000 },
+        "The assistant setup version finished; a lower one brings back the steps a release added",
     ),
     key(
         "show_dock_icon",

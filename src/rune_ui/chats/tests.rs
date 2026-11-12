@@ -1187,3 +1187,111 @@ fn stale_assistant_grants_use_the_running_apps_permission_repair() {
         Job::Fix(crate::assistant::backends::Fix::GuidePermissions)
     )));
 }
+
+mod repair {
+    use super::*;
+    use crate::desktop::setup_gaps::{Gap, SETUP_VERSION};
+
+    fn gaps(rt: &mut Runtime<Ui>, gaps: Vec<Gap>) {
+        answer(rt, Done::Gaps(gaps));
+    }
+
+    fn repair_pages(rt: &Runtime<Ui>) -> Vec<Page> {
+        rt.state
+            .chats
+            .setup
+            .as_ref()
+            .and_then(|flow| flow.repair.as_ref())
+            .map(|repair| repair.pages.clone())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn nothing_missing_shows_nothing() {
+        let mut rt = chats();
+        gaps(&mut rt, Vec::new());
+        assert!(rt.state.chats.setup.is_none());
+    }
+
+    #[test]
+    fn what_went_missing_brings_back_only_its_pages_and_says_why() {
+        let mut rt = chats();
+        gaps(&mut rt, vec![Gap::Shortcut, Gap::ScreenRecording]);
+        assert_eq!(
+            page(&rt),
+            Page::Desktop,
+            "starts at the first page that fixes one"
+        );
+        assert_eq!(repair_pages(&rt), [Page::Desktop, Page::Shortcut]);
+        assert!(shows(&rt, "Hex needs your help for a moment"));
+        assert!(shows(
+            &rt,
+            "Hex can't see the screen: Screen Recording is off"
+        ));
+        assert!(shows(&rt, "Another app took the assistant's shortcut"));
+        assert!(
+            rt.find("back").is_none(),
+            "nothing before the guide's first page"
+        );
+    }
+
+    #[test]
+    fn later_puts_the_guide_off_until_hex_starts_again_but_a_hold_opens_it() {
+        let mut rt = chats();
+        gaps(&mut rt, vec![Gap::ScreenRecording]);
+        tap(&mut rt, "later");
+        assert!(rt.state.chats.setup.is_none());
+        assert!(rt.state.chats.repair.snoozed);
+        // The next check finds it still missing: no window this launch.
+        gaps(&mut rt, vec![Gap::ScreenRecording]);
+        assert!(rt.state.chats.setup.is_none());
+        // A hold of the Action shortcut brings it back.
+        rt.update(|ui, tx| super::super::open_setup_from_hold(ui, tx));
+        settle(&mut rt);
+        assert_eq!(page(&rt), Page::Desktop);
+    }
+
+    #[test]
+    fn closing_the_guide_puts_it_off_too() {
+        let mut rt = chats();
+        gaps(&mut rt, vec![Gap::ScreenRecording]);
+        tap(&mut rt, "close-setup");
+        assert!(rt.state.chats.repair.snoozed);
+    }
+
+    #[test]
+    fn a_missing_voice_downloads_again_without_a_page() {
+        let mut rt = chats();
+        gaps(&mut rt, vec![Gap::HexVoice]);
+        assert!(rt.state.chats.setup.is_none());
+        assert!(rt.state.chats.jobs.asked.contains(&Job::DownloadVoice));
+    }
+
+    #[test]
+    fn an_essential_gap_is_what_a_hold_says() {
+        let mut rt = chats();
+        gaps(&mut rt, vec![Gap::ScreenRecording, Gap::AgentSignIn]);
+        let said =
+            crate::desktop::setup_gaps::essential(&rt.state.chats.repair.gaps).map(Gap::message);
+        assert_eq!(said, Some("The assistant's agent is signed out"));
+        gaps(&mut rt, Vec::new());
+        assert!(crate::desktop::setup_gaps::essential(&rt.state.chats.repair.gaps).is_none());
+    }
+
+    #[test]
+    fn a_page_that_works_moves_on_by_itself_and_the_last_ends_the_guide() {
+        let mut rt = chats();
+        rt.state.settings.assistant.setup_version = 0;
+        // The welcome page always works: a stand-in for a step a release
+        // added that's already done.
+        gaps(&mut rt, vec![Gap::NewSteps(vec!["welcome"])]);
+        assert_eq!(page(&rt), Page::Welcome);
+        settle(&mut rt);
+        std::thread::sleep(std::time::Duration::from_millis(1_000));
+        rt.invalidate();
+        settle(&mut rt);
+        assert!(rt.state.chats.setup.is_none(), "the guide ended by itself");
+        assert_eq!(rt.state.settings.assistant.setup_version, SETUP_VERSION);
+        assert!(!rt.state.chats.repair.snoozed, "finished, not put off");
+    }
+}

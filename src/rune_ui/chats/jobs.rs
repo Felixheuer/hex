@@ -32,6 +32,8 @@ pub(in crate::rune_ui) enum Job {
     SelfTests(Box<AssistantSettings>, Vec<Check>),
     /// What else takes the tested shortcuts.
     Conflicts(Box<AppSettings>),
+    /// What setup misses now (`desktop::setup_gaps`).
+    Gaps(Box<AppSettings>),
     /// Saves the Claude API key in the Keychain (empty deletes it).
     SaveKey(String),
     /// The installed voices.
@@ -51,6 +53,12 @@ pub(in crate::rune_ui) enum Job {
     FinishSignIn,
     /// Forgets every sign-in.
     ForgetSignIn,
+    /// Chrome's profiles and the last import of their logins.
+    #[allow(dead_code, reason = "asked by the accounts rows (`accounts::read`)")]
+    Accounts,
+    /// Takes this Chrome profile's logins into Hex's browsers.
+    #[allow(dead_code, reason = "asked by the accounts rows")]
+    ImportChrome(String),
     /// The apps running now, for Settings' blocked apps.
     RunningApps,
     /// Sets up an agent in one go: installs, starts or signs in, and checks
@@ -72,6 +80,8 @@ pub(in crate::rune_ui) enum Job {
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::rune_ui) enum Done {
     Detected(Vec<Found>),
+    /// What setup misses now.
+    Gaps(Vec<crate::desktop::setup_gaps::Gap>),
     Desktop(AgentDesktop),
     Permissions(Permissions),
     /// A line of what a fix is doing (an installer's output).
@@ -101,6 +111,8 @@ pub(in crate::rune_ui) enum Done {
     SignIn(bool, Result<(), String>),
     /// The regular apps running now, by name.
     RunningApps(Vec<String>),
+    /// Chrome's profiles and the last import (or why it failed).
+    Accounts(super::accounts::Accounts),
     /// A line of an agent's setup.
     AgentProgress(AssistantBackend, String),
     /// A failed setup's command, to run in Terminal instead.
@@ -208,6 +220,9 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             });
             send(Done::AllChecked);
         }
+        Job::Gaps(settings) => send(Done::Gaps(crate::desktop::setup_gaps::setup_gaps(
+            &super::setup::repair::read_facts(&settings),
+        ))),
         Job::Conflicts(settings) => send(Done::Conflicts(
             super::setup::TESTED
                 .iter()
@@ -260,6 +275,26 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             ));
         }
         Job::RunningApps => send(Done::RunningApps(running_apps())),
+        Job::Accounts | Job::ImportChrome(_) => {
+            use crate::assistant::browser::accounts;
+            let error = match &job {
+                Job::ImportChrome(profile) => accounts::import_from_chrome(profile)
+                    .err()
+                    .map(|error| format!("{error:#}")),
+                _ => None,
+            };
+            send(Done::Accounts(super::accounts::Accounts {
+                profiles: accounts::chrome_profiles(),
+                last: accounts::last_import(),
+                importing: false,
+                error,
+            }));
+            send(Done::Browser(
+                browser::agent_browser(),
+                browser::saved_sites(),
+                browser::clean_engine(),
+            ));
+        }
         Job::SetUpAgent(..) | Job::OwnKey { .. } | Job::CodexKey(_) => {}
     }
 }
@@ -306,6 +341,10 @@ pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
     if super::agents::receive(ui, &done) {
         return;
     }
+    if let Done::Gaps(gaps) = done {
+        super::setup::repair::received(ui, gaps);
+        return;
+    }
     match &done {
         Done::Detected(found) => ui.chats.settings.found = Some(found.clone()),
         Done::Voices(voices) => ui.chats.settings.voices = Some(voices.clone()),
@@ -326,6 +365,7 @@ pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
             }
         }
         Done::RunningApps(apps) => ui.chats.settings.running = Some(apps.clone()),
+        Done::Accounts(found) => super::accounts::receive(found),
         Done::Browser(found, sites, engine) => {
             ui.chats.settings.browser = Some(found.clone());
             ui.chats.settings.signed_in = !sites.is_empty();

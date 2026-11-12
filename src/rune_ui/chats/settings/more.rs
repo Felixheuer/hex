@@ -82,21 +82,6 @@ pub(in crate::rune_ui) fn autonomy_choice(ui: &Ui, p: Paint) -> El {
         )
 }
 
-pub(in crate::rune_ui) fn autonomy_section(ui: &Ui, p: Paint) -> El {
-    section(
-        p,
-        "assistant-autonomy",
-        tr("How freely it acts"),
-        vec![
-            row()
-                .key("autonomy-row")
-                .px(16.0)
-                .py(12.0)
-                .child(autonomy_choice(ui, p).grow(1.0)),
-        ],
-    )
-}
-
 /// A voice's name without its quality, and the quality as a word.
 fn voice_label(name: &str) -> String {
     if let Some(preset) = crate::assistant::speech::neural::preset(name) {
@@ -222,44 +207,6 @@ pub(super) fn hex_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
     )
 }
 
-/// "Get a better voice", when none installed sounds natural.
-pub(super) fn better_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
-    // Linux's voices are packages (Piper, Pico, eSpeak), with no page to
-    // download one from.
-    if !crate::assistant::speech::has_voice_settings() {
-        return None;
-    }
-    let installed = ui.chats.settings.voices.as_ref()?;
-    voices::better_voice_available(installed)?;
-    Some(
-        described_row(
-            p,
-            "assistant-better-voice",
-            tr("Get a better voice"),
-            Some((
-                if cfg!(target_os = "macos") {
-                    tr("Premium voices sound far more natural. Download one in System Settings")
-                } else {
-                    tr("More natural voices are in Settings › Time & language › Speech")
-                }
-                .to_owned(),
-                p.muted(),
-            )),
-            small_button(
-                p,
-                "get-better-voice",
-                tr("Open Settings…"),
-                |ui: &mut Ui, _| {
-                    if ui.chats.live() {
-                        voices::open_voice_settings();
-                    }
-                },
-            ),
-        )
-        .into(),
-    )
-}
-
 /// Keep listening after an answer, and interrupt by speaking.
 pub(super) fn conversation_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<CardRow> {
     let saved = ui.settings.assistant.conversation_seconds;
@@ -341,6 +288,32 @@ fn save_memory(ui: &mut Ui) {
 }
 
 /// "What Hex knows about you": the switch, and the facts as text.
+/// Clear…, then "Clear everything it knows" to confirm: empties the note
+/// and saves it.
+fn clear_memory_button(ui: &Ui, p: Paint) -> El {
+    let state = &ui.chats.settings;
+    if state.memory.text.trim().is_empty() {
+        return rune::el().key("clear-memory");
+    }
+    if state.memory_clear_armed {
+        Button::new(tr("Clear everything it knows"))
+            .variant(ButtonVariant::Danger)
+            .on_press(|ui: &mut Ui| {
+                ui.chats.settings.memory_clear_armed = false;
+                ui.chats.settings.memory.clear();
+                save_memory(ui);
+            })
+            .build_small_push(p.k)
+            .key("clear-memory")
+    } else {
+        Button::new(tr("Clear…"))
+            .variant(ButtonVariant::Ghost)
+            .on_press(|ui: &mut Ui| ui.chats.settings.memory_clear_armed = true)
+            .build_small_push(p.k)
+            .key("clear-memory")
+    }
+}
+
 pub(in crate::rune_ui) fn memory_section(ui: &Ui, p: Paint) -> El {
     let state = &ui.chats.settings;
     let on = ui.settings.assistant.memory;
@@ -379,18 +352,23 @@ pub(in crate::rune_ui) fn memory_section(ui: &Ui, p: Paint) -> El {
                 .gap(8.0)
                 .child(editor)
                 .child(
-                    row().key("memory-actions").gap(8.0).center_y().child(
-                        Button::new(if state.memory_saved {
-                            tr("Saved")
-                        } else {
-                            tr("Save")
-                        })
-                        .variant(ButtonVariant::Neutral)
-                        .disabled(state.memory_saved)
-                        .on_press(save_memory)
-                        .build_small_push(p.k)
-                        .key("save-memory"),
-                    ),
+                    row()
+                        .key("memory-actions")
+                        .gap(8.0)
+                        .center_y()
+                        .child(
+                            Button::new(if state.memory_saved {
+                                tr("Saved")
+                            } else {
+                                tr("Save")
+                            })
+                            .variant(ButtonVariant::Neutral)
+                            .disabled(state.memory_saved)
+                            .on_press(save_memory)
+                            .build_small_push(p.k)
+                            .key("save-memory"),
+                        )
+                        .child(clear_memory_button(ui, p)),
                 )
                 .into(),
         );

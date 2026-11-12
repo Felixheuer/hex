@@ -546,6 +546,8 @@ pub(in crate::rune_ui) enum Scene {
     Merged,
     /// Reopened after a restart on the permissions page, checking again.
     Resumed,
+    /// Set up before, back for what an update took away.
+    Repair,
     /// Accessibility applies only after a restart: one button does it.
     Restart,
     /// The agent page in each of its states.
@@ -571,7 +573,11 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
             | Scene::Escalated
             | Scene::NewSchedule
     );
-    ui.pane = super::Pane::Chats;
+    ui.pane = if matches!(scene, Scene::Settings) {
+        super::Pane::Assistant
+    } else {
+        super::Pane::Chats
+    };
     let store = match scene {
         Scene::Empty => Store::default(),
         Scene::Tasks => {
@@ -598,6 +604,7 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
         | Scene::NewInHex
         | Scene::Merged
         | Scene::Resumed
+        | Scene::Repair
         | Scene::Restart
         | Scene::Agent(_) => {
             pane.turns.insert("reply-to-maya".into(), running_turn());
@@ -703,7 +710,6 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
             pane.tasks.clear();
         }
         Scene::Settings => {
-            pane.view = super::View::Settings;
             pane.settings.found = Some(super::setup::fixture_found());
             pane.settings.voices = Some(vec![
                 "Ava (Premium)".into(),
@@ -750,6 +756,20 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
                 });
                 flow.desktop_checking = true;
                 flow.desktop = None;
+            }
+        }
+        Scene::Repair => {
+            super::setup::fixture(ui, super::setup::Page::Desktop, false);
+            ui.settings.assistant.setup_done = true;
+            if let Some(flow) = ui.chats.setup.as_mut() {
+                flow.permissions = Some(crate::assistant::computer::Permissions {
+                    accessibility: true,
+                    screen_recording: false,
+                });
+                flow.repair = Some(super::setup::repair::Repair::new(vec![
+                    crate::desktop::setup_gaps::Gap::ScreenRecording,
+                    crate::desktop::setup_gaps::Gap::Shortcut,
+                ]));
             }
         }
         Scene::Agent(state) => agent_page(ui, state),

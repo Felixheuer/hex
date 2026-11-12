@@ -902,6 +902,10 @@ pub(super) const SCENES: &[Scene] = &[
         mac_chats(ui, chats::fixture::Scene::Resumed)
     }),
     #[cfg(target_os = "macos")]
+    ("mac-assistant-setup-repair", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Repair)
+    }),
+    #[cfg(target_os = "macos")]
     ("mac-assistant-setup-merged", |ui| {
         mac_chats(ui, chats::fixture::Scene::Merged)
     }),
