@@ -498,6 +498,9 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     };
     let hud = crate::rune_hud::install(&mut app);
     crate::rune_ui::live_text::install(&mut app, crate::rune_hud::live_text_place);
+    // Labs › Assistant: the frame, window outlines, task stack, and quick
+    // answer; hidden, without windows, until the assistant reports work.
+    crate::rune_ui::assistant_overlay::install(&mut app);
     // The capture capsule, picker, and ink.
     #[cfg(hex_capture)]
     let capture_overlays =
