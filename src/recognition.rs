@@ -923,6 +923,9 @@ pub fn listen(
         crate::assistant::interaction::dictation_listening(
             hotkeys.any_recording() && !hotkeys.action_recording(),
         );
+        if !hotkeys.action_recording() {
+            crate::assistant::interaction::hold_not_recording();
+        }
         // Only once every queued edge is handled, so a release already seen
         // ends the press first.
         if !hotkey_capture_suspended && input_monitor.pending_events().oldest().is_none() {

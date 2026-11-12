@@ -159,6 +159,10 @@ pub(crate) struct Question {
     hold: bool,
     /// The hold's listening, while it's real; ends when dropped.
     holding: Option<Holding>,
+    /// Hex was reading aloud as the capture opened (conversation mode's
+    /// watch under an answer, a hold over it): its transcript may begin
+    /// with Hex's own voice.
+    overheard: bool,
 }
 
 /// A hold's listening state (`interaction::hold_listening`): on while this
@@ -191,6 +195,7 @@ impl Question {
                 .map(|asked| asked.conversation),
             hold: false,
             holding: None,
+            overheard: crate::assistant::speech::speaking() || crate::assistant::reading_aloud(),
         }
     }
 
@@ -292,6 +297,7 @@ impl Question {
     ) -> PrintReply {
         // Released: the hold no longer listens.
         drop(self.holding.take());
+        let overheard = self.overheard;
         let (reply, transcript) = PrintReply::channel();
         let spawned = std::thread::Builder::new()
             .name("hex-assistant-question".into())
@@ -309,7 +315,11 @@ impl Question {
                 // A capture that listened under the reading (a barge-in,
                 // conversation mode's window) heard Hex's voice before the
                 // person's: only what follows it is theirs.
-                let text = crate::assistant::speech::own_echo::without_own_words(&text);
+                let text = if overheard || barged {
+                    crate::assistant::speech::own_echo::without_own_words(&text)
+                } else {
+                    text
+                };
                 if barged {
                     let after = barge_in::after_barge_in(
                         Some(&text),

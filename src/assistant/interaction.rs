@@ -165,6 +165,16 @@ pub fn hold_listening(on: bool) {
     update(|reasons| reasons.with(Listening::Hold, on));
 }
 
+/// The Action shortcut records nothing now: a hold still marked as
+/// listening ends (a cancel path that never reached its own end, such as
+/// the shortcut being rebound or paused mid-hold). Cheap to call every time
+/// round the listener's loop.
+pub fn hold_not_recording() {
+    if reasons().0 & HOLD != 0 {
+        hold_listening(false);
+    }
+}
+
 /// Whether a dictation records now. The listener calls it every time round
 /// its loop, so a missed edge can't leave it on; a long dictation keeps
 /// announcements waiting past the voice queue's own 30 s lapse.

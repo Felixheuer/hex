@@ -271,55 +271,57 @@ impl Store {
         let path = dir.join(format!("{}.json", file_name(task)));
         let body = serde_json::json!({ "task": task, "pid": pid, "started": started_us(pid) });
         let _ = std::fs::write(&path, body.to_string());
-        HandsOn { path, lock: None }
+        HandsOn {
+            path: Some(path),
+            lock: None,
+        }
     }
 
     /// Takes the real pointer and keyboard for `task`, one task at a time:
     /// waits up to `wait` while another task's action uses them, then
-    /// gives up with that task's id. A holder that ended (a crash) gives
-    /// them up by itself. The marker and the hold go when the value drops.
+    /// gives up with that task's id. The hold is the operating system's
+    /// lock on `held.lock`, so a holder that ended (a crash) gives it up by
+    /// itself and two tasks can never both take it. The marker and the hold
+    /// go when the value drops.
     pub fn take_hands(&self, task: &str, pid: u32, wait: Duration) -> Result<HandsOn, String> {
+        use fs2::FileExt;
         let dir = self.hands_dir();
         let _ = std::fs::create_dir_all(&dir);
-        let lock = dir.join("held.lock");
-        let body = serde_json::json!({ "task": task, "pid": pid, "started": started_us(pid) });
+        let holder_path = dir.join("held.json");
+        let Ok(lock) = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(dir.join("held.lock"))
+        else {
+            return Ok(self.hands_on(task, pid));
+        };
         let until = Instant::now() + wait;
         loop {
-            match OpenOptions::new().write(true).create_new(true).open(&lock) {
-                Ok(mut file) => {
-                    let _ = file.write_all(body.to_string().as_bytes());
-                    let mut hands = self.hands_on(task, pid);
-                    hands.lock = Some(lock);
-                    return Ok(hands);
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    match read_hands(&lock) {
-                        // Ours already (an action inside an action).
-                        Some((holder, holder_pid, _)) if holder == task && holder_pid == pid => {
-                            return Ok(self.hands_on(task, pid));
-                        }
-                        Some((holder, holder_pid, started)) if running(holder_pid, started) => {
-                            if Instant::now() >= until {
-                                return Err(holder);
-                            }
-                        }
-                        // Its holder ended, or it's being written: a stale
-                        // one goes, a fresh unreadable one is waited for.
-                        Some(_) => {
-                            let _ = std::fs::remove_file(&lock);
-                            continue;
-                        }
-                        None if is_old(&lock) => {
-                            let _ = std::fs::remove_file(&lock);
-                            continue;
-                        }
-                        None if Instant::now() >= until => return Err(String::new()),
-                        None => {}
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-                Err(_) => return Ok(self.hands_on(task, pid)),
+            if lock.try_lock_exclusive().is_ok() {
+                let body =
+                    serde_json::json!({ "task": task, "pid": pid, "started": started_us(pid) });
+                let _ = std::fs::write(&holder_path, body.to_string());
+                let mut hands = self.hands_on(task, pid);
+                hands.lock = Some((lock, holder_path));
+                return Ok(hands);
             }
+            let holder = read_hands(&holder_path);
+            // Ours already (an action inside an action): it goes on, and
+            // leaves the outer hold's marker alone.
+            if let Some((holder_task, holder_pid, _)) = &holder
+                && holder_task == task
+                && *holder_pid == pid
+            {
+                return Ok(HandsOn {
+                    path: None,
+                    lock: None,
+                });
+            }
+            if Instant::now() >= until {
+                return Err(holder.map(|(task, _, _)| task).unwrap_or_default());
+            }
+            std::thread::sleep(Duration::from_millis(50));
         }
     }
 
@@ -334,17 +336,21 @@ impl Store {
 }
 
 /// A hands-off marker, and the hold on the real input when it was taken
-/// with [`Store::take_hands`]; removed on drop.
+/// with [`Store::take_hands`]; removed (and let go) on drop.
 pub struct HandsOn {
-    path: PathBuf,
-    lock: Option<PathBuf>,
+    path: Option<PathBuf>,
+    /// The locked file and the note of who holds it.
+    lock: Option<(File, PathBuf)>,
 }
 
 impl Drop for HandsOn {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-        if let Some(lock) = &self.lock {
-            let _ = std::fs::remove_file(lock);
+        if let Some(path) = &self.path {
+            let _ = std::fs::remove_file(path);
+        }
+        if let Some((lock, holder)) = self.lock.take() {
+            let _ = std::fs::remove_file(holder);
+            let _ = fs2::FileExt::unlock(&lock);
         }
     }
 }

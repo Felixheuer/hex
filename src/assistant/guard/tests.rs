@@ -552,10 +552,21 @@ fn one_task_at_a_time_holds_the_real_mouse_and_keyboard() {
     let next = store.take_hands("second", me, Duration::ZERO);
     assert!(next.is_ok());
     drop(next);
-    // A holder that ended (a crash) doesn't keep them.
-    let lock = scratch.0.join("guard").join("hands-off").join("held.lock");
-    std::fs::write(&lock, r#"{"task":"gone","pid":4294967,"started":1}"#).unwrap();
-    assert!(store.take_hands("third", me, Duration::ZERO).is_ok());
+    // A holder that ended (a crash) left its files but no lock: they don't
+    // keep the input.
+    let dir = scratch.0.join("guard").join("hands-off");
+    std::fs::write(dir.join("held.lock"), "").unwrap();
+    std::fs::write(
+        dir.join("held.json"),
+        r#"{"task":"gone","pid":4294967,"started":1}"#,
+    )
+    .unwrap();
+    let third = store.take_hands("third", me, Duration::ZERO);
+    assert!(third.is_ok());
+    // A nested hold leaves the outer one's marker.
+    let nested = store.take_hands("third", me, Duration::ZERO).unwrap();
+    drop(nested);
+    assert_eq!(store.hands_off().as_deref(), Some("third"));
 }
 
 #[test]

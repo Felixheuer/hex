@@ -28,9 +28,9 @@ pub enum Variant {
     Test,
 }
 
-// The name, URL scheme, and rival are the macOS and Linux app's; Windows
-// installs one variant.
-#[cfg_attr(target_os = "windows", allow(dead_code))]
+// The name, URL scheme, and rival are for the macOS app's Live and Dev
+// copies; the other systems install one variant.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 impl Variant {
     /// The variant `HEX_TEST_BUILD` / `HEX_DEV_BUILD` (as compiled in) name.
     pub const fn from_env(test_build: Option<&str>, dev_build: Option<&str>) -> Self {

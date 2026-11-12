@@ -566,12 +566,29 @@ fn run(preview: &Preview, path: &std::path::Path) {
 }
 
 fn stream_once(preview: &Preview, path: &std::path::Path) -> Result<(), String> {
+    let result = stream_connected(preview, path);
+    // The stream is over: nothing writes to it any more.
+    if let Ok(mut slot) = preview.writer.lock() {
+        *slot = None;
+    }
+    result
+}
+
+fn stream_connected(preview: &Preview, path: &std::path::Path) -> Result<(), String> {
+    if preview.rate() == Rate::Idle {
+        return Err("idle".into());
+    }
     let port = stream::enable(path, &preview.session)?;
-    let fps = preview.rate().fps();
+    let fps = preview.rate().fps().max(1);
     let (mut reader, writer) = stream::connect(port, &format!("pacing=ack&maxFps={fps}"))
         .map_err(|error| error.to_string())?;
     if let Ok(mut slot) = preview.writer.lock() {
         *slot = Some(writer.clone());
+    }
+    // Gone idle while it connected (its close went to no writer): drop it.
+    if preview.rate() == Rate::Idle {
+        writer.close();
+        return Err("idle".into());
     }
     set_page(preview, |page| page.failed = None);
     let seen = AtomicU64::new(0);

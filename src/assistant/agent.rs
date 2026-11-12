@@ -770,9 +770,12 @@ pub fn prepare(
         None => {}
     }
     system.push_str(&autonomy_rules(settings.autonomy, &job.authorized));
+    // A background job reads pages and files the person never saw, with
+    // or without a workspace (one couldn't be made): never the person's
+    // own turn's tools.
+    let job_role = job.workspace.is_some() || job.request.origin == Origin::Background;
     // A job can't make schedules or remember (`tools::Role::Job`); it still
     // reads the memory note.
-    let job_role = job.workspace.is_some();
     if !job_role {
         system.push_str(TOOLS_RULES);
     }
@@ -781,7 +784,7 @@ pub fn prepare(
     }
     let tools = tools_server(
         &job.conversation,
-        if job.workspace.is_some() {
+        if job_role {
             crate::assistant::tools::Role::Job
         } else {
             crate::assistant::tools::Role::Turn

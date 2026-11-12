@@ -410,7 +410,11 @@ impl Voice {
             }
             // Never into a hold or a dictation: an answer that arrives
             // while the person talks to the microphone waits for them.
-            while person_talks() && self.state().generation == generation {
+            let waited_since = super::store::now_ms();
+            while person_talks()
+                && self.state().generation == generation
+                && super::store::now_ms().saturating_sub(waited_since) < LISTENING_AT_MOST_MS
+            {
                 (runner.hooks.sleep)(PUMP_EVERY);
             }
             if self.state().generation != generation {

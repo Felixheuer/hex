@@ -226,7 +226,7 @@ impl Runner {
         };
         let handed_on = matches!(outcome, Outcome::Steered | Outcome::Escalate { .. });
         let now = self.now();
-        let (paused, hands_off, end_session) = {
+        let (paused, hands_off, end_session, orphaned) = {
             let mut state = self.state();
             let paused = state
                 .tasks
@@ -234,6 +234,18 @@ impl Runner {
                 .find(|task| task.key == key)
                 .is_some_and(|task| task.status.state == TaskState::Paused);
             state.tasks.retain(|task| task.key != key);
+            // A lead that ended (not one handed on in the same
+            // conversation) leaves no helpers working for nobody.
+            let orphaned: Vec<u64> = if handed_on {
+                Vec::new()
+            } else {
+                state
+                    .tasks
+                    .iter()
+                    .filter(|task| task.parent.as_deref() == Some(conversation.as_str()))
+                    .map(|task| task.key)
+                    .collect()
+            };
             if lane == Lane::Here && matches!(outcome, Outcome::Answer(_)) {
                 state.last_quick = Some((conversation.clone(), now));
             }
@@ -241,8 +253,11 @@ impl Runner {
                 && outcome != Outcome::Steered)
                 .then(|| state.hands_off.take())
                 .flatten();
-            (paused, hands_off, self.session_to_end(&mut state))
+            (paused, hands_off, self.session_to_end(&mut state), orphaned)
         };
+        for helper in orphaned {
+            self.cancel_task(helper);
+        }
         if let Some(conversation) = hands_off {
             self.emit(&Event::HandsOff {
                 conversation,
