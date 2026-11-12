@@ -441,6 +441,7 @@ fn outline_of(look: Look) -> Runtime<Outline> {
         label: LabelSide::Above,
         look,
         progress: None,
+        origin: (0.0, 0.0),
     };
     let (rect_global, _) = outline::rect((100.0, 200.0, 600.0, 400.0), 0.0);
     runtime(
@@ -496,6 +497,60 @@ fn the_pretend_desktop_shows_every_overlay() {
     let hands = runtime(hands_off_desk(), desk::view, desk::SIZE, false);
     assert!(rect(&hands, "hands-off").is_some());
     assert!(rect(&hands, "outline-quick").is_some(), "its soft outline");
+}
+
+#[test]
+fn on_two_displays_the_frame_joins_and_the_orb_is_on_the_working_one() {
+    let scene = super::multi::TwoDisplays {
+        board: fixture::quiet_board(),
+    };
+    let rt = runtime(scene, super::multi::view, super::multi::SIZE, true);
+    assert_eq!(
+        count(&rt, "frame-joined"),
+        2,
+        "a frame on each display, joined"
+    );
+    // The M27Q glows on where it overhangs the built-in display.
+    assert_eq!(count_prefix(&rt, "frame-open-Bottom"), 2);
+    for app in ["Safari", "Mail", "Arc"] {
+        assert!(rect(&rt, &format!("outline-{app}")).is_some(), "{app}");
+    }
+    let [ox, oy, ..] = rect(&rt, "orb").expect("the orb");
+    let [mx, my, mw, mh] = rect(&rt, "display-m27q").unwrap();
+    assert!(
+        ox >= mx && ox < mx + mw && oy >= my && oy < my + mh,
+        "on the M27Q, where the person works"
+    );
+}
+
+#[test]
+fn a_frame_alone_is_the_whole_ring_and_a_joined_one_moves_off_its_seam() {
+    use super::frame::{self, Frame};
+    let alone = runtime(
+        Frame {
+            display: Some(1),
+            size: (1800.0, 1169.0),
+            seams: Default::default(),
+        },
+        frame::view,
+        (1800.0, 1169.0),
+        false,
+    );
+    assert_eq!(rect(&alone, "frame"), Some([0.0, 0.0, 1800.0, 1169.0]));
+    let all = super::multi::screens();
+    let built_in = runtime(
+        Frame {
+            display: Some(1),
+            size: (1800.0, 1169.0),
+            seams: super::screens::seams(&all[0], &all),
+        },
+        frame::view,
+        (1800.0, 1169.0),
+        false,
+    );
+    let [_, y, _, h] = rect(&built_in, "frame").unwrap();
+    assert!(y < -100.0, "its top glow sits past the seam: {y}");
+    assert!((y + h - 1169.0).abs() < 0.5, "the other edges stay");
 }
 
 /// The desktop while the Here question holds the pointer.
@@ -576,6 +631,23 @@ fn snapshots() {
                 },
             ),
         ];
+        // The whole desk at 1×: 2560 × 2609 pixels.
+        let mut two = crate::rune_ui::offscreen::runtime(
+            super::multi::TwoDisplays {
+                board: fixture::board(),
+            },
+            super::multi::view,
+            super::multi::SIZE,
+            Env {
+                system_dark: dark,
+                scale: 1.0,
+            },
+            TextSystem::new(rune_theme_opencode::FONTS, rune_theme_opencode::FAMILIES),
+        );
+        let (tw, th) = (super::multi::SIZE.0 as u32, super::multi::SIZE.1 as u32);
+        let path = folder.join(format!("assistant-two-displays-{theme}.png"));
+        let pixels = crate::rune_ui::offscreen::draw(&gpu, &mut two, tw, th);
+        rune::render::write_png(&path, tw, th, &pixels).unwrap();
         let (w, h) = px(desk::SIZE);
         for (name, state) in desks {
             let mut rt = runtime(state, desk::view, desk::SIZE, dark);

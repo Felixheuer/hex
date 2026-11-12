@@ -186,6 +186,7 @@ fn the_prompt_explains_the_autonomy_mode_and_memory() {
     let share = Authorized {
         categories: [Category::Share].into(),
         notes: vec!["only to max@example.com".into()],
+        ..Authorized::default()
     };
     let smart = autonomy_rules(Autonomy::Smart, &share);
     assert!(smart.contains("you may only share without asking because the person asked for it (only to max@example.com)"), "{smart}");

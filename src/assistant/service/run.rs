@@ -173,7 +173,7 @@ impl Runner {
                     let allowed = autonomy::is_yes(&answer);
                     if allowed {
                         job.authorized = (self.hooks.authorized)(&conversation);
-                        job.authorized.categories.insert(category);
+                        job.authorized.confirmed.insert(category);
                         (self.hooks.authorize)(&conversation, &job.authorized);
                     }
                     job.kind = JobKind::Confirm { question, allowed };

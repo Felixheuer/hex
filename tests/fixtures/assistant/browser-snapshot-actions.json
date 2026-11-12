@@ -1,0 +1,124 @@
+{
+ "_meta": {
+  "agentBrowserVersion": "0.42.0"
+ },
+ "content": [
+  {
+   "text": "- textbox \"To recipients\" [ref=e4]: a@example.com, b@example.com\n- textbox \"Subject\" [ref=e5]: Hello\n- textbox \"Message Body\" [ref=e6]: Hi\n- button \"Send ‪(⌘Enter)‬\" [ref=e7]\n- button \"Discard draft ‪(⌘⇧D)‬\" [ref=e8]\n- button \"Senden\" [ref=e9]\n- button \"Delete\" [ref=e10]\n- button \"Löschen\" [ref=e11]\n- button \"Archive\" [ref=e12]\n- textbox \"Add people, groups, and calendar events\" [ref=e13]\n- button \"Send\" [ref=e14]\n- button \"Freigeben\" [ref=e15]\n- button \"Copy link\" [ref=e16]\n- button \"Done\" [ref=e17]\n- textbox \"Quantity\" [ref=e18]: 1\n- button \"Jetzt kaufen\" [ref=e19]\n- textbox \"Search\" [ref=e20]\n- button \"Search\" [ref=e21]\n- button \"Submit order\" [ref=e1]\n- button \"Post\" [ref=e2]\n- link \"Read more\" [ref=e3]",
+   "type": "text"
+  }
+ ],
+ "isError": false,
+ "structuredContent": {
+  "exitCode": 0,
+  "response": {
+   "data": {
+    "lifecycle": {
+     "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 8664491348297564060
+     },
+     "launched": false,
+     "relaunchedBrowser": false,
+     "restartedBackground": false,
+     "restoreStatus": "not_configured",
+     "reused": true,
+     "saveStatus": "not_attempted"
+    },
+    "origin": "https://mail.google.com/mail/u/0/#inbox",
+    "refs": {
+     "e1": {
+      "name": "Submit order",
+      "role": "button"
+     },
+     "e10": {
+      "name": "Delete",
+      "role": "button"
+     },
+     "e11": {
+      "name": "Löschen",
+      "role": "button"
+     },
+     "e12": {
+      "name": "Archive",
+      "role": "button"
+     },
+     "e13": {
+      "name": "Add people, groups, and calendar events",
+      "role": "textbox"
+     },
+     "e14": {
+      "name": "Send",
+      "role": "button"
+     },
+     "e15": {
+      "name": "Freigeben",
+      "role": "button"
+     },
+     "e16": {
+      "name": "Copy link",
+      "role": "button"
+     },
+     "e17": {
+      "name": "Done",
+      "role": "button"
+     },
+     "e18": {
+      "name": "Quantity",
+      "role": "textbox"
+     },
+     "e19": {
+      "name": "Jetzt kaufen",
+      "role": "button"
+     },
+     "e2": {
+      "name": "Post",
+      "role": "button"
+     },
+     "e20": {
+      "name": "Search",
+      "role": "textbox"
+     },
+     "e21": {
+      "name": "Search",
+      "role": "button"
+     },
+     "e3": {
+      "name": "Read more",
+      "role": "link"
+     },
+     "e4": {
+      "name": "To recipients",
+      "role": "textbox"
+     },
+     "e5": {
+      "name": "Subject",
+      "role": "textbox"
+     },
+     "e6": {
+      "name": "Message Body",
+      "role": "textbox"
+     },
+     "e7": {
+      "name": "Send ‪(⌘Enter)‬",
+      "role": "button"
+     },
+     "e8": {
+      "name": "Discard draft ‪(⌘⇧D)‬",
+      "role": "button"
+     },
+     "e9": {
+      "name": "Senden",
+      "role": "button"
+     }
+    },
+    "removedRefs": [],
+    "snapshot": "- textbox \"To recipients\" [ref=e4]: a@example.com, b@example.com\n- textbox \"Subject\" [ref=e5]: Hello\n- textbox \"Message Body\" [ref=e6]: Hi\n- button \"Send ‪(⌘Enter)‬\" [ref=e7]\n- button \"Discard draft ‪(⌘⇧D)‬\" [ref=e8]\n- button \"Senden\" [ref=e9]\n- button \"Delete\" [ref=e10]\n- button \"Löschen\" [ref=e11]\n- button \"Archive\" [ref=e12]\n- textbox \"Add people, groups, and calendar events\" [ref=e13]\n- button \"Send\" [ref=e14]\n- button \"Freigeben\" [ref=e15]\n- button \"Copy link\" [ref=e16]\n- button \"Done\" [ref=e17]\n- textbox \"Quantity\" [ref=e18]: 1\n- button \"Jetzt kaufen\" [ref=e19]\n- textbox \"Search\" [ref=e20]\n- button \"Search\" [ref=e21]\n- button \"Submit order\" [ref=e1]\n- button \"Post\" [ref=e2]\n- link \"Read more\" [ref=e3]"
+   },
+   "error": null,
+   "success": true
+  },
+  "stderr": ""
+ }
+}

@@ -194,7 +194,9 @@ mod tests {
             "params": {"protocolVersion": "2025-06-18"}}))
         .unwrap();
         assert_eq!(init["result"]["serverInfo"]["name"], "hex");
-        assert!(answer(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"})).is_none());
+        assert!(
+            answer(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"})).is_none()
+        );
         let list = answer(&json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})).unwrap();
         let names: Vec<&str> = list["result"]["tools"]
             .as_array()
@@ -202,7 +204,15 @@ mod tests {
             .iter()
             .filter_map(|tool| tool["name"].as_str())
             .collect();
-        assert_eq!(names, ["hex_remember", "hex_schedule", "hex_schedules", "hex_unschedule"]);
+        assert_eq!(
+            names,
+            [
+                "hex_remember",
+                "hex_schedule",
+                "hex_schedules",
+                "hex_unschedule"
+            ]
+        );
         let secret = answer(&json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
             "params": {"name": "hex_remember", "arguments": {"fact": "My password is hunter2"}}}))
         .unwrap();

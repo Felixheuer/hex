@@ -19,7 +19,10 @@ const CONFIRM: &str = "HEX_CONFIRM:";
 /// What a reply asks of Hex.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Marker {
-    Job { title: String, reply: String },
+    Job {
+        title: String,
+        reply: String,
+    },
     Question(String),
     Confirm {
         category: crate::assistant::autonomy::Category,

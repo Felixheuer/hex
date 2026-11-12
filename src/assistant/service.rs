@@ -51,8 +51,8 @@ use crate::app_settings::{AssistantBackend, AssistantSettings};
 use super::agent::{self, Job, JobKind, Outcome};
 use super::autonomy::Authorized;
 use super::notify::Note;
-use super::schedules::Schedule;
 use super::provider::{self, Control};
+use super::schedules::Schedule;
 use super::store::{self, Store};
 use super::types::{
     Context, Conversation, ConversationId, ConversationSummary, Event, Lane, Origin,

@@ -14,6 +14,15 @@ hex_codesign_identity() {
   fi
   case "$identity" in
     "Developer ID Application:"*"($team_id)") ;;
+    # A build for the signer's own Mac (scripts/install-fork.sh): an Apple
+    # Development certificate keeps macOS permissions across rebuilds, but
+    # can't be notarized or shared.
+    "Apple Development:"*)
+      if [ "${HEX_ALLOW_DEVELOPMENT_SIGNING:-}" != 1 ]; then
+        echo "Signing identity is an Apple Development identity; set HEX_ALLOW_DEVELOPMENT_SIGNING=1 for a build for this Mac only." >&2
+        return 1
+      fi
+      ;;
     *)
       echo "Signing identity is not a Developer ID Application identity for team $team_id." >&2
       return 1

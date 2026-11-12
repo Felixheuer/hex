@@ -52,6 +52,9 @@ pub(crate) struct Outline {
     pub(crate) look: Look,
     /// Its plan's steps done and in all, shown after its title.
     pub(crate) progress: Option<(usize, usize)>,
+    /// Where the whole outline starts in this panel: (0, 0), or less for a
+    /// piece of one spanning displays.
+    pub(crate) origin: (f32, f32),
 }
 
 /// The overlay's rect in global points (x, y, width, height) for a window
@@ -83,10 +86,12 @@ pub(crate) fn rect(window: (f64, f64, f64, f64), top: f64) -> ([f32; 4], LabelSi
 
 pub(crate) fn view(outline: &Outline, cx: &mut Cx<Outline>) -> El {
     let p = Paint::new(cx.system_dark(), cx.env().scale);
-    el().key("outline-root")
-        .w_full()
-        .h_full()
-        .child(drawn(p, outline, 0.0, 0.0))
+    el().key("outline-root").w_full().h_full().child(drawn(
+        p,
+        outline,
+        outline.origin.0,
+        outline.origin.1,
+    ))
 }
 
 /// The outline with its label, its window's top-left at `(x, y)` plus the

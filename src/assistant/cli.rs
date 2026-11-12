@@ -122,10 +122,16 @@ pub enum SchedulesCommand {
         task: String,
     },
     /// Remove a schedule.
-    Remove { id: String },
+    Remove {
+        id: String,
+    },
     /// Turn a schedule on or off.
-    Enable { id: String },
-    Disable { id: String },
+    Enable {
+        id: String,
+    },
+    Disable {
+        id: String,
+    },
     /// Run due schedules here for a while, printing what happens (for
     /// trying them without the app).
     Watch {

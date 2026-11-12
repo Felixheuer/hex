@@ -32,8 +32,15 @@ pub(super) fn run(
     // A bring-your-own-key provider's key travels in the environment only;
     // the config names it by reference.
     if let Some(env) = &run.backend_env {
-        command.env_clear().envs(env.iter().map(|(key, value)| (key, value)));
-        for (key, value) in run.desktop.as_ref().map(super::Desktop::env).unwrap_or_default() {
+        command
+            .env_clear()
+            .envs(env.iter().map(|(key, value)| (key, value)));
+        for (key, value) in run
+            .desktop
+            .as_ref()
+            .map(super::Desktop::env)
+            .unwrap_or_default()
+        {
             command.env(key, value);
         }
     }
@@ -328,6 +335,23 @@ mod tests {
             calls[1],
             ("desktop_click".into(), json!({"ref_id": "@s1:e2"}))
         );
+    }
+
+    #[test]
+    fn a_bring_your_own_key_provider_is_merged_into_the_config() {
+        let mut run = Run::fixture(AssistantBackend::OpenCode);
+        run.provider_config = Some(json!({
+            "model": "deepseek/deepseek-chat",
+            "provider": {"deepseek": {"options": {"apiKey": "{env:DEEPSEEK_API_KEY}"}}},
+        }));
+        let config = config(&run);
+        assert_eq!(config["model"], "deepseek/deepseek-chat");
+        assert_eq!(
+            config["provider"]["deepseek"]["options"]["apiKey"],
+            "{env:DEEPSEEK_API_KEY}"
+        );
+        // Hex's own agent stays.
+        assert_eq!(config["agent"]["hex"]["mode"], "primary");
     }
 
     #[test]

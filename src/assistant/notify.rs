@@ -28,7 +28,9 @@ pub fn for_event(event: &crate::assistant::Event, title: &str) -> Option<Note> {
             conversation,
             message,
         } => ("Didn't finish", message.as_str(), conversation),
-        Event::Question { conversation, text } => ("Needs your answer", text.as_str(), conversation),
+        Event::Question { conversation, text } => {
+            ("Needs your answer", text.as_str(), conversation)
+        }
         _ => return None,
     };
     Some(Note {
@@ -129,7 +131,15 @@ mod tests {
                 conversation: "c1".into(),
             }
         );
-        assert!(for_event(&Event::Thinking { conversation: "c1".into() }, "x").is_none());
+        assert!(
+            for_event(
+                &Event::Thinking {
+                    conversation: "c1".into()
+                },
+                "x"
+            )
+            .is_none()
+        );
         assert_eq!(applescript(r#"say "hi" \ ok"#), r#""say \"hi\" \\ ok""#);
     }
 }

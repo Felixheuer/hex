@@ -517,11 +517,17 @@ mod tests {
     fn cron_lines_and_rrules_find_their_next_time() {
         // Every morning at 8: tomorrow.
         assert_eq!(next("0 8 * * *", NOW), Some(at(13, 8, 0)));
-        assert_eq!(next("FREQ=DAILY;BYHOUR=8;BYMINUTE=0", NOW), Some(at(13, 8, 0)));
+        assert_eq!(
+            next("FREQ=DAILY;BYHOUR=8;BYMINUTE=0", NOW),
+            Some(at(13, 8, 0))
+        );
         // Weekdays at 8: Friday, then Monday.
         assert_eq!(next("0 8 * * 1-5", NOW), Some(at(13, 8, 0)));
         assert_eq!(next("0 8 * * 1-5", NOW + 86_400_000), Some(at(16, 8, 0)));
-        assert_eq!(next("RRULE:FREQ=WEEKLY;BYDAY=MO;BYHOUR=9", NOW), Some(at(16, 9, 0)));
+        assert_eq!(
+            next("RRULE:FREQ=WEEKLY;BYDAY=MO;BYHOUR=9", NOW),
+            Some(at(16, 9, 0))
+        );
         // Every 15 minutes, every 2 hours.
         assert_eq!(next("*/15 * * * *", NOW), Some(at(12, 9, 45)));
         assert_eq!(next("FREQ=MINUTELY;INTERVAL=15", NOW), Some(at(12, 9, 45)));
@@ -550,7 +556,10 @@ mod tests {
             assert!(Rule::parse(bad).is_err(), "{bad}");
         }
         // 31 February never comes.
-        assert_eq!(Rule::parse("0 8 31 2 *").unwrap().next_after_in(NOW, utc), None);
+        assert_eq!(
+            Rule::parse("0 8 31 2 *").unwrap().next_after_in(NOW, utc),
+            None
+        );
     }
 
     #[test]

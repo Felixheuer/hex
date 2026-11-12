@@ -45,6 +45,9 @@ executable="$bundle/Contents/MacOS/$executable_name"
 sign() {
   if [ "$identity" = - ]; then
     codesign --force --sign - "$@"
+  elif [ "${HEX_ALLOW_DEVELOPMENT_SIGNING:-}" = 1 ]; then
+    # Apple Development: no secure timestamp (nothing to notarize).
+    codesign --force --timestamp=none --options runtime --sign "$identity" "$@"
   else
     codesign --force --timestamp --options runtime --sign "$identity" "$@"
   fi

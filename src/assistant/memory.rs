@@ -40,10 +40,11 @@ pub fn write(text: &str) -> Result<()> {
 pub fn remember(fact: &str) -> Result<String> {
     let line = clean(fact)?;
     let mut note = read();
-    if note
-        .lines()
-        .any(|existing| existing.trim_start_matches("- ").eq_ignore_ascii_case(&line))
-    {
+    if note.lines().any(|existing| {
+        existing
+            .trim_start_matches("- ")
+            .eq_ignore_ascii_case(&line)
+    }) {
         return Ok(line);
     }
     if !note.is_empty() && !note.ends_with('\n') {
@@ -96,7 +97,9 @@ pub fn for_prompt(note: &str) -> Option<String> {
         return Some(note.to_owned());
     }
     let tail: String = note.chars().skip(count - PROMPT_CHARS).collect();
-    let tail = tail.split_once('\n').map_or(tail.as_str(), |(_, rest)| rest);
+    let tail = tail
+        .split_once('\n')
+        .map_or(tail.as_str(), |(_, rest)| rest);
     Some(format!("(older notes left out)\n{tail}"))
 }
 
