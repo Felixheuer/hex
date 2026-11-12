@@ -242,8 +242,8 @@ pub(super) const KEYS: &[Key] = &[
     optional(
         "assistant.action_hotkey",
         Kind::Shortcut(HotkeySlot::Action),
-        "Labs: hold to ask the assistant about the window in front, tap then hold for a \
-         background task, double-tap to show the task list; right command by default; none \
+        "Labs: hold and say anything, and the assistant answers, acts, or starts a \
+         background job; double-tap shows the task list; right command by default; none \
          turns it off (macOS, with labs.assistant)",
     ),
     key(

@@ -55,8 +55,8 @@ Feature             Pane  Toggle (settings.json, hex settings)   On: what it doe
 ├── Copy dictation only no labs.copy_only (macOS, Windows)    a dictation goes to the clipboard and is never pasted; Paste last dictation still pastes (#629)
 ├── Return to app   no    labs.return_to_app           (macOS)   a dictation pastes into the app it started in, switching back to it first when another app came forward
 ├── Print-only CLI dictation no labs.print_start        (macOS)   hex dictation start --print answers with the transcript however the recording ends; never pasted or copied
-├── Assistant        no    labs.assistant + assistant.action_hotkey (macOS) hold the Action shortcut (right ⌘ alone by default) to ask by voice;
-│                                        tap then hold for a Background task ("im Hintergrund …" too); double-tap for the task list;
+├── Assistant        no    labs.assistant + assistant.action_hotkey (macOS) hold the Action shortcut (right ⌘ alone by default) and say anything;
+│                                        Hex decides to answer, act, or start a background job; double-tap for the task list;
 │                                        Escape stops Here tasks and speech; ⌃⌥Esc (assistant.stop_all_hotkey) stops every task;
 │                                        General shows both recorders while on
 ├── Spoken formatting no labs.spoken_formatting      spoken "new line"/"line break", "new paragraph", "open/close quote", "quote … unquote" become line breaks and quotation marks; Spanish "nuevo párrafo", "nueva línea", "abre/cierra comillas", … too (#630, #1040)
@@ -1197,13 +1197,16 @@ gestures (`recognition::ask`):
 
 ```ts
 Action shortcut (assistant::ready)
-├── Hold -> Here: Request { conversation: assistant::focus(follow_up_seconds),
-│   origin: ActionShortcut, context }, the context read by
-│   computer::context_async once the hold is real; focus is the running Here
-│   task first, so a hold while one runs steers it (never cancelled here)
-├── Tap, then hold (second press within 300 ms of the tap's release, held
-│   past the 300 ms hold threshold; DictationHotkey::follows_tap)
-│   -> Request { conversation: None, origin: Background, context: default }
+├── Hold, say anything -> Request { conversation:
+│   assistant::focus(follow_up_seconds), origin: ActionShortcut, context },
+│   the context read by computer::context_async once the hold is real; focus
+│   is a task waiting on a question (NeedsInput) first, then a running Here
+│   task, then a recent one, so a hold answers or steers (never cancelled
+│   here); the brain answers, acts here, or escalates to a background job
+├── Optional, never needed: tap, then hold (second press within 300 ms of
+│   the tap's release, held past the 300 ms hold threshold;
+│   DictationHotkey::follows_tap) forces a Background task: Request {
+│   conversation: None, origin: Background, context: default }
 ├── Here words opening "im Hintergrund", "in the background", "nebenbei",
 │   "parallel", or "Hintergrund:" (ask::spoken_background; whole words, any
 │   case, punctuation around them ignored) -> Background, without them
