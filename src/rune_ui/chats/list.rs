@@ -63,12 +63,33 @@ pub(super) fn body(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
         .shrink()
         .children((!notices.is_empty()).then(|| ld::notices(notices)))
         .children(strip::task_strip(ui, p))
-        .child(ld::body(
-            p,
-            "chats-body",
-            column,
-            transcript::detail(ui, p, layer),
-        ))
+        .child(open_body(p, column, transcript::detail(ui, p, layer)))
+}
+
+/// The list beside the conversation, which reads as a page of its own (as
+/// in a chat app) rather than a card: a hairline between them, and the
+/// transcript and composer centred in its reading column.
+fn open_body(p: Paint, list: El, detail: El) -> El {
+    row()
+        .key("chats-body")
+        .grow(1.0)
+        .shrink()
+        .child(list)
+        .child(
+            col()
+                .key("detail-card")
+                .grow(1.0)
+                .shrink()
+                .min_w(0.0)
+                .ml(12.0)
+                .mr(ld::HANG)
+                .mb(ld::HANG)
+                .pl(8.0)
+                .pt(4.0)
+                .border_sides([0.0, 0.0, 0.0, p.hair.max(1.0)], p.k.c.border_weak)
+                .clip_soft(0.0)
+                .child(detail),
+        )
 }
 
 fn search(ui: &Ui, p: Paint) -> El {
