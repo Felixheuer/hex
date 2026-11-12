@@ -182,11 +182,22 @@ impl Backend {
                 None => keymap.keycode(keysym(&key.key)?)?,
             };
             let mask = key.modifier_mask(&connection, &keymap)?;
-            grabs
-                .grab(shortcut, code, mask, mouse.is_some())
-                .wrap_err_with(|| {
-                    format!("{} is already in use by another X11 client", key.label())
-                })?;
+            let grabbed = grabs.grab(shortcut, code, mask, mouse.is_some());
+            // The assistant's keys taken by another client leave dictation
+            // working: Settings shows the shortcut, and Hex says why here.
+            if matches!(shortcut, Shortcut::Action | Shortcut::StopAll)
+                && let Err(error) = &grabbed
+                && is_grab_conflict(error)
+            {
+                tracing::warn!(
+                    shortcut = key.label(),
+                    "another X11 client holds an assistant shortcut; it does nothing until freed"
+                );
+                continue;
+            }
+            grabbed.wrap_err_with(|| {
+                format!("{} is already in use by another X11 client", key.label())
+            })?;
         }
         // Toggle's cancel key: grabbed only while a recording runs.
         grabs.cancel = match options.cancel.as_ref().map(|key| -> Result<X11CancelKey> {

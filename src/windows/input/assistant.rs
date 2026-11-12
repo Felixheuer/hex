@@ -40,17 +40,29 @@ pub(super) struct AssistantKeys {
 }
 
 impl AssistantKeys {
-    pub(super) fn new(
-        action: Option<WindowsHotkey>,
-        stop_all: Option<WindowsHotkey>,
-    ) -> Result<Self> {
-        Ok(Self {
-            action_vk: chord_virtual_key(action.as_ref(), "Action shortcut")?,
+    /// The keys of `action` and `stop_all`. A key the hook can't match
+    /// leaves that shortcut unbound, with a warning, so dictation still
+    /// starts.
+    pub(super) fn new(action: Option<WindowsHotkey>, stop_all: Option<WindowsHotkey>) -> Self {
+        let key = |binding: Option<WindowsHotkey>, name: &str| match chord_virtual_key(
+            binding.as_ref(),
+            name,
+        ) {
+            Ok(vk) => (binding, vk),
+            Err(error) => {
+                tracing::warn!(%error, "the {name} can't be matched; it does nothing");
+                (None, None)
+            }
+        };
+        let (action, action_vk) = key(action, "Action shortcut");
+        let (stop_all, stop_all_vk) = key(stop_all, "Stop all tasks shortcut");
+        Self {
             action,
-            stop_all_vk: chord_virtual_key(stop_all.as_ref(), "Stop all tasks")?,
+            action_vk,
             stop_all,
+            stop_all_vk,
             ..Self::default()
-        })
+        }
     }
 
     /// The Action shortcut's binding, whose modifiers warm the HUD.

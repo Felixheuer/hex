@@ -483,7 +483,7 @@ impl WindowsHotkeyMonitor {
             chord_virtual_key(terminal_paste.as_ref(), "Terminal paste shortcut")?;
         let second_trigger_vk = chord_virtual_key(second.as_ref(), "Second dictation shortcut")?;
         let annotate_trigger_vk = chord_virtual_key(annotate.as_ref(), "Annotate")?;
-        let assistant = assistant::AssistantKeys::new(action, stop_all)?;
+        let assistant = assistant::AssistantKeys::new(action, stop_all);
         let label = binding.label();
         let (event_sender, events) = mpsc::sync_channel(EVENT_CAPACITY);
         let (error_sender, errors) = mpsc::channel();
