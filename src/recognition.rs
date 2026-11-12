@@ -25,10 +25,13 @@ use crate::suppression::{DictationHotkey, DiscardCause, HotkeyAction, InputMonit
 
 pub(crate) mod ask;
 mod context_watch;
+mod conversation;
 mod guards;
 mod hotkeys;
 mod output;
+mod programmatic;
 pub(crate) mod shortcut_probe;
+mod talk;
 
 use context_watch::ContextWatch;
 use guards::{
@@ -37,6 +40,9 @@ use guards::{
 use hotkeys::{Hotkeys, Shortcut};
 use output::{
     finish_dictation, finish_dictation_with, handle_dictation_event, interrupted_dictation,
+};
+use programmatic::{
+    cancel_programmatic_capture, log_programmatic_ended, programmatic_microphone_lost,
 };
 
 enum FinishResult {
@@ -839,7 +845,7 @@ pub fn listen(
                 hotkeys.track_key_state(input_event, capture_at);
                 continue;
             }
-            asker.key(input_event);
+            asker.key(input_event, &input, indicator);
             for (shortcut, action) in hotkeys.process(input_event, capture_at) {
                 if action == HotkeyAction::Start {
                     hotkeys.raw_capture = shortcut == Shortcut::Raw;
@@ -1073,7 +1079,7 @@ pub fn listen(
                         .then(|| hotkeys.print_capture.take())
                         .flatten();
                     // An Action question is never salvaged: it would be copied.
-                    let asking = hotkeys.action_recording();
+                    let asking = hotkeys.action_recording() || asker.conversing();
                     hotkeys.suspend_all();
                     if was_recording {
                         // A recording shortcut keeps what it heard, copied
@@ -1131,6 +1137,10 @@ pub fn listen(
             {
                 indicator.meter(&audio.samples);
             }
+            // Labs › Assistant's conversation mode hears its own capture.
+            if audio.is_current(input.recognition_generation()) {
+                asker.hear(&audio.samples, input.sample_rate(), indicator);
+            }
             // Annotate's narration feeds only the Caps Lock light, never the
             // dictation HUD; without this its recording light never leaves
             // Waiting.
@@ -1142,6 +1152,17 @@ pub fn listen(
                 indicator.caps_only(event);
             }
         }
+        // Conversation mode: listening after an answer, and barge-in. Never
+        // while another capture, a command's dictation, or a pause owns the
+        // microphone.
+        asker.converse(
+            programmatic.is_some() || hotkeys.any_recording() || hotkey_capture_suspended,
+            &input,
+            &dictation_worker,
+            &mut events,
+            indicator,
+            microphone_policy.release_while_idle,
+        )?;
     }
 
     #[cfg(hex_capture)]
@@ -1156,93 +1177,6 @@ pub fn listen(
     })?;
     events.flush()?;
     indicator.send(DictationIndicatorEvent::Discarded);
-    Ok(())
-}
-
-fn log_programmatic_ended(active: Option<ProgrammaticDictation>, outcome: &str) {
-    if let Some(active) = active {
-        tracing::warn!(
-            dictation_id = active.id,
-            source = active.source,
-            outcome,
-            "programmatic dictation ended"
-        );
-    }
-}
-
-/// Ends a programmatic capture the microphone cut short. The audio delivered
-/// before the loss waits for the owner's `/finish`; without any, `/finish`
-/// answers `microphone-lost`.
-fn programmatic_microphone_lost(
-    active: Option<ProgrammaticDictation>,
-    kept: Option<DictationClip>,
-    outcome: &str,
-    lost: &mut Option<LostProgrammaticDictation>,
-    completions: &mut VecDeque<Completion>,
-) {
-    let Some(active) = active else {
-        return;
-    };
-    let Some(mut clip) = kept else {
-        remember_completion(
-            completions,
-            Completion {
-                id: active.id,
-                owner_token: active.owner_token.clone(),
-                outcome: TerminalOutcome::Finished(Err(MICROPHONE_LOST.into())),
-            },
-        );
-        log_programmatic_ended(Some(active), outcome);
-        return;
-    };
-    // A held clip must not defer background work until the owner finishes.
-    drop(clip.take_capture_marker());
-    tracing::warn!(
-        dictation_id = active.id,
-        source = active.source,
-        outcome,
-        duration_ms = clip.duration_ms(),
-        "programmatic dictation kept its audio after a microphone loss"
-    );
-    let previous = lost.replace(LostProgrammaticDictation {
-        id: active.id,
-        owner_token: active.owner_token,
-        source: active.source,
-        lease_deadline: active.lease_deadline,
-        clip,
-    });
-    if let Some(previous) = previous {
-        tracing::warn!(
-            dictation_id = previous.id,
-            source = previous.source,
-            outcome = "superseded",
-            "programmatic dictation ended"
-        );
-        remember_completion(
-            completions,
-            Completion {
-                id: previous.id,
-                owner_token: previous.owner_token,
-                outcome: TerminalOutcome::Finished(Err(MICROPHONE_LOST.into())),
-            },
-        );
-    }
-}
-
-fn cancel_programmatic_capture(
-    active: ProgrammaticDictation,
-    input: &DictationAudio,
-    completions: &mut VecDeque<Completion>,
-) -> Result<()> {
-    input.cancel()?;
-    remember_completion(
-        completions,
-        Completion {
-            id: active.id,
-            owner_token: active.owner_token,
-            outcome: TerminalOutcome::Cancelled,
-        },
-    );
     Ok(())
 }
 

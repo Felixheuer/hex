@@ -318,6 +318,8 @@ pub(super) struct Asker {
     /// The Stop all key's code while it is down, so its repeats stop nothing
     /// twice.
     stop_held: Option<u16>,
+    /// Conversation mode and barge-in.
+    talk: super::talk::Talk,
 }
 
 impl Asker {
@@ -447,11 +449,18 @@ impl Asker {
         self.escape
     }
 
-    /// A key for the assistant: the Stop all tasks shortcut stops every task
-    /// and the speech; Escape while the assistant took it stops the Here
-    /// tasks and the speech, never a Background task (each has its own
-    /// stop).
-    pub(super) fn key(&mut self, event: InputEvent) {
+    /// A key for the assistant: any key ends conversation mode (closing its
+    /// capture before a shortcut can start another); the Stop all tasks
+    /// shortcut stops every task and the speech; Escape while the assistant
+    /// took it stops the Here tasks and the speech, never a Background task
+    /// (each has its own stop).
+    pub(super) fn key(
+        &mut self,
+        event: InputEvent,
+        input: &DictationAudio,
+        indicator: DictationSink<'_>,
+    ) {
+        self.talk.key(event, input, indicator);
         let stop_all = crate::app_settings::runtime_hotkeys().stop_all;
         if stop_all_press(event, stop_all, &mut self.stop_held) {
             crate::assistant::service::stop_all();
@@ -467,12 +476,47 @@ impl Asker {
         }
         crate::assistant::speech::stop();
     }
+
+    /// Microphone audio for conversation mode, which hears only its own
+    /// capture.
+    pub(super) fn hear(&mut self, samples: &[f32], rate: u32, indicator: DictationSink<'_>) {
+        self.talk.hear(samples, rate, indicator);
+    }
+
+    /// Conversation mode's turn in the listener's loop: after a Here answer
+    /// it listens for a follow-up, and with barge-in hears one over the
+    /// answer (`recognition::talk`). `blocked`: another capture, a command's
+    /// dictation, or a pause owns the microphone.
+    pub(super) fn converse(
+        &mut self,
+        blocked: bool,
+        input: &DictationAudio,
+        worker: &DictationWorker,
+        events: &mut EventLog,
+        indicator: DictationSink<'_>,
+        release_while_idle: bool,
+    ) -> Result<()> {
+        self.talk.converse(
+            blocked,
+            input,
+            worker,
+            events,
+            indicator,
+            release_while_idle,
+        )
+    }
+
+    /// Whether conversation mode's capture is open (a microphone loss then
+    /// never salvages it as a dictation).
+    pub(super) fn conversing(&self) -> bool {
+        self.talk.conversing()
+    }
 }
 
 /// Hands a request to the assistant. Words for the Here lane end the answer
 /// still being read aloud; the press never does, so a tap or silence leaves
 /// it.
-fn submit(request: Request) {
+pub(super) fn submit(request: Request) {
     if request.origin.lane() == Lane::Here {
         crate::assistant::speech::stop();
     }
@@ -532,7 +576,7 @@ pub(super) fn busy_reply() -> ControlReply {
 /// Ends the question's capture at `at` and hands its clip to transcription
 /// for `reply`, as a shortcut dictation's finish does for a paste.
 #[allow(clippy::too_many_arguments)]
-fn finish_question(
+pub(super) fn finish_question(
     at: CaptureInstant,
     input: &DictationAudio,
     worker: &DictationWorker,

@@ -57,6 +57,8 @@ Feature             Pane  Toggle (settings.json, hex settings)   On: what it doe
 ├── Print-only CLI dictation no labs.print_start        (macOS)   hex dictation start --print answers with the transcript however the recording ends; never pasted or copied
 ├── Assistant        no    labs.assistant + assistant.action_hotkey (macOS) hold the Action shortcut (right ⌘ alone by default) and say anything;
 │                                        Hex decides to answer, act, or start a background job; double-tap for the task list;
+│                                        after an answer Hex listens for a follow-up (conversation_seconds), and speaking over
+│                                        an answer interrupts it on headphones (barge_in);
 │                                        Escape stops Here tasks and speech; ⌃⌥Esc (assistant.stop_all_hotkey) stops every task;
 │                                        General shows both recorders while on
 ├── Spoken formatting no labs.spoken_formatting      spoken "new line"/"line break", "new paragraph", "open/close quote", "quote … unquote" become line breaks and quotation marks; Spanish "nuevo párrafo", "nueva línea", "abre/cierra comillas", … too (#630, #1040)
@@ -1228,6 +1230,43 @@ dictation stop` refuses while a question records (`cancel` still discards
 it); a microphone loss mid-question fails it instead of salvaging a copy.
 Stop all tasks' press runs `assistant::service::stop_all()` and
 `speech::stop()` and plays the cancel sound, once per press (`Asker::key`).
+
+Conversation mode (`recognition::conversation`, a pure state machine, and
+`recognition::talk`, which carries it out): after a Here answer, or a
+question a Here task asks (`Event::Answer` with `Origin::ActionShortcut`,
+`Event::Question` for a running Here conversation), once the reading ends
+(or never starts within 1.5 s, or `speak_answers` is off) the listener opens
+an ordinary capture without a tone and sends
+`DictationIndicatorEvent::Listening` for `assistant.conversation_seconds`
+(8 s by default; 0 turns it off). Speech (eight 20 ms frames by the
+dictation pipeline's `SpeechFrames` test, two quiet frames forgiven) makes it
+a question (`Started`, `Asking`, the desktop read, `prewarm(Here)`); 900 ms
+without speech (or 60 s) finishes it through the Action shortcut's finish
+into the same conversation. Nothing in time closes it quietly. With
+`assistant.barge_in` (on by default) the capture opens as Hex starts
+reading: on headphones or AirPods (`audio::output_route` reads Bluetooth,
+the headphone jack, and Apple silicon's headphone output) 240 ms of speech
+stops the reading (`speech::stop()`) and becomes the follow-up; on speakers,
+where the microphone hears Hex's voice, only speech 6 dB louder than the
+answer's own playback level (`speech::level()`) does, and while that level is
+unknown (its stub returns `None`) barge-in is off on speakers. Any key going
+down or modifier changing ends it before the shortcut it may be can start its
+own capture; so do a dictation, a command's capture, a pause, a meeting
+recording (`meeting::watcher::recording`), or the setup unfinished. A
+microphone loss never salvages its clip. Checks:
+`an_answer_then_listening_then_a_follow_up`, `listening_times_out_quietly`,
+`shown_answers_and_conversation_mode_off`,
+`a_key_or_another_recording_ends_it`, `barge_in_on_headphones`,
+`barge_in_on_speakers_needs_a_voice_over_the_answer`,
+`a_newer_answer_moves_it_along`,
+`without_barge_in_nothing_listens_under_an_answer`, and
+`audio_is_heard_in_frames` in
+[recognition/conversation.rs](../../src/recognition/conversation.rs);
+`only_here_answers_and_questions_are_listened_after` and
+`keys_end_conversation_mode` in
+[recognition/talk.rs](../../src/recognition/talk.rs). Not yet observed: a
+real microphone, the overlays' drawing of `Listening`, or barge-in through
+real speakers.
 
 Whether the shortcuts can work (macOS, `shortcut_conflicts` and
 `recognition::shortcut_probe`). `shortcut_conflicts::conflicts(slot,
