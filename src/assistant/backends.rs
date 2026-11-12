@@ -16,6 +16,9 @@ pub(in crate::assistant) mod desktop;
 #[cfg(debug_assertions)]
 pub mod doctor;
 mod install;
+mod keys;
+mod providers;
+mod recommend;
 pub(in crate::assistant) mod run;
 pub(in crate::assistant) mod search;
 
@@ -31,6 +34,12 @@ pub use check::{
     Check, CheckResult, CheckState, Fix, opencode_recent_model, self_test, self_tests,
 };
 pub use install::{Installers, Plan, Step, Tool, apply_fix, apply_fix_with, install_command, plan};
+pub use providers::{
+    Provider, agent_env_for, has_provider_key, merge_config, opencode_model,
+    opencode_provider_config, parse_models, provider, providers, set_provider_key,
+    signed_in_providers, verify_provider_key,
+};
+pub use recommend::{Recommendation, recommendations};
 
 /// One agent found on this computer.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -128,11 +137,7 @@ fn find(backend: AssistantBackend) -> Found {
     }
     found.path = executable(backend);
     let Some(path) = found.path.clone() else {
-        if backend == AssistantBackend::OpenCode && opencode_running() {
-            found.ready = true;
-        } else {
-            found.note = Some(format!("{} isn't installed", name(backend)));
-        }
+        found.note = Some(format!("{} isn't installed", name(backend)));
         return found;
     };
     match version_of(&path) {
@@ -145,13 +150,7 @@ fn find(backend: AssistantBackend) -> Found {
     let (ready, note) = match backend {
         AssistantBackend::ClaudeCode => claude_signed_in(&path),
         AssistantBackend::Codex => codex_signed_in(&path),
-        AssistantBackend::OpenCode => match opencode_running() {
-            true => (true, None),
-            false => (
-                false,
-                Some("OpenCode's service isn't running. Start it, or run `opencode` once in Terminal".into()),
-            ),
-        },
+        AssistantBackend::OpenCode => opencode_signed_in(&path),
         AssistantBackend::ClaudeApi => unreachable!("handled above"),
     };
     found.ready = ready;
@@ -159,8 +158,42 @@ fn find(backend: AssistantBackend) -> Found {
     found
 }
 
-fn opencode_running() -> bool {
-    crate::desktop::opencode_service::running()
+/// OpenCode is ready with a saved key for the chosen provider (any
+/// provider's while none is chosen), or with a provider of its own: one it
+/// lists models for (`opencode models --standalone`), its free `opencode`
+/// models aside. Tasks run it standalone, so its service needn't run.
+fn opencode_signed_in(path: &Path) -> (bool, Option<String>) {
+    let chosen = crate::app_settings::assistant_runtime()
+        .and_then(|(_, settings)| settings.opencode_provider);
+    if providers::byok_ready(chosen.as_deref()) {
+        return (true, None);
+    }
+    let mut command = agent_command(path);
+    command.args(["models", "--standalone"]);
+    let own = run::bounded(command, QUICK)
+        .map(|ran| providers::signed_in_providers(&ran.stdout))
+        .unwrap_or_default();
+    opencode_readiness(chosen.as_deref(), &own)
+}
+
+/// What OpenCode's readiness is without a saved key, given the providers it
+/// has its own credentials for.
+pub fn opencode_readiness(chosen: Option<&str>, own: &[String]) -> (bool, Option<String>) {
+    match chosen.and_then(providers::provider) {
+        Some(provider) if own.iter().any(|id| id == provider.id) => (true, None),
+        Some(provider) => (
+            false,
+            Some(format!("Add your {} API key for OpenCode", provider.name)),
+        ),
+        None if !own.is_empty() => (true, None),
+        None => (
+            false,
+            Some(
+                "Add an API key (DeepSeek, OpenRouter, …) or sign in to a provider in OpenCode"
+                    .into(),
+            ),
+        ),
+    }
 }
 
 /// The version `path --version` prints, or why it didn't run.
@@ -517,6 +550,29 @@ mod tests {
             "WARNING: proxy\nLogged in using an API key - sk-…\n"
         ));
         assert!(!codex_logged_in("Not logged in\n"));
+    }
+
+    #[test]
+    fn opencode_is_ready_with_a_provider_of_its_own() {
+        let own = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+        // Its own sign-in to any provider (this Mac: DeepSeek and OpenAI).
+        assert_eq!(
+            opencode_readiness(None, &own(&["deepseek", "openai"])),
+            (true, None)
+        );
+        // Only the free `opencode` models (already left out): not ready.
+        let (ready, note) = opencode_readiness(None, &[]);
+        assert!(!ready);
+        assert!(note.unwrap().starts_with("Add an API key"));
+        // A chosen provider must be one it has credentials for.
+        assert_eq!(
+            opencode_readiness(Some("deepseek"), &own(&["deepseek"])),
+            (true, None)
+        );
+        assert_eq!(
+            opencode_readiness(Some("groq"), &own(&["deepseek"])),
+            (false, Some("Add your Groq API key for OpenCode".into()))
+        );
     }
 
     #[test]
