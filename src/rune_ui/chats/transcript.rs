@@ -22,7 +22,10 @@ use crate::desktop::i18n::{tr, tr_fill};
 static ERROR_ICON: &rune::Icon = &rune_theme_opencode::icons::CIRCLE_X;
 
 /// The widest a question's bubble grows.
-const BUBBLE_MAX: f32 = 380.0;
+const BUBBLE_MAX: f32 = 520.0;
+/// The reading column: a transcript, its header, and the composer keep to
+/// this width, centred, so lines stay comfortable on a wide window.
+pub(super) const READING_W: f32 = 760.0;
 /// A screenshot thumbnail's width.
 const THUMB_W: f32 = 220.0;
 /// Step blocks longer than this fold to their last step.
@@ -207,7 +210,46 @@ fn new_chat(ui: &Ui, p: Paint) -> El {
                 .color(p.text()),
         )
         .child(hint)
+        .child(suggestions(p))
         .transition(super::super::onboarding_kit::arrives())
+}
+
+/// What to ask first: each fills the composer, ready to send or change.
+const SUGGESTIONS: [&str; 4] = [
+    "Summarize the page in my browser",
+    "Research the best options and write me a short report",
+    "Sort my Downloads folder by type",
+    "Every weekday at 8, summarize my inbox",
+];
+
+fn suggestions(p: Paint) -> El {
+    let k = p.k;
+    let chip = |index: usize, words: &'static str| {
+        rune_kit::Button::new(tr(words))
+            .variant(rune_kit::ButtonVariant::Outline)
+            .on_press_tx(move |ui: &mut Ui, tx: &mut rune::Tx| {
+                ui.chats.composer = rune::TextEdit::new(tr(words));
+                tx.focus("composer-input", false);
+            })
+            .build(k)
+            .key(format!("suggestion{index}"))
+            .radius(k.radius.lg + 8.0)
+    };
+    row()
+        .key("suggestions")
+        .role("list")
+        .label(tr("Suggestions"))
+        .mt(18.0)
+        .gap(8.0)
+        .flex_wrap()
+        .justify_center()
+        .max_w(READING_W)
+        .children(
+            SUGGESTIONS
+                .iter()
+                .enumerate()
+                .map(|(index, words)| chip(index, words)),
+        )
 }
 
 /// The selected conversation: its header and transcript.
@@ -257,7 +299,13 @@ fn conversation(ui: &Ui, p: Paint, id: &str) -> El {
         });
     }
     let header = ld::card_header(ld::card_title(p, &title), meta, actions(pane, p, id));
-    let mut column = col().key("transcript").gap(18.0).pb(8.0);
+    let mut column = col()
+        .key("transcript")
+        .w_full()
+        .max_w(READING_W)
+        .gap(22.0)
+        .pt(8.0)
+        .pb(16.0);
     let messages = stored.map_or(&[][..], |conversation| &conversation.messages[..]);
     for (index, message) in messages.iter().enumerate() {
         column = column.child(match message.role {
@@ -286,6 +334,7 @@ fn conversation(ui: &Ui, p: Paint, id: &str) -> El {
     }
     // The transcript keeps to its end while it streams, unless scrolled up;
     // the pills float over it.
+    let column = centred("transcript-column", column);
     let scroll = ld::card_scroll_sticky(p, follow::SCROLL, column, true)
         .on_scroll_offset(follow::on_scroll(pane.follow.scroll.clone()));
     let body = col()
@@ -293,7 +342,10 @@ fn conversation(ui: &Ui, p: Paint, id: &str) -> El {
         .grow(1.0)
         .shrink()
         .min_h(0.0)
-        .children(super::work::plan_card(ui, p, id))
+        .children(
+            super::work::plan_card(ui, p, id)
+                .map(|card| centred("plan-column", card.w_full().max_w(READING_W))),
+        )
         .child(scroll)
         .children(composer::pills(ui, p));
     // Keyed by conversation, so a switch arrives rather than snaps.
@@ -303,8 +355,20 @@ fn conversation(ui: &Ui, p: Paint, id: &str) -> El {
         .shrink()
         .min_h(0.0)
         .transition(super::super::onboarding_kit::arrives())
-        .child(header.pb(4.0))
+        .child(centred(
+            "transcript-header",
+            header.w_full().max_w(READING_W).pb(6.0),
+        ))
         .child(body)
+}
+
+/// `child` centred in the full width, at most [`READING_W`] wide.
+pub(super) fn centred(key: &str, child: El) -> El {
+    col()
+        .key(key.to_owned())
+        .w_full()
+        .items_center()
+        .child(child)
 }
 
 fn ends_in_error(conversation: &Conversation) -> bool {
@@ -366,9 +430,9 @@ pub(super) fn bubble(p: Paint, key: &str, words: &str) -> El {
             .selectable(true)
             .wrap()
             .max_w(BUBBLE_MAX)
-            .px(12.0)
-            .py(8.0)
-            .radius(p.k.radius.lg)
+            .px(16.0)
+            .py(10.0)
+            .radius(p.k.radius.lg + 8.0)
             .fill(p.k.c.layer_02),
     )
 }
@@ -404,11 +468,40 @@ fn answer(ui: &Ui, p: Paint, id: &str, index: usize, message: &Message) -> El {
 }
 
 fn markdown(p: Paint, key: &str, source: &str, streaming: bool) -> El {
+    let k = p.k;
     Markdown::new(source.to_owned())
         .streaming(streaming)
         .selectable(true)
+        .scroll_wide(true)
+        .code_frame(move |card, code| code_card(k, card, code.index, code.source, code.open))
         .build(p.k)
         .key(key.to_owned())
+}
+
+/// A code block with Copy in its corner (once it has fully arrived).
+fn code_card(k: &'static rune_kit::Kit, card: El, index: usize, source: &str, open: bool) -> El {
+    let copy = (!open).then(|| {
+        let source = source.to_owned();
+        rune_kit::IconButton::new(super::super::list_detail::COPY_ICON)
+            .variant(rune_kit::IconButtonVariant::GhostMuted)
+            .control_size(rune_kit::ControlSize::Small)
+            .label(tr("Copy code"))
+            .on_press_tx(move |_: &mut Ui, tx: &mut rune::Tx| tx.copy(source.clone()))
+            .build(k)
+            .key("copy")
+    });
+    el().key(format!("code-{index}"))
+        .w_full()
+        .child(card)
+        .children(copy.map(|copy| {
+            row()
+                .key("corner")
+                .absolute(0.0, 0.0)
+                .w_full()
+                .justify_end()
+                .padding(6.0)
+                .child(copy)
+        }))
 }
 
 /// What the assistant did, as compact muted rows. A long run folds to its
@@ -424,9 +517,12 @@ fn step_block(p: Paint, key: &str, steps: &[&str], folded: bool) -> El {
         .key(format!("steps-{key}"))
         .role("list")
         .label(tr("Steps"))
-        .gap(2.0)
-        .pl(10.0)
-        .border_sides([0.0, 0.0, 0.0, p.hair.max(1.0)], p.k.c.border_weak);
+        .gap(3.0)
+        .w_full()
+        .px(10.0)
+        .py(6.0)
+        .radius(p.k.radius.md + 2.0)
+        .fill(p.k.alpha(p.k.c.text_base, if p.k.dark { 0.035 } else { 0.03 }));
     if foldable {
         let toggle_key = key.to_owned();
         block = block.child(

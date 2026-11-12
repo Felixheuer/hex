@@ -1,8 +1,12 @@
 //! Live previews of a task's browsers: while the pointer rests on a task in
 //! the orb's list, each of its agent-browser sessions streams its viewport
-//! into a small picture ([`hover`]); pressing one opens it large in Chats
-//! ([`request_view`], [`view`]), where Take over lets the person drive it
-//! ([`send`]).
+//! into a small picture ([`hover`]); pressing one opens it large right in
+//! the overlay, and "Open in Chats" there opens it large in Chats
+//! ([`request_view`], [`view`]); in either, Take over lets the person
+//! drive it ([`send`]).
+//!
+//! Both large views share one stream per browser: [`view`] says which
+//! viewer shows what, and a browser any viewer shows large streams large.
 //!
 //! Streams run only while something shows them: the hovered task's at a
 //! few frames a second and downscaled, the one viewed large at full size
@@ -115,10 +119,20 @@ struct Watch {
     stop: Arc<AtomicBool>,
 }
 
+/// Who shows a browser large.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum Viewer {
+    /// The overlay's enlarged card.
+    Overlay,
+    /// The live sheet over Chats.
+    Chats,
+}
+
 #[derive(Default)]
 struct Registry {
     hovered: Option<String>,
-    viewing: Option<(String, String)>,
+    /// What each viewer shows large: (task, session).
+    viewing: HashMap<Viewer, (String, String)>,
     /// A preview pressed in the orb's list, for Chats to open.
     requested: Option<(String, String)>,
     tasks: HashMap<String, Watch>,
@@ -164,14 +178,17 @@ pub(crate) fn hover(task: Option<&str>) {
     sync(&mut registry);
 }
 
-/// `session` of `task` shows large (`None`: nothing does).
-pub(crate) fn view(target: Option<(&str, &str)>) {
+/// `viewer` shows `session` of `task` large (`None`: nothing).
+pub(crate) fn view(viewer: Viewer, target: Option<(&str, &str)>) {
     let mut registry = registry();
     let target = target.map(|(task, session)| (task.to_owned(), session.to_owned()));
-    if registry.viewing == target {
+    if registry.viewing.get(&viewer) == target.as_ref() {
         return;
     }
-    registry.viewing = target;
+    match target {
+        Some(target) => registry.viewing.insert(viewer, target),
+        None => registry.viewing.remove(&viewer),
+    };
     sync(&mut registry);
 }
 
@@ -211,15 +228,25 @@ pub(crate) fn send(task: &str, session: &str, input: &Input) {
     }
 }
 
-/// The tasks to watch: the hovered one and the one viewed large.
+/// The tasks to watch: the hovered one and those viewed large, each once.
 fn wanted(registry: &Registry) -> Vec<String> {
     let mut tasks: Vec<String> = registry.hovered.iter().cloned().collect();
-    if let Some((task, _)) = &registry.viewing
-        && !tasks.contains(task)
-    {
-        tasks.push(task.clone());
+    let mut viewed: Vec<&String> = registry.viewing.values().map(|(task, _)| task).collect();
+    viewed.sort();
+    for task in viewed {
+        if !tasks.contains(task) {
+            tasks.push(task.clone());
+        }
     }
     tasks
+}
+
+/// Whether any viewer shows `session` of `task` large.
+fn large(registry: &Registry, task: &str, session: &str) -> bool {
+    registry
+        .viewing
+        .values()
+        .any(|(t, s)| t == task && s == session)
 }
 
 /// Starts and stops the tasks' watchers to match what shows.
@@ -254,14 +281,9 @@ fn sync(registry: &mut Registry) {
                 .spawn(move || watch(&task, &stop));
         }
     }
-    let viewing = registry.viewing.clone();
     for (task, watch) in &registry.tasks {
         for preview in &watch.previews {
-            preview.set_large(
-                viewing
-                    .as_ref()
-                    .is_some_and(|(t, s)| t == task && *s == preview.session),
-            );
+            preview.set_large(large(registry, task, &preview.session));
         }
     }
 }
@@ -285,7 +307,11 @@ fn watch(task: &str, stop: &AtomicBool) {
 /// new ones; whether anything changed.
 fn apply_sessions(task: &str, sessions: &[String], path: &std::path::Path) -> bool {
     let mut registry = registry();
-    let viewing = registry.viewing.clone();
+    let viewed: Vec<String> = sessions
+        .iter()
+        .filter(|session| large(&registry, task, session))
+        .cloned()
+        .collect();
     let Some(watch) = registry.tasks.get_mut(task) else {
         return false;
     };
@@ -310,12 +336,9 @@ fn apply_sessions(task: &str, sessions: &[String], path: &std::path::Path) -> bo
             continue;
         }
         let preview = Arc::new(Preview::new(session.clone(), name_of(task, session)));
-        preview.large.store(
-            viewing
-                .as_ref()
-                .is_some_and(|(t, s)| t == task && s == session),
-            Ordering::Release,
-        );
+        preview
+            .large
+            .store(viewed.contains(session), Ordering::Release);
         watch.previews.push(preview.clone());
         let path = path.to_path_buf();
         let _ = std::thread::Builder::new()
@@ -520,14 +543,39 @@ mod tests {
     fn the_hovered_and_the_viewed_task_are_watched() {
         let mut registry = Registry {
             hovered: Some("a".into()),
-            viewing: Some(("b".into(), "hex-b".into())),
             ..Registry::default()
         };
+        registry
+            .viewing
+            .insert(Viewer::Overlay, ("b".into(), "hex-b".into()));
         assert_eq!(wanted(&registry), ["a", "b"]);
-        registry.viewing = Some(("a".into(), "hex-a".into()));
+        registry
+            .viewing
+            .insert(Viewer::Overlay, ("a".into(), "hex-a".into()));
         assert_eq!(wanted(&registry), ["a"]);
         registry.hovered = None;
-        registry.viewing = None;
+        registry.viewing.clear();
+        assert!(wanted(&registry).is_empty());
+    }
+
+    #[test]
+    fn two_viewers_of_one_browser_share_its_stream() {
+        let mut registry = Registry::default();
+        registry
+            .viewing
+            .insert(Viewer::Overlay, ("t".into(), "hex-t".into()));
+        registry
+            .viewing
+            .insert(Viewer::Chats, ("t".into(), "hex-t".into()));
+        // One task watched, so one stream per browser of it.
+        assert_eq!(wanted(&registry), ["t"]);
+        assert!(large(&registry, "t", "hex-t"));
+        assert!(!large(&registry, "t", "hex-t_b"));
+        // Closing one viewer keeps it large for the other.
+        registry.viewing.remove(&Viewer::Overlay);
+        assert!(large(&registry, "t", "hex-t"));
+        registry.viewing.remove(&Viewer::Chats);
+        assert!(!large(&registry, "t", "hex-t"));
         assert!(wanted(&registry).is_empty());
     }
 
