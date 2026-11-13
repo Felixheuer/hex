@@ -21,8 +21,14 @@ impl Runner {
     pub(super) fn monitor(self: Arc<Self>) {
         loop {
             (self.hooks.sleep)(TICK);
-            if !self.tick() {
-                return;
+            // One look that panics (a subscriber's, say) mustn't end the
+            // watch for good: deadlines, remote stops and helpers depend
+            // on it, and with `monitor` still set none would start again.
+            let runner = Arc::clone(&self);
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || runner.tick())) {
+                Ok(true) => {}
+                Ok(false) => return,
+                Err(_) => tracing::error!("the assistant's monitor panicked; it goes on"),
             }
         }
     }

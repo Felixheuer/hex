@@ -44,9 +44,12 @@ pub fn limit(run: &Run) -> Option<Duration> {
 /// Runs `body`, handing it a `touch` to call on every sign of progress;
 /// whenever `limit` passes without one, the turn's processes end
 /// (`Control::stall`) and the clock starts again. No limit: just `body`.
+/// `paused`: the person took the task over, so its calls wait on purpose:
+/// the clock starts again instead.
 pub fn watch<T>(
     control: &Control,
     limit: Option<Duration>,
+    paused: &(dyn Fn() -> bool + Sync),
     body: impl FnOnce(&dyn Fn()) -> T,
 ) -> T {
     let Some(limit) = limit else {
@@ -65,6 +68,10 @@ pub fn watch<T>(
                 }
                 let mut last = last.lock().unwrap_or_else(|error| error.into_inner());
                 if last.elapsed() >= limit && !done.load(Ordering::Acquire) {
+                    if paused() {
+                        *last = Instant::now();
+                        continue;
+                    }
                     tracing::warn!(
                         seconds = limit.as_secs(),
                         "a quick turn made no progress; ending its backend"
@@ -96,14 +103,14 @@ mod tests {
     #[test]
     fn a_turn_without_progress_stalls_and_one_with_it_doesn_t() {
         let control = Control::default();
-        watch(&control, Some(Duration::from_millis(40)), |_| {
+        watch(&control, Some(Duration::from_millis(40)), &|| false, |_| {
             std::thread::sleep(Duration::from_millis(150));
         });
         assert!(control.stalls() >= 1);
         assert!(!control.cancelled(), "the task itself goes on");
 
         let busy = Control::default();
-        watch(&busy, Some(Duration::from_millis(80)), |touch| {
+        watch(&busy, Some(Duration::from_millis(80)), &|| false, |touch| {
             for _ in 0..15 {
                 touch();
                 std::thread::sleep(Duration::from_millis(10));
@@ -112,7 +119,7 @@ mod tests {
         assert_eq!(busy.stalls(), 0);
 
         let unwatched = Control::default();
-        let answer = watch(&unwatched, None, |_| {
+        let answer = watch(&unwatched, None, &|| false, |_| {
             std::thread::sleep(Duration::from_millis(20));
             42
         });
@@ -129,5 +136,14 @@ mod tests {
         let mut api = Run::fixture(AssistantBackend::ClaudeApi);
         api.quick = true;
         assert_eq!(limit(&api), None);
+    }
+
+    #[test]
+    fn a_turn_the_person_took_over_isnt_stuck() {
+        let control = Control::default();
+        watch(&control, Some(Duration::from_millis(40)), &|| true, |_| {
+            std::thread::sleep(Duration::from_millis(200));
+        });
+        assert_eq!(control.stalls(), 0);
     }
 }

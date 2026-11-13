@@ -273,6 +273,20 @@ impl Runner {
         } else {
             outcome
         };
+        // Steered, but the run it was steered to is gone (stopped while this
+        // one wound down): nothing goes on, so it ends as stopped, or the
+        // conversation would stay running and come back after a restart.
+        let outcome = if outcome == Outcome::Steered
+            && !self
+                .state()
+                .tasks
+                .iter()
+                .any(|task| task.key != key && task.status.conversation == conversation)
+        {
+            Outcome::Cancelled
+        } else {
+            outcome
+        };
         let handed_on = matches!(outcome, Outcome::Steered | Outcome::Escalate { .. });
         let now = self.now();
         let (paused, hands_off, orphaned) = {
@@ -313,10 +327,12 @@ impl Runner {
                 on: false,
             });
         }
+        // A new instruction for a task the person had taken over hands it
+        // back: the run it goes on in isn't held by the old pause.
+        if paused {
+            (self.hooks.pause)(&conversation, false);
+        }
         if outcome != Outcome::Steered {
-            if paused {
-                (self.hooks.pause)(&conversation, false);
-            }
             // The lane this run ended in, not the conversation's first
             // origin: an escalated job's browsers close (`browser::close`).
             (self.hooks.release)(&conversation, lane);
