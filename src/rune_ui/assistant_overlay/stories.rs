@@ -1,16 +1,18 @@
 //! The assistant's overlays as playground stories (⇧⌘D, Prototypes ›
 //! Assistant), fed by the made-up activity in `fixture`: the whole desktop
-//! playing the script, then the orb in each state, the Here bubble in each
+//! playing the script, then the orb in each state (its job rows, a
+//! question answered by typing, results to open or try again, the recall), the Here bubble in each
 //! state, the Hands off pill, and the frame on their own.
 
 use rune::{Cx, El, Playground, Stage, Story, el};
 
 use super::super::controls::Paint;
+use super::ask::Reply;
 use super::board::{Board, Bubble};
 use super::desk::{self, Desk};
 use super::hint::Hint;
 use super::listening::{self, Listening};
-use super::{bubble, fixture, frame, hands, orb, stack};
+use super::{bubble, fixture, frame, hands, orb};
 
 /// Adds the assistant's stories to `playground`.
 pub(crate) fn add<S: 'static>(playground: Playground<S>) -> Playground<S> {
@@ -66,11 +68,13 @@ fn desktop() -> Story<Desk> {
         })
 }
 
-/// The orb's state for its story: the board, whether its list is open, and
-/// what was pressed.
+/// The orb's state for its story: the board, whether its list is open, a
+/// typed answer, the unfolded result, and what was pressed.
 struct OrbStory {
     board: Board,
     open: bool,
+    reply: Option<Reply>,
+    open_result: Option<u64>,
     note: String,
 }
 
@@ -79,6 +83,8 @@ fn orb_story() -> Story<OrbStory> {
         move |s: &mut OrbStory| {
             s.board = board();
             s.open = open;
+            s.reply = None;
+            s.open_result = None;
         }
     };
     Story::new(
@@ -86,6 +92,8 @@ fn orb_story() -> Story<OrbStory> {
         || OrbStory {
             board: fixture::board(),
             open: false,
+            reply: None,
+            open_result: None,
             note: String::new(),
         },
         orb_view,
@@ -94,6 +102,30 @@ fn orb_story() -> Story<OrbStory> {
     .variant("quiet", with(fixture::quiet_board, false))
     .variant("list", with(fixture::board, true))
     .variant("escalated", with(fixture::escalated_board, false))
+    .variant("question", with(fixture::inbox_board, false))
+    .variant("typing an answer", move |s| {
+        with(fixture::inbox_board, false)(s);
+        let mut reply = Reply::new("invoices");
+        reply.edit.text = "Finance, please".into();
+        s.reply = Some(reply);
+    })
+    .variant("many jobs", move |s| {
+        with(|| fixture::many_jobs_board(9), false)(s);
+    })
+    .variant("team", move |s| with(|| fixture::team_board(5), false)(s))
+    .variant("results", with(fixture::results_board, false))
+    .variant("result unfolded", move |s| {
+        with(fixture::results_board, false)(s);
+        s.open_result = s
+            .board
+            .pops
+            .items
+            .iter()
+            .find(|pop| pop.task == "suppliers")
+            .map(|pop| pop.key);
+    })
+    .variant("recall", with(fixture::recall_board, false))
+    .variant("recall list", with(fixture::recall_board, true))
 }
 
 fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
@@ -105,6 +137,63 @@ fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
             .font(p.k.ty.small)
             .color(p.faint())
     });
+    let mut actions = orb::Actions::<OrbStory>::inert();
+    let list = &mut actions.list;
+    list.stop = |s, id| {
+        s.board.apply(
+            &crate::assistant::Event::Cancelled {
+                conversation: id.into(),
+            },
+            None,
+            std::time::Instant::now(),
+        );
+        s.note = format!("Stopped {id}");
+    };
+    list.take_over = |s, id| {
+        s.board.apply(
+            &crate::assistant::Event::Paused {
+                conversation: id.into(),
+            },
+            None,
+            std::time::Instant::now(),
+        );
+    };
+    list.hand_back = |s, id| {
+        s.board.apply(
+            &crate::assistant::Event::Resumed {
+                conversation: id.into(),
+            },
+            None,
+            std::time::Instant::now(),
+        );
+    };
+    list.stop_all = |s| s.note = "Would stop every task".into();
+    list.toggle = |s| s.open = !s.open;
+    list.dismiss = |s, id| {
+        s.board.dismiss_question(id);
+    };
+    list.open_preview = |s, task, session| s.note = format!("Would open {session} of {task} live");
+    list.defer = |s, id| s.note = format!("Would ask {id} later");
+    list.reply.start = |s, id| s.reply = Some(Reply::new(id));
+    list.reply.cancel = |s| s.reply = None;
+    list.reply.send = |s| {
+        if let Some(text) = s.reply.as_ref().and_then(Reply::answer) {
+            s.note = format!("Would send “{text}”");
+            s.reply = None;
+        }
+    };
+    list.reply.edit = |s| &mut s.reply.get_or_insert_with(Reply::default).edit;
+    list.results.open = |s, target| s.note = format!("Would open {target}");
+    list.results.retry = |s, id| s.note = format!("Would try {id} again");
+    list.results.dismiss = |s, key| {
+        s.board.pops.dismiss(key);
+    };
+    list.results.expand = |s, key| s.open_result = (s.open_result != Some(key)).then_some(key);
+    list.results.recall = |s, id| {
+        s.open_result = s.board.recall(id, std::time::Instant::now());
+        s.open = false;
+    };
+    actions.jobs.wall = |s, id| s.note = format!("Would show every picture of {id}");
 
     rune::col().key("orb-story").gap(8.0).children(note).child(
         el().key("orb-stage")
@@ -115,63 +204,13 @@ fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
                 &state.board,
                 &orb::Look {
                     open: state.open,
-                    grow: orb::Grow::default(),
                     still: cx.system_reduced_motion(),
                     answer_key: fixture::ANSWER_KEY.into(),
-                    voice: None,
-                    hovered: None,
-                    jobs_open: false,
+                    reply: state.reply.clone(),
+                    open_result: state.open_result,
+                    ..Default::default()
                 },
-                orb::Actions {
-                    list: stack::Actions {
-                        stop: |s: &mut OrbStory, id| {
-                            s.board.apply(
-                                &crate::assistant::Event::Cancelled {
-                                    conversation: id.into(),
-                                },
-                                None,
-                                std::time::Instant::now(),
-                            );
-                            s.note = format!("Stopped {id}");
-                        },
-                        open: |s: &mut OrbStory, id| s.note = format!("Would open “{id}” in Chats"),
-                        take_over: |s: &mut OrbStory, id| {
-                            s.board.apply(
-                                &crate::assistant::Event::Paused {
-                                    conversation: id.into(),
-                                },
-                                None,
-                                std::time::Instant::now(),
-                            );
-                        },
-                        hand_back: |s: &mut OrbStory, id| {
-                            s.board.apply(
-                                &crate::assistant::Event::Resumed {
-                                    conversation: id.into(),
-                                },
-                                None,
-                                std::time::Instant::now(),
-                            );
-                        },
-                        stop_all: |s: &mut OrbStory| s.note = "Would stop every task".into(),
-                        toggle: |s: &mut OrbStory| s.open = !s.open,
-                        dismiss: |s: &mut OrbStory, id| {
-                            s.board.dismiss_question(id);
-                        },
-                        hover: |_, _, _| {},
-                        open_preview: |s: &mut OrbStory, task, session| {
-                            s.note = format!("Would open {session} of {task} live");
-                        },
-                        defer: |s: &mut OrbStory, id| s.note = format!("Would ask {id} later"),
-                    },
-                    hover: |_, _| {},
-                    drag: |_, _| {},
-                    jobs: super::jobs::LineActions {
-                        hover: |_, _| {},
-                        pin: |_| {},
-                        wall: |_, _| {},
-                    },
-                },
+                actions,
             )),
     )
 }

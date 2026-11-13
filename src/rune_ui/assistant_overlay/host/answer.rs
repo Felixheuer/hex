@@ -243,15 +243,27 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
     static ESCAPE_WANTED: std::cell::Cell<(bool, bool)> =
         const { std::cell::Cell::new((false, false)) };
+    /// The orb's list is unfolded: Esc in any app folds it.
+    static ESCAPE_LIST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Notes whether the bubble and the pill want Esc, and watches for it while
-/// either does.
+/// either (or the orb's list) does.
 pub(super) fn want_escape(bubble: Option<bool>, hands: Option<bool>) {
     let (was_bubble, was_hands) = ESCAPE_WANTED.get();
     let wanted = (bubble.unwrap_or(was_bubble), hands.unwrap_or(was_hands));
     ESCAPE_WANTED.set(wanted);
-    watch_escape(wanted.0 || wanted.1);
+    watch_escape(wanted.0 || wanted.1 || ESCAPE_LIST.get());
+}
+
+/// Notes whether the orb's list is unfolded: Esc in another app folds it
+/// too (in the orb's own panel, its key handler does).
+pub(super) fn want_escape_list(on: bool) {
+    if ESCAPE_LIST.get() == on {
+        return;
+    }
+    ESCAPE_LIST.set(on);
+    want_escape(None, None);
 }
 
 /// Linux and Windows: the listener takes Escape while the assistant is
@@ -288,6 +300,13 @@ fn watch_escape(on: bool) {
                         overlays.bubble.update_if(|state, _| {
                             dismiss_bubble(state);
                             false
+                        });
+                        overlays.orb.update_if(|orb, _| {
+                            let open = orb.expanded;
+                            if open {
+                                super::fold(orb);
+                            }
+                            open
                         });
                     }
                 });

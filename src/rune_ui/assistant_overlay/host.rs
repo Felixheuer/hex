@@ -7,8 +7,10 @@
 //! - One frame panel per display, shown while Background work runs, waits,
 //!   or is queued (`Event::ModeChanged`), and one outline panel per window
 //!   a live task works in; the [`watcher`] thread places both.
-//! - The orb: Background tasks' bubbles and list, beside the HUD or where
-//!   the person dragged it (`place`).
+//! - The orb: Background tasks' rows, questions (answered there by voice or
+//!   typed), results, and list, beside the HUD or where the person dragged
+//!   it (`place`). It takes the keyboard only while its answer field shows
+//!   or after a press opened its list (Escape and a click outside fold it).
 //! - The Here question's bubble, just past the dictation HUD, and the
 //!   "Finish setting up" bubble in its place ([`setup_needed`]).
 //! - The hint past the HUD while the Action shortcut is held, and the
@@ -37,8 +39,12 @@ use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{NSApplication, NSWindow, NSWindowCollectionBehavior};
-use rune::{DisplayTarget, OverlayHandle, OverlayInput, OverlayOptions, OverlaySpec, Tx};
+use rune::{
+    DisplayTarget, KeyPolicy, OverlayHandle, OverlayInput, OverlayOptions, OverlaySpec, TextEdit,
+    Tx,
+};
 
+use super::ask::{Reply, ReplyActions};
 use super::board::{Board, Look, Outlined};
 use super::bubble::{self, BubbleOverlay};
 use super::frame::{self, Frame};
@@ -47,10 +53,12 @@ use super::hint::{self, Hint};
 use super::listening::{self, Listening};
 use super::orb::{self, Orb};
 use super::outline::{self, Outline};
-use super::{jobs, stack, when};
+use super::{jobs, results, stack, when};
 use crate::assistant::{ConversationId, Event, TaskWindow};
 pub(crate) use answer::setup_needed;
-use answer::{bubble_event, bubble_poll, dismiss_bubble, place_bubble, want_escape};
+use answer::{
+    bubble_event, bubble_poll, dismiss_bubble, place_bubble, want_escape, want_escape_list,
+};
 use follow::{drag_orb, place_orb, place_past_hud};
 
 /// How the orb's parts, outlines, pills, and bubble come and go.
@@ -156,69 +164,90 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         interactive: true,
         ..OverlaySpec::new("Hex assistant tasks", orb::SIZE, orb::view)
     }
-    .options(options(OverlayInput::Regions))
+    .options(OverlayOptions {
+        // Only on request: the answer field, or a list a press opened.
+        keys: KeyPolicy::OnDemand,
+        ..options(OverlayInput::Regions)
+    })
     .poll(orb_poll)
+    .on_key(orb_key)
+    .on_focus(orb_focus)
     .on_created(|created| leave_out_of_mission_control(created.window_number))
     .release_gpu_when_hidden();
     let orb = app.overlay(
         orb_spec,
-        Orb {
-            board: Board::seeded(crate::assistant::tasks()),
-            shown: false,
-            armed: None,
-            expanded: false,
-            peek: false,
-            hovered: None,
-            jobs_hovered: false,
-            jobs_pinned: false,
-            grow: orb::Grow::default(),
-            answer_key: answer_key(),
-            voice: None,
-            actions: orb::Actions {
+        Orb::new(
+            Board::seeded(crate::assistant::tasks()),
+            answer_key(),
+            orb::Actions {
                 list: stack::Actions {
                     stop: |_, id| crate::assistant::cancel(id),
-                    open: |_, id| open_chats(id),
                     take_over: |_, id| crate::assistant::service::take_over(id),
                     hand_back: |_, id| crate::assistant::service::hand_back(id),
                     stop_all: |_| crate::assistant::service::stop_all(),
-                    toggle,
+                    toggle: toggle_pressed,
                     dismiss: |orb, id| {
                         orb.board.dismiss_question(id);
+                        if orb.reply.as_ref().is_some_and(|reply| reply.id == id) {
+                            orb.reply = None;
+                        }
                     },
                     hover: hover_task,
                     open_preview: |orb, task, session| {
                         enlarged::open(&orb.board, task, session);
                     },
-                    defer: |_, id| crate::assistant::defer_question(id),
+                    defer: |orb, id| {
+                        if orb.reply.as_ref().is_some_and(|reply| reply.id == id) {
+                            orb.reply = None;
+                        }
+                        crate::assistant::defer_question(id);
+                    },
+                    reply: ReplyActions {
+                        start: start_reply,
+                        cancel: |orb| orb.reply = None,
+                        send: send_reply,
+                        edit: reply_edit,
+                    },
+                    results: results::Actions {
+                        open: |_, target| results::open(target),
+                        retry: |orb, id| {
+                            retry(id);
+                            orb.open_result = None;
+                        },
+                        dismiss: |orb, key| {
+                            orb.board.pops.dismiss(key);
+                            if orb.open_result == Some(key) {
+                                orb.open_result = None;
+                            }
+                            rearm();
+                        },
+                        expand: |orb, key| {
+                            let open = orb.open_result != Some(key);
+                            if orb.board.pops.hold(key, open, Instant::now()) {
+                                orb.open_result = open.then_some(key);
+                            }
+                            rearm();
+                        },
+                        recall: |orb, id| {
+                            if let Some(key) = orb.board.recall(id, Instant::now()) {
+                                orb.open_result = Some(key);
+                                fold(orb);
+                            }
+                            rearm();
+                        },
+                    },
                 },
                 hover: |orb, inside| {
-                    // Resting on the jobs' cards shows the cards, not the
-                    // list over them.
-                    orb.peek = inside && !orb.jobs_hovered && !orb.board.stack().is_empty();
                     if !inside {
-                        orb.jobs_hovered = false;
                         hover_task(orb, "", false);
                     }
-                    show_cards(orb);
                 },
                 drag: drag_orb,
                 jobs: jobs::LineActions {
-                    hover: |orb, inside| {
-                        orb.jobs_hovered = inside;
-                        if inside {
-                            orb.peek = false;
-                        }
-                        show_cards(orb);
-                    },
-                    pin: |orb| {
-                        orb.jobs_pinned = !orb.jobs_pinned;
-                        orb.peek = false;
-                        show_cards(orb);
-                    },
                     wall: |orb, id| wall::open(&orb.board, id),
                 },
             },
-        },
+        ),
     );
     let bubble_spec = OverlaySpec {
         interactive: true,
@@ -365,38 +394,154 @@ fn on_event(event: &Event) {
 // The orb (and the board the outlines and the Hands off pill read)
 
 /// Unfolds the task list from the orb, or folds it back (a double-tap of
-/// the Action shortcut). Any thread; nothing while no Background task is
-/// listed.
+/// the Action shortcut). Any thread; nothing while the list would be empty
+/// (no job, no result to recall). The keyboard stays where it is: the
+/// person may be typing elsewhere (the global Escape still folds it).
 pub(crate) fn toggle_tasks() {
     // The onboarding's tutorial checks the double-tap here.
     crate::rune_ui::assistant_tasks_opened();
     if let Some(overlays) = OVERLAYS.get() {
-        overlays.orb.update(|orb, _| toggle(orb));
+        overlays.orb.update(|orb, tx| {
+            toggle(orb);
+            // With only results to recall, the orb may be hidden.
+            board_changed(orb, tx, Instant::now());
+        });
     }
 }
 
 fn toggle(orb: &mut Orb) {
-    if orb.board.stack().is_empty() {
-        orb.expanded = false;
-        hover_task(orb, "", false);
+    if orb.expanded || !orb::listable(&orb.board) {
+        fold(orb);
         return;
     }
-    orb.expanded = !(orb.expanded || orb.peek);
-    orb.peek = false;
-    if !orb.expanded {
-        hover_task(orb, "", false);
-    }
+    orb.expanded = true;
+    orb.reply = None;
     show_cards(orb);
+    want_escape_list(true);
 }
 
-/// Tells the previews which jobs' cards show now, so only their browsers
+/// A press on the orb, a job's row, its "more" line, or the list's ×: the
+/// list unfolds and takes the keyboard (Escape, and a click outside, fold
+/// it), or folds.
+fn toggle_pressed(orb: &mut Orb) {
+    toggle(orb);
+    if orb.expanded
+        && let Some(overlays) = OVERLAYS.get()
+    {
+        overlays.orb.request_keys();
+    }
+}
+
+/// Folds the list back into the orb.
+fn fold(orb: &mut Orb) {
+    orb.expanded = false;
+    hover_task(orb, "", false);
+    show_cards(orb);
+    want_escape_list(false);
+}
+
+/// Escape while the orb has the keyboard: the answer field goes, else an
+/// unfolded result folds, else the list.
+fn orb_key(orb: &mut Orb, key: &rune::KeyEvent, _tx: &mut Tx) -> bool {
+    key.key == rune::Key::Escape && escape(orb)
+}
+
+/// Escape at the orb: the answer field goes, else an unfolded result folds,
+/// else the list; whether anything did.
+pub(super) fn escape(orb: &mut Orb) -> bool {
+    if orb.reply.take().is_some() {
+        return true;
+    }
+    if let Some(open) = orb.open_result.take() {
+        orb.board.pops.hold(open, false, Instant::now());
+        rearm();
+        return true;
+    }
+    if orb.expanded {
+        fold(orb);
+        return true;
+    }
+    false
+}
+
+/// The orb's panel lost the keyboard (a click outside, or another panel
+/// took it): a list a press opened folds, and an empty answer field goes
+/// (one with words in it stays, to finish).
+fn orb_focus(orb: &mut Orb, focused: bool, _tx: &mut Tx) {
+    if focused {
+        return;
+    }
+    if orb.expanded {
+        fold(orb);
+    }
+    if orb
+        .reply
+        .as_ref()
+        .is_some_and(|reply| reply.answer().is_none())
+    {
+        orb.reply = None;
+    }
+}
+
+/// Reply on a question: its field shows and the orb takes the keyboard.
+fn start_reply(orb: &mut Orb, id: &str) {
+    match orb.reply.as_mut() {
+        Some(reply) if reply.id == id => reply.edit.focused = true,
+        _ => orb.reply = Some(Reply::new(id)),
+    }
+    if let Some(overlays) = OVERLAYS.get() {
+        overlays.orb.request_keys();
+    }
+}
+
+fn reply_edit(orb: &mut Orb) -> &mut TextEdit {
+    &mut orb.reply.get_or_insert_with(Reply::default).edit
+}
+
+/// Return or Send: the typed answer goes to its job, as Chats' composer
+/// (or the phone) would send it.
+fn send_reply(orb: &mut Orb) {
+    let Some(reply) = orb.reply.take() else {
+        return;
+    };
+    let Some(text) = reply.answer() else {
+        orb.reply = Some(reply);
+        return;
+    };
+    crate::assistant::submit(crate::assistant::Request {
+        conversation: Some(reply.id),
+        text,
+        origin: crate::assistant::Origin::Chat,
+        context: crate::assistant::Context::default(),
+    });
+}
+
+/// Try again on a failed job: it runs once more in its conversation.
+fn retry(id: &str) {
+    crate::assistant::submit(crate::assistant::Request {
+        conversation: Some(id.to_owned()),
+        text: crate::desktop::i18n::tr("That didn't work. Please try again.").to_owned(),
+        // A job again, even once its task left the orb.
+        origin: crate::assistant::Origin::Background,
+        context: crate::assistant::Context::default(),
+    });
+}
+
+/// A result's bubble was held, let go, closed, or recalled: the orb wakes
+/// for its new departure.
+fn rearm() {
+    if let Some(overlays) = OVERLAYS.get() {
+        overlays.orb.update(|orb, tx| {
+            orb.armed = None;
+            arm(orb, tx, Instant::now());
+        });
+    }
+}
+
+/// Tells the previews which jobs' rows show now, so only their browsers
 /// stream (`live::cards`).
 fn show_cards(orb: &Orb) {
-    let carded = orb::carded(
-        &orb.board,
-        orb.expanded || orb.peek,
-        orb.jobs_hovered || orb.jobs_pinned,
-    );
+    let carded = orb::carded(&orb.board, orb.expanded);
     super::live::cards(&carded);
     super::app_live::cards(&carded);
 }
@@ -531,16 +676,25 @@ fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
     let Some(overlays) = OVERLAYS.get() else {
         return;
     };
-    if orb.board.stack().is_empty() {
-        orb.expanded = false;
-        orb.peek = false;
+    if orb.expanded && !orb::listable(&orb.board) {
+        fold(orb);
     }
-    if super::jobs::running(&orb.board.tasks).is_empty() {
-        orb.jobs_hovered = false;
-        orb.jobs_pinned = false;
+    // The field goes with its question (answered by voice, or another came).
+    if orb.reply.as_ref().is_some_and(|reply| {
+        orb.board
+            .active_question()
+            .is_none_or(|asking| asking.id != reply.id)
+    }) {
+        orb.reply = None;
+    }
+    if orb
+        .open_result
+        .is_some_and(|key| !orb.board.pops.items.iter().any(|pop| pop.key == key))
+    {
+        orb.open_result = None;
     }
     show_cards(orb);
-    let visible = orb.board.orb_shows();
+    let visible = orb.board.orb_shows(now) || orb.expanded;
     if visible && !orb.shown {
         place_orb(&overlays.orb, orb);
         overlays.orb.fade_in(FADE);

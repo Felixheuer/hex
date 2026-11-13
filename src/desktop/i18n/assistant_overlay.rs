@@ -72,4 +72,74 @@ overlay_strings![
     ("{} done", ["Gotowe: {}", "已完成 {} 项", "{} 件完了", "{} erledigt", "{} hechos", "Виконано: {}", "{} concluídos", "{} terminées", "Готово: {}"]),
     ("+{} more", ["+{} więcej", "另外 {} 个", "他 {} 件", "+{} weitere", "+{} más", "+{} ще", "+{} mais", "+{} de plus", "ещё {}"]),
     ("Continue setup", ["Kontynuuj konfigurację", "继续设置", "設定を続ける", "Einrichtung fortsetzen", "Continuar la configuración", "Продовжити налаштування", "Continuar configuração", "Continuer la configuration", "Продолжить настройку"]),
+    ("Reply", ["Odpowiedz", "回复", "返信", "Antworten", "Responder", "Відповісти", "Responder", "Répondre", "Ответить"]),
+    ("Type your answer…", ["Wpisz odpowiedź…", "输入你的回答…", "回答を入力…", "Antwort eingeben…", "Escribe tu respuesta…", "Введіть відповідь…", "Digite sua resposta…", "Saisissez votre réponse…", "Введите ответ…"]),
+    ("Send answer", ["Wyślij odpowiedź", "发送回答", "回答を送信", "Antwort senden", "Enviar respuesta", "Надіслати відповідь", "Enviar resposta", "Envoyer la réponse", "Отправить ответ"]),
+    ("Return sends · Esc cancels", ["Return wysyła · Esc anuluje", "Return 发送 · Esc 取消", "Return で送信 · Esc で取消", "Return sendet · Esc bricht ab", "Return envía · Esc cancela", "Return надсилає · Esc скасовує", "Return envia · Esc cancela", "Entrée envoie · Échap annule", "Return отправляет · Esc отменяет"]),
+    ("Less", ["Mniej", "收起", "閉じる", "Weniger", "Menos", "Менше", "Menos", "Moins", "Меньше"]),
+    ("Open folder {}", ["Otwórz folder {}", "打开文件夹 {}", "フォルダ {} を開く", "Ordner {} öffnen", "Abrir la carpeta {}", "Відкрити папку {}", "Abrir a pasta {}", "Ouvrir le dossier {}", "Открыть папку {}"]),
+    ("Open file {}", ["Otwórz plik {}", "打开文件 {}", "ファイル {} を開く", "Datei {} öffnen", "Abrir el archivo {}", "Відкрити файл {}", "Abrir o arquivo {}", "Ouvrir le fichier {}", "Открыть файл {}"]),
+    ("Open link {}", ["Otwórz link {}", "打开链接 {}", "リンク {} を開く", "Link {} öffnen", "Abrir el enlace {}", "Відкрити посилання {}", "Abrir o link {}", "Ouvrir le lien {}", "Открыть ссылку {}"]),
+    ("Recent results: {}", ["Ostatnie wyniki: {}", "最近的结果：{}", "最近の結果: {}", "Letzte Ergebnisse: {}", "Resultados recientes: {}", "Останні результати: {}", "Resultados recentes: {}", "Résultats récents : {}", "Последние результаты: {}"]),
+    ("That didn't work. Please try again.", ["To się nie udało. Spróbuj ponownie.", "这没有成功。请再试一次。", "うまくいきませんでした。もう一度試してください。", "Das hat nicht geklappt. Bitte versuch es noch einmal.", "No funcionó. Inténtalo de nuevo.", "Не вдалося. Спробуйте ще раз.", "Não deu certo. Tente de novo.", "Ça n'a pas marché. Réessaie, s'il te plaît.", "Не получилось. Попробуй ещё раз."]),
 ];
+
+#[cfg(test)]
+mod tests {
+    /// The overlay's sources the main table's check doesn't read.
+    const SOURCES: &[&str] = &[
+        include_str!("../../rune_ui/assistant_overlay/ask.rs"),
+        include_str!("../../rune_ui/assistant_overlay/results.rs"),
+        include_str!("../../rune_ui/assistant_overlay/jobs.rs"),
+        include_str!("../../rune_ui/assistant_overlay/wall.rs"),
+        include_str!("../../rune_ui/assistant_overlay/host.rs"),
+    ];
+
+    /// The string literals passed to `tr` and `tr_fill`.
+    fn literals(source: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        for call in ["tr(", "tr_fill("] {
+            for (start, _) in source.match_indices(call) {
+                let ident = source[..start]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_alphanumeric() || c == '_');
+                let Some(rest) = source[start + call.len()..].trim_start().strip_prefix('"')
+                else {
+                    continue;
+                };
+                if ident {
+                    continue;
+                }
+                let mut literal = String::new();
+                let mut chars = rest.chars();
+                while let Some(c) = chars.next() {
+                    match c {
+                        '"' => break,
+                        '\\' => literal.extend(chars.next()),
+                        other => literal.push(other),
+                    }
+                }
+                found.push(literal);
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn every_overlay_string_has_every_language() {
+        let table: std::collections::HashMap<_, _> =
+            super::super::all_translations().copied().collect();
+        let mut checked = 0;
+        for source in SOURCES {
+            for literal in literals(source) {
+                let row = table
+                    .get(literal.as_str())
+                    .unwrap_or_else(|| panic!("{literal:?} has no translations"));
+                assert!(row.iter().all(|t| !t.is_empty()), "{literal:?}");
+                checked += 1;
+            }
+        }
+        assert!(checked > 20, "only {checked}");
+    }
+}

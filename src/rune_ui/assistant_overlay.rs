@@ -9,9 +9,13 @@
 //! - The orb ([`orb`]): Background tasks' quiet presence beside the HUD (or
 //!   where it was dragged, [`place`]), one dot per task; bubbles pop from
 //!   it ([`pops`]) and its list unfolds from it ([`stack`]) with Take over,
-//!   Hand back, Stop all, and each plan's checklist. A task's question
-//!   stays beside it ("Hold ⌘ to answer"); a plan rings its dot with
-//!   progress; an escalated Here question flies in as a new dot.
+//!   Hand back, Stop all, and each plan's checklist. Running jobs show as a
+//!   few compact rows with their step and live pictures ([`jobs`]); a
+//!   task's question stays beside it, answered by voice or typed there
+//!   ([`ask`]); a finished job leaves a result bubble with what to open or
+//!   Try again, recalled from the orb for a while ([`results`]); a plan
+//!   rings its dot with progress; an escalated Here question flies in as a
+//!   new dot. Nothing needs the window.
 //! - The agents' cursors ([`cursor`]): a soft arrow per task colour, for
 //!   agent-desktop's `--image`. The colours themselves are
 //!   `assistant::palette`, shared with the brain.
@@ -32,6 +36,7 @@
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 pub(crate) mod app_live;
+mod ask;
 mod board;
 mod bubble;
 #[cfg(target_os = "macos")]
@@ -56,6 +61,7 @@ mod palette;
 mod place;
 mod pops;
 mod quick;
+mod results;
 mod screens;
 mod stack;
 #[cfg(target_os = "macos")]
