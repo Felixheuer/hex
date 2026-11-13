@@ -653,8 +653,10 @@ fn the_guide_keeps_what_a_task_uses() {
 
 /// Characters of each lane's own rules (agent-desktop's guide aside): what
 /// every request pays for before its first word. Raise only with a reason.
-const HERE_BUDGET: usize = 8_500;
-const JOB_BUDGET: usize = 15_000;
+// 9_300: the knowledge tools (hex_lookup, hex_chrome_tab) add a short rule.
+const HERE_BUDGET: usize = 9_300;
+// 15_800: the knowledge tools add a short rule.
+const JOB_BUDGET: usize = 15_800;
 
 #[test]
 fn each_lane_s_rules_stay_within_their_budget() {
