@@ -683,7 +683,10 @@ fn check(
         } => Ok(match command {
             Some(command) => State::Command { command },
             None => State::Download {
-                url: notes_url.unwrap_or_else(|| DOWNLOAD_PAGE.into()),
+                // Only a page on the update service's own host.
+                url: notes_url
+                    .and_then(|notes| protocol::resolve_url(&manifest_url, &notes))
+                    .unwrap_or_else(|| DOWNLOAD_PAGE.into()),
             },
         }),
         Decision::Install {
@@ -708,9 +711,10 @@ fn check(
                         manifest
                             .release
                             .target(platform::DOWNLOAD_TARGET)
-                            .and_then(|target| protocol::resolve_url(&manifest_url, &target.url))
+                            .map(|target| target.url.clone())
                             .or(manifest.release.notes_url)
                     })
+                    .and_then(|url| protocol::resolve_url(&manifest_url, &url))
                     .unwrap_or_else(|| DOWNLOAD_PAGE.into());
                 return Ok(State::Download { url });
             }

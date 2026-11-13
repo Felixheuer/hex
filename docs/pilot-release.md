@@ -239,3 +239,13 @@ Signaturprüfung der App selbst.
   Links folgen nur `stable`); keine Dev-Notes (`dev-notes.json`).
 - Die alten Sparkle-/2.3.1-Feeds von upstream werden hier nicht bedient: es
   gibt keine alten Pilot-Installationen, die sie bräuchten.
+
+
+## Was der Client prüft
+
+Signiert ist der SHA-256 jeder Datei, nicht ihre Version: Ein Client nimmt
+jede Version, die das Manifest nennt, auch eine ältere – so funktioniert
+`rollback`. Wer die Dateien unter `/srv/pilot` ändern kann, kann damit einen
+alten, echt signierten Build zurückspielen; da der Schlüssel auf demselben
+Server liegt, schützt dagegen nur der Server selbst. Download-Links (DMG,
+Release-Notes) öffnet die App nur auf dem eigenen Update-Host.

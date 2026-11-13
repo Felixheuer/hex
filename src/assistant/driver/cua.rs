@@ -324,8 +324,23 @@ impl Checks for System {
             .args(["-dv", "--verbose=2"])
             .arg(path)
             .output()?;
-        developer_id_team(&String::from_utf8_lossy(&details.stderr))
-            .ok_or_else(|| eyre!("{} isn't signed with a Developer ID", path.display()))
+        let team = developer_id_team(&String::from_utf8_lossy(&details.stderr))
+            .ok_or_else(|| eyre!("{} isn't signed with a Developer ID", path.display()))?;
+        // The text above is the signature's own word: prove it with a
+        // certificate Apple issued for that team, or a self-made one named
+        // like it would pass.
+        let anchored = std::process::Command::new("/usr/bin/codesign")
+            .args(["--verify", "--strict"])
+            .arg(developer_id_requirement(&team)?)
+            .arg(path)
+            .status()?;
+        if !anchored.success() {
+            bail!(
+                "{} isn't signed with Apple's Developer ID certificate for team {team}",
+                path.display()
+            );
+        }
+        Ok(team)
     }
 
     fn notarized(&self, app: &Path) -> Result<()> {
@@ -343,6 +358,19 @@ impl Checks for System {
 
 fn user_agent() -> String {
     format!("agent-desk/{}", crate::VERSION)
+}
+
+/// `codesign -R`'s requirement that a signature chains to Apple through a
+/// Developer ID Application certificate issued to `team`.
+pub fn developer_id_requirement(team: &str) -> Result<String> {
+    if team.len() != 10 || !team.chars().all(|c| c.is_ascii_alphanumeric()) {
+        bail!("“{team}” isn't a team id");
+    }
+    Ok(format!(
+        "-R=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists \
+         and certificate leaf[field.1.2.840.113635.100.6.1.13] exists \
+         and certificate leaf[subject.OU] = \"{team}\""
+    ))
 }
 
 /// The team of a Developer ID signature in `codesign -dv` output.
@@ -503,6 +531,10 @@ mod tests {
     fn only_a_developer_id_signature_names_a_team() {
         let theirs = "Identifier=com.trycua.driver\nAuthority=Developer ID Application: Cua AI, Inc. (YCK386LBJ7)\nAuthority=Developer ID Certification Authority\nTeamIdentifier=YCK386LBJ7\n";
         assert_eq!(developer_id_team(theirs).as_deref(), Some("YCK386LBJ7"));
+        let requirement = developer_id_requirement("YCK386LBJ7").unwrap();
+        assert!(requirement.starts_with("-R=anchor apple generic and certificate 1["));
+        assert!(requirement.ends_with("certificate leaf[subject.OU] = \"YCK386LBJ7\""));
+        assert!(developer_id_requirement("YCK\" or 1").is_err());
         let other =
             "Authority=Developer ID Application: Someone (ABCDE12345)\nTeamIdentifier=ABCDE12345\n";
         assert_eq!(developer_id_team(other).as_deref(), Some("ABCDE12345"));
