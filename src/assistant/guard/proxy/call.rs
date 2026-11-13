@@ -135,12 +135,24 @@ impl<D: Desktop> Guard<D> {
             }
             Kind::ReadWindow => return self.read_window(tool, args),
             Kind::WindowShot => return self.window_shot(tool, args),
-            Kind::WindowInput => return self.window_input(tool, args),
+            Kind::WindowInput => {
+                let result = self.window_input(tool, args);
+                self.note_way_of(tool, args, &result);
+                return result;
+            }
             Kind::AppCapabilities => return self.app_capabilities(tool, args),
-            Kind::Script => return self.run_script(tool, args),
+            Kind::Script => {
+                let result = self.run_script(tool, args);
+                self.note_way_of(tool, args, &result);
+                return result;
+            }
             Kind::Skills => return Ok(self.skills_list(args)),
             Kind::SkillRecord => return self.skill_record(tool, args),
-            Kind::SkillReplay => return self.skill_replay(tool, args),
+            Kind::SkillReplay => {
+                let result = self.skill_replay(tool, args);
+                self.note_way_of(tool, args, &result);
+                return result;
+            }
             Kind::Screen if !self.config.front_window => {
                 return Err(refusal(
                     tool,
@@ -226,7 +238,9 @@ impl<D: Desktop> Guard<D> {
                     "This task was asked about the window in front and acts only there.",
                 ));
             }
-            return self.app_action(tool, args);
+            let result = self.app_action(tool, args);
+            self.note_way_of(tool, args, &result);
+            return result;
         }
         if kind == Kind::FocusWindow
             && self.config.lane == Lane::Background
@@ -296,6 +310,7 @@ impl<D: Desktop> Guard<D> {
             self.note_keys(tool, &resolved, &result);
             self.spot(args, &resolved, &result);
             self.note_step(tool, args, &resolved, &result);
+            self.note_way(tool, args, &resolved, &result);
             if kind == Kind::CloseApp
                 && child::data(&result).is_some()
                 && let Some(window) = resolved.first()
@@ -307,6 +322,17 @@ impl<D: Desktop> Guard<D> {
             self.borrow_done();
         }
         Ok(result)
+    }
+
+    /// [`Self::note_way`] for a call answered by the guard's own tool.
+    fn note_way_of(
+        &mut self,
+        tool: &str,
+        args: &Map<String, Value>,
+        result: &Result<Value, Value>,
+    ) {
+        let (Ok(result) | Err(result)) = result;
+        self.note_way(tool, args, &[], result);
     }
 
     /// The real pointer and keyboard for this action, one task at a time

@@ -915,6 +915,35 @@ A job's tools can't remember, schedule,
 unschedule, or hand off (`tools::Role::Job`), since it reads pages and files
 the person never saw.
 
+A team shares a blackboard (`agent::blackboard`): `team.md` in the lead's
+folder, created when its first helpers start. `hex_team_board` (lead and
+helpers; the tools server gets the path as `--board`) reads it and adds
+`claim`, `done`, `release`, and `found` lines; a claim holds a lock file
+while it reads and appends, so one item (compared loosely: `nike.com` is
+`https://www.Nike.com/`) gets one owner. The monitor emits `Event::Board`
+as the file changes, and the lead's card counts "N claimed · M items
+done". Once no helper is working, `hex_team_status` combines their results
+(`agent::merge`): every CSV in their folders into `team-table.csv` and
+`.xlsx` (columns united by name, duplicates by web address, email, or name
+left out) and their `report.md` files (else their answers) into
+`team-report.md` and `.docx`, via the media tools' writer. A helper's
+browsers are its share of the computer's (`capacity::share`: the limits
+split by the helpers working).
+
+Learning (`settings.memory` on): procedural memory (`procedures`,
+`<assistant>/procedures/<app>.json`) keeps per app and version what worked
+and failed: the guard notes each forwarded action's way (menu path, app
+action URL or script kind, skill, a control's role and name, keys, or a
+spot of the picture; never typed text, values, or URL queries) and whether
+the app took it (`guard::proxy::ways`), and a job's journal adds its
+`worked in <App>:` and `failed in <App>:` lines when it ends. A request
+naming an app gets "What worked before in <app>" in its message (with the
+graph's recall), never in the system prompt. The person's own corrections
+("nicht so förmlich", "immer an X senden", "always save in the folder Y")
+become `Preference (…)` lines of `memory.md` without asking, marked as
+learned and reviewable in Settings (`preferences`); a newer tone replaces
+the one it contradicts, and nothing that looks secret is kept.
+
 `max_parallel` is a ceiling: before each queued Background task starts,
 `capacity::pressure` (macOS `kern.memorystatus_vm_pressure_level`, Linux
 `MemAvailable`) may hold it back (two under a warning, one under critical

@@ -34,6 +34,7 @@ pub fn rules(desktop: bool, browser: bool) -> String {
     );
     if desktop {
         rules.push_str(" An app that stops responding: note it, quit it if you opened it, reopen it with hex_open_app, and go on.");
+        rules.push_str(crate::assistant::procedures::JOURNAL_RULE);
     }
     if browser {
         rules.push_str(" A browser session that died: open it again under the same name and go back to its page (the journal lists them).");

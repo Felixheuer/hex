@@ -400,7 +400,7 @@ fn card<S: 'static>(
             .label(tr("Live windows"))
             .children(cells)
     });
-    let team = (!helpers.is_empty()).then(|| team_row(p, helpers).pl(STEP_INSET));
+    let team = (!helpers.is_empty()).then(|| team_row(p, helpers, task.board).pl(STEP_INSET));
     let plan = task.progress().map(|(done, all)| {
         el().pl(STEP_INSET).child(look::progress(
             p,
@@ -514,15 +514,8 @@ pub(crate) fn wants_wall(all: usize, shown: usize) -> bool {
 
 /// A lead's helpers on its card: a dot each and how many ended ("4 Helfer
 /// · 1 erledigt"); resting on the cards shows each one's own.
-fn team_row(p: Paint, helpers: &[&Task]) -> El {
-    let ended = helpers
-        .iter()
-        .filter(|task| matches!(task.phase, Phase::Done | Phase::Failed | Phase::Stopped))
-        .count();
-    let mut words = tr_fill("{} helpers", &helpers.len().to_string());
-    if ended > 0 {
-        words = format!("{words} · {}", tr_fill("{} done", &ended.to_string()));
-    }
+fn team_row(p: Paint, helpers: &[&Task], board: Option<(usize, usize)>) -> El {
+    let words = team_words(helpers, board);
     row()
         .key("job-team")
         .gap(5.0)
@@ -542,6 +535,27 @@ fn team_row(p: Paint, helpers: &[&Task]) -> El {
                 .font(p.k.ty.small)
                 .color(p.muted()),
         )
+}
+
+/// A lead's team line: "4 helpers · 1 done", then what its board counts
+/// ("12 claimed · 30 items done") once helpers claim items there.
+pub(crate) fn team_words(helpers: &[&Task], board: Option<(usize, usize)>) -> String {
+    let ended = helpers
+        .iter()
+        .filter(|task| matches!(task.phase, Phase::Done | Phase::Failed | Phase::Stopped))
+        .count();
+    let mut words = tr_fill("{} helpers", &helpers.len().to_string());
+    if ended > 0 {
+        words = format!("{words} · {}", tr_fill("{} done", &ended.to_string()));
+    }
+    if let Some((claimed, done)) = board.filter(|(claimed, done)| claimed + done > 0) {
+        words = format!(
+            "{words} · {} · {}",
+            tr_fill("{} claimed", &claimed.to_string()),
+            tr_fill("{} items done", &done.to_string())
+        );
+    }
+    words
 }
 
 /// A card's second line: the plan step it's on, as the job wrote its plan
@@ -890,6 +904,28 @@ mod tests {
             }
         }
         assert_eq!(layout(&running(&board.tasks), false), rows(&["job0"], 0));
+        // The lead's team line counts its board once helpers claim items.
+        board.apply(
+            &Event::Board {
+                conversation: "job0".into(),
+                claimed: 4,
+                done: 9,
+            },
+            None,
+            Instant::now(),
+        );
+        let lead = board.tasks.iter().find(|task| task.id == "job0").unwrap();
+        assert_eq!(lead.board, Some((4, 9)));
+        let helpers: Vec<&Task> = board
+            .tasks
+            .iter()
+            .filter(|task| task.lead.is_some())
+            .collect();
+        assert_eq!(
+            team_words(&helpers, lead.board),
+            "3 helpers · 4 claimed · 9 items done"
+        );
+        assert_eq!(team_words(&helpers, Some((0, 0))), "3 helpers");
     }
 
     #[test]

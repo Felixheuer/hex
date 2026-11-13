@@ -62,6 +62,7 @@ impl Runner {
         self.check_hands_off(&here);
         self.check_borrowed();
         self.check_plans();
+        self.check_boards();
         // Jobs asking for helpers (`agent::team`).
         for ask in (self.hooks.team_asks)() {
             let ours = self
@@ -96,6 +97,41 @@ impl Runner {
             }
         }
         true
+    }
+
+    /// Emits `Board` when a lead's team board (`team.md`) changes: the
+    /// rail counts its helpers' claimed and done items.
+    fn check_boards(self: &Arc<Self>) {
+        let leads: Vec<(u64, std::path::PathBuf, Option<std::time::SystemTime>)> = self
+            .state()
+            .tasks
+            .iter()
+            .filter(|task| task.parent.is_none())
+            .filter_map(|task| Some((task.key, task.workspace.clone()?, task.board_seen)))
+            .collect();
+        for (key, workspace, seen) in leads {
+            let path = workspace.join(crate::assistant::agent::blackboard::BOARD);
+            let Ok(modified) = std::fs::metadata(&path).and_then(|meta| meta.modified()) else {
+                continue;
+            };
+            if seen == Some(modified) {
+                continue;
+            }
+            let (claimed, done) = crate::assistant::agent::blackboard::read(&path).counts();
+            let conversation = {
+                let mut state = self.state();
+                let Some(task) = state.tasks.iter_mut().find(|task| task.key == key) else {
+                    continue;
+                };
+                task.board_seen = Some(modified);
+                task.status.conversation.clone()
+            };
+            self.emit(&Event::Board {
+                conversation,
+                claimed,
+                done,
+            });
+        }
     }
 
     /// Emits `Plan` when a job's `plan.md` changes.

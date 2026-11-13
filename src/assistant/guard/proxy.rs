@@ -23,6 +23,7 @@ mod skills;
 mod spots;
 mod tools;
 mod vision;
+mod ways;
 
 pub(super) use desk::DESK_NOTE;
 pub use recover::{Inert, Recoverer, System};
@@ -185,6 +186,8 @@ pub struct Guard<D: Desktop> {
     pub skills_dir: std::path::PathBuf,
     /// The window and spot the last action landed at (`spots`).
     pub(super) spotted: Option<(u32, (f64, f64))>,
+    /// Each app's installed version, looked up once (`ways`).
+    versions: HashMap<String, Option<String>>,
 }
 
 /// Runs one app action and says what it printed, or why not.
@@ -284,6 +287,7 @@ impl<D: Desktop> Guard<D> {
             recording: None,
             skills_dir,
             spotted: None,
+            versions: HashMap::new(),
         }
     }
 

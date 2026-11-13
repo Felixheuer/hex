@@ -92,6 +92,7 @@ impl ChatsPane {
             | Event::HandsOff { .. }
             | Event::Acting { .. }
             | Event::Plan { .. }
+            | Event::Board { .. }
             | Event::QuestionsChanged { .. }
             | Event::Understood { .. }
             | Event::Borrowed { .. }

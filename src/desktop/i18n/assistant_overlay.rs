@@ -71,6 +71,8 @@ overlay_strings![
     ("Hold {} to answer", ["Przytrzymaj {}, aby odpowiedzieć", "按住 {} 回答", "{} を長押しして回答", "Halte {}, um zu antworten", "Mantén {} para responder", "Утримуйте {}, щоб відповісти", "Segure {} para responder", "Maintenez {} pour répondre", "Удерживайте {}, чтобы ответить"]),
     ("Hide question", ["Ukryj pytanie", "隐藏问题", "質問を隠す", "Frage ausblenden", "Ocultar pregunta", "Сховати запитання", "Ocultar pergunta", "Masquer la question", "Скрыть вопрос"]),
     ("Waiting for your answer", ["Czeka na twoją odpowiedź", "等待你的回答", "回答を待っています", "Wartet auf deine Antwort", "Esperando tu respuesta", "Чекає на вашу відповідь", "Aguardando sua resposta", "En attente de votre réponse", "Ждёт вашего ответа"]),
+    ("{} claimed", ["Zajęte: {}", "已认领 {} 项", "{} 件担当中", "{} übernommen", "{} asignados", "Узято: {}", "{} assumidos", "{} pris en charge", "Взято: {}"]),
+    ("{} items done", ["Ukończone pozycje: {}", "已完成 {} 个条目", "{} 項目完了", "{} Punkte erledigt", "{} elementos hechos", "Виконано пунктів: {}", "{} itens concluídos", "{} éléments terminés", "Выполнено пунктов: {}"]),
     ("{} done", ["Gotowe: {}", "已完成 {} 项", "{} 件完了", "{} erledigt", "{} hechos", "Виконано: {}", "{} concluídos", "{} terminées", "Готово: {}"]),
     ("+{} more", ["+{} więcej", "另外 {} 个", "他 {} 件", "+{} weitere", "+{} más", "+{} ще", "+{} mais", "+{} de plus", "ещё {}"]),
     ("Continue setup", ["Kontynuuj konfigurację", "继续设置", "設定を続ける", "Einrichtung fortsetzen", "Continuar la configuración", "Продовжити налаштування", "Continuar configuração", "Continuer la configuration", "Продолжить настройку"]),
