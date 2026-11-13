@@ -172,7 +172,8 @@ fn sites(text: &str) -> Vec<String> {
     found
 }
 
-fn phones(text: &str, region: &str) -> Vec<String> {
+/// Phone numbers, each with where it starts in `text`.
+fn phones(text: &str, region: &str) -> Vec<(usize, String)> {
     static RE: OnceLock<Regex> = OnceLock::new();
     pattern(&RE, r"(?:\+|\b00|\b0)\d[\d \-/().]{5,}\d")
         .find_iter(text)
@@ -182,9 +183,133 @@ fn phones(text: &str, region: &str) -> Vec<String> {
             (number.starts_with('+')
                 && (8..=15).contains(&digits.len())
                 && digits.chars().all(|c| c.is_ascii_digit()))
-            .then_some(number)
+            .then_some((found.start(), number))
         })
         .collect()
+}
+
+/// What the number at `at` is reached through, as the fact itself says,
+/// for any service: the scheme of a link that carries it (`tel:` and `sms:`
+/// are a phone's; any other names its app), else the word written right
+/// before it ("WhatsApp 0162…", "Signal: +49…", "Threema is …"), else a
+/// plain phone. Never a word of `name` (the person it belongs to).
+fn channel(fact: &str, at: usize, name: Option<&str>) -> String {
+    /// Words between a service and its number.
+    const FILLER: &[&str] = &[
+        "is",
+        "ist",
+        "are",
+        "sind",
+        "at",
+        "on",
+        "auf",
+        "über",
+        "uber",
+        "via",
+        "per",
+        "unter",
+        "under",
+        "mit",
+        "with",
+        "by",
+        "his",
+        "her",
+        "their",
+        "sein",
+        "seine",
+        "ihr",
+        "ihre",
+        "the",
+        "die",
+        "der",
+        "das",
+        "a",
+        "an",
+        "eine",
+        "ein",
+        "no",
+        "nr",
+        "number",
+        "nummer",
+        "id",
+        "account",
+        "konto",
+        "contact",
+        "kontakt",
+        "reachable",
+        "erreichbar",
+    ];
+    /// Words that only say "phone".
+    const PHONE: &[&str] = &[
+        "phone",
+        "telephone",
+        "tel",
+        "telefon",
+        "fon",
+        "handy",
+        "mobil",
+        "mobile",
+        "cell",
+        "festnetz",
+        "landline",
+        "call",
+        "anrufen",
+        "telefonnummer",
+        "handynummer",
+        "mobilnummer",
+        "phonenumber",
+    ];
+    let before = &fact[..at];
+    // A link that carries the number: `scheme:` or `scheme://…` in the
+    // same word.
+    let word_start = before
+        .rfind(char::is_whitespace)
+        .map_or(0, |space| space + 1);
+    let word = &fact[word_start..];
+    if let Some((scheme, _)) = word.split_once(':') {
+        let scheme = scheme.to_lowercase();
+        let is_scheme = !scheme.is_empty()
+            && scheme
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic())
+            && scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+        if is_scheme && !matches!(scheme.as_str(), "http" | "https") {
+            return match scheme.as_str() {
+                "tel" | "telprompt" | "callto" => "phone".into(),
+                other => other.into(),
+            };
+        }
+    }
+    let name: Vec<String> = name
+        .unwrap_or_default()
+        .split_whitespace()
+        .map(str::to_lowercase)
+        .collect();
+    for raw in before.split_whitespace().rev().take(4) {
+        // A clause ends at a comma or full stop ("…, mail m@x.de").
+        if raw.ends_with([',', ';', '.']) && !before.trim_end().ends_with(raw) {
+            break;
+        }
+        let word = raw
+            .trim_matches(|c: char| !c.is_alphanumeric())
+            .to_lowercase();
+        let possessive = word.ends_with("'s") || word.ends_with("’s") || raw.contains("'s");
+        if word.is_empty() || FILLER.contains(&word.as_str()) {
+            continue;
+        }
+        if possessive || name.contains(&word) || !word.chars().all(char::is_alphabetic) {
+            break;
+        }
+        return if PHONE.contains(&word.as_str()) {
+            "phone".into()
+        } else {
+            word
+        };
+    }
+    "phone".into()
 }
 
 fn folders(text: &str) -> Vec<String> {
@@ -196,7 +321,7 @@ fn folders(text: &str) -> Vec<String> {
 }
 
 /// Words that start with a capital but don't name anyone.
-const NOT_NAMES: [&str; 64] = [
+const NOT_NAMES: [&str; 61] = [
     "the",
     "my",
     "our",
@@ -232,9 +357,6 @@ const NOT_NAMES: [&str; 64] = [
     "handynummer",
     "mobilnummer",
     "handy",
-    "whatsapp",
-    "signal",
-    "telegram",
     "email",
     "e-mail",
     "mail",
@@ -321,21 +443,18 @@ fn workplaces(text: &str) -> Vec<String> {
 /// What `fact` says. `about`, when the agent named it, is the subject.
 pub fn extract(fact: &str, about: Option<&str>, region: &str) -> Fact {
     let lower = fact.to_lowercase();
-    let channel = if lower.contains("whatsapp") {
-        "whatsapp"
-    } else if lower.contains("signal") {
-        "signal"
-    } else if lower.contains("telegram") {
-        "telegram"
-    } else {
-        "phone"
-    };
+    let about = about.map(str::trim).filter(|about| !about.is_empty());
+    let found = phones(fact, region);
+    let channels: Vec<String> = found
+        .iter()
+        .map(|(at, _)| channel(fact, *at, about.or(leading_name(fact).as_deref())))
+        .collect();
     let mut values = Vec::new();
     for email in emails(fact) {
         values.push((Kind::Email, "email".to_owned(), email));
     }
-    for phone in phones(fact, region) {
-        values.push((Kind::Phone, channel.to_owned(), phone));
+    for ((_, phone), channel) in found.into_iter().zip(&channels) {
+        values.push((Kind::Phone, channel.clone(), phone));
     }
     for repo in repos(fact) {
         values.push((Kind::Repo, "repo".to_owned(), repo));
@@ -817,6 +936,40 @@ mod tests {
         );
         assert!(sites("z.B. main.rs und report.md am 2026-11-13").is_empty());
         assert!(phones("am 2026-11-13 um 14.30", "DE").is_empty());
+    }
+
+    /// Any service, named by the person or by a link's scheme; no list of
+    /// messengers.
+    #[test]
+    fn a_numbers_channel_is_what_the_fact_calls_it() {
+        let channel_of = |fact: &str| {
+            extract(fact, None, "DE")
+                .values
+                .into_iter()
+                .find(|(kind, _, _)| *kind == Kind::Phone)
+                .map(|(_, channel, _)| channel)
+                .unwrap()
+        };
+        assert_eq!(channel_of("Anna Weber: Threema 0151 2345678"), "threema");
+        assert_eq!(
+            channel_of("Anna Weber's Signal is +49 151 2345678"),
+            "signal"
+        );
+        assert_eq!(channel_of("Anna Weber, Handy 0151 2345678"), "phone");
+        assert_eq!(channel_of("Anna Weber 0151 2345678"), "phone");
+        assert_eq!(
+            channel_of("Anna Weber erreichbar über Wire unter 0151 2345678"),
+            "wire"
+        );
+        assert_eq!(channel_of("Anna Weber: tel:+491512345678"), "phone");
+        assert_eq!(
+            channel_of("Anna Weber chat link sgnl://signal.me/#p/+491512345678"),
+            "sgnl"
+        );
+        assert_eq!(
+            channel_of("Anna Weber, mail anna@x.de, 0151 2345678"),
+            "phone"
+        );
     }
 
     #[test]

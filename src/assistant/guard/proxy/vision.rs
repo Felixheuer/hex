@@ -65,12 +65,12 @@ const SPOT_REF: &str = "@hexspot:e1";
 impl<D: Desktop> Guard<D> {
     /// Tests: the text the picture "shows" at any spot.
     pub(in crate::assistant::guard) fn set_spot_label(&mut self, label: &str) {
-        label.clone_into(&mut self.vision.label);
+        label.clone_into(&mut self.learned.vision.lock().label);
     }
 
     /// Tests: what was sent to apps by pid input.
     pub(in crate::assistant::guard) fn sent(&self) -> Vec<(u32, Gesture)> {
-        self.vision.sent.clone()
+        self.learned.vision.lock().sent.clone()
     }
 }
 
@@ -93,7 +93,7 @@ impl<D: Desktop> Guard<D> {
         let mut found = Vec::new();
         frames_in(&data, &mut found);
         for (reference, frame) in found {
-            self.vision.frames.insert(reference, frame);
+            self.learned.vision.lock().frames.insert(reference, frame);
         }
     }
 
@@ -308,7 +308,7 @@ impl<D: Desktop> Guard<D> {
     ) -> Result<Value, Value> {
         if cfg!(test) {
             let image = frame.map_or((800, 600), |frame| frame.native_pixels());
-            self.vision.shots.insert(
+            self.learned.vision.lock().shots.insert(
                 number,
                 Seen {
                     image,
@@ -326,13 +326,19 @@ impl<D: Desktop> Guard<D> {
             .root()
             .join("shots")
             .join(sanitize(&self.config.task));
-        let before = self.vision.shots.get(&number).map(|seen| seen.rgba.clone());
+        let before = self
+            .learned
+            .vision
+            .lock()
+            .shots
+            .get(&number)
+            .map(|seen| seen.rgba.clone());
         let (taken, rgba) = shot::take(number, &dir, before.as_deref())
             .map_err(|why| failure(&format!("Hex couldn't take {}'s picture: {why}", window.id)))?;
         let (width, height, small) = shot::fit(&rgba, taken.width, taken.height, IMAGE_EDGE);
         let png = shot::encode_png(width, height, &small)
             .map_err(|why| failure(&format!("Hex couldn't encode the picture: {why}")))?;
-        self.vision.shots.insert(
+        self.learned.vision.lock().shots.insert(
             number,
             Seen {
                 image: (width, height),
@@ -394,7 +400,7 @@ impl<D: Desktop> Guard<D> {
         })?;
         let units = match (
             text(args, "units").as_deref(),
-            self.vision.shots.get(&number),
+            self.learned.vision.lock().shots.get(&number),
         ) {
             (Some("points"), _) => Units::Points,
             (_, Some(seen)) => Units::ShotPixels {
@@ -478,11 +484,11 @@ impl<D: Desktop> Guard<D> {
             Gesture::Click { .. } => {
                 if let Some(spot) = spot {
                     let label = self.label_at(number, &frame, spot.local);
-                    self.elements.insert(
+                    self.learned.elements.lock().insert(
                         SPOT_REF.into(),
                         super::consent::Element {
                             label,
-                            secure: false,
+                            ..super::consent::Element::default()
                         },
                     );
                     let mut ask = Map::new();
@@ -548,7 +554,11 @@ impl<D: Desktop> Guard<D> {
         #[cfg(test)]
         {
             let _ = (pid, frame);
-            self.vision.sent.push((number, gesture.clone()));
+            self.learned
+                .vision
+                .lock()
+                .sent
+                .push((number, gesture.clone()));
             Ok(post::Delivered::default())
         }
         #[cfg(not(test))]
@@ -576,7 +586,7 @@ impl<D: Desktop> Guard<D> {
         #[cfg(test)]
         {
             let _ = (number, frame, x, y);
-            self.vision.label.clone()
+            self.learned.vision.lock().label.clone()
         }
         #[cfg(not(test))]
         {
@@ -627,7 +637,7 @@ impl<D: Desktop> Guard<D> {
         let Some(reference) = text(args, "ref_id") else {
             return retried;
         };
-        let Some(element) = self.vision.frames.get(&reference).copied() else {
+        let Some(element) = self.learned.vision.lock().frames.get(&reference).copied() else {
             return retried;
         };
         let Some(id) = resolved.first().and_then(|window| window.id.clone()) else {

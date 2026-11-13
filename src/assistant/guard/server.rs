@@ -13,10 +13,13 @@ use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt};
 
 use super::child::Desktop;
-use super::proxy::Guard;
+use super::policy;
+use super::proxy::{Guard, Seed};
 
 struct Server<D: Desktop + 'static> {
     guard: Arc<Mutex<Guard<D>>>,
+    /// Read-only calls run beside the guard, each in a reader of its own.
+    seed: Seed<D>,
     tools: Vec<Tool>,
     instructions: String,
 }
@@ -44,14 +47,20 @@ impl<D: Desktop + 'static> ServerHandler for Server<D> {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let guard = self.guard.clone();
         let name = request.name.to_string();
         let args = request.arguments.unwrap_or_default();
-        let value = tokio::task::spawn_blocking(move || {
-            guard
+        // A read runs in a reader of its own, beside whatever action holds
+        // the guard (`proxy::shared`).
+        let reader = policy::kind(&name, &args)
+            .reads_alone()
+            .then(|| self.seed.reader());
+        let guard = self.guard.clone();
+        let value = tokio::task::spawn_blocking(move || match reader {
+            Some(mut reader) => reader.call(&name, args),
+            None => guard
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
-                .call(&name, args)
+                .call(&name, args),
         })
         .await
         .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
@@ -74,7 +83,9 @@ pub fn serve<D: Desktop + 'static>(mut guard: Guard<D>) -> Result<()> {
         instructions.push_str("\n\n");
     }
     instructions.push_str(&guard.rules());
+    let seed = guard.seed();
     let server = Server {
+        seed,
         guard: Arc::new(Mutex::new(guard)),
         tools,
         instructions,

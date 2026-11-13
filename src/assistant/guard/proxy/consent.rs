@@ -1,21 +1,32 @@
 //! Consequential actions and secure fields. Before a click, a key combo, or
-//! text ending in Return, the guard asks what it would do (`autonomy`):
-//! the element's own label as the snapshot showed it ("Send", "Move to
-//! Trash", "Jetzt kaufen"), or a known shortcut in a known app (⌘⌫ in
-//! Finder, ⌘⇧D in Mail, Return in Messages; on Linux and Windows Ctrl
-//! stands for ⌘, and Delete or Shift+Delete in Explorer, Nautilus, or
-//! Dolphin, Ctrl+Enter in Outlook or Thunderbird count too). Unless the person's mode and
-//! what they authorized for this task allow it, it is refused with
-//! `NEEDS_CONFIRMATION`. What a task reads on screen never authorizes
-//! anything.
+//! text ending in Return, the guard asks what it would do (`autonomy`), the
+//! same way in every app, without lists of apps:
+//!
+//! - a click: the element's own label as the snapshot showed it ("Send",
+//!   "Move to Trash", "Jetzt kaufen", a price);
+//! - a key combo: the target app's menu item with that key equivalent, read
+//!   from its menu bar over Accessibility (⇧⌘D is "Send" in one app, ⌘⌫
+//!   "Move to Trash" in another), classified by its title;
+//! - Return (pressed, or ending typed text): in a one-line field or outside
+//!   a field, the window's default button; in a field, the nearest
+//!   send-like control by its label (its container's buttons, never the
+//!   whole window's: Return in a message body is a new line).
+//!
+//! What can't be told is treated like any other action under the mode.
+//! Unless the person's mode and what they authorized for this task allow
+//! it, a consequential action is refused with `NEEDS_CONFIRMATION`. What a
+//! task reads on screen never authorizes anything.
 //!
 //! Secure text fields (passwords) never give up their value: snapshot and
 //! find results have it redacted, and reading it is refused.
 
+use std::collections::HashMap;
+
 use serde_json::{Map, Value, json};
 
 use super::super::child::Desktop;
-use super::{Guard, Resolved, refusal, text};
+use super::super::screen::{MenuKey, ReturnTarget, input_role};
+use super::{Guard, Look, Resolved, refusal, same_app, text};
 use crate::assistant::autonomy::{self, Autonomy, Category};
 
 /// The guard's refusal for an action the person has to allow first: its
@@ -39,85 +50,12 @@ pub(super) fn needs_confirmation(refused: &autonomy::Refusal) -> Value {
 #[derive(Clone, Debug, Default)]
 pub(super) struct Element {
     pub label: String,
+    /// Its role as the driver names it (`textfield`, `AXTextArea`, …).
+    pub role: String,
     pub secure: bool,
+    /// For a field: the buttons nearest it in the snapshot, nearest first.
+    pub near: Vec<String>,
 }
-
-const CHAT_APPS: &[&str] = &[
-    "messages",
-    "nachrichten",
-    "whatsapp",
-    "telegram",
-    "signal",
-    "slack",
-    "discord",
-    "microsoft teams",
-    "teams",
-    "element",
-    "threema",
-    "skype",
-    "telegram desktop",
-    "ms-teams",
-];
-
-const MAIL_APPS: &[&str] = &[
-    "mail",
-    "microsoft outlook",
-    "outlook",
-    "outlook (new)",
-    "new outlook",
-    "olk",
-    "spark",
-    "airmail",
-    "mimestream",
-    "superhuman",
-    "thunderbird",
-    "mozilla thunderbird",
-    "betterbird",
-    "evolution",
-    "geary",
-    "kmail",
-    "mailspring",
-];
-
-/// File managers on Linux and Windows, where Delete trashes the selection
-/// and Shift+Delete deletes it for good.
-const FILE_MANAGERS: &[&str] = &[
-    "explorer",
-    "file explorer",
-    "windows explorer",
-    "datei-explorer",
-    "nautilus",
-    "org.gnome.nautilus",
-    "files",
-    "dateien",
-    "dolphin",
-    "nemo",
-    "thunar",
-    "caja",
-    "pcmanfm",
-    "pcmanfm-qt",
-];
-
-/// Linux and Windows apps where Delete deletes the selection.
-const DELETE_KEY_APPS: &[&str] = &["photos", "fotos", "gnome photos", "shotwell", "gwenview"];
-
-/// Apps where ⌘⌫ deletes the selection.
-const DELETE_APPS: &[&str] = &[
-    "finder",
-    "mail",
-    "photos",
-    "fotos",
-    "notes",
-    "notizen",
-    "reminders",
-    "erinnerungen",
-    "contacts",
-    "kontakte",
-    "calendar",
-    "kalender",
-    "music",
-    "musik",
-];
 
 impl<D: Desktop> Guard<D> {
     /// Refuses `tool` when it would take a consequential action the person
@@ -134,40 +72,34 @@ impl<D: Desktop> Guard<D> {
         }
         let app = resolved
             .first()
-            .map(|window| window.app.as_str())
+            .map(|window| window.app.clone())
             .unwrap_or_default();
-        let Some((category, target)) = self.consequence(tool, args, app) else {
+        let Some((category, target)) = self.consequence(tool, args, resolved) else {
             return Ok(());
         };
         let authorized = self.store.authorized(&self.config.task);
         autonomy::Gate::new(tool, mode, authorized)
             .check(category, &target)
-            .map_err(|refused| needs_confirmation(&refused.in_app(app)))
+            .map_err(|refused| needs_confirmation(&refused.in_app(&app)))
     }
 
     /// The consequential action `tool` would take, and what it targets.
     fn consequence(
-        &self,
+        &mut self,
         tool: &str,
         args: &Map<String, Value>,
-        app: &str,
+        resolved: &[Resolved],
     ) -> Option<(Category, String)> {
-        let label = |key: &str| {
-            text(args, key)
-                .and_then(|reference| self.elements.get(&reference))
-                .map(|element| element.label.clone())
-                .unwrap_or_default()
-        };
+        let element = text(args, "ref_id")
+            .and_then(|reference| self.learned.elements.lock().get(&reference).cloned());
         match tool.strip_prefix("desktop_").unwrap_or(tool) {
             "click" | "double_click" | "triple_click" => {
-                let label = label("ref_id");
-                store_button(app, &label)
-                    .or_else(|| autonomy::classify(&label))
-                    .map(|category| (category, format!("“{label}”")))
+                let label = element?.label;
+                autonomy::classify(&label).map(|category| (category, format!("“{label}”")))
             }
             "press" => {
                 let combo = text(args, "combo")?;
-                shortcut(app, &combo).map(|category| (category, format!("the {combo} shortcut")))
+                self.shortcut(&combo, resolved)
             }
             "type" | "set_value" => {
                 let key = if tool.ends_with("type") {
@@ -177,16 +109,86 @@ impl<D: Desktop> Guard<D> {
                 };
                 // Untrimmed: the Return at the end is the point.
                 let typed = args.get(key).and_then(Value::as_str).unwrap_or_default();
-                let submits = typed.contains('\n') || typed.contains('\r');
-                (submits && is_one_of(app, CHAT_APPS))
-                    .then(|| (Category::Send, "text ending in Return".to_owned()))
+                if !(typed.contains('\n') || typed.contains('\r')) {
+                    return None;
+                }
+                let target = self.typed_into(element, resolved);
+                submits(&target, false).map(|(category, label)| {
+                    (
+                        category,
+                        format!("text ending in Return, which presses “{label}”"),
+                    )
+                })
             }
             _ => None,
         }
     }
 
-    /// Learns labels and secure fields from a result's data, and redacts
-    /// secure values in it.
+    /// What Return ends up pressing when text is typed into `field` (a ref
+    /// the snapshot showed), or into the focused element without one.
+    fn typed_into(&mut self, field: Option<Element>, resolved: &[Resolved]) -> ReturnTarget {
+        let pid = self.pid_of(resolved);
+        let Some(field) = field else {
+            return pid
+                .map(|pid| self.screen.return_target(pid))
+                .unwrap_or_default();
+        };
+        let mut target = ReturnTarget::of_role(&field.role);
+        // Text goes into it, whatever its role says.
+        if !target.editable {
+            target.editable = true;
+            target.multiline = None;
+        }
+        target.near = field.near;
+        if target.multiline != Some(true) {
+            target.default_button = pid
+                .map(|pid| self.screen.return_target(pid))
+                .and_then(|focused| focused.default_button);
+        }
+        target
+    }
+
+    /// What `combo` does in the app the call targets: its menu item with
+    /// that key equivalent, else for Return what Return presses there.
+    fn shortcut(&mut self, combo: &str, resolved: &[Resolved]) -> Option<(Category, String)> {
+        let (modifiers, key) = combo_parts(combo);
+        if !is_command(&modifiers, &key) {
+            return None;
+        }
+        let pid = self.pid_of(resolved)?;
+        let items = self.screen.menu_keys(pid);
+        if let Some(item) = menu_item(&items, &modifiers, &key) {
+            let title = item.title.clone();
+            return autonomy::classify(&title)
+                .map(|category| (category, format!("the {combo} shortcut (“{title}”)")));
+        }
+        if key != "return" {
+            return None;
+        }
+        let target = self.screen.return_target(pid);
+        submits(&target, !modifiers.is_empty())
+            .map(|(category, label)| (category, format!("{combo}, which presses “{label}”")))
+    }
+
+    /// The process of the app a call targets.
+    fn pid_of(&mut self, resolved: &[Resolved]) -> Option<i64> {
+        let first = resolved.first()?;
+        let windows = self.list(Look::Check).ok()?;
+        first
+            .id
+            .as_ref()
+            .and_then(|id| windows.iter().find(|window| &window.id == id))
+            .filter(|window| window.pid.is_some())
+            .or_else(|| {
+                windows
+                    .iter()
+                    .find(|window| window.pid.is_some() && same_app(&window.app, &first.app))
+            })
+            .and_then(|window| window.pid)
+    }
+
+    /// Learns labels, roles, and secure fields from a result's data, and
+    /// redacts secure values in it.
     pub(super) fn learn_and_redact(&mut self, result: &mut Value) {
         let Some(mut envelope) = super::super::child::envelope(result) else {
             return;
@@ -195,6 +197,7 @@ impl<D: Desktop> Guard<D> {
             return;
         };
         let mut redacted = false;
+        let mut learned = Vec::new();
         walk(data, &mut |node| {
             let secure = is_secure(node);
             if secure {
@@ -206,15 +209,25 @@ impl<D: Desktop> Guard<D> {
                 }
             }
             if let Some(reference) = node.get("ref_id").and_then(Value::as_str) {
-                let label = ["name", "title", "description"]
-                    .iter()
-                    .find_map(|key| node.get(*key).and_then(Value::as_str))
-                    .unwrap_or_default()
-                    .to_owned();
-                self.elements
-                    .insert(reference.to_owned(), Element { label, secure });
+                learned.push((
+                    reference.to_owned(),
+                    Element {
+                        label: label_of(node),
+                        role: role_of(node).to_owned(),
+                        secure,
+                        near: Vec::new(),
+                    },
+                ));
             }
         });
+        let mut near = near_controls(data);
+        {
+            let mut elements = self.learned.elements.lock();
+            for (reference, mut element) in learned {
+                element.near = near.remove(&reference).unwrap_or_default();
+                elements.insert(reference, element);
+            }
+        }
         if redacted {
             if result.get("structuredContent").is_some() {
                 result["structuredContent"] = envelope.clone();
@@ -247,8 +260,14 @@ impl<D: Desktop> Guard<D> {
             _ => return Ok(()),
         };
         let secure = text(args, key)
-            .and_then(|reference| self.elements.get(&reference))
-            .is_some_and(|element| element.secure);
+            .and_then(|reference| {
+                self.learned
+                    .elements
+                    .lock()
+                    .get(&reference)
+                    .map(|element| element.secure)
+            })
+            .unwrap_or(false);
         if secure && reads_value {
             return Err(refusal(
                 tool,
@@ -258,6 +277,78 @@ impl<D: Desktop> Guard<D> {
         }
         Ok(())
     }
+}
+
+/// What Return would press, by what it is pressed in (`modified`: with ⌘ or
+/// another modifier), and that control's label.
+///
+/// - Outside a field and in a one-line field it presses the window's
+///   default button; a one-line field without one may still sit beside a
+///   send-like control (a chat's input).
+/// - In a field of many lines it is a new line, unless a send-like control
+///   sits right beside it (a chat's composer); a modified Return there
+///   submits, to the nearest send-like control or the default button.
+fn submits(target: &ReturnTarget, modified: bool) -> Option<(Category, String)> {
+    let default = || {
+        let label = target.default_button.as_ref()?;
+        autonomy::classify(label).map(|category| (category, label.clone()))
+    };
+    let send_like = || {
+        target.near.iter().find_map(|label| {
+            autonomy::classify(label)
+                .filter(|category| matches!(category, Category::Send | Category::Publish))
+                .map(|category| (category, label.clone()))
+        })
+    };
+    if !target.editable {
+        return default();
+    }
+    match target.multiline {
+        Some(false) => default().or_else(send_like),
+        Some(true) if !modified => send_like(),
+        _ => send_like().or_else(default),
+    }
+}
+
+/// Whether a combo may be an app's command rather than typing: with ⌘,
+/// Ctrl, or Option, or a key that acts by itself (⌫, ⌦, Return).
+fn is_command(modifiers: &[&str], key: &str) -> bool {
+    modifiers
+        .iter()
+        .any(|modifier| matches!(*modifier, "cmd" | "ctrl" | "option" | "super"))
+        || matches!(key, "delete" | "forward_delete" | "return")
+}
+
+/// The enabled menu item whose key equivalent is exactly this combo.
+fn menu_item<'a>(items: &'a [MenuKey], modifiers: &[&str], key: &str) -> Option<&'a MenuKey> {
+    items
+        .iter()
+        .find(|item| item.enabled && item.key == key && item.modifiers == modifiers)
+}
+
+/// A combo's modifiers (sorted) and key, with aliases folded as macOS
+/// names them: `Cmd+Shift+D` → (["cmd", "shift"], "d"), Backspace is
+/// `delete` (⌫), Enter is `return`.
+fn combo_parts(combo: &str) -> (Vec<&'static str>, String) {
+    let mut modifiers = Vec::new();
+    let mut key = String::new();
+    for part in combo.split('+').map(|part| part.trim().to_lowercase()) {
+        match part.as_str() {
+            "cmd" | "command" | "meta" | "⌘" => modifiers.push("cmd"),
+            "shift" | "⇧" => modifiers.push("shift"),
+            "option" | "opt" | "alt" | "⌥" => modifiers.push("option"),
+            "ctrl" | "control" | "⌃" => modifiers.push("ctrl"),
+            "super" | "win" | "windows" => modifiers.push("super"),
+            "backspace" | "delete" | "del" | "⌫" => key = "delete".into(),
+            "forwarddelete" | "forward_delete" | "⌦" => key = "forward_delete".into(),
+            "return" | "enter" | "↩" | "⏎" => key = "return".into(),
+            "esc" | "escape" | "⎋" => key = "escape".into(),
+            other => key = other.to_owned(),
+        }
+    }
+    modifiers.sort_unstable();
+    modifiers.dedup();
+    (modifiers, key)
 }
 
 /// Visits every object in `value`.
@@ -272,6 +363,122 @@ fn walk(value: &mut Value, visit: &mut impl FnMut(&mut Map<String, Value>)) {
         Value::Array(items) => items.iter_mut().for_each(|item| walk(item, visit)),
         _ => {}
     }
+}
+
+fn label_of(node: &Map<String, Value>) -> String {
+    ["name", "title", "description", "label"]
+        .iter()
+        .find_map(|key| {
+            node.get(*key)
+                .and_then(Value::as_str)
+                .filter(|text| !text.trim().is_empty())
+        })
+        .unwrap_or_default()
+        .to_owned()
+}
+
+fn role_of(node: &Map<String, Value>) -> &str {
+    node.get("role").and_then(Value::as_str).unwrap_or_default()
+}
+
+/// A role's letters, lowercase, without Accessibility's `AX`.
+fn flat_role(role: &str) -> String {
+    let flat: String = role
+        .to_lowercase()
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect();
+    flat.strip_prefix("ax").map(str::to_owned).unwrap_or(flat)
+}
+
+/// For each field (a ref whose role takes text) in a snapshot's tree, the
+/// labels of the buttons nearest it: its container's, then the next one
+/// out (at most three), never the whole window's, nearest first.
+fn near_controls(data: &Value) -> HashMap<String, Vec<String>> {
+    const LEVELS: usize = 3;
+    const MAX_FIELDS: usize = 64;
+    const MAX_VISITED: usize = 600;
+    struct Node<'a> {
+        parent: Option<usize>,
+        fields: &'a Map<String, Value>,
+        children: Vec<usize>,
+    }
+    fn collect<'a>(value: &'a Value, parent: Option<usize>, nodes: &mut Vec<Node<'a>>) {
+        match value {
+            Value::Object(fields) => {
+                // Elements have a role; other objects (bounds, a window's
+                // id) are looked through.
+                let mut here = parent;
+                if fields.contains_key("role") {
+                    let index = nodes.len();
+                    nodes.push(Node {
+                        parent,
+                        fields,
+                        children: Vec::new(),
+                    });
+                    if let Some(parent) = parent {
+                        nodes[parent].children.push(index);
+                    }
+                    here = Some(index);
+                }
+                for field in fields.values() {
+                    collect(field, here, nodes);
+                }
+            }
+            Value::Array(items) => items.iter().for_each(|item| collect(item, parent, nodes)),
+            _ => {}
+        }
+    }
+    let mut nodes = Vec::new();
+    collect(data, None, &mut nodes);
+    let mut near = HashMap::new();
+    for (index, node) in nodes.iter().enumerate() {
+        let Some(reference) = node.fields.get("ref_id").and_then(Value::as_str) else {
+            continue;
+        };
+        if !input_role(role_of(node.fields)).0 {
+            continue;
+        }
+        if near.len() >= MAX_FIELDS {
+            break;
+        }
+        let mut labels: Vec<String> = Vec::new();
+        let mut container = index;
+        for _ in 0..LEVELS {
+            let Some(parent) = nodes[container].parent else {
+                break;
+            };
+            // The window itself (the tree's root) is too far: its toolbar
+            // isn't this field's.
+            let role = flat_role(role_of(nodes[parent].fields));
+            if nodes[parent].parent.is_none() || matches!(role.as_str(), "window" | "sheet") {
+                break;
+            }
+            let mut stack = nodes[parent].children.clone();
+            let mut visited = 0;
+            while let Some(child) = stack.pop() {
+                visited += 1;
+                if visited > MAX_VISITED {
+                    break;
+                }
+                if child == index {
+                    continue;
+                }
+                let fields = nodes[child].fields;
+                if flat_role(role_of(fields)).contains("button") {
+                    let label = label_of(fields);
+                    if !label.is_empty() && !labels.contains(&label) {
+                        labels.push(label);
+                    }
+                } else {
+                    stack.extend(nodes[child].children.iter().rev());
+                }
+            }
+            container = parent;
+        }
+        near.insert(reference.to_owned(), labels);
+    }
+    near
 }
 
 /// A password field: agent-desktop's role or states say secure.
@@ -296,182 +503,136 @@ fn is_secure(node: &Map<String, Value>) -> bool {
             })
 }
 
-fn is_one_of(app: &str, apps: &[&str]) -> bool {
-    let app = super::super::policy::app_key(app);
-    // Windows may name an app by its program (`explorer.exe`).
-    let app = app.strip_suffix(".exe").unwrap_or(&app);
-    apps.contains(&app)
-}
-
-/// The App Store's Get, Install, and price buttons.
-fn store_button(app: &str, label: &str) -> Option<Category> {
-    if super::super::policy::app_key(app) != "app store" {
-        return None;
-    }
-    let label = label.trim().to_lowercase();
-    let price = label.chars().any(|c| c.is_ascii_digit())
-        && label
-            .chars()
-            .any(|c| matches!(c, '€' | '$' | '£' | '¥' | '₣'));
-    (price || matches!(label.as_str(), "get" | "laden" | "install" | "installieren"))
-        .then_some(Category::Pay)
-}
-
-/// A combo's modifiers (sorted) and key, with aliases folded:
-/// `Cmd+Shift+D` → (["cmd", "shift"], "d").
-fn combo_parts(combo: &str) -> (Vec<&'static str>, String) {
-    let mut modifiers = Vec::new();
-    let mut key = String::new();
-    for part in combo.split('+').map(|part| part.trim().to_lowercase()) {
-        match part.as_str() {
-            "cmd" | "command" | "meta" | "⌘" => modifiers.push("cmd"),
-            "shift" | "⇧" => modifiers.push("shift"),
-            "option" | "opt" | "alt" | "⌥" => modifiers.push("option"),
-            "ctrl" | "control" | "⌃" => modifiers.push("ctrl"),
-            "super" | "win" | "windows" => modifiers.push("super"),
-            "backspace" | "⌫" => key = "backspace".into(),
-            "delete" | "del" => key = "delete".into(),
-            "forwarddelete" | "forward_delete" | "⌦" => key = "forward_delete".into(),
-            "return" | "enter" | "↩" => key = "return".into(),
-            other => key = other.to_owned(),
-        }
-    }
-    modifiers.sort_unstable();
-    modifiers.dedup();
-    (modifiers, key)
-}
-
-/// What a shortcut does in a known app, on this system.
-fn shortcut(app: &str, combo: &str) -> Option<Category> {
-    shortcut_on(cfg!(target_os = "macos"), app, combo)
-}
-
-/// What a shortcut does in a known app: macOS's shortcuts on a Mac (where
-/// "delete" is ⌫), else Linux's and Windows' (Ctrl for ⌘, "delete" the
-/// forward Delete key).
-fn shortcut_on(mac: bool, app: &str, combo: &str) -> Option<Category> {
-    let (modifiers, key) = combo_parts(combo);
-    if mac {
-        let key = if key == "backspace" {
-            "delete".into()
-        } else {
-            key
-        };
-        return mac_shortcut(app, modifiers.as_slice(), &key);
-    }
-    let mut modifiers: Vec<&str> = modifiers
-        .into_iter()
-        .map(|modifier| if modifier == "ctrl" { "cmd" } else { modifier })
-        .collect();
-    modifiers.sort_unstable();
-    modifiers.dedup();
-    let key = if key == "forward_delete" {
-        "delete".into()
-    } else {
-        key
-    };
-    other_shortcut(app, modifiers.as_slice(), &key)
-}
-
-fn mac_shortcut(app: &str, modifiers: &[&str], key: &str) -> Option<Category> {
-    match (modifiers, key) {
-        ([], "return") | (["cmd"], "return") if is_one_of(app, CHAT_APPS) => Some(Category::Send),
-        (["cmd", "shift"], "d") | (["cmd"], "return") if is_one_of(app, MAIL_APPS) => {
-            Some(Category::Send)
-        }
-        (["cmd"], "delete") if is_one_of(app, DELETE_APPS) => Some(Category::Delete),
-        (["cmd", "shift"] | ["cmd", "option", "shift"], "delete")
-            if is_one_of(app, &["finder"]) =>
-        {
-            Some(Category::Delete)
-        }
-        _ => None,
-    }
-}
-
-/// Linux and Windows, with Ctrl folded into `cmd`.
-fn other_shortcut(app: &str, modifiers: &[&str], key: &str) -> Option<Category> {
-    match (modifiers, key) {
-        ([], "return") | (["cmd"], "return") if is_one_of(app, CHAT_APPS) => Some(Category::Send),
-        // Ctrl+Enter sends in Outlook and Thunderbird; Alt+S in Outlook.
-        (["cmd"], "return") | (["option"], "s") if is_one_of(app, MAIL_APPS) => {
-            Some(Category::Send)
-        }
-        ([] | ["shift"], "delete")
-            if is_one_of(app, FILE_MANAGERS)
-                || is_one_of(app, MAIL_APPS)
-                || is_one_of(app, DELETE_KEY_APPS) =>
-        {
-            Some(Category::Delete)
-        }
-        // Ctrl+D deletes a message in Outlook and Evolution.
-        (["cmd"], "d") if is_one_of(app, MAIL_APPS) => Some(Category::Delete),
-        // Ctrl+Delete moves to the trash in Nautilus.
-        (["cmd"], "delete") if is_one_of(app, FILE_MANAGERS) => Some(Category::Delete),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn item(title: &str, modifiers: &[&'static str], key: &str) -> MenuKey {
+        MenuKey {
+            title: title.into(),
+            modifiers: modifiers.to_vec(),
+            key: key.into(),
+            enabled: true,
+        }
+    }
+
+    /// Menus of made-up apps: the same keys mean different things.
     #[test]
-    fn known_shortcuts_in_known_apps_are_consequential() {
-        let shortcut = |app, combo| shortcut_on(true, app, combo);
-        assert_eq!(shortcut("Finder", "cmd+backspace"), Some(Category::Delete));
-        assert_eq!(shortcut("Finder", "cmd+delete"), Some(Category::Delete));
+    fn a_shortcut_means_what_the_apps_menu_says() {
+        let mail = [
+            item("Send", &["cmd", "shift"], "d"),
+            item("Delete", &[], "delete"),
+            item("Copy", &["cmd"], "c"),
+        ];
+        let files = [
+            item("Move to Trash", &["cmd"], "delete"),
+            item("Empty Trash…", &["cmd", "shift"], "delete"),
+            item("Empty Trash", &["cmd", "option", "shift"], "delete"),
+        ];
+        let editor = [item("Duplicate", &["cmd", "shift"], "d")];
+        let find = |items: &[MenuKey], combo: &str| {
+            let (modifiers, key) = combo_parts(combo);
+            menu_item(items, &modifiers, &key).and_then(|item| autonomy::classify(&item.title))
+        };
+        assert_eq!(find(&mail, "Cmd+Shift+D"), Some(Category::Send));
+        assert_eq!(find(&mail, "backspace"), Some(Category::Delete));
+        assert_eq!(find(&mail, "cmd+c"), None);
+        assert_eq!(find(&files, "cmd+backspace"), Some(Category::Delete));
+        assert_eq!(find(&files, "cmd+delete"), Some(Category::Delete));
+        // A dialog first ("…"): the dialog's own button is asked about.
+        assert_eq!(find(&files, "cmd+shift+delete"), None);
         assert_eq!(
-            shortcut("Finder", "Cmd+Shift+Delete"),
+            find(&files, "cmd+option+shift+delete"),
             Some(Category::Delete)
         );
-        assert_eq!(shortcut("Mail", "cmd+shift+d"), Some(Category::Send));
-        assert_eq!(
-            shortcut("Microsoft Outlook", "cmd+enter"),
-            Some(Category::Send)
-        );
-        assert_eq!(shortcut("Messages", "return"), Some(Category::Send));
-        assert_eq!(shortcut("Nachrichten", "enter"), Some(Category::Send));
-        assert_eq!(shortcut("TextEdit", "cmd+backspace"), None);
-        assert_eq!(shortcut("TextEdit", "return"), None);
-        assert_eq!(shortcut("Mail", "cmd+c"), None);
+        assert_eq!(find(&editor, "cmd+shift+d"), None);
+        // A disabled item does nothing.
+        let disabled = [MenuKey {
+            enabled: false,
+            ..item("Send", &["cmd", "shift"], "d")
+        }];
+        assert_eq!(find(&disabled, "cmd+shift+d"), None);
     }
 
     #[test]
-    fn linux_and_windows_shortcuts_use_ctrl_and_the_delete_key() {
-        let shortcut = |app, combo| shortcut_on(false, app, combo);
-        for app in ["File Explorer", "explorer.exe", "Nautilus", "Dolphin"] {
-            assert_eq!(shortcut(app, "Delete"), Some(Category::Delete), "{app}");
-            assert_eq!(
-                shortcut(app, "shift+delete"),
-                Some(Category::Delete),
-                "{app}"
-            );
-            assert_eq!(shortcut(app, "backspace"), None, "{app}");
-        }
-        assert_eq!(shortcut("Outlook", "ctrl+enter"), Some(Category::Send));
-        assert_eq!(
-            shortcut("Thunderbird", "Control+Return"),
-            Some(Category::Send)
-        );
-        assert_eq!(shortcut("Outlook", "alt+s"), Some(Category::Send));
-        assert_eq!(shortcut("Outlook", "ctrl+d"), Some(Category::Delete));
-        assert_eq!(shortcut("Thunderbird", "del"), Some(Category::Delete));
-        assert_eq!(shortcut("Slack", "enter"), Some(Category::Send));
-        assert_eq!(
-            shortcut("Microsoft Teams", "ctrl+enter"),
-            Some(Category::Send)
-        );
-        assert_eq!(shortcut("Notepad", "delete"), None);
-        assert_eq!(shortcut("Outlook", "ctrl+c"), None);
+    fn typing_is_not_a_command() {
+        let check = |combo: &str| {
+            let (modifiers, key) = combo_parts(combo);
+            is_command(&modifiers, &key)
+        };
+        assert!(check("cmd+shift+d"));
+        assert!(check("ctrl+enter"));
+        assert!(check("return"));
+        assert!(check("Backspace"));
+        assert!(!check("a"));
+        assert!(!check("shift+a"));
+        assert!(!check("tab"));
     }
 
     #[test]
-    fn the_app_store_buttons_are_purchases() {
-        assert_eq!(store_button("App Store", "Get"), Some(Category::Pay));
-        assert_eq!(store_button("App Store", "4,99 €"), Some(Category::Pay));
-        assert_eq!(store_button("App Store", "Open"), None);
-        assert_eq!(store_button("Safari", "Get"), None);
+    fn return_presses_the_default_button_or_the_send_control_beside_a_field() {
+        let field = |multiline, default: Option<&str>, near: &[&str]| ReturnTarget {
+            editable: true,
+            multiline,
+            default_button: default.map(str::to_owned),
+            near: near.iter().map(|label| (*label).to_owned()).collect(),
+        };
+        let category = |target: &ReturnTarget, modified| submits(target, modified).map(|(c, _)| c);
+        // A one-line field in a dialog whose default button sends or buys.
+        assert_eq!(
+            category(&field(Some(false), Some("Senden"), &[]), false),
+            Some(Category::Send)
+        );
+        assert_eq!(
+            category(&field(Some(false), Some("Jetzt kaufen"), &[]), false),
+            Some(Category::Pay)
+        );
+        assert_eq!(category(&field(Some(false), Some("OK"), &[]), false), None);
+        // A chat's composer beside its Send button.
+        assert_eq!(
+            category(&field(Some(true), None, &["Attach", "Send"]), false),
+            Some(Category::Send)
+        );
+        // A message body: Return is a new line, even with "Delete" near.
+        assert_eq!(
+            category(&field(Some(true), Some("Send"), &["Delete"]), false),
+            None
+        );
+        // …and ⌘Return there submits.
+        assert_eq!(
+            category(&field(Some(true), Some("Send"), &[]), true),
+            Some(Category::Send)
+        );
+        // Outside a field: the default button.
+        let outside = ReturnTarget {
+            default_button: Some("Move to Trash".into()),
+            ..ReturnTarget::default()
+        };
+        assert_eq!(category(&outside, false), Some(Category::Delete));
+        // Nothing to tell: like any other action.
+        assert_eq!(category(&ReturnTarget::default(), false), None);
+    }
+
+    #[test]
+    fn the_buttons_near_a_field_are_its_containers_not_the_windows() {
+        let tree = json!({"tree": {"role": "window", "children": [
+            {"role": "toolbar", "children": [
+                {"role": "button", "name": "Send", "ref_id": "@s:e1"},
+            ]},
+            {"role": "scrollarea", "children": [
+                {"role": "textarea", "name": "Message body", "ref_id": "@s:e2"},
+            ]},
+            {"role": "group", "children": [
+                {"role": "group", "children": [
+                    {"role": "AXTextArea", "name": "Message", "ref_id": "@s:e3"},
+                ]},
+                {"role": "AXButton", "description": "Send", "ref_id": "@s:e4"},
+            ]},
+        ]}});
+        let near = near_controls(&tree);
+        assert_eq!(near["@s:e2"], Vec::<String>::new());
+        assert_eq!(near["@s:e3"], ["Send"]);
+        assert!(!near.contains_key("@s:e1"));
     }
 
     #[test]

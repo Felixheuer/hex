@@ -69,9 +69,9 @@ enum Act {
     Click(String),
     /// Enter (or a line typed) at the focused element or this selector.
     Enter(Option<String>),
-    /// ⌘↩ or Ctrl+↩: send in Gmail, Outlook, and most chat apps.
+    /// ⌘↩ or Ctrl+↩ in a field: sends or submits on most sites.
     SendShortcut,
-    /// Delete, Backspace, or Gmail's `#` outside a text field.
+    /// Delete or Backspace outside a text field.
     DeleteKey,
 }
 
@@ -197,8 +197,7 @@ impl Consent {
                     std::slice::from_ref(&page.label)
                 } else if !page.form.is_empty() {
                     &page.form
-                } else if page.multiline && is_mail(&page.host) {
-                    // A new line in an email body.
+                } else if page.multiline && self.new_line(session, &page) {
                     &[]
                 } else {
                     &page.near
@@ -209,6 +208,24 @@ impl Consent {
                 })
             }
         }
+    }
+
+    /// Whether Enter in a field of many lines is a new line, as the page
+    /// itself says, on any site: its Send control's hint names a modified
+    /// Enter ("Send (⌘Enter)"), or the page is a letter being written (it
+    /// has recipients fields: To, Cc, An, …). Otherwise a send-like control
+    /// beside the field means Enter sends (a chat).
+    fn new_line(&self, session: &str, page: &Inspection) -> bool {
+        let hinted = page
+            .near
+            .iter()
+            .chain(&page.form)
+            .any(|label| names_modified_enter(label));
+        hinted
+            || self
+                .seen
+                .get(session)
+                .is_some_and(|seen| recipient_fields(&seen.text).next().is_some())
     }
 
     /// "Send email to 3 recipients", "Delete “Q4 Budget” on
@@ -273,7 +290,9 @@ fn act(tool: &str, arguments: &Map<String, Value>) -> Option<Act> {
             match main {
                 "enter" | "return" if modified => Some(Act::SendShortcut),
                 "enter" | "return" => Some(Act::Enter(None)),
-                "delete" | "backspace" | "#" => Some(Act::DeleteKey),
+                // A site's own one-key shortcuts can't be told from here:
+                // only the keys that delete everywhere count.
+                "delete" | "backspace" => Some(Act::DeleteKey),
                 _ => None,
             }
         }
@@ -319,39 +338,57 @@ fn shown(label: &str) -> String {
     }
 }
 
-fn is_mail(host: &str) -> bool {
-    host == "mail.google.com" || host.starts_with("outlook.") || host.starts_with("mail.")
+/// Whether a control's keyboard hint ("Send (⌘Enter)", "Senden
+/// (Strg+Eingabe)") names Enter with a modifier: Enter alone doesn't press it.
+fn names_modified_enter(label: &str) -> bool {
+    let Some(start) = label.find(['(', '[']) else {
+        return false;
+    };
+    let hint = label[start..].to_lowercase();
+    let modifier = [
+        "⌘", "cmd", "command", "ctrl", "control", "strg", "meta", "⌃",
+    ]
+    .iter()
+    .any(|word| hint.contains(word));
+    let enter = ["enter", "return", "eingabe", "↩", "⏎", "entrée", "intro"]
+        .iter()
+        .any(|word| hint.contains(word));
+    modifier && enter
 }
 
 /// Recipients in a snapshot's To/Cc/Bcc fields (`textbox "To recipients"
 /// [ref=e4]: a@x.com, b@y.com`), in English, German, French, and Spanish.
 fn recipients(snapshot: &str) -> usize {
-    snapshot
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim_start().trim_start_matches("- ");
-            let rest = line.strip_prefix("textbox \"")?;
-            let (name, value) = rest.split_once('"')?;
-            let name = name.to_lowercase();
-            let field = [
-                "to",
-                "cc",
-                "bcc",
-                "an",
-                "à",
-                "para",
-                "recipients",
-                "empfänger",
-            ]
-            .iter()
-            .any(|word| name.split_whitespace().next() == Some(word))
-                || name.contains("recipient")
-                || name.contains("empfänger")
-                || name.contains("destinataire")
-                || name.contains("destinatario");
-            field.then(|| value.matches('@').count())
-        })
+    recipient_fields(snapshot)
+        .map(|value| value.matches('@').count())
         .sum()
+}
+
+/// The values of a snapshot's To/Cc/Bcc fields.
+fn recipient_fields(snapshot: &str) -> impl Iterator<Item = &str> {
+    snapshot.lines().filter_map(|line| {
+        let line = line.trim_start().trim_start_matches("- ");
+        let rest = line.strip_prefix("textbox \"")?;
+        let (name, value) = rest.split_once('"')?;
+        let name = name.to_lowercase();
+        let field = [
+            "to",
+            "cc",
+            "bcc",
+            "an",
+            "à",
+            "para",
+            "recipients",
+            "empfänger",
+        ]
+        .iter()
+        .any(|word| name.split_whitespace().next() == Some(word))
+            || name.contains("recipient")
+            || name.contains("empfänger")
+            || name.contains("destinataire")
+            || name.contains("destinatario");
+        field.then_some(value)
+    })
 }
 
 fn plain_error(message: &str) -> Value {
@@ -545,18 +582,35 @@ mod tests {
                 .is_ok()
         );
         assert!(gate.check("agent_browser_press", &mut press("Tab")).is_ok());
-        // Enter in a chat box next to a Send button sends.
+        // Enter in a chat box next to a Send button sends, on any site.
+        let chat_box = Inspection {
+            near: vec!["Send".into()],
+            host: "chat.example.com".into(),
+            ..body.clone()
+        };
         let chat = Page {
+            focused: Some(chat_box.clone()),
+            ..Page::default()
+        };
+        let mut gate = consent(Autonomy::Smart, &[], chat.clone());
+        let mut in_chat = json!({"key": "Enter", "session": "hex-chat"});
+        assert!(
+            gate.check("agent_browser_press", in_chat.as_object_mut().unwrap())
+                .is_err()
+        );
+        // The same box in a letter (the page has To and Cc fields), on a
+        // host no list names: Enter is a new line.
+        let letter = Page {
             focused: Some(Inspection {
-                host: "chat.example.com".into(),
-                ..body.clone()
+                host: "post.example.org".into(),
+                ..chat_box
             }),
             ..Page::default()
         };
-        let mut gate = consent(Autonomy::Smart, &[], chat);
+        let mut gate = consent(Autonomy::Smart, &[], letter);
         assert!(
             gate.check("agent_browser_press", &mut press("Enter"))
-                .is_err()
+                .is_ok()
         );
         // Enter in a shop's quantity field submits its form; in a search
         // field it searches.
@@ -599,7 +653,8 @@ mod tests {
             gate.check("agent_browser_press", &mut press("Enter"))
                 .is_ok()
         );
-        // Gmail's `#` and Delete outside a text field delete.
+        // Delete outside a text field deletes; a site's own one-key
+        // shortcut (`#`) can't be told and runs.
         let list = Page {
             focused: Some(Inspection {
                 found: true,
@@ -609,10 +664,11 @@ mod tests {
             ..Page::default()
         };
         let mut gate = consent(Autonomy::Smart, &[], list);
-        for key in ["#", "Delete", "Backspace"] {
+        for key in ["Delete", "Backspace"] {
             let error = refused(gate.check("agent_browser_press", &mut press(key)));
             assert_eq!(error["details"]["category"], "delete", "{key}");
         }
+        assert!(gate.check("agent_browser_press", &mut press("#")).is_ok());
         // In a text field they edit text.
         let mut gate = consent(Autonomy::Smart, &[], in_body);
         assert!(
@@ -655,5 +711,15 @@ mod tests {
         assert_eq!(recipients(snapshot), 3);
         assert_eq!(recipients("- textbox \"An\" [ref=e1]: max@example.de"), 1);
         assert_eq!(recipients("- button \"Send\" [ref=e2]"), 0);
+    }
+
+    #[test]
+    fn a_hint_with_a_modified_enter_means_enter_alone_doesnt_press_it() {
+        assert!(names_modified_enter("Send \u{202a}(⌘Enter)\u{202c}"));
+        assert!(names_modified_enter("Senden (Strg+Eingabe)"));
+        assert!(names_modified_enter("Post [Ctrl+Enter]"));
+        assert!(!names_modified_enter("Send (Enter)"));
+        assert!(!names_modified_enter("Send"));
+        assert!(!names_modified_enter("Discard draft (⌘⇧D)"));
     }
 }
