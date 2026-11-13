@@ -744,7 +744,9 @@ const HERE_BUDGET: usize = 11_300;
 // 18_000: the background-first browser rules (pilot.59) and the journal rules together.
 // 18_300: one line for the media tools (hex_document_read/write, hex_image, hex_audio, hex_video_make).
 // 18_900: the guard's batch, script, menu, verify and skill tools (Cua, round 7 A).
-const JOB_BUDGET: usize = 18_900;
+// 19_300: the team board and merged results (team::rules), and noting what
+// worked in an app for procedural memory (procedures::JOURNAL_RULE).
+const JOB_BUDGET: usize = 19_300;
 
 #[test]
 fn each_lane_s_rules_stay_within_their_budget() {

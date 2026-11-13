@@ -287,6 +287,13 @@ pub enum Event {
         conversation: ConversationId,
         steps: Vec<PlanStep>,
     },
+    /// A lead's team board (`agent::blackboard`) changed: items its helpers
+    /// claimed and are doing, and items done.
+    Board {
+        conversation: ConversationId,
+        claimed: usize,
+        done: usize,
+    },
     /// The task asks the person something before (or while) it works, and
     /// waits (`TaskState::NeedsInput`); read aloud and shown in the bubble
     /// and Chats. The answer arrives as a `submit` into this conversation.
@@ -370,6 +377,7 @@ impl Event {
             | Self::HandsOff { conversation, .. }
             | Self::Acting { conversation, .. }
             | Self::Plan { conversation, .. }
+            | Self::Board { conversation, .. }
             | Self::Question { conversation, .. }
             | Self::Escalated { conversation }
             | Self::Understood { conversation, .. }

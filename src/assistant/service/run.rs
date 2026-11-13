@@ -315,6 +315,14 @@ impl Runner {
         // list in Chats shows it.
         if !handed_on && let Some(folder) = &workspace {
             crate::assistant::audit::keep_in(&conversation, folder);
+            // What its journal says worked or failed in an app, for the
+            // next task there (`procedures`).
+            if settings.memory {
+                let journal =
+                    std::fs::read_to_string(folder.join(crate::assistant::agent::journal::JOURNAL))
+                        .unwrap_or_default();
+                crate::assistant::procedures::learn_from_journal(&journal, None);
+            }
         }
         match outcome {
             Outcome::Answer(text) => {

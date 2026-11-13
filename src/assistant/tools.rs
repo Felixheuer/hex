@@ -50,6 +50,9 @@ static TASK: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static ROLE: std::sync::OnceLock<Role> = std::sync::OnceLock::new();
 /// Whether the person's memory is on (`hex_remember` is offered).
 static MEMORY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+/// The team's board (`--board`, `agent::blackboard`): in a lead's folder,
+/// for the lead and each of its helpers.
+static BOARD: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
 
 /// Who the tools serve.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -107,12 +110,21 @@ impl Role {
         if self == Self::Job {
             names.extend(TEAM_TOOLS);
         }
+        // A helper shares its lead's board (`agent::blackboard`).
+        if self == Self::Helper {
+            names.push("hex_team_board");
+        }
         names
     }
 }
 
 /// A job's team tools (`agent::team`).
-const TEAM_TOOLS: [&str; 3] = ["hex_team_start", "hex_team_tell", "hex_team_status"];
+const TEAM_TOOLS: [&str; 4] = [
+    "hex_team_start",
+    "hex_team_tell",
+    "hex_team_status",
+    "hex_team_board",
+];
 
 fn role() -> Role {
     ROLE.get().copied().unwrap_or(Role::Turn)
@@ -180,6 +192,16 @@ fn team_definitions() -> Vec<Value> {
             "description": "Your helpers: each one's state, current step, and once it ended its final answer. With wait_seconds (up to 240) it waits until the next helper finishes or asks the person something, so you can wait without polling.",
             "inputSchema": {"type": "object", "properties": {
                 "wait_seconds": {"type": "integer", "minimum": 0, "maximum": 240}
+            }},
+        }),
+        json!({
+            "name": "hex_team_board",
+            "description": "The team's shared board (team.md in the lead's folder): who does which item, what is done, and findings for everyone. read (the default) before you start and before each new item; claim an item (a site, supplier, file, or part) BEFORE you work on it: if someone else has it, it says so and you take another; done with where its result is once it's finished; release to give back an item you won't finish; found to share a finding that helps the others.",
+            "inputSchema": {"type": "object", "properties": {
+                "action": {"type": "string", "enum": ["read", "claim", "done", "release", "found"]},
+                "item": {"type": "string", "description": "The item to claim, mark done, or release (a web address, a name, a file)."},
+                "result": {"type": "string", "description": "For done: where its result is (a file in your folder, a row count)."},
+                "text": {"type": "string", "description": "For found: the finding, in one sentence."}
             }},
         }),
     ]
@@ -338,7 +360,42 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
                 lead,
                 std::time::Duration::from_secs(wait),
             );
-            Ok(crate::assistant::agent::team::report(&members))
+            let mut text = crate::assistant::agent::team::report(&members);
+            let board = BOARD.get().cloned().flatten();
+            if let Some(board) = &board {
+                let (open, done) = crate::assistant::agent::blackboard::read(board).counts();
+                if open + done > 0 {
+                    text.push_str(&format!(
+                        "\nTeam board ({}): {open} item(s) claimed and in progress, {done} done.",
+                        board.display()
+                    ));
+                }
+            }
+            // Everyone ended: their results, combined, are the lead's
+            // last step's start (`agent::merge`).
+            if !members.is_empty()
+                && members.iter().all(|member| member.state.ended())
+                && let Some(lead_folder) = board.as_deref().and_then(std::path::Path::parent)
+                && let Some(words) =
+                    crate::assistant::agent::merge::merge(lead_folder, &members).words()
+            {
+                text.push_str(&words);
+            }
+            Ok(text)
+        }
+        "hex_team_board" => {
+            let board = BOARD
+                .get()
+                .cloned()
+                .flatten()
+                .ok_or("This task has no team board: only a job and its helpers share one.")?;
+            let me = match role() {
+                Role::Helper => crate::assistant::agent::blackboard::member_name(
+                    TASK.get().map(String::as_str).unwrap_or("helper"),
+                ),
+                _ => "lead".to_owned(),
+            };
+            team_board(&board, &me, arguments)
         }
         "hex_start_jobs" => {
             let task = TASK
@@ -453,10 +510,90 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
     }
 }
 
-/// Serves the tools on stdio until the agent disconnects.
-pub fn serve(task: &str, role: Role) -> Result<()> {
+/// `hex_team_board` on `board` for the member named `me`.
+fn team_board(board: &std::path::Path, me: &str, arguments: &Value) -> Result<String, String> {
+    use crate::assistant::agent::blackboard::{self, Claimed, Note};
+    let field = |key: &str| {
+        arguments
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    };
+    let item = || field("item").ok_or_else(|| "hex_team_board needs “item”".to_owned());
+    match field("action").as_deref().unwrap_or("read") {
+        "read" => Ok(blackboard::read(board).summary(Some(me))),
+        "claim" => {
+            let item = item()?;
+            match blackboard::claim(board, &item, me)? {
+                Claimed::Yours => Ok(format!(
+                    "“{item}” is yours: do it, then mark it done (hex_team_board action done with where its result is)."
+                )),
+                Claimed::Taken(held) if held.done => Ok(format!(
+                    "Already done by {}{}: don't redo it; claim another item.",
+                    held.by,
+                    if held.result.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" ({})", held.result)
+                    }
+                )),
+                Claimed::Taken(held) => Ok(format!(
+                    "Taken: {} is doing “{}”. Claim another item.",
+                    held.by, held.item
+                )),
+            }
+        }
+        "done" => {
+            let item = item()?;
+            blackboard::add(
+                board,
+                Note::Done {
+                    item: item.clone(),
+                    by: me.to_owned(),
+                    result: field("result").unwrap_or_default(),
+                },
+            )?;
+            Ok(format!("“{item}” is marked done."))
+        }
+        "release" => {
+            let item = item()?;
+            blackboard::add(
+                board,
+                Note::Release {
+                    item: item.clone(),
+                    by: me.to_owned(),
+                },
+            )?;
+            Ok(format!("“{item}” is free again for someone else."))
+        }
+        "found" => {
+            let text = field("text").ok_or("hex_team_board needs “text” for a finding")?;
+            if crate::assistant::memory::looks_secret(&text) {
+                return Err("That looks like a secret; the board never holds those.".into());
+            }
+            blackboard::add(
+                board,
+                Note::Found {
+                    text,
+                    by: me.to_owned(),
+                },
+            )?;
+            Ok("Noted on the board for the others.".into())
+        }
+        other => Err(format!(
+            "“{other}” isn't an action: read, claim, done, release, or found."
+        )),
+    }
+}
+
+/// Serves the tools on stdio until the agent disconnects; `board` is the
+/// team's board for a job or a helper (`agent::blackboard`).
+pub fn serve(task: &str, role: Role, board: Option<std::path::PathBuf>) -> Result<()> {
     let _ = TASK.set(task.to_owned());
     let _ = ROLE.set(role);
+    let _ = BOARD.set(board.filter(|_| role.is_job()));
     let _ = MEMORY.set(crate::assistant::knowledge::memory_on());
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
@@ -703,7 +840,8 @@ mod tests {
                 "hex_video_make",
                 "hex_team_start",
                 "hex_team_tell",
-                "hex_team_status"
+                "hex_team_status",
+                "hex_team_board"
             ]
         );
         // A helper is a job without a team of its own.
@@ -718,7 +856,8 @@ mod tests {
                 "hex_document_write",
                 "hex_image",
                 "hex_audio",
-                "hex_video_make"
+                "hex_video_make",
+                "hex_team_board"
             ]
         );
         // Every name has its definition; memory off offers no hex_remember.

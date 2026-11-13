@@ -343,7 +343,18 @@ impl Hooks {
             authorized: Box::new(super::autonomy::read),
             authorize: Box::new(super::autonomy::write),
             memory: Box::new(super::memory::read),
-            recall: Box::new(|words| super::knowledge::recall(words, true)),
+            // What the graph knows about the words, and what worked
+            // before in the apps they name (`procedures`).
+            recall: Box::new(|words| {
+                let parts: Vec<String> = [
+                    super::knowledge::recall(words, true),
+                    super::procedures::note(words, &[]),
+                ]
+                .into_iter()
+                .flatten()
+                .collect();
+                (!parts.is_empty()).then(|| parts.join("\n"))
+            }),
             learn: Box::new(super::knowledge::learn_from_task),
             notify: Box::new(super::notify::show),
             due_schedules: Box::new(super::schedules::take_due),
@@ -506,6 +517,8 @@ struct Task {
     /// A job's plan, and when its file last changed.
     plan: Vec<PlanStep>,
     plan_seen: Option<std::time::SystemTime>,
+    /// When its team board (`agent::blackboard`) last changed, if it has one.
+    board_seen: Option<std::time::SystemTime>,
     /// The question it waits on (`NeedsInput`), and the answer once given.
     question: Option<String>,
     /// When it asked (runner clock); its place in the inbox.
@@ -653,6 +666,11 @@ impl Runner {
         };
         if !enabled {
             return refuse("Turn on the assistant first.");
+        }
+        // "Nicht so förmlich", "immer an Max senden": the person's own
+        // corrections become reviewable lines of their memory note.
+        if settings.memory && said == Said::Request {
+            crate::assistant::preferences::learn(&request.text, None);
         }
         if !settings.setup_done && !super::trying() {
             return refuse(&format!(
@@ -876,6 +894,7 @@ impl Runner {
             workspace: None,
             plan: Vec::new(),
             plan_seen: None,
+            board_seen: None,
             question: None,
             asked_ms: None,
             reply: None,

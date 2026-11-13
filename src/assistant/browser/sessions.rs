@@ -98,6 +98,17 @@ pub fn belongs(task: &str, session: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('_'))
 }
 
+/// How many helpers of `task`'s lead are working, when `task` is a helper.
+fn team_working(task: &str) -> Option<usize> {
+    let lead = crate::assistant::agent::team::lead_of(task)?;
+    let root = crate::assistant::agent::team::root()?;
+    let working = crate::assistant::agent::team::members(&root, &lead)
+        .iter()
+        .filter(|member| !member.state.ended())
+        .count();
+    Some(working.max(1))
+}
+
 fn critically_tight() -> bool {
     crate::assistant::capacity::pressure() == crate::assistant::capacity::Pressure::Critical
 }
@@ -128,6 +139,10 @@ pub struct Sessions {
 impl Sessions {
     pub fn new(task: &str, clean: Engine) -> Self {
         let limits = crate::assistant::capacity::limits();
+        // A helper shares the computer with its team (`capacity::share`).
+        let limits = team_working(task).map_or(limits, |helpers| {
+            crate::assistant::capacity::share(limits, helpers)
+        });
         Self {
             task: task.to_owned(),
             clean,
@@ -233,7 +248,7 @@ impl Sessions {
                 if self.open.len() >= self.max {
                     return Err(format!(
                         "This task already has {} browsers, the most this computer runs \
-                         well for one task ({}). Close one (agent_browser_close with its \
+                         well for one task (or its share beside the other helpers) ({}). Close one (agent_browser_close with its \
                          session) before opening another",
                         self.max,
                         self.names()

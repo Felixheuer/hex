@@ -216,6 +216,9 @@ pub struct Task {
     /// The job it helps (`assistant::agent::team`): its card goes under
     /// that job's.
     pub lead: Option<ConversationId>,
+    /// A lead's team board (`assistant::agent::blackboard`): items its
+    /// helpers claimed and are doing, and items done.
+    pub board: Option<(usize, usize)>,
     /// When it last worked on the screen (`Event::Acting`): its mini
     /// counts as acting for [`ACTING_FOR`] after.
     pub acting_at: Option<Instant>,
@@ -251,6 +254,7 @@ impl Task {
             ended: None,
             since: None,
             lead: None,
+            board: None,
             acting_at: None,
             borrowed: None,
             returned: None,

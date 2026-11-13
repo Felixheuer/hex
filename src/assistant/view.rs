@@ -238,6 +238,13 @@ impl Stream {
                 conversation,
                 steps,
             } => self.live(conversation, |task| set(&mut task.plan, steps.clone())),
+            Event::Board {
+                conversation,
+                claimed,
+                done,
+            } => self.live(conversation, |task| {
+                set(&mut task.board, Some((*claimed, *done)))
+            }),
             Event::Question { conversation, text } => {
                 self.asked += 1;
                 let asked = self.asked;

@@ -83,6 +83,19 @@ pub fn limits() -> Limits {
     })
 }
 
+/// One helper's fair share of `limits` while `helpers` helpers of one job
+/// work at once: the browsers (and real Chrome among them) split evenly,
+/// so a team of 32 stays within what the computer runs well for one job;
+/// each keeps at least its main browser and one Chrome for a login.
+pub fn share(limits: Limits, helpers: usize) -> Limits {
+    let helpers = helpers.max(1);
+    Limits {
+        browsers: (limits.browsers / helpers).max(1),
+        chrome: (limits.chrome / helpers).max(1),
+        helpers: limits.helpers,
+    }
+}
+
 /// How many of `requested` start now, with `working` already going and at
 /// most `limit` at once.
 pub fn room_for(requested: usize, working: usize, limit: usize) -> usize {
@@ -249,6 +262,20 @@ mod tests {
     use super::*;
 
     const GB: u64 = 1 << 30;
+
+    #[test]
+    fn helpers_share_the_browsers_fairly() {
+        let limits = limits_for(64 * GB, 16);
+        assert_eq!(share(limits, 1), limits);
+        let four = share(limits, 4);
+        assert_eq!(four.browsers, limits.browsers / 4);
+        assert!(four.browsers * 4 <= limits.browsers);
+        assert!(four.chrome * 4 <= limits.chrome.max(4));
+        // Many helpers: each still has its main browser and one Chrome.
+        let crowd = share(limits, 32);
+        assert_eq!((crowd.browsers, crowd.chrome), (1, 1));
+        assert_eq!(share(limits, 0), limits);
+    }
 
     #[test]
     fn tight_memory_holds_new_background_tasks_back_but_one_always_runs() {
