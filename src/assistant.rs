@@ -59,6 +59,7 @@ pub mod speech;
 pub mod store;
 pub mod tools;
 pub mod types;
+pub mod view;
 
 pub use service::{
     Inbox, busy, cancel, cancel_all, conversation, conversations, defer_question, delete, focus,

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use crate::assistant::{ConversationId, Event, Origin};
 
-use super::board::shorten;
+use crate::assistant::view::shorten;
 use super::failure::Failure;
 
 /// How many of a quick question's latest steps its bubble lists.
