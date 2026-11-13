@@ -20,6 +20,7 @@ fn job(text: &str, origin: Origin, context: Context) -> Job {
         memory: None,
         recall: None,
         helps: None,
+        project: None,
     }
 }
 
@@ -733,7 +734,8 @@ fn quick_turns_run_fast_and_hand_hard_ones_to_the_strong_model() {
 // 10_400: web pages the person didn't ask to see in their browser stay in the hidden one; their tab navigates in the background.
 // 10_700: one line for the media tools.
 // 11_300: the guard's batch, script, menu, verify and skill tools (Cua, round 7 A).
-const HERE_BUDGET: usize = 11_300;
+// 11_500: projects (projects::RULES): their folder and hex_project.
+const HERE_BUDGET: usize = 11_500;
 // 15_900: the knowledge tools add a short rule; every app's ways, scripting first (APP_METHODS).
 // 16_200: acting by a window's picture (BACKGROUND_INPUT_RULES).
 // 16_500: the work-fast rules reach jobs too (speed_rules).
@@ -744,9 +746,10 @@ const HERE_BUDGET: usize = 11_300;
 // 18_000: the background-first browser rules (pilot.59) and the journal rules together.
 // 18_300: one line for the media tools (hex_document_read/write, hex_image, hex_audio, hex_video_make).
 // 18_900: the guard's batch, script, menu, verify and skill tools (Cua, round 7 A).
-// 19_300: the team board and merged results (team::rules), and noting what
+// 19_100: projects (projects::RULES): their folder and hex_project.
+// 19_500: the team board and merged results (team::rules), and noting what
 // worked in an app for procedural memory (procedures::JOURNAL_RULE).
-const JOB_BUDGET: usize = 19_300;
+const JOB_BUDGET: usize = 19_500;
 
 #[test]
 fn each_lane_s_rules_stay_within_their_budget() {

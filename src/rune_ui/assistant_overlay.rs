@@ -73,6 +73,7 @@ mod palette;
 pub(crate) mod pictures;
 mod place;
 mod pops;
+mod project;
 mod quick;
 mod results;
 mod screens;

@@ -65,6 +65,9 @@ pub(crate) struct Bubble {
     pub(crate) understood: Option<String>,
     /// Its plan, when it made one (`Event::Plan`).
     pub(crate) plan: Vec<PlanStep>,
+    /// A project it seems to be about while none is active
+    /// (`Event::ProjectSuggested`): (id, name), offered with one tap.
+    pub(crate) suggested: Option<(String, String)>,
     /// When its first step came: the reasoning folds to Now and Next
     /// [`REASONING_FOLDS`] after.
     working_since: Option<Instant>,
@@ -104,6 +107,7 @@ impl Bubble {
             escalated: false,
             understood: None,
             plan: Vec::new(),
+            suggested: None,
             working_since: None,
             folded: false,
             ended: None,
@@ -165,6 +169,13 @@ impl Bubble {
             return false;
         }
         match event {
+            Event::ProjectSuggested { id, name, .. } => {
+                let offer = Some((id.clone(), name.clone()));
+                let changed = self.suggested != offer;
+                self.suggested = offer;
+                changed
+            }
+            Event::InProject { .. } => self.suggested.take().is_some(),
             Event::Thinking { .. } => false,
             Event::Understood { text, .. } => {
                 let text = text.trim();
@@ -388,6 +399,8 @@ fn shorten_to(text: &str, max: usize) -> String {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Held {
     pub(crate) app: Option<String>,
+    /// The active project the request will go to (`assistant::projects`).
+    pub(crate) project: Option<String>,
     /// Words that won't change any more.
     pub(crate) words: String,
     /// The last words, still being recognised.

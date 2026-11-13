@@ -77,6 +77,27 @@ impl Runner {
                 .and_then(|task| task.workspace.clone())
                 .or_else(|| (self.hooks.workspace_of)(lead))
         });
+        // The project it runs in (`projects`): its conversation's (a
+        // helper's lead's), else the active one for a new conversation. A
+        // job's folder is made inside it.
+        let project = self.project_for(
+            &conversation,
+            parent.as_deref(),
+            new_conversation,
+            &request.text,
+        );
+        let inside = inside.or_else(|| project.as_ref().map(|project| project.jobs.clone()));
+        match &project {
+            Some(project) => self.emit(&Event::InProject {
+                conversation: conversation.clone(),
+                name: project.name.clone(),
+            }),
+            None if new_conversation && parent.is_none() => {
+                self.suggest_project(&conversation, &request.text);
+            }
+            None => {}
+        }
+        let project_id = project.as_ref().map(|project| project.id.clone());
         let workspace = match &kind {
             JobKind::Job { title } => {
                 let workspace = (self.hooks.make_workspace)(inside.as_deref(), title);
@@ -118,7 +139,7 @@ impl Runner {
         // message: the system prompt stays the one started ahead.
         let recall = settings
             .memory
-            .then(|| (self.hooks.recall)(&request.text))
+            .then(|| (self.hooks.recall)(&request.text, project_id.as_deref()))
             .flatten();
         let notify = |event: &Event| {
             // Away from the Mac: questions and results reach the phone.
@@ -156,6 +177,7 @@ impl Runner {
             authorized,
             memory,
             recall,
+            project,
             helps: parent.as_ref().and_then(|lead| {
                 self.state()
                     .tasks
@@ -321,13 +343,18 @@ impl Runner {
                 let journal =
                     std::fs::read_to_string(folder.join(crate::assistant::agent::journal::JOURNAL))
                         .unwrap_or_default();
-                crate::assistant::procedures::learn_from_journal(&journal, None);
+                crate::assistant::procedures::learn_from_journal(&journal, project_id.as_deref());
             }
         }
         match outcome {
             Outcome::Answer(text) => {
                 if settings.memory {
                     (self.hooks.learn)(&conversation, &request.text, &text);
+                }
+                // What the person named and the job made goes into the
+                // project's soul (`projects::Projects::collect`).
+                if let Some(id) = &project_id {
+                    self.collect_for_project(id, &request.text, &text, workspace.as_deref());
                 }
                 let text = with_workspace(text, workspace.as_deref());
                 if settings.speak_answers {

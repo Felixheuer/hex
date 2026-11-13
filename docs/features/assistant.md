@@ -518,6 +518,57 @@ Renamed keys still load and `agent-desk settings` still takes them:
 `background_front_window` is `full_control`, `agent_space` is
 `park_windows`, `physical_input` is `background_physical_input`.
 
+## Projects
+
+An optional workspace for a part of the person's life or work („privat“,
+„Startup“, „Kalibermarkt“), `assistant::projects`. Without one active,
+everything runs exactly as before; questions and jobs never need one.
+
+- **On disk**: `~/Documents/Agent-Desk/Projects/<Name>/` with `soul.md`
+  (Goal, People, Websites, Repositories, Accounts, Tone & preferences, Key
+  files, Decisions, Recently learned — Markdown the person edits; headings
+  in the interface language, recognised in any), `project.json` (id, name,
+  archived, and the keys of everything ever learned on its own, so a pruned
+  line never comes back), `files/` for what tasks make, `Jobs/` for its
+  jobs' own folders. A folder made in Finder there is adopted. Which one is
+  active (and the recent ones) is `<support>/assistant/projects.json`.
+- **Choosing**: the rail's chip („● Startup“; with nothing at work, the chip
+  alone) opens a picker (recent projects, No project, New project… typed in
+  place); by voice „wechsle zu Projekt Startup“, „neues Projekt
+  Kalibermarkt“, „ohne Projekt“, „welches Projekt?“ (and English), answered
+  by Agent-Desk itself (`projects::command`, `service::project`), never an
+  agent; Assistant settings › Projects (Use/Leave, Open folder, Edit soul,
+  Archive, Restore, Create); the agent's `hex_project` switch/create only
+  when asked. While the shortcut is held, the island's trail names the
+  project the words go to.
+- **A task in a project**: a new conversation takes the active project, a
+  conversation keeps the one it started in (`Stored.project`), a helper its
+  lead's. Its message (never the system prompt, so a warm backend stays
+  warm) carries the soul's relevant part, at most `BRIEF_CHARS`: lines
+  sharing words with the request first, then each section, Recently learned
+  newest first. A job's folder is made in `Jobs/`. Memory-graph links
+  learned in it are tagged with the project; recall in a project leaves
+  other projects' links out (global ones stay everywhere). Job rows in
+  another project than the active one wear a small tag.
+- **Collecting**: after an answer, sites, repositories, and addresses the
+  person named, links in the answer that carry the project's name, and up
+  to five files the job made go under Recently learned (deduplicated, never
+  anything that looks like a secret). The agent adds facts with
+  `hex_project` (action learn: people and roles, sites, accounts, goals,
+  decisions); a background job may only learn and read, the person's own
+  turn may also update a section, switch, and create.
+- **Offer, never a silent switch**: with no project active, a request that
+  names a project's site, repository, address, a person's full name from
+  its People, or its name gets „In project Startup?“ on the Here bubble;
+  one tap makes it active for the next requests.
+
+| Picker | New project | Job in another project | Offer | Settings |
+|---|---|---|---|---|
+| ![](img/project-picker-light.png) | ![](img/project-picker-new-dark.png) | ![](img/project-rail-jobs-light.png) | ![](img/project-offer-dark.png) | ![](img/project-settings-light.png) |
+
+Renders: `AGENT_DESK_PROJECT_SNAPS=<folder> cargo test --bin agent-desk
+project_snapshots -- --ignored` and `settings_projects_snapshots`.
+
 ## On my iPhone (away mode)
 
 Assistant settings › On my iPhone (`assistant.phone_enabled`, off by default) sends a

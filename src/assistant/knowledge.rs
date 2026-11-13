@@ -24,7 +24,7 @@ mod history;
 mod mail;
 pub(crate) mod native;
 mod people;
-mod rank;
+pub(crate) mod rank;
 mod script;
 mod tab;
 
@@ -334,12 +334,15 @@ fn search_all(query: &str, limit: usize) -> Vec<(Scope, Result<Vec<Hit>, String>
 /// (`agent::request_rules`), never the system prompt: that stays the same
 /// whatever the words, so a backend started ahead and the prompt cache keep
 /// it. `None` when memory is off or the words name nothing it knows (one
-/// hook in `service::run`).
-pub fn recall(request: &str, memory: bool) -> Option<String> {
+/// hook in `service::run`). In a project (`assistant::projects`, its id),
+/// other projects' links stay out.
+pub fn recall(request: &str, memory: bool, project: Option<&str>) -> Option<String> {
     if !memory {
         return None;
     }
-    recall_in(&graph::load()?.1, request)
+    let mut graph = graph::load()?.1;
+    graph.scope = project.map(str::to_owned);
+    recall_in(&graph, request)
 }
 
 /// [`recall`] from `graph`.
@@ -348,11 +351,13 @@ pub fn recall_in(graph: &graph::Graph, request: &str) -> Option<String> {
 }
 
 /// Adds a remembered fact to the graph (`hex_remember`), `about` naming
-/// whom or what it is about when the agent said so.
-pub fn learn_fact(fact: &str, about: Option<&str>) {
-    let Some((path, graph)) = graph::load() else {
+/// whom or what it is about when the agent said so, tagged with the
+/// project the task is in (`project`, its id) if it is in one.
+pub fn learn_fact(fact: &str, about: Option<&str>, project: Option<&str>) {
+    let Some((path, mut graph)) = graph::load() else {
         return;
     };
+    graph.scope = project.map(str::to_owned);
     let region = crate::assistant::phone::incoming::region();
     learn_fact_into(&path, graph, fact, about, &region);
 }
@@ -373,6 +378,14 @@ pub fn learn_fact_into(
     }
 }
 
+/// The project a conversation ran in (`assistant::projects`), its id.
+pub fn project_of(conversation: &str) -> Option<String> {
+    crate::assistant::store::Store::open()
+        .ok()?
+        .load(conversation)?
+        .project
+}
+
 /// Learns from a finished task's answer, off the caller's thread, while
 /// memory is on (the `learn` hook in `service::run` asks only then).
 pub fn learn_from_task(conversation: &str, request: &str, answer: &str) {
@@ -385,6 +398,8 @@ pub fn learn_from_task(conversation: &str, request: &str, answer: &str) {
         let Some((path, mut graph)) = graph::load() else {
             return;
         };
+        // In the project the task ran in, if any.
+        graph.scope = project_of(&conversation);
         let now = crate::assistant::store::now_ms();
         if graph.learn_from_task(&conversation, &request, &answer, now)
             && let Err(error) = graph::save_to(&path, &graph)
@@ -487,7 +502,7 @@ mod tests {
 
     #[test]
     fn the_graph_recalls_what_the_words_name_and_nothing_when_memory_is_off() {
-        assert_eq!(recall("Michael", false), None);
+        assert_eq!(recall("Michael", false, None), None);
         let mut graph = graph::Graph::default();
         graph.learn(
             &graph::extract("Michael Schwarz works at Kalibermarkt", None, "DE"),

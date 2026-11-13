@@ -234,6 +234,7 @@ fn long_job(workspace: &Path) -> Job {
         authorized: Default::default(),
         memory: None,
         recall: None,
+        project: None,
         helps: None,
     }
 }

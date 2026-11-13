@@ -69,6 +69,8 @@ pub(crate) struct Actions<S> {
     pub(crate) settings: fn(&mut S),
     /// Try again: the question (in full) once more, in its conversation.
     pub(crate) retry: fn(&mut S, &str, &str),
+    /// "In project Startup?": that project (its id) becomes the active one.
+    pub(crate) take_project: fn(&mut S, &str),
 }
 
 impl<S> Clone for Actions<S> {
@@ -438,6 +440,12 @@ pub(crate) fn card<S: 'static>(
     if !bubble.over() && bubble.asks.is_none() {
         // Still thinking or working: the person may steer it or stop it.
         card.hint = Some(tr_fill("Hold {} to change it · Esc stops", answer_key));
+    }
+    // A request about a project while none is active: one tap makes it
+    // the active one (`assistant::projects`); nothing moves on its own.
+    if let Some((id, name)) = &bubble.suggested {
+        card.secondary
+            .push(super::project::offer(p, id, name, actions.take_project));
     }
     if bubble.over() {
         match bubble.failure {

@@ -96,7 +96,9 @@ impl ChatsPane {
             | Event::QuestionsChanged { .. }
             | Event::Understood { .. }
             | Event::Borrowed { .. }
-            | Event::Returned { .. } => {}
+            | Event::Returned { .. }
+            | Event::InProject { .. }
+            | Event::ProjectSuggested { .. } => {}
         }
         if matches!(
             event,

@@ -526,6 +526,8 @@ fn follow(id: &str, events: &mpsc::Receiver<Event>, speak: bool) -> bool {
             Event::Board { claimed, done, .. } => {
                 println!("[team board] {claimed} claimed, {done} done")
             }
+            Event::InProject { name, .. } => println!("[project] {name}"),
+            Event::ProjectSuggested { name, .. } => println!("[project?] {name}"),
             Event::Plan { steps, .. } => {
                 for step in steps {
                     println!(

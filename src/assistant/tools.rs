@@ -107,6 +107,7 @@ impl Role {
         }
         names.extend(crate::assistant::knowledge::NAMES);
         names.extend(crate::assistant::media::NAMES);
+        names.push(crate::assistant::projects::tool::NAME);
         if self == Self::Job {
             names.extend(TEAM_TOOLS);
         }
@@ -278,6 +279,7 @@ fn definitions() -> Vec<Value> {
     ];
     tools.extend(crate::assistant::knowledge::definitions());
     tools.extend(crate::assistant::media::definitions());
+    tools.push(crate::assistant::projects::tool::definition());
     tools
 }
 
@@ -451,7 +453,10 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             }
             let line = memory::remember(&text("fact")?).map_err(|error| format!("{error:#}"))?;
             let about = arguments.get("about").and_then(Value::as_str);
-            crate::assistant::knowledge::learn_fact(&line, about);
+            let project = TASK
+                .get()
+                .and_then(|task| crate::assistant::knowledge::project_of(task));
+            crate::assistant::knowledge::learn_fact(&line, about, project.as_deref());
             Ok(format!("Remembered: {line}"))
         }
         "hex_schedule" => {
@@ -499,6 +504,19 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             } else {
                 Err(format!("There is no schedule {id}."))
             }
+        }
+        crate::assistant::projects::tool::NAME => {
+            let projects = crate::assistant::projects::Projects::system()
+                .ok_or("Agent-Desk has no folder for projects")?;
+            let project = TASK
+                .get()
+                .and_then(|task| crate::assistant::knowledge::project_of(task));
+            crate::assistant::projects::tool::call(
+                &projects,
+                project.as_deref(),
+                role().is_job(),
+                arguments,
+            )
         }
         name if crate::assistant::knowledge::handles(name) => crate::assistant::knowledge::call(
             name,
@@ -801,7 +819,8 @@ mod tests {
                 "hex_document_write",
                 "hex_image",
                 "hex_audio",
-                "hex_video_make"
+                "hex_video_make",
+                "hex_project"
             ]
         );
         let secret = answer(&json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -838,6 +857,7 @@ mod tests {
                 "hex_image",
                 "hex_audio",
                 "hex_video_make",
+                "hex_project",
                 "hex_team_start",
                 "hex_team_tell",
                 "hex_team_status",
@@ -857,6 +877,7 @@ mod tests {
                 "hex_image",
                 "hex_audio",
                 "hex_video_make",
+                "hex_project",
                 "hex_team_board"
             ]
         );

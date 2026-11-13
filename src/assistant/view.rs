@@ -296,6 +296,21 @@ impl Stream {
                 task.returned = to.as_ref().map(|app| (app.clone(), now));
                 was || task.returned.is_some()
             }),
+            Event::InProject { conversation, name } => match self.task_mut(conversation) {
+                Some(task) => {
+                    task.suggested = None;
+                    set(&mut task.project, Some(name.clone()))
+                }
+                None => false,
+            },
+            Event::ProjectSuggested {
+                conversation,
+                id,
+                name,
+            } => match self.task_mut(conversation) {
+                Some(task) => set(&mut task.suggested, Some((id.clone(), name.clone()))),
+                None => false,
+            },
         }
     }
 

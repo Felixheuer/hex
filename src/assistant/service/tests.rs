@@ -13,6 +13,8 @@ use super::*;
 use crate::assistant::autonomy::Category;
 use crate::assistant::types::{Context, Role, TaskWindow};
 
+mod projects;
+
 /// What the fake backend does with a question.
 #[derive(Clone)]
 enum Script {
@@ -69,6 +71,10 @@ struct World {
     /// Jobs' requests for helpers, and how each was answered.
     team_asks: Mutex<Vec<crate::assistant::agent::team::Ask>>,
     team_answers: Mutex<TeamAnswers>,
+    /// The person's projects, when a test has some.
+    projects: Mutex<Option<crate::assistant::projects::Projects>>,
+    /// Stored conversations' projects (conversation → project id).
+    project_of: Mutex<std::collections::HashMap<String, String>>,
 }
 
 type TeamAnswers = Vec<(
@@ -119,6 +125,8 @@ impl World {
             pressure: std::sync::atomic::AtomicU8::new(0),
             team_asks: Mutex::default(),
             team_answers: Mutex::default(),
+            projects: Mutex::default(),
+            project_of: Mutex::default(),
             workspaces: std::env::temp_dir().join(format!(
                 "hex-runner-{}-{}",
                 std::process::id(),
@@ -262,6 +270,7 @@ impl World {
         let learned = world(self);
         let pressure = world(self);
         let (team_asks, team_answer) = (world(self), world(self));
+        let (projects, project_of) = (world(self), world(self));
         let (recent, interrupted, prewarm, requests, workspaces) = (
             world(self),
             world(self),
@@ -363,7 +372,16 @@ impl World {
             }),
             memory: Box::new(move || memory.memory.lock().unwrap().clone()),
             // The graph knows Kalibermarkt.
-            recall: Box::new(|words| {
+            projects: Box::new(move || projects.projects.lock().unwrap().clone()),
+            project_of: Box::new(move |conversation| {
+                project_of
+                    .project_of
+                    .lock()
+                    .unwrap()
+                    .get(conversation)
+                    .cloned()
+            }),
+            recall: Box::new(|words, _| {
                 words.contains("Kalibermarkt").then(|| {
                     "What you know about the people, companies, and projects this request \
                      mentions (memory graph):\n- Kalibermarkt (company): site kalibermarkt.de\n"

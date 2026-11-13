@@ -9,6 +9,7 @@ mod lanes;
 mod models;
 pub(super) mod more;
 mod phone;
+mod projects;
 
 use std::time::Instant;
 
@@ -81,6 +82,8 @@ pub(in crate::rune_ui) struct SettingsState {
     pub(in crate::rune_ui) sign_in_error: Option<String>,
     /// The iPhone channel's handle as typed, and what its rows show.
     pub(in crate::rune_ui) phone: phone::PhoneState,
+    /// The projects, and a new one's name as typed.
+    pub(in crate::rune_ui) projects: projects::ProjectsState,
 }
 
 fn index(backend: AssistantBackend) -> usize {
@@ -127,6 +130,7 @@ pub(super) fn opened(ui: &mut Ui) {
     super::displays::read(ui);
     more::opened(ui);
     phone::opened(ui);
+    projects::opened(ui);
     ui.chats.jobs.run(Job::Detect);
     super::accounts::read(ui);
     ui.chats.jobs.run(Job::RunningApps);
@@ -342,6 +346,7 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
             vec![more::notifications_row(ui, p)],
         ),
         phone::section(ui, p, layer),
+        projects::section_for(ui, p),
         more::memory_section(ui, p),
     ]);
     sections

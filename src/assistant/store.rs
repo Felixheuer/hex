@@ -43,6 +43,10 @@ pub struct Stored {
     /// A job's folder (`agent::workspace`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<PathBuf>,
+    /// The project it runs in (`assistant::projects`, its id); kept for
+    /// every later run of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 impl Stored {
@@ -62,6 +66,7 @@ impl Stored {
             outcome: Outcome::Answered,
             pid: None,
             workspace: None,
+            project: None,
         }
     }
 

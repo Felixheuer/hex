@@ -227,6 +227,11 @@ pub struct Task {
     /// Its borrowed window went back and the person's app is in front
     /// again: which, and when ("Back to you · Mail" for [`BACK_FOR`]).
     pub returned: Option<(String, Instant)>,
+    /// The project it runs in (`assistant::projects`), by name.
+    pub project: Option<String>,
+    /// A project it seems to be about while none was active: (id, name),
+    /// offered with one tap until taken or it ends.
+    pub suggested: Option<(String, String)>,
 }
 
 impl Task {
@@ -258,6 +263,8 @@ impl Task {
             acting_at: None,
             borrowed: None,
             returned: None,
+            project: None,
+            suggested: None,
         }
     }
 

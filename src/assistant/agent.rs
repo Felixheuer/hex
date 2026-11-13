@@ -72,6 +72,9 @@ pub struct Job {
     pub recall: Option<String>,
     /// The job this one helps (`agent::team`): its lead's title.
     pub helps: Option<String>,
+    /// The project it runs in (`projects`): its soul's relevant part goes
+    /// with the request's message, never the system prompt.
+    pub project: Option<crate::assistant::projects::ForTask>,
 }
 
 /// Why this run of a conversation happens.
@@ -270,6 +273,9 @@ pub fn run_with(
     stored.set_running();
     if job.workspace.is_some() {
         stored.workspace = job.workspace.clone();
+    }
+    if let Some(project) = &job.project {
+        stored.project = Some(project.id.clone());
     }
     if let Err(error) = store.save(&stored) {
         return Outcome::Failed(format!("{error:#}"));

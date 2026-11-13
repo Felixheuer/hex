@@ -77,8 +77,9 @@ pub(crate) fn projected() -> Vec<String> {
         .clone()
 }
 use orb_panel::{
-    ask_again, board_changed, fold, hover_task, orb_event, orb_focus, orb_key, orb_poll, rearm,
-    reply_edit, retry, send_reply, start_reply, toggle_pressed,
+    ask_again, board_changed, cancel_project, create_project, fold, hover_task, name_project,
+    orb_event, orb_focus, orb_key, orb_poll, pick_project, rearm, refresh_projects, reply_edit,
+    retry, send_reply, start_reply, toggle_pressed, toggle_project,
 };
 #[cfg(test)]
 pub(super) use orb_panel::{escape, should_chime};
@@ -331,6 +332,18 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
                     wall: |orb, id| wall::open(&orb.board, id),
                     all: |orb| wall::open_all(&orb.board),
                 },
+                project: super::project::Actions {
+                    toggle: toggle_project,
+                    pick: pick_project,
+                    name: name_project,
+                    edit: |orb| {
+                        orb.project
+                            .naming
+                            .get_or_insert_with(rune::TextEdit::default)
+                    },
+                    create: create_project,
+                    cancel: cancel_project,
+                },
             },
         ),
     );
@@ -381,6 +394,14 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
                     ask_again(id, asked);
                     dismiss_bubble(state);
                 },
+                take_project: |state, id| {
+                    if let Err(error) = crate::assistant::projects::switch(Some(id)) {
+                        tracing::warn!(%error, "couldn't switch to the offered project");
+                    }
+                    if let Some(bubble) = state.bubble.as_mut() {
+                        bubble.suggested = None;
+                    }
+                },
             },
         },
     );
@@ -414,6 +435,9 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             .update(|orb, tx| board_changed(orb, tx, Instant::now()));
     }
     crate::assistant::subscribe(Box::new(on_event));
+    // Another project chosen (by voice, the bubble's offer, Settings): the
+    // chip follows.
+    crate::assistant::projects::on_change(refresh_projects);
     // The words heard while the Action shortcut is held, under the island.
     island::install();
     // The desk changed (a quick turn left an app or a browser on it, or one
