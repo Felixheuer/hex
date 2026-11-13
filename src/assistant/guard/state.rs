@@ -11,6 +11,8 @@
 //! - `guard/here/<task>.json`: a Here task's window in front, written by
 //!   Hex for each request, so a guard started ahead (in another window)
 //!   serves the request's own window without new spawn arguments.
+//! - `parking/<window>.json`: where a window Hex moved out of the person's
+//!   way was before (`parking`), so it always goes back.
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -120,20 +122,8 @@ impl Store {
 
     /// Runs `body` while holding the leases' lock, so a lapsed lease is
     /// taken over by one process only.
-    fn locked<T>(&self, body: impl FnOnce() -> T) -> T {
-        let dir = self.leases_dir();
-        let _ = std::fs::create_dir_all(&dir);
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(dir.join(".lock"));
-        let held = lock.as_ref().ok().filter(|file| file.lock().is_ok());
-        let result = body();
-        if let Some(file) = held {
-            let _ = file.unlock();
-        }
-        result
+    pub(super) fn locked<T>(&self, body: impl FnOnce() -> T) -> T {
+        locked_in(&self.leases_dir(), body)
     }
 
     /// Takes `window_id` for `task` (in process `pid`) unless another live
@@ -410,6 +400,23 @@ impl Drop for HandsOn {
     }
 }
 
+/// Runs `body` while holding `dir/.lock` (created with `dir`), so
+/// processes sharing `dir` take turns.
+pub(super) fn locked_in<T>(dir: &Path, body: impl FnOnce() -> T) -> T {
+    let _ = std::fs::create_dir_all(dir);
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(".lock"));
+    let held = lock.as_ref().ok().filter(|file| file.lock().is_ok());
+    let result = body();
+    if let Some(file) = held {
+        let _ = file.unlock();
+    }
+    result
+}
+
 fn read_lease(path: &Path) -> Option<LeaseFile> {
     serde_json::from_slice(&std::fs::read(path).ok()?).ok()
 }
@@ -429,7 +436,7 @@ fn create_exclusive(path: &Path, lease: &LeaseFile) -> std::io::Result<()> {
     file.sync_all()
 }
 
-fn json_files(dir: &Path) -> Vec<PathBuf> {
+pub(super) fn json_files(dir: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(dir)
         .into_iter()
         .flatten()

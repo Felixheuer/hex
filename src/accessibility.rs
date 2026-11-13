@@ -1,6 +1,8 @@
 use std::ffi::{CStr, c_char, c_void};
 use std::ptr;
 
+pub mod keys;
+
 type CfTypeRef = *const c_void;
 type CfStringRef = *const c_void;
 type AxUiElementRef = *const c_void;

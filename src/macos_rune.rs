@@ -575,6 +575,9 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
             updater.install_on_quit();
         }
         drop(requests);
+        // Windows the assistant parked out of the way go back where they
+        // were before Hex goes (a quit, an update): none stays stranded.
+        crate::assistant::guard::put_back_all(Duration::from_millis(1500));
         local_api.shutdown();
         // The listener owns the transcription engine; joining it frees the
         // model after its last use.

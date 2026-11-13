@@ -85,6 +85,8 @@ impl<D: Desktop> Guard<D> {
             .bounds
             .is_some_and(|bounds| hangs_off(bounds, &displays));
         if parked && let Some(spot) = on_screen_spot(&displays) {
+            // Where it was before it was parked, when that still shows.
+            let spot = self.unparked_spot(&window, spot);
             self.move_window(&window, spot);
         }
         let before = super::front::frontmost();
@@ -207,25 +209,17 @@ impl<D: Desktop> Guard<D> {
     }
 }
 
-/// Whether a window of `bounds` hangs off every display but a sliver.
+/// Whether a window of `bounds` hangs off every display but a sliver
+/// (`space::off_screen`).
 fn hangs_off(
-    (x, y, width, height): (f64, f64, f64, f64),
+    bounds: (f64, f64, f64, f64),
     displays: &[crate::assistant::computer::Display],
 ) -> bool {
-    let area = width.max(0.0) * height.max(0.0);
-    if area <= 0.0 || displays.is_empty() {
-        return false;
-    }
-    let shown: f64 = displays
+    let displays: Vec<crate::assistant::space::Display> = displays
         .iter()
-        .map(|display| {
-            let (dx, dy, dw, dh) = display.frame;
-            let w = (x + width).min(dx + dw) - x.max(dx);
-            let h = (y + height).min(dy + dh) - y.max(dy);
-            w.max(0.0) * h.max(0.0)
-        })
-        .sum();
-    shown < area * 0.1
+        .map(crate::assistant::space::Display::from)
+        .collect();
+    crate::assistant::space::off_screen(bounds, &displays)
 }
 
 /// Where a parked window comes on the screen while it's borrowed: inside

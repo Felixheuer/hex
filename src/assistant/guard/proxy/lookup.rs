@@ -34,14 +34,20 @@ impl<D: Desktop> Guard<D> {
                 vec![Resolved::of(window)]
             }
             Target::Ref(snapshot) => {
-                let origin = self.snapshots.get(&snapshot).cloned().ok_or_else(|| {
-                    refusal(
-                        tool,
-                        "UNKNOWN_REF",
-                        "Hex doesn't know which window this ref is in. Take a snapshot of your \
+                let origin = self
+                    .learned
+                    .snapshots
+                    .lock()
+                    .get(&snapshot)
+                    .cloned()
+                    .ok_or_else(|| {
+                        refusal(
+                            tool,
+                            "UNKNOWN_REF",
+                            "Hex doesn't know which window this ref is in. Take a snapshot of your \
                          window through these tools and use its refs.",
-                    )
-                })?;
+                        )
+                    })?;
                 let mut resolved = Resolved {
                     id: origin.window.clone(),
                     app: origin.app.clone(),
@@ -271,6 +277,10 @@ impl<D: Desktop> Guard<D> {
     }
 
     pub(super) fn not_held(&self, tool: &str, id: Option<&String>, app: &str) -> Value {
+        // A desk window another task has borrowed, or a job hasn't claimed.
+        if let Some(refused) = id.and_then(|id| self.desk_refusal(tool, id)) {
+            return refused;
+        }
         let other = id
             .and_then(|id| self.store.holder(id))
             .filter(|lease| lease.task != self.config.task);

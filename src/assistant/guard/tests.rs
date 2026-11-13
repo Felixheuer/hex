@@ -97,6 +97,10 @@ struct FakeState {
     replies: HashMap<String, Value>,
     /// Windows off the screen (another desktop, minimized).
     off_screen: Vec<Value>,
+    /// Each process's menu items with a key equivalent.
+    menus: HashMap<i64, Vec<super::screen::MenuKey>>,
+    /// What Return would press in each process.
+    returns: HashMap<i64, super::screen::ReturnTarget>,
 }
 
 /// agent-desktop answering from recorded windows; every call is kept.
@@ -175,6 +179,14 @@ impl Screen for Fake {
 
     fn off_screen_windows(&mut self) -> Vec<child::Window> {
         child::windows(&Value::Array(self.state().off_screen.clone()))
+    }
+
+    fn menu_keys(&mut self, pid: i64) -> Vec<super::screen::MenuKey> {
+        self.state().menus.get(&pid).cloned().unwrap_or_default()
+    }
+
+    fn return_target(&mut self, pid: i64) -> super::screen::ReturnTarget {
+        self.state().returns.get(&pid).cloned().unwrap_or_default()
     }
 }
 
@@ -1153,5 +1165,6 @@ mod consent;
 mod desk;
 mod displays;
 mod open_app;
+mod readers;
 mod round_two;
 mod vision;

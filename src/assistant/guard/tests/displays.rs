@@ -227,3 +227,57 @@ fn points_in_negative_coordinates_find_their_window() {
     assert_eq!(error_code(&theirs).as_deref(), Some("NOT_YOUR_WINDOW"));
     assert_eq!(fake.forwarded(), ["desktop_mouse_click"]);
 }
+
+#[test]
+fn a_parked_window_moved_behind_keeps_where_it_came_from_until_it_goes_back() {
+    use super::super::parking::{self, How};
+    let scratch = Scratch::new();
+    let fake = Fake::recorded();
+    this_mac(&fake);
+    // A job's TextEdit window hangs off the built-in display's corner,
+    // parked from (100, 100).
+    fake.state()
+        .windows
+        .push(textedit_window("w-700", (1799.0, 1168.0, 500.0, 400.0)));
+    let mut guard = background(&scratch, &fake, "bg", false);
+    guard.call("desktop_claim_window", args(json!({"window_id": "w-700"})));
+    parking::park(
+        &scratch.store(),
+        "w-700",
+        "TextEdit",
+        Some((100.0, 100.0, 500.0, 400.0)),
+        How::OffScreen,
+        "bg",
+        1,
+    );
+    // It ignores actions off the screen: it waits behind the person's
+    // windows instead, and the store says so, still knowing where it was.
+    fake.state().replies.insert(
+        "desktop_click".into(),
+        json!({"content": [{"type": "text", "text": "{\"ok\":false}"}], "isError": true}),
+    );
+    let snapshot = guard.call("desktop_snapshot", args(json!({"window_id": "w-700"})));
+    let reference = child::data(&snapshot).unwrap()["tree"]["children"][0]["ref_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    guard.call("desktop_click", args(json!({"ref_id": reference})));
+    guard.call("desktop_click", args(json!({"ref_id": reference})));
+    let behind = moves(&fake);
+    assert_eq!(behind.len(), 1, "{behind:?}");
+    assert_eq!(
+        (behind[0]["x"].clone(), behind[0]["y"].clone()),
+        (json!(80.0), json!(80.0))
+    );
+    let record = parking::parked(&scratch.store(), "w-700").unwrap();
+    assert_eq!(record.how, How::Behind);
+    assert_eq!(record.from, Some((100.0, 100.0, 500.0, 400.0)));
+    // While the job holds it, it stays; once its lease is gone, it is one
+    // Hex puts back.
+    assert!(parking::lapsed(&scratch.store()).is_empty());
+    drop(guard);
+    scratch.store().release_all("bg");
+    let lapsed = parking::lapsed(&scratch.store());
+    assert_eq!(lapsed.len(), 1);
+    assert_eq!(lapsed[0].window_id, "w-700");
+}

@@ -132,7 +132,7 @@ fn runner() -> &'static Arc<Runner> {
                     let closing: Vec<_> = recovered
                         .iter()
                         .cloned()
-                        .map(|id| std::thread::spawn(move || super::browser::close(&id)))
+                        .map(|id| std::thread::spawn(move || super::browser::close_now(&id)))
                         .collect();
                     for closed in closing {
                         let _ = closed.join();
@@ -161,6 +161,8 @@ type Hook<T> = Box<dyn Fn() -> T + Send + Sync>;
 type OnWords = dyn Fn(&str, &str) + Send + Sync;
 type OnTask<R = ()> = Box<dyn Fn(&str) -> R + Send + Sync>;
 type TaskHook = OnTask;
+/// A task that ended, and the lane it ended in.
+type Release = dyn Fn(&str, Lane) + Send + Sync;
 /// Makes a job's workspace for its title, inside a folder (a helper's, in
 /// its lead's) or in the jobs' own root.
 type MakeWorkspace =
@@ -198,9 +200,9 @@ pub(crate) struct Hooks {
     pub sleep: Box<dyn Fn(Duration) + Send + Sync>,
     /// Pauses or resumes a task's desktop actions (`guard::set_paused`).
     pub pause: Box<Pause>,
-    /// A task ended: its window leases and browser go (`guard::release_all`,
-    /// `browser::close`).
-    pub release: TaskHook,
+    /// A task ended in a lane: its window leases and browser go
+    /// (`guard::release_all`, `browser::close`, which keeps a quick turn's).
+    pub release: Box<Release>,
     /// The task moving the real pointer now (`guard::hands_off`).
     pub hands_off: Hook<Option<ConversationId>>,
     /// Brings a task's window forward (taken over).
@@ -279,11 +281,11 @@ impl Hooks {
             now_ms: Box::new(store::now_ms),
             sleep: Box::new(std::thread::sleep),
             pause: Box::new(super::guard::set_paused),
-            release: Box::new(|task| {
+            release: Box::new(|task, lane| {
                 super::guard::release_all(task);
                 // Closing the browser takes a moment; the task has ended.
                 let task = task.to_owned();
-                std::thread::spawn(move || super::browser::close(&task));
+                std::thread::spawn(move || super::browser::close(&task, lane));
             }),
             hands_off: Box::new(super::guard::hands_off),
             bring_forward: Box::new(session::desktop_session::bring_forward),
@@ -1066,7 +1068,8 @@ impl Runner {
         }
         if let Some(conversation) = dropped {
             if alone {
-                (self.hooks.release)(&conversation);
+                let lane = if here { Lane::Here } else { Lane::Background };
+                (self.hooks.release)(&conversation, lane);
                 (self.hooks.settle)(&conversation, Ended::Cancelled, "Stopped.");
             }
             self.emit(&Event::Cancelled { conversation });

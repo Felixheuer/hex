@@ -17,11 +17,14 @@ mod front;
 mod lookup;
 mod recover;
 mod tools;
+mod shared;
 mod vision;
 
 pub(super) use desk::DESK_NOTE;
 pub use recover::{Inert, Recoverer, System};
 pub use tools::{RULES, offered_names};
+pub use shared::Seed;
+use shared::{Learned, Shared};
 
 use super::child::{self, Desktop, Window};
 use super::policy::{self, Kind};
@@ -110,9 +113,12 @@ pub struct Guard<D: Desktop> {
     pub(super) config: Config,
     store: Store,
     pid: u32,
-    desktop: D,
-    screen: Box<dyn Screen>,
-    snapshots: HashMap<String, Origin>,
+    /// The driver, shared with this guard's readers (`shared`).
+    desktop: Shared<D>,
+    screen: Shared<Box<dyn Screen>>,
+    /// Snapshots' windows, refs' labels, element spots, and window
+    /// pictures, shared with this guard's readers.
+    learned: Learned,
     /// Window ids on screen at the last look (Background: new ones may be
     /// adopted).
     known: Option<HashSet<String>>,
@@ -121,8 +127,6 @@ pub struct Guard<D: Desktop> {
     arrived: Vec<Window>,
     /// Windows moved to a display, by window id: the display's id.
     placed: HashMap<String, String>,
-    /// Labels and secure fields by ref, from results.
-    elements: HashMap<String, consent::Element>,
     /// The last look at the windows on screen, and when.
     looked: Option<(Instant, Vec<Window>)>,
     notes: Vec<String>,
@@ -157,8 +161,9 @@ pub struct Guard<D: Desktop> {
     focus_asked: HashSet<String>,
     /// The window brought forward briefly, if one is.
     borrowed: Option<borrow::Borrowed>,
-    /// Window pictures and element spots for the vision path (`vision`).
-    vision: vision::Vision,
+    /// A reader beside the task's guard: read-only calls only, and none of
+    /// the guard's own upkeep (`shared`).
+    reader: bool,
 }
 
 /// Runs one app action and says what it printed, or why not.
@@ -173,6 +178,24 @@ impl<D: Desktop> Guard<D> {
         desktop: D,
         screen: Box<dyn Screen>,
     ) -> Self {
+        Self::assemble(
+            config,
+            store,
+            pid,
+            Shared::new(desktop),
+            Shared::new(screen),
+            Learned::default(),
+        )
+    }
+
+    fn assemble(
+        config: Config,
+        store: Store,
+        pid: u32,
+        desktop: Shared<D>,
+        screen: Shared<Box<dyn Screen>>,
+        learned: Learned,
+    ) -> Self {
         let resumed = store.resumed(&config.task);
         Self {
             config,
@@ -180,12 +203,11 @@ impl<D: Desktop> Guard<D> {
             pid,
             desktop,
             screen,
-            snapshots: HashMap::new(),
+            learned,
             known: None,
             watched: HashMap::new(),
             arrived: Vec::new(),
             placed: HashMap::new(),
-            elements: HashMap::new(),
             looked: None,
             notes: Vec::new(),
             resumed,
@@ -229,12 +251,13 @@ impl<D: Desktop> Guard<D> {
             failures: HashMap::new(),
             focus_asked: HashSet::new(),
             borrowed: None,
-            vision: vision::Vision::default(),
+            reader: false,
         }
     }
 
-    pub fn desktop(&mut self) -> &mut D {
-        &mut self.desktop
+    /// The driver, while the returned guard lives.
+    pub fn desktop(&mut self) -> std::sync::MutexGuard<'_, D> {
+        self.desktop.lock()
     }
 
     /// Whether a Here task opens apps and uses them in windows of its own
@@ -256,10 +279,13 @@ impl<D: Desktop> Guard<D> {
         self.notice_resume();
         self.refresh_here_window();
         let mut args = args;
-        if self.config.lane == Lane::Background {
+        // A reader leaves the guard's upkeep to the guard.
+        if self.config.lane == Lane::Background && !self.reader {
             self.return_orphans();
         }
-        self.borrow_expired();
+        if !self.reader {
+            self.borrow_expired();
+        }
         let outcome = self.run(tool, &mut args);
         self.place_arrivals();
         tracing::debug!(
@@ -296,6 +322,9 @@ impl<D: Desktop> Guard<D> {
         policy::lean_snapshot(tool, args);
         Self::want_bounds(tool, args);
         let kind = policy::kind(tool, args);
+        if self.reader && !kind.reads_alone() {
+            return Err(failure("Hex: this call isn't one a reader runs."));
+        }
         if let Some(app) = text(args, "app")
             && self.blocked(&app)
         {
@@ -436,6 +465,7 @@ impl<D: Desktop> Guard<D> {
         for window in &resolved {
             self.check(tool, kind, window, &held)?;
         }
+        self.borrow_desk(tool, kind, &resolved)?;
         self.secure_read(tool, args)?;
         if kind.acts() {
             self.consent(tool, args, &resolved)?;
@@ -808,12 +838,16 @@ impl<D: Desktop> Guard<D> {
             .store
             .acquire(&self.config.task, self.pid, &window.id, &window.app, now)
         {
-            Acquire::Taken(task) if !self.usable(&Acquire::Taken(task.clone())) => Err(refusal(
-                tool,
-                "NOT_YOUR_WINDOW",
-                "That window belongs to another task. Open your own window with hex_open_app, \
-                 or claim a free one.",
-            )),
+            Acquire::Taken(task) if !self.usable(&window.id, &Acquire::Taken(task.clone())) => {
+                Err(self.desk_refusal(tool, &window.id).unwrap_or_else(|| {
+                    refusal(
+                        tool,
+                        "NOT_YOUR_WINDOW",
+                        "That window belongs to another task. Open your own window with \
+                         hex_open_app, or claim a free one.",
+                    )
+                }))
+            }
             Acquire::Taken(_) => {
                 self.watch(&window.app);
                 let envelope = json!({
@@ -881,7 +915,11 @@ impl<D: Desktop> Guard<D> {
                 window: window.clone(),
                 app: app.clone(),
             };
-            self.snapshots.entry(snapshot).or_insert(origin);
+            self.learned
+                .snapshots
+                .lock()
+                .entry(snapshot)
+                .or_insert(origin);
         }
     }
 

@@ -10,6 +10,13 @@
 //! The desk is leases like any other (`leases/<window>.json`, task
 //! [`DESK`]), so a desk window is never claimed by a job meanwhile, and a
 //! desk Hex no longer runs lapses with it.
+//!
+//! Acting in a desk window takes a short, exclusive borrow of it
+//! (`desk-borrows/<window>.json`): one task at a time, returned when its
+//! turn or job ends ([`return_borrows`]), when its guard ends, or after
+//! [`BORROW_IDLE`] without use. A quick (Here) turn borrows as it acts, and
+//! takes a window from a job (the person asked now); a job borrows only by
+//! claiming the window, and is refused while a quick turn has it.
 
 use std::collections::HashSet;
 
@@ -33,7 +40,118 @@ pub fn desk() -> Vec<TaskWindow> {
 pub fn desk_release(window_id: &str) {
     if let Some(store) = Store::standard() {
         store.release(DESK, window_id);
+        return_borrow(&store, window_id);
     }
+}
+
+/// How long a borrow of a desk window lasts without use.
+pub const BORROW_IDLE: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// A borrow of a desk window, as stored.
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+pub struct Borrow {
+    pub task: String,
+    /// The borrower's guard process, and when it started.
+    pub pid: u32,
+    #[serde(default)]
+    pub started: Option<u64>,
+    /// A quick (Here) turn's.
+    pub here: bool,
+    /// When it was last used.
+    pub used_ms: u64,
+}
+
+impl Borrow {
+    fn live(&self, now_ms: u64) -> bool {
+        now_ms.saturating_sub(self.used_ms) < BORROW_IDLE.as_millis() as u64
+            && super::state::running(self.pid, self.started)
+    }
+}
+
+/// What asking to borrow a desk window came to.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Lend {
+    /// It's this task's to use now (taken, renewed, or taken from a job by
+    /// a quick turn).
+    Lent,
+    /// Another task has it: its id, and whether it's a quick turn.
+    Busy { task: String, here: bool },
+}
+
+fn borrows_dir(store: &Store) -> std::path::PathBuf {
+    store.root().join("desk-borrows")
+}
+
+fn borrow_path(store: &Store, window_id: &str) -> std::path::PathBuf {
+    borrows_dir(store).join(format!("{}.json", super::state::file_name(window_id)))
+}
+
+fn read_borrow(path: &std::path::Path) -> Option<Borrow> {
+    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+}
+
+/// Borrows desk window `window_id` for `task` (a quick turn when `here`),
+/// in guard process `pid`: free, lapsed, or its own already, it is lent
+/// (and its time renewed). A quick turn always gets it (the person asked
+/// now, and only one quick turn runs at a time); a job's is busy while
+/// another task has it.
+pub(super) fn borrow(
+    store: &Store,
+    window_id: &str,
+    task: &str,
+    pid: u32,
+    here: bool,
+    now_ms: u64,
+) -> Lend {
+    super::state::locked_in(&borrows_dir(store), || {
+        let path = borrow_path(store, window_id);
+        if let Some(held) = read_borrow(&path).filter(|held| held.live(now_ms))
+            && held.task != task
+            && !here
+        {
+            return Lend::Busy {
+                task: held.task,
+                here: held.here,
+            };
+        }
+        let lent = Borrow {
+            task: task.to_owned(),
+            pid,
+            started: super::state::started_us(pid),
+            here,
+            used_ms: now_ms,
+        };
+        let temporary = path.with_extension("json.tmp");
+        let written = std::fs::write(&temporary, serde_json::to_vec(&lent).unwrap_or_default())
+            .and_then(|()| std::fs::rename(&temporary, &path));
+        if let Err(error) = written {
+            tracing::warn!(%error, window = window_id, "couldn't note a desk borrow");
+        }
+        Lend::Lent
+    })
+}
+
+/// Who has desk window `window_id` borrowed now, if anyone does.
+pub(super) fn borrower(store: &Store, window_id: &str, now_ms: u64) -> Option<Borrow> {
+    read_borrow(&borrow_path(store, window_id)).filter(|held| held.live(now_ms))
+}
+
+/// Returns `task`'s borrows (its turn or job ended).
+pub(super) fn return_borrows(store: &Store, task: &str) {
+    super::state::locked_in(&borrows_dir(store), || {
+        for path in super::state::json_files(&borrows_dir(store)) {
+            if read_borrow(&path).is_some_and(|held| held.task == task) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    });
+}
+
+/// Forgets any borrow of `window_id` (it left the desk).
+pub(super) fn return_borrow(store: &Store, window_id: &str) {
+    super::state::locked_in(&borrows_dir(store), || {
+        let _ = std::fs::remove_file(borrow_path(store, window_id));
+    });
 }
 
 /// Lets go of every desk window of `app` (by name, as `app_key` compares).
@@ -115,6 +233,7 @@ pub(super) fn release_app_in(store: &Store, app: &str) -> usize {
     for lease in store.held_by(DESK) {
         if super::policy::app_key(&lease.app) == key {
             store.release(DESK, &lease.window_id);
+            return_borrow(store, &lease.window_id);
             released += 1;
         }
     }
@@ -170,6 +289,50 @@ mod tests {
         let existing: HashSet<u32> = [1, 2].into_iter().collect();
         assert!(desk_in(&store, Some(&existing)).is_empty());
         assert!(store.held_by(DESK).is_empty());
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn a_desk_window_is_lent_to_one_task_at_a_time() {
+        let (store, path) = scratch();
+        let pid = std::process::id();
+        // A job claims it; another job is refused while it has it.
+        assert_eq!(borrow(&store, "w-1", "job", pid, false, 1_000), Lend::Lent);
+        assert_eq!(
+            borrow(&store, "w-1", "other-job", pid, false, 2_000),
+            Lend::Busy {
+                task: "job".into(),
+                here: false
+            }
+        );
+        // The person's quick turn takes it from the job.
+        assert_eq!(borrow(&store, "w-1", "turn", pid, true, 3_000), Lend::Lent);
+        // While the turn has it, the job's claim is refused.
+        assert_eq!(
+            borrow(&store, "w-1", "job", pid, false, 4_000),
+            Lend::Busy {
+                task: "turn".into(),
+                here: true
+            }
+        );
+        assert_eq!(borrower(&store, "w-1", 4_000).unwrap().task, "turn");
+        // The turn ends: its borrow comes back, and the job may claim it.
+        return_borrows(&store, "turn");
+        assert!(borrower(&store, "w-1", 5_000).is_none());
+        assert_eq!(borrow(&store, "w-1", "job", pid, false, 5_000), Lend::Lent);
+        // A borrow unused for a while lapses.
+        let later = 5_000 + BORROW_IDLE.as_millis() as u64;
+        assert!(borrower(&store, "w-1", later).is_none());
+        assert_eq!(
+            borrow(&store, "w-1", "other-job", pid, false, later),
+            Lend::Lent
+        );
+        // So does one whose guard has ended.
+        let mut ended = std::process::Command::new("/usr/bin/true").spawn().unwrap();
+        let dead = ended.id();
+        ended.wait().unwrap();
+        assert_eq!(borrow(&store, "w-2", "gone", dead, true, 1), Lend::Lent);
+        assert_eq!(borrow(&store, "w-2", "job", pid, false, 2), Lend::Lent);
         let _ = std::fs::remove_dir_all(path);
     }
 

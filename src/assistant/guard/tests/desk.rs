@@ -324,3 +324,75 @@ fn what_an_app_offers_comes_from_the_app_itself() {
     assert!(!super::super::policy::Kind::AppCapabilities.acts());
     assert!(!super::super::policy::Kind::AppCapabilities.needs_desktop());
 }
+
+/// Snapshots window `id` through `guard` and clicks its first element.
+fn click_in(guard: &mut Guard<Fake>, id: &str) -> Value {
+    let snapshot = guard.call("desktop_snapshot", args(json!({"window_id": id})));
+    let Some(data) = child::data(&snapshot) else {
+        return snapshot;
+    };
+    let reference = data["tree"]["children"][0]["ref_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    guard.call("desktop_click", args(json!({"ref_id": reference})))
+}
+
+#[test]
+fn a_desk_window_is_one_task_s_at_a_time_and_a_job_must_claim_it() {
+    let scratch = Scratch::new();
+    let fake = Fake::recorded();
+    let pid = std::process::id();
+    // An earlier quick turn left Citrix on the desk.
+    assert_eq!(
+        scratch
+            .store()
+            .acquire("desk", pid, CITRIX, "Citrix Viewer", 1),
+        Acquire::Acquired
+    );
+    let mut job = background(&scratch, &fake, "job", false);
+    job.desk = Some(pid);
+    // A job doesn't act in it, or even read it, without claiming it.
+    let read = job.call("desktop_snapshot", args(json!({"window_id": CITRIX})));
+    assert_eq!(error_code(&read).as_deref(), Some("DESK_BUSY"), "{read}");
+    assert!(message(&read).contains("desktop_claim_window"));
+    // The person's next quick turn acts in it, and borrows it.
+    let mut turn = here(&scratch, &fake, FRONT, "Hex Test", false);
+    turn.config.open_apps = true;
+    turn.desk = Some(pid);
+    let clicked = click_in(&mut turn, CITRIX);
+    assert_eq!(error_code(&clicked), None, "{clicked}");
+    // While the turn has it, the job's claim is refused.
+    let claim = job.call("desktop_claim_window", args(json!({"window_id": CITRIX})));
+    assert_eq!(error_code(&claim).as_deref(), Some("DESK_BUSY"), "{claim}");
+    assert!(message(&claim).contains("quick turn"), "{claim}");
+    // The turn ends: its borrow comes back, and the job's claim goes
+    // through; then it acts there.
+    scratch.store().release_all("here-task");
+    super::super::desk::return_borrows(&scratch.store(), "here-task");
+    let claim = job.call("desktop_claim_window", args(json!({"window_id": CITRIX})));
+    assert_eq!(error_code(&claim), None, "{claim}");
+    assert_eq!(data(&claim)["desk"], true);
+    let clicked = click_in(&mut job, CITRIX);
+    assert_eq!(error_code(&clicked), None, "{clicked}");
+    // A second job is refused while the first has it.
+    let mut other = background(&scratch, &fake, "other-job", false);
+    other.desk = Some(pid);
+    let claim = other.call("desktop_claim_window", args(json!({"window_id": CITRIX})));
+    assert_eq!(error_code(&claim).as_deref(), Some("DESK_BUSY"), "{claim}");
+    // A new quick turn takes it from the job, whose next action is refused.
+    let mut next = here(&scratch, &fake, FRONT, "Hex Test", false);
+    next.config.task = "next-turn".into();
+    next.config.open_apps = true;
+    next.desk = Some(pid);
+    let clicked = click_in(&mut next, CITRIX);
+    assert_eq!(error_code(&clicked), None, "{clicked}");
+    let refused = click_in(&mut job, CITRIX);
+    assert_eq!(
+        error_code(&refused).as_deref(),
+        Some("DESK_BUSY"),
+        "{refused}"
+    );
+    // The window stays the desk's throughout.
+    assert_eq!(scratch.store().holder(CITRIX).unwrap().task, "desk");
+}
