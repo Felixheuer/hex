@@ -1,0 +1,21 @@
+id = "research-report"
+title = "A research job with a plan and a result file"
+covers = "D. Background like Codex: plan, result"
+lane = "job"
+timeout_s = 1200
+
+[text]
+de = "Recherchiere die drei größten Hersteller von Wärmepumpen in Europa und leg das Ergebnis als Markdown-Datei im Ordner {temp_dir} ab."
+en = "Research the three largest heat pump makers in Europe and save the result as a Markdown file in the folder {temp_dir}."
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "plan"
+min_steps = 2
+
+[[check]]
+kind = "file"
+glob = "*.md"
+contains = "(?i)(viessmann|vaillant|daikin|bosch|nibe|stiebel|mitsubishi|panasonic)"

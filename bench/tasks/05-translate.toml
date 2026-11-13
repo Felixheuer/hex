@@ -1,0 +1,22 @@
+id = "translate"
+title = "Translate a sentence"
+covers = "Language"
+lane = "quick"
+timeout_s = 60
+
+[text]
+de = "Übersetze ins Englische: Guten Morgen, wie geht es dir?"
+en = "Translate into German: Good morning, how are you?"
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "answer_matches"
+lang = "de"
+pattern = "(?i)good morning"
+
+[[check]]
+kind = "answer_matches"
+lang = "en"
+pattern = "(?i)guten morgen"

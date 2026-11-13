@@ -1,0 +1,19 @@
+id = "switch-to-app"
+title = "Switch to an app (brings it forward)"
+covers = "G. Switch to an app"
+lane = "any"
+timeout_s = 90
+
+[safety]
+front = "may_change"
+
+[text]
+de = "Wechsle zu TextEdit."
+en = "Switch to TextEdit."
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "front_app"
+app = "TextEdit"

@@ -1,0 +1,20 @@
+id = "calendar-read"
+title = "Read a calendar appointment"
+covers = "G. Read a calendar appointment"
+lane = "quick"
+timeout_s = 90
+
+[text]
+de = "Wann ist mein Termin {calendar_hint}?"
+en = "When is my appointment {calendar_hint}?"
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "answer_matches"
+pattern = "{calendar_when_re}"
+
+[[check]]
+kind = "tool_not_used"
+pattern = "(?i)(desktop_click|desktop_type|press_key|key_combo|close_app|quit_app)"

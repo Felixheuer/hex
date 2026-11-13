@@ -166,6 +166,10 @@ impl Pump {
                 "unsupported",
                 "this build has no capture engine: it is a build option (`--features capture`), off in public builds",
             )),
+            ControlCommand::AssistantSubmit { text, conversation } => {
+                background(reply, move || assistant_submit(text, conversation));
+                None
+            }
             ControlCommand::Dictation { .. } | ControlCommand::PasteLast => {
                 unreachable!("listener_command answers it")
             }
@@ -517,6 +521,31 @@ impl Pump {
             )
         }
     }
+}
+
+/// `hex bench`: asks the assistant as a hold would, with no window in
+/// front (an empty context), so the person's front window stays theirs.
+fn assistant_submit(
+    text: String,
+    conversation: Option<String>,
+) -> Result<ControlReply, ControlError> {
+    use crate::assistant::types::{Context, Origin, Request};
+    if !crate::assistant::enabled(&load()?) {
+        return Err(ControlError::new(
+            "feature-off",
+            "the assistant is off (Settings › Assistant)",
+        ));
+    }
+    if text.trim().is_empty() {
+        return Err(ControlError::new("invalid", "nothing to ask"));
+    }
+    let id = crate::assistant::service::submit(Request {
+        conversation,
+        text,
+        origin: Origin::ActionShortcut,
+        context: Context::default(),
+    });
+    Ok(ControlReply::done(id))
 }
 
 fn reply_with(result: Result<ControlReply, ControlError>) -> ControlReply {

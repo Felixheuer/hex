@@ -264,6 +264,10 @@ fn command(host: &dyn Host, command: ControlCommand) -> ControlReply {
         | ControlCommand::ScrawlCaptureSend { .. }
         | ControlCommand::ScrawlCaptureUndo
         | ControlCommand::ScrawlCaptureRoute { .. }) => host.annotate(command),
+        ControlCommand::AssistantSubmit { .. } => reply(Err(ControlError::new(
+            "unsupported",
+            "`hex bench` asks the assistant on macOS only",
+        ))),
     }
 }
 

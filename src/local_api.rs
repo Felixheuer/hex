@@ -26,7 +26,7 @@ mod transcriptions;
 #[cfg_attr(not(target_os = "macos"), allow(unused_imports))]
 pub use discovery::call_developer;
 use discovery::*;
-pub use discovery::{call_control, running_pid};
+pub use discovery::{call_control, call_control_in, running_pid};
 pub(crate) use discovery::{error_code, post_wav};
 use http::*;
 pub use processing::Processing;

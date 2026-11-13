@@ -1,0 +1,24 @@
+id = "follow-up"
+title = "A follow-up to the earlier question"
+covers = "One stream: context across tasks"
+lane = "quick"
+timeout_s = 60
+after = "quick-math"
+
+[text]
+de = "Und das Ergebnis geteilt durch 3?"
+en = "And that result divided by 3?"
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "answer_matches"
+pattern = "130[,.]3"
+
+[[check]]
+kind = "same_conversation"
+
+[[check]]
+kind = "answer_within_ms"
+ms = 8000

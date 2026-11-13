@@ -193,6 +193,13 @@ pub enum ControlCli {
         #[command(subcommand)]
         command: crate::assistant::cli::AssistantCommand,
     },
+    /// Agent-Desk's benchmark: ask ~25 typical tasks of the running Hex Dev,
+    /// check them by machine, and compare with the run before
+    /// (docs/bench.md).
+    Bench {
+        #[command(subcommand)]
+        command: crate::bench::BenchCommand,
+    },
     /// Replaced by `hex labs`.
     #[command(hide = true)]
     Experiments {
@@ -583,6 +590,7 @@ pub fn run(command: ControlCli) -> u8 {
         }),
         ControlCli::Labs { command } => report(crate::labs::run(command.as_ref())),
         ControlCli::Assistant { command } => crate::assistant::cli::run(command),
+        ControlCli::Bench { command } => crate::bench::run(command),
         ControlCli::Experiments { .. } => report(crate::labs::run_retired_experiments()),
         ControlCli::Annotate { command } => capture(command),
     }

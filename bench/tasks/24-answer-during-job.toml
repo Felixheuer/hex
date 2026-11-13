@@ -1,0 +1,28 @@
+id = "answer-during-job"
+title = "Answer a question while a job runs"
+covers = "G. Answer a question while a job runs"
+lane = "quick"
+timeout_s = 90
+
+[background]
+de = "Recherchiere ausführlich die Geschichte der Wärmepumpe und schreib einen Bericht als Markdown in den Ordner {temp_dir}."
+en = "Research the history of the heat pump in depth and write a Markdown report into the folder {temp_dir}."
+lead_ms = 5000
+
+[text]
+de = "Wie viel ist 12 mal 12?"
+en = "What is 12 times 12?"
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "answer_matches"
+pattern = "144"
+
+[[check]]
+kind = "while_running"
+
+[[check]]
+kind = "answer_within_ms"
+ms = 8000

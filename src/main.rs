@@ -20,6 +20,8 @@ mod application_catalog;
 mod assistant;
 #[cfg_attr(any(target_os = "linux", target_os = "windows"), allow(dead_code))]
 mod audio;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod bench;
 #[cfg_attr(any(target_os = "linux", target_os = "windows"), allow(dead_code))]
 mod calendar;
 #[cfg_attr(any(target_os = "linux", target_os = "windows"), allow(dead_code))]

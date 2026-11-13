@@ -1,0 +1,16 @@
+id = "note"
+title = "Create a note"
+covers = "G. Create a note"
+lane = "any"
+timeout_s = 180
+
+[text]
+de = "Leg eine Notiz an: Bench {run}, Milch kaufen."
+en = "Create a note: Bench {run}, buy milk."
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "tool_used"
+pattern = "(?i)(notes|notizen)"

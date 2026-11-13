@@ -1,0 +1,24 @@
+id = "quick-math"
+title = "Latency of a simple question"
+covers = "C. Speed of thinking: time to first answer"
+lane = "quick"
+timeout_s = 60
+
+[text]
+de = "Wie viel ist 17 mal 23?"
+en = "What is 17 times 23?"
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "answer_matches"
+pattern = "391"
+
+[[check]]
+kind = "answer_within_ms"
+ms = 6000
+
+[[check]]
+kind = "max_steps"
+steps = 0
