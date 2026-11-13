@@ -2,7 +2,7 @@
 
 ```ts
 Agent or terminal                                // transcripts.cli; macOS release
-├── hex history -> Timestamp, app, recorded mode, final text
+├── agent-desk history -> Timestamp, app, recorded mode, final text
 │   ├── --since / --until / --app / --grep -> Filter, then limit
 │   ├── --search <query> -> Rank filtered entries with meetings' fuzzy BM25
 │   │   (raw + final text count as one document)
@@ -12,8 +12,8 @@ Agent or terminal                                // transcripts.cli; macOS relea
 │   └── stats [--since/--until] [--json] -> Labs › Dictation stats (labs.history_stats):
 │       dictations, words, words per minute, changed by Output, daily streak,
 │       top apps over every retained entry; toggle off -> fails naming
-│       `hex labs on history-stats` before History is read
-└── hex meetings
+│       `agent-desk labs on history-stats` before History is read
+└── agent-desk meetings
     ├── list -> Newest first, overlapping time range, live status
     ├── show <id|latest> -> Markdown or versioned JSON with notes and entries
     │   ├── --from / --to <mm:ss|h:mm:ss|seconds> -> Only entries overlapping
@@ -26,10 +26,10 @@ Agent or terminal                                // transcripts.cli; macOS relea
 ```
 
 Commands work beside the running app and independently of feature opt-ins,
-except `hex history stats` (and `meetings show --srt|--vtt`), which need their
+except `agent-desk history stats` (and `meetings show --srt|--vtt`), which need their
 Labs toggle.
 `control/transcript_cli` dispatches before logging, instance locking, local
-API, GUI, permissions, and Hex Microphone. Nothing is created or repaired.
+API, GUI, permissions, and Agent-Desk Microphone. Nothing is created or repaired.
 Debug `meeting list/show` shares this path; recording remains debug-only.
 
 History uses one open-file snapshot and the saved retention, so concurrent atomic

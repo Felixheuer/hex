@@ -1,9 +1,9 @@
 # Vocabulary
 
-One shared list of names Hex should know (people, projects, products), each
+One shared list of names Agent-Desk should know (people, projects, products), each
 with optional "sounds like" spellings a transcript may show instead. An empty
 list (the default) changes nothing. The window edits the list on macOS,
-Linux, and Windows; the `hex vocabulary` commands are macOS only for now.
+Linux, and Windows; the `agent-desk vocabulary` commands are macOS only for now.
 
 ```ts
 General › Vocabulary   // vocabulary.settings; after Language
@@ -34,7 +34,7 @@ General › Vocabulary   // vocabulary.settings; after Language
 ├── Past the limits -> Keep the term (cut to 64 characters) and the spellings
 │   that fit; inline danger note    // never drops the term
 └── Boost -> no control in the window: Normal (default) unless changed with
-    `hex settings set vocabulary_boost off|light|normal|strong`
+    `agent-desk settings set vocabulary_boost off|light|normal|strong`
     (settings.json `vocabulary_boost`)  // vocabulary.boost
 
 Transcription (Parakeet: RNN-T and TDT, Underdog Bark and Nemotron 3.5 ASR too)  // vocabulary.transcription; transcription::gguf_session::with_vocabulary
@@ -90,15 +90,15 @@ Recognition hints, folded in                // vocabulary.hints
 │   recent models (newest first), split on commas, semicolons, and line
 │   breaks, become terms; names already listed (any case) are skipped, and
 │   the rewritten file drops the field
-└── `hex settings get|set transcription.recognition_hints` -> deprecated alias:
+└── `agent-desk settings get|set transcription.recognition_hints` -> deprecated alias:
     reads the terms comma-separated; set adds names (cli.md)
 
-hex vocabulary                           // vocabulary.cli
+agent-desk vocabulary                           // vocabulary.cli
 ├── list [--json]
 ├── add <term> [--sounds-like a,b] -> New term, or new spellings merged into it
 │   └── Already there, nothing new -> changed: false
 ├── remove <term> -> Any case
-└── Running Hex saves and reloads settings; an open window adopts the change
+└── Running Agent-Desk saves and reloads settings; an open window adopts the change
 
 A mode's own vocabulary                  // vocabulary.modes; DictationMode::vocabulary
 ├── settings.json `dictation_processing.modes[].vocabulary`, same entries; no
@@ -132,7 +132,7 @@ Meeting notes (Labs › Vocabulary in meeting notes)  // vocabulary.notes
     calendar event; it shares the transcript's excerpt budget (#1154)
 
 Search                                   // vocabulary.search
-├── hex meetings search, MCP search_transcripts, hex history --search
+├── agent-desk meetings search, MCP search_transcripts, agent-desk history --search
 ├── Query word = a one-word term, fuzzy on
 │   ├── Its "sounds like" spellings, or the term as two words -> 0.5 (like a prefix)
 │   └── A word that sounds like it (≥2 consonant sounds, ≤ half the letters changed,
@@ -141,12 +141,12 @@ Search                                   // vocabulary.search
 ```
 
 The list lives in `settings.json` as `vocabulary`, each entry a plain term
-(`"Rune"`) or `{term, sounds_like}`; both load, and Hex writes a term without
-spellings as a plain string. `hex vocabulary list --json` keeps the object form.
+(`"Rune"`) or `{term, sounds_like}`; both load, and Agent-Desk writes a term without
+spellings as a plain string. `agent-desk vocabulary list --json` keeps the object form.
 It is written only when non-empty, so older files load unchanged and are not
 rewritten. Terms are unique ignoring case; at most 500 terms, 64 characters
-each, and 16 spellings per term. Read-only commands (`hex history`,
-`hex meetings`, `hex mcp`) read the field straight from the file and never load
+each, and 16 spellings per term. Read-only commands (`agent-desk history`,
+`agent-desk meetings`, `agent-desk mcp`) read the field straight from the file and never load
 or migrate settings.
 
 Short names with few consonant sounds (Rune, Dax) would sound like too many
@@ -158,7 +158,7 @@ scoring; other near matches still go in only when the model scores the term
 close to what it heard on the same audio. Because that pass never asks how the
 term sounds, a spelling that is also an ordinary word is replaced whenever it's
 heard, so keep spellings distinctive. Exact spellings count toward the 16
-candidate spans per decode and sort first. Both live in Hex's transcribe.cpp fork
+candidate spans per decode and sort first. Both live in Agent-Desk's transcribe.cpp fork
 (branch `hex/vocabulary-sounds-like`: `decode_rnnt_tree` and
 `rescore_vocabulary` in `src/arch/parakeet/decoder.cpp`, while `vocabulary.cpp`
 finds candidates, classifies spans, and runs the exact-spelling pass,
@@ -168,7 +168,7 @@ finds candidates, classifies spans, and runs the exact-spelling pass,
 Provisional defaults, each changed in one place:
 
 ```ts
-hex vocabulary listed in --help          // control/cli.rs: add #[command(hide = true)] to hide it
+agent-desk vocabulary listed in --help          // control/cli.rs: add #[command(hide = true)] to hide it
 Prompt wording                           // dictation/processor.rs: vocabulary_lines
 Chapter prompt wording                   // meeting/chapters.rs: vocabulary_line
 Short-name rule                          // meeting/query.rs: SOUND_ALIKE_MIN_CONSONANTS
@@ -222,9 +222,9 @@ trip in control.rs; `vocabulary_lists_terms_with_their_spellings` in
 `tests/parakeet_vocabulary_unit.cpp` (fork branch
 `hex/vocabulary-sounds-like`) covers the pure spelling pass, overlap order
 (longest span, then earliest), the 1-character rule, and the span rules, but
-Hex CI does not run it. Not observed: an end-to-end audio check of a forced
+Agent-Desk CI does not run it. Not observed: an end-to-end audio check of a forced
 spelling replacement. Scenes:
 `mac-settings-vocabulary`, `mac-settings-vocabulary-empty`,
 `vocabulary-unused` (Whisper, no golden). Passed on macOS on
-2026-10-23; the unused-model note's checks have not been observed running. Not yet observed: the sheet edited in a running Hex, a CLI edit
-against a running Hex, or a rewrite with a live provider.
+2026-10-23; the unused-model note's checks have not been observed running. Not yet observed: the sheet edited in a running Agent-Desk, a CLI edit
+against a running Agent-Desk, or a rewrite with a live provider.

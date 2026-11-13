@@ -83,7 +83,7 @@ pub fn fallback(result: &Value) -> Fallback {
         return Fallback::None;
     }
     let text = result.to_string().to_lowercase();
-    // Refusals by Hex itself (leases, consent, a pause) are never retried.
+    // Refusals by Agent-Desk itself (leases, consent, a pause) are never retried.
     if text.contains("hex_guard") || text.contains("needs_confirmation") {
         return Fallback::None;
     }

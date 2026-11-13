@@ -62,7 +62,7 @@ fn is_free(candidate: &Path, current: Option<&Path>) -> bool {
 }
 
 /// `.transcript` while `path`'s name says it is a separated transcript, else
-/// nothing. Hex reads the name alone: a manifest written before the notes
+/// nothing. Agent-Desk reads the name alone: a manifest written before the notes
 /// file lab has no record of how an export was named, and keeping the suffix
 /// after the lab is turned off (or its notes file deleted) is safer than
 /// renaming a separated transcript back to a plain name. The accepted edge
@@ -104,7 +104,7 @@ pub(super) fn write_after_notes(manifest: &mut MeetingManifest, create: bool) {
     }
 }
 
-/// Re-renders a tracked notes file whose bytes Hex still wrote, so its
+/// Re-renders a tracked notes file whose bytes Agent-Desk still wrote, so its
 /// heading and transcript link follow a rename or chapter retitle. Never
 /// creates one: only [`write_after_notes`] does, and only with its lab on.
 pub(super) fn refresh(manifest: &mut MeetingManifest) {
@@ -158,7 +158,7 @@ fn update(manifest: &mut MeetingManifest, transcript: &Path, create: bool) -> Re
             tracing::info!(
                 meeting = manifest.id,
                 path = %path.display(),
-                "kept the meeting's notes file, which changed since Hex wrote it"
+                "kept the meeting's notes file, which changed since Agent-Desk wrote it"
             );
             return Ok(());
         }
@@ -171,8 +171,8 @@ fn update(manifest: &mut MeetingManifest, transcript: &Path, create: bool) -> Re
 }
 
 /// `<base>.notes.md`, or the first free `<base> (2).notes.md`, … when a file
-/// Hex doesn't track already has the plain name. The numbered choice is
-/// logged; Hex never overwrites another file.
+/// Agent-Desk doesn't track already has the plain name. The numbered choice is
+/// logged; Agent-Desk never overwrites another file.
 fn first_free_path(transcript: &Path) -> Result<PathBuf> {
     let folder = transcript
         .parent()

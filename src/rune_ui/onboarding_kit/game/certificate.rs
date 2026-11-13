@@ -37,7 +37,12 @@ pub(super) fn certificate(p: Paint, targeted: bool, signed: bool) -> El {
                 .key("copy")
                 .absolute(CERT_PAD, CERT_PAD - 2.0)
                 .gap(2.0)
-                .child(text("Hex").key("app").font(k.ty.small).color(p.muted()))
+                .child(
+                    text("Agent-Desk")
+                        .key("app")
+                        .font(k.ty.small)
+                        .color(p.muted()),
+                )
                 .child(
                     text(tr("Certificate of completion"))
                         .key("title")
@@ -45,10 +50,12 @@ pub(super) fn certificate(p: Paint, targeted: bool, signed: bool) -> El {
                         .color(p.text()),
                 )
                 .child(
-                    text(tr("I hereby certify that I have completed Hex onboarding."))
-                        .key("body")
-                        .font(k.ty.ui)
-                        .color(p.text()),
+                    text(tr(
+                        "I hereby certify that I have completed Agent-Desk onboarding.",
+                    ))
+                    .key("body")
+                    .font(k.ty.ui)
+                    .color(p.text()),
                 ),
         )
         .child(line)

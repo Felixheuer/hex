@@ -265,7 +265,7 @@ fn arguments_with(run: &Run, sandboxed: bool) -> Vec<String> {
             "dontAsk"
         },
         "--strict-mcp-config",
-        // Only the person's own settings and Hex's (`--settings`): never
+        // Only the person's own settings and Agent-Desk's (`--settings`): never
         // a project's `.claude/settings*.json`, which a job could write into
         // its own workspace (its working folder) to widen its sandbox's
         // network or run commands of its own.
@@ -616,7 +616,7 @@ mod tests {
                 .any(|pair| pair == ["--tools", "WebSearch,WebFetch"])
         );
         assert!(!plain.iter().any(|arg| arg.contains("sandbox")));
-        run.workspace = Some("/Users/p/Documents/Hex/2026-11-12 Job".into());
+        run.workspace = Some("/Users/p/Documents/Agent-Desk/2026-11-12 Job".into());
         let args = arguments_with(&run, true);
         assert!(args.windows(2).any(|pair| pair
             == [
@@ -646,7 +646,9 @@ mod tests {
             settings["permissions"]["allow"]
                 .as_array()
                 .unwrap()
-                .contains(&json!("Write(//Users/p/Documents/Hex/2026-11-12 Job/**)"))
+                .contains(&json!(
+                    "Write(//Users/p/Documents/Agent-Desk/2026-11-12 Job/**)"
+                ))
         );
         assert_eq!(settings["sandbox"]["enabled"], true);
         assert_eq!(settings["sandbox"]["allowUnsandboxedCommands"], false);
@@ -655,7 +657,7 @@ mod tests {
     #[test]
     fn without_a_sandbox_a_job_has_no_shell() {
         let mut run = Run::fixture(AssistantBackend::ClaudeCode);
-        run.workspace = Some("/home/p/Documents/Hex/2026-11-12 Job".into());
+        run.workspace = Some("/home/p/Documents/Agent-Desk/2026-11-12 Job".into());
         let args = arguments_with(&run, false);
         assert!(args.windows(2).any(|pair| pair
             == [
@@ -675,7 +677,7 @@ mod tests {
     #[test]
     fn a_yolo_job_runs_without_sandbox_or_prompts() {
         let mut run = Run::fixture(AssistantBackend::ClaudeCode);
-        run.workspace = Some("/Users/p/Documents/Hex/2026-11-12 Shop".into());
+        run.workspace = Some("/Users/p/Documents/Agent-Desk/2026-11-12 Shop".into());
         run.unrestricted = true;
         // Even where a sandbox exists, Yolo doesn't use it.
         for args in [arguments(&run), arguments_with(&run, false)] {
@@ -717,8 +719,8 @@ mod tests {
     #[test]
     fn windows_paths_become_posix_in_permission_rules() {
         assert_eq!(
-            rule_path(r"C:\Users\p\Documents\Hex\2026-11-12 Job"),
-            "/c/Users/p/Documents/Hex/2026-11-12 Job"
+            rule_path(r"C:\Users\p\Documents\Agent-Desk\2026-11-12 Job"),
+            "/c/Users/p/Documents/Agent-Desk/2026-11-12 Job"
         );
         assert_eq!(rule_path(r"\\?\D:\Jobs"), "/d/Jobs");
         assert_eq!(rule_path("/home/p/Job"), "/home/p/Job");

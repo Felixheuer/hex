@@ -160,11 +160,11 @@ rustPlatform.buildRustPackage (finalAttrs: {
   '';
 
   postInstall = ''
-    install -Dm644 ${../packaging/anomaly.hex.desktop} $out/share/applications/anomaly.hex.desktop
+    install -Dm644 ${../packaging/fheuer.agentdesk.desktop} $out/share/applications/fheuer.agentdesk.desktop
     mkdir -p $out/share/icons
     cp -R ${../packaging/linux/icons/hicolor} $out/share/icons/hicolor
-    substituteInPlace $out/share/applications/anomaly.hex.desktop \
-      --replace-fail '@HEX_BIN@' "$out/bin/hex"
+    substituteInPlace $out/share/applications/fheuer.agentdesk.desktop \
+      --replace-fail '@AGENT_DESK_BIN@' "$out/bin/hex"
   '';
 
   postFixup = ''

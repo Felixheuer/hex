@@ -616,7 +616,7 @@ pub(super) fn error_notes(p: Paint, error: &str) -> [El; 2] {
     [
         note(
             "error-title",
-            tr("Hex could not apply this change."),
+            tr("Agent-Desk could not apply this change."),
             p.danger(),
         ),
         note("error", error, p.muted()),
@@ -633,7 +633,7 @@ pub(super) fn listener_card(ui: &Ui, p: Paint) -> (String, El) {
         None => tr("Connecting…").to_string(),
     };
     // The key the desktop granted, which it may have changed in its own
-    // settings (#723), else the one Hex records.
+    // settings (#723), else the one Agent-Desk records.
     let shortcut = match portal_grant(ui, ShortcutTarget::Dictation) {
         Some(DesktopGrantedShortcut {
             trigger: Some(trigger),
@@ -643,7 +643,9 @@ pub(super) fn listener_card(ui: &Ui, p: Paint) -> (String, El) {
     };
     let no_model = super::general::missing_model(ui).is_some();
     let hint = match (running, ui.settings.shortcut_mode) {
-        _ if no_model => tr("Hex can't dictate until a speech model is installed").to_string(),
+        _ if no_model => {
+            tr("Agent-Desk can't dictate until a speech model is installed").to_string()
+        }
         _ if !ui.records_shortcuts() => {
             tr("Ready anywhere · Use your desktop's shortcuts to dictate").to_string()
         }
@@ -652,7 +654,10 @@ pub(super) fn listener_card(ui: &Ui, p: Paint) -> (String, El) {
             &shortcut,
         ),
         (true, ShortcutMode::Hold) => tr_fill("Ready anywhere · Hold {} to dictate", &shortcut),
-        (false, _) => tr_fill("Enable Hex to dictate into any app with {}", &shortcut),
+        (false, _) => tr_fill(
+            "Enable Agent-Desk to dictate into any app with {}",
+            &shortcut,
+        ),
     };
     let search = format!("{status} {hint} {} {}", tr("Enable"), tr("Disable"));
     let failure = ui
@@ -759,7 +764,7 @@ pub(super) fn refused_note(ui: &Ui, p: Paint, target: ShortcutTarget) -> Option<
             note(
                 "refused",
                 if binding(&ui.settings, target).is_some_and(|binding| binding.key.as_ref().is_some_and(HotkeyKey::is_mouse)) {
-                    tr("Configure mouse shortcuts in your Wayland desktop using the hex commands")
+                    tr("Configure mouse shortcuts in your Wayland desktop using the agent-desk commands")
                 } else {
                     tr("Your desktop kept a shortcut for itself. Record another one, or free it in your desktop's keyboard settings (on niri, remove its bind from config.kdl).")
                 },
@@ -804,11 +809,11 @@ pub(super) fn desktop_commands(ui: &Ui, p: Paint) -> El {
             p,
             "raw-dictation",
             tr("Dictate without processing"),
-            tr("Paste your words as Hex heard them, skipping every step"),
+            tr("Paste your words as Agent-Desk heard them, skipping every step"),
             &["hex dictation toggle --raw"],
         ),
     ];
-    // GNOME without a shortcuts portal (GNOME 46 and older, #781): Hex writes
+    // GNOME without a shortcuts portal (GNOME 46 and older, #781): Agent-Desk writes
     // the commands into GNOME's own custom shortcuts.
     if on_gnome() {
         rows.insert(1, gnome_shortcuts_row(ui, p));
@@ -816,12 +821,12 @@ pub(super) fn desktop_commands(ui: &Ui, p: Paint) -> El {
     section(p, "desktop-shortcuts", tr("Desktop shortcuts"), rows)
 }
 
-/// Adds or removes Hex's GNOME custom keyboard shortcuts.
+/// Adds or removes Agent-Desk's GNOME custom keyboard shortcuts.
 fn gnome_shortcuts_row(ui: &Ui, p: Paint) -> El {
     let on = ui.settings.gnome_keyboard_shortcuts;
     let description = if on {
         tr(
-            "Added to GNOME Settings › Keyboard › Custom Shortcuts while Hex is enabled. GNOME runs them on the key press, so your dictation shortcut toggles dictation. Change the keys there.",
+            "Added to GNOME Settings › Keyboard › Custom Shortcuts while Agent-Desk is enabled. GNOME runs them on the key press, so your dictation shortcut toggles dictation. Change the keys there.",
         )
     } else {
         tr(

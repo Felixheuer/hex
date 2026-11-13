@@ -1,6 +1,6 @@
 //! Plays the sentences [`Playback`] holds on the default output, and
 //! measures how loud they are. The device opens when something is to be
-//! read and closes a few seconds after the last sentence, so an idle Hex
+//! read and closes a few seconds after the last sentence, so an idle Agent-Desk
 //! holds no output open.
 
 use std::num::NonZero;
@@ -137,7 +137,7 @@ impl Reader {
         self.at = 0;
         self.fade = 0;
         self.shared.playback().pull(&mut self.chunk, Instant::now());
-        // What Hex plays, for conversation mode to tell its echo from the
+        // What Agent-Desk plays, for conversation mode to tell its echo from the
         // person (`recognition::echo`).
         crate::audio::playback_reference::played(
             &self.chunk,

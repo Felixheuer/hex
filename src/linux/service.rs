@@ -1,9 +1,9 @@
-//! The single-instance socket: one Hex process per user and data root.
+//! The single-instance socket: one Agent-Desk process per user and data root.
 //!
 //! The running process binds `service.sock` next to its `service.lock`. A
-//! later `hex` forwards `Activate` (with the launcher's activation token) and
+//! later `agent-desk` forwards `Activate` (with the launcher's activation token) and
 //! exits; Annotate's recording commands and `Status` ride the same socket.
-//! The `hex` control commands (`crate::control`) reach Hex through its local
+//! The `agent-desk` control commands (`crate::control`) reach Agent-Desk through its local
 //! API instead, answered by `linux_app`'s control host; dictation commands go
 //! from there straight to the listener's command queue, never through the
 //! window's thread. This module also owns the
@@ -36,7 +36,7 @@ const IO_TIMEOUT: Duration = Duration::from_secs(2);
 const CLIENTS: usize = 8;
 /// A send waits for the router's answer (it waits 8 s itself).
 const SEND_WAIT: Duration = Duration::from_secs(10);
-const UNIT: &str = "hex.service";
+const UNIT: &str = "agent-desk.service";
 /// How long a launch waits for a started unit's socket. `Type=notify`
 /// units are ready when `systemctl start` returns; units an older installer
 /// wrote are `Type=simple` and need the wait.
@@ -51,23 +51,23 @@ pub(crate) enum Request {
         show: bool,
         session: Session,
     },
-    /// `hex annotate start|stop|cancel`.
+    /// `agent-desk annotate start|stop|cancel`.
     Capture(crate::control::ScrawlCaptureAction),
-    /// `hex annotate send`: the listener's router sends it and says how.
+    /// `agent-desk annotate send`: the listener's router sends it and says how.
     CaptureSend {
         capture: String,
         to: Option<String>,
         always: bool,
     },
-    /// `hex annotate undo`: takes the newest send back.
+    /// `agent-desk annotate undo`: takes the newest send back.
     CaptureUndo,
-    /// `hex annotate draw`: the pen on or off, as the capsule's pen.
+    /// `agent-desk annotate draw`: the pen on or off, as the capsule's pen.
     CaptureDraw,
-    /// `hex annotate start --area`: records that area (X11).
+    /// `agent-desk annotate start --area`: records that area (X11).
     CaptureArea {
         rect: [f64; 4],
     },
-    /// `hex annotate status`: what the listener's capture host reports.
+    /// `agent-desk annotate status`: what the listener's capture host reports.
     CaptureStatus,
     Status,
 }
@@ -87,7 +87,7 @@ impl Activation {
     pub(crate) fn take_from_environment() -> Self {
         let take = |key: &str| {
             let value = std::env::var(key).ok().filter(|value| !value.is_empty());
-            // Called on the main thread before Hex starts any other thread.
+            // Called on the main thread before Agent-Desk starts any other thread.
             unsafe { std::env::remove_var(key) };
             value
         };
@@ -113,7 +113,7 @@ pub(crate) fn refresh_x_authority() {
     let live = manager_environment()
         .and_then(|environment| environment_value(&environment, "XAUTHORITY"))
         .filter(|path| Path::new(path).exists());
-    // Called on the main thread before Hex starts any other thread.
+    // Called on the main thread before Agent-Desk starts any other thread.
     unsafe {
         match live {
             Some(path) => std::env::set_var("XAUTHORITY", path),
@@ -133,7 +133,7 @@ pub(crate) fn refresh_x_authority() {
 /// `wayland` (`XDG_SESSION_TYPE`, this process's else the user manager's).
 /// Any other explicit type (`x11`, `tty`, …) keeps its X display and its
 /// paste, and an absent type adopts only the user manager's live display.
-/// Returns the display it adopted. Called on the main thread before Hex starts
+/// Returns the display it adopted. Called on the main thread before Agent-Desk starts
 /// any other thread.
 pub(crate) fn adopt_wayland_display() -> Option<String> {
     adopt_wayland_display_when(true)
@@ -142,7 +142,7 @@ pub(crate) fn adopt_wayland_display() -> Option<String> {
 /// A launcher adopts only behind Xwayland's `DISPLAY`: that is the one case
 /// where the session it computes, and writes to `session.env`, differs from
 /// the service's. With no display at all it keeps today's behavior, including
-/// "Start Hex from your graphical login session".
+/// "Start Agent-Desk from your graphical login session".
 pub(crate) fn adopt_wayland_display_for_launcher() -> Option<String> {
     adopt_wayland_display_when(false)
 }
@@ -315,7 +315,7 @@ fn environment_value(environment: &str, key: &str) -> Option<String> {
     })
 }
 
-/// What `hex status` prints and every reply carries.
+/// What `agent-desk status` prints and every reply carries.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Status {
     pub(crate) desktop: DesktopSnapshot,
@@ -350,7 +350,7 @@ impl Session {
     }
 }
 
-/// Where the socket hands a `hex` shortcut command: the running listener's
+/// Where the socket hands a `agent-desk` shortcut command: the running listener's
 /// queue, once it reports its session.
 #[derive(Clone)]
 pub(crate) struct ShortcutRoute {
@@ -362,12 +362,13 @@ pub(crate) fn route_shortcut(
     route: Option<&ShortcutRoute>,
     command: ShortcutCommand,
 ) -> Result<()> {
-    let route = route
-        .ok_or_else(|| eyre!("Hex is not listening; enable it in Settings or run `hex start`"))?;
+    let route = route.ok_or_else(|| {
+        eyre!("Agent-Desk is not listening; enable it in Settings or run `agent-desk start`")
+    })?;
     route
         .commands
         .try_send(command.into())
-        .map_err(|_| eyre!("Hex is busy; try again"))
+        .map_err(|_| eyre!("Agent-Desk is busy; try again"))
 }
 
 /// What the socket reads without waiting on the host or the window: the
@@ -383,9 +384,9 @@ pub(crate) struct Published {
 #[derive(Debug)]
 pub(crate) enum Control {
     Activate(Activation),
-    /// `hex window show`: opens the window at a pane.
+    /// `agent-desk window show`: opens the window at a pane.
     Show(Option<crate::control::Pane>),
-    /// `hex window hide`.
+    /// `agent-desk window hide`.
     Hide,
     /// Replays the first run in the window, answering whether it opened.
     OnboardingReset(SyncSender<std::result::Result<(), String>>),
@@ -417,7 +418,7 @@ fn private_directory(path: &Path) -> Result<()> {
     fs::create_dir_all(path)?;
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_dir() || metadata.uid() != unsafe { libc::geteuid() } {
-        bail!("Hex requires a user-owned, non-symlink data directory");
+        bail!("Agent-Desk requires a user-owned, non-symlink data directory");
     }
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
     Ok(())
@@ -436,7 +437,7 @@ fn check_peer(stream: &UnixStream) -> Result<()> {
         )
     };
     if result != 0 || credentials.uid != unsafe { libc::geteuid() } {
-        bail!("Hex only accepts local IPC from the same user");
+        bail!("Agent-Desk only accepts local IPC from the same user");
     }
     Ok(())
 }
@@ -445,11 +446,11 @@ fn read_exact(stream: &mut UnixStream, mut bytes: &mut [u8], deadline: Instant) 
     while !bytes.is_empty() {
         let remaining = deadline
             .checked_duration_since(Instant::now())
-            .ok_or_else(|| eyre!("Hex read timed out"))?;
+            .ok_or_else(|| eyre!("Agent-Desk read timed out"))?;
         stream.set_read_timeout(Some(remaining))?;
         let count = stream.read(bytes)?;
         if count == 0 {
-            bail!("Hex disconnected");
+            bail!("Agent-Desk disconnected");
         }
         bytes = &mut bytes[count..];
     }
@@ -466,7 +467,7 @@ fn read_frame_within<T: DeserializeOwned>(stream: &mut UnixStream, wait: Duratio
     read_exact(stream, &mut header, deadline)?;
     let length = u32::from_be_bytes(header) as usize;
     if length == 0 || length > MAX_FRAME {
-        bail!("Invalid Hex frame size");
+        bail!("Invalid Agent-Desk frame size");
     }
     let mut body = vec![0; length];
     read_exact(stream, &mut body, deadline)?;
@@ -476,7 +477,7 @@ fn read_frame_within<T: DeserializeOwned>(stream: &mut UnixStream, wait: Duratio
 fn write_frame<T: Serialize>(stream: &mut UnixStream, message: &T) -> Result<()> {
     let body = serde_json::to_vec(message)?;
     if body.len() > MAX_FRAME {
-        bail!("Hex message exceeds the size limit");
+        bail!("Agent-Desk message exceeds the size limit");
     }
     let deadline = Instant::now() + IO_TIMEOUT;
     write_all(stream, &(body.len() as u32).to_be_bytes(), deadline)?;
@@ -487,11 +488,11 @@ fn write_all(stream: &mut UnixStream, mut bytes: &[u8], deadline: Instant) -> Re
     while !bytes.is_empty() {
         let remaining = deadline
             .checked_duration_since(Instant::now())
-            .ok_or_else(|| eyre!("Hex write timed out"))?;
+            .ok_or_else(|| eyre!("Agent-Desk write timed out"))?;
         stream.set_write_timeout(Some(remaining))?;
         let count = stream.write(bytes)?;
         if count == 0 {
-            bail!("Hex disconnected");
+            bail!("Agent-Desk disconnected");
         }
         bytes = &bytes[count..];
     }
@@ -503,7 +504,7 @@ fn write_all(stream: &mut UnixStream, mut bytes: &[u8], deadline: Instant) -> Re
 pub(crate) enum RequestError {
     /// Nothing listens on the socket.
     NotRunning,
-    /// An older Hex (the service/Settings protocol) owns the socket.
+    /// An older Agent-Desk (the service/Settings protocol) owns the socket.
     Outdated,
     Failed(color_eyre::Report),
 }
@@ -511,10 +512,10 @@ pub(crate) enum RequestError {
 impl std::fmt::Display for RequestError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NotRunning => write!(f, "Hex is not running; run `hex start`"),
+            Self::NotRunning => write!(f, "Agent-Desk is not running; run `agent-desk start`"),
             Self::Outdated => write!(
                 f,
-                "An older Hex is running; quit it or run `hex restart`, then try again"
+                "An older Agent-Desk is running; quit it or run `agent-desk restart`, then try again"
             ),
             Self::Failed(error) => write!(f, "{error:#}"),
         }
@@ -533,7 +534,7 @@ fn connect() -> std::result::Result<UnixStream, RequestError> {
         || metadata.mode() & 0o077 != 0
     {
         return Err(RequestError::Failed(eyre!(
-            "Refusing an insecure Hex socket"
+            "Refusing an insecure Agent-Desk socket"
         )));
     }
     // A crashed instance leaves its socket behind.
@@ -542,7 +543,7 @@ fn connect() -> std::result::Result<UnixStream, RequestError> {
     Ok(stream)
 }
 
-/// `hex capture`'s recording commands, handed to the running listener.
+/// `agent-desk capture`'s recording commands, handed to the running listener.
 pub(crate) fn capture(action: crate::control::ScrawlCaptureAction) -> crate::control::ControlReply {
     use crate::control::{ControlReply, ScrawlCaptureAction};
     if action == ScrawlCaptureAction::Replay {
@@ -550,20 +551,20 @@ pub(crate) fn capture(action: crate::control::ScrawlCaptureAction) -> crate::con
     }
     if action == ScrawlCaptureAction::Status {
         return match exchange(Request::CaptureStatus, SEND_WAIT) {
-            Ok(reply) => reply
-                .control
-                .unwrap_or_else(|| ControlReply::error("failed", "Hex did not say how it went")),
+            Ok(reply) => reply.control.unwrap_or_else(|| {
+                ControlReply::error("failed", "Agent-Desk did not say how it went")
+            }),
             Err(RequestError::NotRunning) => crate::control::cli::not_running(),
             Err(error) => ControlReply::error("failed", format!("{error}")),
         };
     }
     match request(Request::Capture(action)) {
-        Ok(_) => ControlReply::done("Sent to Hex"),
+        Ok(_) => ControlReply::done("Sent to Agent-Desk"),
         Err(error) => ControlReply::error("failed", format!("{error}")),
     }
 }
 
-/// `hex annotate send`, carried out by the running Hex's router.
+/// `agent-desk annotate send`, carried out by the running Agent-Desk's router.
 pub(crate) fn capture_send(
     capture: String,
     to: Option<String>,
@@ -581,21 +582,21 @@ pub(crate) fn capture_send(
     match sent {
         Ok(reply) => reply
             .control
-            .unwrap_or_else(|| ControlReply::error("failed", "Hex did not say how it went")),
+            .unwrap_or_else(|| ControlReply::error("failed", "Agent-Desk did not say how it went")),
         Err(error) => ControlReply::error("failed", format!("{error}")),
     }
 }
 
-/// `hex annotate start --area`: the running Hex records that area.
+/// `agent-desk annotate start --area`: the running Agent-Desk records that area.
 pub(crate) fn capture_area(rect: [f64; 4]) -> crate::control::ControlReply {
     use crate::control::ControlReply;
     match request(Request::CaptureArea { rect }) {
-        Ok(_) => ControlReply::done("Sent to Hex"),
+        Ok(_) => ControlReply::done("Sent to Agent-Desk"),
         Err(error) => ControlReply::error("failed", format!("{error}")),
     }
 }
 
-/// `hex annotate draw`: drawing on or off in the running Hex.
+/// `agent-desk annotate draw`: drawing on or off in the running Agent-Desk.
 pub(crate) fn capture_draw() -> crate::control::ControlReply {
     use crate::control::ControlReply;
     match request(Request::CaptureDraw) {
@@ -604,17 +605,17 @@ pub(crate) fn capture_draw() -> crate::control::ControlReply {
     }
 }
 
-/// `hex annotate undo`: the running Hex takes its newest send back.
+/// `agent-desk annotate undo`: the running Agent-Desk takes its newest send back.
 pub(crate) fn capture_undo() -> crate::control::ControlReply {
     use crate::control::ControlReply;
     match request(Request::CaptureUndo) {
-        Ok(_) => ControlReply::done("Asked Hex to take the newest send back"),
+        Ok(_) => ControlReply::done("Asked Agent-Desk to take the newest send back"),
         Err(error) => ControlReply::error("failed", format!("{error}")),
     }
 }
 
-/// Before `hex restart`: the unit restarts into this desktop's session
-/// (without a desktop, over SSH, the one Hex last ran in).
+/// Before `agent-desk restart`: the unit restarts into this desktop's session
+/// (without a desktop, over SSH, the one Agent-Desk last ran in).
 pub(crate) fn prepare_restart() -> Result<()> {
     if supervised() && (graphical_session() || !session_environment_path()?.exists()) {
         write_session_environment()?;
@@ -622,7 +623,7 @@ pub(crate) fn prepare_restart() -> Result<()> {
     Ok(())
 }
 
-/// `hex annotate status`, asked of the listener's capture host.
+/// `agent-desk annotate status`, asked of the listener's capture host.
 pub(crate) fn capture_status() -> crate::control::ControlReply {
     use crate::control::ControlReply;
     let (sender, receiver) = mpsc::sync_channel(1);
@@ -639,8 +640,8 @@ pub(crate) fn capture_status() -> crate::control::ControlReply {
         .unwrap_or_else(|_| ControlReply::error("unavailable", "the listener didn't answer"))
 }
 
-/// Whether a Hex instance answers on the single-instance socket, whatever
-/// its protocol. A current Hex serves the socket only after its local API
+/// Whether an Agent-Desk instance answers on the single-instance socket, whatever
+/// its protocol. A current Agent-Desk serves the socket only after its local API
 /// is up, so one that answers here while the local API doesn't is an older
 /// build an update left running (#915).
 pub(crate) fn instance_answers() -> bool {
@@ -660,7 +661,7 @@ pub(crate) fn request(request: Request) -> std::result::Result<Status, RequestEr
     let reply = exchange(request, IO_TIMEOUT)?;
     reply
         .status
-        .ok_or_else(|| RequestError::Failed(eyre!("Invalid Hex reply")))
+        .ok_or_else(|| RequestError::Failed(eyre!("Invalid Agent-Desk reply")))
 }
 
 /// One request and its reply, which may take up to `wait`.
@@ -698,14 +699,14 @@ impl Server {
     /// Claims the data root. Fails when another instance holds it.
     pub(crate) fn bind() -> Result<Self> {
         if unsafe { libc::geteuid() } == 0 {
-            bail!("Run Hex as a desktop user, never root");
+            bail!("Run Agent-Desk as a desktop user, never root");
         }
         let path = socket_path()?;
         private_directory(path.parent().unwrap())?;
         let lock = crate::desktop::instance::acquire("service")?;
         if let Ok(metadata) = fs::symlink_metadata(&path) {
             if !metadata.file_type().is_socket() || metadata.uid() != unsafe { libc::geteuid() } {
-                bail!("Refusing to replace an unmanaged Hex socket path");
+                bail!("Refusing to replace an unmanaged Agent-Desk socket path");
             }
             fs::remove_file(&path)?;
         }
@@ -792,7 +793,7 @@ fn serve_client(
                 &Reply {
                     version: VERSION,
                     status: None,
-                    error: Some("Unsupported Hex request; restart Hex".into()),
+                    error: Some("Unsupported Agent-Desk request; restart Agent-Desk".into()),
                     control: None,
                 },
             );
@@ -809,7 +810,7 @@ fn serve_client(
                 if show && caller == *session {
                     control
                         .try_send(Control::Activate(activation))
-                        .map_err(|_| eyre!("Hex is busy; try again"))
+                        .map_err(|_| eyre!("Agent-Desk is busy; try again"))
                 } else {
                     Ok(())
                 }
@@ -852,7 +853,7 @@ fn serve_client(
         let status = published.status.lock().unwrap().clone();
         let error = match (&result, &status) {
             (Err(error), _) => Some(format!("{error:#}")),
-            (Ok(()), None) => Some("Hex is starting; try again".into()),
+            (Ok(()), None) => Some("Agent-Desk is starting; try again".into()),
             (Ok(()), Some(_)) => None,
         };
         if write_frame(
@@ -912,13 +913,13 @@ pub(crate) fn notify(state: &str) {
 }
 
 fn unit() -> String {
-    std::env::var("HEX_SYSTEMD_UNIT")
+    std::env::var("AGENT_DESK_SYSTEMD_UNIT")
         .ok()
         .filter(|unit| !unit.is_empty())
         .unwrap_or_else(|| UNIT.into())
 }
 
-/// Whether launches start Hex through its systemd user unit: the unit is
+/// Whether launches start Agent-Desk through its systemd user unit: the unit is
 /// installed (by the installer or Home Manager) and this process uses the
 /// default data root, or explicitly names an isolated test unit.
 pub(crate) fn supervised() -> bool {
@@ -936,12 +937,12 @@ pub(crate) fn supervised() -> bool {
 }
 
 /// A custom data root uses only its supplied desktop environment, not the
-/// user's manager or discovered display sockets. `HEX_SYSTEMD_UNIT` opts an
+/// user's manager or discovered display sockets. `AGENT_DESK_SYSTEMD_UNIT` opts an
 /// isolated test into a managed unit explicitly. A root that names the
 /// default folder (Home Manager's unit sets it, #1140) is not custom.
 fn custom_root() -> bool {
-    std::env::var_os("HEX_SYSTEMD_UNIT").is_none()
-        && std::env::var_os("HEX_APPLICATION_SUPPORT_DIR")
+    std::env::var_os("AGENT_DESK_SYSTEMD_UNIT").is_none()
+        && std::env::var_os("AGENT_DESK_APPLICATION_SUPPORT_DIR")
             .is_some_and(|root| !default_root(Path::new(&root), dirs::data_dir().as_deref()))
 }
 
@@ -992,7 +993,7 @@ fn wait_ready() -> Result<Status> {
             Err(_) if Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
             Err(error) => {
                 return Err(eyre!(
-                    "Hex did not become ready ({error}); inspect `journalctl --user -u {}`",
+                    "Agent-Desk did not become ready ({error}); inspect `journalctl --user -u {}`",
                     unit()
                 ));
             }
@@ -1004,7 +1005,7 @@ fn wait_ready() -> Result<Status> {
 pub(crate) enum Launch {
     /// The running instance took the request.
     Forwarded,
-    /// Nothing runs and no unit supervises Hex: this process becomes it.
+    /// Nothing runs and no unit supervises Agent-Desk: this process becomes it.
     BecomeInstance,
 }
 
@@ -1025,7 +1026,7 @@ pub(crate) fn another_instance_answers() -> bool {
     false
 }
 
-/// `hex`, `hex app`, and `hex start`: forward to the running instance, start
+/// `agent-desk`, `agent-desk app`, and `agent-desk start`: forward to the running instance, start
 /// the systemd unit, or tell the caller to become the instance.
 pub(crate) fn launch(activation: &Activation, show: bool) -> Result<Launch> {
     let activate = || Request::Activate {
@@ -1040,7 +1041,9 @@ pub(crate) fn launch(activation: &Activation, show: bool) -> Result<Launch> {
             restart()?;
         }
         Ok(_) => {
-            bail!("Hex is running in another desktop session; run `hex quit`, then launch it again")
+            bail!(
+                "Agent-Desk is running in another desktop session; run `agent-desk quit`, then launch it again"
+            )
         }
         Err(RequestError::Outdated) if supervised() => restart()?,
         Err(RequestError::NotRunning) if supervised() => {
@@ -1063,9 +1066,11 @@ pub(crate) fn launch(activation: &Activation, show: bool) -> Result<Launch> {
 
 pub(crate) fn restart() -> Result<()> {
     if !supervised() {
-        bail!("Only Hex started by its systemd unit restarts; run `hex quit`, then launch it");
+        bail!(
+            "Only Agent-Desk started by its systemd unit restarts; run `agent-desk quit`, then launch it"
+        );
     }
-    // Without a desktop (over SSH), keep the one Hex last ran in.
+    // Without a desktop (over SSH), keep the one Agent-Desk last ran in.
     if graphical_session() || !session_environment_path()?.exists() {
         write_session_environment()?;
     }
@@ -1141,7 +1146,7 @@ fn session_environment_path() -> Result<PathBuf> {
 
 fn write_session_environment() -> Result<()> {
     if !graphical_session() {
-        bail!("Start Hex from your graphical login session");
+        bail!("Start Agent-Desk from your graphical login session");
     }
     let directory = crate::app_paths::support_dir()?;
     private_directory(&directory)?;
@@ -1221,7 +1226,7 @@ mod tests {
     #[test]
     fn version_one_replies_parse_as_outdated() {
         let reply: Reply = serde_json::from_str(
-            r#"{"version":1,"state":null,"error":"Hex service version mismatch; restart the service"}"#,
+            r#"{"version":1,"state":null,"error":"Agent-Desk service version mismatch; restart the service"}"#,
         )
         .unwrap();
         assert_eq!(reply.version, 1);
@@ -1269,16 +1274,16 @@ mod tests {
     fn the_default_folder_named_explicitly_is_not_a_custom_root() {
         let data = Path::new("/home/alex/.local/share");
         assert!(default_root(
-            Path::new("/home/alex/.local/share/hex"),
+            Path::new("/home/alex/.local/share/agent-desk"),
             Some(data)
         ));
         assert!(default_root(
-            Path::new("/home/alex/.local/share/hex/"),
+            Path::new("/home/alex/.local/share/agent-desk/"),
             Some(data)
         ));
-        assert!(!default_root(Path::new("/tmp/hex-test"), Some(data)));
+        assert!(!default_root(Path::new("/tmp/agent-desk-test"), Some(data)));
         assert!(!default_root(
-            Path::new("/home/alex/.local/share/hex"),
+            Path::new("/home/alex/.local/share/agent-desk"),
             None
         ));
     }

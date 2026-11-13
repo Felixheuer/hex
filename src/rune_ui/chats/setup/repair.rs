@@ -1,11 +1,11 @@
-//! "Hex needs your help for a moment": after setup was finished, the
+//! "Agent-Desk needs your help for a moment": after setup was finished, the
 //! onboarding comes back for what's missing now, and only for that
-//! (`desktop::setup_gaps`). Hex looks at launch and every few minutes, off
+//! (`desktop::setup_gaps`). Agent-Desk looks at launch and every few minutes, off
 //! the window's thread (`Job::Gaps`); when something is missing it opens the
 //! flow at the first page that fixes it, shows just the pages needed, says
 //! what changed at the top, moves on by itself once a page works, and
-//! closes after the last. Later puts it off until Hex next starts. What no
-//! page fixes is done with one action (the Hex voice downloads again).
+//! closes after the last. Later puts it off until Agent-Desk next starts. What no
+//! page fixes is done with one action (the Agent-Desk voice downloads again).
 //!
 //! A hold of the Action shortcut while something essential is missing says
 //! what (`crate::assistant::setup_gap`) and opens the guide, so it's found
@@ -18,7 +18,7 @@ use super::{Page, SetupFlow, go, open_at, page_done};
 use crate::app_settings::{AppSettings, HotkeySlot};
 use crate::desktop::setup_gaps::{self, Facts, Fix, Gap, SETUP_VERSION};
 
-/// How often Hex looks again while nothing shows.
+/// How often Agent-Desk looks again while nothing shows.
 pub(in crate::rune_ui) const CHECK_EVERY: Duration = Duration::from_secs(5 * 60);
 
 /// How long a page that works stays before the guide moves on, so the
@@ -31,7 +31,7 @@ pub(in crate::rune_ui) struct Watch {
     pub(in crate::rune_ui) gaps: Vec<Gap>,
     checked_at: Option<Instant>,
     checking: bool,
-    /// Later was pressed: the guide stays closed until Hex next starts.
+    /// Later was pressed: the guide stays closed until Agent-Desk next starts.
     pub(in crate::rune_ui) snoozed: bool,
 }
 
@@ -224,7 +224,7 @@ pub(in crate::rune_ui) fn open_from_hold(ui: &mut Ui, tx: &mut rune::Tx) {
     }
 }
 
-/// Later, in the guide: closed until Hex next starts.
+/// Later, in the guide: closed until Agent-Desk next starts.
 pub(in crate::rune_ui) fn snooze(ui: &mut Ui) {
     ui.chats.repair.snoozed = true;
     super::close(ui);

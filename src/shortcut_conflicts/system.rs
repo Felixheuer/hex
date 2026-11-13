@@ -3,12 +3,12 @@
 //! shortcut, and Siri's.
 //!
 //! macOS matches its symbolic hot keys in the WindowServer, before any
-//! session tap sees the key, so while one is on with Hex's chord Hex never
+//! session tap sees the key, so while one is on with Agent-Desk's chord Agent-Desk never
 //! sees the press. They live in `AppleSymbolicHotKeys`, one entry per ID
 //! (`{ enabled, value: { parameters: (character, key code, modifiers) } }`);
 //! an ID with no entry is on with its default chord. Apple Dictation's and
 //! Siri's own shortcuts (press a key twice, hold ⌘ Space) are saved in forms
-//! Hex doesn't read, so while either is on a shortcut on those keys is a
+//! Agent-Desk doesn't read, so while either is on a shortcut on those keys is a
 //! possible conflict.
 
 use std::collections::HashMap;
@@ -37,7 +37,7 @@ pub(crate) struct Entry {
     pub(crate) chord: Option<(u16, u64)>,
 }
 
-/// macOS's keyboard shortcuts Hex names, with the default chord of those on
+/// macOS's keyboard shortcuts Agent-Desk names, with the default chord of those on
 /// by default. Every other saved one that's on is checked too, as "a macOS
 /// keyboard shortcut".
 /// A key code and modifier flags.
@@ -312,7 +312,7 @@ impl System {
             certainty: Certainty::Taken,
             name: name.into(),
             description: format!(
-                "macOS uses {} for \"{name}\", so Hex never sees it. Turn that off in Keyboard settings › Keyboard Shortcuts, or choose another shortcut.",
+                "macOS uses {} for \"{name}\", so Agent-Desk never sees it. Turn that off in Keyboard settings › Keyboard Shortcuts, or choose another shortcut.",
                 keys(binding)
             ),
             fix: Fix::KeyboardSettings,

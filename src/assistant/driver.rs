@@ -1,13 +1,13 @@
 //! The desktop driver: what reads apps' Accessibility trees and acts in
-//! them for a task, behind Hex's guard. Two implement [`Backend`]:
+//! them for a task, behind Agent-Desk's guard. Two implement [`Backend`]:
 //!
 //! - **Cua Driver** (`cua-driver`, MIT, by Cua AI; the default): background
 //!   computer use in the way Codex works: element actions through
 //!   Accessibility, keys and clicks posted to the app's process, never the
-//!   person's pointer or front window. Hex installs one pinned, checksummed,
+//!   person's pointer or front window. Agent-Desk installs one pinned, checksummed,
 //!   notarized release into its own folder ([`cua`]) and runs it as
 //!   `cua-driver mcp --direct` inside the guard's process tree, so it acts
-//!   with Hex's own Accessibility and Screen Recording grants, with its
+//!   with Agent-Desk's own Accessibility and Screen Recording grants, with its
 //!   telemetry and update checks off.
 //! - **agent-desktop** (`agent-desktop mcp`): the earlier driver, kept as
 //!   the automatic fallback when Cua Driver is missing or fails to start.
@@ -63,10 +63,10 @@ pub trait Backend: Sync {
     /// The arguments that start its MCP server for a task (session, agent
     /// id, real input allowed).
     fn mcp_args(&self, session: Option<&str>, agent_id: &str, headed: bool) -> Vec<String>;
-    /// Environment its process gets beside Hex's agent environment.
+    /// Environment its process gets beside Agent-Desk's agent environment.
     fn env(&self) -> Vec<(String, String)>;
     /// Whether it keeps a multi-agent session with its own cursors
-    /// (`service::session`); Hex's overlay shows where a task acts either way.
+    /// (`service::session`); Agent-Desk's overlay shows where a task acts either way.
     fn sessions(&self) -> bool;
     /// What the prompt says about the desktop tools.
     fn intro(&self) -> &'static str;
@@ -121,7 +121,7 @@ impl Backend for CuaDriver {
 
     fn mcp_args(&self, _session: Option<&str>, _agent_id: &str, _headed: bool) -> Vec<String> {
         // `--direct`: the driver runs in this process tree, so it acts with
-        // Hex's grants; no daemon, no app of its own to grant.
+        // Agent-Desk's grants; no daemon, no app of its own to grant.
         vec!["mcp".into(), "--direct".into()]
     }
 

@@ -35,7 +35,7 @@ pub struct ContextSnapshot {
 /// The page refresh one capture owes. A shortcut's press starts it
 /// provisionally: a chord discards it without reading the browser, and only
 /// a capture that becomes real asks for one page read, whose finish then
-/// waits on it. A `hex dictation start` has no hold to judge and asks at once.
+/// waits on it. A `agent-desk dictation start` has no hold to judge and asks at once.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Debug, Default)]
 pub(crate) struct CaptureRefresh {
@@ -499,7 +499,7 @@ pub fn frontmost_bundle_path() -> Option<std::path::PathBuf> {
 
 /// The frontmost application's display name, without reading a page or a
 /// window title: a dictation mode's application name (Switch model
-/// with app). `None` when Hex itself owns the frontmost application, since
+/// with app). `None` when Agent-Desk itself owns the frontmost application, since
 /// its own window names no mode, or when macOS reports none.
 #[cfg(target_os = "macos")]
 pub fn frontmost_other_application() -> Option<String> {

@@ -1,6 +1,6 @@
-//! Hex's own GNOME custom keyboard shortcuts, for GNOME without a
+//! Agent-Desk's own GNOME custom keyboard shortcuts, for GNOME without a
 //! GlobalShortcuts portal (GNOME 46 and older, #781): entries in GNOME
-//! Settings › Keyboard › Custom Shortcuts that run `hex` commands. Hex owns
+//! Settings › Keyboard › Custom Shortcuts that run `agent-desk` commands. Agent-Desk owns
 //! only the entries under its own paths (`…/custom-keybindings/hex-*/`) and
 //! leaves every other custom shortcut alone. GNOME runs a custom shortcut on
 //! the key press only, so dictation toggles there.
@@ -14,7 +14,7 @@ use crate::linux::gsettings::{gsettings, string_list, string_list_text, string_t
 const LIST_SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys";
 const ENTRY_SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding";
 const BASE: &str = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/";
-/// Every entry Hex may write, by path name.
+/// Every entry Agent-Desk may write, by path name.
 const ENTRIES: [&str; 4] = [
     "hex-dictation",
     "hex-paste-last",
@@ -22,7 +22,7 @@ const ENTRIES: [&str; 4] = [
     "hex-annotate",
 ];
 
-/// One custom shortcut: its path name, its name in GNOME Settings, the `hex`
+/// One custom shortcut: its path name, its name in GNOME Settings, the `agent-desk`
 /// arguments it runs, and its GTK accelerator.
 #[derive(Debug, PartialEq)]
 struct Entry {
@@ -32,10 +32,10 @@ struct Entry {
     accelerator: String,
 }
 
-/// Whether Hex's entries should exist, or `None` while a starting listener
+/// Whether Agent-Desk's entries should exist, or `None` while a starting listener
 /// hasn't said how it gets its shortcuts. They stand in for a missing
 /// shortcuts portal only: once the portal (or X11) binds the shortcuts, an
-/// entry on the same key would also run `hex dictation toggle` on every press
+/// entry on the same key would also run `agent-desk dictation toggle` on every press
 /// and repeat, stopping the hold the portal just started (#931).
 pub(crate) fn wanted(requested: bool, shortcuts: Option<DesktopShortcuts>) -> Option<bool> {
     match shortcuts {
@@ -46,8 +46,8 @@ pub(crate) fn wanted(requested: bool, shortcuts: Option<DesktopShortcuts>) -> Op
     }
 }
 
-/// Writes Hex's entries for `settings`' shortcuts, starting `hex`, and
-/// removes Hex's entries it no longer has a shortcut for. An entry already
+/// Writes Agent-Desk's entries for `settings`' shortcuts, starting `agent-desk`, and
+/// removes Agent-Desk's entries it no longer has a shortcut for. An entry already
 /// listed keeps its key, which the person may have changed in GNOME Settings.
 pub(crate) fn install(settings: &AppSettings, hex: &std::path::Path) -> Result<()> {
     let entries = entries(settings);
@@ -66,13 +66,13 @@ pub(crate) fn install(settings: &AppSettings, hex: &std::path::Path) -> Result<(
     write_list(&kept)
 }
 
-/// Removes every entry Hex wrote.
+/// Removes every entry Agent-Desk wrote.
 pub(crate) fn remove() -> Result<()> {
     write_list(&[])
 }
 
-/// Lists Hex's entries `kept` (and every entry that isn't Hex's) in GNOME's
-/// custom shortcuts, and resets Hex's others.
+/// Lists Agent-Desk's entries `kept` (and every entry that isn't Agent-Desk's) in GNOME's
+/// custom shortcuts, and resets Agent-Desk's others.
 fn write_list(kept: &[&str]) -> Result<()> {
     let listed = string_list(&gsettings(&["get", LIST_SCHEMA, "custom-keybindings"])?);
     let ours = |path: &str| {
@@ -102,7 +102,7 @@ fn write_list(kept: &[&str]) -> Result<()> {
     Ok(())
 }
 
-/// Hex's entries for the shortcuts `settings` records. A shortcut GNOME
+/// Agent-Desk's entries for the shortcuts `settings` records. A shortcut GNOME
 /// can't bind (modifiers alone, a mouse button) gets none.
 fn entries(settings: &AppSettings) -> Vec<Entry> {
     let mut entries = Vec::new();
@@ -118,20 +118,20 @@ fn entries(settings: &AppSettings) -> Vec<Entry> {
     };
     add(
         "hex-dictation",
-        "Hex: dictation",
+        "Agent-Desk: dictation",
         "dictation toggle",
         Some(&settings.dictation_hotkey),
     );
     add(
         "hex-paste-last",
-        "Hex: paste last dictation",
+        "Agent-Desk: paste last dictation",
         "paste-last",
         settings.paste_last_hotkey.as_ref(),
     );
     // Only while its key is bound.
     add(
         "hex-typed-text",
-        "Hex: transform typed text",
+        "Agent-Desk: transform typed text",
         "typed-text",
         settings.active_typed_text_hotkey(),
     );
@@ -139,7 +139,7 @@ fn entries(settings: &AppSettings) -> Vec<Entry> {
     if settings.capture.enabled {
         add(
             "hex-annotate",
-            "Hex: annotate",
+            "Agent-Desk: annotate",
             "annotate toggle",
             Some(&settings.capture.hotkey),
         );
@@ -280,13 +280,13 @@ mod tests {
         assert_eq!(entries[0].arguments, "dictation toggle");
         assert!(entries.iter().all(|entry| entry.id != "hex-paste-last"));
         assert_eq!(
-            shell_word("/home/a/.local/bin/hex"),
-            "/home/a/.local/bin/hex"
+            shell_word("/home/a/.local/bin/agent-desk"),
+            "/home/a/.local/bin/agent-desk"
         );
         assert_eq!(shell_word("/home/a b/hex"), "'/home/a b/hex'");
     }
 
-    /// Transform typed text gets a `hex typed-text` entry only while its lab
+    /// Transform typed text gets a `agent-desk typed-text` entry only while its lab
     /// is on and its shortcut is bound; paste-last stays as it was.
     #[test]
     fn typed_text_joins_the_commands_only_while_its_lab_is_on() {

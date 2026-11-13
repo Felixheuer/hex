@@ -1,4 +1,4 @@
-//! The listener's programmatic dictations (`hex dictation start`, the local
+//! The listener's programmatic dictations (`agent-desk dictation start`, the local
 //! API) when the microphone or a cancel ends them early.
 
 use super::*;

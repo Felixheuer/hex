@@ -1,6 +1,6 @@
 //! One call through the guard: `Guard::call` checks a tool call against
 //! the task's lane, leases, and pause, takes the real hands when it acts
-//! with them, forwards it to the desktop driver, and adds Hex's notes to
+//! with them, forwards it to the desktop driver, and adds Agent-Desk's notes to
 //! the result.
 
 use std::time::{Duration, Instant};
@@ -51,7 +51,7 @@ impl<D: Desktop> Guard<D> {
             && let Some(content) = result.get_mut("content").and_then(Value::as_array_mut)
         {
             for note in self.notes.drain(..) {
-                content.push(json!({"type": "text", "text": format!("Hex: {note}")}));
+                content.push(json!({"type": "text", "text": format!("Agent-Desk: {note}")}));
             }
         }
         result
@@ -66,7 +66,7 @@ impl<D: Desktop> Guard<D> {
         Self::want_bounds(tool, args);
         let kind = policy::kind(tool, args);
         if self.reader && !kind.reads_alone() {
-            return Err(failure("Hex: this call isn't one a reader runs."));
+            return Err(failure("Agent-Desk: this call isn't one a reader runs."));
         }
         if let Some(app) = text(args, "app")
             && self.blocked(&app)

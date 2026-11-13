@@ -4,7 +4,7 @@
 //!
 //! fnm puts a per-shell "multishell" directory first on PATH that is gone
 //! once that shell closes; it is a link to an alias (`aliases/default`), and
-//! that alias is what Hex keeps.
+//! that alias is what Agent-Desk keeps.
 //!
 //! On Windows there is no login shell to ask: the PATH comes from the
 //! registry (the machine's, then the person's, as a new terminal gets it),
@@ -93,7 +93,7 @@ fn account_shell() -> Option<PathBuf> {
 }
 
 /// Windows: the PATH a new terminal would get (machine, then user, from
-/// the registry), then Hex's own. Names are found in [`dirs`].
+/// the registry), then Agent-Desk's own. Names are found in [`dirs`].
 #[cfg(windows)]
 fn ask_shell() -> Shell {
     let mut path = registry_path();
@@ -419,7 +419,7 @@ pub fn find(name: &str) -> Option<PathBuf> {
 }
 
 /// The extensions tried, in groups: programs, then batch files. From
-/// PATHEXT, less scripts Hex can't start as a program.
+/// PATHEXT, less scripts Agent-Desk can't start as a program.
 #[cfg(windows)]
 fn windows_extensions() -> [Vec<String>; 2] {
     let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
@@ -477,7 +477,7 @@ pub fn is_executable(path: &Path) -> bool {
     }
 }
 
-/// A `PATH` value for an agent Hex starts: [`dirs`], plus the directories
+/// A `PATH` value for an agent Agent-Desk starts: [`dirs`], plus the directories
 /// of `extra` executables (an agent found outside them).
 pub fn path_value(extra: &[PathBuf]) -> String {
     let mut dirs = dirs();

@@ -1,10 +1,10 @@
 //! Floating meeting capsules on GNOME (#1274). A Wayland compositor
 //! without layer-shell (GNOME) has no surface for an overlay that takes
 //! clicks, so the recording offer and recording capsule can't float there and
-//! Hex opens the Meetings pane instead (#1271). With this explicit opt-in, Rune
+//! Agent-Desk opens the Meetings pane instead (#1271). With this explicit opt-in, Rune
 //! opens them on XWayland as override-redirect windows that take clicks only
 //! on their buttons and never keyboard focus, and only while this user's
-//! XWayland already runs: Hex never starts it.
+//! XWayland already runs: Agent-Desk never starts it.
 
 /// Whether the meeting capsules may float on XWayland, read as each capsule
 /// shows.
@@ -15,7 +15,7 @@ pub(crate) fn on_xwayland() -> bool {
 /// Whether a Labs overlay this user opted into may float on XWayland: only on
 /// a Wayland compositor without layer-shell (GNOME), and only while this
 /// user's XWayland already runs. Each check runs only when the ones before
-/// pass, so with the lab off Hex never looks for layer-shell or XWayland.
+/// pass, so with the lab off Agent-Desk never looks for layer-shell or XWayland.
 pub(super) fn on_xwayland_for(opted_in: bool) -> bool {
     floats_on_xwayland(
         opted_in,

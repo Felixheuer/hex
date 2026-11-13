@@ -1,5 +1,5 @@
 //! The onboarding's Privacy page (where your words go, how freely the
-//! assistant acts, the apps it never touches) and the optional "Tell Hex
+//! assistant acts, the apps it never touches) and the optional "Tell Agent-Desk
 //! about you" page.
 
 use rune::{El, col, icon, row, text};
@@ -189,7 +189,7 @@ pub(super) fn privacy(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     )
 }
 
-/// "Tell Hex about you": company, website, and colleagues, all optional.
+/// "Tell Agent-Desk about you": company, website, and colleagues, all optional.
 pub(super) fn about(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     let k = p.k;
     let field = |index: usize, key: &str, label: &str, hint: &str| {
@@ -237,7 +237,7 @@ pub(super) fn about(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     page(
         p,
         "about",
-        tr("Tell Hex about you"),
+        tr("Tell Agent-Desk about you"),
         lead(
             p,
             tr(

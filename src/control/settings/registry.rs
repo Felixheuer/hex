@@ -1,4 +1,4 @@
-//! The `hex settings` key registry: every key, its kind, the retired names,
+//! The `agent-desk settings` key registry: every key, its kind, the retired names,
 //! and the capability each key needs.
 
 use crate::app_settings::HotkeySlot;
@@ -78,7 +78,7 @@ const fn read_only(key: &'static str, kind: Kind, about: &'static str, why: &'st
 }
 
 const UNIT: Kind = Kind::Number { min: 0.0, max: 1.0 };
-const MODEL_CHANGE: &str = "change the transcription model with `hex model use`";
+const MODEL_CHANGE: &str = "change the transcription model with `agent-desk model use`";
 
 /// Choice keys whose values are numbers in settings.json.
 pub(super) const NUMERIC_CHOICES: [&str; 3] = [
@@ -124,7 +124,7 @@ pub(super) const KEYS: &[Key] = &[
             "analog",
             "thock",
         ]),
-        "Which sounds play; classic, Hex's original tones, is the default",
+        "Which sounds play; classic, Agent-Desk's original tones, is the default",
     ),
     optional(
         "microphone",
@@ -180,7 +180,7 @@ pub(super) const KEYS: &[Key] = &[
         "cancel_hotkey",
         Kind::Shortcut(HotkeySlot::Cancel),
         "Toggle mode's cancel shortcut, Escape by default: discards the recording, \
-         nothing pasted or saved. Hex takes the key only while a toggled recording runs",
+         nothing pasted or saved. Agent-Desk takes the key only while a toggled recording runs",
     ),
     optional(
         "raw_dictation_hotkey",
@@ -392,7 +392,7 @@ pub(super) const KEYS: &[Key] = &[
     optional(
         "assistant.browser_import_profile",
         Kind::Text,
-        "The Chrome profile whose logins Hex's browsers take over daily, such as Default; none takes none (macOS)",
+        "The Chrome profile whose logins Agent-Desk's browsers take over daily, such as Default; none takes none (macOS)",
     ),
     key(
         "assistant.background_browser",
@@ -451,7 +451,7 @@ pub(super) const KEYS: &[Key] = &[
     key(
         "assistant.conversation_seconds",
         Kind::Integer { min: 0, max: 60 },
-        "Follow-up, listen: after a spoken answer Hex listens this long for a follow-up \
+        "Follow-up, listen: after a spoken answer Agent-Desk listens this long for a follow-up \
          without the shortcut; 0 turns conversation mode off (assistant.follow_up_seconds \
          is the longer hold-to-continue window) (macOS)",
     ),
@@ -478,7 +478,7 @@ pub(super) const KEYS: &[Key] = &[
     key(
         "show_dock_icon",
         Kind::Bool,
-        "Keep Hex in the Dock when Settings is closed (macOS)",
+        "Keep Agent-Desk in the Dock when Settings is closed (macOS)",
     ),
     read_only(
         "transcription.model",
@@ -496,7 +496,7 @@ pub(super) const KEYS: &[Key] = &[
         "transcription_recents",
         Kind::Json,
         "Recently used models, each with its language",
-        "Hex records these as you switch models",
+        "Agent-Desk records these as you switch models",
     ),
     key(
         "vocabulary_boost",
@@ -556,7 +556,7 @@ pub(super) const KEYS: &[Key] = &[
     key(
         "preferences.caps_lock",
         Kind::Choice(&["off", "steady", "slow_blink"]),
-        "Caps Lock as a dictation key; its light stays on or blinks slowly while Hex records (macOS)",
+        "Caps Lock as a dictation key; its light stays on or blinks slowly while Agent-Desk records (macOS)",
     ),
     key(
         "preferences.appearance",
@@ -566,12 +566,12 @@ pub(super) const KEYS: &[Key] = &[
     key(
         "preferences.hide_menu_bar_icon",
         Kind::Bool,
-        "Hide Hex's menu bar icon while nothing records; shortcuts keep working (macOS)",
+        "Hide Agent-Desk's menu bar icon while nothing records; shortcuts keep working (macOS)",
     ),
     key(
         "preferences.quit_closes_window",
         Kind::Bool,
-        "⌘Q closes the window instead of quitting Hex, so the assistant and dictation keep running; the menu bar icon still quits (macOS, on by default)",
+        "⌘Q closes the window instead of quitting Agent-Desk, so the assistant and dictation keep running; the menu bar icon still quits (macOS, on by default)",
     ),
     key(
         "preferences.speakers_only",
@@ -591,7 +591,7 @@ pub(super) const KEYS: &[Key] = &[
     optional(
         "meetings.output_folder",
         Kind::Path,
-        "Folder for meeting Markdown; none uses ~/Documents/Hex Meetings",
+        "Folder for meeting Markdown; none uses ~/Documents/Agent-Desk Meetings",
     ),
     key(
         "meetings.summaries",
@@ -601,7 +601,7 @@ pub(super) const KEYS: &[Key] = &[
     optional(
         "meetings.opencode_model",
         Kind::Text,
-        "The OpenCode provider/model meeting notes use when meetings.summaries is opencode; none lets Hex pick a fast model",
+        "The OpenCode provider/model meeting notes use when meetings.summaries is opencode; none lets Agent-Desk pick a fast model",
     ),
     key(
         "meetings.show_recording_indicator",
@@ -652,7 +652,7 @@ pub(super) const KEYS: &[Key] = &[
     key(
         "experimental.hex_microphone",
         Kind::Bool,
-        "Developer: the Voice Filter and its Hex Microphone virtual input (dev builds)",
+        "Developer: the Voice Filter and its Agent-Desk Microphone virtual input (dev builds)",
     ),
     key(
         "experimental.hex_microphone_mode",
@@ -667,22 +667,22 @@ pub(super) const KEYS: &[Key] = &[
             "underwater",
             "far",
         ]),
-        "What Hex Microphone does to your voice while you dictate",
+        "What Agent-Desk Microphone does to your voice while you dictate",
     ),
     key(
         "experimental.hex_microphone_comfort_noise",
         Kind::Bool,
-        "Hex Microphone fills silence with soft noise",
+        "Agent-Desk Microphone fills silence with soft noise",
     ),
     key(
         "experimental.hex_microphone_strength",
         UNIT,
-        "How strongly Hex Microphone applies its filter, from 0 to 1",
+        "How strongly Agent-Desk Microphone applies its filter, from 0 to 1",
     ),
     key(
         "enable_on_launch",
         Kind::Bool,
-        "Start listening when Hex opens (Windows and Linux)",
+        "Start listening when Agent-Desk opens (Windows and Linux)",
     ),
     key(
         "paste_with_shift",
@@ -692,7 +692,7 @@ pub(super) const KEYS: &[Key] = &[
     key(
         "gnome_keyboard_shortcuts",
         Kind::Bool,
-        "Hex's own GNOME custom keyboard shortcuts, for GNOME without a shortcuts portal (Linux)",
+        "Agent-Desk's own GNOME custom keyboard shortcuts, for GNOME without a shortcuts portal (Linux)",
     ),
     key(
         "share_dictation_shortcut",
@@ -744,7 +744,7 @@ pub(super) const CAPTURE_KEYS: &[Key] = &[
     key(
         "capture.transcriber",
         Kind::Choice(&["parakeet", "apple"]),
-        "What transcribes a capture's narration: Hex's loaded model or Apple's",
+        "What transcribes a capture's narration: Agent-Desk's loaded model or Apple's",
     ),
     optional(
         "capture.folder",
@@ -775,7 +775,7 @@ pub(super) const CAPTURE_KEYS: &[Key] = &[
     key(
         "capture.show_overlays_in_recordings",
         Kind::Bool,
-        "Let screen recordings, captures included, show Hex's capsules, ink, and HUD (for demos)",
+        "Let screen recordings, captures included, show Agent-Desk's capsules, ink, and HUD (for demos)",
     ),
 ];
 #[cfg(not(hex_capture))]
@@ -788,41 +788,7 @@ const SUMMARIES: Kind = Kind::Choice(&["off", "mac", "opencode"]);
 #[cfg(not(target_os = "macos"))]
 const SUMMARIES: Kind = Kind::Choice(&["off", "opencode"]);
 
-/// Keys that were replaced, and what replaced them.
-pub(super) const RETIRED: &[(&str, &str)] = &[
-    (
-        "meetings.summarize_with_apple_intelligence",
-        "meetings.summaries mac",
-    ),
-    (
-        "meetings.summarize_with_opencode",
-        "meetings.summaries opencode",
-    ),
-];
-
-/// Keys that were renamed, and their new names: `hex settings` takes the
-/// old name for the new one, as `settings.json` does (serde aliases).
-pub(super) const ALIASES: &[(&str, &str)] = &[
-    (
-        "assistant.background_front_window",
-        "assistant.full_control",
-    ),
-    ("assistant.agent_space", "assistant.park_windows"),
-    (
-        "assistant.physical_input",
-        "assistant.background_physical_input",
-    ),
-];
-
-/// The current name for `key`: its new name if it was renamed, else itself.
-pub(super) fn canonical(key: &str) -> &str {
-    ALIASES
-        .iter()
-        .find(|(old, _)| *old == key)
-        .map_or(key, |(_, new)| new)
-}
-
-/// Settings that act only where Hex has a capability (by its
+/// Settings that act only where Agent-Desk has a capability (by its
 /// `rune_ui::capabilities` name), the same one that shows their row in the
 /// window. The first matching prefix decides.
 pub(super) const NEEDS: &[(&str, &str)] = &[

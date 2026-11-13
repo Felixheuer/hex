@@ -3,10 +3,10 @@
 //! While `labs.annotate_replay` and `capture.enabled` are both on (and
 //! `SCClipBufferingOutput` exists on the running macOS), a single background
 //! `capture-replay` worker keeps one `SCStream` + `SCClipBufferingOutput`
-//! open on the focused/main display with Hex's own overlays excluded. While
+//! open on the focused/main display with Agent-Desk's own overlays excluded. While
 //! the Lab is off, no worker thread, `SCStream`, or display listener exists.
 //!
-//! `hex capture replay` exports the last 15 s into `<bundle>/recording.mp4`
+//! `agent-desk capture replay` exports the last 15 s into `<bundle>/recording.mp4`
 //! and feeds it through the normal Annotate bundle pipeline (`capture.json`,
 //! `scrawl.json`, keyframes, `contact-sheet.png`, clipboard copy, and router).
 //! Holding `capture.replay_hotkey` freezes the 15 s clip at the moment of the
@@ -241,7 +241,7 @@ impl Controller {
         }
     }
 
-    /// `hex capture replay`: exports the last 15 s immediately with no audio,
+    /// `agent-desk capture replay`: exports the last 15 s immediately with no audio,
     /// returning the queued bundle path on success or a `ControlReply` refusal.
     pub fn export_cli(
         &mut self,
@@ -294,7 +294,7 @@ impl Controller {
                 return Err(denied);
             }
             let Some(jobs) = finisher else {
-                return Err(ControlReply::error("busy", "Hex is stopping"));
+                return Err(ControlReply::error("busy", "Agent-Desk is stopping"));
             };
             if self.worker.is_none() {
                 match start_worker() {
@@ -605,7 +605,7 @@ impl Controller {
 #[cfg(target_os = "macos")]
 fn requested_replay_duration_secs() -> f64 {
     if crate::dev_build::is_dev_build()
-        && let Ok(raw) = std::env::var("HEX_REPLAY_DURATION_SECS")
+        && let Ok(raw) = std::env::var("AGENT_DESK_REPLAY_DURATION_SECS")
         && let Ok(parsed) = raw.parse::<f64>()
     {
         return parsed;
@@ -622,7 +622,7 @@ fn check_screen_permission() -> Option<ControlReply> {
         super::screen_access::ScreenAccess::Allowed => None,
         super::screen_access::ScreenAccess::NeedsRestart => Some(ControlReply::error(
             "permission",
-            "Screen Recording turns on after Hex restarts",
+            "Screen Recording turns on after Agent-Desk restarts",
         )),
         super::screen_access::ScreenAccess::Off => {
             super::permissions::report_capture(
@@ -631,7 +631,7 @@ fn check_screen_permission() -> Option<ControlReply> {
             );
             Some(ControlReply::error(
                 "permission",
-                "Screen Recording is off for Hex",
+                "Screen Recording is off for Agent-Desk",
             ))
         }
     }

@@ -1,4 +1,4 @@
-//! Shortcut text for `hex settings`: reading and writing the modifier-plus-key
+//! Shortcut text for `agent-desk settings`: reading and writing the modifier-plus-key
 //! form, and why a bare special key still needs its setting.
 
 use crate::app_settings::{
@@ -26,7 +26,7 @@ pub(super) fn check_shortcut(
         return Err(crate::control::ControlError::new(
             "shortcut-in-use",
             format!(
-                "{} is already in use by another Hex shortcut",
+                "{} is already in use by another Agent-Desk shortcut",
                 format_hotkey(binding)
             ),
         ));

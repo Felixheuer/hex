@@ -31,7 +31,7 @@ pub(super) fn shown() -> bool {
 pub(super) fn install<S: 'static>(app: &mut rune::App<S>) -> OverlayHandle<Enlarged> {
     let spec = OverlaySpec {
         interactive: true,
-        ..OverlaySpec::new("Hex live browser", enlarged::SIZE, enlarged::view)
+        ..OverlaySpec::new("Agent-Desk live browser", enlarged::SIZE, enlarged::view)
     }
     .options(rune::OverlayOptions {
         keys: KeyPolicy::OnDemand,

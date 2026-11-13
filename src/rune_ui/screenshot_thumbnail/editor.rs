@@ -704,7 +704,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
     use rune::{
         DisplayTarget, KeyPolicy, OverlayInput, OverlayOptions, OverlayPlacement, OverlaySpec,
     };
-    let spec = OverlaySpec::new("Hex screenshot editor", (1440.0, 900.0), view::view)
+    let spec = OverlaySpec::new("Agent-Desk screenshot editor", (1440.0, 900.0), view::view)
         .options(OverlayOptions {
             placement: Some(OverlayPlacement::FullScreen),
             display: DisplayTarget::UnderPointer,

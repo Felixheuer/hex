@@ -1,7 +1,7 @@
-//! Runs tasks against an [`App`] (the running Hex, or a fake in tests):
+//! Runs tasks against an [`App`] (the running Agent-Desk, or a fake in tests):
 //! asks each one, follows its conversation until it ends, reads the desktop
 //! read-only, and checks the result. The app, the desktop, and the clock
-//! are injected, so the whole loop runs in unit tests without Hex.
+//! are injected, so the whole loop runs in unit tests without Agent-Desk.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -33,9 +33,9 @@ impl Conv {
     }
 }
 
-/// The running Hex, as the bench uses it.
+/// The running Agent-Desk, as the bench uses it.
 pub trait App {
-    /// The app's version (`hex status`).
+    /// The app's version (`agent-desk status`).
     fn version(&mut self) -> Result<String>;
     /// Asks `text` (continuing `conversation`), as the overlay would with
     /// no window in front; the conversation's id.
@@ -76,7 +76,7 @@ pub struct Options {
     pub langs: Vec<Lang>,
     pub allow_front: bool,
     pub poll_ms: u64,
-    /// `~/Documents/Hex/bench/<run>`: every task's folder is inside it.
+    /// `~/Documents/Agent-Desk/bench/<run>`: every task's folder is inside it.
     pub run_dir: PathBuf,
     pub run_id: String,
     /// How long to wait for a background job to show it runs.

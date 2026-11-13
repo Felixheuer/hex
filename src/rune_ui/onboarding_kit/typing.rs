@@ -1,4 +1,4 @@
-//! `"Without Hex"` as one timeline, played from a [`Script`]: a scene file
+//! `"Without Agent-Desk"` as one timeline, played from a [`Script`]: a scene file
 //! in `scenes/` (syntax in `scenes/README.md`). In the shipping scene Jay
 //! (CEO) is presenting to the investors and asks whether we're ready to
 //! ship; you type the answer by hand, slow and shaky, then frantic, and every
@@ -32,13 +32,13 @@ pub(crate) struct Timing {
     pub(crate) panic_pace: f64,
     /// The silence after the accidental send, before `"Read"`.
     pub(crate) freeze: f64,
-    /// `"With Hex"`: how far apart the cheers land.
+    /// `"With Agent-Desk"`: how far apart the cheers land.
     pub(crate) cheer: f64,
-    /// How long the removal holds before `"With Hex"`.
+    /// How long the removal holds before `"With Agent-Desk"`.
     pub(crate) fired: f64,
-    /// `"With Hex"`: from the words landing to the reply sending.
+    /// `"With Agent-Desk"`: from the words landing to the reply sending.
     pub(crate) hex_send: f64,
-    /// `"With Hex"`: from the send to a first reply that types first.
+    /// `"With Agent-Desk"`: from the send to a first reply that types first.
     pub(crate) hex_reply: f64,
 }
 
@@ -759,7 +759,7 @@ impl Scene {
         &self.strokes
     }
 
-    /// The whole scene, from start to the cut to `"With Hex"`.
+    /// The whole scene, from start to the cut to `"With Agent-Desk"`.
     pub(crate) fn duration(&self) -> f64 {
         self.end
     }
@@ -1059,7 +1059,7 @@ impl Scene {
     }
 }
 
-/// How long `"Without Hex"` may run, and how many tapbacks a line holds.
+/// How long `"Without Agent-Desk"` may run, and how many tapbacks a line holds.
 #[cfg(test)]
 pub(crate) const LENGTH: std::ops::RangeInclusive<f64> = 26.0..=36.0;
 #[cfg(test)]
@@ -1073,7 +1073,7 @@ pub(crate) fn check(t: &Timing, script: &'static Script<'static>) -> Vec<String>
     let mut problems = Vec::new();
     if !LENGTH.contains(&scene.duration()) {
         problems.push(format!(
-            "\"Without Hex\" runs {:.1} s; keep it between {} and {} s",
+            "\"Without Agent-Desk\" runs {:.1} s; keep it between {} and {} s",
             scene.duration(),
             LENGTH.start(),
             LENGTH.end()
@@ -1214,7 +1214,7 @@ mod tests {
         let t = Timing::default();
         for (name, src) in scene_script::SCENES {
             let problems = validate(src);
-            // C and C-plus keep v3's approved 22-second "Without Hex".
+            // C and C-plus keep v3's approved 22-second "Without Agent-Desk".
             let problems: Vec<_> = problems
                 .into_iter()
                 .filter(|p| {
@@ -1248,12 +1248,12 @@ mod tests {
         assert_eq!(a.typos(), 5);
     }
 
-    /// `HEX_VALIDATE_SCENES=<folder> scripts/check validate_scene_folder
+    /// `AGENT_DESK_VALIDATE_SCENES=<folder> scripts/check validate_scene_folder
     /// -- --nocapture` checks every `.scene` in a folder and prints a verdict
     /// each; without it, nothing runs.
     #[test]
     fn validate_scene_folder() {
-        let Ok(dir) = std::env::var("HEX_VALIDATE_SCENES") else {
+        let Ok(dir) = std::env::var("AGENT_DESK_VALIDATE_SCENES") else {
             return;
         };
         let mut paths: Vec<_> = std::fs::read_dir(&dir)

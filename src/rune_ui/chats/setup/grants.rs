@@ -1,5 +1,5 @@
 //! The permission rows' state: whether macOS reports each grant, whether
-//! it waits for a restart, and asking for one (System Settings with Hex's
+//! it waits for a restart, and asking for one (System Settings with Agent-Desk's
 //! floating guide, or agent-desktop's own).
 
 use super::*;
@@ -51,7 +51,7 @@ pub(in crate::rune_ui) fn grant_state(ui: &Ui, flow: &SetupFlow, grant: Grant) -
     }
 }
 
-/// Whether macOS wants Hex restarted before `grant` applies.
+/// Whether macOS wants Agent-Desk restarted before `grant` applies.
 pub(in crate::rune_ui) fn needs_restart(ui: &Ui, grant: Grant) -> bool {
     let state = match grant {
         Grant::Microphone => ui.platform.permissions.microphone,
@@ -70,8 +70,8 @@ pub(in crate::rune_ui) fn needs_restart(ui: &Ui, grant: Grant) -> bool {
     state == PermissionState::NeedsRestart
 }
 
-/// Asks for a permission: Hex's open their System Settings page with
-/// Hex's floating guide, agent-desktop's open its own guide. The row waits
+/// Asks for a permission: Agent-Desk's open their System Settings page with
+/// Agent-Desk's floating guide, agent-desktop's open its own guide. The row waits
 /// until macOS reports it on.
 pub(in crate::rune_ui) fn allow(ui: &mut Ui, grant: Grant) {
     if let Some(flow) = ui.chats.setup.as_mut()
@@ -80,7 +80,7 @@ pub(in crate::rune_ui) fn allow(ui: &mut Ui, grant: Grant) {
         flow.asked.push(grant);
     }
     if needs_restart(ui, grant) {
-        // One click: Hex relaunches itself and reopens on this page.
+        // One click: Agent-Desk relaunches itself and reopens on this page.
         resume::before_restart(ui);
         ui.ask(PlatformRequest::Permission(PermissionAction::Restart));
         return;

@@ -46,7 +46,7 @@ enum HexTheme {
     }
 }
 
-/// Critically damped `(duration, bounce: 0)` springs shared across Hex iPhone surfaces.
+/// Critically damped `(duration, bounce: 0)` springs shared across Agent-Desk iPhone surfaces.
 enum HexMotion {
     static let stageDuration: Double = 0.28
     static let settleDuration: Double = 0.30
@@ -195,7 +195,7 @@ struct HexStatusDot: View {
     }
 }
 
-/// Hex's concentric-hexagon brand mark (`site/src/App.tsx`).
+/// Agent-Desk's concentric-hexagon brand mark (`site/src/App.tsx`).
 struct HexMarkView: View {
     var size: CGFloat = 20
     var color: Color = HexTheme.textBase

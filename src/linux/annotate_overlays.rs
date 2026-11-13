@@ -2,7 +2,7 @@
 //! (GNOME) gives Rune no surface for Annotate's capsule or ink, so a capture
 //! records but shows neither. With this explicit opt-in they open on
 //! XWayland as override-redirect windows that take the pointer and never
-//! keyboard focus, and only while this user's XWayland already runs: Hex
+//! keyboard focus, and only while this user's XWayland already runs: Agent-Desk
 //! never starts it. The capsule, ink, and the picker's overlay share the
 //! meeting capsules' decision (`linux::meeting_capsules`).
 

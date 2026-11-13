@@ -17,4 +17,4 @@ runs:
     - shell: bash
       run: bash "${GITHUB_ACTION_PATH//\\//}/../verify-artifacts.sh" "$RUNNER_TEMP/in"
       env:
-        HEX_DIGESTS: ${{ inputs.digests }}
+        AGENT_DESK_DIGESTS: ${{ inputs.digests }}

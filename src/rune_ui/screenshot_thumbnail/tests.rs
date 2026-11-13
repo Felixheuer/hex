@@ -13,7 +13,7 @@ fn shot(size: [u32; 2]) -> Shot {
     );
     image.wait().unwrap();
     Shot {
-        path: PathBuf::from("/tmp/Hex Screenshot.png"),
+        path: PathBuf::from("/tmp/Agent-Desk Screenshot.png"),
         image,
         size,
         recording: None,
@@ -48,7 +48,7 @@ fn desktop(size: [u32; 2], hue: u8) -> Shot {
         std::thread::yield_now();
     }
     Shot {
-        path: PathBuf::from("/tmp/Hex Screenshot.png"),
+        path: PathBuf::from("/tmp/Agent-Desk Screenshot.png"),
         image,
         size,
         recording: None,
@@ -114,7 +114,7 @@ fn render(gpu: &rune::render::Gpu, cards: Cards, dark: bool) -> (u32, u32, Vec<u
 
 /// A card at rest, under the pointer, holding a recording's length, and
 /// three stacked, against `tests/golden/screenshot-thumbnail-*.png`;
-/// `HEX_UPDATE_GOLDENS=1` rewrites them and `HEX_GOLDEN_RENDERS` also
+/// `AGENT_DESK_UPDATE_GOLDENS=1` rewrites them and `AGENT_DESK_GOLDEN_RENDERS` also
 /// writes them there. Without a GPU adapter it skips. Checked on Linux
 /// only, like every golden.
 #[test]
@@ -138,14 +138,14 @@ fn thumbnail_goldens() {
             };
             let (w, h, pixels) = render(&gpu, cards, dark);
             let name = name_theme;
-            if let Some(renders) = std::env::var_os("HEX_GOLDEN_RENDERS") {
+            if let Some(renders) = std::env::var_os("AGENT_DESK_GOLDEN_RENDERS") {
                 let renders = std::path::PathBuf::from(renders);
                 std::fs::create_dir_all(&renders).unwrap();
                 rune::render::write_png(&renders.join(format!("{name}.png")), w, h, &pixels)
                     .unwrap();
             }
             let path = folder.join(format!("{name}.png"));
-            if std::env::var_os("HEX_UPDATE_GOLDENS").is_some() {
+            if std::env::var_os("AGENT_DESK_UPDATE_GOLDENS").is_some() {
                 rune::render::write_png(&path, w, h, &pixels).unwrap();
                 continue;
             }
@@ -174,14 +174,14 @@ fn thumbnail_goldens() {
     assert!(misses.is_empty(), "{}", misses.join("\n"));
 }
 
-/// `HEX_SCREENSHOT_FRAMES=<folder>` writes, at 60 fps and dark, a card
+/// `AGENT_DESK_SCREENSHOT_FRAMES=<folder>` writes, at 60 fps and dark, a card
 /// growing in from a window shot's rectangle and leaving (`thumbnail/`),
 /// and three captures landing one after another, the older cards making
 /// room, then the middle one closing (`stack/`). Without the variable or a
 /// GPU adapter it does nothing.
 #[test]
 fn thumbnail_frames() {
-    let Some(folder) = std::env::var_os("HEX_SCREENSHOT_FRAMES") else {
+    let Some(folder) = std::env::var_os("AGENT_DESK_SCREENSHOT_FRAMES") else {
         return;
     };
     let Ok(gpu) = rune::render::Gpu::try_new(rune::render::Gpu::instance(), None) else {

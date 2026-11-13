@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn the_language_is_told_by_common_words() {
-        assert_eq!(language_of("Hex Assistent ist bereit"), Some("de"));
+        assert_eq!(language_of("Agent-Desk Assistent ist bereit"), Some("de"));
         assert_eq!(
             language_of("Die Datei ist in deinem Downloads-Ordner."),
             Some("de")

@@ -157,7 +157,7 @@ thread_local! {
 }
 
 /// Starts observing input-source changes for the app's life; later calls do
-/// nothing. Hex rebuilds its keyboard layout snapshot on every change.
+/// nothing. Agent-Desk rebuilds its keyboard layout snapshot on every change.
 pub(crate) fn start(mtm: MainThreadMarker) {
     WATCHER.with(|slot| {
         slot.borrow_mut().get_or_insert_with(|| Watcher::new(mtm));
@@ -206,7 +206,7 @@ impl Watcher {
             mtm,
         };
         // SAFETY: the boxed flags have a stable address and outlive registration.
-        // 4 = DeliverImmediately, including when Hex is in the background.
+        // 4 = DeliverImmediately, including when Agent-Desk is in the background.
         unsafe {
             CFNotificationCenterAddObserver(
                 CFNotificationCenterGetDistributedCenter(),

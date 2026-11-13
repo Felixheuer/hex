@@ -134,7 +134,7 @@ struct CapabilitiesResponse {
 #[derive(Default)]
 pub struct LocalApiOptions {
     pub developer_control: Option<SyncSender<crate::control::developer_control::DeveloperCall>>,
-    /// The `hex` control commands (`POST /control`).
+    /// The `agent-desk` control commands (`POST /control`).
     pub control: Option<SyncSender<crate::control::ControlCall>>,
     /// Running-app dictation (`/dictations`): the macOS recognition loop or
     /// the Linux or Windows listener.
@@ -165,7 +165,7 @@ impl LocalApi {
         )
     }
 
-    /// Start the running Linux or Windows app's local API. Hex runs on
+    /// Start the running Linux or Windows app's local API. Agent-Desk runs on
     /// without it, so a failure is only logged.
     #[cfg_attr(target_os = "macos", allow(dead_code))]
     pub fn start_for_app(
@@ -339,7 +339,7 @@ impl LocalApi {
         let Some(worker) = self.worker.take() else {
             return;
         };
-        // Retract discovery before draining so a replacement Hex can publish
+        // Retract discovery before draining so a replacement Agent-Desk can publish
         // while this listener is still bound and finishing in-flight requests.
         if let Some(discovery) = &self.discovery {
             discovery.remove_if_owned();
@@ -357,7 +357,7 @@ impl LocalApi {
     }
 }
 
-/// Runs `hex service`: the local API without the app, until `shutdown`.
+/// Runs `agent-desk service`: the local API without the app, until `shutdown`.
 /// Published, it is the one discoverable service. Embedded (`--embedded`,
 /// the TypeScript SDK's direct child), it prints its endpoint as one JSON line
 /// on stdout instead and exits when its host closes stdin.
@@ -482,7 +482,7 @@ fn serve(listener: TcpListener, context: HttpContext, ready: mpsc::SyncSender<bo
             },
             // Waking on the next connection (or shutdown's wake) instead of
             // polling took a loopback request from 12.5 ms to 0.12 ms, and
-            // an idle Hex from 100 wakeups a second to one.
+            // an idle Agent-Desk from 100 wakeups a second to one.
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 wait_for_connection(&listener, ACCEPT_WAIT);
             }
@@ -950,7 +950,7 @@ fn developer_control(
     }
 }
 
-/// Hands one `hex` control request to the app and waits for its reply.
+/// Hands one `agent-desk` control request to the app and waits for its reply.
 /// Refusals travel as a 200 `ControlReply::Error`; an HTTP error means the
 /// request never reached the app.
 fn control(
@@ -974,7 +974,7 @@ fn control(
     }
     let request = match serde_json::from_slice::<ControlRequest>(&body) {
         Ok(request) => request,
-        // A newer `hex` may name a command this app doesn't know.
+        // A newer `agent-desk` may name a command this app doesn't know.
         Err(_) => match serde_json::from_slice::<serde_json::Value>(&body)
             .ok()
             .and_then(|value| value.get("version")?.as_u64())
@@ -1388,7 +1388,7 @@ struct ModelInfo {
     languages: Vec<&'static str>,
     supports_language_detection: bool,
     /// `found: owner/name@abcdef1` (another app's download, used where it
-    /// is), `imported`, `hex`, or `download`.
+    /// is), `imported`, `agent-desk`, or `download`.
     source: String,
 }
 

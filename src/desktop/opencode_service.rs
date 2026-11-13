@@ -1,13 +1,13 @@
 //! The running OpenCode service, reached without starting anything: its
 //! owner-only registration names a loopback URL and password, `/api/info`
 //! confirms the registered process still answers, and requests are plain
-//! authenticated HTTP over `TcpStream`. Hex never runs an OpenCode
+//! authenticated HTTP over `TcpStream`. Agent-Desk never runs an OpenCode
 //! executable; when no service answers, OpenCode isn't running, and when
 //! one answers `/api/info` with 404 it predates the current OpenCode 2.
 //!
 //! On Windows, OpenCode in WSL also reads the default WSL
 //! distribution's registration when no Windows one answers; that service
-//! gets Hex's workspace as a Linux path.
+//! gets Agent-Desk's workspace as a Linux path.
 
 mod wsl;
 
@@ -345,7 +345,7 @@ impl Service {
         self.wsl.as_ref()?.directory(host)
     }
 
-    /// Hex's OpenCode workspace as this service sees it: a Linux path inside
+    /// Agent-Desk's OpenCode workspace as this service sees it: a Linux path inside
     /// WSL, else the host path.
     fn workspace(&self, directory: &Path) -> Result<String> {
         match &self.wsl {
@@ -609,7 +609,7 @@ fn poll_millis(timeout: Duration) -> i32 {
     timeout.as_millis().clamp(1, i32::MAX as u128) as i32
 }
 
-/// Creates Hex's OpenCode workspace on first use and returns the path
+/// Creates Agent-Desk's OpenCode workspace on first use and returns the path
 /// OpenCode should see.
 fn host_workspace(directory: &Path) -> Result<String> {
     fs::create_dir_all(directory).wrap_err_with(|| {
@@ -1025,12 +1025,12 @@ pub(crate) mod tests {
             )
             .unwrap();
         let (headers, _) = server.join().unwrap().remove(0);
-        let linux = "/home/dax/.local/share/hex/opencode";
+        let linux = "/home/dax/.local/share/agent-desk/opencode";
         assert!(headers.contains(&format!(
             "x-opencode-directory: {}\r\n",
             encode_uri_component(linux)
         )));
-        assert!(root.join("home/.local/share/hex/opencode").is_dir());
+        assert!(root.join("home/.local/share/agent-desk/opencode").is_dir());
         assert!(!windows.exists(), "the Windows workspace stays untouched");
         assert_eq!(response.status, 200);
         fs::remove_dir_all(root).unwrap();
@@ -1058,7 +1058,7 @@ pub(crate) mod tests {
             )
         };
         assert!(request().is_err());
-        let workspace = root.join("home/.local/share/hex/opencode");
+        let workspace = root.join("home/.local/share/agent-desk/opencode");
         assert!(workspace.is_dir());
         fs::remove_dir_all(&workspace).unwrap();
         assert!(request().is_err());
@@ -1095,7 +1095,7 @@ pub(crate) mod tests {
                 .status
         };
         assert_eq!(request(), 404);
-        let workspace = root.join("home/.local/share/hex/opencode");
+        let workspace = root.join("home/.local/share/agent-desk/opencode");
         assert!(workspace.is_dir());
         fs::remove_dir_all(&workspace).unwrap();
         assert_eq!(request(), 404);

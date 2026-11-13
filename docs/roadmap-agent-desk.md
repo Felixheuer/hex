@@ -24,7 +24,7 @@ the main interface.
 
 ## A. Fast action layer ("actions")
 
-- **Native action service in Hex:** an `AXUIElement` server inside the process, with
+- **Native action service in Agent-Desk:** an `AXUIElement` server inside the process, with
   cached element trees per window and diff updates. It replaces one agent-desktop process
   per call. Target: under 50 ms per click, type or read of a known element.
 - **Every app, discovered, not listed:** no per-app recipes or app lists. The agent asks
@@ -110,7 +110,7 @@ the main interface.
 
 ## G. Benchmark and quality
 
-Built as `hex bench` (until the rename to `agent-desk`): 25 tasks in `bench/tasks/`; see
+Built as `agent-desk bench` (until the rename to `agent-desk`): 25 tasks in `bench/tasks/`; see
 [docs/bench.md](bench.md).
 
 - **A local benchmark run** (`agent-desk bench`) with about 25 typical tasks:
@@ -161,7 +161,7 @@ note them, fix them, start your new version, and keep improving."
 
 ## H. Product and identity (after the round)
 
-- **Rename Hex to Agent-Desk:**
+- **Rename Agent-Desk to Agent-Desk:**
   - Display name, CLI `agent-desk`, URL scheme, data folder (migrated) and docs.
   - Bundle ID `fheuer.agentdesk` and `fheuer.agentdesk.dev`, with a one-time
     permission repair.

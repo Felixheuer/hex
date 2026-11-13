@@ -67,13 +67,13 @@ Launch -> read settings.json
 Loading repaired settings does not itself rewrite the file. A later settings
 save (including a migration save) takes the backup before replacing invalid
 fields. A file that is not valid JSON, or is valid JSON but not an object, is
-never backed up or replaced: every save is refused until Hex restarts, and
+never backed up or replaced: every save is refused until Agent-Desk restarts, and
 launch keeps running with defaults in memory while naming the parse error. A
 process that loaded such a file keeps refusing saves even after the file is
 fixed, because its in-memory settings may be stale defaults. Reading the fixed
 file does not clear that refusal; the refusal says to restart. On Linux only,
 the two-second poll clears it when it adopts a valid or removed file.
-Backups are never automatically removed. On Linux, the running Hex checks
+Backups are never automatically removed. On Linux, the running Agent-Desk checks
 `settings.json` every two seconds and adopts an edit made outside the window
 (by hand or by an agent), so its modes reach the listener and the next save
 keeps it (#970). The check runs only when the file's mtime changes. A file that
@@ -83,7 +83,7 @@ every tick. A later check that reads a valid file, or finds the file removed,
 adopts it (even when it equals the running settings), clears that error, and
 clears the process's refusal marker, so the window's next save works without a
 restart. macOS and Windows still read the file only at launch, through
-`hex settings set`, or through their own save-and-reload path. Unchosen
+`agent-desk settings set`, or through their own save-and-reload path. Unchosen
 `meetings.retention` is
 written as an absent key, so older builds with a non-optional retention still
 read the file; existing `null` values also load in the current build.
@@ -165,7 +165,7 @@ Command-Tab -> Tab still tracked (IDLE, DIRTY, or LOCKED)
                      -> 100 ms poll as before
 tracked key down in combined-session state but up in HID state  // #612
   -> reads as up for both the press check and the poll   // a latched Tab or Q
-     no longer blocks every press until Hex restarts
+     no longer blocks every press until Agent-Desk restarts
 tracked keyboard key reads down in both states but sent no key event,  // #1008
 not even a key repeat, for 5 s (TRACKED_KEY_REPEAT_TIMEOUT)
   -> the press check treats it as released               // logged; mouse buttons excluded
@@ -229,7 +229,7 @@ Proof limit: reducer response to a supplied interruption, not macOS disabling
 and re-enabling a real tap.
 
 `recover.tap-health`: macOS can disable a tap (callback timeout, user input)
-or silently disable or invalidate it while Hex idles, after sleep, secure
+or silently disable or invalidate it while Agent-Desk idles, after sleep, secure
 input, or an Accessibility change. The tap thread repairs all three taps (key,
 modifier, HID) and logs each repair to `process.log`.
 
@@ -259,7 +259,7 @@ listener restart, even after cancellation.
 
 ```ts
 initial open fails OR stream interrupts
-  -> a dictation held past the hold threshold, or a `hex dictation start`
+  -> a dictation held past the hold threshold, or a `agent-desk dictation start`
      control capture, keeps what it heard    // recover.interrupted-dictation
      -> transcribed and copied, never pasted
   -> otherwise cancel the incomplete capture + discard stale audio  // interrupted audio cannot return
@@ -272,14 +272,14 @@ device refuses a stream in its own default format     // #988, Intel Smart Sound
   -> none opens -> the default format's error, with its format, goes to recovery
 no input device at all (macOS)
   -> devices whose name can't be read are skipped     // audio::device_name, never Display
-  -> bounded recovery; `hex status` listener: "No microphone"
+  -> bounded recovery; `agent-desk status` listener: "No microphone"
 no input opens, at startup or after an interruption (Linux) // #937
   -> one "could not open the microphone: …" failure per outage // take_failure
   -> last failure filled in while it keeps retrying; reset once one opens
 ALSA's default goes through PipeWire's ALSA plugin (Linux) // main, #1628
   -> DISABLE_RTKIT is set first: PipeWire's realtime module fails to start,
      which is ignored and the stream still opens, so the portal's realtime
-     budget never lowers RLIMIT_RTTIME // a zero budget killed Hex
+     budget never lowers RLIMIT_RTTIME // a zero budget killed Agent-Desk
 listener worker returns an error or panics (macOS)
   -> status: running false, "Stopped", capture unknown // never "Enabled"
 saved microphone missing or will not open
@@ -289,12 +289,12 @@ saved microphone missing or will not open
                     └── Windows, Linux: bounded backoff, logged only on a switch
   -> found -> switch back once capture is idle        // not during a pending start or tail
 MacBook lid closed (macOS)                            // built-in mic is off but still listed
-  -> built-in mic is passed over like Hex Microphone  // AppleClamshellState, read per resolve
+  -> built-in mic is passed over like Agent-Desk Microphone  // AppleClamshellState, read per resolve
   ├── headphone-jack mic (BuiltInHeadphoneInputDevice UID, or the built-in
   │   input's emic/line data source) -> stays usable: listed, selectable,
   │   followed as the default, and can stand in (#712)
   ├── default or saved mic is built in -> first other real input stands in
-  │     -> Settings: "… is off while the lid is closed, so Hex listens to …"
+  │     -> Settings: "… is off while the lid is closed, so Agent-Desk listens to …"
   ├── no other input -> "the built-in microphone is off while the lid is closed"
   │     └── failed dictation -> Settings listener card explains it   // macOS
   │           "Last dictation failed: Built-in mic is off with the lid closed.
@@ -345,7 +345,7 @@ meeting microphone stream delivers only exact zeros for 3 s (macOS, #1518)
   │        as it is raised, so a crash while recording keeps it
   ├── still silent after the warning -> only a release runs a renegotiating
   │     retry: the set of processes recording from the opened input shrinks,
-  │     Hex's own excluded and the call app included, read once a second from
+  │     Agent-Desk's own excluded and the call app included, read once a second from
   │     Core Audio process metadata (device lists only, never samples)
   │     -> at most 3 retries per silent episode; silence alone never retries
   │     -> a release seen before the warning still counts, and one seen
@@ -536,7 +536,7 @@ in [linux/dictation/gap.rs](../../src/linux/dictation/gap.rs):
 first hold after minutes of idle failed with the error tone. The reporter's logs
 show the cold stream reporting "A buffer underrun or overrun occurred" 20–76 ms
 after opening. cpal 0.18 reports that as `ErrorKind::Xrun` from CoreAudio's
-`kAudioDeviceProcessorOverload` listener; the stream keeps running, but Hex
+`kAudioDeviceProcessorOverload` listener; the stream keeps running, but Agent-Desk
 treated every error callback as fatal. In release-when-idle mode the owner then
 closed the device without retrying, and recognition suspended the held gesture.
 Overloads and refused real-time promotion are now ignored; actual
@@ -553,7 +553,7 @@ latency or the macOS microphone indicator.
 **Changed after dev (overload logging):** a host can report an overload, or a
 refused real-time promotion, on the thread that runs the stream. The old line
 formatted itself there and wrote to stderr and `process.log` behind a mutex,
-once per overload. Hex now only counts them there, and writes one
+once per overload. Agent-Desk now only counts them there, and writes one
 `microphone stream glitched; continuing` line with `count` from the poll that
 drains the stream, at most once every 10 s. A count that window holds back is
 written by that poll later, and a stream that closes with a count left over
@@ -562,7 +562,7 @@ than beside the next open's lines hours later. `since_last_stream_glitch` still
 answers capture diagnostics from the same counters. On macOS the first chunk of
 each open also logs the callback's frames and period, which is the hardware
 period cpal does not report for `BufferSize::Default` (skipped under
-`HEX_AUDIO_FIXTURE`, whose chunks are the file's); no CoreAudio FFI was added.
+`AGENT_DESK_AUDIO_FIXTURE`, whose chunks are the file's); no CoreAudio FFI was added.
 Check: `a_burst_writes_one_line_and_holds_the_rest` covers the window;
 `overload_glitches_do_not_interrupt_the_stream` covers counting instead of
 failing. Not verified: a real overload burst after this change, whether the
@@ -586,7 +586,7 @@ keeps it by design).
 **Fixed after dev ([#1122](https://github.com/anomalyco/hex/issues/1122)):**
 after a WhatsApp desktop call ended, the warm built-in microphone stream kept
 running without an error but delivered only exact zeros, so every dictation
-was discarded as near-silent (`zero_fraction` 1.0) until Hex restarted. A
+was discarded as near-silent (`zero_fraction` 1.0) until Agent-Desk restarted. A
 finished dictation whose audio through the release is exactly zero now
 reopens the stream the way a stream failure does, closing the dead stream
 before its replacement opens so the new one starts cold as at launch; a cold
@@ -600,7 +600,7 @@ call.
 silence reopen opened its stream in the device's current default format. A
 device a call app had just let go could already report that format as its own,
 so cpal's physical-format change did nothing and the reopened stream delivered
-zeros too, until Hex restarted. The one open that follows digital silence now
+zeros too, until Agent-Desk restarted. The one open that follows digital silence now
 renegotiates the device's clock first, on macOS: it opens a throwaway stream at
 another rate the device lists (44.1 kHz for a 48 kHz device, else 48 kHz, else
 another listed rate) and stops it, then opens the real stream in the format it
@@ -628,12 +628,12 @@ stretch of the call. On macOS each of those reopens renegotiates the device's
 sample rate first, like dictation's silence recovery (#1575); that changes
 the nominal rate of the whole device, so it briefly interrupts every other
 stream on the microphone, including the call app's and a warm dictation's.
-If it is still silent, Hex keeps recording and warns in the recording
+If it is still silent, Agent-Desk keeps recording and warns in the recording
 capsule, the menu bar, and the finished meeting's detail. The manifest
 records `microphone.warning: digital_silence` as soon as it is raised, so a
 crash keeps it, and it means the microphone was silent at some point during
 the recording. Once warned, a renegotiating retry runs only when another
-process stops recording from the opened input: Hex reads Core Audio's
+process stops recording from the opened input: Agent-Desk reads Core Audio's
 process metadata (device lists, never samples) once a second, excludes its
 own process, and includes the call app, so its release also counts. The
 shared last-known set survives a supervisor reopen, so a process seen before
@@ -668,18 +668,18 @@ the microphone with voice processing.
 **Fixed after 3.3.0 ([#1206](https://github.com/anomalyco/hex/issues/1206)):**
 after a burst of overrun warnings while idle, a warm USB microphone's stream
 stopped delivering audio without reporting an error, so every dictation held
-only the stale pre-roll and was discarded as no speech until Hex restarted. An
+only the stale pre-roll and was discarded as no speech until Agent-Desk restarted. An
 open stream that delivers nothing for 4 s now counts as failed and is reopened
 with the usual bounded recovery. Not verified on the reporter's microphone.
 
 ### Keep An Interrupted Dictation
 
 `recover.interrupted-dictation`: a shortcut dictation held past the hold
-threshold, or a `hex dictation start` control capture, whose microphone fails
+threshold, or a `agent-desk dictation start` control capture, whose microphone fails
 keeps what it already heard instead of dropping the whole dictation.
 
 ```ts
-shortcut held past the hold threshold, or a `hex dictation start` capture
+shortcut held past the hold threshold, or a `agent-desk dictation start` capture
   -> stream fails or stalls                         // a gap over 250 ms still drops it
   -> audio delivered up to the loss is kept        // pre-roll alone keeps nothing
   -> transcribed and processed like a dictation
@@ -768,7 +768,7 @@ Source: `ModelSwap::place`/`take_reload` in
 [transcription/local_transcriber.rs](../../src/transcription/local_transcriber.rs)
 and `Command::Reload` in [transcription/engine.rs](../../src/transcription/engine.rs).
 Check: `a_model_without_room_on_the_gpu_reloads_in_place_once` (swap state
-only). Not observed on a real 2 GB GPU. A second process (another `hex`
+only). Not observed on a real 2 GB GPU. A second process (another `agent-desk`
 command that loads a model itself) still loads its own copy.
 
 `recover.command-pressure`: command recognition is best-effort; dictation
@@ -817,16 +817,16 @@ listener worker fails -> reap worker -> show failure
   └── Dismiss -> clear error                            // not evidence of recovery
 
 Wayland listener starts without wl-copy -> process.log warns once; Settings and
-`hex status` carry the warning
+`agent-desk status` carry the warning
   -> capture and transcription still run; copy and paste fail naming wl-clipboard
 
-close the window -> Hex keeps running
+close the window -> Agent-Desk keeps running
   └── uncommitted shortcut capture -> cancel edit -> restore prior listening
 
-Hex crashes -> systemd restart-on-failure (no window) OR explicit hex start
-  -> hex / hex status -> live state, not stale log state
+Agent-Desk crashes -> systemd restart-on-failure (no window) OR explicit agent-desk start
+  -> hex / agent-desk status -> live state, not stale log state
 
-hex quit / Quit Hex -> drain accepted work -> release microphone and hotkeys -> exit 0
+agent-desk quit / Quit Agent-Desk -> drain accepted work -> release microphone and hotkeys -> exit 0
 ```
 Sources/checks: [linux/app.rs](../../src/linux/app.rs),
 [Linux CI](../../.github/workflows/check-linux.yml),
@@ -838,16 +838,16 @@ single-instance socket is same-user only; bounded I/O and queues keep client
 stalls off the audio loop.
 
 **Escape on Linux since #786:** dictation has no cancel, so Escape stays with
-applications on X11 and Wayland. Hex grabs it on X11 only while Annotate
+applications on X11 and Wayland. Agent-Desk grabs it on X11 only while Annotate
 draws, where it stops drawing; a grab conflict is logged once and drawing goes
 on. The portal never binds Escape or any cancel shortcut, and the shortcut set
 is bound once in one session.
 
 ```ts
-listener starts -> one session, one BindShortcuts: Hex's shortcuts only
+listener starts -> one session, one BindShortcuts: Agent-Desk's shortcuts only
   └── KDE -> remove the stale `cancel` and `cancel-dictation` entries first
 desktop closes the shortcuts session -> cancel active capture
-  -> listener stops with an error -> Retry / hex start binds again
+  -> listener stops with an error -> Retry / agent-desk start binds again
 X11, Annotate drawing -> grab Escape (AnyModifier, else bare + lock variants)
   └── BadAccess -> warn once, keep drawing; other grab errors stop the listener
 ```
@@ -857,7 +857,7 @@ looked for again instead of leaving shortcuts off for the session (#875).
 
 ```ts
 listener starts -> no GlobalShortcuts portal
-  -> warn (desktop name, restart-the-portal hint) -> hex commands drive dictation
+  -> warn (desktop name, restart-the-portal hint) -> agent-desk commands drive dictation
   -> check again on its own thread: after 15 s, doubling up to every 2 min
      └── portal appears (e.g. xdg-desktop-portal restarted) -> bind shortcuts as usual
 ```
@@ -865,15 +865,15 @@ listener starts -> no GlobalShortcuts portal
 **Fixed after dev-520** ([#875](https://github.com/anomalyco/hex/issues/875)):
 on KDE Plasma Wayland, xdg-desktop-portal started before Plasma exported its
 session environment picked the wrong backend and offered no shortcuts
-interface; Hex fell back to commands and never checked again. Source:
+interface; Agent-Desk fell back to commands and never checked again. Source:
 `Backend::wait_for_portal` in [linux/input.rs](../../src/linux/input.rs);
 `commands_alone_drive_a_listener_without_shortcuts` covers the command loop,
 not the portal appearing. Not run on a live Plasma session.
 
 **Fixed after dev-249** ([#482](https://github.com/anomalyco/hex/issues/482),
-reported by ohlmann on KDE Plasma): Hex bound Escape in a second portal session
+reported by ohlmann on KDE Plasma): Agent-Desk bound Escape in a second portal session
 when recording started. KDE keys shortcuts by app, so that session's
-BindShortcuts removed Hex's other shortcuts, so recording never started. Hex
+BindShortcuts removed Agent-Desk's other shortcuts, so recording never started. Agent-Desk
 binds every shortcut once in one session and never binds Escape there.
 
 Checks in [linux/input.rs](../../src/linux/input.rs):
@@ -972,14 +972,14 @@ It posts no key events and does not launch the installed app or capture audio.
 
 **Contributor-reported September 9, 2026 (PR #81, ASCII-capable fallback):** with the Russian
 layout active on macOS 26.6.2 (25G83), Apple M3, a locally built
-`/Applications/Hex.app` resolved `paste_key_code=9` at startup and held
+`/Applications/Agent-Desk.app` resolved `paste_key_code=9` at startup and held
 Option-dictations pasted into the focused app; the retained
 `keyboard_layout` regression still passed all twelve child runs. The
 fallback mirrors AppKit's own resolution of shortcuts such as ⌘V on
 non-Latin layouts, so a Latin-active snapshot is unchanged.
 
 **Local startup check, September 1, 2026:** Developer ID-signed version 2.1.11,
-local build `20111.1`, was installed and launched from `/Applications/Hex.app`.
+local build `20111.1`, was installed and launched from `/Applications/Agent-Desk.app`.
 Bundle identity/signature and the installed executable's match to the signed
 build were validated. The new process reported resolved keyboard layout,
 loaded transcription model, and Listening, with no startup errors or panic.
@@ -1046,9 +1046,9 @@ Checks: the normalization tests in `app_settings/hotkeys.rs`,
 Issue [#37](https://github.com/anomalyco/hex/issues/37).
 Missing evidence: a physical Caps Lock-to-Control remap has not been run in CI
 or on hardware, and ordering the raw callback before the Caps Lock flags event
-is unproven. Hex never requests Input Monitoring, so the tracker runs only when
-Hex already has it (turn Hex on under System Settings › Privacy & Security ›
-Input Monitoring and restart Hex); otherwise it stays off and Right Control
+is unproven. Agent-Desk never requests Input Monitoring, so the tracker runs only when
+Agent-Desk already has it (turn Agent-Desk on under System Settings › Privacy & Security ›
+Input Monitoring and restart Agent-Desk); otherwise it stays off and Right Control
 still starts from a remapped Caps Lock. The shortcut recorder normalizes only
 while the listener's input monitor is running; a start that takes too long is
 told to give up rather than delay the listener.

@@ -1,10 +1,10 @@
-// A GUI program on Windows, so launching Hex opens no console window (#850).
+// A GUI program on Windows, so launching Agent-Desk opens no console window (#850).
 // Commands run from a terminal attach to it (`windows::attach_parent_console`).
 #![cfg_attr(all(target_os = "windows", not(test)), windows_subsystem = "windows")]
 
-/// The version Hex reports: the release version, or `0.0.0-dev-local-<commit>`
+/// The version Agent-Desk reports: the release version, or `0.0.0-dev-local-<commit>`
 /// for a build outside the Release workflow (build.rs).
-const VERSION: &str = env!("HEX_BUILD_VERSION");
+const VERSION: &str = env!("AGENT_DESK_BUILD_VERSION");
 
 #[cfg(target_os = "macos")]
 mod accessibility;
@@ -93,15 +93,15 @@ use color_eyre::eyre::eyre;
 #[cfg(target_os = "macos")]
 #[derive(Parser)]
 #[command(
-    name = "hex",
+    name = "agent-desk",
     version = crate::VERSION,
     about = "Local, observable voice control",
     long_about = "Local, observable voice control.\n\n\
         Control commands (status, dictation, meetings record, settings, model, window, …) drive \
-        the one running Hex over its owner-only local API and never launch it, except `start` \
+        the one running Agent-Desk over its owner-only local API and never launch it, except `start` \
         and `restart`. Every one takes --json for a versioned reply (docs/cli.md). Exit codes: \
-        0 done or nothing to change, 1 refused or failed, 2 usage, 3 Hex isn't running.",
-    after_help = "Run `hex <command> --help` for details, or `hex settings list` for every setting."
+        0 done or nothing to change, 1 refused or failed, 2 usage, 3 Agent-Desk isn't running.",
+    after_help = "Run `agent-desk <command> --help` for details, or `agent-desk settings list` for every setting."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -222,7 +222,7 @@ enum DevCommand {
         #[arg(required = true)]
         wavs: Vec<PathBuf>,
     },
-    /// Every copy of Hex on this Mac: Live, Dev, and the strays that only
+    /// Every copy of Agent-Desk on this Mac: Live, Dev, and the strays that only
     /// confuse permissions. `--remove` deletes the strays.
     Copies {
         /// Delete the strays instead of only listing them.
@@ -232,7 +232,7 @@ enum DevCommand {
         #[arg(long)]
         keep: Option<PathBuf>,
     },
-    /// Render offline audio through the Hex Microphone voice filter.
+    /// Render offline audio through the Agent-Desk Microphone voice filter.
     VoiceFilter {
         #[command(subcommand)]
         command: VoiceFilterCommand,
@@ -251,7 +251,7 @@ enum DevCommand {
         #[arg(long)]
         say: Option<String>,
         /// Run only the hidden browser's self-tests: agent-browser directly,
-        /// through Hex's browser tool, and through each ready agent (a tiny
+        /// through Agent-Desk's browser tool, and through each ready agent (a tiny
         /// prompt each).
         #[arg(long)]
         browser: bool,
@@ -336,6 +336,11 @@ enum MeetingCommand {
 #[cfg(target_os = "macos")]
 fn main() -> Result<()> {
     color_eyre::install()?;
+    // One-time migration, remove after 2026-12: the bridge an older Hex
+    // installed as its update puts Agent-Desk.app in place and opens it.
+    if updater::hand_off_from_hex() {
+        return Ok(());
+    }
     let cli = Cli::parse_from(mcp_alias_arguments(std::env::args_os().collect()));
     let executable_name = std::env::current_exe()
         .ok()
@@ -348,7 +353,7 @@ fn main() -> Result<()> {
         rune::prewarm_gpu();
     }
     // A window of its own: no data folder, log, lock, or settings, so it
-    // runs beside the installed Hex.
+    // runs beside the installed Agent-Desk.
     #[cfg(hex_capture)]
     if let Some(Command::CapsulePlayground { rune_args }) = &cli.command {
         keyboard::initialize_layout()?;
@@ -356,7 +361,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
     // Control and read commands (status, settings, history, meetings, mcp,
-    // labs, …) talk to the running Hex or read files: no data folder, log,
+    // labs, …) talk to the running Agent-Desk or read files: no data folder, log,
     // lock, GUI, or permission setup of their own, so an agent may run them
     // over SSH while the app is running.
     let cli = match cli.command {
@@ -446,8 +451,8 @@ fn main() -> Result<()> {
     {
         return assistant::space::probe::run();
     }
-    // A headless render (`hex app -- --snap …`) draws fixtures: no data
-    // folder, log, lock, or settings, so it never touches the user's Hex.
+    // A headless render (`agent-desk app -- --snap …`) draws fixtures: no data
+    // folder, log, lock, or settings, so it never touches the user's Agent-Desk.
     if let Some(Command::App { rune_args, .. }) = &cli.command
         && !rune_args.is_empty()
     {
@@ -457,7 +462,8 @@ fn main() -> Result<()> {
     let log_dir = app_paths::init_process_logging(&SHUTDOWN)?;
 
     let event_path = log_dir.join("live.ndjson");
-    let bundled_service = executable_name.as_deref() == Some(std::ffi::OsStr::new("hex-service"));
+    let bundled_service =
+        executable_name.as_deref() == Some(std::ffi::OsStr::new("agent-desk-service"));
     let command = cli.command.unwrap_or({
         if bundled_watcher {
             Command::App {
@@ -686,14 +692,14 @@ fn open_app(event_path: PathBuf, device: Option<String>, hidden: bool) -> Result
     )
 }
 
-/// A copy installed as `hex-meetings-mcp` only serves meetings: its
-/// arguments are those of `hex mcp`, and it never falls back to listening.
+/// A copy installed as `agent-desk-meetings-mcp` only serves meetings: its
+/// arguments are those of `agent-desk mcp`, and it never falls back to listening.
 #[cfg(target_os = "macos")]
 fn mcp_alias_arguments(mut arguments: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
     let alias = arguments
         .first()
         .and_then(|program| std::path::Path::new(program).file_stem())
-        .is_some_and(|stem| stem == "hex-meetings-mcp");
+        .is_some_and(|stem| stem == "agent-desk-meetings-mcp");
     if alias && arguments.get(1).is_none_or(|argument| argument != "mcp") {
         arguments.insert(1, "mcp".into());
     }
@@ -702,10 +708,10 @@ fn mcp_alias_arguments(mut arguments: Vec<std::ffi::OsString>) -> Vec<std::ffi::
 
 #[cfg(target_os = "macos")]
 fn is_bundled_app_executable(name: Option<&std::ffi::OsStr>) -> bool {
-    name.is_some_and(|name| name == "hex")
+    name.is_some_and(|name| name == "agent-desk")
 }
 
-/// Whether this launch runs the app: `hex app` without `--hidden` or Rune's
+/// Whether this launch runs the app: `agent-desk app` without `--hidden` or Rune's
 /// own (headless) flags, or the bundled executable with no command. A
 /// menu-bar-only or login launch counts too, though it opens no window and
 /// Rune drops the prewarmed GPU: whether the window opens depends on
@@ -737,18 +743,18 @@ mod tests {
             .command
         };
         assert!(matches!(
-            parse(&["/Users/alex/.local/bin/hex-meetings-mcp"]),
+            parse(&["/Users/alex/.local/bin/agent-desk-meetings-mcp"]),
             Some(Command::Control(ControlCli::Mcp { meetings_dir: None }))
         ));
         assert!(matches!(
-            parse(&["hex-meetings-mcp", "--meetings-dir", "/tmp/mirror"]),
+            parse(&["agent-desk-meetings-mcp", "--meetings-dir", "/tmp/mirror"]),
             Some(Command::Control(ControlCli::Mcp { meetings_dir: Some(directory) })) if directory.ends_with("mirror")
         ));
         assert!(matches!(
-            parse(&["hex-meetings-mcp", "mcp"]),
+            parse(&["agent-desk-meetings-mcp", "mcp"]),
             Some(Command::Control(ControlCli::Mcp { .. }))
         ));
-        assert!(parse(&["hex"]).is_none());
+        assert!(parse(&["agent-desk"]).is_none());
     }
 
     #[cfg(debug_assertions)]
@@ -761,7 +767,7 @@ mod tests {
             ("hud-lab", DeveloperPane::HudLab),
             ("history", DeveloperPane::History),
         ] {
-            let cli = Cli::try_parse_from(["hex", "dev", "show", pane]).unwrap();
+            let cli = Cli::try_parse_from(["agent-desk", "dev", "show", pane]).unwrap();
             let Some(Command::Dev {
                 command: DevCommand::Show { pane },
             }) = cli.command
@@ -770,8 +776,8 @@ mod tests {
             };
             assert_eq!(pane, expected);
         }
-        assert!(Cli::try_parse_from(["hex", "dev", "show", "hudlab"]).is_err());
-        assert!(Cli::try_parse_from(["hex", "dev", "hud", "recording"]).is_ok());
+        assert!(Cli::try_parse_from(["agent-desk", "dev", "show", "hudlab"]).is_err());
+        assert!(Cli::try_parse_from(["agent-desk", "dev", "hud", "recording"]).is_ok());
     }
 
     #[test]
@@ -785,17 +791,17 @@ mod tests {
         #[cfg(hex_capture)]
         {
             assert!(matches!(
-                parse(&["hex", "capture", "stop", "--json"]),
+                parse(&["agent-desk", "capture", "stop", "--json"]),
                 Ok(Some(Command::Control(ControlCli::Annotate { command: crate::control::cli::CaptureCommand::Stop { output } }))) if output.json
             ));
             assert!(matches!(
-                parse(&["hex", "capture", "send", "latest", "--to", "ses_1"]),
+                parse(&["agent-desk", "capture", "send", "latest", "--to", "ses_1"]),
                 Ok(Some(Command::Control(ControlCli::Annotate {
                     command: crate::control::cli::CaptureCommand::Send { capture, to: Some(to), .. }
                 }))) if capture == "latest" && to == "ses_1"
             ));
             assert!(matches!(
-                parse(&["hex", "capture", "send", "latest", "--always"]),
+                parse(&["agent-desk", "capture", "send", "latest", "--always"]),
                 Ok(Some(Command::Control(ControlCli::Annotate {
                     command: crate::control::cli::CaptureCommand::Send {
                         to: None,
@@ -804,14 +810,14 @@ mod tests {
                     }
                 })))
             ));
-            assert!(parse(&["hex", "capture", "route", "latest", "--explain"]).is_ok());
+            assert!(parse(&["agent-desk", "capture", "route", "latest", "--explain"]).is_ok());
         }
         assert!(matches!(
-            parse(&["hex", "status", "--json"]),
+            parse(&["agent-desk", "status", "--json"]),
             Ok(Some(Command::Control(ControlCli::Status { output }))) if output.json
         ));
         assert!(matches!(
-            parse(&["hex", "dictation", "toggle"]),
+            parse(&["agent-desk", "dictation", "toggle"]),
             Ok(Some(Command::Control(ControlCli::Dictation { .. })))
         ));
         assert!(matches!(
@@ -825,17 +831,17 @@ mod tests {
             Ok(Some(Command::Control(ControlCli::Settings { .. })))
         ));
         assert!(matches!(
-            parse(&["hex", "window", "show", "history"]),
+            parse(&["agent-desk", "window", "show", "history"]),
             Ok(Some(Command::Control(ControlCli::Window { .. })))
         ));
         for verb in ["reset", "restart"] {
             assert!(matches!(
-                parse(&["hex", "onboarding", verb]),
+                parse(&["agent-desk", "onboarding", verb]),
                 Ok(Some(Command::Control(ControlCli::Onboarding { .. })))
             ));
         }
         assert!(matches!(
-            parse(&["hex", "history", "clear", "--yes"]),
+            parse(&["agent-desk", "history", "clear", "--yes"]),
             Ok(Some(Command::Control(ControlCli::History(
                 transcript_cli::HistoryArgs {
                     action: Some(transcript_cli::HistoryAction::Clear { yes: true, .. }),
@@ -844,25 +850,25 @@ mod tests {
             ))))
         ));
         assert!(matches!(
-            parse(&["hex", "history", "--json"]),
+            parse(&["agent-desk", "history", "--json"]),
             Ok(Some(Command::Control(ControlCli::History(
                 transcript_cli::HistoryArgs { action: None, .. }
             ))))
         ));
-        assert!(parse(&["hex", "history", "--limit", "5", "clear", "--yes"]).is_err());
+        assert!(parse(&["agent-desk", "history", "--limit", "5", "clear", "--yes"]).is_err());
         assert!(matches!(
-            parse(&["hex", "meetings", "record", "--title", "Design sync"]),
+            parse(&["agent-desk", "meetings", "record", "--title", "Design sync"]),
             Ok(Some(Command::Control(ControlCli::Meetings {
                 command: transcript_cli::MeetingsCommand::Record { title: Some(_), .. }
             })))
         ));
         assert!(matches!(
-            parse(&["hex", "commands", "check"]),
+            parse(&["agent-desk", "commands", "check"]),
             Ok(Some(Command::Control(ControlCli::Commands {
                 command: CommandsCommand::Check
             })))
         ));
-        assert!(parse(&["hex", "meetings", "cancel"]).is_err());
+        assert!(parse(&["agent-desk", "meetings", "cancel"]).is_err());
         assert!(matches!(
             parse(&[
                 "hex",
@@ -880,32 +886,20 @@ mod tests {
             })))
         ));
         assert!(matches!(
-            parse(&["hex", "vocabulary", "list", "--json"]),
+            parse(&["agent-desk", "vocabulary", "list", "--json"]),
             Ok(Some(Command::Control(ControlCli::Vocabulary {
                 command: crate::control::cli::VocabularyCommand::List { output }
             }))) if output.json
         ));
-        assert!(parse(&["hex", "vocabulary", "remove"]).is_err());
-    }
-
-    #[test]
-    fn retired_labs_commands_still_parse() {
-        for args in [
-            &["hex", "labs"][..],
-            &["hex", "labs", "on", "live-text"],
-            &["hex", "experiments", "enable", "live-text"],
-        ] {
-            assert!(matches!(
-                Cli::try_parse_from(args).map(|cli| cli.command),
-                Ok(Some(Command::Control(ControlCli::Labs { .. })))
-            ));
-        }
+        assert!(parse(&["agent-desk", "vocabulary", "remove"]).is_err());
     }
 
     #[test]
     fn the_packaged_executable_launches_the_app() {
-        assert!(is_bundled_app_executable(Some("hex".as_ref())));
-        assert!(!is_bundled_app_executable(Some("hex-service".as_ref())));
+        assert!(is_bundled_app_executable(Some("agent-desk".as_ref())));
+        assert!(!is_bundled_app_executable(Some(
+            "agent-desk-service".as_ref()
+        )));
     }
 
     #[test]
@@ -916,14 +910,21 @@ mod tests {
                 is_bundled_app_executable(std::path::Path::new(&arguments[0]).file_stem());
             opens_app(Cli::parse_from(arguments).command.as_ref(), bundled)
         };
-        assert!(opens(&["hex"]));
-        assert!(opens(&["/Applications/Hex.app/Contents/MacOS/hex"]));
-        assert!(opens(&["hex", "app"]));
-        assert!(opens(&["hex", "app", "--device", "MacBook Pro Microphone"]));
-        assert!(!opens(&["hex", "app", "--", "--snap", "/tmp/a.png"]));
-        assert!(!opens(&["hex", "app", "--hidden"]));
-        assert!(!opens(&["hex-service"]));
-        assert!(!opens(&["hex-meetings-mcp"]));
+        assert!(opens(&["agent-desk"]));
+        assert!(opens(&[
+            "/Applications/Agent-Desk.app/Contents/MacOS/agent-desk"
+        ]));
+        assert!(opens(&["agent-desk", "app"]));
+        assert!(opens(&[
+            "agent-desk",
+            "app",
+            "--device",
+            "MacBook Pro Microphone"
+        ]));
+        assert!(!opens(&["agent-desk", "app", "--", "--snap", "/tmp/a.png"]));
+        assert!(!opens(&["agent-desk", "app", "--hidden"]));
+        assert!(!opens(&["agent-desk-service"]));
+        assert!(!opens(&["agent-desk-meetings-mcp"]));
         for command in [
             &["status"][..],
             &["quit"],
@@ -935,7 +936,7 @@ mod tests {
             &["capture", "status"],
             &["dev", "dashboard"],
         ] {
-            let arguments = [&["hex"][..], command].concat();
+            let arguments = [&["agent-desk"][..], command].concat();
             assert!(!opens(&arguments), "{command:?}");
         }
     }
@@ -949,7 +950,7 @@ fn main() -> Result<()> {
     // its realtime module asks the desktop portal for a realtime budget and
     // then limits this process's realtime CPU time to it; the portal caches
     // that budget once at its own startup and can report zero, which makes
-    // the kernel kill Hex. Hex never takes realtime scheduling through the
+    // the kernel kill Agent-Desk. Agent-Desk never takes realtime scheduling through the
     // portal or rtkit.
     // SAFETY: Before any other thread exists to read the environment.
     unsafe { std::env::set_var("DISABLE_RTKIT", "1") };
@@ -961,10 +962,10 @@ fn main() -> Result<()> {
 fn main() -> Result<()> {
     // DLL search hardening first: the CPU check's message box loads DLLs.
     let dll_search = windows::restrict_dll_search();
-    // Then, before anything prints, join the terminal that ran `hex`.
+    // Then, before anything prints, join the terminal that ran `agent-desk`.
     windows::attach_parent_console();
     if let Err(error) = dll_search {
-        eprintln!("hex: SetDefaultDllDirectories failed: {error}");
+        eprintln!("agent-desk: SetDefaultDllDirectories failed: {error}");
     }
     windows::vulkan::check();
     windows::gpu_fallback::choose();

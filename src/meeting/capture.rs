@@ -360,7 +360,7 @@ fn released_processes(known: &[i32], current: &[i32]) -> bool {
     known.iter().any(|pid| !current.contains(pid))
 }
 
-/// The processes recording from the input `uid`, Hex's own excluded, from
+/// The processes recording from the input `uid`, Agent-Desk's own excluded, from
 /// Core Audio's process metadata: no audio is read. None when the OS does
 /// not report them or any part of the read failed, so a failed read never
 /// looks like a release.
@@ -511,7 +511,7 @@ impl MicrophoneSource {
         call_app_reports_input(self.opened_uid.as_deref(), &self.call_inputs)
     }
 
-    /// Notes an application other than Hex stopping recording from this
+    /// Notes an application other than Agent-Desk stopping recording from this
     /// stream's input since the last look, sampled at the call app's once a
     /// second cadence from Core Audio process metadata; no audio is read. The
     /// shared recovery keeps it, so a stream that fails before its next chunk

@@ -13,7 +13,7 @@ use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
 
 use crate::dictation::context::frontmost_pid;
 
-/// How long Hex waits for the app to come to the front.
+/// How long Agent-Desk waits for the app to come to the front.
 const RETURN_TIMEOUT: Duration = Duration::from_millis(500);
 /// How often it asks which app is in front while it waits.
 const RETURN_POLL: Duration = Duration::from_millis(10);
@@ -24,14 +24,14 @@ const RETURN_SETTLE: Duration = Duration::from_millis(50);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Decision {
     /// Paste where focus is now: no app was recorded, the recorded one was
-    /// Hex itself, or it is already in front.
+    /// Agent-Desk itself, or it is already in front.
     Paste,
     /// Bring this app to the front first.
     ReturnTo(i32),
 }
 
 /// The app in front when a capture starts, which its paste returns to.
-/// `None` unless Return to app is on, and never Hex itself.
+/// `None` unless Return to app is on, and never Agent-Desk itself.
 pub(crate) fn capture_start() -> Option<i32> {
     if !crate::features::return_to_app() {
         return None;
@@ -39,7 +39,7 @@ pub(crate) fn capture_start() -> Option<i32> {
     frontmost_pid().filter(|pid| *pid > 0 && *pid != our_pid())
 }
 
-/// Which app the paste needs, from process ids alone. Hex's own, none, and
+/// Which app the paste needs, from process ids alone. Agent-Desk's own, none, and
 /// the app already in front need no switch.
 pub(crate) fn decision(return_to: Option<i32>, frontmost: Option<i32>, our_pid: i32) -> Decision {
     match return_to {
@@ -73,7 +73,7 @@ pub(crate) fn bring_to_front(return_to: Option<i32>) -> Result<()> {
         pid,
         "bringing the app the dictation started in back to the front"
     );
-    // ActivateIgnoringOtherApps is still what raises another app over Hex's
+    // ActivateIgnoringOtherApps is still what raises another app over Agent-Desk's
     // own key windows from a background app.
     #[allow(deprecated)]
     let _activated = autoreleasepool(|_| {
@@ -111,7 +111,11 @@ mod tests {
     fn only_a_different_recorded_app_needs_a_switch() {
         assert_eq!(decision(None, Some(7), 1), Decision::Paste);
         assert_eq!(decision(Some(7), Some(7), 1), Decision::Paste);
-        assert_eq!(decision(Some(1), Some(2), 1), Decision::Paste, "Hex itself");
+        assert_eq!(
+            decision(Some(1), Some(2), 1),
+            Decision::Paste,
+            "Agent-Desk itself"
+        );
         assert_eq!(decision(Some(0), Some(2), 1), Decision::Paste, "no pid");
         assert_eq!(decision(Some(7), Some(9), 1), Decision::ReturnTo(7));
         assert_eq!(decision(Some(7), None, 1), Decision::ReturnTo(7));

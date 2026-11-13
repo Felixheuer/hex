@@ -3,41 +3,41 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$root/scripts/macos-signing.sh"
-# HEX_TEST_BUILD=1 builds the CI test app: ad-hoc signed, under its own
-# name and bundle ID so it installs beside the released Hex and never
+# AGENT_DESK_TEST_BUILD=1 builds the CI test app: ad-hoc signed, under its own
+# name and bundle ID so it installs beside the released Agent-Desk and never
 # touches its permissions; it never checks for updates.
-# HEX_DEV_BUILD=1 builds Hex Dev (anomaly.hex.dev), the one development app
-# scripts/install-fork.sh installs beside the released Hex: signed like a local
-# build, with its own data, URL scheme (hex-dev), and a DEV band on its icon.
-# HEX_LOCAL_BUILD=1 marks a build made from a checkout for its owner's own
+# AGENT_DESK_DEV_BUILD=1 builds Agent-Desk Dev (fheuer.agentdesk.dev), the one development app
+# scripts/install-fork.sh installs beside the released Agent-Desk: signed like a local
+# build, with its own data, URL scheme (agent-desk-dev), and a DEV band on its icon.
+# AGENT_DESK_LOCAL_BUILD=1 marks a build made from a checkout for its owner's own
 # machine (Developer ID signed as usual): it shows "Local build · updates off"
 # with its commit and never checks for or offers updates.
-# HEX_RELEASE_UNSIGNED=1 builds the release app (Hex, anomaly.hex) ad-hoc
+# AGENT_DESK_RELEASE_UNSIGNED=1 builds the release app (Agent-Desk, fheuer.agentdesk) ad-hoc
 # signed: the Release workflow's build job, which holds no credentials. Its
 # sign-macos job signs it with the Developer ID (.github/release/sign-macos.sh).
-if [ "${HEX_RELEASE_UNSIGNED:-}" = 1 ]; then
+if [ "${AGENT_DESK_RELEASE_UNSIGNED:-}" = 1 ]; then
   team_id=
   identity=-
-  app_name=Hex
-  bundle_id=anomaly.hex
-elif [ "${HEX_TEST_BUILD:-}" = 1 ]; then
+  app_name=Agent-Desk
+  bundle_id=fheuer.agentdesk
+elif [ "${AGENT_DESK_TEST_BUILD:-}" = 1 ]; then
   team_id=
   identity=-
-  app_name="Hex Test"
-  bundle_id=anomaly.hex.test
-elif [ "${HEX_DEV_BUILD:-}" = 1 ]; then
-  team_id=${HEX_TEAM_ID:?Set HEX_TEAM_ID to the Apple Developer signing team}
+  app_name="Agent-Desk Test"
+  bundle_id=fheuer.agentdesk.test
+elif [ "${AGENT_DESK_DEV_BUILD:-}" = 1 ]; then
+  team_id=${AGENT_DESK_TEAM_ID:?Set AGENT_DESK_TEAM_ID to the Apple Developer signing team}
   identity=$(hex_codesign_identity "$team_id")
-  app_name="Hex Dev"
-  bundle_id=anomaly.hex.dev
+  app_name="Agent-Desk Dev"
+  bundle_id=fheuer.agentdesk.dev
 else
-  team_id=${HEX_TEAM_ID:?Set HEX_TEAM_ID to the Apple Developer signing team}
+  team_id=${AGENT_DESK_TEAM_ID:?Set AGENT_DESK_TEAM_ID to the Apple Developer signing team}
   identity=$(hex_codesign_identity "$team_id")
-  app_name=Hex
-  bundle_id=anomaly.hex
+  app_name=Agent-Desk
+  bundle_id=fheuer.agentdesk
 fi
 # Every build carries the `capture` experiment (dormant until enabled), with
-# Scrawl's `scrawl-helper` beside `hex`, where the engine looks for it.
+# Scrawl's `scrawl-helper` beside `agent-desk`, where the engine looks for it.
 # crates/capture/build.rs compiles the helper from crates/capture/helper into
 # target/release.
 icon_output="$root/target/AppIcon.assets"
@@ -45,7 +45,7 @@ icon_info="$root/target/AppIcon-info.plist"
 version=$(hex_version "$root")
 build_number=$(hex_build_number "$version")
 bundle_name="$app_name.app"
-executable_name=hex
+executable_name=agent-desk
 
 bundle="$root/target/app/$bundle_name"
 executable="$bundle/Contents/MacOS/$executable_name"
@@ -53,7 +53,7 @@ executable="$bundle/Contents/MacOS/$executable_name"
 sign() {
   if [ "$identity" = - ]; then
     codesign --force --sign - "$@"
-  elif [ "${HEX_ALLOW_DEVELOPMENT_SIGNING:-}" = 1 ]; then
+  elif [ "${AGENT_DESK_ALLOW_DEVELOPMENT_SIGNING:-}" = 1 ]; then
     # Apple Development: no secure timestamp (nothing to notarize).
     codesign --force --timestamp=none --options runtime --sign "$identity" "$@"
   else
@@ -65,10 +65,10 @@ export MACOSX_DEPLOYMENT_TARGET=15.0
 # Cargo may run through a wrapper that does not forward the environment (Kit's
 # HiveMind-backed cargo), so build-time variables also travel as --config.
 env_args=()
-if [ -z "${HEX_COMMIT:-}" ] && { [ "${HEX_LOCAL_BUILD:-}" = 1 ] || [ "${HEX_TEST_BUILD:-}" = 1 ] || [ "${HEX_DEV_BUILD:-}" = 1 ]; }; then
-  HEX_COMMIT=$(git -C "$root" rev-parse --short=7 HEAD 2>/dev/null || true)
+if [ -z "${AGENT_DESK_COMMIT:-}" ] && { [ "${AGENT_DESK_LOCAL_BUILD:-}" = 1 ] || [ "${AGENT_DESK_TEST_BUILD:-}" = 1 ] || [ "${AGENT_DESK_DEV_BUILD:-}" = 1 ]; }; then
+  AGENT_DESK_COMMIT=$(git -C "$root" rev-parse --short=7 HEAD 2>/dev/null || true)
 fi
-for name in HEX_LOCAL_BUILD HEX_TEST_BUILD HEX_DEV_BUILD HEX_COMMIT HEX_BUILD_CHANNEL HEX_UPDATE_TEAM_ID; do
+for name in AGENT_DESK_LOCAL_BUILD AGENT_DESK_TEST_BUILD AGENT_DESK_DEV_BUILD AGENT_DESK_COMMIT AGENT_DESK_BUILD_CHANNEL AGENT_DESK_UPDATE_TEAM_ID; do
   value=${!name:-}
   if [ -n "$value" ]; then
     case "$value" in
@@ -77,16 +77,16 @@ for name in HEX_LOCAL_BUILD HEX_TEST_BUILD HEX_DEV_BUILD HEX_COMMIT HEX_BUILD_CH
     env_args+=(--config "env.$name='$value'")
   fi
 done
-# The helper's embedded Info.plist names Hex, not Scrawl.
+# The helper's embedded Info.plist names Agent-Desk, not Scrawl.
 SCRAWL_HELPER_PLIST="$root/packaging/macos/scrawl-helper-Info.plist" \
   cargo build --locked --release ${env_args[@]+"${env_args[@]}"} --manifest-path "$root/Cargo.toml" >&2
 rm -rf "$bundle"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources" "$bundle/Contents/Library"
-cp "$root/target/release/hex" "$executable"
+cp "$root/target/release/agent-desk" "$executable"
 cp "$root/target/release/scrawl-helper" "$bundle/Contents/MacOS/scrawl-helper"
 cp "$root/app/Info.plist" "$bundle/Contents/Info.plist"
 cp "$root/LICENSE" "$root/THIRD_PARTY_NOTICES.md" "$bundle/Contents/Resources/"
-HEX_VERSION="$version" HEX_BUILD_NUMBER="$build_number" HEX_TEAM_ID="$team_id" HEX_CODESIGN_IDENTITY="${identity#-}" HEX_SKIP_INSTALL_SCRIPT=1 \
+AGENT_DESK_VERSION="$version" AGENT_DESK_BUILD_NUMBER="$build_number" AGENT_DESK_TEAM_ID="$team_id" AGENT_DESK_CODESIGN_IDENTITY="${identity#-}" AGENT_DESK_SKIP_INSTALL_SCRIPT=1 \
   "$root/scripts/build-hex-microphone-driver.sh" "$bundle/Contents/Library" >&2
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $build_number" "$bundle/Contents/Info.plist"
@@ -95,14 +95,14 @@ HEX_VERSION="$version" HEX_BUILD_NUMBER="$build_number" HEX_TEAM_ID="$team_id" H
 plutil -replace CFBundleName -string "$app_name" "$bundle/Contents/Info.plist"
 plutil -replace CFBundleDisplayName -string "$app_name" "$bundle/Contents/Info.plist"
 # Links into the playground (src/rune_ui/story_link.rs); a test build's own
-# scheme never opens the installed Hex.
-url_scheme=hex
-[ "${HEX_TEST_BUILD:-}" = 1 ] && url_scheme=hex-test
-[ "${HEX_DEV_BUILD:-}" = 1 ] && [ "${HEX_TEST_BUILD:-}" != 1 ] && url_scheme=hex-dev
+# scheme never opens the installed Agent-Desk.
+url_scheme=agent-desk
+[ "${AGENT_DESK_TEST_BUILD:-}" = 1 ] && url_scheme=agent-desk-test
+[ "${AGENT_DESK_DEV_BUILD:-}" = 1 ] && [ "${AGENT_DESK_TEST_BUILD:-}" != 1 ] && url_scheme=agent-desk-dev
 /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLName $bundle_id" "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLSchemes:0 $url_scheme" "$bundle/Contents/Info.plist"
-# The helper mirrors a cabled iPhone as a camera; macOS asks on Hex's behalf.
-plutil -replace NSCameraUsageDescription -string "Hex mirrors and records a cabled iPhone's screen for a capture." "$bundle/Contents/Info.plist"
+# The helper mirrors a cabled iPhone as a camera; macOS asks on Agent-Desk's behalf.
+plutil -replace NSCameraUsageDescription -string "Agent-Desk mirrors and records a cabled iPhone's screen for a capture." "$bundle/Contents/Info.plist"
 rm -rf "$icon_output"
 mkdir -p "$icon_output"
 xcrun actool "$root/app/AppIcon.icon" \
@@ -115,8 +115,8 @@ xcrun actool "$root/app/AppIcon.icon" \
   --output-format human-readable-text \
   --warnings \
   --notices >&2
-if [ "${HEX_DEV_BUILD:-}" = 1 ] && [ "${HEX_TEST_BUILD:-}" != 1 ]; then
-  # Hex Dev wears a DEV band. macOS prefers Assets.car's icon, so the dev
+if [ "${AGENT_DESK_DEV_BUILD:-}" = 1 ] && [ "${AGENT_DESK_TEST_BUILD:-}" != 1 ]; then
+  # Agent-Desk Dev wears a DEV band. macOS prefers Assets.car's icon, so the dev
   # bundle ships only the badged .icns and names no asset-catalog icon.
   dev_icon="$root/target/AppIcon-dev"
   rm -rf "$dev_icon"
@@ -130,8 +130,8 @@ else
 fi
 
 sign "$bundle/Contents/Library/HexMicrophone.driver"
-# Hex runs it only to decode the capture's movie, which needs no
-# entitlement; anything it touches is attributed to Hex, its responsible
+# Agent-Desk runs it only to decode the capture's movie, which needs no
+# entitlement; anything it touches is attributed to Agent-Desk, its responsible
 # process.
 sign --identifier "$bundle_id.scrawl-helper" "$bundle/Contents/MacOS/scrawl-helper"
 sign --entitlements "$root/.github/release/hex.entitlements" "$bundle"

@@ -20,8 +20,8 @@ Pass a model to `create()` to get a ready-to-use transcriber:
 ```ts
 import * as Hex from "@kitlangton/hex"
 
-const transcriber = await Hex.create({
-  command: ["/path/to/hex-service", "service", "--embedded"],
+const transcriber = await Agent-Desk.create({
+  command: ["/path/to/agent-desk-service", "service", "--embedded"],
   model: "parakeet_unified_en",
   language: "en",
   onProgress: console.log,
@@ -80,8 +80,8 @@ import { Effect } from "effect"
 import * as Hex from "@kitlangton/hex/effect"
 
 const program = Effect.scoped(Effect.gen(function* () {
-  const transcriber = yield* Hex.create({
-    command: ["/path/to/hex-service", "service", "--embedded"],
+  const transcriber = yield* Agent-Desk.create({
+    command: ["/path/to/agent-desk-service", "service", "--embedded"],
     model: "parakeet_unified_en",
     language: "en",
     onProgress: console.log,
@@ -108,8 +108,8 @@ in the Promise API and a scoped `{ pid, client }` in the Effect API. This is use
 for catalog browsing and explicit model management:
 
 ```ts
-const host = await Hex.create({
-  command: ["/path/to/hex-service", "service", "--embedded"],
+const host = await Agent-Desk.create({
+  command: ["/path/to/agent-desk-service", "service", "--embedded"],
 })
 try {
   const models = await host.client.models.list()
@@ -129,13 +129,13 @@ try {
 
 The low-level client retains request-only cancellation; callers own helper
 shutdown if native work must stop. Effect's low-level `client.models.prepare()`
-remains a progress `Stream`. `Hex.layer(options)` still supplies the low-level
-`Hex.Service` and owns its helper for the layer scope.
+remains a progress `Stream`. `Agent-Desk.layer(options)` still supplies the low-level
+`Agent-Desk.Service` and owns its helper for the layer scope.
 
 On the running desktop app, `client.transcribe({ ..., process: "global" })`
 also asks for the text after your Global mode's output processing (Labs ›
 Process API transcripts) and returns it as `processed`. An embedded
-`hex-service` installs no processor and answers `processing-unavailable`;
+`agent-desk-service` installs no processor and answers `processing-unavailable`;
 without `process`, results are raw transcripts as before. `capabilities()`
 reports `outputProcessing` when the host supports it; older hosts omit it.
 
@@ -167,9 +167,9 @@ Use `models.list()` to discover available models rather than treating the export
 is currently unavailable in the native catalog. The optional `language` argument
 to `models.list()` affects readiness metadata, not language filtering; inspect
 each model's `languages` and `supportsLanguageDetection` fields. `source` says
-where the file comes from: `download`, `hex`, `imported`, or
+where the file comes from: `download`, `agent-desk`, `imported`, or
 `found: owner/name@abcdef1` for a model another app downloaded to the Hugging Face
-cache, which Hex uses where it is.
+cache, which Agent-Desk uses where it is.
 
 ## Connect to HEX Desktop
 
@@ -191,14 +191,14 @@ void (async () => {
 const { transcript, durationMs } = await recording.finish()
 ```
 
-`connect()` finds the running Hex on macOS, Linux, and Windows. Desktop capture
-(`hex.dictation`) works on all three while Hex is listening, with the
-microphone the user chose in Hex. A recording never ends the user's shortcut
+`connect()` finds the running Agent-Desk on macOS, Linux, and Windows. Desktop capture
+(`hex.dictation`) works on all three while Agent-Desk is listening, with the
+microphone the user chose in Agent-Desk. A recording never ends the user's shortcut
 dictation: starting one while the shortcut records is refused with
 `dictation-busy`, and the
 shortcut does nothing while yours records. Outside macOS there is no
 packaged helper yet; pass `command: ["hex", "service", "--embedded"]` to
-`create()` to run an installed Hex as the direct child.
+`create()` to run an installed Agent-Desk as the direct child.
 
 Call `recording.cancel()` to discard; Escape doesn't cancel a recording, so the
 key stays with your app. If the microphone fails mid-recording, `finish()` on

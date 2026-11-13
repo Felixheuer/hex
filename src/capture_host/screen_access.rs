@@ -1,10 +1,10 @@
-//! Screen Recording as this running Hex can use it.
+//! Screen Recording as this running Agent-Desk can use it.
 //!
 //! `CGPreflightScreenCaptureAccess` keeps its first answer for the life of
-//! the process, so a grant made while Hex runs never shows through it: the
+//! the process, so a grant made while Agent-Desk runs never shows through it: the
 //! pane kept saying "Required", Allow opened System Settings on a switch
 //! already on, and a capture failed with "Screen Recording is off". Once the
-//! preflight says no, a fresh `scrawl-helper` (which macOS counts as Hex)
+//! preflight says no, a fresh `scrawl-helper` (which macOS counts as Agent-Desk)
 //! reads the grant, and a real one-frame capture tells whether this process
 //! can use it or must restart first.
 
@@ -18,7 +18,7 @@ pub enum ScreenAccess {
     #[default]
     Off,
     /// Granted in System Settings, but this process can't record until
-    /// Hex restarts.
+    /// Agent-Desk restarts.
     NeedsRestart,
     Allowed,
 }
@@ -167,7 +167,7 @@ fn read() -> ScreenAccess {
     } else if scrawl_capture::capture::screen_capture_usable(true) {
         ScreenAccess::Allowed
     } else {
-        tracing::info!("Screen Recording is granted but needs Hex to restart");
+        tracing::info!("Screen Recording is granted but needs Agent-Desk to restart");
         ScreenAccess::NeedsRestart
     }
 }

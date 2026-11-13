@@ -166,9 +166,9 @@ nonisolated struct KeyboardLayerState: Equatable, Sendable {
 }
 
 nonisolated enum KeyboardFieldRoute: Equatable, Sendable {
-    /// Hex's keys, with this field kind and first page.
+    /// Agent-Desk's keys, with this field kind and first page.
     case keys(KeyboardFieldKind, initialLayer: KeyboardLayer)
-    /// Number pads go to the next keyboard; Hex shows 123 in case there is none.
+    /// Number pads go to the next keyboard; Agent-Desk shows 123 in case there is none.
     case handOff
 }
 

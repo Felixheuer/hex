@@ -1,4 +1,4 @@
-//! Hex on macOS (`hex app`): one menu-bar process.
+//! Agent-Desk on macOS (`agent-desk app`): one menu-bar process.
 //!
 //! - The main thread runs Rune's event loop (`rune::App`, windowless and
 //!   kept running, as an accessory app) and, beside it on the same AppKit
@@ -14,7 +14,7 @@
 //! - The listener (`recognition::listen`), the meeting controller, and the
 //!   local API keep their own threads.
 //!
-//! Closing the window hides it; Quit (menu bar, ⌘Q, `hex quit`, `hex restart`
+//! Closing the window hides it; Quit (menu bar, ⌘Q, `agent-desk quit`, `agent-desk restart`
 //! and the onboarding relaunch after scheduling the new copy, or Ctrl-C) ends
 //! the loop, then stops and joins everything and ends the process with
 //! `_exit` ([`crate::desktop::process_exit`]). AppKit's own terminate
@@ -161,11 +161,11 @@ impl RuntimeHandle {
             // choice, so it cannot later undo the newer manual choice.
             self.requests
                 .send(Request::InputSourceChanged(source))
-                .map_err(|_| eyre!("Hex's runtime stopped"))?;
+                .map_err(|_| eyre!("Agent-Desk's runtime stopped"))?;
         }
         self.requests
             .send(request)
-            .map_err(|_| eyre!("Hex's runtime stopped"))
+            .map_err(|_| eyre!("Agent-Desk's runtime stopped"))
     }
 
     pub(crate) fn published(&self) -> Option<Arc<Published>> {
@@ -199,7 +199,7 @@ pub(crate) fn runtime() -> Option<RuntimeHandle> {
     RUNTIME.get().cloned()
 }
 
-/// Carries out an update control from the window, a menu, or `hex`. Restart
+/// Carries out an update control from the window, a menu, or `agent-desk`. Restart
 /// to update finishes on the updater's worker; the pump then quits.
 pub(crate) fn update_action(action: &crate::desktop::host::DesktopAction) -> Result<()> {
     UPDATER
@@ -215,7 +215,7 @@ pub(crate) fn update_status() -> DesktopUpdateStatus {
     )
 }
 
-/// Quits Hex from any thread.
+/// Quits Agent-Desk from any thread.
 pub(crate) fn quit() {
     if let Some(window) = WINDOW.get() {
         window.quit();
@@ -246,8 +246,8 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|error| error.into_inner())
 }
 
-/// Asks a running 2.3.1 or Swift Hex, and the other of Live and Dev
-/// (`app_paths::Variant::rival`), to quit once this Hex is ready to listen,
+/// Asks a running 2.3.1 or Swift Agent-Desk, and the other of Live and Dev
+/// (`app_paths::Variant::rival`), to quit once this Agent-Desk is ready to listen,
 /// so two never answer the same shortcut or hold the microphone. The other
 /// app stays installed; starting it again quits this one.
 fn quit_legacy_hex() {
@@ -264,9 +264,9 @@ fn quit_legacy_hex() {
                 &NSString::from_str(bundle_id),
             ) {
                 if app.terminate() {
-                    tracing::info!(bundle_id, "asked the other Hex to quit");
+                    tracing::info!(bundle_id, "asked the other Agent-Desk to quit");
                 } else {
-                    tracing::warn!(bundle_id, "the other Hex did not agree to quit");
+                    tracing::warn!(bundle_id, "the other Agent-Desk did not agree to quit");
                 }
             }
         }
@@ -277,9 +277,9 @@ fn quit_legacy_hex() {
 /// builds) and logs a warning on a large footprint, steady growth, or a busy core.
 fn watch_process() {
     let config = if cfg!(debug_assertions) {
-        procwatch::Config::dev("hex")
+        procwatch::Config::dev("agent-desk")
     } else {
-        procwatch::Config::release("hex")
+        procwatch::Config::release("agent-desk")
     };
     procwatch::watch_with(config, |event, _| tracing::warn!(%event, "process watch"));
 }
@@ -431,7 +431,7 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     };
     RUNTIME
         .set(handle.clone())
-        .map_err(|_| eyre!("the Hex runtime already started"))?;
+        .map_err(|_| eyre!("the Agent-Desk runtime already started"))?;
     let runtime_settings = settings.clone();
     let runtime = thread::Builder::new()
         .name("hex-runtime".into())
@@ -462,9 +462,9 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     }
     let window = app.handle();
     let _ = WINDOW.set(window.clone());
-    // The status item is created inside the loop; Hex can't run without a
+    // The status item is created inside the loop; Agent-Desk can't run without a
     // way back to its window, so a failed item opens the window there.
-    // With the Dock icon shown, Hex starts windowless and opens the window
+    // With the Dock icon shown, Agent-Desk starts windowless and opens the window
     // once AppKit says the launch wasn't a login item.
     let launch_window = if settings_error.is_some() {
         LaunchWindow::Open
@@ -527,7 +527,7 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     // Screenshots: its own picker and the thumbnail.
     #[cfg(hex_capture)]
     crate::screenshots::install(&mut app);
-    // `hex dictation` and `hex paste-last` go straight to the listener; the
+    // `agent-desk dictation` and `agent-desk paste-last` go straight to the listener; the
     // rest reach the main thread's pump.
     let (pump_calls, pump_call_receiver) = mpsc::sync_channel(8);
     let control_runtime = handle.clone();
@@ -576,7 +576,7 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
         }
         drop(requests);
         // Windows the assistant parked out of the way go back where they
-        // were before Hex goes (a quit, an update): none stays stranded.
+        // were before Agent-Desk goes (a quit, an update): none stays stranded.
         crate::assistant::guard::put_back_all(Duration::from_millis(1500));
         local_api.shutdown();
         // The listener owns the transcription engine; joining it frees the
@@ -684,7 +684,7 @@ struct Launch {
 }
 
 /// AppKit's terminate (the quit Apple event, logout) calls `exit` right after
-/// this notification, so Hex finishes there ([`crate::desktop::process_exit`]).
+/// this notification, so Agent-Desk finishes there ([`crate::desktop::process_exit`]).
 fn observe_termination(target: &MenuTarget) {
     // SAFETY: the target outlives the observer (kept in LAUNCH, then PUMP,
     // for the app's life), and the selector matches its method.
@@ -713,7 +713,7 @@ fn start_main_thread_after(seconds: f64) {
 /// the pump's timer; the first call does, later ones do nothing.
 fn start_main_thread() {
     let Some(mtm) = MainThreadMarker::new() else {
-        tracing::error!("Hex's main-thread setup ran off the main thread");
+        tracing::error!("Agent-Desk's main-thread setup ran off the main thread");
         return;
     };
     let Some(Launch { mut pump, target }) = LAUNCH.with(|slot| slot.borrow_mut().take()) else {
@@ -724,7 +724,7 @@ fn start_main_thread() {
     }) {
         Ok(actions) => Some(actions),
         Err(error) => {
-            tracing::error!(%error, "could not install Hex status item; opening the window");
+            tracing::error!(%error, "could not install Agent-Desk status item; opening the window");
             show(&pump.window, Destination::Settings);
             None
         }
@@ -843,7 +843,7 @@ pub(crate) fn bring_window_forward() {
 
 fn bring_forward(window: &rune::AppHandle<Ui>) {
     // An open window always shows the Dock icon: hiding it
-    // would deactivate Hex and drop the window behind other apps.
+    // would deactivate Agent-Desk and drop the window behind other apps.
     crate::app_settings::set_dock_icon_visible(true);
     if let Some(mtm) = MainThreadMarker::new() {
         let app = NSApplication::sharedApplication(mtm);
@@ -1020,7 +1020,7 @@ impl Pump {
             StatusItemAction::OpenChats => show(&self.window, Destination::Chats(None)),
             StatusItemAction::StopAllTasks => crate::assistant::service::stop_all(),
             // Pause from menu bar: only keyboard shortcuts stop; the
-            // menu's own actions keep working. The row says Resume Hex while
+            // menu's own actions keep working. The row says Resume Agent-Desk while
             // a resume waits, and choosing it again leaves it waiting.
             StatusItemAction::TogglePause => {
                 crate::shortcut_pause::toggle();
@@ -1185,8 +1185,8 @@ objc2::define_class!(
 
         #[unsafe(method(quitHex:))]
         fn quit_hex(&self, _sender: Option<&AnyObject>) {
-            // ⌘Q closes Settings: the window hides and Hex keeps
-            // dictating; the status item's Quit Hex still quits.
+            // ⌘Q closes Settings: the window hides and Agent-Desk keeps
+            // dictating; the status item's Quit Agent-Desk still quits.
             if crate::features::quit_closes_window() {
                 with_window(|window| window.close());
             } else {

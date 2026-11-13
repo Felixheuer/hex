@@ -23,7 +23,7 @@ pub trait Desktop: Send {
 pub struct AgentDesktop {
     program: PathBuf,
     args: Vec<String>,
-    /// Environment beside Hex's agent environment (Cua Driver's settings).
+    /// Environment beside Agent-Desk's agent environment (Cua Driver's settings).
     env: Vec<(String, String)>,
     running: Option<Running>,
     next_id: u64,

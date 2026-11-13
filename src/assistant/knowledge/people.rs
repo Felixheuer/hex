@@ -1,6 +1,6 @@
 //! Contacts: names, company, phones (in international form, as Messages and
 //! WhatsApp need them), and emails. Through the Contacts framework when
-//! Hex has Contacts access, else from the address book's own database
+//! Agent-Desk has Contacts access, else from the address book's own database
 //! (Full Disk Access), read from a copy.
 
 use std::path::PathBuf;
@@ -229,9 +229,9 @@ pub fn contacts(query: &str, tokens: &[String], limit: usize) -> Result<Vec<Hit>
             .ok_or("Contacts didn't answer")?,
         access => all_from_address_book().map_err(|error| {
             let asked = if access == Access::NotAsked {
-                "Hex hasn't asked for Contacts access yet"
+                "Agent-Desk hasn't asked for Contacts access yet"
             } else {
-                "Contacts access is off for Hex"
+                "Contacts access is off for Agent-Desk"
             };
             format!("{asked} (System Settings › Privacy & Security › Contacts), and the address book couldn't be read: {error}")
         })?,

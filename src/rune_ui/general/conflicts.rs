@@ -30,12 +30,13 @@ pub(super) fn rows(ui: &Ui, p: Paint, key: &str, target: ShortcutTarget) -> Vec<
 fn conflict_row(p: Paint, key: &str, target: ShortcutTarget, conflict: Conflict) -> El {
     let copy = match (&conflict.source, conflict.certainty) {
         (Source::MacOs, Certainty::Taken) => tr_fill(
-            "macOS uses it for “{}”, so Hex may never see it",
+            "macOS uses it for “{}”, so Agent-Desk may never see it",
             &conflict.name,
         ),
-        (Source::App(_), Certainty::Taken) => {
-            tr_fill("{} uses it too, so Hex may never see it", &conflict.name)
-        }
+        (Source::App(_), Certainty::Taken) => tr_fill(
+            "{} uses it too, so Agent-Desk may never see it",
+            &conflict.name,
+        ),
         (_, Certainty::Possible) => tr_fill("{} may use it too", &conflict.name),
     };
     let color = match conflict.certainty {

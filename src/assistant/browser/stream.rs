@@ -1,6 +1,6 @@
 //! agent-browser's live stream of one browser (`stream enable`): a
 //! WebSocket on localhost that sends the viewport as JPEG frames, the page's
-//! address and tabs, and takes the person's mouse and keys back. Hex shows
+//! address and tabs, and takes the person's mouse and keys back. Agent-Desk shows
 //! it as a task's live preview and lets the person drive it after Take over
 //! (`rune_ui::assistant_overlay::live`).
 //!

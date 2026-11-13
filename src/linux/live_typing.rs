@@ -5,7 +5,7 @@
 //!
 //! One owner thread holds a private Wayland connection. A capture's Begin
 //! creates `zwp_input_method_v2` for the seat, and Finish or Cancel destroys
-//! it, so Hex never holds the seat's input method while idle and another
+//! it, so Agent-Desk never holds the seat's input method while idle and another
 //! input method keeps working. Everything is bounded: capture sends never
 //! wait, preedits coalesce, and a Finish uses one shared claim so a caller
 //! that gives up never pastes over a commit the owner already owns. Control

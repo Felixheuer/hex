@@ -1,4 +1,4 @@
-# Hex website
+# Agent-Desk website
 
 `https://anoma.ly/hex` is the one Hex site (dev: `https://dev.anoma.ly/hex`).
 `bun run dev` starts Vite. `bun run build [--mode dev]` checks TypeScript and
@@ -22,7 +22,7 @@ switch inside a row where it has variants (x64/ARM64 for the Windows installer
 and the Linux binary, which the Linux packages follow too; Debian, Fedora, Nix,
 and AUR for the Linux package), and the download button or copyable command.
 All three stacks share one grid cell, so switching tabs never moves the page.
-An Intel Mac sees that Hex requires Apple silicon instead of a download. It
+An Intel Mac sees that Agent-Desk requires Apple silicon instead of a download. It
 selects the visitor's OS and architecture on first paint and refines them with
 UA client hints. Versions, URLs, and commands live in `src/release.ts`; file
 links name `/hex/download/<target>`, which the Worker sends to the stable
@@ -61,7 +61,7 @@ Regenerate the idle still after changing the head:
 
 ```sh
 VITE_SHOUT_CAPTURE=1 bunx vite --port 5531
-HEX_SITE_URL=http://127.0.0.1:5531 bun run generate:poster
+AGENT_DESK_SITE_URL=http://127.0.0.1:5531 bun run generate:poster
 ```
 
 ## Performance
@@ -92,7 +92,7 @@ during a load.
 
 The Open Graph and Twitter image is `public/og.png` (1200 × 630): the app icon,
 the name, and one line. `scripts/og/hex-icon.png` is the 1024 px icon exported
-from the built app (`iconutil -c iconset Hex.app/Contents/Resources/AppIcon.icns`).
+from the built app (`iconutil -c iconset Agent-Desk.app/Contents/Resources/AppIcon.icns`).
 Regenerate with `bun run generate:og`, bump the `?v=` on both image tags in
 `index.html`, rebuild, deploy, and fetch the published PNG.
 

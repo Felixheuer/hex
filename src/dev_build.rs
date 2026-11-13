@@ -11,9 +11,9 @@ pub fn is_dev_build() -> bool {
     is_dev_build_for(
         cfg!(debug_assertions),
         cfg!(test),
-        option_env!("HEX_LOCAL_BUILD"),
-        option_env!("HEX_TEST_BUILD").or(option_env!("HEX_DEV_BUILD")),
-        option_env!("HEX_BUILD_CHANNEL"),
+        option_env!("AGENT_DESK_LOCAL_BUILD"),
+        option_env!("AGENT_DESK_TEST_BUILD").or(option_env!("AGENT_DESK_DEV_BUILD")),
+        option_env!("AGENT_DESK_BUILD_CHANNEL"),
         crate::VERSION,
     )
 }

@@ -1,4 +1,4 @@
-//! The Voice Filter pane (macOS and Linux, or while the Hex
+//! The Voice Filter pane (macOS and Linux, or while the Agent-Desk
 //! Microphone driver is installed): the virtual microphone (macOS's driver,
 //! or Linux's PipeWire source), the filter mode and its key sliders, comfort
 //! noise, and "Try it": record five seconds or use the example clip, then
@@ -224,7 +224,7 @@ fn header_status(ui: &Ui, p: Paint) -> El {
     tone_tag(p, "driver-status", &label, tone)
 }
 
-/// Hex Microphone's state where Hex creates it rather than a driver
+/// Agent-Desk Microphone's state where Agent-Desk creates it rather than a driver
 /// (`Capabilities::hex_microphone` off): starting, available, or failed.
 fn source_state(status: &HexMicrophoneStatus) -> (&'static str, Tone) {
     match &status.action_state {
@@ -234,7 +234,7 @@ fn source_state(status: &HexMicrophoneStatus) -> (&'static str, Tone) {
     }
 }
 
-/// Hex Microphone as a virtual input Hex creates (Linux): what to do with
+/// Agent-Desk Microphone as a virtual input Agent-Desk creates (Linux): what to do with
 /// it, or why it could not start. The header shows its state.
 fn source_row(ui: &Ui, p: Paint) -> El {
     let title = tr("Virtual microphone");
@@ -248,11 +248,13 @@ fn source_row(ui: &Ui, p: Paint) -> El {
         );
     };
     let description = match &status.action_state {
-        DriverActionState::Failed(reason) => tr_fill("Could not start Hex Microphone: {}", reason),
-        _ if status.driver_loaded => {
-            tr("Choose Hex Microphone as your input in Slack, Zoom, or Discord").to_string()
+        DriverActionState::Failed(reason) => {
+            tr_fill("Could not start Agent-Desk Microphone: {}", reason)
         }
-        _ => tr("Starting Hex Microphone…").to_string(),
+        _ if status.driver_loaded => {
+            tr("Choose Agent-Desk Microphone as your input in Slack, Zoom, or Discord").to_string()
+        }
+        _ => tr("Starting Agent-Desk Microphone…").to_string(),
     };
     setting_row(
         p,
@@ -298,7 +300,7 @@ fn uninstall_only() -> bool {
     !crate::features::voice_filter()
 }
 
-/// The Hex Microphone driver is installed: apps may use it, so the Voice
+/// The Agent-Desk Microphone driver is installed: apps may use it, so the Voice
 /// Filter stays on until it is uninstalled.
 pub(super) fn driver_installed(ui: &Ui) -> bool {
     ui.platform
@@ -441,7 +443,7 @@ pub(super) fn pane(ui: &Ui, p: Paint) -> El {
     section(ui, p, rows)
 }
 
-/// The Hex Microphone section around `rows`, in the pane's scroll body.
+/// The Agent-Desk Microphone section around `rows`, in the pane's scroll body.
 fn section(ui: &Ui, p: Paint, rows: Vec<El>) -> El {
     let section = col()
         .key("fun-hex-microphone")
@@ -453,7 +455,7 @@ fn section(ui: &Ui, p: Paint, rows: Vec<El>) -> El {
                 .gap(8.0)
                 .center_y()
                 .justify_between()
-                .child(p.section_label(tr("Hex Microphone")))
+                .child(p.section_label(tr("Agent-Desk Microphone")))
                 .child(header_status(ui, p)),
         )
         .child(card(p, "card", rows));
@@ -484,7 +486,7 @@ fn uninstall_row(ui: &Ui, p: Paint) -> El {
         "hex-mic-driver",
         tr("Virtual microphone driver"),
         Some(tr(
-            "Voice Filter isn't in this version of Hex. Uninstall its driver to remove Hex Microphone from your inputs.",
+            "Voice Filter isn't in this version of Agent-Desk. Uninstall its driver to remove Agent-Desk Microphone from your inputs.",
         )),
         row().key("controls").gap(8.0).center_y().child(control),
     )

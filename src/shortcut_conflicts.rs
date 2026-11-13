@@ -1,4 +1,4 @@
-//! Whether a Hex shortcut can work on this Mac, or something takes it first
+//! Whether an Agent-Desk shortcut can work on this Mac, or something takes it first
 //! (macOS): macOS's own keyboard shortcuts (`com.apple.symbolichotkeys`),
 //! the 🌐 key's own action, Apple Dictation's and Siri's press-twice and
 //! hold shortcuts, and other apps known to take global keys (dictation apps,
@@ -37,7 +37,7 @@ pub(crate) enum Source {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Certainty {
-    /// A saved setting says the keys are taken: Hex never sees them, or they
+    /// A saved setting says the keys are taken: Agent-Desk never sees them, or they
     /// do something else too.
     Taken,
     /// The other side is on or running and commonly uses such keys; pressing

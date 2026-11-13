@@ -6,7 +6,7 @@
 scripts/check capture_host routing::look opencode:: --success-output immediate
 ```
 
-This is a headless benchmark in the routing tests, not a launched Hex/strobe
+This is a headless benchmark in the routing tests, not a launched Agent-Desk/strobe
 case. It reads fake sessions, writes disposable bundles, and replaces delivery
 with an in-memory acknowledgement. It never records a screen or opens a
 microphone. Run Cargo through the build scheduler as usual.
@@ -144,5 +144,5 @@ The old path serialized light-file transfer, remote CLI startup for status, and
 remote CLI startup for the POST. The default path removes both CLI startups and
 the foreground transfer, but its live benefit is unmeasured. The 600 ms optional
 idle check is bounded; an unavailable service or slow POST can still delay or
-fail delivery. No live Hex launch, screen capture, real prompt send or installed
+fail delivery. No live Agent-Desk launch, screen capture, real prompt send or installed
 app replacement was performed.

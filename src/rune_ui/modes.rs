@@ -185,7 +185,7 @@ impl ModesPane {
     pub(super) fn load_personal_commands(&mut self) {
         self.focused_app_known = super::host::focused_application_known();
         self.workspace = crate::app_paths::personal_commands_workspace()
-            .unwrap_or_else(|_| PathBuf::from("~/.config/hex"));
+            .unwrap_or_else(|_| PathBuf::from("~/.config/agent-desk"));
         self.read_status();
     }
 
@@ -1230,7 +1230,7 @@ pub(super) fn fixture(ui: &mut Ui) {
         },
         TextReplacement {
             matched_phrase: "hex app".into(),
-            output: "Hex".into(),
+            output: "Agent-Desk".into(),
         },
     ];
     chat.transformations = vec!["smart-punctuation".into()];

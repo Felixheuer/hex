@@ -1,6 +1,6 @@
 //! The onboarding's Browser page: agent-browser found or installed with one
 //! click (its own Chrome with it), its self-tests, and signing in to sites
-//! in Hex's own browser, which is optional.
+//! in Agent-Desk's own browser, which is optional.
 
 use rune::{El, el, row, text};
 

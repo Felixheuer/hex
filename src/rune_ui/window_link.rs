@@ -1,4 +1,4 @@
-//! Opens Hex's window from any thread, on every OS: the Assistant pane on
+//! Opens Agent-Desk's window from any thread, on every OS: the Assistant pane on
 //! a conversation (the HUD's task stack and "Show in Assistant", a notification's
 //! click, the tray), the assistant's setup (a hold of the Action shortcut
 //! before it's done), or just the window. macOS goes through `macos_rune`,

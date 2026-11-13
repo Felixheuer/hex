@@ -3,7 +3,7 @@
 //! (GNOME Keyring, KWallet, KeePassXC… through `secret-tool`, with a
 //! private file in Hex's settings folder when no keyring answers, as on a
 //! bare i3), and Credential Manager on Windows. Every key is saved under
-//! the service "Hex Assistant" and an account (`anthropic`,
+//! the service "Agent-Desk Assistant" and an account (`anthropic`,
 //! `provider:<id>`), and is handed over on standard input or in memory,
 //! never as an argument, so it never shows in the process list.
 //!
@@ -12,7 +12,7 @@
 use color_eyre::Result;
 
 /// The service every key is saved under.
-pub const SERVICE: &str = "Hex Assistant";
+pub const SERVICE: &str = "Agent-Desk Assistant";
 
 /// What this computer calls the place keys are kept, for messages:
 /// "the Keychain", "the keyring", "Credential Manager".
@@ -31,19 +31,44 @@ pub fn plausible(key: &str) -> bool {
 
 /// Saves `key` for `account`.
 pub fn save(account: &str, key: &str) -> Result<()> {
-    system::save(account, key)
+    system::save(SERVICE, account, key)
 }
 
 /// `account`'s saved key, if any.
 pub fn load(account: &str) -> Option<String> {
-    system::load(account)
-        .map(|key| key.trim().to_owned())
-        .filter(|key| !key.is_empty())
+    let found = |service| {
+        system::load(service, account)
+            .map(|key: String| key.trim().to_owned())
+            .filter(|key| !key.is_empty())
+    };
+    found(SERVICE).or_else(|| {
+        let key = found(crate::app_paths::legacy::KEYCHAIN_SERVICE)?;
+        move_legacy_key(account, &key);
+        Some(key)
+    })
 }
 
-/// Deletes `account`'s key; nothing saved is fine.
+/// One-time migration, remove after 2026-12: a key Hex saved under its old
+/// service ("Hex Assistant") moves to [`SERVICE`] the first time it is read.
+/// The old item goes only once the new one is saved, so a failed save
+/// leaves it where it was (and it is still used this time).
+fn move_legacy_key(account: &str, key: &str) {
+    match system::save(SERVICE, account, key) {
+        Ok(()) => {
+            if let Err(error) = system::delete(crate::app_paths::legacy::KEYCHAIN_SERVICE, account)
+            {
+                tracing::warn!(%error, "could not remove the key Hex saved");
+            }
+        }
+        Err(error) => tracing::warn!(%error, "could not move the key Hex saved"),
+    }
+}
+
+/// Deletes `account`'s key, and one Hex saved under its old service; nothing
+/// saved is fine.
 pub fn delete(account: &str) -> Result<()> {
-    system::delete(account)
+    system::delete(SERVICE, account)?;
+    system::delete(crate::app_paths::legacy::KEYCHAIN_SERVICE, account)
 }
 
 #[cfg(target_os = "macos")]
@@ -53,12 +78,10 @@ mod system {
 
     use color_eyre::{Result, eyre::eyre};
 
-    use super::SERVICE;
-
     pub const NAME: &str = "the Keychain";
     const SECURITY: &str = "/usr/bin/security";
 
-    pub fn save(account: &str, key: &str) -> Result<()> {
+    pub fn save(service: &str, account: &str, key: &str) -> Result<()> {
         // `security -i` reads its command from standard input, so the key
         // never shows in the process list.
         let mut child = Command::new(SECURITY)
@@ -71,7 +94,7 @@ mod system {
         if let Some(mut stdin) = child.stdin.take() {
             writeln!(
                 stdin,
-                "add-generic-password -U -s \"{SERVICE}\" -a \"{account}\" -l \"{SERVICE}\" -w \"{key}\""
+                "add-generic-password -U -s \"{service}\" -a \"{account}\" -l \"{service}\" -w \"{key}\""
             )?;
         }
         let output = child.wait_with_output()?;
@@ -87,9 +110,9 @@ mod system {
         }
     }
 
-    pub fn load(account: &str) -> Option<String> {
+    pub fn load(service: &str, account: &str) -> Option<String> {
         let output = Command::new(SECURITY)
-            .args(["find-generic-password", "-s", SERVICE, "-a", account, "-w"])
+            .args(["find-generic-password", "-s", service, "-a", account, "-w"])
             .stdin(Stdio::null())
             .stderr(Stdio::null())
             .output()
@@ -100,9 +123,9 @@ mod system {
         String::from_utf8(output.stdout).ok()
     }
 
-    pub fn delete(account: &str) -> Result<()> {
+    pub fn delete(service: &str, account: &str) -> Result<()> {
         let output = Command::new(SECURITY)
-            .args(["delete-generic-password", "-s", SERVICE, "-a", account])
+            .args(["delete-generic-password", "-s", service, "-a", account])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .output()
@@ -128,20 +151,18 @@ mod system {
 
     use color_eyre::{Result, eyre::eyre};
 
-    use super::SERVICE;
-
     pub const NAME: &str = "the keyring";
     /// How long `secret-tool` may take; a keyring that asks to be unlocked
     /// shows its own prompt meanwhile.
     const WAIT: Duration = Duration::from_secs(60);
 
-    pub fn save(account: &str, key: &str) -> Result<()> {
+    pub fn save(service: &str, account: &str, key: &str) -> Result<()> {
         match secret_tool(
             &[
                 "store",
-                &format!("--label={SERVICE}"),
+                &format!("--label={service}"),
                 "service",
-                SERVICE,
+                service,
                 "account",
                 account,
             ],
@@ -161,9 +182,9 @@ mod system {
         }
     }
 
-    pub fn load(account: &str) -> Option<String> {
+    pub fn load(service: &str, account: &str) -> Option<String> {
         if let Some(Ok(key)) =
-            secret_tool(&["lookup", "service", SERVICE, "account", account], None)
+            secret_tool(&["lookup", "service", service, "account", account], None)
             && !key.trim().is_empty()
         {
             return Some(key);
@@ -171,10 +192,10 @@ mod system {
         read_file().remove(account)
     }
 
-    pub fn delete(account: &str) -> Result<()> {
+    pub fn delete(service: &str, account: &str) -> Result<()> {
         // Nothing saved is fine for `secret-tool clear` too.
         if let Some(Err(error)) =
-            secret_tool(&["clear", "service", SERVICE, "account", account], None)
+            secret_tool(&["clear", "service", service, "account", account], None)
         {
             tracing::debug!(%error, "the keyring didn't clear the key");
         }
@@ -290,13 +311,11 @@ mod system {
         CredReadW, CredWriteW,
     };
 
-    use super::SERVICE;
-
     pub const NAME: &str = "Credential Manager";
 
-    /// `Hex Assistant/anthropic`, as Credential Manager lists it.
-    fn target(account: &str) -> Vec<u16> {
-        format!("{SERVICE}/{account}")
+    /// `Agent-Desk Assistant/anthropic`, as Credential Manager lists it.
+    fn target(service: &str, account: &str) -> Vec<u16> {
+        format!("{service}/{account}")
             .encode_utf16()
             .chain(std::iter::once(0))
             .collect()
@@ -306,8 +325,8 @@ mod system {
         text.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
-    pub fn save(account: &str, key: &str) -> Result<()> {
-        let mut target = target(account);
+    pub fn save(service: &str, account: &str, key: &str) -> Result<()> {
+        let mut target = target(service, account);
         let mut user = wide(account);
         let mut blob = key.as_bytes().to_vec();
         let credential = CREDENTIALW {
@@ -334,8 +353,8 @@ mod system {
         Ok(())
     }
 
-    pub fn load(account: &str) -> Option<String> {
-        let target = target(account);
+    pub fn load(service: &str, account: &str) -> Option<String> {
+        let target = target(service, account);
         let mut credential: *mut CREDENTIALW = std::ptr::null_mut();
         // SAFETY: `target` is NUL-terminated; on success `credential` points
         // to memory Credential Manager owns until `CredFree`.
@@ -358,8 +377,8 @@ mod system {
         key
     }
 
-    pub fn delete(account: &str) -> Result<()> {
-        let target = target(account);
+    pub fn delete(service: &str, account: &str) -> Result<()> {
+        let target = target(service, account);
         // SAFETY: `target` is NUL-terminated.
         if unsafe { CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, 0) } == 0 {
             // SAFETY: reads this thread's last error.
@@ -380,15 +399,15 @@ mod system {
 
     pub const NAME: &str = "a key store";
 
-    pub fn save(_account: &str, _key: &str) -> Result<()> {
+    pub fn save(_service: &str, _account: &str, _key: &str) -> Result<()> {
         Err(eyre!("this computer has nowhere to keep keys"))
     }
 
-    pub fn load(_account: &str) -> Option<String> {
+    pub fn load(_service: &str, _account: &str) -> Option<String> {
         None
     }
 
-    pub fn delete(_account: &str) -> Result<()> {
+    pub fn delete(_service: &str, _account: &str) -> Result<()> {
         Ok(())
     }
 }

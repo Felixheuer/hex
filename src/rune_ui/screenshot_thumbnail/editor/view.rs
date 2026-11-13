@@ -515,7 +515,7 @@ fn push(k: &rune_kit::Kit, button: Button) -> El {
     button.control_size(ControlSize::Large).build(k)
 }
 
-/// A tool's icon, in Hex's line icons, the theme's own stroke.
+/// A tool's icon, in Agent-Desk's line icons, the theme's own stroke.
 fn icon(tool: Tool) -> &'static rune::Icon {
     match tool {
         Tool::Pen => &PEN,

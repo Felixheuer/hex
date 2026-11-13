@@ -7,7 +7,7 @@
 //! driver runs.
 //!
 //! Window ids are CoreGraphics window numbers either way (`w-<number>`).
-//! Moving, minimizing, and restoring a window go through Hex's own
+//! Moving, minimizing, and restoring a window go through Agent-Desk's own
 //! Accessibility calls (`actions::ax`): Cua Driver refuses frames off the
 //! screen, which parking needs. Real pointer tools aren't offered; acting
 //! by a window's picture is `hex_window_input`.
@@ -1344,8 +1344,8 @@ mod tests {
     }
 }
 
-/// Live, by hand only (`cargo test --bin hex live_cua_driver -- --ignored`,
-/// `HEX_CUA_DRIVER` the pinned `cua-driver`, `HEX_LIVE_FILE` a throwaway
+/// Live, by hand only (`cargo test --bin agent-desk live_cua_driver -- --ignored`,
+/// `AGENT_DESK_CUA_DRIVER` the pinned `cua-driver`, `AGENT_DESK_LIVE_FILE` a throwaway
 /// text file): the adapter against the real driver and TextEdit in the
 /// background, while another app keeps the front.
 #[cfg(all(test, target_os = "macos"))]
@@ -1355,8 +1355,8 @@ mod live {
     #[test]
     #[ignore = "drives TextEdit through Cua Driver on this Mac; run by hand"]
     fn live_cua_driver() {
-        let driver = std::env::var("HEX_CUA_DRIVER").expect("HEX_CUA_DRIVER");
-        let file = std::env::var("HEX_LIVE_FILE").expect("HEX_LIVE_FILE");
+        let driver = std::env::var("AGENT_DESK_CUA_DRIVER").expect("AGENT_DESK_CUA_DRIVER");
+        let file = std::env::var("AGENT_DESK_LIVE_FILE").expect("AGENT_DESK_LIVE_FILE");
         let running = !std::process::Command::new("/usr/bin/pgrep")
             .args(["-x", "TextEdit"])
             .output()

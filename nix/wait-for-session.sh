@@ -17,5 +17,5 @@ for ((attempt = 0; attempt < 30; attempt++)); do
   sleep 1
 done
 
-echo "Hex: no ready graphical session. Import its display environment into the systemd user manager; retrying." >&2
+echo "Agent-Desk: no ready graphical session. Import its display environment into the systemd user manager; retrying." >&2
 exit 1

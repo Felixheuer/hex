@@ -520,7 +520,7 @@ mod tests {
         assert_eq!(fake.restored, [original]);
     }
 
-    /// A clipboard Hex cannot snapshot does not stop the job from clearing
+    /// A clipboard Agent-Desk cannot snapshot does not stop the job from clearing
     /// and copying; it just leaves the result behind, as a normal paste does.
     #[test]
     fn a_job_without_a_snapshot_still_clears_and_pastes() {

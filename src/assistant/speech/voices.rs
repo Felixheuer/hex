@@ -12,7 +12,7 @@ pub enum Quality {
     Enhanced,
     /// The largest, most natural download ("Premium").
     Premium,
-    /// The person's own Personal Voice, which Hex may use.
+    /// The person's own Personal Voice, which Agent-Desk may use.
     Personal,
 }
 
@@ -270,7 +270,7 @@ fn split_locale(locale: &str) -> (String, &str) {
 }
 
 /// The installed voice the person chose by `chosen` (a name from Settings,
-/// a name `say` gave an older Hex, or an engine id), reading text in
+/// a name `say` gave an older Agent-Desk, or an engine id), reading text in
 /// `language` when known. Several voices share a base name ("Eddy" speaks
 /// German and English): the one of the text's language wins, then the
 /// better one.

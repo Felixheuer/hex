@@ -1,13 +1,13 @@
-//! What Hex read aloud lately, so a microphone that heard it back through
+//! What Agent-Desk read aloud lately, so a microphone that heard it back through
 //! the speakers isn't taken for the person. Conversation mode listens right
 //! after an answer; if the reading ran longer than it looked (a late first
-//! sentence, a gap between sentences), the capture holds Hex's own words.
+//! sentence, a gap between sentences), the capture holds Agent-Desk's own words.
 //! Such a transcript is dropped instead of asked.
 //!
 //! A capture that listened under the reading (barge-in, or conversation
-//! mode's window) holds Hex's voice first and the person's words after it,
+//! mode's window) holds Agent-Desk's voice first and the person's words after it,
 //! so [`without_own_words`] cuts the reading off the front: the transcript's
-//! opening words are lined up, in order, with what Hex read, and what follows
+//! opening words are lined up, in order, with what Agent-Desk read, and what follows
 //! the last of them is the person's.
 
 use std::collections::{HashSet, VecDeque};
@@ -18,8 +18,8 @@ use std::time::{Duration, Instant};
 const RECENT: Duration = Duration::from_secs(90);
 /// How many recent texts are kept.
 const KEPT: usize = 16;
-/// The share of a transcript's words that, found in what Hex just said,
-/// make it Hex's own voice.
+/// The share of a transcript's words that, found in what Agent-Desk just said,
+/// make it Agent-Desk's own voice.
 const OWN_SHARE: f32 = 0.7;
 /// Transcripts shorter than this many words are never taken for an echo
 /// ("ja", "stopp", "nochmal").
@@ -32,7 +32,7 @@ pub fn note(text: &str) {
     note_at(&SPOKEN, Instant::now(), text);
 }
 
-/// Whether `transcript` is mostly what Hex read aloud lately.
+/// Whether `transcript` is mostly what Agent-Desk read aloud lately.
 pub fn heard_back(transcript: &str) -> bool {
     heard_back_at(&SPOKEN, Instant::now(), transcript)
 }
@@ -68,7 +68,7 @@ fn heard_back_at(
     found as f32 / heard.len() as f32 >= OWN_SHARE
 }
 
-/// Words a transcript's opening may skip before Hex's reading is found in
+/// Words a transcript's opening may skip before Agent-Desk's reading is found in
 /// it, and transcription misses forgiven in a row inside it.
 const START_SKIP: usize = 2;
 const MISSES: usize = 2;
@@ -78,7 +78,7 @@ const LOOKAHEAD: usize = 4;
 /// Words of the reading that must be found before any is cut.
 const MIN_RUN: usize = 3;
 
-/// `transcript` without Hex's own reading at its front (heard back through
+/// `transcript` without Agent-Desk's own reading at its front (heard back through
 /// the speakers before the person spoke): the person's words, or "" when
 /// it held nothing else. Unchanged when it doesn't open with the reading.
 pub fn without_own_words(transcript: &str) -> String {
@@ -212,7 +212,7 @@ mod tests {
             ),
             "Und in Berlin?"
         );
-        // Only Hex's voice: nothing left, a false alarm.
+        // Only Agent-Desk's voice: nothing left, a false alarm.
         assert_eq!(
             cut_reading(&reading, "Hamburg ist mit rund 1,9 Millionen Einwohnern"),
             ""
@@ -235,7 +235,7 @@ mod tests {
         );
     }
 
-    const ANSWER: &str = "Ich kann hier keinen Browser öffnen, weil ich in diesem Fenster nur antworten und Hex-Aufgaben ausführen darf. Starte den Browser bitte selbst.";
+    const ANSWER: &str = "Ich kann hier keinen Browser öffnen, weil ich in diesem Fenster nur antworten und Agent-Desk-Aufgaben ausführen darf. Starte den Browser bitte selbst.";
 
     #[test]
     fn hex_s_own_answer_heard_back_is_recognised() {

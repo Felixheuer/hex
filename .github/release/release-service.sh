@@ -1,5 +1,5 @@
 #!/bin/sh
-# Publishes Hex to the Anomaly release service through its shared client,
+# Publishes Agent-Desk to the Anomaly release service through its shared client,
 # vendored as release-client.sh (anomalyco/release docs/publishing.md), so
 # nothing fetched at run time executes here.
 # The client trades the job's GitHub OIDC token for a one-hour publish
@@ -10,14 +10,14 @@
 #   release-service.sh publish <dist> <notes-url>   # upload every target, then the release
 #   release-service.sh distribution <kind> <version>  # a package manager now serves <version>
 #
-# RELEASE is https://anoma.ly/release; HEX_VERSION the version; HEX_RELEASE_CHANNEL
+# RELEASE is https://anoma.ly/release; AGENT_DESK_VERSION the version; AGENT_DESK_RELEASE_CHANNEL
 # the channel (default stable). `publish` writes <dist>/manifest.json. A rerun
 # of the channel's current version succeeds when it is exactly these files.
 set -eu
 
 : "${RELEASE:?Set RELEASE to the release service origin}"
-: "${HEX_VERSION:?Set HEX_VERSION}"
-channel=${HEX_RELEASE_CHANNEL:-stable}
+: "${AGENT_DESK_VERSION:?Set AGENT_DESK_VERSION}"
+channel=${AGENT_DESK_RELEASE_CHANNEL:-stable}
 case "$RELEASE" in
   https://anoma.ly/release) ;;
   *) echo "RELEASE must be https://anoma.ly/release." >&2; exit 1 ;;
@@ -27,7 +27,7 @@ temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT HUP INT TERM
 client() { RELEASE=$RELEASE bash "$(dirname "$0")/release-client.sh" "$@"; }
 
-# The package managers that mirror Hex, each as the service lists it.
+# The package managers that mirror Agent-Desk, each as the service lists it.
 distributions='[
   {"kind": "aur", "package": "hex-bin", "command": "yay -Syu hex-bin"},
   {"kind": "deb-x64", "package": "hex", "command": "curl -fLo /tmp/hex.deb https://anoma.ly/release/hex/desktop/stable/linux-x64-deb && sudo apt install /tmp/hex.deb"},
@@ -41,19 +41,19 @@ distributions='[
 publish() {
   dist=$1
   notes_url=$2
-  version=$HEX_VERSION
+  version=$AGENT_DESK_VERSION
   # target=local file=published name, as docs/plans/release-service.md pins.
   # Published names carry no version or target: the sha256 in the path tells
   # files apart. A run without a platform's signed build publishes the others.
   set --
   for entry in \
-    "macos-arm64=hex-$version-macos-arm64.zip=Hex.zip" \
-    "macos-arm64-dmg=hex-$version-macos-arm64.dmg=Hex.dmg" \
-    "windows-x64=hex-$version-windows-x64.exe=hex.exe" \
-    "windows-x64-cli=hex-$version-windows-x64.com=hex.com" \
+    "macos-arm64=hex-$version-macos-arm64.zip=Agent-Desk.zip" \
+    "macos-arm64-dmg=hex-$version-macos-arm64.dmg=Agent-Desk.dmg" \
+    "windows-x64=hex-$version-windows-x64.exe=agent-desk.exe" \
+    "windows-x64-cli=hex-$version-windows-x64.com=agent-desk.com" \
     "windows-x64-setup=hex-setup-$version-windows-x64.exe=HexSetup.exe" \
-    "windows-arm64=hex-$version-windows-arm64.exe=hex.exe" \
-    "windows-arm64-cli=hex-$version-windows-arm64.com=hex.com" \
+    "windows-arm64=hex-$version-windows-arm64.exe=agent-desk.exe" \
+    "windows-arm64-cli=hex-$version-windows-arm64.com=agent-desk.com" \
     "windows-arm64-setup=hex-setup-$version-windows-arm64.exe=HexSetup.exe" \
     "linux-x64=hex-$version-linux-x64=hex" \
     "linux-x64-sig=hex-$version-linux-x64.sig=hex.sig" \

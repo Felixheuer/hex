@@ -15,7 +15,7 @@ pub(in crate::rune_ui) enum FirstRun {
     Failed,
     /// The model is installed.
     Ready,
-    /// The model is installed, and the desktop asks before Hex's first
+    /// The model is installed, and the desktop asks before Agent-Desk's first
     /// paste (GNOME and KDE on Wayland).
     PasteAccess,
 }

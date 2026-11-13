@@ -1,11 +1,11 @@
-//! Agent processes a Hex that crashed or was killed left running. Each
+//! Agent processes an Agent-Desk that crashed or was killed left running. Each
 //! backend runs as its own process group (`backends::run::own_group`), and
-//! a task's stop ends it; but a Hex that never got to stop it (a crash, a
+//! a task's stop ends it; but an Agent-Desk that never got to stop it (a crash, a
 //! force quit, an update's restart) left the agent working on, with its MCP
-//! servers and browsers, beside the job Hex then resumes. Every group a task
+//! servers and browsers, beside the job Agent-Desk then resumes. Every group a task
 //! starts is noted in `<assistant>/processes.json` with its start time and
-//! this Hex's own; at startup, before jobs resume, [`sweep`] ends the groups
-//! whose Hex is gone (and that are still the very processes noted, not a
+//! this Agent-Desk's own; at startup, before jobs resume, [`sweep`] ends the groups
+//! whose Agent-Desk is gone (and that are still the very processes noted, not a
 //! later one given the same pid).
 
 use std::path::PathBuf;
@@ -18,7 +18,7 @@ struct Record {
     /// The group's leader.
     pid: u32,
     started_us: Option<u64>,
-    /// The Hex that started it.
+    /// The Agent-Desk that started it.
     hex_pid: u32,
     hex_started_us: Option<u64>,
 }
@@ -83,7 +83,7 @@ pub(super) fn forget(pid: u32) {
     }
 }
 
-/// Ends the agent process groups an earlier Hex left running; how many.
+/// Ends the agent process groups an earlier Agent-Desk left running; how many.
 /// Call once at startup, before jobs resume.
 pub fn sweep() -> usize {
     let Some(path) = path() else {
@@ -97,7 +97,7 @@ pub fn sweep() -> usize {
     for record in &left {
         tracing::info!(
             pid = record.pid,
-            "ending an agent an earlier Hex left running"
+            "ending an agent an earlier Agent-Desk left running"
         );
         end(record.pid);
     }
@@ -105,8 +105,8 @@ pub fn sweep() -> usize {
     left.len()
 }
 
-/// The records whose Hex is gone and whose group still runs (to end), and
-/// those of a Hex still running (to keep). The rest are forgotten.
+/// The records whose Agent-Desk is gone and whose group still runs (to end), and
+/// those of an Agent-Desk still running (to keep). The rest are forgotten.
 fn orphaned(
     records: Vec<Record>,
     running: impl Fn(u32, Option<u64>) -> bool,
@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn only_a_gone_hex_s_own_agents_are_ended() {
         let running = |pid: u32, started: Option<u64>| match pid {
-            // This Hex.
+            // This Agent-Desk.
             10 => true,
             // An agent still running, as noted.
             100 => started == Some(5),
@@ -166,8 +166,8 @@ mod tests {
         };
         let (left, kept) = orphaned(
             vec![
-                record(100, Some(5), 9),  // a dead Hex's agent: ended
-                record(101, Some(5), 10), // this Hex's agent: kept
+                record(100, Some(5), 9),  // a dead Agent-Desk's agent: ended
+                record(101, Some(5), 10), // this Agent-Desk's agent: kept
                 record(200, Some(6), 9),  // reused pid: left alone
                 record(300, Some(7), 9),  // already gone: forgotten
                 record(100, None, 9),     // no start time: never signalled

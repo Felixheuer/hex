@@ -596,7 +596,7 @@ mod tests {
 
     fn dirs(path: &Path) -> Option<bool> {
         let path = path.to_string_lossy();
-        if path.ends_with("Lieferanten") || path.ends_with("Hex Jobs/Angebote") {
+        if path.ends_with("Lieferanten") || path.ends_with("Agent-Desk Jobs/Angebote") {
             Some(true)
         } else if path.ends_with(".xlsx") {
             Some(false)
@@ -609,8 +609,8 @@ mod tests {
     fn an_answer_names_its_folder_files_and_links() {
         let home = Path::new("/Users/maya");
         let answer = "Done: I compared **50 suppliers**. The table is in \
-                      `/Users/maya/Hex Jobs/Angebote/Vergleich.xlsx`, see also \
-                      [the shop](https://shop.example.com/preise).\n\nFiles: /Users/maya/Hex Jobs/Angebote";
+                      `/Users/maya/Agent-Desk Jobs/Angebote/Vergleich.xlsx`, see also \
+                      [the shop](https://shop.example.com/preise).\n\nFiles: /Users/maya/Agent-Desk Jobs/Angebote";
         let found = targets_with(answer, Some(home), dirs);
         assert_eq!(
             found,
@@ -622,12 +622,12 @@ mod tests {
                 },
                 Target {
                     kind: Kind::File,
-                    open: "/Users/maya/Hex Jobs/Angebote/Vergleich.xlsx".into(),
+                    open: "/Users/maya/Agent-Desk Jobs/Angebote/Vergleich.xlsx".into(),
                     name: "Vergleich.xlsx".into(),
                 },
                 Target {
                     kind: Kind::Folder,
-                    open: "/Users/maya/Hex Jobs/Angebote".into(),
+                    open: "/Users/maya/Agent-Desk Jobs/Angebote".into(),
                     name: "Angebote".into(),
                 },
             ]

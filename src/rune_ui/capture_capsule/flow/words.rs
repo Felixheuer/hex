@@ -19,7 +19,7 @@ pub(super) fn already_sent_to(to: &str) -> String {
 /// in words a person would say, or nothing: the technical cause goes to
 /// the log, never beside the message.
 pub(super) fn plain_reason(error: &str) -> Option<String> {
-    const MAX: usize = 44;
+    const MAX: usize = 52;
     let line = error.lines().next().unwrap_or_default().trim();
     let lower = line.to_lowercase();
     if lower.contains("could not reach server")
@@ -50,8 +50,8 @@ mod tests {
     fn host_errors_read_plainly_or_not_at_all() {
         for (error, plain) in [
             (
-                "Screen Recording permission is off for Hex",
-                Some("Screen Recording permission is off for Hex"),
+                "Screen Recording permission is off for Agent-Desk",
+                Some("Screen Recording permission is off for Agent-Desk"),
             ),
             (
                 "Could not reach server at http://127.0.0.1:4096",

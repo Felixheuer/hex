@@ -1,6 +1,6 @@
-//! Where windows Hex moved out of the person's way came from, so they always
+//! Where windows Agent-Desk moved out of the person's way came from, so they always
 //! go back: one record per window in `parking/<window>.json` (the guard's
-//! state dir), shared by every task's guard and by Hex itself (the overlay's
+//! state dir), shared by every task's guard and by Agent-Desk itself (the overlay's
 //! Take over and Hand back).
 //!
 //! A record is created exclusively (`O_EXCL`, under `parking/.lock`): the
@@ -10,8 +10,8 @@
 //!
 //! A window goes back, and its record with it, when the person takes it over
 //! ([`unpark`]), or when nobody holds it any more ([`put_back`] with
-//! [`lapsed`]): its task ended, or the desk's holder (Hex) quit, crashed, or
-//! was updated. Hex puts back lapsed windows when it starts and whenever a
+//! [`lapsed`]): its task ended, or the desk's holder (Agent-Desk) quit, crashed, or
+//! was updated. Agent-Desk puts back lapsed windows when it starts and whenever a
 //! task ends, and every parked window when it quits.
 
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,7 @@ pub enum How {
 pub struct ParkedWindow {
     pub window_id: String,
     pub app: String,
-    /// Its frame before Hex first moved it; `None` when unknown.
+    /// Its frame before Agent-Desk first moved it; `None` when unknown.
     pub from: Option<Rect>,
     pub how: How,
     /// The task it was parked for (the desk's, or a job's).
@@ -46,7 +46,7 @@ pub struct ParkedWindow {
     pub since_ms: u64,
 }
 
-/// Moves windows back: the window server and Accessibility in Hex
+/// Moves windows back: the window server and Accessibility in Agent-Desk
 /// (`space::Native`), a stand-in in tests.
 pub trait Mover {
     /// The displays now.
@@ -341,7 +341,7 @@ mod tests {
     fn parked_windows_whose_lease_lapsed_go_back_after_hex_ends() {
         let (store, path) = scratch();
         let pid = std::process::id();
-        // A desk window (held by this process, standing for Hex) and a
+        // A desk window (held by this process, standing for Agent-Desk) and a
         // job's window whose guard has ended (a pid that isn't running).
         assert_eq!(
             store.acquire(DESK, pid, "w-1", "WhatsApp", 1),
@@ -383,7 +383,7 @@ mod tests {
         assert_eq!(mover.moved, [("w-2".to_owned(), (80.0, 80.0))]);
         assert!(parked(&store, "w-2").is_none());
         assert!(parked(&store, "w-3").is_none());
-        // Hex quits (or crashed and starts again): the desk lapses, and its
+        // Agent-Desk quits (or crashed and starts again): the desk lapses, and its
         // window goes back where it was.
         store.release(DESK, "w-1");
         mover

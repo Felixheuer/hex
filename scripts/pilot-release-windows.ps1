@@ -1,5 +1,5 @@
 # Builds and publishes Pilot's Windows release from the owner's Windows PC
-# (docs/pilot-release.md): hex.exe, its console entry point hex.com, and the
+# (docs/pilot-release.md): agent-desk.exe, its console entry point agent-desk.com, and the
 # PilotSetup.exe installer, uploaded to ai.sms-pilot.de with scp; the
 # server's pilot-publish.sh signs them with the release key and adds them to
 # the release.
@@ -18,7 +18,7 @@
 # Authenticode is optional. With -CertificateThumbprint (a code-signing
 # certificate in Cert:\CurrentUser\My and signtool from the Windows SDK), the
 # three files are signed and the build stamps the certificate's name
-# (HEX_AUTHENTICODE_SIGNER), so its updates must carry that signature too.
+# (AGENT_DESK_AUTHENTICODE_SIGNER), so its updates must carry that signature too.
 # Without it the files are unsigned (SmartScreen warns on first run), and
 # Pilot's ed25519 release signature alone vouches for updates.
 [CmdletBinding()]
@@ -61,11 +61,11 @@ $bash = (Get-Command bash.exe -ErrorAction SilentlyContinue | Where-Object { $_.
 if (-not $bash) { $bash = "$env:ProgramFiles\Git\bin\bash.exe" }
 if (-not (Test-Path $bash)) { throw 'Git Bash (bash.exe from Git for Windows) not found.' }
 
-$env:HEX_VERSION = $Version
-$env:HEX_BUILD_CHANNEL = $Channel
-$env:HEX_WINDOWS_ARCH = $Arch
-$env:HEX_RELEASE_DIST = $dist
-if ($signer) { $env:HEX_AUTHENTICODE_SIGNER = $signer } else { Remove-Item Env:HEX_AUTHENTICODE_SIGNER -ErrorAction SilentlyContinue }
+$env:AGENT_DESK_VERSION = $Version
+$env:AGENT_DESK_BUILD_CHANNEL = $Channel
+$env:AGENT_DESK_WINDOWS_ARCH = $Arch
+$env:AGENT_DESK_RELEASE_DIST = $dist
+if ($signer) { $env:AGENT_DESK_AUTHENTICODE_SIGNER = $signer } else { Remove-Item Env:AGENT_DESK_AUTHENTICODE_SIGNER -ErrorAction SilentlyContinue }
 try {
     Push-Location $root
     & $bash scripts/build-windows.sh
@@ -74,8 +74,8 @@ try {
     Pop-Location
     git -C $root checkout -- Cargo.toml Cargo.lock
 }
-$exe = Join-Path $dist "hex-$Version-windows-$label.exe"
-$com = Join-Path $dist "hex-$Version-windows-$label.com"
+$exe = Join-Path $dist "agent-desk-$Version-windows-$label.exe"
+$com = Join-Path $dist "agent-desk-$Version-windows-$label.com"
 Sign-File $exe
 Sign-File $com
 $setup = & (Join-Path $PSScriptRoot 'build-windows-installer.ps1') -Executable $exe -Console $com -Version $Version -Arch $Arch -OutDir $dist |

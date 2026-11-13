@@ -1,12 +1,12 @@
 # Copy to bench/config.toml (not committed) and fill in what your Mac holds.
 # A task whose placeholder has no value here is skipped, never guessed.
-# `hex bench run --dry-run` uses these sample values when config.toml is missing.
+# `agent-desk bench run --dry-run` uses these sample values when config.toml is missing.
 # Keys ending in `_re` are regular expressions (checks use them as they are);
 # every other value is matched literally.
 
 # Message recipients: ONLY test recipients you own. Messages are drafts and
 # are never sent; the tasks say so and a check fails any send.
-test_contact = "Hex Bench"              # a WhatsApp contact that is you (a second number, or a group with only you)
+test_contact = "Agent-Desk Bench"              # a WhatsApp contact that is you (a second number, or a group with only you)
 test_email = "bench-test@example.invalid"
 
 # Reading tasks: something only the right window can answer.

@@ -94,7 +94,7 @@ pub(super) fn start_stream_with_fallback(
         "the microphone refused its default format; trying the others it lists"
     );
     // Intel Smart Sound refused every stream cpal built, at any format and
-    // buffer, so Hex tries its own WASAPI paths next (#988).
+    // buffer, so Agent-Desk tries its own WASAPI paths next (#988).
     #[cfg(target_os = "windows")]
     match super::wasapi_capture::start(device, device_name) {
         Ok(started) => return Ok(started),

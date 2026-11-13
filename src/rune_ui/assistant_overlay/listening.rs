@@ -1,4 +1,4 @@
-//! Conversation mode's listening: after an answer, while Hex listens
+//! Conversation mode's listening: after an answer, while Agent-Desk listens
 //! hands-free for a follow-up (`DictationIndicatorEvent::Listening`), a
 //! calm glow breathes in the assistant's colours just past the HUD on the
 //! display the person works on, with "Listening…" that fades after a

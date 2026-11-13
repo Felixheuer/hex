@@ -1,14 +1,14 @@
-//! Automation (Apple Events): Hex may control other apps. macOS asks per
+//! Automation (Apple Events): Agent-Desk may control other apps. macOS asks per
 //! target app the first time one is scripted, so a task that drives System
 //! Events (as Claude Code's `osascript` does to operate apps) used to stop
-//! midway for „Hex.app möchte Zugriffsrechte, um „System Events.app“ zu
+//! midway for „Agent-Desk.app möchte Zugriffsrechte, um „System Events.app“ zu
 //! steuern“. Onboarding and the guided repair ask for System Events and
 //! Finder up front instead ([`UP_FRONT`]), so most tasks run unattended.
 //! Any other app a task scripts asks on its first use: the task's step
-//! says so first ([`first_use_notice`]: „macOS asks whether Hex may control
+//! says so first ([`first_use_notice`]: „macOS asks whether Agent-Desk may control
 //! Mail …“), so the prompt isn't a surprise and the person knows to allow.
 //!
-//! Targets Hex itself scripts (they ask on first use, each for its own
+//! Targets Agent-Desk itself scripts (they ask on first use, each for its own
 //! app): System Events (tasks' `osascript`), the browsers it reads the
 //! front tab's address from (`dictation::context`: Safari, Chrome, Arc,
 //! Brave, Edge, Vivaldi, Opera, Orion, Helium, Chromium), and the media
@@ -38,7 +38,7 @@ pub const FINDER: &str = "com.apple.finder";
 /// other app asks on its first use.
 pub const UP_FRONT: [(&str, &str); 2] = [(SYSTEM_EVENTS, "System Events"), (FINDER, "Finder")];
 
-/// Whether Hex may control the [`UP_FRONT`] apps (or one app).
+/// Whether Agent-Desk may control the [`UP_FRONT`] apps (or one app).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum AutomationState {
     Granted,
@@ -153,7 +153,7 @@ pub fn open_settings() {
     }
 }
 
-/// Whether Hex may control Messages (asked only when the phone channel is
+/// Whether Agent-Desk may control Messages (asked only when the phone channel is
 /// turned on); `ask` shows the prompt. Blocks; off the main thread.
 pub fn messages(ask: bool) -> AutomationState {
     #[cfg(target_os = "macos")]
@@ -267,7 +267,7 @@ pub fn scripted_by_tool(input: &str) -> Vec<String> {
 
 /// The step a task shows before its script reaches an app macOS hasn't
 /// asked about yet (or was refused), so the prompt that stops it is
-/// expected: once per app while Hex runs. `None` when nothing in `input`
+/// expected: once per app while Agent-Desk runs. `None` when nothing in `input`
 /// scripts such an app, for the [`UP_FRONT`] apps (onboarding asks for
 /// those), and for an app this Mac doesn't have.
 pub fn first_use_notice(input: &str) -> Option<String> {
@@ -309,16 +309,16 @@ pub fn notice_for(app: &str, state: AutomationState) -> Option<String> {
     match state {
         AutomationState::Granted => None,
         AutomationState::NotAsked => Some(tr_fill(
-            "macOS asks whether Hex may control {}: choose Allow so the task can go on",
+            "macOS asks whether Agent-Desk may control {}: choose Allow so the task can go on",
             app,
         )),
         // Not running, so macOS couldn't tell: it may ask as the app opens.
         AutomationState::Unknown => Some(tr_fill(
-            "If macOS asks whether Hex may control {}, choose Allow so the task can go on",
+            "If macOS asks whether Agent-Desk may control {}, choose Allow so the task can go on",
             app,
         )),
         AutomationState::Denied => Some(tr_fill(
-            "Hex may not control {}: turn it on in System Settings › Privacy & Security › Automation",
+            "Agent-Desk may not control {}: turn it on in System Settings › Privacy & Security › Automation",
             app,
         )),
     }

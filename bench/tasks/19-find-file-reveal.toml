@@ -9,7 +9,7 @@ front = "may_change"
 
 [[seed]]
 name = "bench-fundstueck-{run}.txt"
-content = "Hex bench: find me."
+content = "Agent-Desk bench: find me."
 
 [text]
 de = "Finde die Datei bench-fundstueck-{run}.txt und zeig sie mir im Finder."

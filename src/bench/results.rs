@@ -87,7 +87,7 @@ impl TaskResult {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RunResult {
     pub schema: u32,
-    /// The app's version (`hex status`).
+    /// The app's version (`agent-desk status`).
     pub version: String,
     /// `dev` or `live`.
     pub target: String,

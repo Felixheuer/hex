@@ -445,11 +445,11 @@ fn byok(ui: &Ui, p: Paint) -> Option<El> {
                     )
                     .child(
                         text(if cfg!(target_os = "macos") {
-                            tr("OpenCode runs any provider's model on your key. Hex keeps the key in your Keychain.")
+                            tr("OpenCode runs any provider's model on your key. Agent-Desk keeps the key in your Keychain.")
                         } else if cfg!(target_os = "windows") {
-                            tr("OpenCode runs any provider's model on your key. Hex keeps the key in Credential Manager.")
+                            tr("OpenCode runs any provider's model on your key. Agent-Desk keeps the key in Credential Manager.")
                         } else {
-                            tr("OpenCode runs any provider's model on your key. Hex keeps the key in your keyring.")
+                            tr("OpenCode runs any provider's model on your key. Agent-Desk keeps the key in your keyring.")
                         })
                             .key("detail")
                             .font(k.ty.small)

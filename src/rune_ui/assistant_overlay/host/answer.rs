@@ -362,7 +362,7 @@ unsafe extern "C" {
 }
 
 /// Whether a key came from the person rather than from the agent pressing
-/// keys for its task (agent-desktop, or Hex itself).
+/// keys for its task (agent-desktop, or Agent-Desk itself).
 #[cfg(target_os = "macos")]
 fn pressed_by_person(event: &NSEvent) -> bool {
     // SAFETY: `CGEvent` returns the event's own CGEventRef (or null), alive

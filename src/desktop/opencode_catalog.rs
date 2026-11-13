@@ -18,7 +18,7 @@ const OPENCODE_DOCS_URL: &str = "https://v2.opencode.ai/";
 pub(crate) enum ModelCatalogState {
     Loading,
     Loaded(ModelCatalog),
-    /// No OpenCode service answers; Hex never starts one.
+    /// No OpenCode service answers; Agent-Desk never starts one.
     NotRunning,
     Failed(String),
 }
@@ -51,9 +51,11 @@ pub(crate) fn opencode_unavailable_copy(
             reason: tr("Checking for OpenCode"),
             title: tr("Checking for OpenCode"),
             description: if meeting {
-                tr("Summary models show once Hex connects to OpenCode.")
+                tr("Summary models show once Agent-Desk connects to OpenCode.")
             } else {
-                tr("OpenCode transformation will be available after Hex connects to OpenCode.")
+                tr(
+                    "OpenCode transformation will be available after Agent-Desk connects to OpenCode.",
+                )
             },
             error: None,
             can_retry: false,
@@ -64,7 +66,7 @@ pub(crate) fn opencode_unavailable_copy(
             reason: tr("OpenCode isn't running"),
             title: tr("OpenCode isn't running"),
             description: if meeting {
-                tr("Start OpenCode to choose a summary model. Hex keeps the saved one.")
+                tr("Start OpenCode to choose a summary model. Agent-Desk keeps the saved one.")
             } else {
                 tr("Install or start OpenCode to transform dictated text.")
             },
@@ -76,7 +78,7 @@ pub(crate) fn opencode_unavailable_copy(
         ModelCatalogState::Failed(error) => Some(OpenCodeUnavailableCopy {
             reason: tr("OpenCode is unavailable"),
             title: tr("OpenCode is unavailable"),
-            description: tr("Hex could not load the OpenCode model catalog."),
+            description: tr("Agent-Desk could not load the OpenCode model catalog."),
             error: Some(error.clone()),
             can_retry: true,
             retry_label: tr("Retry"),
@@ -255,7 +257,7 @@ mod tests {
         assert_eq!(copy.title, "OpenCode is unavailable");
         assert_eq!(
             copy.description,
-            "Hex could not load the OpenCode model catalog."
+            "Agent-Desk could not load the OpenCode model catalog."
         );
         assert_eq!(
             copy.error.as_deref(),
@@ -273,7 +275,7 @@ mod tests {
         assert_eq!(loading.title, "Checking for OpenCode");
         assert_eq!(
             loading.description,
-            "OpenCode transformation will be available after Hex connects to OpenCode."
+            "OpenCode transformation will be available after Agent-Desk connects to OpenCode."
         );
         assert!(!loading.can_retry);
         assert!(!loading.can_open_setup);

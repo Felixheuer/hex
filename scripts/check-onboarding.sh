@@ -4,28 +4,28 @@
 # golden: the macOS and Windows scenes are the same window drawn from
 # fixtures, so they render here too.
 #
-#   1. Renders every onboarding scene (Setting up Hex with nothing found, a
+#   1. Renders every onboarding scene (Setting up Agent-Desk with nothing found, a
 #      stopped download, Settings after Continue without a model, the model step with found models, with the
 #      recommended model already present, ours downloading, Back to it, the
 #      demo, permissions, Windows' microphone switch, the paste permission on
 #      GNOME and KDE Wayland, Almost ready, the
-#      practice game, Hex is ready) in both
+#      practice game, Agent-Desk is ready) in both
 #      appearances and compares each with its approved golden in
 #      tests/golden/. Any difference fails and names the changed scenes; an
 #      intentional change refreshes the goldens in the same PR
-#      (HEX_UPDATE_GOLDENS=1 cargo test --bin hex onboarding_goldens). A GPU
+#      (AGENT_DESK_UPDATE_GOLDENS=1 cargo test --bin agent-desk onboarding_goldens). A GPU
 #      adapter is required (Mesa's lavapipe will do), so the check never
 #      passes by skipping.
 #   2. Checks Skip: it shows only on the optional pages (the demo and the
 #      practice) and lands on the next step setup still needs (permissions,
-#      then Almost ready while the model downloads, else Hex is ready),
+#      then Almost ready while the model downloads, else Agent-Desk is ready),
 #      never closing onboarding. Then Continue without a model: it shows only
 #      on the download step once the download failed or stalled, finishes
 #      onboarding, and Settings says no model is installed.
 #   3. Walks a first run through the real onboarding in a clean temporary
 #      data folder (fresh settings, no models, an empty Hugging Face cache, an
 #      English locale): it downloads and verifies the model onboarding picks,
-#      plays the practice game, and reaches Hex is ready.
+#      plays the practice game, and reaches Agent-Desk is ready.
 #
 #   scripts/check-onboarding.sh [<out-dir>]   (default target/onboarding-check)
 #
@@ -45,14 +45,14 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/hub"
 cd "$root"
 # A golden refresh must never happen here.
-unset HEX_UPDATE_GOLDENS
+unset AGENT_DESK_UPDATE_GOLDENS
 
 # run_one <log> <test> [env...]: runs exactly one test; anything but
 # "1 passed" (a failure, or a filter that matched nothing) fails.
 run_one() {
   local log=$1 test=$2
   shift 2
-  env "$@" cargo test --locked --bin hex -- --exact --include-ignored --nocapture "$test" 2>&1 | tee "$log"
+  env "$@" cargo test --locked --bin agent-desk -- --exact --include-ignored --nocapture "$test" 2>&1 | tee "$log"
   local result=${PIPESTATUS[0]}
   [ "$result" = 0 ] && grep -q 'test result: ok. 1 passed' "$log"
 }
@@ -63,7 +63,7 @@ status=0 goldens=pass skip=pass without_model=pass walkthrough=pass
 
 echo "== Onboarding scenes against their goldens"
 if ! run_one "$work/goldens.log" rune_ui::tests::onboarding_check::onboarding_goldens \
-  HEX_REQUIRE_GPU=1 HEX_GOLDEN_RENDERS="$out/scenes"; then
+  AGENT_DESK_REQUIRE_GPU=1 AGENT_DESK_GOLDEN_RENDERS="$out/scenes"; then
   goldens=fail status=1
 fi
 rendered=$(find "$out/scenes" -name '*.png' | wc -l | tr -d ' ')
@@ -87,7 +87,7 @@ fi
 echo "== First run in a clean data folder"
 if ! run_one "$work/walkthrough.log" rune_ui::tests::onboarding_check::onboarding_walkthrough \
   -u HF_HOME LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LANGUAGE=en \
-  HEX_APPLICATION_SUPPORT_DIR="$work/support" HF_HUB_CACHE="$work/hub"; then
+  AGENT_DESK_APPLICATION_SUPPORT_DIR="$work/support" HF_HUB_CACHE="$work/hub"; then
   walkthrough=fail status=1
 fi
 

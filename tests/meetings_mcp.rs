@@ -1,4 +1,4 @@
-//! `hex mcp` speaks MCP over stdio against synthetic fixture meetings.
+//! `agent-desk mcp` speaks MCP over stdio against synthetic fixture meetings.
 #![cfg(target_os = "macos")]
 
 use std::io::{BufRead, BufReader, Write};
@@ -13,11 +13,11 @@ use serde_json::{Value, json};
 fn mcp_server_initializes_lists_tools_and_answers_calls_over_stdio() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/meetings");
     let support = std::env::temp_dir().join(format!("hex-mcp-support-{}", std::process::id()));
-    let mut child = Command::new(env!("CARGO_BIN_EXE_hex"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_agent-desk"))
         .arg("mcp")
         .arg("--meetings-dir")
         .arg(&fixtures)
-        .env("HEX_APPLICATION_SUPPORT_DIR", &support)
+        .env("AGENT_DESK_APPLICATION_SUPPORT_DIR", &support)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -55,7 +55,7 @@ fn mcp_server_initializes_lists_tools_and_answers_calls_over_stdio() {
         json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
             "protocolVersion": "2025-06-18",
             "capabilities": {},
-            "clientInfo": {"name": "hex-test", "version": "1"}
+            "clientInfo": {"name": "agent-desk-test", "version": "1"}
         }}),
     );
     let initialized = receive(1);

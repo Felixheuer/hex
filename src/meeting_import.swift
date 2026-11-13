@@ -81,10 +81,10 @@ private func convertAudio(
         channels: 1,
         interleaved: false
     ) else {
-        throw ImportError("Hex could not convert audio to 16 kHz.")
+        throw ImportError("Agent-Desk could not convert audio to 16 kHz.")
     }
     guard let converter = AVAudioConverter(from: input.processingFormat, to: outputFormat) else {
-        throw ImportError("Hex could not read this audio file's format.")
+        throw ImportError("Agent-Desk could not read this audio file's format.")
     }
     // Stereo and multichannel files mix down; the converter otherwise keeps
     // one channel and drops the rest.
@@ -125,7 +125,7 @@ private func convertAudio(
             frameCapacity: outputFrames
         )
     else {
-        throw ImportError("Hex ran out of memory converting this audio file.")
+        throw ImportError("Agent-Desk ran out of memory converting this audio file.")
     }
 
     var inputExhausted = false
@@ -136,7 +136,7 @@ private func convertAudio(
 
     while !finished {
         if isCancelled() != 0 {
-            throw ImportError("Hex is quitting; the audio was not imported.")
+            throw ImportError("Agent-Desk is quitting; the audio was not imported.")
         }
         try autoreleasepool {
             outputBuffer.frameLength = 0
@@ -150,7 +150,7 @@ private func convertAudio(
                     return nil
                 }
                 if isCancelled() != 0 {
-                    failure = ImportError("Hex is quitting; the audio was not imported.")
+                    failure = ImportError("Agent-Desk is quitting; the audio was not imported.")
                     inputStatus.pointee = .endOfStream
                     return nil
                 }
@@ -173,7 +173,7 @@ private func convertAudio(
                         inputStatus.pointee = .endOfStream
                     } else {
                         failure = ImportError(
-                            "Hex could not read the audio at frame \(input.framePosition) of \(input.length): \(error.localizedDescription)"
+                            "Agent-Desk could not read the audio at frame \(input.framePosition) of \(input.length): \(error.localizedDescription)"
                         )
                         inputStatus.pointee = .endOfStream
                     }
@@ -216,9 +216,9 @@ private func convertAudio(
             case .endOfStream:
                 finished = true
             case .error:
-                throw ImportError("Hex could not convert this audio file.")
+                throw ImportError("Agent-Desk could not convert this audio file.")
             @unknown default:
-                throw ImportError("Hex could not convert this audio file.")
+                throw ImportError("Agent-Desk could not convert this audio file.")
             }
         }
     }

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# sign-macos.sh <unsigned Hex.app zip> <out dir>: signs Hex.app inside-out
-# with the Developer ID identity (hardened runtime, secure timestamp, Hex's
+# sign-macos.sh <unsigned Agent-Desk.app zip> <out dir>: signs Agent-Desk.app inside-out
+# with the Developer ID identity (hardened runtime, secure timestamp, Agent-Desk's
 # entitlements), notarizes and staples it, then writes the release service's
 # two macOS targets from the stapled app: hex-<version>-macos-arm64.zip (root
-# Hex.app, for the updater) and hex-<version>-macos-arm64.dmg (signed,
+# Agent-Desk.app, for the updater) and hex-<version>-macos-arm64.dmg (signed,
 # notarized, stapled, with an Applications link). The app is data here: it is
 # never launched. The DMG's window comes from dmg-background.tiff and
 # dmg-DS_Store beside the zip (packaging/macos/dmg), also data: they are
 # checked by magic number and size and copied in for Finder to read.
 #
-# Environment: HEX_VERSION, HEX_SIGNING_IDENTITY, HEX_KEYCHAIN, HEX_NOTARY_KEY,
-# HEX_NOTARY_KEY_ID, HEX_NOTARY_ISSUER (macos-credentials.sh).
+# Environment: AGENT_DESK_VERSION, AGENT_DESK_SIGNING_IDENTITY, AGENT_DESK_KEYCHAIN, AGENT_DESK_NOTARY_KEY,
+# AGENT_DESK_NOTARY_KEY_ID, AGENT_DESK_NOTARY_ISSUER (macos-credentials.sh).
 . "$(dirname "$0")/lib.sh"
 
 input=$1
@@ -19,18 +19,18 @@ release=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$out"
-zip="$out/hex-$HEX_VERSION-macos-arm64.zip"
-dmg="$out/hex-$HEX_VERSION-macos-arm64.dmg"
+zip="$out/hex-$AGENT_DESK_VERSION-macos-arm64.zip"
+dmg="$out/hex-$AGENT_DESK_VERSION-macos-arm64.dmg"
 
 /usr/bin/ditto -x -k "$input" "$work/unpacked"
-app="$work/unpacked/Hex.app"
+app="$work/unpacked/Agent-Desk.app"
 if [ ! -d "$app" ] || [ "$(find "$work/unpacked" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" != 1 ]; then
-  die "The macOS build must hold exactly Hex.app."
+  die "The macOS build must hold exactly Agent-Desk.app."
 fi
-[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = anomaly.hex ] ||
-  die "Hex.app has the wrong bundle identifier."
-[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$HEX_VERSION" ] ||
-  die "Hex.app is not version $HEX_VERSION."
+[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = fheuer.agentdesk ] ||
+  die "Agent-Desk.app has the wrong bundle identifier."
+[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$AGENT_DESK_VERSION" ] ||
+  die "Agent-Desk.app is not version $AGENT_DESK_VERSION."
 
 layout=$(dirname "$input")
 background="$layout/dmg-background.tiff"
@@ -50,7 +50,7 @@ check_layout "$finder" 0000000142756431
 
 # Every Mach-O in the bundle must be one this script signs: these always,
 # and libonnxruntime only while a build still bundles it.
-required=$(printf '%s\n' Contents/MacOS/hex Contents/MacOS/scrawl-helper \
+required=$(printf '%s\n' Contents/MacOS/agent-desk Contents/MacOS/scrawl-helper \
   Contents/Library/HexMicrophone.driver/Contents/MacOS/HexMicrophoneDriver | LC_ALL=C sort)
 optional=Contents/Frameworks/libonnxruntime.1.23.2.dylib
 found=$(cd "$app" && find . -type f -exec sh -c 'file -b "$1" | grep -q Mach-O && printf "%s\n" "${1#./}"' _ {} \; | LC_ALL=C sort)
@@ -58,19 +58,19 @@ expected=$required
 if printf '%s\n' "$found" | grep -qxF "$optional"; then
   expected=$(printf '%s\n%s\n' "$required" "$optional" | LC_ALL=C sort)
 fi
-[ "$found" = "$expected" ] || die "Unexpected code in Hex.app: $(diff <(echo "$expected") <(echo "$found") | grep '^[<>]' | tr '\n' ' ')"
+[ "$found" = "$expected" ] || die "Unexpected code in Agent-Desk.app: $(diff <(echo "$expected") <(echo "$found") | grep '^[<>]' | tr '\n' ' ')"
 
 sign() {
-  codesign --force --timestamp --options runtime --keychain "$HEX_KEYCHAIN" --sign "$HEX_SIGNING_IDENTITY" "$@"
+  codesign --force --timestamp --options runtime --keychain "$AGENT_DESK_KEYCHAIN" --sign "$AGENT_DESK_SIGNING_IDENTITY" "$@"
 }
 notarize() {
-  xcrun notarytool submit "$1" --key "$HEX_NOTARY_KEY" --key-id "$HEX_NOTARY_KEY_ID" --issuer "$HEX_NOTARY_ISSUER" --wait --timeout 45m
+  xcrun notarytool submit "$1" --key "$AGENT_DESK_NOTARY_KEY" --key-id "$AGENT_DESK_NOTARY_KEY_ID" --issuer "$AGENT_DESK_NOTARY_ISSUER" --wait --timeout 45m
 }
 
 if [ -f "$app/$optional" ]; then sign "$app/$optional"; fi
 sign "$app/Contents/Library/HexMicrophone.driver"
-# The capture experiment's movie decoder; Hex runs it, so it needs no entitlement.
-sign --identifier anomaly.hex.scrawl-helper "$app/Contents/MacOS/scrawl-helper"
+# The capture experiment's movie decoder; Agent-Desk runs it, so it needs no entitlement.
+sign --identifier fheuer.agentdesk.scrawl-helper "$app/Contents/MacOS/scrawl-helper"
 sign --entitlements "$release/hex.entitlements" "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 
@@ -84,19 +84,19 @@ rm -f "$zip" "$dmg"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
 
 mkdir "$work/staging"
-/usr/bin/ditto "$app" "$work/staging/Hex.app"
+/usr/bin/ditto "$app" "$work/staging/Agent-Desk.app"
 ln -s /Applications "$work/staging/Applications"
 cp "$background" "$work/staging/.background.tiff"
 cp "$finder" "$work/staging/.DS_Store"
 # hdiutil on the hosted runners intermittently fails (Resource busy).
 for attempt in 1 2 3 4 5; do
-  hdiutil create -fs APFS -format ULFO -volname Hex -srcfolder "$work/staging" "$dmg" && break
+  hdiutil create -fs APFS -format ULFO -volname Agent-Desk -srcfolder "$work/staging" "$dmg" && break
   [ "$attempt" -lt 5 ] || exit 1
   echo "hdiutil create failed (attempt $attempt); retrying" >&2
   rm -f "$dmg"
   sleep 10
 done
-codesign --force --timestamp --keychain "$HEX_KEYCHAIN" --sign "$HEX_SIGNING_IDENTITY" "$dmg"
+codesign --force --timestamp --keychain "$AGENT_DESK_KEYCHAIN" --sign "$AGENT_DESK_SIGNING_IDENTITY" "$dmg"
 notarize "$dmg"
 xcrun stapler staple "$dmg"
 xcrun stapler validate "$dmg"

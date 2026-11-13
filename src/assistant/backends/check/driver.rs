@@ -33,7 +33,9 @@ pub(super) fn judge_grants(check: Check, grants: desktop::Grants, who: &str) -> 
         ),
         (false, _) => CheckResult::failed(
             check,
-            format!("agent-desktop has no Accessibility ({who}). Switch Hex on in System Settings"),
+            format!(
+                "agent-desktop has no Accessibility ({who}). Switch Agent-Desk on in System Settings"
+            ),
             Some(Fix::GuidePermissions),
         ),
         (true, false) => CheckResult::failed(
@@ -47,7 +49,7 @@ pub(super) fn judge_grants(check: Check, grants: desktop::Grants, who: &str) -> 
 }
 
 pub(super) fn desktop_permissions(check: Check) -> CheckResult {
-    // Cua Driver runs inside Hex's process tree: Hex's grants are its.
+    // Cua Driver runs inside Agent-Desk's process tree: Agent-Desk's grants are its.
     if cua_active() {
         let permissions = computer::permissions_now();
         return judge_grants(
@@ -56,7 +58,7 @@ pub(super) fn desktop_permissions(check: Check) -> CheckResult {
                 accessibility: permissions.accessibility,
                 screen_recording: permissions.screen_recording,
             },
-            "Cua Driver, acting with Hex's grants",
+            "Cua Driver, acting with Agent-Desk's grants",
         );
     }
     let path = match agent_desktop(check) {
@@ -73,7 +75,7 @@ pub(super) fn desktop_permissions(check: Check) -> CheckResult {
         return CheckResult::failed(check, why, Some(Fix::Retry));
     }
     match grants {
-        Ok(grants) => judge_grants(check, grants, "started by Hex"),
+        Ok(grants) => judge_grants(check, grants, "started by Agent-Desk"),
         Err(error) => CheckResult::failed(
             check,
             format!("agent-desktop didn't answer: {error}"),
@@ -198,7 +200,7 @@ pub(super) fn round_trip(check: Check) -> CheckResult {
     if !visible.is_empty() && outlined.is_none() {
         return CheckResult::failed(
             check,
-            "Hex can't find agent-desktop's windows on screen, so task outlines won't show",
+            "Agent-Desk can't find agent-desktop's windows on screen, so task outlines won't show",
             Some(Fix::Retry),
         );
     }
@@ -329,7 +331,10 @@ pub(super) fn through_agent(
             command.arg(status_prompt(&tool));
         }
         AssistantBackend::ClaudeApi => {
-            return CheckResult::passed(check, "Hex runs agent-desktop for the Claude API itself");
+            return CheckResult::passed(
+                check,
+                "Agent-Desk runs agent-desktop for the Claude API itself",
+            );
         }
     }
     let ran = match run::bounded(command, MCP_LIMIT) {
@@ -345,7 +350,7 @@ pub(super) fn through_agent(
     if let Some(status) = desktop::status_in_events(&ran.stdout) {
         return match desktop::grants(&status) {
             Some(grants) => {
-                let who = format!("started by {} from Hex", name(backend));
+                let who = format!("started by {} from Agent-Desk", name(backend));
                 let mut result = judge_grants(check, grants, &who);
                 if result.ok() {
                     result.detail = format!(

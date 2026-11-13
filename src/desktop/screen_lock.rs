@@ -94,7 +94,7 @@ mod platform {
     }
 
     pub fn wake_display() {
-        let name = NSString::from_str("Hex: a task works on the desktop");
+        let name = NSString::from_str("Agent-Desk: a task works on the desktop");
         let mut id = 0u32;
         // SAFETY: NSString is toll-free bridged to CFString; `id` is a valid
         // out pointer. kIOPMUserActiveLocal = 0.

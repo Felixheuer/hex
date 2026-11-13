@@ -50,7 +50,6 @@ impl<D: Desktop> Desktop for Shared<D> {
     fn call(&mut self, tool: &str, args: &Map<String, Value>) -> Result<Value, String> {
         self.lock().call(tool, args)
     }
-
 }
 
 /// The screen, one look at a time ([`Screen`]'s, locked per call).

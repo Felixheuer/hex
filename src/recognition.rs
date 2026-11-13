@@ -90,11 +90,11 @@ impl DictationSink<'_> {
 #[derive(Debug)]
 pub enum RecognitionControl {
     /// Pastes the last dictation once nothing records; `reply` answers
-    /// `hex paste-last`, and the menu bar sends none.
+    /// `agent-desk paste-last`, and the menu bar sends none.
     PasteLast {
         reply: Option<SyncSender<ControlReply>>,
     },
-    /// `hex dictation`: drives the shortcut machine as a press would, so the
+    /// `agent-desk dictation`: drives the shortcut machine as a press would, so the
     /// shortcut still finishes it.
     /// A `stop` with `print` answers `reply` once recording stops and sends
     /// the transcript to `print` instead of pasting it; a `start` with
@@ -106,9 +106,9 @@ pub enum RecognitionControl {
         raw: bool,
         reply: SyncSender<ControlReply>,
     },
-    /// What is recording, for `hex status`.
+    /// What is recording, for `agent-desk status`.
     CaptureStatus { reply: SyncSender<CaptureSnapshot> },
-    /// `hex capture` (the `capture` experiment; see `capture_host`).
+    /// `agent-desk capture` (the `capture` experiment; see `capture_host`).
     #[cfg(hex_capture)]
     ScrawlCapture {
         action: crate::control::ScrawlCaptureAction,
@@ -341,7 +341,7 @@ pub fn listen(
                             None => ControlReply::error(
                                 "feature-off",
                                 "Annotate is off; turn it on in Settings › Annotate or \
-                                 run `hex settings set capture.enabled true`",
+                                 run `agent-desk settings set capture.enabled true`",
                             ),
                         };
                         let _ = reply.send(answer);
@@ -1008,7 +1008,7 @@ pub fn listen(
             claims_escape(programmatic.is_some(), capture_escape)
                 || asker.arm_escape(hotkeys.action.is_some(), free),
         );
-        // Toggle's cancel key is Hex's only while one of its shortcuts'
+        // Toggle's cancel key is Agent-Desk's only while one of its shortcuts'
         // recordings runs; the listener ignores keys during a programmatic one.
         input_monitor.set_takes_cancel(programmatic.is_none() && hotkeys.any_recording());
         // A Caps Lock capture is hands-free in Hold mode too, so Escape
@@ -1398,7 +1398,7 @@ fn finish_reply(finished: Option<FinishResult>, submitted: &str) -> ControlReply
     }
 }
 
-/// `hex dictation`: a start locks the shortcut machine as a double tap
+/// `agent-desk dictation`: a start locks the shortcut machine as a double tap
 /// does, so the next press or `stop` finishes it. A printing start keeps the
 /// command's reply here until that recording ends, however it ends.
 #[allow(clippy::too_many_arguments)]
@@ -1489,7 +1489,9 @@ fn control_dictation(
                     hotkeys.keep_print(print);
                     ControlReply::done("Recording; the transcript comes back here when it ends")
                 } else {
-                    ControlReply::done("Recording; `hex dictation stop` or the shortcut finishes")
+                    ControlReply::done(
+                        "Recording; `agent-desk dictation stop` or the shortcut finishes",
+                    )
                 }
             } else {
                 hotkeys.dictation.suspend();
@@ -1544,7 +1546,7 @@ fn control_dictation(
                 ),
                 finished => finish_reply(
                     Some(finished),
-                    "Finished recording; Hex pastes the text when it's ready",
+                    "Finished recording; Agent-Desk pastes the text when it's ready",
                 ),
             }
         }
@@ -1588,7 +1590,7 @@ fn fail_capture(
 enum CaptureEnd {
     /// The capture never became a dictation; no feedback tone.
     Discarded(Option<DiscardCause>),
-    /// The capture ended unfinished: the cancel shortcut, or Hex itself
+    /// The capture ended unfinished: the cancel shortcut, or Agent-Desk itself
     /// when its shortcuts were suspended or the event tap was lost.
     Cancelled,
 }

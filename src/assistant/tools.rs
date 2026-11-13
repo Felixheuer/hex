@@ -1,4 +1,4 @@
-//! Hex's own small MCP server for a task's agent (`hex assistant tools-mcp
+//! Agent-Desk's own small MCP server for a task's agent (`agent-desk assistant tools-mcp
 //! --task <id> [--role job]`): `hex_remember` adds a fact to the person's
 //! memory note, `hex_schedule`, `hex_schedules`, `hex_unschedule` manage
 //! scheduled jobs, `hex_compare_images` tells how alike two screenshots look
@@ -187,7 +187,7 @@ fn definitions() -> Vec<Value> {
     let mut tools = vec![
         json!({
             "name": "hex_start_jobs",
-            "description": "Hand the request to the background as one or more jobs, when it is a job rather than a quick question or a small action in the window in front (several steps, many items, other apps or websites, research, documents, files, or more than a minute or two). Hex starts each job with every tool it needs (its own browsers, apps, files) and the job asks the person what it needs. Call it once with all jobs: unrelated requests become separate jobs that run in parallel; parts that build on each other (research, then a sheet, then a message) stay one job, which leads helpers itself. Then end your reply with one or two short, speakable sentences saying you're on it. Never say something runs in the background without calling this.",
+            "description": "Hand the request to the background as one or more jobs, when it is a job rather than a quick question or a small action in the window in front (several steps, many items, other apps or websites, research, documents, files, or more than a minute or two). Agent-Desk starts each job with every tool it needs (its own browsers, apps, files) and the job asks the person what it needs. Call it once with all jobs: unrelated requests become separate jobs that run in parallel; parts that build on each other (research, then a sheet, then a message) stay one job, which leads helpers itself. Then end your reply with one or two short, speakable sentences saying you're on it. Never say something runs in the background without calling this.",
             "inputSchema": {"type": "object", "properties": {
                 "jobs": {"type": "array", "items": {"type": "object", "properties": {
                     "title": {"type": "string", "description": "A short title, at most six words."},
@@ -216,7 +216,7 @@ fn definitions() -> Vec<Value> {
             "description": "Remember one durable fact the person told you, for every later task: their company, website, a colleague's name and email, the tone or language they like. One short fact per call. Never passwords, keys, tokens, card or account numbers.",
             "inputSchema": {"type": "object", "properties": {
                 "fact": {"type": "string", "description": "The fact, as one short sentence."},
-                "about": {"type": "string", "description": "Who or what it is about (a person, company, or project name), so Hex links it in the memory graph."}
+                "about": {"type": "string", "description": "Who or what it is about (a person, company, or project name), so Agent-Desk links it in the memory graph."}
             }, "required": ["fact"]},
         }),
         json!({
@@ -280,8 +280,8 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             let lead = TASK
                 .get()
                 .ok_or("hex_team_start needs the task this server serves")?;
-            let root =
-                crate::assistant::agent::team::root().ok_or("Hex has no folder for teams")?;
+            let root = crate::assistant::agent::team::root()
+                .ok_or("Agent-Desk has no folder for teams")?;
             let jobs = crate::assistant::agent::handoff::parse(arguments)?.jobs;
             let asked: Vec<String> = jobs.iter().map(|job| job.title.clone()).collect();
             let members = crate::assistant::agent::team::start(&root, lead, jobs)?;
@@ -303,8 +303,8 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             let lead = TASK
                 .get()
                 .ok_or("hex_team_tell needs the task this server serves")?;
-            let root =
-                crate::assistant::agent::team::root().ok_or("Hex has no folder for teams")?;
+            let root = crate::assistant::agent::team::root()
+                .ok_or("Agent-Desk has no folder for teams")?;
             let told = crate::assistant::agent::team::tell(
                 &root,
                 lead,
@@ -323,8 +323,8 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             let lead = TASK
                 .get()
                 .ok_or("hex_team_status needs the task this server serves")?;
-            let root =
-                crate::assistant::agent::team::root().ok_or("Hex has no folder for teams")?;
+            let root = crate::assistant::agent::team::root()
+                .ok_or("Agent-Desk has no folder for teams")?;
             let wait = arguments
                 .get("wait_seconds")
                 .and_then(Value::as_u64)
@@ -344,7 +344,7 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             let titles: Vec<String> = handoff.jobs.iter().map(|job| job.title.clone()).collect();
             let count = crate::assistant::agent::handoff::record(task, handoff)?;
             Ok(format!(
-                "Hex starts {count} background job(s) as soon as you end your reply: {}. Now end with one or two short sentences saying you're on it; don't do the work yourself.",
+                "Agent-Desk starts {count} background job(s) as soon as you end your reply: {}. Now end with one or two short sentences saying you're on it; don't do the work yourself.",
                 titles.join("; ")
             ))
         }
@@ -380,7 +380,7 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
                 },
             )?;
             Ok(format!(
-                "Hex passes it to the job “{job}” as soon as you end your reply. Say briefly that you told it."
+                "Agent-Desk passes it to the job “{job}” as soon as you end your reply. Say briefly that you told it."
             ))
         }
         "hex_job_result" => job_result(&text("job")?),

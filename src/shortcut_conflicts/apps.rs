@@ -15,7 +15,7 @@ use crate::app_settings::{HotkeyBinding, ModifierSide};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Takes {
     /// Dictation apps: a held modifier (🌐, Right ⌘, Right ⌥) or ⌥ Space,
-    /// the same keys Hex's shortcuts use. Any shortcut.
+    /// the same keys Agent-Desk's shortcuts use. Any shortcut.
     Dictation,
     /// Launchers: ⌘ Space or ⌥ Space. Only a chord on Space.
     Launcher,
@@ -201,7 +201,7 @@ pub(super) fn raycast_hotkey(saved: &str) -> Option<(Option<u16>, u8)> {
 }
 
 /// Whether Karabiner-Elements' selected profile changes one of `binding`'s
-/// keys: a simple modification makes it another key (Hex never sees it), and
+/// keys: a simple modification makes it another key (Agent-Desk never sees it), and
 /// a complex rule starting from it may.
 fn karabiner_conflict(config: &Value, binding: &HotkeyBinding) -> Option<Conflict> {
     let names = karabiner_names(binding);
@@ -252,7 +252,7 @@ fn karabiner_conflict(config: &Value, binding: &HotkeyBinding) -> Option<Conflic
         name: KARABINER.into(),
         description: if simple {
             format!(
-                "{KARABINER} turns a key of {} into another key, so Hex never sees it. Remove that change in {KARABINER}, or choose another shortcut.",
+                "{KARABINER} turns a key of {} into another key, so Agent-Desk never sees it. Remove that change in {KARABINER}, or choose another shortcut.",
                 keys(binding)
             )
         } else {

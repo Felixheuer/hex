@@ -8,8 +8,8 @@
 use std::ops::{Deref, DerefMut};
 use std::time::Instant;
 
-pub(crate) use crate::assistant::view::{Phase, Place, Task, first_line, plain, shorten};
 use crate::assistant::view::{Inbox, Stream};
+pub(crate) use crate::assistant::view::{Phase, Place, Task, first_line, plain, shorten};
 use crate::assistant::{ConversationId, Event, Origin, TaskStatus, TaskWindow};
 
 use super::pops::Pops;
@@ -668,5 +668,4 @@ mod tests {
         assert!(b.escalated);
         assert_eq!(b.due(t0, false), Due::Leave, "it flies off at once");
     }
-
 }

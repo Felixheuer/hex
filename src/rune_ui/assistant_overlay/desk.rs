@@ -236,7 +236,7 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
                 .fill(c.bg_base)
                 .border_sides([0.0, 0.0, p.hair, 0.0], c.border_base)
                 .children(
-                    ["Hex", "File", "Edit", "View"]
+                    ["Agent-Desk", "File", "Edit", "View"]
                         .map(|word| text(word).font(p.k.ty.small_medium).color(p.muted())),
                 ),
         );

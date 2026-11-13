@@ -1,6 +1,6 @@
 id = "web-quick-answer"
 title = "A quick answer that needs the web"
-covers = "Quick turns browse in Hex's own browser"
+covers = "Quick turns browse in Agent-Desk's own browser"
 lane = "any"
 timeout_s = 120
 

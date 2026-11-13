@@ -127,7 +127,7 @@ pub struct Seed {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileRoot {
-    /// The task's temp folder under `~/Documents/Hex/bench`.
+    /// The task's temp folder under `~/Documents/Agent-Desk/bench`.
     #[default]
     Temp,
     /// The job's own folder (its workspace).

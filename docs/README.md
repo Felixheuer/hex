@@ -5,7 +5,7 @@ override shipped behavior.
 
 ## User Guides
 
-- [`../README.md`](../README.md): install and use Hex on macOS, Windows, and Linux.
+- [`../README.md`](../README.md): install and use Agent-Desk on macOS, Windows, and Linux.
 - [`windows.md`](windows.md): Windows x64 and ARM64 beta requirements, installation, and source builds.
 - [`linux.md`](linux.md): Linux X11 and native Wayland beta requirements and installation.
 - [`nix.md`](nix.md): Nix packaging for Linux, development, and per-user autostart.
@@ -19,11 +19,11 @@ override shipped behavior.
   commands, and diagnostics. This is the implementation authority.
 - [`../ROADMAP.md`](../ROADMAP.md): prioritized product and engineering work.
 - [`design-system.md`](design-system.md): Rune + `rune-kit` + OpenCode theme
-  components, Hex pieces, copy rules, and `--snap` scene verification.
+  components, Agent-Desk pieces, copy rules, and `--snap` scene verification.
 - [`features/README.md`](features/README.md): existing user-facing capabilities,
   entry points, available verification, and gaps; detailed dictation and recovery maps.
 - [`perf.md`](perf.md): strobe benchmarks, the cases that drive the window
-  through its accessibility tree, and how a benchmarked copy of Hex stays
+  through its accessibility tree, and how a benchmarked copy of Agent-Desk stays
   isolated.
 - [`downloads.md`](downloads.md): public download paths, R2 custom domains,
   GitHub release mirrors, and network recovery.
@@ -40,7 +40,7 @@ override shipped behavior.
 
 - [`plans/rune-ui.md`](plans/rune-ui.md): implemented; Rune desktop UI port,
   surfaces, goldens, and remaining real-window checklist.
-- [`plans/single-process.md`](plans/single-process.md): implemented; one Hex
+- [`plans/single-process.md`](plans/single-process.md): implemented; one Agent-Desk
   process per user on macOS, Windows, and Linux hosting Rune windows and overlays.
 - [`plans/rune-dependency.md`](plans/rune-dependency.md): decision record for
   Rune as a public MIT Git dependency and Nix output-hash updates.
@@ -55,7 +55,7 @@ override shipped behavior.
 - [`plans/meeting-live-transcription.md`](plans/meeting-live-transcription.md):
   evaluation of Apple SpeechTranscriber vs Moonshine for live meeting drafts.
 - [`plans/granola-import.md`](plans/granola-import.md): research on importing
-  historical Granola meetings into `hex mcp`.
+  historical Granola meetings into `agent-desk mcp`.
 
 When a plan disagrees with `AGENTS.md` about shipped behavior, update the plan.
 

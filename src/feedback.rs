@@ -28,7 +28,7 @@ pub enum KeySoundStyle {
     Felt,
     /// Rounded 22 ms low-pitch warm droplet.
     Soft,
-    /// Silent typing (only Hex's dictation tones play).
+    /// Silent typing (only Agent-Desk's dictation tones play).
     Silent,
 }
 
@@ -107,10 +107,10 @@ pub enum OnboardingTone {
     PermissionTick,
     /// `"Almost ready"` appearing while finishing a slow model download.
     AlmostReady,
-    /// One of the Hex logo's three hexagons landing on `"Hex is ready"`,
+    /// One of the Agent-Desk logo's three hexagons landing on `"Agent-Desk is ready"`,
     /// outside in (`0..3`), rising to resolve on the last.
     Build(u8),
-    /// A message arriving in the `"Without Hex"` conversation.
+    /// A message arriving in the `"Without Agent-Desk"` conversation.
     Incoming,
     /// A reply leaving the field.
     Sent,
@@ -128,11 +128,11 @@ pub enum OnboardingTone {
     SlowDown,
     /// A comic title slamming onto the stage: a heavy bass hit.
     Slam,
-    /// Confetti bursting over `"With Hex"`: a popper and falling paper.
+    /// Confetti bursting over `"With Agent-Desk"`: a popper and falling paper.
     Confetti,
-    /// Fireworks over `"With Hex"`: a whistle, a boom, and crackle.
+    /// Fireworks over `"With Agent-Desk"`: a whistle, a boom, and crackle.
     Fireworks,
-    /// The triumphant sting as `"With Hex"` peaks: one of the candidates
+    /// The triumphant sting as `"With Agent-Desk"` peaks: one of the candidates
     /// (`0..TRIUMPHS`) still being chosen between.
     Triumph(u8),
     /// A word shooting out of the HUD, one of three (`0..3`) so a burst
@@ -140,7 +140,7 @@ pub enum OnboardingTone {
     Word(u8),
     /// A card struck by lightning and dissolving.
     Burn,
-    /// `"Voice-first mode"` called as `"With Hex"` takes over: a rising
+    /// `"Voice-first mode"` called as `"With Agent-Desk"` takes over: a rising
     /// whoosh into a bright chord.
     ModeVoice,
 }
@@ -225,7 +225,7 @@ fn sounds_enabled() -> bool {
 ///
 /// On macOS an open output is a live CoreAudio IO client: coreaudiod services
 /// its render callbacks and keeps an idle-sleep assertion for it. coreaudiod
-/// logged client timeouts against Hex's open output (#1531), and a
+/// logged client timeouts against Agent-Desk's open output (#1531), and a
 /// shorter grace reduces how long such a client exists, so macOS releases the
 /// output about ten seconds after the last tone. Ten seconds still covers a
 /// quick start-tone to stop-tone dictation, though a dictation held past about
@@ -589,7 +589,7 @@ pub fn play_at(tone: Tone, percent: u8) {
 pub enum SoundSet {
     /// One kalimba-like voice playing one motif across a dictation.
     Signature = 0,
-    /// The sounds Hex played before the signature set. It has no done tone,
+    /// The sounds Agent-Desk played before the signature set. It has no done tone,
     /// and errors play macOS Basso as they did.
     #[default]
     Classic = 1,
@@ -616,7 +616,7 @@ impl SoundSet {
     /// The English name Settings shows, translated where it is shown.
     pub fn name(self) -> &'static str {
         match self {
-            Self::Signature => "Hex signature",
+            Self::Signature => "Agent-Desk signature",
             Self::Classic => "Classic",
             Self::Click => "Click",
             Self::Soft => "Soft tone",
@@ -630,7 +630,7 @@ impl SoundSet {
     pub fn character(self) -> &'static str {
         match self {
             Self::Signature => "A kalimba motif that rises and comes home",
-            Self::Classic => "The tones Hex first shipped with",
+            Self::Classic => "The tones Agent-Desk first shipped with",
             Self::Click => "Mechanical key clicks",
             Self::Soft => "Warm, rounded blips",
             Self::Wood => "Soft marimba and hollow wood blocks",
@@ -1341,7 +1341,7 @@ pub(crate) fn mix_offline_wav(
     Ok(())
 }
 
-/// Decodes one of Hex's bundled 16-bit PCM sounds.
+/// Decodes one of Agent-Desk's bundled 16-bit PCM sounds.
 /// `sound` played `cents` higher: the same samples at a faster rate.
 fn detune(sound: &SamplesBuffer, cents: f64) -> SamplesBuffer {
     let rate = f64::from(sound.sample_rate().get()) * 2f64.powf(cents / 1200.0);
@@ -1936,11 +1936,11 @@ mod tests {
 
     /// Times the default output's tone path without recording it: from the
     /// request to the mixer's first pull of the tone, plus one output buffer
-    /// until that sample is presented. `HEX_TONE_PATH=legacy` measures the
+    /// until that sample is presented. `AGENT_DESK_TONE_PATH=legacy` measures the
     /// previous path (rodio's default 50 ms buffer). Route the default output
     /// to a virtual device first so nothing sounds aloud.
     #[test]
-    #[ignore = "opens the native default output; route it to a silent device or set HEX_TONE_MUTED"]
+    #[ignore = "opens the native default output; route it to a silent device or set AGENT_DESK_TONE_MUTED"]
     fn native_start_tone_path_latency() {
         use std::sync::Mutex;
 
@@ -1970,9 +1970,9 @@ mod tests {
             }
         }
 
-        let legacy = std::env::var("HEX_TONE_PATH").is_ok_and(|path| path == "legacy");
+        let legacy = std::env::var("AGENT_DESK_TONE_PATH").is_ok_and(|path| path == "legacy");
         // A muted probe times a real speaker path without sounding.
-        let gain = if std::env::var_os("HEX_TONE_MUTED").is_some() {
+        let gain = if std::env::var_os("AGENT_DESK_TONE_MUTED").is_some() {
             0.0
         } else {
             1.0

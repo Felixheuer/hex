@@ -1,5 +1,5 @@
 //! "Press your shortcut now": whether a shortcut's press and release
-//! actually reach Hex's event tap, with exactly its keys and sides, before
+//! actually reach Agent-Desk's event tap, with exactly its keys and sides, before
 //! another app or macOS takes them (macOS).
 //!
 //! A test runs on the listener's thread: while it does, every key and
@@ -35,18 +35,18 @@ const RELEASE_WAIT: Duration = Duration::from_secs(10);
 /// What a shortcut test found.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ProbeResult {
-    /// The press and its release reached Hex with exactly the shortcut's
+    /// The press and its release reached Agent-Desk with exactly the shortcut's
     /// keys; `held` is how long it was down.
     Works { held: Duration },
-    /// The press reached Hex, but its release didn't come within 10 s.
+    /// The press reached Agent-Desk, but its release didn't come within 10 s.
     NoRelease,
-    /// The keyboard reported the shortcut's key, but Hex's tap never got it:
+    /// The keyboard reported the shortcut's key, but Agent-Desk's tap never got it:
     /// another app's shortcut or macOS took it first.
     Swallowed,
     /// The shortcut's keys arrived with other modifiers or on the other
     /// side; `saw` is what was held, as keycaps ("L⌘").
     WrongKeys { saw: String },
-    /// Nothing of the shortcut reached Hex in time: another app or macOS
+    /// Nothing of the shortcut reached Agent-Desk in time: another app or macOS
     /// took it, or it wasn't pressed.
     NothingReceived,
     /// The test couldn't run; the text is for a person.
@@ -107,9 +107,9 @@ pub(crate) fn active() -> bool {
 
 fn start_with(binding: RuntimeHotkey, wait: Duration, reply: SyncSender<ProbeResult>) {
     let refusal = if !LISTENING.load(Ordering::Acquire) {
-        Some("Hex isn't listening for shortcuts yet")
+        Some("Agent-Desk isn't listening for shortcuts yet")
     } else if crate::app_settings::shortcuts_suspended() {
-        Some("Hex is recording a shortcut in Settings; finish that first")
+        Some("Agent-Desk is recording a shortcut in Settings; finish that first")
     } else if binding.modifiers.is_empty() && binding.key_code.is_none() {
         Some("This shortcut isn't on: record one first")
     } else {
@@ -168,7 +168,7 @@ impl Drop for Listening {
         LISTENING.store(false, Ordering::Release);
         finish(
             &mut probe(),
-            ProbeResult::Unavailable("Hex stopped listening for shortcuts".into()),
+            ProbeResult::Unavailable("Agent-Desk stopped listening for shortcuts".into()),
         );
     }
 }
@@ -242,7 +242,7 @@ impl Matcher {
         };
         match (event, binding.key_code, self.pressed_at) {
             (InputEvent::TapDisabled, ..) => Some(ProbeResult::Unavailable(
-                "Hex's keyboard access was interrupted; try again".into(),
+                "Agent-Desk's keyboard access was interrupted; try again".into(),
             )),
             // A shortcut of modifiers alone: exactly them down, then up.
             (InputEvent::Flags(flags), None, None) => {

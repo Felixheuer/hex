@@ -1,17 +1,17 @@
 //! How the assistant's moments overlap: what wins when the person presses,
-//! speaks, or stops while Hex reads aloud, listens, or works. Every rule
+//! speaks, or stops while Agent-Desk reads aloud, listens, or works. Every rule
 //! below is carried out where its event arrives; this module holds the one
-//! decision they share (which captures quiet Hex) and the table itself.
+//! decision they share (which captures quiet Agent-Desk) and the table itself.
 //!
 //! | While …                     | … happens                          | then                                                        |
 //! |-----------------------------|------------------------------------|-------------------------------------------------------------|
-//! | Hex reads aloud             | a hold or a dictation becomes real | quiet at once, the rest of that answer dropped; inbox questions stay |
-//! | Hex reads aloud             | the person talks over it           | it pauses; their words drop the answer and ask, nothing or Hex's own voice resumes it (barge-in) |
+//! | Agent-Desk reads aloud             | a hold or a dictation becomes real | quiet at once, the rest of that answer dropped; inbox questions stay |
+//! | Agent-Desk reads aloud             | the person talks over it           | it pauses; their words drop the answer and ask, nothing or Agent-Desk's own voice resumes it (barge-in) |
 //! | anything                    | Escape or a spoken „Stopp“         | Here tasks and the reading stop                             |
 //! | anything                    | Stop all                           | every task and the reading stop                             |
 //! | conversation mode listening | a key or a hold                    | its capture closes first                                    |
 //! | a capture is open           | another shortcut                   | ignored (one capture at a time)                             |
-//! | any transcript              | it is Hex's own voice              | dropped (`speech::own_echo`)                                |
+//! | any transcript              | it is Agent-Desk's own voice              | dropped (`speech::own_echo`)                                |
 //! | a Here task thinks          | another hold                       | it steers that task                                         |
 //! | a job runs                  | a hold names it                    | it goes to that job                                         |
 //! | an inbox question waits     | a hold                             | it answers the question (the router decides)                |
@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 pub enum Capture {
     /// A hold of the Action shortcut.
     Hold,
-    /// Hex's dictation shortcut.
+    /// Agent-Desk's dictation shortcut.
     Dictation,
     /// Conversation mode's hands-free follow-up after an answer.
     FollowUp,
@@ -36,21 +36,21 @@ pub enum Capture {
     Meeting,
 }
 
-/// Whether `capture` quiets Hex the moment it becomes real: the person is
-/// talking to the microphone, which would otherwise hear Hex reading. A
+/// Whether `capture` quiets Agent-Desk the moment it becomes real: the person is
+/// talking to the microphone, which would otherwise hear Agent-Desk reading. A
 /// follow-up only opens once the reading ended, and a meeting records the
 /// room, so neither cuts an answer.
 pub fn hushes(capture: Capture) -> bool {
     matches!(capture, Capture::Hold | Capture::Dictation)
 }
 
-/// Hex goes quiet at once: the line being read and the rest of that answer;
+/// Agent-Desk goes quiet at once: the line being read and the rest of that answer;
 /// questions and summaries waiting their turn stay.
 pub fn hush() {
     crate::assistant::service::hush();
 }
 
-/// Whether Hex listens to the person now, and how: the one answer every
+/// Whether Agent-Desk listens to the person now, and how: the one answer every
 /// surface reads (the HUD's ring, the overlay, the voice queue that holds
 /// its announcements back), so none says "listening" while another
 /// doesn't. Barge-in's watch under an answer is not listening: it only
@@ -65,7 +65,7 @@ pub enum Listening {
     Off,
     /// The person holds the Action shortcut.
     Hold,
-    /// The person dictates (Hex's dictation shortcut records).
+    /// The person dictates (Agent-Desk's dictation shortcut records).
     Dictation,
     /// Conversation mode's window after an answer is open, waiting.
     FollowUp,
@@ -97,7 +97,7 @@ const HEARING: u8 = 8;
 /// Conversation mode's own reasons, replaced together.
 const CONVERSATION: u8 = FOLLOW_UP | HEARING;
 
-/// Every reason Hex listens now.
+/// Every reason Agent-Desk listens now.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Reasons(u8);
 
@@ -142,12 +142,12 @@ static REFRESHED_MS: AtomicU64 = AtomicU64::new(0);
 /// lapses on its own after 30 s should an end never arrive.
 const REFRESH_EVERY_MS: u64 = 5_000;
 
-/// What Hex listens to now.
+/// What Agent-Desk listens to now.
 pub fn listening() -> Listening {
     reasons().shown()
 }
 
-/// Every reason Hex listens now.
+/// Every reason Agent-Desk listens now.
 pub fn reasons() -> Reasons {
     Reasons(REASONS.load(Ordering::Acquire))
 }

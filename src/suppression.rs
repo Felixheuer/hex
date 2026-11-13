@@ -589,7 +589,7 @@ unsafe extern "C" fn physical_event_callback(
 }
 
 /// Whether a shortcut test runs: the HID tap then reports every key press,
-/// Hex's own shortcuts included.
+/// Agent-Desk's own shortcuts included.
 static PROBING: AtomicBool = AtomicBool::new(false);
 
 /// Turns the HID tap's report of every key press on or off for a shortcut
@@ -598,8 +598,8 @@ pub fn set_probing(on: bool) {
     PROBING.store(on, Ordering::Release);
 }
 
-/// Whether a HID key press can reveal a chord Hex would otherwise miss.
-/// Escape ends no dictation, and Hex's own shortcuts act through their session events.
+/// Whether a HID key press can reveal a chord Agent-Desk would otherwise miss.
+/// Escape ends no dictation, and Agent-Desk's own shortcuts act through their session events.
 fn is_chord_evidence(code: u16, flags: u64, hotkeys: RuntimeHotkeys) -> bool {
     // The Globe key's own event is the shortcut itself for the dictation
     // shortcuts that can hold Fn: the main, second, raw, and extra ones, and
@@ -688,7 +688,7 @@ unsafe extern "C" fn event_callback(
             event
         };
     }
-    // Caps Lock dictation: every AlphaShift change, including Hex's
+    // Caps Lock dictation: every AlphaShift change, including Agent-Desk's
     // own lock reset, reaches the gate; no IOKit runs on this thread.
     if event_type == EVENT_FLAGS_CHANGED {
         // SAFETY: CoreGraphics supplied a valid event to this callback.
@@ -841,7 +841,7 @@ unsafe extern "C" fn event_callback(
         context.takes_escape.load(Ordering::Acquire),
     );
     context.activity.observe(input, suppress);
-    // A key Hex consumed (its shortcuts, Escape) was never the app's chord.
+    // A key Agent-Desk consumed (its shortcuts, Escape) was never the app's chord.
     #[cfg(hex_capture)]
     if let Some(key) = capture_key
         && !suppress
@@ -873,7 +873,7 @@ enum ListSwallow {
 
 /// Whether the capsule's list or suggestions may take a key press: only
 /// while captures are on, something is open, and shortcuts are live (no
-/// binding is being recorded and Hex isn't paused). With captures turned
+/// binding is being recorded and Agent-Desk isn't paused). With captures turned
 /// off, a capsule left open takes nothing.
 #[cfg(hex_capture)]
 fn list_takes_keys(capture_on: bool, open: bool, suspended: bool) -> bool {
@@ -1152,8 +1152,8 @@ impl ShortcutSuppression {
         self.key_presses.clear();
     }
 
-    /// Whether the tap keeps `input` from the app in front: Hex's shortcuts,
-    /// Escape while Hex takes it, and `hotkeys.cancel`, which the caller
+    /// Whether the tap keeps `input` from the app in front: Agent-Desk's shortcuts,
+    /// Escape while Agent-Desk takes it, and `hotkeys.cancel`, which the caller
     /// leaves set only while a toggled recording runs.
     fn process_all(
         &mut self,

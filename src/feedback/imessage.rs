@@ -1,5 +1,5 @@
 //! The real Messages sounds for the onboarding chat, read at run time from
-//! macOS's own files. They are Apple's, so Hex never bundles them: anywhere
+//! macOS's own files. They are Apple's, so Agent-Desk never bundles them: anywhere
 //! they're missing, and off macOS, the bundled stand-in plays instead.
 
 use std::num::NonZero;
@@ -44,7 +44,7 @@ pub(super) fn or_bundled(path: &str, bundled: &SamplesBuffer) -> SamplesBuffer {
         return bundled.clone();
     }
     let Some((channels, rate, mut samples)) = std::fs::read(path).ok().and_then(|b| caf(&b)) else {
-        tracing::debug!(path, "no macOS sound; playing Hex's own");
+        tracing::debug!(path, "no macOS sound; playing Agent-Desk's own");
         return bundled.clone();
     };
     let peak = |s: &[f32]| s.iter().fold(0.0_f32, |m, x| m.max(x.abs()));

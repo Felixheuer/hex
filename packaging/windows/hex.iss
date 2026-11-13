@@ -1,12 +1,12 @@
-; Per-user Windows installer for Hex. It installs exactly the managed layout
+; Per-user Windows installer for Agent-Desk. It installs exactly the managed layout
 ; that .github/release/install-windows.ps1 creates and src/windows_updater.rs updates:
 ;
-;   %APPDATA%\hex\versions\<version>\hex.exe
-;   %APPDATA%\hex\versions\<version>\hex.com  (the console entry point)
-;   %APPDATA%\hex\bin\hex.com  (on the user's PATH)
-;   %APPDATA%\hex\current-version
-;   %APPDATA%\hex\install.json  (the direct-install receipt)
-;   Start Menu\Programs\Hex.lnk  (description "Hex managed install")
+;   %APPDATA%\agent-desk\versions\<version>\agent-desk.exe
+;   %APPDATA%\agent-desk\versions\<version>\agent-desk.com  (the console entry point)
+;   %APPDATA%\agent-desk\bin\agent-desk.com  (on the user's PATH)
+;   %APPDATA%\agent-desk\current-version
+;   %APPDATA%\agent-desk\install.json  (the direct-install receipt)
+;   Start Menu\Programs\Agent-Desk.lnk  (description "Agent-Desk managed install")
 ;
 ; so the app keeps updating itself from the release service afterwards. The
 ; uninstaller lives outside versions\ because the updater prunes old version
@@ -14,9 +14,9 @@
 ; install-windows.ps1 -Uninstall.
 ;
 ; Compile with scripts/build-windows-installer.ps1, which passes:
-;   /DAppVersion=2.3.0 /DArch=x64|arm64 /DExecutable=<hex.exe> /DConsole=<hex.com>
+;   /DAppVersion=2.3.0 /DArch=x64|arm64 /DExecutable=<agent-desk.exe> /DConsole=<agent-desk.com>
 ;   /DOutputDir=<dir>
-; Console is left out only to wrap a release published before hex.com.
+; Console is left out only to wrap a release published before agent-desk.com.
 
 #ifndef AppVersion
   #error Pass /DAppVersion=<version>
@@ -25,7 +25,7 @@
   #error Pass /DArch=x64 or /DArch=arm64
 #endif
 #ifndef Executable
-  #error Pass /DExecutable=<path to hex.exe>
+  #error Pass /DExecutable=<path to agent-desk.exe>
 #endif
 #ifndef OutputDir
   #define OutputDir "."
@@ -43,10 +43,10 @@
 ; Keep this AppId forever: it names the Apps & Features entry that
 ; src/windows_updater.rs keeps current after self-updates.
 AppId={{6ED48C92-5177-41F4-B8D6-37B7B02CFDF4}
-AppName=Hex
+AppName=Agent-Desk
 AppVersion={#AppVersion}
-AppVerName=Hex {#AppVersion}
-AppPublisher=Pilot (based on Hex by Anomaly)
+AppVerName=Agent-Desk {#AppVersion}
+AppPublisher=fheuer (Pilot, based on Hex by Anomaly)
 AppPublisherURL=https://ai.sms-pilot.de/
 AppSupportURL=https://ai.sms-pilot.de/
 AppUpdatesURL=https://ai.sms-pilot.de/versionen/
@@ -60,7 +60,7 @@ DisableProgramGroupPage=yes
 DisableReadyPage=yes
 DisableWelcomePage=yes
 UninstallFilesDir={app}\uninstall
-UninstallDisplayName=Hex
+UninstallDisplayName=Agent-Desk
 UninstallDisplayIcon={app}\uninstall\hex.ico
 SetupIconFile=..\..\resources\windows\hex.ico
 WizardStyle=modern
@@ -75,18 +75,18 @@ ChangesEnvironment=yes
 MinVersion=10.0
 
 [Files]
-Source: "{#Executable}"; DestDir: "{app}\versions\{#AppVersion}"; DestName: "hex.exe"; Flags: ignoreversion
+Source: "{#Executable}"; DestDir: "{app}\versions\{#AppVersion}"; DestName: "agent-desk.exe"; Flags: ignoreversion
 #ifdef Console
-Source: "{#Console}"; DestDir: "{app}\versions\{#AppVersion}"; DestName: "hex.com"; Flags: ignoreversion
-Source: "{#Console}"; DestDir: "{app}\bin"; DestName: "hex.com"; Flags: ignoreversion
+Source: "{#Console}"; DestDir: "{app}\versions\{#AppVersion}"; DestName: "agent-desk.com"; Flags: ignoreversion
+Source: "{#Console}"; DestDir: "{app}\bin"; DestName: "agent-desk.com"; Flags: ignoreversion
 #endif
 Source: "..\..\resources\windows\hex.ico"; DestDir: "{app}\uninstall"; Flags: ignoreversion
 
 [Icons]
-Name: "{userprograms}\Hex"; Filename: "{app}\versions\{#AppVersion}\hex.exe"; Parameters: "app"; WorkingDir: "{app}\versions\{#AppVersion}"; Comment: "Hex managed install"
+Name: "{userprograms}\Agent-Desk"; Filename: "{app}\versions\{#AppVersion}\agent-desk.exe"; Parameters: "app"; WorkingDir: "{app}\versions\{#AppVersion}"; Comment: "Agent-Desk managed install"
 
 [Run]
-Filename: "{app}\versions\{#AppVersion}\hex.exe"; Parameters: "app"; Description: "Open Hex"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\versions\{#AppVersion}\agent-desk.exe"; Parameters: "app"; Description: "Open Agent-Desk"; Flags: postinstall nowait skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\versions"
@@ -144,7 +144,7 @@ end;
 
 { The same as UTF-8 without a byte order mark: SaveStringToFile writes the
   ANSI code page, which turns a non-ASCII profile path in install.json into
-  bytes Hex can't read, so the install stopped updating itself (#1352). }
+  bytes Agent-Desk can't read, so the install stopped updating itself (#1352). }
 procedure WriteUtf8Atomically(Path, Contents: String);
 var
   Partial: String;
@@ -173,8 +173,8 @@ begin
   Result := Pos(';' + AnsiLowercase(Folder) + ';', NormalPath(Path)) > 0;
 end;
 
-{ Puts bin, where hex.com lives, on the user's PATH, so a terminal runs `hex`
-  as the console program that waits for hex.exe. }
+{ Puts bin, where agent-desk.com lives, on the user's PATH, so a terminal runs `agent-desk`
+  as the console program that waits for agent-desk.exe. }
 procedure AddBinToPath();
 var
   Path, Bin: String;
@@ -217,7 +217,7 @@ begin
   RegWriteExpandStringValue(HKCU, 'Environment', 'Path', Kept);
 end;
 
-{ Launch at login names a version's hex.exe, as src/windows/login_item.rs
+{ Launch at login names a version's agent-desk.exe, as src/windows/login_item.rs
   writes it. Point an enabled one at this version, as the app's updater does,
   so signing in doesn't start the version this replaced. A value outside the
   managed versions folder is the user's and stays; a disabled one stays off. }
@@ -225,10 +225,10 @@ procedure FollowLaunchAtLogin();
 var
   Command: String;
 begin
-  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Hex', Command) and
+  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Agent-Desk', Command) and
      (Pos(LowerCase(ExpandConstant('{app}\versions\')), LowerCase(Command)) > 0) then
-    RegWriteStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Hex',
-      '"' + ExpandConstant('{app}\versions\{#AppVersion}\hex.exe') + '" app --hidden');
+    RegWriteStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Agent-Desk',
+      '"' + ExpandConstant('{app}\versions\{#AppVersion}\agent-desk.exe') + '" app --hidden');
 end;
 
 { Point current-version at this version only once its files are in place,
@@ -259,11 +259,11 @@ begin
   if CurUninstallStep = usUninstall then
   begin
     { Self-updates run from newer version directories this uninstaller did
-      not create, so stop any Hex running from the managed layout. }
+      not create, so stop any Agent-Desk running from the managed layout. }
     StopManagedHex();
-    if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Hex', Command) and
+    if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Agent-Desk', Command) and
        (Pos(LowerCase(ExpandConstant('{app}\versions\')), LowerCase(Command)) > 0) then
-      RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Hex');
+      RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Agent-Desk');
     RemoveBinFromPath();
   end;
 end;

@@ -289,7 +289,7 @@ mod tests {
             "Claude Code: No conversation found with session ID: x",
             "OpenCode: no credentials",
             "Login expired · Please run /login",
-            "Hex can't save conversations",
+            "Agent-Desk can't save conversations",
         ] {
             assert_eq!(detect_at(message, NOW, BERLIN), None, "{message}");
         }

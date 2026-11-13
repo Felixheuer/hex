@@ -1,4 +1,4 @@
-//! The real [`App`] and [`Desktop`]: the running Hex (Dev or Live) through
+//! The real [`App`] and [`Desktop`]: the running Agent-Desk (Dev or Live) through
 //! its owner-only local API (`assistant-submit`, `status`) and the
 //! conversation and audit files it writes; the desktop through
 //! `lsappinfo` and agent-desktop's read-only `list-apps` / `list-windows`.
@@ -16,7 +16,7 @@ use crate::assistant::store::Store;
 use crate::assistant::types::{Part, Role};
 use crate::control::{ControlCommand, ControlReply, ControlRequest};
 
-/// The Hex a run talks to.
+/// The Agent-Desk a run talks to.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, clap::ValueEnum)]
 pub enum Target {
     Dev,
@@ -33,14 +33,14 @@ impl Target {
 
     pub fn app_name(self) -> &'static str {
         match self {
-            Self::Dev => "Hex Dev",
-            Self::Live => "Hex",
+            Self::Dev => "Agent-Desk Dev",
+            Self::Live => "Agent-Desk",
         }
     }
 
-    /// Its data folder (`HEX_BENCH_SUPPORT_DIR` overrides it).
+    /// Its data folder (`AGENT_DESK_BENCH_SUPPORT_DIR` overrides it).
     pub fn support_dir(self) -> Result<PathBuf> {
-        if let Some(dir) = std::env::var_os("HEX_BENCH_SUPPORT_DIR") {
+        if let Some(dir) = std::env::var_os("AGENT_DESK_BENCH_SUPPORT_DIR") {
             return Ok(dir.into());
         }
         let data = dirs::data_dir().ok_or_else(|| eyre!("no Application Support folder"))?;
@@ -177,7 +177,7 @@ impl App for LiveApp {
     }
 
     fn stop(&mut self, id: &str) {
-        // The same request `hex assistant stop-all` makes
+        // The same request `agent-desk assistant stop-all` makes
         // (`assistant::service::remote`), in the target's data folder: the
         // app acts on it once and clears it.
         if !valid_id(id) {

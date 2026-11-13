@@ -95,13 +95,13 @@ home="$temporary/home"
 export XDG_DATA_HOME="$home/.local/share"
 export XDG_CONFIG_HOME="$home/.config"
 install_dir="$home/.local/bin"
-support_dir="$home/.local/share/hex"
+support_dir="$home/.local/share/agent-desk"
 mkdir -p "$support_dir"
 printf 'preserve me\n' > "$support_dir/settings.json"
 
 install() {
-  HOME="$home" HEX_INSTALL_DIR="$install_dir" HEX_APPLICATION_SUPPORT_DIR="$support_dir" \
-    HEX_RELEASE_BASE_URL="http://127.0.0.1:$port/release" sh "$installer" "$@"
+  HOME="$home" AGENT_DESK_INSTALL_DIR="$install_dir" AGENT_DESK_APPLICATION_SUPPORT_DIR="$support_dir" \
+    AGENT_DESK_RELEASE_BASE_URL="http://127.0.0.1:$port/release" sh "$installer" "$@"
 }
 
 # Refuses a manifest, then checks that nothing was installed.
@@ -115,7 +115,7 @@ refuses() {
   cp "$temporary/manifest.json" "$server/release/hex/desktop/stable.json"
 }
 
-# Earlier installs named Hex's entries hex.desktop; installing replaces them.
+# Earlier installs named Agent-Desk's entries hex.desktop; installing replaces them.
 mkdir -p "$home/.local/share/applications" "$home/.config/autostart"
 printf '[Desktop Entry]\nX-Hex-Managed=true\n' > "$home/.local/share/applications/hex.desktop"
 printf '[Desktop Entry]\nX-Hex-Managed=true\n' > "$home/.config/autostart/hex.desktop"
@@ -124,57 +124,57 @@ install
 test -L "$install_dir/hex"
 test ! -e "$home/.local/share/applications/hex.desktop"
 test ! -e "$home/.config/autostart/hex.desktop"
-grep -Fxq 'StartupWMClass=anomaly.hex' "$home/.local/share/applications/anomaly.hex.desktop"
-grep -Fxq 'Icon=anomaly.hex' "$home/.local/share/applications/anomaly.hex.desktop"
+grep -Fxq 'StartupWMClass=fheuer.agentdesk' "$home/.local/share/applications/fheuer.agentdesk.desktop"
+grep -Fxq 'Icon=fheuer.agentdesk' "$home/.local/share/applications/fheuer.agentdesk.desktop"
 test "$("$install_dir/hex" --version)" = "hex $version"
-grep -Fq 'X-Hex-Managed=true' "$home/.local/share/applications/anomaly.hex.desktop"
-grep -Fq 'X-Hex-Managed=true' "$home/.config/autostart/anomaly.hex.desktop"
-grep -Fq '" start' "$home/.config/autostart/anomaly.hex.desktop"
-grep -Fq '# X-Hex-Managed=true' "$home/.config/systemd/user/hex.service"
-grep -Fq '" service' "$home/.config/systemd/user/hex.service"
-grep -Fxq 'Type=notify' "$home/.config/systemd/user/hex.service"
-grep -Fxq 'NotifyAccess=main' "$home/.config/systemd/user/hex.service"
-grep -Fxq "Exec=\"$install_dir/hex\"" "$home/.local/share/applications/anomaly.hex.desktop"
-grep -Fxq "Exec=\"$install_dir/hex\" quit" "$home/.local/share/applications/anomaly.hex.desktop"
-grep -Fxq "EnvironmentFile=-$support_dir/session.env" "$home/.config/systemd/user/hex.service"
+grep -Fq 'X-Hex-Managed=true' "$home/.local/share/applications/fheuer.agentdesk.desktop"
+grep -Fq 'X-Hex-Managed=true' "$home/.config/autostart/fheuer.agentdesk.desktop"
+grep -Fq '" start' "$home/.config/autostart/fheuer.agentdesk.desktop"
+grep -Fq '# X-Hex-Managed=true' "$home/.config/systemd/user/agent-desk.service"
+grep -Fq '" service' "$home/.config/systemd/user/agent-desk.service"
+grep -Fxq 'Type=notify' "$home/.config/systemd/user/agent-desk.service"
+grep -Fxq 'NotifyAccess=main' "$home/.config/systemd/user/agent-desk.service"
+grep -Fxq "Exec=\"$install_dir/hex\"" "$home/.local/share/applications/fheuer.agentdesk.desktop"
+grep -Fxq "Exec=\"$install_dir/hex\" quit" "$home/.local/share/applications/fheuer.agentdesk.desktop"
+grep -Fxq "EnvironmentFile=-$support_dir/session.env" "$home/.config/systemd/user/agent-desk.service"
 test ! -e "$support_dir/versions/$version/source-build"
 test "$(jq -c . "$support_dir/install.json")" = \
   "$(jq -cn --arg root "$support_dir" '{app: "hex", artifact: "desktop", channel: "stable", method: "direct", root: $root}')"
 
 mkdir -p "$home/.local/share/icons/hicolor/48x48/apps" "$home/.local/share/icons/hicolor/64x64/apps" \
   "$home/.local/share/icons/hicolor/scalable/apps"
-printf 'png X-Hex-Managed=true' > "$home/.local/share/icons/hicolor/48x48/apps/anomaly.hex.png"
-printf 'mine' > "$home/.local/share/icons/hicolor/64x64/apps/anomaly.hex.png"
-printf '<svg>X-Hex-Managed=true</svg>' > "$home/.local/share/icons/hicolor/scalable/apps/anomaly.hex-symbolic.svg"
-# The Background portal's own autostart entry for Hex counts as Hex's.
+printf 'png X-Hex-Managed=true' > "$home/.local/share/icons/hicolor/48x48/apps/fheuer.agentdesk.png"
+printf 'mine' > "$home/.local/share/icons/hicolor/64x64/apps/fheuer.agentdesk.png"
+printf '<svg>X-Hex-Managed=true</svg>' > "$home/.local/share/icons/hicolor/scalable/apps/fheuer.agentdesk-symbolic.svg"
+# The Background portal's own autostart entry for Agent-Desk counts as Agent-Desk's.
 portal_entry() {
-  printf '[Desktop Entry]\nType=Application\nName=Hex\nX-XDP-Autostart=anomaly.hex\nExec=%s start\n' "$install_dir/hex" > "$home/.config/autostart/anomaly.hex.desktop"
+  printf '[Desktop Entry]\nType=Application\nName=Agent-Desk\nX-XDP-Autostart=fheuer.agentdesk\nExec=%s start\n' "$install_dir/hex" > "$home/.config/autostart/fheuer.agentdesk.desktop"
 }
 portal_entry
 install > /dev/null
 portal_entry
 install uninstall
-test ! -e "$home/.config/autostart/anomaly.hex.desktop"
-test ! -e "$home/.local/share/icons/hicolor/48x48/apps/anomaly.hex.png"
-test -f "$home/.local/share/icons/hicolor/64x64/apps/anomaly.hex.png"
-test ! -e "$home/.local/share/icons/hicolor/scalable/apps/anomaly.hex-symbolic.svg"
+test ! -e "$home/.config/autostart/fheuer.agentdesk.desktop"
+test ! -e "$home/.local/share/icons/hicolor/48x48/apps/fheuer.agentdesk.png"
+test -f "$home/.local/share/icons/hicolor/64x64/apps/fheuer.agentdesk.png"
+test ! -e "$home/.local/share/icons/hicolor/scalable/apps/fheuer.agentdesk-symbolic.svg"
 test ! -e "$install_dir/hex"
 test ! -e "$support_dir/versions"
 test ! -e "$support_dir/install.json"
-test ! -e "$home/.config/systemd/user/hex.service"
-test ! -e "$home/.local/share/applications/anomaly.hex.desktop"
-test ! -e "$home/.config/autostart/anomaly.hex.desktop"
+test ! -e "$home/.config/systemd/user/agent-desk.service"
+test ! -e "$home/.local/share/applications/fheuer.agentdesk.desktop"
+test ! -e "$home/.config/autostart/fheuer.agentdesk.desktop"
 test -f "$support_dir/settings.json"
 
 # The dev channel: its manifest, its receipt.
 jq '.channel = "dev"' "$temporary/manifest.json" > "$server/release/hex/desktop/dev.json"
-HOME="$home" HEX_INSTALL_DIR="$install_dir" HEX_APPLICATION_SUPPORT_DIR="$support_dir" \
-  HEX_RELEASE_BASE_URL="http://127.0.0.1:$port/release" HEX_INSTALL_CHANNEL=dev sh "$installer" > /dev/null
+HOME="$home" AGENT_DESK_INSTALL_DIR="$install_dir" AGENT_DESK_APPLICATION_SUPPORT_DIR="$support_dir" \
+  AGENT_DESK_RELEASE_BASE_URL="http://127.0.0.1:$port/release" AGENT_DESK_INSTALL_CHANNEL=dev sh "$installer" > /dev/null
 test "$(jq -r .channel "$support_dir/install.json")" = dev
-# A user's own symbolic tray icon is not Hex's to remove.
-printf '<svg>mine</svg>' > "$home/.local/share/icons/hicolor/scalable/apps/anomaly.hex-symbolic.svg"
+# A user's own symbolic tray icon is not Agent-Desk's to remove.
+printf '<svg>mine</svg>' > "$home/.local/share/icons/hicolor/scalable/apps/fheuer.agentdesk-symbolic.svg"
 install uninstall
-test -f "$home/.local/share/icons/hicolor/scalable/apps/anomaly.hex-symbolic.svg"
+test -f "$home/.local/share/icons/hicolor/scalable/apps/fheuer.agentdesk-symbolic.svg"
 
 jq '.app = "other"' "$temporary/manifest.json" > "$server/release/hex/desktop/stable.json"
 refuses "another app's manifest"
@@ -197,8 +197,8 @@ refuses "an executable the release key did not sign"
 printf 'X' | dd of="$server/release/hex/files/$sha256/$file" bs=1 seek=0 conv=notrunc >/dev/null 2>&1
 refuses "a same-size corrupted download"
 
-HOME="$home" HEX_INSTALL_DIR="$install_dir" HEX_APPLICATION_SUPPORT_DIR="$support_dir" \
-  HEX_INSTALL_ARTIFACT="$unsigned" HEX_INSTALL_VERSION="$version" HEX_INSTALL_SOURCE=1 \
+HOME="$home" AGENT_DESK_INSTALL_DIR="$install_dir" AGENT_DESK_APPLICATION_SUPPORT_DIR="$support_dir" \
+  AGENT_DESK_INSTALL_ARTIFACT="$unsigned" AGENT_DESK_INSTALL_VERSION="$version" AGENT_DESK_INSTALL_SOURCE=1 \
   sh "$installer"
 test "$("$install_dir/hex" --version)" = "hex $version"
 test -e "$support_dir/versions/$version/source-build"
@@ -210,7 +210,7 @@ support_link="$temporary/support-link"
 mkdir -p "$important/versions"
 touch "$important/versions/preserve"
 ln -s "$important" "$support_link"
-if HOME="$home" HEX_INSTALL_DIR="$install_dir" HEX_APPLICATION_SUPPORT_DIR="$support_link" \
+if HOME="$home" AGENT_DESK_INSTALL_DIR="$install_dir" AGENT_DESK_APPLICATION_SUPPORT_DIR="$support_link" \
   sh "$installer" uninstall > "$temporary/symlink.log" 2>&1
 then
   echo "Uninstaller accepted a managed support symlink." >&2

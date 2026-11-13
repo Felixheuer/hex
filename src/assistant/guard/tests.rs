@@ -300,12 +300,12 @@ fn notes(result: &Value) -> Vec<String> {
         .unwrap()
         .iter()
         .filter_map(|block| block["text"].as_str())
-        .filter(|text| text.starts_with("Hex: "))
+        .filter(|text| text.starts_with("Agent-Desk: "))
         .map(str::to_owned)
         .collect()
 }
 
-const FRONT: &str = "w-18638"; // Hex Test, in front
+const FRONT: &str = "w-18638"; // Agent-Desk Test, in front
 const CITRIX: &str = "w-14569";
 const SETTINGS: &str = "w-18628";
 const GHOSTTY: &str = "w-18108";
@@ -654,7 +654,7 @@ fn a_check_reads_its_windows_but_never_acts() {
 #[test]
 fn a_check_s_guard_is_the_task_s_reading_only() {
     let server = crate::assistant::backends::McpServer {
-        command: "/Applications/Hex.app/Contents/MacOS/hex".into(),
+        command: "/Applications/Agent-Desk.app/Contents/MacOS/agent-desk".into(),
         args: vec![
             "assistant".into(),
             "mcp".into(),
@@ -732,7 +732,7 @@ fn a_here_task_works_only_in_the_window_that_was_in_front() {
 }
 
 /// A guard started ahead in one window (a backend kept warm) serves the
-/// request asked in another: Hex records the request's window in the state
+/// request asked in another: Agent-Desk records the request's window in the state
 /// dir, and the guard takes it before its next call.
 #[test]
 fn a_here_window_travels_through_the_state_not_the_arguments() {
@@ -1069,13 +1069,13 @@ fn agent_desktops_replies_pass_through_as_recorded() {
         .insert("desktop_status".into(), refused.clone());
     let mut guard = here(&scratch, &fake, FRONT, "Hex Test", false);
     let mut listed = guard.call("desktop_list_windows", args(json!({"app": "Ghostty"})));
-    // Hex adds one note block; everything agent-desktop said is unchanged.
+    // Agent-Desk adds one note block; everything agent-desktop said is unchanged.
     let added = listed["content"].as_array_mut().unwrap().pop().unwrap();
     assert!(
         added["text"]
             .as_str()
             .unwrap()
-            .starts_with("Hex: this task works only in")
+            .starts_with("Agent-Desk: this task works only in")
     );
     assert_eq!(listed, recorded);
     assert_eq!(guard.call("desktop_status", Map::new()), refused);
@@ -1161,13 +1161,13 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
     };
     let server = super::server_for(
         &spec,
-        Path::new("/Applications/Hex.app/Contents/MacOS/hex"),
+        Path::new("/Applications/Agent-Desk.app/Contents/MacOS/agent-desk"),
         &desktop,
-        Path::new("/Users/me/Library/Application Support/hex/assistant"),
+        Path::new("/Users/me/Library/Application Support/agent-desk/assistant"),
     );
     assert_eq!(
         server.command,
-        Path::new("/Applications/Hex.app/Contents/MacOS/hex")
+        Path::new("/Applications/Agent-Desk.app/Contents/MacOS/agent-desk")
     );
     assert_eq!(server.args[..3], ["assistant", "mcp", "--spec"]);
     assert_eq!(server.path_env, desktop.path_env);
@@ -1182,8 +1182,8 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
             "physical_input": true, "blocked_apps": ["1Password"],
             "agent_desktop": "/opt/homebrew/bin/agent-desktop",
             "autonomy": "smart",
-            "state_dir": "/Users/me/Library/Application Support/hex/assistant",
-            // Hex itself holds the desk.
+            "state_dir": "/Users/me/Library/Application Support/agent-desk/assistant",
+            // Agent-Desk itself holds the desk.
             "desk_pid": std::process::id(),
         })
     );

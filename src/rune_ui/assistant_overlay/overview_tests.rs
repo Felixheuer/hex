@@ -303,11 +303,11 @@ fn the_wall_closes_on_its_x() {
     assert!(rt.state.scope.is_none());
 }
 
-/// Renders the crowded orb and the wall to `HEX_ASSISTANT_SNAPS/crowd-*.png`.
+/// Renders the crowded orb and the wall to `AGENT_DESK_ASSISTANT_SNAPS/crowd-*.png`.
 #[test]
-#[ignore = "set HEX_ASSISTANT_SNAPS to a folder; needs a GPU"]
+#[ignore = "set AGENT_DESK_ASSISTANT_SNAPS to a folder; needs a GPU"]
 fn crowd_snapshots() {
-    let folder = std::path::PathBuf::from(std::env::var("HEX_ASSISTANT_SNAPS").unwrap());
+    let folder = std::path::PathBuf::from(std::env::var("AGENT_DESK_ASSISTANT_SNAPS").unwrap());
     std::fs::create_dir_all(&folder).unwrap();
     let gpu = rune::render::Gpu::try_new(rune::render::Gpu::instance(), None).unwrap();
     let [tall, short] = rooms();

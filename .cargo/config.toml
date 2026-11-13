@@ -1,4 +1,4 @@
-# Windows builds link the C and C++ runtimes statically, so hex.exe starts on
+# Windows builds link the C and C++ runtimes statically, so agent-desk.exe starts on
 # a clean PC without the Visual C++ Redistributable.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]

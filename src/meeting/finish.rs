@@ -1,6 +1,6 @@
 //! The final pass of a meeting whose audio is complete: its transcript, the
 //! user's Markdown copy, and its finished event, or `final.pending` recovery
-//! when Hex is quitting.
+//! when Agent-Desk is quitting.
 
 use std::fs;
 use std::path::Path;
@@ -36,7 +36,7 @@ pub(crate) fn finish_transcription(
             tracing::info!(
                 meeting = manifest.id,
                 %error,
-                "Hex quit during final transcription; the transcript finishes at the next launch"
+                "Agent-Desk quit during final transcription; the transcript finishes at the next launch"
             );
             Ok(manifest)
         }

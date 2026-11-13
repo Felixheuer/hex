@@ -45,7 +45,7 @@ describe("ready transcriber", () => {
       const controller = new AbortController()
       await expect(create({
         ...options(), model: "parakeet_v2",
-        env: { HEX_FAKE_PID_PATH: pidPath, HEX_FAKE_PREPARE_ERROR: "1" },
+        env: { AGENT_DESK_FAKE_PID_PATH: pidPath, AGENT_DESK_FAKE_PREPARE_ERROR: "1" },
         signal: controller.signal,
         onProgress: () => {
           if (mode === "cancel") controller.abort()
@@ -105,7 +105,7 @@ describe("ready transcriber", () => {
     try {
       await expect(create({
         ...options(), model: "parakeet_v2", shutdownTimeoutMs: 1,
-        env: { HEX_FAKE_MODE: "bad-handshake", HEX_FAKE_IGNORE_LEASE: "1" },
+        env: { AGENT_DESK_FAKE_MODE: "bad-handshake", AGENT_DESK_FAKE_IGNORE_LEASE: "1" },
       })).rejects.toMatchObject({ code: "shutdown-failed" })
     } finally {
       kill.mockRestore()
@@ -124,7 +124,7 @@ describe("ready transcriber", () => {
     const controller = new AbortController()
     const transcriber = await create({
       ...options(), model: "parakeet_v2",
-      env: { HEX_FAKE_TRANSCRIBE_HANG: "1" },
+      env: { AGENT_DESK_FAKE_TRANSCRIBE_HANG: "1" },
       fetch: async (url, init) => {
         const response = await fetch(url, init)
         if (String(url).includes("/transcriptions")) markStarted()
@@ -148,7 +148,7 @@ describe("ready transcriber", () => {
 
   it("keeps the helper alive after an ordinary request failure", async () => {
     const transcriber = await create({
-      ...options(), model: "parakeet_v2", env: { HEX_FAKE_TRANSCRIBE_ERROR: "1" },
+      ...options(), model: "parakeet_v2", env: { AGENT_DESK_FAKE_TRANSCRIBE_ERROR: "1" },
     })
     try {
       await expect(transcriber.transcribe(new Uint8Array(4)))
@@ -165,7 +165,7 @@ describe("ready transcriber", () => {
     let uploads = 0
     const controller = new AbortController()
     const transcriber = await create({
-      ...options(), model: "parakeet_v2", env: { HEX_FAKE_TRANSCRIBE_HANG: "1" },
+      ...options(), model: "parakeet_v2", env: { AGENT_DESK_FAKE_TRANSCRIBE_HANG: "1" },
       fetch: async (url, init) => {
         const response = await fetch(url, init)
         if (String(url).includes("/transcriptions") && ++uploads === 2) markStarted()

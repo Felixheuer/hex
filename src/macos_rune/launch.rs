@@ -1,5 +1,5 @@
-//! Whether the window opens when Hex starts. macOS tells a login-item launch
-//! apart in the open-application Apple event, so Launch at login starts Hex
+//! Whether the window opens when Agent-Desk starts. macOS tells a login-item launch
+//! apart in the open-application Apple event, so Launch at login starts Agent-Desk
 //! quietly in the menu bar even with the Dock icon shown (#1321).
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,19 +16,19 @@ const OPEN_APPLICATION: u32 = u32::from_be_bytes(*b"oapp");
 const PROP_DATA: u32 = u32::from_be_bytes(*b"prdt");
 const LAUNCHED_AS_LOGIN_ITEM: u32 = u32::from_be_bytes(*b"lgit");
 
-/// What the window does when Hex starts.
+/// What the window does when Agent-Desk starts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LaunchWindow {
     /// Setup needs the user, or the menu bar can't bring the window back.
     Open,
-    /// The Dock icon is shown: open, unless macOS started Hex at login.
+    /// The Dock icon is shown: open, unless macOS started Agent-Desk at login.
     OpenUnlessLoginItem,
     /// Menu-bar only.
     Quiet,
 }
 
 impl LaunchWindow {
-    /// `hidden` is `hex app --hidden`: menu-bar only, as on Linux and
+    /// `hidden` is `agent-desk app --hidden`: menu-bar only, as on Linux and
     /// Windows, even before setup, since the menu bar opens the window.
     pub(crate) fn decide(
         hidden: bool,
@@ -59,7 +59,7 @@ impl LaunchWindow {
     }
 }
 
-/// Set by a login-item launch until Hex's first activation, which macOS
+/// Set by a login-item launch until Agent-Desk's first activation, which macOS
 /// sends with the launch and must not open the window (see
 /// [`super::activation`]).
 static LOGIN_LAUNCH_ACTIVATION: AtomicBool = AtomicBool::new(false);
@@ -80,7 +80,7 @@ pub(super) fn observe_launch(target: &MenuTarget) {
     }
 }
 
-/// Whether macOS started Hex as a login item. Valid only while AppKit
+/// Whether macOS started Agent-Desk as a login item. Valid only while AppKit
 /// finishes launching, inside the open-application Apple event.
 pub(super) fn launched_as_login_item() -> bool {
     let Some(event) = NSAppleEventManager::sharedAppleEventManager().currentAppleEvent() else {

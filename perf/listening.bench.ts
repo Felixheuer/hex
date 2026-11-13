@@ -1,6 +1,6 @@
-// Hex listening at rest (docs/perf.md). The copy turns its listener on: it
+// Agent-Desk listening at rest (docs/perf.md). The copy turns its listener on: it
 // installs the keyboard hook and loads the default English model, copied
-// from this machine's own Hex install (seeds/listening.ts), but records
+// from this machine's own Agent-Desk install (seeds/listening.ts), but records
 // nothing. The profiles move its shortcuts to F19 and F18, so keys pressed
 // on a machine in use start nothing; the hooks still see every key and
 // mouse move, so runs on an idle machine read lowest.
@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { listeningSeed } from "./seeds/listening"
 
-if (!listeningSeed()) throw new Error("listening.bench.ts needs Hex's English model installed on this machine")
+if (!listeningSeed()) throw new Error("listening.bench.ts needs Agent-Desk's English model installed on this machine")
 
 const home = "seeds/.generated/listening"
 const quiet = ["cpu.wakes", "cpu.app.total", "memory.app.private"]

@@ -95,7 +95,7 @@ pub(in crate::rune_ui) fn full_control_row(ui: &Ui, p: Paint) -> CardRow {
     let on = ui.settings.assistant.full_control;
     let description = if on {
         (
-            tr("Hex may open any app and use every window, the one you're in too, without asking. Say “only in the background” to keep a task out of your windows").to_owned(),
+            tr("Agent-Desk may open any app and use every window, the one you're in too, without asking. Say “only in the background” to keep a task out of your windows").to_owned(),
             p.warning(),
         )
     } else {

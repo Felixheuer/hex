@@ -1025,7 +1025,7 @@ fn a_finished_job_leaves_a_result_with_what_to_open_and_a_failure_its_retry() {
             .lock()
             .unwrap()
             .iter()
-            .any(|opened| opened == "/tmp/Hex Jobs/Lieferanten"),
+            .any(|opened| opened == "/tmp/Agent-Desk Jobs/Lieferanten"),
         "{:?}",
         OPENED.lock().unwrap()
     );
@@ -1146,13 +1146,13 @@ fn a_failed_quick_question_says_why_and_offers_one_action() {
     );
 }
 
-/// Renders the overlays to `HEX_ASSISTANT_SNAPS/assistant-*.png` in both
+/// Renders the overlays to `AGENT_DESK_ASSISTANT_SNAPS/assistant-*.png` in both
 /// appearances, to look at: the pretend desktop in each state, the orb, the
 /// list, the bubble in each state, the hints, and the Hands off pill.
 #[test]
-#[ignore = "set HEX_ASSISTANT_SNAPS to a folder; needs a GPU"]
+#[ignore = "set AGENT_DESK_ASSISTANT_SNAPS to a folder; needs a GPU"]
 fn snapshots() {
-    let folder = std::path::PathBuf::from(std::env::var("HEX_ASSISTANT_SNAPS").unwrap());
+    let folder = std::path::PathBuf::from(std::env::var("AGENT_DESK_ASSISTANT_SNAPS").unwrap());
     std::fs::create_dir_all(&folder).unwrap();
     let gpu = rune::render::Gpu::try_new(rune::render::Gpu::instance(), None).unwrap();
     for dark in [false, true] {

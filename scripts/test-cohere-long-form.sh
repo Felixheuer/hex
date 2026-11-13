@@ -12,7 +12,7 @@ test -f "$model"
 fixtures=$(mktemp -d "${TMPDIR:-/tmp}/hex-cohere-fixtures.XXXXXX")
 cleanup() {
   result=$?
-  if [ "$result" -eq 0 ] && [ "${HEX_KEEP_COHERE_FIXTURES:-0}" != 1 ]; then
+  if [ "$result" -eq 0 ] && [ "${AGENT_DESK_KEEP_COHERE_FIXTURES:-0}" != 1 ]; then
     rm -rf "$fixtures"
   else
     echo "Synthetic fixture evidence retained at $fixtures" >&2
@@ -51,7 +51,7 @@ PY
 
 # This runs inference on generated speech only, without a listener or microphone.
 cd "$root"
-HEX_APPLICATION_SUPPORT_DIR="$fixtures/support" \
-HEX_COHERE_MODEL="$model" HEX_COHERE_FIXTURES="$fixtures" \
-  cargo test --locked --release --bin hex \
+AGENT_DESK_APPLICATION_SUPPORT_DIR="$fixtures/support" \
+AGENT_DESK_COHERE_MODEL="$model" AGENT_DESK_COHERE_FIXTURES="$fixtures" \
+  cargo test --locked --release --bin agent-desk \
     cohere_long_form_keeps_all_sections_with_and_without_pauses -- --ignored --nocapture

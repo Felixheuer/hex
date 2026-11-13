@@ -43,12 +43,12 @@ let
 in
 {
   options.programs.hex = {
-    enable = lib.mkEnableOption "Hex local voice dictation";
+    enable = lib.mkEnableOption "Agent-Desk local voice dictation";
     package = lib.mkOption {
       type = lib.types.package;
-      description = "Hex package to install.";
+      description = "Agent-Desk package to install.";
     };
-    autostart = lib.mkEnableOption "Hex startup with the graphical session";
+    autostart = lib.mkEnableOption "Agent-Desk startup with the graphical session";
     systemdTarget = lib.mkOption {
       type = lib.types.str;
       default = "graphical-session.target";
@@ -70,9 +70,9 @@ in
         }
       '';
       description = ''
-        Settings applied on every activation, keyed as `hex settings list`
-        names them. Declared keys overwrite Hex's values; settings changed in
-        the window that aren't declared here keep their values. A running Hex
+        Settings applied on every activation, keyed as `agent-desk settings list`
+        names them. Declared keys overwrite Agent-Desk's values; settings changed in
+        the window that aren't declared here keep their values. A running Agent-Desk
         adopts them at once; otherwise they are written to settings.json.
       '';
     };
@@ -87,7 +87,7 @@ in
       default = null;
       example = "parakeet_v3";
       description = ''
-        Transcription model id from `hex model list`. Declaring it only
+        Transcription model id from `agent-desk model list`. Declaring it only
         selects it; set `installModel` to download it.
       '';
     };
@@ -110,22 +110,22 @@ in
           "x86_64-linux"
           "aarch64-linux"
         ];
-        message = "The Hex Nix package supports x86_64-linux and aarch64-linux only.";
+        message = "The Agent-Desk Nix package supports x86_64-linux and aarch64-linux only.";
       }
     ];
     home.packages = [ cfg.package ];
-    # After reloadSystemd, so a restarted Hex is the one that answers.
+    # After reloadSystemd, so a restarted Agent-Desk is the one that answers.
     home.activation.hexSettings = lib.mkIf (settings != { }) (
       lib.hm.dag.entryAfter [ "reloadSystemd" ] ''
-        if ! run ${pkgs.coreutils}/bin/env HEX_APPLICATION_SUPPORT_DIR=${lib.escapeShellArg supportDir} \
+        if ! run ${pkgs.coreutils}/bin/env AGENT_DESK_APPLICATION_SUPPORT_DIR=${lib.escapeShellArg supportDir} \
           ${lib.getExe cfg.package} settings apply ${json.generate "hex-settings.json" settings}; then
-          warnEcho "Hex didn't apply programs.hex.settings; see the message above."
+          warnEcho "Agent-Desk didn't apply programs.hex.settings; see the message above."
         fi
       ''
     );
     systemd.user.services.hex = {
       Unit = {
-        Description = "Hex local voice dictation";
+        Description = "Agent-Desk local voice dictation";
         After = [ cfg.systemdTarget ];
         PartOf = [ cfg.systemdTarget ];
       };
@@ -134,7 +134,7 @@ in
         NotifyAccess = "main";
         ExecStartPre = lib.getExe waitForSession;
         ExecStart = "${lib.getExe cfg.package} service";
-        Environment = [ "HEX_APPLICATION_SUPPORT_DIR=${supportDir}" ];
+        Environment = [ "AGENT_DESK_APPLICATION_SUPPORT_DIR=${supportDir}" ];
         EnvironmentFile = "-${supportDir}/session.env";
         TimeoutStartSec = 35;
         Restart = "on-failure";
@@ -146,11 +146,11 @@ in
     };
     # Type=exec, so a switch never waits on the download.
     systemd.user.services.hex-model = lib.mkIf cfg.installModel {
-      Unit.Description = "Download Hex's selected transcription model";
+      Unit.Description = "Download Agent-Desk's selected transcription model";
       Service = {
         Type = "exec";
         ExecStart = lib.getExe installModel;
-        Environment = [ "HEX_APPLICATION_SUPPORT_DIR=${supportDir}" ];
+        Environment = [ "AGENT_DESK_APPLICATION_SUPPORT_DIR=${supportDir}" ];
         Restart = "on-failure";
         RestartSec = 60;
         UMask = "0077";

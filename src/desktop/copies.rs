@@ -1,27 +1,32 @@
-//! Every copy of Hex this Mac knows about, and which of them are strays.
+//! Every copy of Agent-Desk this Mac knows about, and which of them are strays.
 //!
 //! macOS gives a permission (Accessibility, Screen Recording, …) to a bundle
-//! id and its code signature. With a dozen built copies sharing `anomaly.hex`
-//! (old `target/app` bundles, a download in ~/Downloads, Hex Test), it isn't
+//! id and its code signature. With a dozen built copies sharing `fheuer.agentdesk`
+//! (old `target/app` bundles, a download in ~/Downloads, Agent-Desk Test), it isn't
 //! clear which copy a grant belongs to, and System Settings may list the
-//! wrong one. Two copies are kept: **Live** (`/Applications/Hex.app`, the
-//! Pilot release) and **Dev** (`/Applications/Hex Dev.app`, the one
+//! wrong one. Two copies are kept: **Live** (`/Applications/Agent-Desk.app`, the
+//! Pilot release) and **Dev** (`/Applications/Agent-Desk Dev.app`, the one
 //! development build). `scripts/install-fork.sh` removes the rest
-//! (`hex dev copies --remove`), and the permission doctor names them.
+//! (`agent-desk dev copies --remove`), and the permission doctor names them.
 
 use std::path::{Path, PathBuf};
 
 /// Where Live is installed.
-pub const LIVE: &str = "/Applications/Hex.app";
+pub const LIVE: &str = "/Applications/Agent-Desk.app";
 /// Where Dev is installed.
-pub const DEV: &str = "/Applications/Hex Dev.app";
+pub const DEV: &str = "/Applications/Agent-Desk Dev.app";
 
-/// Bundle ids of Hex's apps (the old Kit-signed one included).
+/// Bundle ids of Agent-Desk's apps (the old Kit-signed one included).
 const FAMILY: &[&str] = &[
-    "anomaly.hex",
-    "anomaly.hex.dev",
-    "anomaly.hex.test",
+    "fheuer.agentdesk",
+    "fheuer.agentdesk.dev",
+    "fheuer.agentdesk.test",
     "com.kitlangton.hex2",
+    // One-time migration, remove after 2026-12: Hex Dev and Hex Test, which
+    // `scripts/install-fork.sh` removes once Agent-Desk Dev is installed.
+    // Hex's Live app is left to the updater's move (`updater::platform`).
+    crate::app_paths::legacy::identity(crate::app_paths::Variant::Dev).bundle_id,
+    crate::app_paths::legacy::identity(crate::app_paths::Variant::Test).bundle_id,
 ];
 
 /// One app bundle.
@@ -96,7 +101,7 @@ pub fn local_live(copies: &[Copy]) -> Option<&Copy> {
         .find(|copy| copy.path == Path::new(LIVE) && !copy.is_release())
 }
 
-/// Every Hex bundle Spotlight knows, plus Live and Dev themselves.
+/// Every Agent-Desk bundle Spotlight knows, plus Live and Dev themselves.
 #[cfg(target_os = "macos")]
 pub fn find() -> Vec<Copy> {
     let mut paths: Vec<PathBuf> = Vec::new();
@@ -147,7 +152,7 @@ fn read(path: &Path) -> Option<Copy> {
     })
 }
 
-/// `hex dev copies`: lists every copy with what happens to it, and with
+/// `agent-desk dev copies`: lists every copy with what happens to it, and with
 /// `remove` deletes the strays. `keep` is the Dev build to keep.
 pub fn command(remove: bool, keep: Option<&Path>) -> color_eyre::Result<()> {
     let copies = find();
@@ -179,16 +184,16 @@ pub fn command(remove: bool, keep: Option<&Path>) -> color_eyre::Result<()> {
     let mut test_removed = false;
     for copy in strays(&copies, keep) {
         match std::fs::remove_dir_all(&copy.path) {
-            Ok(()) => test_removed |= copy.bundle_id == "anomaly.hex.test",
+            Ok(()) => test_removed |= copy.bundle_id == "fheuer.agentdesk.test",
             Err(error) => eprintln!("could not remove {}: {error}", copy.path.display()),
         }
     }
-    // Hex Test is ad-hoc signed, so its grants never carry over to a new
+    // Agent-Desk Test is ad-hoc signed, so its grants never carry over to a new
     // build: drop the stale entries with the copies. Live's and Dev's stay.
     #[cfg(target_os = "macos")]
     if test_removed {
         let _ = std::process::Command::new("/usr/bin/tccutil")
-            .args(["reset", "All", "anomaly.hex.test"])
+            .args(["reset", "All", "fheuer.agentdesk.test"])
             .output();
     }
     #[cfg(not(target_os = "macos"))]
@@ -212,25 +217,32 @@ mod tests {
     fn live_and_the_new_dev_build_stay_and_every_other_copy_goes() {
         let keep = Path::new(DEV);
         let copies = [
-            copy(LIVE, "anomaly.hex", "3.4.0-pilot.6"),
-            copy(DEV, "anomaly.hex.dev", "3.4.0"),
+            copy(LIVE, "fheuer.agentdesk", "3.4.0-pilot.6"),
+            copy(DEV, "fheuer.agentdesk.dev", "3.4.0"),
             copy(
-                "/Users/p/dev/hex/target/app/Hex.app",
-                "anomaly.hex",
+                "/Users/p/dev/hex/target/app/Agent-Desk.app",
+                "fheuer.agentdesk",
                 "3.4.0",
             ),
             copy(
-                "/Users/p/dev/ai/target/app/Hex Test.app",
-                "anomaly.hex.test",
+                "/Users/p/dev/ai/target/app/Agent-Desk Test.app",
+                "fheuer.agentdesk.test",
                 "3.4.0",
             ),
             copy(
-                "/Users/p/dev/ai/target/app/Hex Dev.app",
-                "anomaly.hex.dev",
+                "/Users/p/dev/ai/target/app/Agent-Desk Dev.app",
+                "fheuer.agentdesk.dev",
                 "3.4.0",
             ),
-            copy("/Users/p/Downloads/Hex.app", "anomaly.hex", "3.4.0-pilot.2"),
+            copy(
+                "/Users/p/Downloads/Agent-Desk.app",
+                "fheuer.agentdesk",
+                "3.4.0-pilot.2",
+            ),
             copy("/Applications/Hex Old.app", "com.kitlangton.hex2", "2.3.1"),
+            copy("/Applications/Hex Dev.app", "anomaly.hex.dev", "3.4.0"),
+            // Hex's Live app is the updater's to move, never a stray.
+            copy("/Applications/Hex.app", "anomaly.hex", "3.4.0-pilot.6"),
         ];
         let removed: Vec<&str> = strays(&copies, Some(keep))
             .iter()
@@ -239,11 +251,12 @@ mod tests {
         assert_eq!(
             removed,
             [
-                "/Users/p/dev/hex/target/app/Hex.app",
-                "/Users/p/dev/ai/target/app/Hex Test.app",
-                "/Users/p/dev/ai/target/app/Hex Dev.app",
-                "/Users/p/Downloads/Hex.app",
+                "/Users/p/dev/hex/target/app/Agent-Desk.app",
+                "/Users/p/dev/ai/target/app/Agent-Desk Test.app",
+                "/Users/p/dev/ai/target/app/Agent-Desk Dev.app",
+                "/Users/p/Downloads/Agent-Desk.app",
                 "/Applications/Hex Old.app",
+                "/Applications/Hex Dev.app",
             ]
         );
     }
@@ -252,16 +265,24 @@ mod tests {
     fn translocations_disk_images_trash_and_other_apps_are_left_alone() {
         let copies = [
             copy(
-                "/private/var/folders/n0/T/AppTranslocation/9AE1/d/Hex.app",
-                "anomaly.hex",
+                "/private/var/folders/n0/T/AppTranslocation/9AE1/d/Agent-Desk.app",
+                "fheuer.agentdesk",
                 "3.4.0-pilot.2",
             ),
-            copy("/Volumes/Pilot/Hex.app", "anomaly.hex", "3.4.0-pilot.6"),
-            copy("/Users/p/.Trash/Hex.app", "anomaly.hex", "3.4.0"),
+            copy(
+                "/Volumes/Pilot/Agent-Desk.app",
+                "fheuer.agentdesk",
+                "3.4.0-pilot.6",
+            ),
+            copy(
+                "/Users/p/.Trash/Agent-Desk.app",
+                "fheuer.agentdesk",
+                "3.4.0",
+            ),
             copy("/Applications/Other.app", "com.example.other", "1.0"),
             copy(
-                "/Applications/Hex.app/Contents/Helpers/Hex Helper.app",
-                "anomaly.hex",
+                "/Applications/Agent-Desk.app/Contents/Helpers/Agent-Desk Helper.app",
+                "fheuer.agentdesk",
                 "3.4.0",
             ),
         ];
@@ -270,16 +291,16 @@ mod tests {
 
     #[test]
     fn without_a_dev_build_being_installed_an_existing_dev_copy_is_a_stray() {
-        let copies = [copy(DEV, "anomaly.hex.dev", "3.4.0")];
+        let copies = [copy(DEV, "fheuer.agentdesk.dev", "3.4.0")];
         assert_eq!(strays(&copies, None).len(), 1);
         assert!(strays(&copies, Some(Path::new(DEV))).is_empty());
     }
 
     #[test]
     fn a_local_build_in_the_live_place_is_named() {
-        let release = [copy(LIVE, "anomaly.hex", "3.4.0-pilot.6")];
+        let release = [copy(LIVE, "fheuer.agentdesk", "3.4.0-pilot.6")];
         assert!(local_live(&release).is_none());
-        let local = [copy(LIVE, "anomaly.hex", "3.4.0")];
+        let local = [copy(LIVE, "fheuer.agentdesk", "3.4.0")];
         assert_eq!(local_live(&local).unwrap().version, "3.4.0");
     }
 }

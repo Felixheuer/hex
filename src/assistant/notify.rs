@@ -4,9 +4,9 @@
 //!
 //! ```ts
 //! macOS    UNUserNotificationCenter (the `assistant_notifications` Swift bridge) inside
-//!          the signed Hex.app; `osascript` outside a bundle (a click opens nothing)
+//!          the signed Agent-Desk.app; `osascript` outside a bundle (a click opens nothing)
 //! Linux    the desktop's notification server (`notify-send --action --wait`)
-//! Windows  a toast (Windows.UI.Notifications) under Hex's own app id
+//! Windows  a toast (Windows.UI.Notifications) under Agent-Desk's own app id
 //! ```
 //!
 //! OWNER: brain.
@@ -72,13 +72,13 @@ pub fn for_event(event: &crate::assistant::Event, title: &str) -> Option<Note> {
 
 /// Whether a job's event gets a notification: notifications are on, the job
 /// runs in the background, it wasn't typed in Chats (whose answer shows right
-/// there), and Hex isn't the app in front (Chats or another Hex window shows
+/// there), and Agent-Desk isn't the app in front (Chats or another Agent-Desk window shows
 /// it).
 pub fn wanted(enabled: bool, background: bool, typed_in_chats: bool, hex_in_front: bool) -> bool {
     enabled && background && !typed_in_chats && !hex_in_front
 }
 
-/// Whether one of Hex's own windows is in front.
+/// Whether one of Agent-Desk's own windows is in front.
 pub fn hex_in_front() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -161,7 +161,7 @@ mod linux {
         };
         let actions = takes_actions(&program);
         let mut command = crate::desktop::background_process::command(&program);
-        command.args(["--app-name=Hex", "--icon=dialog-information"]);
+        command.args(["--app-name=Agent-Desk", "--icon=dialog-information"]);
         if actions {
             command.arg(format!(
                 "--action=default={}",
@@ -225,10 +225,10 @@ mod windows {
     use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
     use windows::core::{HSTRING, IInspectable};
 
-    /// Hex's app id for its toasts: registered under
+    /// Agent-Desk's app id for its toasts: registered under
     /// `HKCU\Software\Classes\AppUserModelId`, which names the sender
-    /// "Hex" for an app that isn't packaged.
-    const APP_ID: &str = "Anomaly.Hex";
+    /// "Agent-Desk" for an app that isn't packaged.
+    const APP_ID: &str = "fheuer.AgentDesk";
 
     /// The toasts on screen, kept so their click handlers stay alive.
     static SHOWN: Mutex<Vec<ToastNotification>> = Mutex::new(Vec::new());
@@ -273,7 +273,7 @@ mod windows {
         Ok(())
     }
 
-    /// Names Hex as the toasts' sender, once a run.
+    /// Names Agent-Desk as the toasts' sender, once a run.
     fn register() {
         static REGISTERED: std::sync::Once = std::sync::Once::new();
         REGISTERED.call_once(|| {
@@ -281,14 +281,14 @@ mod windows {
             let registered = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
                 .create_subkey(&key)
                 .and_then(|(key, _)| {
-                    key.set_value("DisplayName", &"Hex")?;
+                    key.set_value("DisplayName", &"Agent-Desk")?;
                     if let Ok(exe) = std::env::current_exe() {
                         key.set_value("IconUri", &exe.to_string_lossy().into_owned())?;
                     }
                     Ok(())
                 });
             if let Err(error) = registered {
-                tracing::warn!(%error, "couldn't register Hex's notification sender");
+                tracing::warn!(%error, "couldn't register Agent-Desk's notification sender");
             }
         });
     }
@@ -382,6 +382,6 @@ mod tests {
         assert!(!wanted(false, true, false, false), "turned off");
         assert!(!wanted(true, false, false, false), "a Here question");
         assert!(!wanted(true, true, true, false), "typed in Chats");
-        assert!(!wanted(true, true, false, true), "Hex is in front");
+        assert!(!wanted(true, true, false, true), "Agent-Desk is in front");
     }
 }

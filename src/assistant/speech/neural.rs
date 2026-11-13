@@ -1,4 +1,4 @@
-//! Hex's own voice: Supertone's Supertonic 3, a small neural model that
+//! Agent-Desk's own voice: Supertone's Supertonic 3, a small neural model that
 //! runs on this computer (ONNX Runtime, CPU) and reads 31 languages,
 //! German among them, far more naturally than the compact system voices.
 //!
@@ -25,16 +25,16 @@ use std::time::{Duration, Instant};
 
 use model::{Model, Style};
 
-/// What a Hex voice's name starts with.
+/// What an Agent-Desk voice's name starts with.
 pub const PREFIX: &str = "hex-voice:";
 
 /// The presets the release ships: five women's voices, five men's.
 pub const PRESETS: [&str; 10] = ["F1", "F2", "F3", "F4", "F5", "M1", "M2", "M3", "M4", "M5"];
 
-/// The preset a bare Hex voice reads with: upstream's own default.
+/// The preset a bare Agent-Desk voice reads with: upstream's own default.
 pub const DEFAULT_PRESET: &str = "M1";
 
-/// How long the model stays loaded after its last sentence once the Hex
+/// How long the model stays loaded after its last sentence once the Agent-Desk
 /// voice is no longer the chosen one (it holds about 400 MB). While it is
 /// chosen, the model stays loaded ([`keep_warm`]).
 const IDLE: Duration = Duration::from_secs(5 * 60);
@@ -45,7 +45,7 @@ const SPLIT_FROM: usize = 60;
 /// The shortest clause made on its own.
 const MIN_CLAUSE: usize = 20;
 
-/// The Hex voice's preset named by `voice` (`hex-voice:F2` → `F2`), if it
+/// The Agent-Desk voice's preset named by `voice` (`hex-voice:F2` → `F2`), if it
 /// is one.
 pub fn preset(voice: &str) -> Option<&'static str> {
     let rest = voice.strip_prefix(PREFIX)?;
@@ -55,7 +55,7 @@ pub fn preset(voice: &str) -> Option<&'static str> {
     PRESETS.iter().copied().find(|preset| *preset == rest)
 }
 
-/// The Hex voices as Settings lists them, once the model is installed.
+/// The Agent-Desk voices as Settings lists them, once the model is installed.
 pub fn voices() -> Vec<String> {
     if !files::installed() {
         return Vec::new();
@@ -66,7 +66,7 @@ pub fn voices() -> Vec<String> {
         .collect()
 }
 
-/// What makes the next sentence: the Hex voice when `chosen` names one, it
+/// What makes the next sentence: the Agent-Desk voice when `chosen` names one, it
 /// is installed, and it reads `language` (Supertonic's code, from
 /// [`text::language_code`]); `None` for the system voice.
 pub fn plan(
@@ -189,7 +189,7 @@ pub fn speak(
     }
 }
 
-/// Keeps the model loaded and warm with `preset` while the Hex voice is
+/// Keeps the model loaded and warm with `preset` while the Agent-Desk voice is
 /// the one chosen (and installed); `None` lets it go after [`IDLE`].
 /// Cheap to call on every settings change.
 pub fn keep_warm(preset: Option<&'static str>) {
@@ -218,7 +218,7 @@ fn start() -> Sender<Work> {
                     Ok(Work::Sentence(job)) => sentence(&mut loaded, &job),
                     Ok(Work::Warm(preset)) => {
                         if let Err(error) = warm(&mut loaded, preset) {
-                            tracing::warn!(error = %format!("{error:#}"), "Hex's voice couldn't load");
+                            tracing::warn!(error = %format!("{error:#}"), "Agent-Desk's voice couldn't load");
                         }
                     }
                     Err(RecvTimeoutError::Timeout) => {
@@ -231,7 +231,7 @@ fn start() -> Sender<Work> {
             }
         });
     if let Err(error) = spawned {
-        tracing::warn!(%error, "could not start Hex's voice");
+        tracing::warn!(%error, "could not start Agent-Desk's voice");
     }
     sender
 }
@@ -254,14 +254,14 @@ fn sentence(loaded: &mut Loaded, job: &Job) {
                 tracing::debug!(
                     took_ms = started.elapsed().as_millis() as u64,
                     audio_ms = (samples.len() as u64 * 1000) / u64::from(from.max(1)),
-                    "Hex's voice made a piece"
+                    "Agent-Desk's voice made a piece"
                 );
                 (job.deliver)(job.id, Some(resample(&samples, from, job.rate)), last);
                 delivered = true;
             }
             Err(error) => {
                 if !FAILED_ONCE.swap(true, Ordering::AcqRel) {
-                    tracing::warn!(error = %format!("{error:#}"), "Hex's voice couldn't read; the system voice reads instead");
+                    tracing::warn!(error = %format!("{error:#}"), "Agent-Desk's voice couldn't read; the system voice reads instead");
                 }
                 *loaded = None;
                 if delivered {
@@ -286,7 +286,7 @@ fn warm(loaded: &mut Loaded, preset: &'static str) -> color_eyre::Result<()> {
         model.speak(text::WARM_UP, "de", &styles[preset])?;
         tracing::info!(
             took_ms = started.elapsed().as_millis() as u64,
-            "Hex's voice is loaded and warm"
+            "Agent-Desk's voice is loaded and warm"
         );
     }
     Ok(())
@@ -439,12 +439,13 @@ mod tests {
     }
 
     /// Reads a German sentence with the real model when
-    /// `HEX_SUPERTONIC_DIR` names its folder (the release's layout) and
+    /// `AGENT_DESK_SUPERTONIC_DIR` names its folder (the release's layout) and
     /// writes `supertonic-test.wav` beside it. Plays nothing.
     #[test]
     #[ignore = "needs the downloaded model"]
     fn a_german_sentence_is_read_by_the_real_model() {
-        let Some(dir) = std::env::var_os("HEX_SUPERTONIC_DIR").map(std::path::PathBuf::from) else {
+        let Some(dir) = std::env::var_os("AGENT_DESK_SUPERTONIC_DIR").map(std::path::PathBuf::from)
+        else {
             return;
         };
         assert!(files::installed_in(&dir), "every pinned file at its size");
@@ -489,7 +490,8 @@ mod tests {
     #[test]
     #[ignore = "needs the downloaded model; a benchmark"]
     fn steps_and_threads_benchmark() {
-        let Some(dir) = std::env::var_os("HEX_SUPERTONIC_DIR").map(std::path::PathBuf::from) else {
+        let Some(dir) = std::env::var_os("AGENT_DESK_SUPERTONIC_DIR").map(std::path::PathBuf::from)
+        else {
             return;
         };
         let style = Style::load(&dir.join("voice_styles/M1.json")).unwrap();
@@ -558,7 +560,8 @@ mod tests {
     #[test]
     #[ignore = "needs the downloaded model; a benchmark"]
     fn time_to_first_audio() {
-        let Some(dir) = std::env::var_os("HEX_SUPERTONIC_DIR").map(std::path::PathBuf::from) else {
+        let Some(dir) = std::env::var_os("AGENT_DESK_SUPERTONIC_DIR").map(std::path::PathBuf::from)
+        else {
             return;
         };
         let started = Instant::now();

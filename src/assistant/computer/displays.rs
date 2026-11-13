@@ -384,12 +384,11 @@ mod macos {
     /// focus, else its frontmost ordinary window.
     pub fn focused_window_frame() -> Option<Frame> {
         // The app in front from the workspace, not the system-wide
-        // Accessibility element: asked from a worker thread while Hex itself
-        // is in front, that request reached Hex's own UI tree and aborted
-        // Hex (accesskit "RefCell already borrowed").
-        let (pid, _, _) = objc2::rc::autoreleasepool(|_| {
-            scrawl_capture::capture::frontmost_external_app_info()
-        })?;
+        // Accessibility element: asked from a worker thread while Agent-Desk itself
+        // is in front, that request reached Agent-Desk's own UI tree and aborted
+        // Agent-Desk (accesskit "RefCell already borrowed").
+        let (pid, _, _) =
+            objc2::rc::autoreleasepool(|_| scrawl_capture::capture::frontmost_external_app_info())?;
         if u32::try_from(pid).is_ok_and(|pid| pid == std::process::id()) {
             return None;
         }
@@ -564,7 +563,7 @@ mod tests {
         assert!(profiler_names("not json").is_empty());
     }
 
-    /// Live, read-only: this Mac's displays as Hex reads them.
+    /// Live, read-only: this Mac's displays as Agent-Desk reads them.
     #[cfg(target_os = "macos")]
     #[test]
     fn this_macs_displays_are_read() {

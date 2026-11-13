@@ -4,11 +4,11 @@ set -euo pipefail
 # Writes synthetic "pause before a single final word" clips for the opt-in
 # dictation corpus: a macOS `say` phrase, inserted silence long enough for the
 # pause segmenter to cut, then one spoken word. Writes WAVs and
-# synthetic/pause_manifest.json under HEX_DICTATION_CORPUS_DIR. Never uses
+# synthetic/pause_manifest.json under AGENT_DESK_DICTATION_CORPUS_DIR. Never uses
 # microphone audio.
 
-CORPUS_DIR="${HEX_DICTATION_CORPUS_DIR:-/private/var/folders/4t/_jnrck017r5f_jttbc19b7s40000gn/T/opencode/hex-dictation-corpus}"
-PAUSE_MS="${HEX_PAUSE_MS:-900}"
+CORPUS_DIR="${AGENT_DESK_DICTATION_CORPUS_DIR:-/private/var/folders/4t/_jnrck017r5f_jttbc19b7s40000gn/T/opencode/hex-dictation-corpus}"
+PAUSE_MS="${AGENT_DESK_PAUSE_MS:-900}"
 OUT="$CORPUS_DIR/synthetic"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT

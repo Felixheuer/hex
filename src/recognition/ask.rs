@@ -12,7 +12,7 @@
 //!   Here task, then a recent one), so a hold answers an open question or
 //!   steers a running task. The desktop is read on its own thread once the
 //!   hold is real (past the hold threshold with no other key), so a ⌘C chord
-//!   reads nothing; the screenshot leaves out Hex's own windows.
+//!   reads nothing; the screenshot leaves out Agent-Desk's own windows.
 //! - **Tap, then hold** (the second press within the double-tap window, held
 //!   past the hold threshold) is an optional shortcut that forces a new
 //!   Background task (`Origin::Background`) with no conversation and no
@@ -32,7 +32,7 @@
 //! aloud.
 //!
 //! Escape stops a running Here task and its speech, never a Background one,
-//! and Hex takes Escape from the app in front only while one runs or speaks.
+//! and Agent-Desk takes Escape from the app in front only while one runs or speaks.
 //! The Stop all tasks shortcut (`assistant.stop_all_hotkey`, ⌃⌥Esc) stops
 //! every task and the speech; the event tap swallows it only while the
 //! assistant is on and it is bound (`RuntimeHotkeys::stop_all`).
@@ -318,13 +318,13 @@ fn stop_all_press(
     pressed
 }
 
-/// A `hex dictation stop` or `toggle` leaves a question being asked alone:
+/// A `agent-desk dictation stop` or `toggle` leaves a question being asked alone:
 /// only the Action shortcut's release asks it.
 pub(super) fn busy_reply() -> ControlReply {
     ControlReply::error(
         "busy",
         "the Action shortcut is asking the assistant; release it, or cancel with \
-         `hex dictation cancel`",
+         `agent-desk dictation cancel`",
     )
 }
 

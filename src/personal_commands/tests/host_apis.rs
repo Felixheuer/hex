@@ -164,7 +164,7 @@ export default {
           resolve(`${error.code} ${error.killed} ${error.signal} ${stdout.trim()} ${stderr.trim()} ${error.message.startsWith("Command failed: ")}`))
       }),
     },
-    env: { name: "Env", transform: async () => (await shell("echo \"$HEX_TEST:$CARGO_MANIFEST_DIR\"", { env: { HEX_TEST: "set" } })).stdout.trim() },
+    env: { name: "Env", transform: async () => (await shell("echo \"$AGENT_DESK_TEST:$CARGO_MANIFEST_DIR\"", { env: { AGENT_DESK_TEST: "set" } })).stdout.trim() },
     missing: { name: "Missing", transform: async () => { try { await run("hex-no-such-program") } catch (error) { return `${error.code} ${error.syscall}` } } },
     slow: { name: "Slow", transform: async () => { try { await shell("sleep 5", { timeout: 100 }) } catch (error) { return `${error.killed} ${error.signal} ${error.code}` } } },
     big: { name: "Big", transform: async () => { try { await shell("yes | head -c 5000", { maxBuffer: 1000 }) } catch (error) { return `${error.code} ${error.stdout.length}` } } },
@@ -248,7 +248,7 @@ export default {
 }
 
 /// Dictation's processing stage over a worker running on its own thread,
-/// as Hex runs it.
+/// as Agent-Desk runs it.
 #[test]
 fn a_throwing_or_slow_transformation_pastes_the_text_unchanged() {
     let root = unique_temp_dir("hex-fallback");

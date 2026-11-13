@@ -1,5 +1,5 @@
-//! Requests from another Hex process (`hex assistant stop-all`, `take-over`,
-//! `hand-back`) to whichever Hex runs the task: small files under
+//! Requests from another Agent-Desk process (`agent-desk assistant stop-all`, `take-over`,
+//! `hand-back`) to whichever Agent-Desk runs the task: small files under
 //! `<support>/assistant/requests/`, named `<target>.<verb>.<nonce>`, that
 //! every runner with tasks looks at while it runs them. Each acts once per
 //! file; the sender removes it after a moment.
@@ -49,7 +49,7 @@ fn dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Asks every running Hex to do `verb` to `target`, then clears the request
+/// Asks every running Agent-Desk to do `verb` to `target`, then clears the request
 /// after `linger`.
 pub fn send(target: &str, verb: Verb, linger: Duration) -> Result<()> {
     if target != ALL

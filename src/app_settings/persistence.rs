@@ -74,7 +74,7 @@ impl AppSettings {
                 LaunchLoad {
                     settings: Self::default(),
                     note: Some(LaunchNote::Failed(format!(
-                        "Hex couldn't read its settings and started with defaults. ({error:#})"
+                        "Agent-Desk couldn't read its settings and started with defaults. ({error:#})"
                     ))),
                 }
             }
@@ -236,7 +236,7 @@ impl AppSettings {
         // They may be stale defaults, so a fixed file must be loaded instead.
         if load_found_unparseable(path) {
             return Err(eyre!(
-                "settings.json couldn't be read when Hex loaded it. Restart Hex to load the fixed file. Nothing was saved."
+                "settings.json couldn't be read when Agent-Desk loaded it. Restart Agent-Desk to load the fixed file. Nothing was saved."
             ));
         }
         match &original {
@@ -306,13 +306,14 @@ pub(crate) enum LoadIssue {
 }
 
 impl LoadIssue {
-    /// What a running Hex says when a saved edit can't be adopted.
+    /// What a running Agent-Desk says when a saved edit can't be adopted.
     #[cfg(target_os = "linux")]
     pub(crate) fn reload_error(&self) -> String {
         match self {
             Self::Unparseable(reason) => reason.reload_error(),
             Self::Unreadable => {
-                "Hex couldn't read settings.json; keeping the settings it already has.".into()
+                "Agent-Desk couldn't read settings.json; keeping the settings it already has."
+                    .into()
             }
         }
     }
@@ -344,7 +345,7 @@ impl Unparseable {
 
     fn launch_note(&self) -> String {
         format!(
-            "Hex couldn't read settings.json and started with defaults. Your file wasn't changed; fix or remove it, then restart Hex. ({})",
+            "Agent-Desk couldn't read settings.json and started with defaults. Your file wasn't changed; fix or remove it, then restart Agent-Desk. ({})",
             self.reason()
         )
     }
@@ -352,16 +353,16 @@ impl Unparseable {
     /// The error a save returns; nothing is written.
     fn save_error(&self) -> String {
         format!(
-            "settings.json {}. Fix or remove it, then restart Hex. Nothing was saved.",
+            "settings.json {}. Fix or remove it, then restart Agent-Desk. Nothing was saved.",
             self.sentence()
         )
     }
 
-    /// What a running Hex says when a saved edit isn't a JSON object.
+    /// What a running Agent-Desk says when a saved edit isn't a JSON object.
     #[cfg(target_os = "linux")]
     fn reload_error(&self) -> String {
         format!(
-            "settings.json {}. Fix or remove it, then restart Hex.",
+            "settings.json {}. Fix or remove it, then restart Agent-Desk.",
             self.sentence()
         )
     }

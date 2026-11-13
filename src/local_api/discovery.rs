@@ -59,14 +59,14 @@ pub fn call_developer(
     let (status, body) = post_json("/dev/control", &body, DEVELOPER_CONTROL_TIMEOUT, 64 * 1024)?;
     if status != 200 {
         bail!(
-            "Hex developer control failed: {}",
+            "Agent-Desk developer control failed: {}",
             error_code(status, &body)
         );
     }
-    serde_json::from_slice(&body).wrap_err("Hex developer response is invalid")
+    serde_json::from_slice(&body).wrap_err("Agent-Desk developer response is invalid")
 }
 
-/// Sends one `hex` control request to the running app.
+/// Sends one `agent-desk` control request to the running app.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn call_control(
     request: &crate::control::ControlRequest,
@@ -83,17 +83,19 @@ pub fn call_control(
         let code = error_code(status, &body);
         bail!(match code.as_str() {
             "control-unavailable" => {
-                "the running Hex doesn't accept control commands; update Hex".to_string()
+                "the running Agent-Desk doesn't accept control commands; update Agent-Desk"
+                    .to_string()
             }
-            "control-busy" => "Hex is busy with other control commands; try again".into(),
-            "control-timeout" => "Hex didn't answer in time; check `hex status`".into(),
+            "control-busy" => "Agent-Desk is busy with other control commands; try again".into(),
+            "control-timeout" =>
+                "Agent-Desk didn't answer in time; check `agent-desk status`".into(),
             "invalid-control-command" => {
-                "the running Hex doesn't know this command; update Hex".into()
+                "the running Agent-Desk doesn't know this command; update Agent-Desk".into()
             }
-            _ => format!("Hex refused the request ({code})"),
+            _ => format!("Agent-Desk refused the request ({code})"),
         });
     }
-    serde_json::from_slice(&body).wrap_err("Hex sent an invalid control reply")
+    serde_json::from_slice(&body).wrap_err("Agent-Desk sent an invalid control reply")
 }
 
 /// The running app's process id, if its local API is live.
@@ -102,9 +104,9 @@ pub fn running_pid() -> Option<u32> {
     live_discovery().ok().map(|document| document.pid)
 }
 
-/// Sends one `hex` control request to the Hex whose data folder is
-/// `support_dir`, whichever variant this binary is (`hex bench --target`
-/// reaches Hex Dev from any build).
+/// Sends one `agent-desk` control request to the Agent-Desk whose data folder is
+/// `support_dir`, whichever variant this binary is (`agent-desk bench --target`
+/// reaches Agent-Desk Dev from any build).
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn call_control_in(
     support_dir: &Path,
@@ -122,9 +124,12 @@ pub fn call_control_in(
         1024 * 1024,
     )?;
     if status != 200 {
-        bail!("Hex refused the request ({})", error_code(status, &body));
+        bail!(
+            "Agent-Desk refused the request ({})",
+            error_code(status, &body)
+        );
     }
-    serde_json::from_slice(&body).wrap_err("Hex sent an invalid control reply")
+    serde_json::from_slice(&body).wrap_err("Agent-Desk sent an invalid control reply")
 }
 
 pub(super) fn live_discovery() -> Result<DiscoveryDocument> {
@@ -135,16 +140,16 @@ fn live_discovery_at(path: &Path) -> Result<DiscoveryDocument> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            bail!("Hex is not running")
+            bail!("Agent-Desk is not running")
         }
         Err(error) => {
             return Err(error).wrap_err_with(|| format!("could not read {}", path.display()));
         }
     };
-    let document: DiscoveryDocument =
-        serde_json::from_slice(&bytes).wrap_err("Hex's local API discovery file is invalid")?;
+    let document: DiscoveryDocument = serde_json::from_slice(&bytes)
+        .wrap_err("Agent-Desk's local API discovery file is invalid")?;
     if !valid_discovery(&document) || !discovery_is_live(&document) {
-        bail!("Hex is not running");
+        bail!("Agent-Desk is not running");
     }
     Ok(document)
 }
@@ -158,7 +163,7 @@ pub(super) fn post_json(
     post(path, "application/json", body, read_timeout, max_response)
 }
 
-/// Sends one WAV to the running Hex's `POST /transcriptions`.
+/// Sends one WAV to the running Agent-Desk's `POST /transcriptions`.
 pub(crate) fn post_wav(
     path: &str,
     body: &[u8],
@@ -197,7 +202,7 @@ fn send(
     max_response: usize,
 ) -> Result<(u16, Vec<u8>)> {
     let mut stream = TcpStream::connect_timeout(&address, CONNECTION_TIMEOUT)
-        .wrap_err("could not connect to Hex's local API")?;
+        .wrap_err("could not connect to Agent-Desk's local API")?;
     stream.set_read_timeout(Some(read_timeout))?;
     stream.set_write_timeout(Some(CONNECTION_TIMEOUT))?;
     write!(
@@ -205,7 +210,7 @@ fn send(
         "POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len(),
     )?;
-    // Hex answers before reading a body it rejects (an unknown model, a full
+    // Agent-Desk answers before reading a body it rejects (an unknown model, a full
     // queue); keep that answer when the connection then resets.
     let upload = stream.write_all(body).and_then(|()| stream.flush());
     let mut response = Vec::new();
@@ -213,15 +218,15 @@ fn send(
         .take(max_response as u64 + 1)
         .read_to_end(&mut response);
     if response.is_empty() {
-        read.wrap_err("Hex didn't answer")?;
-        upload.wrap_err("Hex didn't take the upload")?;
-        bail!("Hex didn't answer");
+        read.wrap_err("Agent-Desk didn't answer")?;
+        upload.wrap_err("Agent-Desk didn't take the upload")?;
+        bail!("Agent-Desk didn't answer");
     }
     if response.len() > max_response {
-        bail!("Hex's response is too large");
+        bail!("Agent-Desk's response is too large");
     }
     let Some(header_end) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
-        bail!("Hex's response is malformed");
+        bail!("Agent-Desk's response is malformed");
     };
     let headers = std::str::from_utf8(&response[..header_end])?;
     let status = headers
@@ -229,7 +234,7 @@ fn send(
         .next()
         .and_then(|line| line.split_ascii_whitespace().nth(1))
         .and_then(|status| status.parse::<u16>().ok())
-        .ok_or_else(|| eyre!("Hex's response has no HTTP status"))?;
+        .ok_or_else(|| eyre!("Agent-Desk's response has no HTTP status"))?;
     Ok((status, response.split_off(header_end + 4)))
 }
 
@@ -306,7 +311,7 @@ pub(super) fn write_discovery(path: &Path, document: &DiscoveryDocument) -> Resu
     }
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
-    // The token lets any reader drive Hex, so only the owner may read it. On
+    // The token lets any reader drive Agent-Desk, so only the owner may read it. On
     // Windows the file inherits the per-user Application Support folder's
     // ACL (the user, SYSTEM and Administrators).
     #[cfg(unix)]
@@ -363,7 +368,7 @@ mod tests {
 
     use super::send;
 
-    /// Hex answers before reading a body it rejects and closes; the answer
+    /// Agent-Desk answers before reading a body it rejects and closes; the answer
     /// must survive a body too large for the socket buffers.
     #[test]
     fn a_refusal_survives_a_large_upload() {

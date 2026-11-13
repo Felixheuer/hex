@@ -1,8 +1,8 @@
-//! What Hex reads from the Windows desktop for a question: the window in
+//! What Agent-Desk reads from the Windows desktop for a question: the window in
 //! front (its app and title), the selected text (UI Automation's text
 //! pattern on the focused element, bounded), the displays, the windows'
 //! frames, and a screenshot of the display the person works on (GDI, at
-//! the display's own pixels; Hex's overlays exclude themselves from
+//! the display's own pixels; Agent-Desk's overlays exclude themselves from
 //! capture), with blocked apps' windows blacked out.
 
 use std::sync::mpsc;

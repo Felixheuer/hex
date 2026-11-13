@@ -1,9 +1,9 @@
 import CoreGraphics
 import Foundation
 
-/// The full keyboard's Hex key as a pure state machine, so a stray tap while typing
+/// The full keyboard's Agent-Desk key as a pure state machine, so a stray tap while typing
 /// does nothing. A still hold of `holdDuration` fires the hold action (dictate, or open
-/// Hex); moving more than `slop` before that opens the style menu, and the release
+/// Agent-Desk); moving more than `slop` before that opens the style menu, and the release
 /// picks the row under the finger. Once the hold fires, moves and the release are ignored.
 nonisolated struct HexKeyGesture: Equatable, Sendable {
     static let holdDuration: TimeInterval = 0.35

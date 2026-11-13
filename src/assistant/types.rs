@@ -371,8 +371,8 @@ pub enum Outcome {
     Answered,
     Failed,
     Cancelled,
-    /// Hex quit or crashed while it ran; Chats offers Resume.
+    /// Agent-Desk quit or crashed while it ran; Chats offers Resume.
     Interrupted,
-    /// Still running (only while Hex runs).
+    /// Still running (only while Agent-Desk runs).
     Running,
 }

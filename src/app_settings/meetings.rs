@@ -54,10 +54,8 @@ pub struct MeetingSettings {
     pub show_recording_indicator: bool,
     /// Screen corner the floating recording indicator snaps to after dragging.
     pub recording_indicator_corner: MeetingIndicatorCorner,
-    /// What to do when a call from each website or app is detected. Older
-    /// files only had a `never_offer` list, whose entries carry no `policy`
-    /// and so read as Never offer.
-    #[serde(alias = "never_offer")]
+    /// What to do when a call from each website or app is detected. An
+    /// entry without a `policy` reads as Never offer.
     pub providers: Vec<MeetingProviderChoice>,
     /// Reminders before calendar meetings (macOS). Off until the user
     /// connects a calendar.
@@ -74,7 +72,7 @@ pub struct MeetingSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_retention: Option<MeetingRetention>,
     /// The OpenCode `provider/model` that writes meeting notes when
-    /// `summaries` is OpenCode; left out of the file while unset, when Hex
+    /// `summaries` is OpenCode; left out of the file while unset, when Agent-Desk
     /// picks a fast model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opencode_model: Option<String>,
@@ -192,7 +190,7 @@ impl MeetingRetention {
 #[serde(default)]
 pub struct CalendarSettings {
     /// Set once the user clicks Connect calendar and macOS grants access;
-    /// Hex never asks for calendar access before that.
+    /// Agent-Desk never asks for calendar access before that.
     pub connected: bool,
     /// Calendars left out of reminders, by EventKit identifier. Every
     /// calendar is included by default, so new ones are too.
@@ -284,7 +282,7 @@ pub fn known_meeting_providers(
     )
 }
 
-/// What Hex does when it detects a call from a provider.
+/// What Agent-Desk does when it detects a call from a provider.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MeetingPolicy {
@@ -357,7 +355,7 @@ pub fn meetings_enabled() -> bool {
 pub fn meetings_off_reason() -> &'static str {
     match crate::policy::Policy::meetings_lock() {
         Some(lock) => lock.refusal(),
-        None => "Meetings are off; turn them on with `hex settings set meetings.enabled on`",
+        None => "Meetings are off; turn them on with `agent-desk settings set meetings.enabled on`",
     }
 }
 
@@ -390,7 +388,7 @@ pub fn meeting_provider_choices() -> Vec<MeetingProviderChoice> {
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 /// [`MeetingSettings::retention`] for the running meeting controller.
 /// The retention the user chose, `None` until they choose. A process that
-/// never loaded settings (`hex mcp`, `hex meetings`) reads it from
+/// never loaded settings (`agent-desk mcp`, `agent-desk meetings`) reads it from
 /// `settings.json` without migrating or writing anything.
 pub fn meeting_retention() -> Option<MeetingRetention> {
     match MEETING_RETENTION.load(Ordering::Acquire) {

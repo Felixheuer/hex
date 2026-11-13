@@ -25,9 +25,8 @@ use super::script;
 use crate::assistant::autonomy::{self, Autonomy, Gate};
 use crate::assistant::tools::Role;
 
-/// The tool's name, and the one it had (kept for one release).
+/// The tool's name.
 pub const NAME: &str = "hex_browser_tab";
-pub const OLD_NAME: &str = "hex_chrome_tab";
 
 /// How much of a page a read returns by default, and at most.
 const READ_CHARS: usize = 8000;
@@ -108,10 +107,10 @@ fn javascript_off(error: &str) -> bool {
     lower.contains("javascript") && (lower.contains("turned off") || lower.contains("allow"))
 }
 
-/// What the person turns on so Hex can act in `browser`'s tabs.
+/// What the person turns on so Agent-Desk can act in `browser`'s tabs.
 fn javascript_off_note(browser: &Browser) -> String {
     format!(
-        "{} doesn't allow JavaScript from Apple Events, so Hex can't act in the tab. The person \
+        "{} doesn't allow JavaScript from Apple Events, so Agent-Desk can't act in the tab. The person \
          can turn it on in {}: “Allow JavaScript from Apple Events” (in Chromium-based browsers \
          under View › Developer, in Safari under Develop once Settings › Advanced › “Show \
          features for web developers” is on).",
@@ -446,7 +445,8 @@ pub fn call(arguments: &Value, task: Option<&str>, role: Role) -> Result<String,
             let (label, kind) = find(&browser, tab, arguments, true, &nonce)?;
             if kind == "password" {
                 return Err(
-                    "Hex never types into password fields; the person signs in themselves.".into(),
+                    "Agent-Desk never types into password fields; the person signs in themselves."
+                        .into(),
                 );
             }
             check_fill(&label, &gate)?;

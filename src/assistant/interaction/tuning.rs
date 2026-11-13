@@ -1,10 +1,10 @@
 //! Barge-in thresholds that learn this Mac's rooms. Talking over an answer
 //! pauses it once the person's voice holds for a number of 20 ms frames
-//! (`recognition::conversation`); too few and Hex cuts itself off on its own
+//! (`recognition::conversation`); too few and Agent-Desk cuts itself off on its own
 //! echo, too many and the person has to shout over it. The defaults are
 //! guesses from synthetic signals, so every barge-in's outcome tunes them:
 //!
-//! - a **false alarm** (the capture held nothing, or only Hex's own words:
+//! - a **false alarm** (the capture held nothing, or only Agent-Desk's own words:
 //!   the reading resumed) asks for more voice next time on that output;
 //! - a **take-over** (the person's own words, or a spoken stop) allows a
 //!   little less.
@@ -13,7 +13,7 @@
 //! down), so the thresholds settle where about one barge-in in ten is a
 //! false alarm, and stay within [`Thresholds::BOUNDS`]. Headphones and
 //! speakers learn apart. The thresholds and the last decisions are kept in
-//! `<assistant dir>/barge-in.json`; `hex assistant barge-in` shows them and
+//! `<assistant dir>/barge-in.json`; `agent-desk assistant barge-in` shows them and
 //! `--reset` forgets them. Every decision is logged as `barge-in: learned`.
 
 use std::collections::VecDeque;
@@ -25,9 +25,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Route {
-    /// Headphones or AirPods: the microphone can't hear Hex's voice.
+    /// Headphones or AirPods: the microphone can't hear Agent-Desk's voice.
     Headphones,
-    /// Speakers, or anything Hex can't tell.
+    /// Speakers, or anything Agent-Desk can't tell.
     Speakers,
 }
 
@@ -35,7 +35,7 @@ pub enum Route {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
-    /// Nothing, or Hex's own voice: the reading resumed.
+    /// Nothing, or Agent-Desk's own voice: the reading resumed.
     FalseAlarm,
     /// The person's words: they asked something new.
     TookOver,
@@ -122,7 +122,7 @@ pub fn learn(now: Thresholds, route: Route, outcome: Outcome) -> Thresholds {
     next.clamped()
 }
 
-/// One barge-in, as remembered for `hex assistant barge-in`.
+/// One barge-in, as remembered for `agent-desk assistant barge-in`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Decision {
     /// Unix milliseconds.
@@ -260,13 +260,13 @@ pub fn settle(outcome: Outcome) {
     save(&state.saved);
 }
 
-/// What `hex assistant barge-in` prints: the thresholds and how the last
+/// What `agent-desk assistant barge-in` prints: the thresholds and how the last
 /// barge-ins turned out.
 pub fn report() -> String {
     let state = state();
     let t = state.saved.thresholds;
     let mut out = format!(
-        "Barge-in thresholds (learnt on this Mac)\n  headphones: {} ms of voice\n  speakers:   {} ms of voice over Hex's echo, or {:.1} dB over the answer before the echo is learnt\n",
+        "Barge-in thresholds (learnt on this Mac)\n  headphones: {} ms of voice\n  speakers:   {} ms of voice over Agent-Desk's echo, or {:.1} dB over the answer before the echo is learnt\n",
         t.frames(Route::Headphones) * 20,
         t.frames(Route::Speakers) * 20,
         t.speaker_margin_db,

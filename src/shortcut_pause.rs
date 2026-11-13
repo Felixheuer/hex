@@ -1,5 +1,5 @@
 //! Pause from menu bar (macOS): the runtime-only pause behind the
-//! menu bar's Pause Hex row. While paused every capture shortcut is inert
+//! menu bar's Pause Agent-Desk row. While paused every capture shortcut is inert
 //! and the event tap passes key events through unmodified, exactly as while
 //! a shortcut binding is recorded ([`crate::app_settings`]'s
 //! `hotkey_capture_active`). A resume waits for a neutral keyboard, so a key
@@ -21,7 +21,7 @@ const NEUTRAL_DURATION: Duration = Duration::from_millis(100);
 /// one warning naming the key still held.
 const SLOW_RESUME: Duration = Duration::from_secs(5);
 
-/// Whether Hex's shortcuts run, are paused, or wait for a neutral keyboard.
+/// Whether Agent-Desk's shortcuts run, are paused, or wait for a neutral keyboard.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum State {
     Running,
@@ -81,14 +81,14 @@ impl Machine {
     }
 
     /// Whether shortcuts stay suspended: paused, or resuming. The menu's
-    /// Pause Hex / Resume Hex title reads the lock-free [`STATE`] mirror
+    /// Pause Agent-Desk / Resume Agent-Desk title reads the lock-free [`STATE`] mirror
     /// instead; this is the machine's own answer for its tests.
     #[cfg(test)]
     pub const fn suspended(&self) -> bool {
         !matches!(self.state, State::Running)
     }
 
-    /// Pauses Hex's shortcuts, reporting whether this call changed anything.
+    /// Pauses Agent-Desk's shortcuts, reporting whether this call changed anything.
     pub fn pause(&mut self) -> bool {
         let changed = self.state != State::Paused;
         self.state = State::Paused;
@@ -180,7 +180,7 @@ impl Default for Machine {
     }
 }
 
-/// The process's pause state: one per Hex, and a restart starts unpaused.
+/// The process's pause state: one per Agent-Desk, and a restart starts unpaused.
 static MACHINE: Mutex<Machine> = Mutex::new(Machine::new());
 
 /// A lock-free mirror of [`MACHINE`]'s state, so the tap thread and the HID
@@ -206,7 +206,7 @@ pub fn toggle() {
     match with(|machine| machine.toggle(Instant::now())) {
         Change::Paused => log_paused(),
         Change::Resuming => log_resuming(),
-        // Choosing Resume Hex again while it waits leaves it waiting, so the
+        // Choosing Resume Agent-Desk again while it waits leaves it waiting, so the
         // row cannot re-pause the resume it says is under way.
         Change::Unchanged => {}
     }
@@ -237,7 +237,7 @@ pub fn suspended() -> bool {
 /// Advances a pending resume with the keyboard as it is now, and reports
 /// whether shortcuts stay suspended after it. The listener calls this on
 /// every pass; nothing else needs to. Only a pending resume reads the
-/// keyboard and takes the machine's lock, once, so a running or paused Hex
+/// keyboard and takes the machine's lock, once, so a running or paused Agent-Desk
 /// pays neither.
 pub fn tick() -> bool {
     if state() == State::Resuming {
@@ -320,7 +320,7 @@ mod tests {
         assert!(machine.suspended());
 
         // A key is held when Resume is chosen: the window never opens while
-        // it is down, however long Hex waits.
+        // it is down, however long Agent-Desk waits.
         assert!(machine.resume(at(base, 0)));
         assert!(machine.suspended());
         machine.settle(false, at(base, 0));
@@ -362,11 +362,11 @@ mod tests {
         assert_eq!(machine.toggle(base), Change::Paused);
         assert!(machine.suspended());
 
-        // The row reads Resume Hex from here on, and choosing it resumes.
+        // The row reads Resume Agent-Desk from here on, and choosing it resumes.
         assert_eq!(machine.toggle(at(base, 100)), Change::Resuming);
         assert_eq!(machine.state(), State::Resuming);
 
-        // Choosing Resume Hex again while it waits neither re-pauses nor
+        // Choosing Resume Agent-Desk again while it waits neither re-pauses nor
         // restarts the wait.
         assert_eq!(machine.toggle(at(base, 200)), Change::Unchanged);
         assert_eq!(machine.state(), State::Resuming);
@@ -396,7 +396,7 @@ mod tests {
         machine.settle(true, at(base, 5_000));
         machine.settle(true, at(base, 5_100));
         assert_eq!(machine.resuming_for(at(base, 6_000)), None);
-        // A running Hex reports no wait at all.
+        // A running Agent-Desk reports no wait at all.
         assert_eq!(
             Machine::new().resuming_for(at(base, SLOW_RESUME.as_millis() as u64)),
             None

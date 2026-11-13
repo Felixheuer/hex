@@ -1738,7 +1738,7 @@
           source: "Google Meet",
           duration: "18:42",
           status: "recording",
-          location: "~/Library/Application Support/hex/meetings/",
+          location: "~/Library/Application Support/agent-desk/meetings/",
           transcript: [
             ["00:06", "Computer", "Let’s make the desktop app feel like one place to work, rather than a collection of utilities."],
             ["00:18", "You", "The meeting library should be the anchor. Commands and diagnostics can sit alongside it as tools."],
@@ -1756,7 +1756,7 @@
           source: "Zoom",
           duration: "42:18",
           status: "complete",
-          location: "~/Library/Application Support/hex/meetings/1752571860000-4492/",
+          location: "~/Library/Application Support/agent-desk/meetings/1752571860000-4492/",
           transcript: [
             ["00:11", "You", "I grouped the notes around trust, speed, and knowing where the audio went."],
             ["00:26", "Computer", "The local-first story is strongest when it’s visible in the product, not hidden in a privacy page."],
@@ -1773,7 +1773,7 @@
           source: "Slack Huddle",
           duration: "31:02",
           status: "complete",
-          location: "~/Library/Application Support/hex/meetings/1752519300000-4028/",
+          location: "~/Library/Application Support/agent-desk/meetings/1752519300000-4028/",
           transcript: [
             ["00:03", "Computer", "The bounded worker is holding up. The next concern is making queue occupancy observable."],
             ["00:16", "You", "Activity should distinguish capture, recognition, resolution, and action execution."],
@@ -1789,7 +1789,7 @@
           source: "Microsoft Teams",
           duration: "07:13",
           status: "interrupted",
-          location: "~/Library/Application Support/hex/meetings/1752220800000-3881/",
+          location: "~/Library/Application Support/agent-desk/meetings/1752220800000-3881/",
           transcript: [
             ["00:00", "System", "Recording was interrupted before transcription completed."],
           ],
@@ -2103,7 +2103,7 @@
       });
 
       $$(".permission-action").forEach((button) => button.addEventListener("click", () => showToast("Would open macOS Privacy & Security")));
-      $("#open-data-folder").addEventListener("click", () => showToast("Would open ~/Library/Application Support/hex/"));
+      $("#open-data-folder").addEventListener("click", () => showToast("Would open ~/Library/Application Support/agent-desk/"));
 
       setInterval(() => {
         if (!recordingActive) return;

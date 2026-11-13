@@ -7,11 +7,11 @@
     <key>CFBundleExecutable</key>
     <string>HexMicrophoneDriver</string>
     <key>CFBundleIdentifier</key>
-    <string>anomaly.hex.microphone.driver</string>
+    <string>fheuer.agentdesk.microphone.driver</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Hex Microphone</string>
+    <string>Agent-Desk Microphone</string>
     <key>CFBundlePackageType</key>
     <string>BNDL</string>
     <key>CFBundleShortVersionString</key>

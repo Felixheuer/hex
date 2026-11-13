@@ -58,7 +58,7 @@ pub(crate) fn pill(p: Paint) -> El {
         .live_region(rune::LiveRegion::Polite)
         .child(icon_el(lead))
         .child(
-            text(tr("Hands off: Hex is using your mouse"))
+            text(tr("Hands off: Agent-Desk is using your mouse"))
                 .key("hands-text")
                 .font(p.k.ty.small_medium)
                 .color(p.text()),

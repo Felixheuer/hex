@@ -83,7 +83,7 @@ pub enum HistoryKind {
     Dictation,
     Send,
     VoiceAction,
-    /// `hex dictation stop --print`: never pasted, so Paste Last skips it.
+    /// `agent-desk dictation stop --print`: never pasted, so Paste Last skips it.
     Printed,
     /// Dictate without processing: pasted as heard, with no step run.
     Raw,

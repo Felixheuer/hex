@@ -1,4 +1,4 @@
-//! Hex's window on every OS, on Rune.
+//! Agent-Desk's window on every OS, on Rune.
 //!
 //! The window talks to a host in the same process: on Linux the dictation
 //! host beside it (`linux_host`); on Windows and macOS the runtime thread
@@ -102,7 +102,7 @@ const DRAFT_DELAY: Duration = Duration::from_millis(250);
 /// the setup beat, permission polling) is checked while the window shows.
 const WINDOW_TICK: Duration = Duration::from_millis(250);
 
-/// Runs the Linux window's app on the main thread until Hex quits: the
+/// Runs the Linux window's app on the main thread until Agent-Desk quits: the
 /// window side of `linux_app`'s seam. It starts without a window; each
 /// `Activate` opens or focuses it with the launcher's activation token, and
 /// closing it keeps the app, its state, and the host running.
@@ -211,14 +211,14 @@ fn managed_note() -> &'static str {
     tr("Managed by your organization")
 }
 
-/// A `hex://` link the system opened with Hex: a story link opens the window
+/// A `agent-desk://` link the system opened with Agent-Desk: a story link opens the window
 /// on that playground story; anything else is ignored.
 #[cfg(target_os = "macos")]
 fn on_open_url(ui: &mut Ui, link: &str, tx: &mut Tx) {
     if let Some(target) = deep_link::parse(link, story_link::scheme()) {
         match target {
             Ok(target) => deep_link::open(ui, target, tx),
-            Err(why) => tracing::warn!(%why, "ignored a link opened with Hex"),
+            Err(why) => tracing::warn!(%why, "ignored a link opened with Agent-Desk"),
         }
         crate::macos_rune::bring_window_forward();
         return;
@@ -226,7 +226,7 @@ fn on_open_url(ui: &mut Ui, link: &str, tx: &mut Tx) {
     let link = match story_link::parse(link, story_link::scheme()) {
         Ok(link) => link,
         Err(why) => {
-            tracing::warn!(%why, "ignored a link opened with Hex");
+            tracing::warn!(%why, "ignored a link opened with Agent-Desk");
             return;
         }
     };
@@ -236,7 +236,7 @@ fn on_open_url(ui: &mut Ui, link: &str, tx: &mut Tx) {
     crate::macos_rune::bring_window_forward();
 }
 
-/// `hex app -- --snap …`: a headless render of a fixture scene. With the
+/// `agent-desk app -- --snap …`: a headless render of a fixture scene. With the
 /// Labs on, `--playground [story]` renders the playground.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub(crate) fn render_app(rune_args: Vec<String>) -> rune::App<Ui> {
@@ -245,9 +245,9 @@ pub(crate) fn render_app(rune_args: Vec<String>) -> rune::App<Ui> {
         .iter()
         .any(|arg| arg == "--snap" || arg == "--video" || arg == "--list-scenes");
     onboarding_kit::set_live_window(playground && !headless);
-    // A render is in English unless `HEX_RENDER_LANGUAGE` names an
+    // A render is in English unless `AGENT_DESK_RENDER_LANGUAGE` names an
     // interface language (`ru`, `pl`, …) to check its copy in.
-    if let Ok(code) = std::env::var("HEX_RENDER_LANGUAGE") {
+    if let Ok(code) = std::env::var("AGENT_DESK_RENDER_LANGUAGE") {
         crate::desktop::i18n::apply(Some(&code));
     }
     // Fixtures only: a render never reads, migrates, or saves the user's
@@ -366,7 +366,7 @@ fn build(init: impl FnOnce() -> Ui + 'static, playground: PlaygroundMode) -> run
 }
 
 /// Closing the window saves pending text edits and stops a shortcut
-/// recording, as leaving a pane does. Hex keeps running.
+/// recording, as leaving a pane does. Agent-Desk keeps running.
 fn on_close(ui: &mut Ui, tx: &mut Tx) {
     ui.flush_drafts();
     settings::cancel_capture(ui);
@@ -397,7 +397,7 @@ fn on_close(ui: &mut Ui, tx: &mut Tx) {
     let _ = tx;
 }
 
-/// Where the menu bar, a meeting, or a `hex window show` sends the window.
+/// Where the menu bar, a meeting, or a `agent-desk window show` sends the window.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Destination {
     Settings,
@@ -413,7 +413,7 @@ pub(crate) enum Destination {
     History,
 }
 
-/// Where `hex window show` opens the window. While Meetings is off, its
+/// Where `agent-desk window show` opens the window. While Meetings is off, its
 /// pane shows the opt-in.
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn destination(pane: Option<crate::control::Pane>) -> Destination {
@@ -473,8 +473,8 @@ pub(crate) fn show(ui: &mut Ui, destination: Destination, tx: &mut Tx) {
     }
 }
 
-/// What this OS's Hex can do, by capability name, for `hex status` and the
-/// settings `hex settings` can change here.
+/// What this OS's Agent-Desk can do, by capability name, for `agent-desk status` and the
+/// settings `agent-desk settings` can change here.
 pub(crate) fn capabilities() -> std::collections::BTreeMap<String, bool> {
     platform::Capabilities::current()
         .fields()
@@ -483,7 +483,7 @@ pub(crate) fn capabilities() -> std::collections::BTreeMap<String, bool> {
         .collect()
 }
 
-/// Whether this OS's Hex has the capability `name` ([`capabilities`]).
+/// Whether this OS's Agent-Desk has the capability `name` ([`capabilities`]).
 pub(crate) fn capability(name: &str) -> bool {
     platform::Capabilities::current()
         .fields()
@@ -491,13 +491,13 @@ pub(crate) fn capability(name: &str) -> bool {
         .any(|(field, on)| field == name && on)
 }
 
-/// `hex onboarding reset`: replays the first run in the window now; the
+/// `agent-desk onboarding reset`: replays the first run in the window now; the
 /// window also shows why it couldn't.
 pub(crate) fn restart_onboarding(ui: &mut Ui, tx: &mut Tx) -> Result<(), String> {
     onboarding_kit::live::restart(ui, tx).inspect_err(|why| ui.error = Some(why.clone()))
 }
 
-/// The pane the window shows, by its `hex window show` name: General is
+/// The pane the window shows, by its `agent-desk window show` name: General is
 /// still `settings` there.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn current_pane(ui: &Ui) -> &'static str {
@@ -520,7 +520,7 @@ pub(crate) fn hotkey_key_named(name: &str) -> Result<HotkeyKey, &'static str> {
     Ok(HotkeyKey::named(name))
 }
 
-/// The OS's shortcut rules for `hex settings set`.
+/// The OS's shortcut rules for `agent-desk settings set`.
 pub(crate) fn shortcut_rules() -> crate::control::settings::ShortcutRules {
     crate::control::settings::ShortcutRules {
         key_named: |name| hotkey_key_named(name).map_err(str::to_owned),
@@ -541,8 +541,8 @@ pub(crate) fn update_check_asked(ui: &mut Ui) {
     ui.update_asked = true;
 }
 
-/// `hex app -- --snap out.png --scene …`: a headless render of a fixture
-/// scene, or `live` for the running Hex's `hex status`.
+/// `agent-desk app -- --snap out.png --scene …`: a headless render of a fixture
+/// scene, or `live` for the running Agent-Desk's `agent-desk status`.
 #[cfg(target_os = "linux")]
 pub(crate) fn render() {
     let with_playground =
@@ -576,7 +576,7 @@ pub(crate) fn fixed_window() -> rune::WindowOptions {
 
 fn spec() -> AppSpec<Ui> {
     AppSpec {
-        title: "Hex",
+        title: "Agent-Desk",
         size: WINDOW_SIZE,
         // Narrower windows crowd the sidebar and rows.
         min_size: Some((860.0, 560.0)),
@@ -615,7 +615,7 @@ struct ServiceView {
     transcription: DesktopTranscriptionSnapshot,
     update_status: DesktopUpdateStatus,
     update_notes: Option<crate::desktop::host::UpdateNotes>,
-    /// Why this Hex can't update itself, beside Download update (Windows).
+    /// Why this Agent-Desk can't update itself, beside Download update (Windows).
     update_blocked: Option<&'static str>,
     /// The service is recording or saving a shortcut.
     editing: bool,
@@ -725,7 +725,7 @@ pub(crate) struct Ui {
     hud_copied: bool,
     /// HUD Lab saved Dot scope's tuning, until the next change.
     hud_saved: bool,
-    /// Settings saves and Quit Hex a fixture recorded.
+    /// Settings saves and Quit Agent-Desk a fixture recorded.
     saved: usize,
     quit_requested: bool,
     /// The person asked for an update check (the footer or the menu bar),
@@ -1073,7 +1073,7 @@ impl Ui {
     /// Adopts settings the host saved, unless they are the stale copy of an
     /// edit this window just made. An editor with typing not yet saved
     /// keeps it; every other editor and setting is adopted beneath, so the
-    /// draft's save never writes back what another writer (`hex settings
+    /// draft's save never writes back what another writer (`agent-desk settings
     /// set`, a capture's saved rule) changed meanwhile.
     fn adopt(&mut self, service: AppSettings) -> bool {
         if self.service_settings.as_ref() == Some(&service) {
@@ -1160,7 +1160,7 @@ fn on_key(ui: &mut Ui, event: &rune::KeyEvent, tx: &mut Tx) -> bool {
         tx.toggle_playground();
         return true;
     }
-    // Ctrl+Q quits Hex on Linux, as Quit Hex in the sidebar does (#808).
+    // Ctrl+Q quits Agent-Desk on Linux, as Quit Agent-Desk in the sidebar does (#808).
     // macOS's menu bar owns ⌘Q; Windows quits from its tray.
     #[cfg(target_os = "linux")]
     if event.key == rune::Key::Command('q') && !event.mods.shift && !event.mods.alt {
@@ -1366,8 +1366,8 @@ fn poll(ui: &mut Ui, clock: f64, tx: &mut Tx) -> bool {
         }
         if let Some(settings) = settings {
             changed |= ui.adopt(settings);
-            // A pane the adopted settings hide (the Hex Microphone turned
-            // off from `hex settings`) leaves for General.
+            // A pane the adopted settings hide (the Agent-Desk Microphone turned
+            // off from `agent-desk settings`) leaves for General.
             if !ui.pane.shown(ui) {
                 ui.pane = Pane::General;
                 ui.open = None;
@@ -1483,7 +1483,7 @@ fn window_focused(ui: &mut Ui, focused: bool, tx: &mut Tx) {
         ui.send(Request::Desktop(DesktopAction::WindowFocused));
     }
     // Screen Recording is often switched on in System Settings, so the
-    // Annotate pane reads it again as soon as Hex comes back.
+    // Annotate pane reads it again as soon as Agent-Desk comes back.
     #[cfg(hex_capture)]
     if focused && ui.pane == Pane::Annotate && ui.platform.scrawl.is_some() {
         ui.ask(platform::PlatformRequest::Scrawl(

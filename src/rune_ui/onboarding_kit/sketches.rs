@@ -1,4 +1,4 @@
-//! "Watch another one": short `"Without Hex"` sketches for a slow download.
+//! "Watch another one": short `"Without Agent-Desk"` sketches for a slow download.
 //!
 //! Everyone gets the same opener. When the speech model is still
 //! downloading on `"Almost ready"`, a button beside the download's bar plays
@@ -183,7 +183,7 @@ pub(super) fn hold(s: &mut Onboard, now: f64) -> Option<f64> {
     None
 }
 
-/// The playing sketch's lead, under `"Without Hex"`.
+/// The playing sketch's lead, under `"Without Agent-Desk"`.
 pub(super) fn lead(s: &Onboard) -> Option<&'static str> {
     on(s).map(|p| p.scene.script().lead)
 }
@@ -204,12 +204,12 @@ pub(super) fn card(p: Paint, s: &Onboard) -> Option<El> {
 }
 
 /// Scenes: `"Watch another one"` pressed on `"Almost ready"`, `secs` into
-/// the first sketch (`HEX_SKETCH_SECS` moves it).
+/// the first sketch (`AGENT_DESK_SKETCH_SECS` moves it).
 pub(in crate::rune_ui) fn fixture(ui: &mut super::super::Ui, secs: f64) {
     let Some(s) = ui.first_run.as_mut() else {
         return;
     };
-    let secs = std::env::var("HEX_SKETCH_SECS")
+    let secs = std::env::var("AGENT_DESK_SKETCH_SECS")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(secs);

@@ -502,12 +502,12 @@ fn refuse_unless(
     tracing::warn!(
         target: "hex_config",
         capability,
-        "a transformation needs permission; allow it in Hex's Output pane"
+        "a transformation needs permission; allow it in Agent-Desk's Output pane"
     );
     Err(Exception::throw_message(
         ctx,
         &format!(
-            "Hex has not allowed this config to {action}. Allow it in Hex's Output pane; Hex asks again whenever the config changes"
+            "Agent-Desk has not allowed this config to {action}. Allow it in Agent-Desk's Output pane; Agent-Desk asks again whenever the config changes"
         ),
     ))
 }

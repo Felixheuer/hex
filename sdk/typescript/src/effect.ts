@@ -21,17 +21,17 @@ const ErrorFields = {
 }
 
 export class StartupError extends Schema.TaggedError<StartupError>()(
-  "Hex.StartupError",
+  "Agent-Desk.StartupError",
   ErrorFields,
 ) {}
 
 export class ProtocolError extends Schema.TaggedError<ProtocolError>()(
-  "Hex.ProtocolError",
+  "Agent-Desk.ProtocolError",
   ErrorFields,
 ) {}
 
 export class RequestError extends Schema.TaggedError<RequestError>()(
-  "Hex.RequestError",
+  "Agent-Desk.RequestError",
   {
     ...ErrorFields,
     status: Schema.optionalKey(Schema.Number),
@@ -40,7 +40,7 @@ export class RequestError extends Schema.TaggedError<RequestError>()(
 ) {}
 
 export class ModelPreparationError extends Schema.TaggedError<ModelPreparationError>()(
-  "Hex.ModelPreparationError",
+  "Agent-Desk.ModelPreparationError",
   {
     ...ErrorFields,
     remoteCode: Schema.optionalKey(Schema.String),
@@ -48,7 +48,7 @@ export class ModelPreparationError extends Schema.TaggedError<ModelPreparationEr
 ) {}
 
 export class CancellationError extends Schema.TaggedError<CancellationError>()(
-  "Hex.CancellationError",
+  "Agent-Desk.CancellationError",
   ErrorFields,
 ) {}
 
@@ -134,14 +134,14 @@ const fromPromise = <A>(
 ): Effect.Effect<A, HexError> => Effect.tryPromise({ try: operation, catch: toHexError })
 
 const makeClient = (client: Awaited<ReturnType<typeof createPromiseHost>>["client"]): Interface => ({
-  health: Effect.fn("Hex.health")(function* () {
+  health: Effect.fn("Agent-Desk.health")(function* () {
     return yield* fromPromise((signal) => client.health({ signal }))
   }),
-  capabilities: Effect.fn("Hex.capabilities")(function* () {
+  capabilities: Effect.fn("Agent-Desk.capabilities")(function* () {
     return yield* fromPromise((signal) => client.capabilities({ signal }))
   }),
   models: {
-    list: Effect.fn("Hex.models.list")(function* (options) {
+    list: Effect.fn("Agent-Desk.models.list")(function* (options) {
       return yield* fromPromise((signal) => client.models.list({
         ...(options?.language === undefined ? {} : { language: options.language }),
         signal,
@@ -159,7 +159,7 @@ const makeClient = (client: Awaited<ReturnType<typeof createPromiseHost>>["clien
       { bufferSize: 32, strategy: "sliding" },
     ),
   },
-  transcribe: Effect.fn("Hex.transcribe")(function* (request) {
+  transcribe: Effect.fn("Agent-Desk.transcribe")(function* (request) {
     return yield* fromPromise((signal) => client.transcribe({ ...request, signal }))
   }),
 })

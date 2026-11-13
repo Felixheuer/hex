@@ -10,11 +10,11 @@ use crate::audio::voice_filter::{
     DictationSpan, HexMicEngine, ModeSpec, StageSpec, VoiceFilterMode,
 };
 
-const HEX_MICROPHONE_NAME: &str = "Hex Microphone";
-const HEX_MICROPHONE_UID: &str = "anomaly.hex.microphone";
-const HEX_MICROPHONE_SINK_NAME: &str = "Hex Microphone (Internal Sink)";
-const HEX_MICROPHONE_SINK_UID: &str = "anomaly.hex.microphone.sink";
-const HEX_MICROPHONE_SAMPLE_RATE: u32 = 48_000;
+const AGENT_DESK_MICROPHONE_NAME: &str = "Agent-Desk Microphone";
+const AGENT_DESK_MICROPHONE_UID: &str = "fheuer.agentdesk.microphone";
+const AGENT_DESK_MICROPHONE_SINK_NAME: &str = "Agent-Desk Microphone (Internal Sink)";
+const AGENT_DESK_MICROPHONE_SINK_UID: &str = "fheuer.agentdesk.microphone.sink";
+const AGENT_DESK_MICROPHONE_SAMPLE_RATE: u32 = 48_000;
 
 /// Capacity of the lock-free capture-to-sink ring buffer in 48 kHz mono samples (~341 ms).
 const RING_CAPACITY: usize = 16_384;
@@ -30,8 +30,8 @@ const BURST_DECAY_CALLBACKS: usize = 32;
 
 pub fn is_hex_virtual_device_name(name: &str) -> bool {
     let trimmed = name.trim();
-    trimmed.eq_ignore_ascii_case(HEX_MICROPHONE_NAME)
-        || trimmed.eq_ignore_ascii_case(HEX_MICROPHONE_SINK_NAME)
+    trimmed.eq_ignore_ascii_case(AGENT_DESK_MICROPHONE_NAME)
+        || trimmed.eq_ignore_ascii_case(AGENT_DESK_MICROPHONE_SINK_NAME)
         || trimmed.to_ascii_lowercase().starts_with("hex microphone")
 }
 
@@ -279,7 +279,7 @@ impl TunedFilterConfig {
 
     fn build_engine(&self) -> HexMicEngine {
         let spec = self.build_mode_spec();
-        let mut engine = HexMicEngine::new(f64::from(HEX_MICROPHONE_SAMPLE_RATE), &spec);
+        let mut engine = HexMicEngine::new(f64::from(AGENT_DESK_MICROPHONE_SAMPLE_RATE), &spec);
         engine.set_strength(f64::from(self.strength));
         engine
     }
@@ -364,7 +364,7 @@ impl Drop for Dictation {
     }
 }
 
-/// Fills `out` with the next Hex Microphone audio, from the sink's
+/// Fills `out` with the next Agent-Desk Microphone audio, from the sink's
 /// real-time callback: adopts a retuned engine, follows the dictation, and
 /// filters the microphone audio queued in the ring.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -383,7 +383,7 @@ fn render(engine: &mut HexMicEngine, out: &mut [f32]) {
     engine.process_in_place(out);
 }
 
-/// One microphone stream's connection to Hex Microphone. Every capture stream
+/// One microphone stream's connection to Agent-Desk Microphone. Every capture stream
 /// has one, but only the dictation listener's current stream switches it on
 /// (`CaptureFeedSwitch`): the ring has a single producer, and a second stream
 /// on the same microphone, such as a meeting recording's, would interleave a
@@ -416,7 +416,7 @@ pub fn capture_feed(sample_rate: u32) -> (CaptureFeed, CaptureFeedSwitch) {
     let enabled = Arc::new(AtomicBool::new(false));
     let feed = CaptureFeed {
         enabled: enabled.clone(),
-        resampler: (sample_rate != HEX_MICROPHONE_SAMPLE_RATE && sample_rate > 0)
+        resampler: (sample_rate != AGENT_DESK_MICROPHONE_SAMPLE_RATE && sample_rate > 0)
             .then(|| LinearResampler::new(sample_rate)),
         burst: 0,
     };
@@ -485,7 +485,7 @@ struct LinearResampler {
 impl LinearResampler {
     fn new(sample_rate: u32) -> Self {
         Self {
-            step: f64::from(sample_rate) / f64::from(HEX_MICROPHONE_SAMPLE_RATE),
+            step: f64::from(sample_rate) / f64::from(AGENT_DESK_MICROPHONE_SAMPLE_RATE),
             position: 0.0,
             previous: 0.0,
             primed: false,
@@ -542,7 +542,7 @@ impl LinearResampler {
 // ── Status, Bundled Driver Discovery, and Privileged Install/Uninstall ──────
 
 const INSTALLED_DRIVER_PATH: &str = "/Library/Audio/Plug-Ins/HAL/HexMicrophone.driver";
-const EXPECTED_DRIVER_BUNDLE_ID: &str = "anomaly.hex.microphone.driver";
+const EXPECTED_DRIVER_BUNDLE_ID: &str = "fheuer.agentdesk.microphone.driver";
 
 /// Fixed AppleScript for driver installation. No user input is ever interpolated
 /// into this script; `osascript` receives the verified bundled `.driver` path
@@ -671,7 +671,7 @@ fn bundled_driver_path() -> Option<PathBuf> {
         candidates.push(home.join("Library/Caches/hex-mic/HexMicrophone.driver"));
     }
     candidates.push(PathBuf::from(
-        "/Applications/Hex.app/Contents/Library/HexMicrophone.driver",
+        "/Applications/Agent-Desk.app/Contents/Library/HexMicrophone.driver",
     ));
     candidates
         .into_iter()
@@ -760,7 +760,7 @@ pub fn install_driver_async() {
             .spawn(|| {
                 let Some(src_bundle) = bundled_driver_path() else {
                     set_driver_action_state(DriverActionState::Failed(
-                        "Bundled HexMicrophone.driver was not found in Hex.app".into(),
+                        "Bundled HexMicrophone.driver was not found in Agent-Desk.app".into(),
                     ));
                     return;
                 };
@@ -811,15 +811,15 @@ pub fn uninstall_driver_async() {
 
 #[cfg(target_os = "macos")]
 pub fn status() -> HexMicrophoneStatus {
-    let mic_id = macos_hal::translate_uid_to_device(HEX_MICROPHONE_UID);
-    let sink_id = macos_hal::translate_uid_to_device(HEX_MICROPHONE_SINK_UID);
+    let mic_id = macos_hal::translate_uid_to_device(AGENT_DESK_MICROPHONE_UID);
+    let sink_id = macos_hal::translate_uid_to_device(AGENT_DESK_MICROPHONE_SINK_UID);
     let driver_loaded = mic_id.is_some() && sink_id.is_some();
     let mic_in_use = mic_id.is_some_and(macos_hal::device_is_running_somewhere);
     let my_pid = std::process::id() as i32;
     let active_apps: Vec<String> = crate::microphone_activity::active_microphone_applications()
         .unwrap_or_default()
         .into_iter()
-        .filter(|proc| proc.pid != my_pid && !proc.name.eq_ignore_ascii_case("hex"))
+        .filter(|proc| proc.pid != my_pid && !proc.name.eq_ignore_ascii_case("agent-desk"))
         .map(|proc| proc.name)
         .collect();
 
@@ -835,7 +835,7 @@ pub fn status() -> HexMicrophoneStatus {
     }
 }
 
-/// Linux has no driver: Hex Microphone exists while the Voice Filter runs
+/// Linux has no driver: Agent-Desk Microphone exists while the Voice Filter runs
 /// (`pipewire_source`).
 #[cfg(target_os = "linux")]
 pub fn status() -> HexMicrophoneStatus {
@@ -866,7 +866,7 @@ pub fn status() -> HexMicrophoneStatus {
     }
 }
 
-/// Makes this process the Hex Microphone host, starting the sink whenever
+/// Makes this process the Agent-Desk Microphone host, starting the sink whenever
 /// the Voice Filter is on (`app_settings::hex_microphone_enabled`). Only the listener hosts it, so CLI commands that load
 /// settings never start the pipeline.
 pub fn host_service() {
@@ -896,7 +896,7 @@ fn ensure_service_started() {
 
 // ── "Try it" Demo Recording & Playback (in-memory only) ──────────────────────
 
-const DEMO_RECORD_MAX_SAMPLES: usize = (HEX_MICROPHONE_SAMPLE_RATE as usize) * 5; // 5.0 seconds
+const DEMO_RECORD_MAX_SAMPLES: usize = (AGENT_DESK_MICROPHONE_SAMPLE_RATE as usize) * 5; // 5.0 seconds
 const WAVEFORM_BARS: usize = 48;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -978,7 +978,7 @@ fn schedule_demo_recompute() {
                 let spec = cfg.build_mode_spec();
                 let processed_samples = crate::audio::voice_filter::render(
                     &active_samples,
-                    f64::from(HEX_MICROPHONE_SAMPLE_RATE),
+                    f64::from(AGENT_DESK_MICROPHONE_SAMPLE_RATE),
                     &spec,
                     &[span],
                     f64::from(cfg.strength),
@@ -1047,7 +1047,7 @@ fn decode_bundled_example() -> Vec<f32> {
         "/resources/audio/funDemo.mp3"
     ));
     let Ok(decoder) = rodio::Decoder::new(Cursor::new(bytes.as_slice())) else {
-        return vec![0.0; HEX_MICROPHONE_SAMPLE_RATE as usize * 5];
+        return vec![0.0; AGENT_DESK_MICROPHONE_SAMPLE_RATE as usize * 5];
     };
     let channels = usize::from(decoder.channels().get()).max(1);
     let sr = decoder.sample_rate().get();
@@ -1057,10 +1057,10 @@ fn decode_bundled_example() -> Vec<f32> {
         let sum: f32 = frame.iter().copied().sum();
         mono.push(sum / (channels as f32));
     }
-    if sr == HEX_MICROPHONE_SAMPLE_RATE || mono.is_empty() {
+    if sr == AGENT_DESK_MICROPHONE_SAMPLE_RATE || mono.is_empty() {
         return mono;
     }
-    let ratio = f64::from(HEX_MICROPHONE_SAMPLE_RATE) / f64::from(sr);
+    let ratio = f64::from(AGENT_DESK_MICROPHONE_SAMPLE_RATE) / f64::from(sr);
     let out_len = ((mono.len() as f64) * ratio).round() as usize;
     (0..out_len)
         .map(|i| {
@@ -1074,7 +1074,7 @@ fn decode_bundled_example() -> Vec<f32> {
 }
 
 fn span_for_source(source: DemoSourceKind, sample_len: usize) -> DictationSpan {
-    let duration_ms = (sample_len as f64) * 1000.0 / f64::from(HEX_MICROPHONE_SAMPLE_RATE);
+    let duration_ms = (sample_len as f64) * 1000.0 / f64::from(AGENT_DESK_MICROPHONE_SAMPLE_RATE);
     match source {
         DemoSourceKind::Example => DictationSpan {
             start_ms: 5921.0_f64.min(duration_ms),
@@ -1111,7 +1111,7 @@ fn recompute_demo_cache(buffers: &mut DemoBuffers) {
     let spec = cfg.build_mode_spec();
     let processed_samples = crate::audio::voice_filter::render(
         active_samples,
-        f64::from(HEX_MICROPHONE_SAMPLE_RATE),
+        f64::from(AGENT_DESK_MICROPHONE_SAMPLE_RATE),
         &spec,
         &[span],
         f64::from(cfg.strength),
@@ -1159,7 +1159,7 @@ pub fn stop_demo_recording() {
         return;
     }
     if let Ok(mut guard) = demo_buffers_lock().lock()
-        && guard.recorded_samples.len() >= (HEX_MICROPHONE_SAMPLE_RATE as usize / 4)
+        && guard.recorded_samples.len() >= (AGENT_DESK_MICROPHONE_SAMPLE_RATE as usize / 4)
     {
         guard.source = DemoSourceKind::Recording;
         guard.cached_mode = None;
@@ -1216,8 +1216,9 @@ pub fn play_demo_track(track: DemoPlaybackTrack) {
         DemoPlaybackTrack::CallHears => 1,
         DemoPlaybackTrack::You => 2,
     };
-    let duration =
-        Duration::from_secs_f64((samples.len() as f64) / f64::from(HEX_MICROPHONE_SAMPLE_RATE));
+    let duration = Duration::from_secs_f64(
+        (samples.len() as f64) / f64::from(AGENT_DESK_MICROPHONE_SAMPLE_RATE),
+    );
     DEMO_PLAYBACK_START_NS.store(demo_now_ns(), Ordering::Release);
     DEMO_PLAYBACK_DURATION_NS.store(duration.as_nanos() as u64, Ordering::Release);
     DEMO_PLAYBACK_PROGRESS_BITS.store(0.0_f32.to_bits(), Ordering::Release);
@@ -1234,7 +1235,7 @@ pub fn play_demo_track(track: DemoPlaybackTrack) {
         let Some(ch) = std::num::NonZeroU16::new(1) else {
             return;
         };
-        let Some(sr) = std::num::NonZeroU32::new(HEX_MICROPHONE_SAMPLE_RATE) else {
+        let Some(sr) = std::num::NonZeroU32::new(AGENT_DESK_MICROPHONE_SAMPLE_RATE) else {
             return;
         };
         let buffer = rodio::buffer::SamplesBuffer::new(ch, sr, samples);
@@ -1260,7 +1261,7 @@ pub fn demo_snapshot() -> DemoSnapshot {
     let recording_progress = if is_recording {
         let start = DEMO_RECORDING_START_NS.load(Ordering::Acquire);
         let max_ns = (DEMO_RECORD_MAX_SAMPLES as u64) * 1_000_000_000
-            / u64::from(HEX_MICROPHONE_SAMPLE_RATE);
+            / u64::from(AGENT_DESK_MICROPHONE_SAMPLE_RATE);
         if max_ns > 0 && start > 0 {
             let elapsed = demo_now_ns().saturating_sub(start);
             ((elapsed as f64) / (max_ns as f64)).clamp(0.0, 1.0) as f32
@@ -1317,8 +1318,8 @@ pub fn demo_snapshot() -> DemoSnapshot {
     }
 
     let sample_len = guard.active_samples().len();
-    let duration_ms =
-        ((sample_len as f64) * 1000.0 / f64::from(HEX_MICROPHONE_SAMPLE_RATE)).round() as u32;
+    let duration_ms = ((sample_len as f64) * 1000.0 / f64::from(AGENT_DESK_MICROPHONE_SAMPLE_RATE))
+        .round() as u32;
     let span = span_for_source(guard.source, sample_len);
 
     DemoSnapshot {
@@ -1398,7 +1399,7 @@ mod tests {
         seconds: f64,
     ) -> PassThrough {
         let ring = HexMicRingBuffer::new();
-        let rate = f64::from(HEX_MICROPHONE_SAMPLE_RATE);
+        let rate = f64::from(AGENT_DESK_MICROPHONE_SAMPLE_RATE);
         let capture_period = capture_frames as f64 / rate;
         let sink_period = sink_frames as f64 / rate;
         let (mut capture_at, mut sink_at) = (0.003, 0.0);
@@ -1571,8 +1572,10 @@ mod tests {
 
     #[test]
     fn virtual_device_names_are_excluded_from_self_capture() {
-        assert!(is_hex_virtual_device_name("Hex Microphone"));
-        assert!(is_hex_virtual_device_name("Hex Microphone (Internal Sink)"));
+        assert!(is_hex_virtual_device_name("Agent-Desk Microphone"));
+        assert!(is_hex_virtual_device_name(
+            "Agent-Desk Microphone (Internal Sink)"
+        ));
         assert!(is_hex_virtual_device_name("hex microphone"));
         assert!(!is_hex_virtual_device_name("MacBook Pro Microphone"));
         assert!(!is_hex_virtual_device_name("Shure MV7"));

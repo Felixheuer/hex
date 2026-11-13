@@ -165,7 +165,7 @@ impl Tutorial {
                 asked: None,
                 heard: Some("What's on this page?".into()),
                 answer: Some(Ok(
-                    "Hex's release notes: version 0.32 adds Background tasks.".into(),
+                    "Agent-Desk's release notes: version 0.32 adds Background tasks.".into(),
                 )),
             },
             background: all.then(|| "In the background, find a free hour next week".into()),

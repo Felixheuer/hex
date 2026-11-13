@@ -1,12 +1,12 @@
 //! The assistant's onboarding: a full-window flow in the first run's kit,
 //! started when the assistant turns on before it was ever finished, and
 //! again from Chats. Page by page it makes sure an agent answers (chosen,
-//! installed, signed in), that Hex and agent-desktop have every permission
-//! (each missing one opens its exact System Settings page with Hex's
+//! installed, signed in), that Agent-Desk and agent-desktop have every permission
+//! (each missing one opens its exact System Settings page with Agent-Desk's
 //! floating guide, and the page waits until macOS reports the grant), runs
 //! the hidden browser for web tasks (`browser`), the live self-tests until
 //! they're green, makes sure the Action shortcut and dictation shortcuts
-//! are free and that a press of each really reaches Hex
+//! are free and that a press of each really reaches Agent-Desk
 //! (`recognition::shortcut_probe`), and ends with the Action shortcut's
 //! three gestures, each tried for real (`tutorial`).
 //!
@@ -70,7 +70,7 @@ pub(in crate::rune_ui) enum Page {
     /// agent-browser, for web tasks in hidden browsers.
     Browser,
     Checks,
-    /// Nothing else takes the Action shortcut, and Hex receives it.
+    /// Nothing else takes the Action shortcut, and Agent-Desk receives it.
     Shortcut,
     /// Optional: company, website, and colleagues, remembered.
     About,
@@ -205,7 +205,7 @@ impl Grant {
     pub(in crate::rune_ui) const DESKTOP: [Grant; 2] =
         [Grant::DesktopAccessibility, Grant::DesktopScreenRecording];
 
-    /// The grants Hex asks for itself here: macOS's; Linux and Windows ask
+    /// The grants Agent-Desk asks for itself here: macOS's; Linux and Windows ask
     /// none.
     pub(in crate::rune_ui) fn hex() -> &'static [Grant] {
         if crate::assistant::computer::asks_permissions() {
@@ -244,7 +244,7 @@ pub(in crate::rune_ui) struct SetupFlow {
     pub(in crate::rune_ui) detecting: bool,
     pub(in crate::rune_ui) desktop: Option<AgentDesktop>,
     pub(in crate::rune_ui) desktop_checking: bool,
-    /// Hex's own Accessibility and Screen Recording, read afresh.
+    /// Agent-Desk's own Accessibility and Screen Recording, read afresh.
     pub(in crate::rune_ui) permissions: Option<Permissions>,
     pub(in crate::rune_ui) permissions_checking: bool,
     /// Grants whose Allow was pressed and that aren't on yet.
@@ -272,12 +272,12 @@ pub(in crate::rune_ui) struct SetupFlow {
     /// The Try page's gestures.
     pub(in crate::rune_ui) tutorial: tutorial::Tutorial,
     checked_at: Option<Instant>,
-    /// The pages continue the voice first run, whose "Hex is ready" ends
+    /// The pages continue the voice first run, whose "Agent-Desk is ready" ends
     /// both.
     pub(in crate::rune_ui) merged: bool,
-    /// Shown to someone who set Hex up before the assistant: "New in Hex".
+    /// Shown to someone who set Agent-Desk up before the assistant: "New in Agent-Desk".
     pub(in crate::rune_ui) new_in_hex: bool,
-    /// Reopened after Hex restarted part way: the page says so.
+    /// Reopened after Agent-Desk restarted part way: the page says so.
     pub(in crate::rune_ui) resumed: bool,
     /// The running fix's latest lines (an installer's output).
     pub(in crate::rune_ui) fix_log: Vec<String>,
@@ -285,7 +285,7 @@ pub(in crate::rune_ui) struct SetupFlow {
     pub(in crate::rune_ui) fix_command: Option<String>,
     /// Opened by a hold of the Action shortcut before setup finished.
     pub(in crate::rune_ui) from_hold: bool,
-    /// "Tell Hex about you": company, website, colleagues.
+    /// "Tell Agent-Desk about you": company, website, colleagues.
     pub(in crate::rune_ui) about: [rune::TextEdit; 3],
     /// Set up before, and back for what's missing now: only these pages.
     pub(in crate::rune_ui) repair: Option<repair::Repair>,
@@ -369,9 +369,9 @@ pub(in crate::rune_ui) fn fix_label(fix: Fix) -> String {
         Fix::OpenSettings(Permission::Accessibility) => tr("Open Accessibility…").into(),
         Fix::OpenSettings(Permission::ScreenRecording) => tr("Open Screen Recording…").into(),
         Fix::Retry => tr("Try again").into(),
-        Fix::RepairHex => tr("Repair Hex").into(),
+        Fix::RepairHex => tr("Repair Agent-Desk").into(),
         Fix::RemoveCopies => tr("Remove other copies").into(),
-        Fix::RestartHex => tr("Restart Hex").into(),
+        Fix::RestartHex => tr("Restart Agent-Desk").into(),
         // A fix added after this page was written, in its own words.
         #[allow(unreachable_patterns)]
         _ => fix.label(),
@@ -381,7 +381,7 @@ pub(in crate::rune_ui) fn fix_label(fix: Fix) -> String {
 /// A self-test's row title, translated.
 pub(in crate::rune_ui) fn check_title(check: Check) -> String {
     match check {
-        Check::HexPermissions => tr("Hex can read the screen and selected text").into(),
+        Check::HexPermissions => tr("Agent-Desk can read the screen and selected text").into(),
         Check::Answers(backend) => tr_fill("{} answers", super::backend_name(backend)),
         Check::DesktopPermissions => {
             tr("agent-desktop has Accessibility and Screen Recording").into()
@@ -399,7 +399,7 @@ pub(in crate::rune_ui) fn check_title(check: Check) -> String {
 }
 
 /// The checks Finish waits for: the agent answers and can use
-/// agent-desktop (for the Claude API, Hex runs agent-desktop itself).
+/// agent-desktop (for the Claude API, Agent-Desk runs agent-desktop itself).
 pub(in crate::rune_ui) fn required(backend: AssistantBackend) -> [Check; 2] {
     let desktop = if backend == AssistantBackend::ClaudeApi {
         Check::DesktopRoundTrip
@@ -442,7 +442,7 @@ pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bo
                 && flow.checks.iter().all(browser::passed_or_optional)
         }
         // Nothing takes the Action shortcut for sure, and a press of it
-        // really reached Hex.
+        // really reached Agent-Desk.
         Page::Shortcut => {
             flow.conflicts.as_ref().is_some_and(|found| {
                 !found
@@ -505,7 +505,7 @@ pub(in crate::rune_ui) fn detect(ui: &mut Ui) {
     ui.chats.jobs.run(Job::Detect);
 }
 
-/// Reads agent-desktop and Hex's permissions again.
+/// Reads agent-desktop and Agent-Desk's permissions again.
 fn recheck(ui: &mut Ui) {
     let Some(flow) = ui.chats.setup.as_mut() else {
         return;
@@ -593,7 +593,7 @@ pub(in crate::rune_ui) fn advance(ui: &mut Ui) {
     }
 }
 
-/// What "Tell Hex about you" filled in, added to what Hex knows.
+/// What "Tell Agent-Desk about you" filled in, added to what Agent-Desk knows.
 pub(in crate::rune_ui) fn remember_about(ui: &mut Ui) {
     use super::bridge::memory;
     let Some(flow) = ui.chats.setup.as_ref() else {
@@ -625,7 +625,7 @@ pub(in crate::rune_ui) fn later(ui: &mut Ui) {
         return;
     };
     if flow.repair.is_some() {
-        // The guide comes back when Hex next starts.
+        // The guide comes back when Agent-Desk next starts.
         repair::snooze(ui);
         return;
     }
@@ -729,7 +729,7 @@ pub(in crate::rune_ui) fn finish(ui: &mut Ui, tx: &mut rune::Tx) {
 
 /// Closes the flow. Unfinished, it waits in Chats ("Finish setting up")
 /// rather than reopening at launch; continuing the voice first run, that
-/// one goes on to "Hex is ready".
+/// one goes on to "Agent-Desk is ready".
 pub(in crate::rune_ui) fn close(ui: &mut Ui) {
     stop_probe(ui);
     crate::assistant::set_trying(false);
@@ -740,7 +740,7 @@ pub(in crate::rune_ui) fn close(ui: &mut Ui) {
         .as_ref()
         .is_some_and(|flow| flow.repair.is_some())
     {
-        // Closed with something still missing: not again until Hex next
+        // Closed with something still missing: not again until Agent-Desk next
         // starts (a hold still opens it).
         ui.chats.repair.snoozed = true;
     }

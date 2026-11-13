@@ -16,7 +16,7 @@ nonisolated struct CustomVocabularySettings {
         self.defaults = defaults
     }
 
-    /// Experiment: listed terms are spelled Hex's way after dictation. Off by default.
+    /// Experiment: listed terms are spelled Agent-Desk's way after dictation. Off by default.
     var isEnabled: Bool {
         get { defaults?.bool(forKey: Key.enabled) ?? false }
         nonmutating set { defaults?.set(newValue, forKey: Key.enabled) }

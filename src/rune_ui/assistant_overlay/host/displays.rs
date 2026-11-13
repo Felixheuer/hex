@@ -29,7 +29,7 @@ mod others {
     /// Every display, the primary first, in global points.
     pub(in super::super) fn read() -> Vec<Screen> {
         let mut screens = native();
-        // A Wayland desktop without XWayland tells Hex nothing of its
+        // A Wayland desktop without XWayland tells Agent-Desk nothing of its
         // displays: the overlays go where a common one would have them.
         if screens.is_empty() {
             let frame = [0.0, 0.0, 1920.0, 1080.0];

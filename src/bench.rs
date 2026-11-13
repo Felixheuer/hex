@@ -1,13 +1,13 @@
-//! `hex bench`: Agent-Desk's local benchmark (docs/bench.md). About 25
-//! typical tasks as data (`bench/tasks/*.toml`), asked of the running Hex
-//! Dev (or, only with `--target live`, Hex) through its owner-only local
+//! `agent-desk bench`: Agent-Desk's local benchmark (docs/bench.md). About 25
+//! typical tasks as data (`bench/tasks/*.toml`), asked of the running Agent-Desk
+//! Dev (or, only with `--target live`, Agent-Desk) through its owner-only local
 //! API, each checked by machine: the answer, the desktop as agent-desktop
 //! lists it (read only), files in the run's temp folder under
-//! `~/Documents/Hex/bench`, the web addresses and tools the task used.
+//! `~/Documents/Agent-Desk/bench`, the web addresses and tools the task used.
 //! Each run lands in `bench/results/<version>-<timestamp>.json` with a
 //! comparison to the run before.
 //!
-//! The bench never starts Hex, never clicks or types, and never asks
+//! The bench never starts Agent-Desk, never clicks or types, and never asks
 //! anything that would send a message: messages are drafts to the test
 //! recipients in `bench/config.toml`, and every task keeps the person's
 //! front app unless the run allows otherwise (`--allow-front`).
@@ -37,7 +37,7 @@ pub const EXIT_NOT_RUNNING: u8 = 3;
 
 #[derive(Subcommand, Debug)]
 pub enum BenchCommand {
-    /// Ask every task of the running Hex Dev, check the results, and save
+    /// Ask every task of the running Agent-Desk Dev, check the results, and save
     /// them with a comparison to the run before. Exits 1 when the run is
     /// worse than the one before, 2 when a task file breaks the rules, and
     /// 3 when the target isn't running (the bench never starts it).
@@ -91,7 +91,7 @@ pub struct RunArgs {
     /// they follow up on).
     #[arg(long)]
     pub filter: Option<String>,
-    /// The Hex to ask. `live` must be named: the bench runs against the
+    /// The Agent-Desk to ask. `live` must be named: the bench runs against the
     /// Dev app otherwise.
     #[arg(long, value_enum, default_value = "dev")]
     pub target: Target,
@@ -156,11 +156,11 @@ pub fn bench_dir(dir: Option<PathBuf>) -> Result<PathBuf> {
     }
 }
 
-/// `~/Documents/Hex/bench`: every run's temp folders are inside it.
+/// `~/Documents/Agent-Desk/bench`: every run's temp folders are inside it.
 pub fn temp_root() -> Result<PathBuf> {
     Ok(crate::app_paths::document_dir()
         .ok_or_else(|| eyre!("no Documents folder"))?
-        .join("Hex")
+        .join("Agent-Desk")
         .join("bench"))
 }
 
@@ -219,7 +219,7 @@ fn run_command(args: &RunArgs) -> Result<u8> {
         for problem in &problems {
             eprintln!("{}: {}", problem.task, problem.message);
         }
-        eprintln!("hex bench: fix the task files first (`hex bench run --dry-run`)");
+        eprintln!("hex bench: fix the task files first (`agent-desk bench run --dry-run`)");
         return Ok(EXIT_INVALID);
     }
     let support = args.target.support_dir()?;
@@ -229,11 +229,11 @@ fn run_command(args: &RunArgs) -> Result<u8> {
         Err(error) => {
             eprintln!(
                 "hex bench: {} isn't running ({error:#}). The bench never starts it: open it \
-                 yourself (starting Hex Dev quits Hex), or run scripts/self-improve.sh.",
+                 yourself (starting Agent-Desk Dev quits Agent-Desk), or run scripts/self-improve.sh.",
                 args.target.app_name()
             );
             if args.target == Target::Dev {
-                eprintln!("It never runs against Hex unless you pass --target live.");
+                eprintln!("It never runs against Agent-Desk unless you pass --target live.");
             }
             return Ok(EXIT_NOT_RUNNING);
         }
@@ -323,7 +323,7 @@ fn dry_run(
     let mut values = config.clone();
     values.insert(
         "temp_dir".into(),
-        "~/Documents/Hex/bench/<run>/<task>".into(),
+        "~/Documents/Agent-Desk/bench/<run>/<task>".into(),
     );
     values.insert("run".into(), "<run>".into());
     for task in tasks {

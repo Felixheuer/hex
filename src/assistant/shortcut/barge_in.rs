@@ -1,11 +1,11 @@
 //! What a barge-in's capture decides. A voice over an answer only pauses
 //! the reading (`speech::pause`): on the built-in speakers the voice may
-//! have been Hex's own. Once the capture is transcribed:
+//! have been Agent-Desk's own. Once the capture is transcribed:
 //!
 //! - words of the person's own: the answer is dropped and they ask
 //!   ("took over");
-//! - a spoken stop: Hex stays quiet, as Escape does;
-//! - nothing, or Hex's own words heard back: the reading resumes from the
+//! - a spoken stop: Agent-Desk stays quiet, as Escape does;
+//! - nothing, or Agent-Desk's own words heard back: the reading resumes from the
 //!   start of the sentence it cut.
 
 /// What follows a barge-in.
@@ -20,7 +20,7 @@ pub(crate) enum AfterBargeIn {
 }
 
 /// What `transcript` (`None` when the capture gave nothing) means after a
-/// barge-in; `heard_back` tells Hex's own reading.
+/// barge-in; `heard_back` tells Agent-Desk's own reading.
 pub(crate) fn after_barge_in(
     transcript: Option<&str>,
     heard_back: impl Fn(&str) -> bool,
@@ -38,7 +38,7 @@ pub(crate) fn after_barge_in(
         return AfterBargeIn::Resume("own echo");
     }
     // One or two words over an answer ("Ides.") are far more often a
-    // fragment of Hex's own voice than a question.
+    // fragment of Agent-Desk's own voice than a question.
     if text.split_whitespace().count() < 3 {
         return AfterBargeIn::Resume("too short");
     }

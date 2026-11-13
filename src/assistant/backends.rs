@@ -4,9 +4,9 @@
 //! and asks the login shell (`search`), and gives every agent it starts that
 //! PATH (`agent_env`), so a Node-based agent finds `node`.
 //!
-//! Setup proves each piece works with `check`'s self-tests, run from Hex so
-//! macOS judges Hex's own permissions: an agent Hex starts, and the
-//! agent-desktop it starts, act with Hex.app's Accessibility and Screen
+//! Setup proves each piece works with `check`'s self-tests, run from Agent-Desk so
+//! macOS judges Agent-Desk's own permissions: an agent Agent-Desk starts, and the
+//! agent-desktop it starts, act with Agent-Desk.app's Accessibility and Screen
 //! Recording, not Terminal's.
 //!
 //! OWNER: hands.
@@ -51,7 +51,7 @@ pub struct Found {
     /// service is running).
     pub path: Option<PathBuf>,
     pub version: Option<String>,
-    /// Ready to take a task: installed and, as far as Hex can tell, signed in
+    /// Ready to take a task: installed and, as far as Agent-Desk can tell, signed in
     /// (Claude API: a key is saved; OpenCode: its service answers).
     pub ready: bool,
     /// Why it isn't ready, for a person.
@@ -89,7 +89,7 @@ pub fn detect() -> Vec<Found> {
                     path: None,
                     version: None,
                     ready: false,
-                    note: Some("Hex couldn't check this agent".into()),
+                    note: Some("Agent-Desk couldn't check this agent".into()),
                 })
             })
             .collect()
@@ -145,7 +145,10 @@ fn find(backend: AssistantBackend) -> Found {
     match version_of(&path) {
         Ok(version) => found.version = version,
         Err(why) => {
-            found.note = Some(format!("{} doesn't start from Hex: {why}", name(backend)));
+            found.note = Some(format!(
+                "{} doesn't start from Agent-Desk: {why}",
+                name(backend)
+            ));
             return found;
         }
     }
@@ -282,8 +285,8 @@ pub fn codex_logged_in(output: &str) -> bool {
     })
 }
 
-/// The environment for an agent Hex starts (and for the agent-desktop it
-/// starts): Hex's own, less another agent's session markers, with a PATH
+/// The environment for an agent Agent-Desk starts (and for the agent-desktop it
+/// starts): Agent-Desk's own, less another agent's session markers, with a PATH
 /// that has the agents, `node`, and agent-desktop. Use it whole:
 /// `command.env_clear().envs(agent_env())`, or [`agent_command`].
 pub fn agent_env() -> Vec<(String, String)> {
@@ -307,7 +310,7 @@ pub fn agent_env() -> Vec<(String, String)> {
 
 /// What a Windows program can't start without (Node needs `SystemRoot`,
 /// npm's shims `ComSpec` and `PATHEXT`), with a default for each in case
-/// Hex was started without them.
+/// Agent-Desk was started without them.
 #[cfg(windows)]
 const WINDOWS_DEFAULTS: &[(&str, &str)] = &[
     ("SystemRoot", r"C:\Windows"),
@@ -315,7 +318,7 @@ const WINDOWS_DEFAULTS: &[(&str, &str)] = &[
     ("PATHEXT", ".COM;.EXE;.BAT;.CMD"),
 ];
 
-/// Besides `PATH`, the variables of Hex's own an MCP server an agent starts
+/// Besides `PATH`, the variables of Agent-Desk's own an MCP server an agent starts
 /// gets: on Windows the ones a program needs to start and find the
 /// person's folders (agents pass a server only a few of their own).
 pub fn mcp_env_extra() -> Vec<(String, String)> {
@@ -350,7 +353,7 @@ pub fn mcp_env_extra() -> Vec<(String, String)> {
     Vec::new()
 }
 
-/// What a parent agent sets for its own children; a task Hex starts is not
+/// What a parent agent sets for its own children; a task Agent-Desk starts is not
 /// one of them (Claude Code refuses to start "inside" another session).
 fn is_session_marker(key: &str) -> bool {
     matches!(
@@ -398,7 +401,7 @@ pub struct AgentDesktop {
 }
 
 /// agent-desktop's path, version, and permissions as it reports them when
-/// Hex starts it (so they are Hex's grants). Blocks briefly; off the UI
+/// Agent-Desk starts it (so they are Agent-Desk's grants). Blocks briefly; off the UI
 /// thread.
 pub fn agent_desktop() -> AgentDesktop {
     let Some(path) = search::find("agent-desktop") else {
@@ -423,7 +426,7 @@ fn agent_desktop_grants(path: &Path) -> std::result::Result<desktop::Grants, Str
     }
 }
 
-/// Runs one read-only agent-desktop command from Hex and reads its reply.
+/// Runs one read-only agent-desktop command from Agent-Desk and reads its reply.
 pub(in crate::assistant) fn desktop_call(
     path: &Path,
     args: &[&str],
@@ -458,7 +461,7 @@ pub fn install_tool_agent_desktop(progress: &mut dyn FnMut(&str)) -> Result<()> 
 }
 
 /// Opens System Settings at agent-desktop's missing permission
-/// (`agent-desktop permissions --guide`), with its guide showing Hex as the
+/// (`agent-desktop permissions --guide`), with its guide showing Agent-Desk as the
 /// app to switch on. Returns at once.
 pub fn guide_permissions() {
     let Some(path) = search::find("agent-desktop") else {
@@ -484,7 +487,7 @@ pub fn guide_permissions() {
 }
 
 /// agent-desktop as an agent's MCP server (`agent-desktop mcp`, plus
-/// `args` such as `--session <id> --agent-id <id>`), with the PATH Hex gives
+/// `args` such as `--session <id> --agent-id <id>`), with the PATH Agent-Desk gives
 /// agents.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct McpServer {

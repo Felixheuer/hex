@@ -26,25 +26,25 @@ pub enum Kind {
     Launch,
     /// Quits an app with every window it has.
     CloseApp,
-    /// Hex's own `desktop_claim_window`.
+    /// Agent-Desk's own `desktop_claim_window`.
     Claim,
-    /// Hex's own `hex_installed_apps`.
+    /// Agent-Desk's own `hex_installed_apps`.
     InstalledApps,
-    /// Hex's own `hex_open_app`.
+    /// Agent-Desk's own `hex_open_app`.
     OpenApp,
-    /// Hex's own `hex_displays`.
+    /// Agent-Desk's own `hex_displays`.
     Displays,
-    /// Hex's own `hex_release_window`: lets go of a desk window.
+    /// Agent-Desk's own `hex_release_window`: lets go of a desk window.
     Release,
-    /// Hex's own `hex_app_action`: a URL or a script for any app.
+    /// Agent-Desk's own `hex_app_action`: a URL or a script for any app.
     AppAction,
-    /// Hex's own `hex_app_capabilities`: what an app offers (read-only).
+    /// Agent-Desk's own `hex_app_capabilities`: what an app offers (read-only).
     AppCapabilities,
-    /// Hex's own `hex_read_window`: a window's text from its picture.
+    /// Agent-Desk's own `hex_read_window`: a window's text from its picture.
     ReadWindow,
-    /// Hex's own `hex_window_shot`: a window's picture (`assistant::input`).
+    /// Agent-Desk's own `hex_window_shot`: a window's picture (`assistant::input`).
     WindowShot,
-    /// Hex's own `hex_window_input`: a click, scroll, or keys at a spot of a
+    /// Agent-Desk's own `hex_window_input`: a click, scroll, or keys at a spot of a
     /// window's picture, sent to its app in the background.
     WindowInput,
     /// Never forwarded; the text says why.
@@ -53,7 +53,7 @@ pub enum Kind {
 
 impl Kind {
     /// Whether it needs a usable desktop (an unlocked screen): everything
-    /// but listings, Hex's own lookups, and refusals.
+    /// but listings, Agent-Desk's own lookups, and refusals.
     pub fn needs_desktop(self) -> bool {
         !matches!(
             self,
@@ -98,21 +98,21 @@ impl Kind {
     }
 }
 
-/// Hex's tool for taking a free window (Background lane).
+/// Agent-Desk's tool for taking a free window (Background lane).
 pub const CLAIM_TOOL: &str = "desktop_claim_window";
 
-/// Hex's list of the apps installed on this Mac.
+/// Agent-Desk's list of the apps installed on this Mac.
 pub const INSTALLED_APPS_TOOL: &str = "hex_installed_apps";
 
-/// Hex's safer `launch`: opens an app (or a fresh instance of it) and makes
+/// Agent-Desk's safer `launch`: opens an app (or a fresh instance of it) and makes
 /// its new window the task's (Background lane).
 pub const OPEN_APP_TOOL: &str = "hex_open_app";
 
-/// Hex's display layout: which display the person works on, and which one
+/// Agent-Desk's display layout: which display the person works on, and which one
 /// Background tasks' windows go to.
 pub const DISPLAYS_TOOL: &str = "hex_displays";
 
-/// Hex's way to let go of a window on the person's desk (a live mini at the
+/// Agent-Desk's way to let go of a window on the person's desk (a live mini at the
 /// orb): the person said they're done with it ("schließ WhatsApp").
 pub const RELEASE_TOOL: &str = "hex_release_window";
 
@@ -123,20 +123,20 @@ pub const APP_ACTION_TOOL: &str = "hex_app_action";
 /// (`actions::capabilities`).
 pub const APP_CAPABILITIES_TOOL: &str = "hex_app_capabilities";
 
-/// Hex's screen text for a window without Accessibility (`actions::ocr`).
+/// Agent-Desk's screen text for a window without Accessibility (`actions::ocr`).
 pub const READ_WINDOW_TOOL: &str = "hex_read_window";
 
-/// Hex's window picture for the vision path (`assistant::input`).
+/// Agent-Desk's window picture for the vision path (`assistant::input`).
 pub const WINDOW_SHOT_TOOL: &str = "hex_window_shot";
 
-/// Hex's background input at a spot of a window's picture.
+/// Agent-Desk's background input at a spot of a window's picture.
 pub const WINDOW_INPUT_TOOL: &str = "hex_window_input";
 
-const MANAGED: &str = "Hex manages agent-desktop's sessions, cursors, traces, and permissions; \
+const MANAGED: &str = "Agent-Desk manages agent-desktop's sessions, cursors, traces, and permissions; \
 this tool isn't available to tasks.";
 const HOLD: &str = "Holding keys or buttons down isn't available to tasks; use desktop_press, \
 desktop_mouse_click, or desktop_drag.";
-const BATCH: &str = "Batches aren't available through Hex: call each tool on its own so Hex can \
+const BATCH: &str = "Batches aren't available through Agent-Desk: call each tool on its own so Agent-Desk can \
 check which window it acts in.";
 const PERSONS: &str = "Notifications and system surfaces (Dock, menu bar extras, Spotlight) \
 belong to the person; tasks may read notifications but not act on them.";
@@ -212,7 +212,7 @@ pub fn kind(tool: &str, args: &Map<String, Value>) -> Kind {
         _ => {}
     }
     let Some(name) = tool.strip_prefix("desktop_") else {
-        return Kind::Refused("Hex doesn't know this tool.");
+        return Kind::Refused("Agent-Desk doesn't know this tool.");
     };
     match name {
         "list_apps" | "list_windows" | "list_displays" | "status" | "version" | "skills_list"
@@ -248,7 +248,7 @@ pub fn kind(tool: &str, args: &Map<String, Value>) -> Kind {
         {
             Kind::Refused(MANAGED)
         }
-        _ => Kind::Refused("Hex doesn't know this tool."),
+        _ => Kind::Refused("Agent-Desk doesn't know this tool."),
     }
 }
 

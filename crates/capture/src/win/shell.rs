@@ -284,7 +284,7 @@ mod tests {
             shell_path(mixed).to_string_lossy(),
             r"C:\Users\a\AppData\Local\scrawl\captures\one.scrawl"
         );
-        let url = Path::new("https://anoma.ly/hex/");
+        let url = Path::new("https://ai.sms-pilot.de/");
         assert_eq!(shell_path(url), url);
     }
 }

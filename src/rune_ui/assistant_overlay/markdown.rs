@@ -1,7 +1,7 @@
 //! Just enough Markdown for a quick answer in the bubble: paragraphs,
 //! headings (as bold lines), bulleted and numbered lists, fenced code,
 //! **bold**, *italic*, `inline code`, and links (their text). Anything else
-//! reads as the text it is. The kit's full Markdown isn't in Hex's build;
+//! reads as the text it is. The kit's full Markdown isn't in Agent-Desk's build;
 //! answers to a spoken question are short and plain anyway.
 
 use rune::{El, Span, col, el, rich, row, text};

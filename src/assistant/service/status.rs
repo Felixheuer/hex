@@ -223,7 +223,7 @@ impl Runner {
     /// conversation, without stopping the job; anything else said while the
     /// job still waits for its turn is added to its request (a working job
     /// is steered as usual: `None`). Both are written into the conversation
-    /// where they were said (`Hooks::note`), with Hex's reply.
+    /// where they were said (`Hooks::note`), with Agent-Desk's reply.
     pub(super) fn in_job(self: &Arc<Self>, request: &Request) -> Option<ConversationId> {
         let conversation = request.conversation.clone()?;
         let now = self.now();

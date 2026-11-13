@@ -462,7 +462,7 @@ impl World {
 
     /// Waits until `job`'s run made its workspace. `Started` comes before
     /// it and the runner refuses a team until then, so a test that asks
-    /// right after `Started` races the run (in Hex the agent only asks once
+    /// right after `Started` races the run (in Agent-Desk the agent only asks once
     /// it works in its folder).
     fn wait_for_workspace(&self, runner: &Runner, job: &str) {
         self.wait_until("the job's workspace", || {
@@ -1309,7 +1309,7 @@ fn a_hush_cuts_the_rest_of_a_streaming_answer_until_it_asks_again() {
     world.wait_until("the first sentence", || {
         world.spoken.lock().unwrap().len() == 1
     });
-    // The person holds the key: Hex goes quiet, and what still streams in
+    // The person holds the key: Agent-Desk goes quiet, and what still streams in
     // of that answer is not read, nor the whole answer again at its end.
     runner.voice.stop();
     runner

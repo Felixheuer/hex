@@ -28,7 +28,7 @@ static SHOWN: AtomicBool = AtomicBool::new(false);
 pub(super) fn install<S: 'static>(app: &mut rune::App<S>) -> OverlayHandle<Wall> {
     let spec = OverlaySpec {
         interactive: true,
-        ..OverlaySpec::new("Hex live wall", wall::SIZE, wall::view)
+        ..OverlaySpec::new("Agent-Desk live wall", wall::SIZE, wall::view)
     }
     .options(rune::OverlayOptions {
         keys: KeyPolicy::OnDemand,

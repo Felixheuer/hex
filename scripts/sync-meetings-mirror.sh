@@ -1,5 +1,5 @@
 #!/bin/sh
-# Mirrors another Mac's Hex meetings folder for a local, read-only `hex mcp
+# Mirrors another Mac's Agent-Desk meetings folder for a local, read-only `agent-desk mcp
 # --meetings-dir`. One rsync over SSH; audio (*.wav), lock, and temporary
 # files stay behind. Updated files land together at the end of the transfer
 # (--delay-updates), and meetings trashed on the source disappear here.
@@ -8,15 +8,15 @@
 # run it every few minutes. The mirror and its meeting folders stay owner-only. See scripts/launchd/hex-meetings-mirror.plist.
 #
 # Environment:
-#   HEX_MEETINGS_HOST    SSH host (default: pro)
-#   HEX_MEETINGS_SOURCE  folder on the host, relative to its home
-#                        (default: Library/Application Support/hex/meetings)
-#   HEX_MEETINGS_MIRROR  local mirror (default: ~/Library/Caches/hex-meetings-mirror)
+#   AGENT_DESK_MEETINGS_HOST    SSH host (default: pro)
+#   AGENT_DESK_MEETINGS_SOURCE  folder on the host, relative to its home
+#                        (default: Library/Application Support/agent-desk/meetings)
+#   AGENT_DESK_MEETINGS_MIRROR  local mirror (default: ~/Library/Caches/hex-meetings-mirror)
 set -eu
 
-host=${HEX_MEETINGS_HOST:-pro}
-source_dir=${HEX_MEETINGS_SOURCE:-Library/Application Support/hex/meetings}
-mirror=${HEX_MEETINGS_MIRROR:-$HOME/Library/Caches/hex-meetings-mirror}
+host=${AGENT_DESK_MEETINGS_HOST:-pro}
+source_dir=${AGENT_DESK_MEETINGS_SOURCE:-Library/Application Support/agent-desk/meetings}
+mirror=${AGENT_DESK_MEETINGS_MIRROR:-$HOME/Library/Caches/hex-meetings-mirror}
 
 mkdir -p "$mirror"
 chmod 700 "$mirror"
