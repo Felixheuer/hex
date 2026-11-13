@@ -64,8 +64,11 @@ maintainable, and nothing that isn't possible.
       names); only dated one-time migrations for data, settings, Keychain and the app bundle
 - [x] UX D: the stage, the window recedes (pilot.53)
 - [x] UX A: shared look, task colours, rail, live minis (pilot.54)
-- [ ] UX B: island (black, from the notch), live words, visible reasoning
-- [ ] UX C: three frames, foreground announced and handed back, mini rings, rail flip rule
+- [x] UX B: island (black, from the notch), live words, visible reasoning (pilot.56)
+- [x] UX C: three frames, foreground announced and handed back, mini rings, rail flip rule
+      (pilot.55)
+- [x] UX integration: nothing covers labels, island at the notch, borrow announced first,
+      ≤ 5 cards, German wording (pilot.58)
 - [x] hex_watch_video and real Chrome codecs in the hidden browser (pilot.50)
 - [x] Agent-Desk opens again after quit/update (orphaned guard), update target name valid
       (pilot.51), live minis 5–6 fps (pilot.52)
@@ -104,3 +107,7 @@ maintainable, and nothing that isn't possible.
 | pilot.52 | Live minis 5–6 fps |
 | pilot.53 | The stage; the window only opens when asked |
 | pilot.54 | Cua Driver only with verified updates; rail and shared look |
+| pilot.55 | Frames with one meaning, foreground announced |
+| pilot.56 | Island: black, live words, visible reasoning |
+| pilot.57 | (built without the integration pass: the GitHub PR timed out) |
+| pilot.58 | UX integration pass |
