@@ -37,6 +37,9 @@ pub struct Config {
     pub autonomy: crate::assistant::autonomy::Autonomy,
     /// A Background task may claim the window in front of the person.
     pub front_window: bool,
+    /// The task may open apps and use them in windows of its own, parked
+    /// out of the person's way (implied by `front_window`).
+    pub open_apps: bool,
     /// Reads only (a job's check): every action is refused.
     pub observe_only: bool,
 }
@@ -125,6 +128,9 @@ pub struct Guard<D: Desktop> {
     pub window_wait: Duration,
     /// How often a paused action looks again.
     pub poll: Duration,
+    /// Asks a running app to show a window again (`open -g`); a stand-in in
+    /// tests, which never open the person's apps.
+    pub reopen: Box<dyn Fn(&super::screen::App) + Send>,
 }
 
 impl<D: Desktop> Guard<D> {
@@ -158,11 +164,23 @@ impl<D: Desktop> Guard<D> {
             fresh_for: FRESH,
             window_wait: apps::WINDOW_WAIT,
             poll: Duration::from_millis(250),
+            // Tests never open the person's apps.
+            reopen: Box::new(|app| {
+                if !cfg!(test) {
+                    apps::reopen(app);
+                }
+            }),
         }
     }
 
     pub fn desktop(&mut self) -> &mut D {
         &mut self.desktop
+    }
+
+    /// Whether a Here task opens apps and uses them in windows of its own
+    /// (full control, or allowed to); Background tasks always may.
+    fn opens_apps(&self) -> bool {
+        self.config.open_apps || self.config.front_window
     }
 
     /// The tools this task gets: agent-desktop's, less those it may never
@@ -185,10 +203,13 @@ impl<D: Desktop> Guard<D> {
                 _ => true,
             }
         });
-        if background {
+        // Full control reaches every app from the Here lane too: claim a
+        // window, open or switch to an app.
+        let reach = background || self.opens_apps();
+        if reach {
             tools.push(claim_tool());
         }
-        tools.extend(apps::tools(background));
+        tools.extend(apps::tools(reach));
         tools.push(displays::tool());
         Ok(tools)
     }
@@ -202,6 +223,27 @@ impl<D: Desktop> Guard<D> {
              act through refs."
         };
         match self.config.lane {
+            Lane::Here if self.config.front_window => format!(
+                "Hex guards these tools. The person gave this task full control: it may read and \
+                 act in any window no other task holds, the one in front ({}) included; it claims \
+                 one with desktop_claim_window, and opens or switches to an app with hex_open_app \
+                 (never a second instance of a running app). Blocked apps are refused. {input}",
+                self.config
+                    .here_window
+                    .as_ref()
+                    .map_or("unknown".into(), describe_task_window)
+            ),
+            Lane::Here if self.config.open_apps => format!(
+                "Hex guards these tools. This task stays out of the person's windows: it may act \
+                 in the window that was in front ({}) only, and in apps it opens or switches to \
+                 with hex_open_app (their windows become its own, out of the person's way; never \
+                 a second instance), or free windows it claims that aren't in front. Blocked apps \
+                 are refused. {input}",
+                self.config
+                    .here_window
+                    .as_ref()
+                    .map_or("unknown".into(), describe_task_window)
+            ),
             Lane::Here => format!(
                 "Hex guards these tools. This task was asked about the window in front ({}); it \
                  may read and act only in that window, and in new windows of that app its own \
@@ -345,10 +387,7 @@ impl<D: Desktop> Guard<D> {
                  (click, type, set_value, select, scroll, press with app).",
             ));
         }
-        if self.config.lane == Lane::Here
-            && matches!(kind, Kind::Launch)
-            && !self.config.front_window
-        {
+        if self.config.lane == Lane::Here && matches!(kind, Kind::Launch) && !self.opens_apps() {
             return Err(refusal(
                 tool,
                 "POLICY_DENIED",
@@ -383,7 +422,7 @@ impl<D: Desktop> Guard<D> {
         self.secure_read(tool, args)?;
         if kind.acts() {
             self.consent(tool, args, &resolved)?;
-            if self.config.lane == Lane::Background {
+            if self.config.lane == Lane::Background || self.opens_apps() {
                 for window in &resolved {
                     self.watch(&window.app);
                 }
@@ -474,6 +513,9 @@ impl<D: Desktop> Guard<D> {
     /// The task's windows now (a Here task's are all in its app).
     fn held(&self) -> Vec<LeaseFile> {
         let mut held = self.store.held_by(&self.config.task);
+        if self.opens_apps() {
+            return held;
+        }
         if let (Lane::Here, Some(here)) = (self.config.lane, &self.config.here_window) {
             held.retain(|lease| {
                 here.window_id.as_ref() == Some(&lease.window_id) || same_app(&lease.app, &here.app)
@@ -546,18 +588,20 @@ impl<D: Desktop> Guard<D> {
             if known.contains(&window.id) || self.blocked(&window.app) {
                 continue;
             }
+            let full = self.opens_apps();
             let ours = match (self.config.lane, look) {
                 (Lane::Here, Look::AfterAction) => {
                     here.as_ref().is_some_and(|(app, pid)| match pid {
                         Some(pid) => window.pid == Some(*pid),
                         None => same_app(app, &window.app),
-                    })
+                    }) || (full
+                        && !window.focused
+                        && self.watched.contains_key(&policy::app_key(&window.app)))
                 }
+                // With full control the Here lane opens apps too.
+                (Lane::Here, Look::Launched(launched)) if full => launched_by(launched, window),
                 (Lane::Here, _) => false,
-                (Lane::Background, Look::Launched(launched)) => {
-                    launched.pid.is_some() && launched.pid == window.pid
-                        || same_app(&launched.app, &window.app)
-                }
+                (Lane::Background, Look::Launched(launched)) => launched_by(launched, window),
                 (Lane::Background, _) => {
                     !window.focused && self.watched.contains_key(&policy::app_key(&window.app))
                 }
@@ -573,7 +617,10 @@ impl<D: Desktop> Guard<D> {
                 crate::desktop::events::now_ms(),
             );
             if acquired == Acquire::Acquired {
-                if self.config.lane == Lane::Background {
+                // A Background task's new windows, and the apps a Here task
+                // opens, go out of the person's way.
+                let launched = matches!(look, Look::Launched(_));
+                if self.config.lane == Lane::Background || launched {
                     self.arrived.push(window.clone());
                 }
                 self.notes.push(format!(
@@ -657,7 +704,7 @@ impl<D: Desktop> Guard<D> {
     }
 
     fn claim(&mut self, tool: &str, args: &Map<String, Value>) -> Result<Value, Value> {
-        if self.config.lane == Lane::Here && !self.config.front_window {
+        if self.config.lane == Lane::Here && !self.opens_apps() {
             return Err(refusal(
                 tool,
                 "POLICY_DENIED",
@@ -705,7 +752,12 @@ impl<D: Desktop> Guard<D> {
                 "That window belongs to another task. Open your own window with desktop_launch, \
                  or claim a free one.",
             )),
-            Acquire::Acquired | Acquire::Held => {
+            acquired @ (Acquire::Acquired | Acquire::Held) => {
+                // A window the task takes goes out of the person's way and
+                // shows live on its card, unless it is the one they're in.
+                if acquired == Acquire::Acquired && !window.focused {
+                    self.arrived.push(window.clone());
+                }
                 self.watch(&window.app);
                 let envelope = json!({
                     "version": "hex-guard",
@@ -764,6 +816,15 @@ impl<D: Desktop> Guard<D> {
             .map(|lease| format!("{} ({})", lease.window_id, lease.app))
             .collect();
         self.notes.push(match self.config.lane {
+            Lane::Here if self.config.front_window => format!(
+                "with full control any window no other task holds is in reach (claim it by its \
+                 id); yours now: {}.",
+                if mine.is_empty() {
+                    "the window that was in front".into()
+                } else {
+                    mine.join(", ")
+                }
+            ),
             Lane::Here => format!(
                 "this task works only in {}.",
                 if mine.is_empty() {
@@ -783,6 +844,11 @@ impl<D: Desktop> Guard<D> {
             ),
         });
     }
+}
+
+/// Whether `window` is one of the app `launched` just started (or reopened).
+fn launched_by(launched: &Launched, window: &Window) -> bool {
+    launched.pid.is_some() && launched.pid == window.pid || same_app(&launched.app, &window.app)
 }
 
 fn name_window(args: &mut Map<String, Value>, id: &str) {

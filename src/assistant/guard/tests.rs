@@ -95,6 +95,8 @@ struct FakeState {
     displays: Vec<super::screen::Display>,
     on_launch: Option<Value>,
     replies: HashMap<String, Value>,
+    /// Windows off the screen (another desktop, minimized).
+    off_screen: Vec<Value>,
 }
 
 /// agent-desktop answering from recorded windows; every call is kept.
@@ -169,6 +171,10 @@ impl Screen for Fake {
 
     fn displays(&mut self) -> Vec<super::screen::Display> {
         self.state().displays.clone()
+    }
+
+    fn off_screen_windows(&mut self) -> Vec<child::Window> {
+        child::windows(&Value::Array(self.state().off_screen.clone()))
     }
 }
 
@@ -285,6 +291,7 @@ fn here(scratch: &Scratch, fake: &Fake, window: &str, app: &str, physical: bool)
             agent_display: None,
             autonomy: Default::default(),
             front_window: false,
+            open_apps: false,
             observe_only: false,
         },
         scratch.store(),
@@ -294,6 +301,7 @@ fn here(scratch: &Scratch, fake: &Fake, window: &str, app: &str, physical: bool)
     );
     // The tests change the windows between calls; every check looks again.
     guard.fresh_for = Duration::ZERO;
+    guard.window_wait = Duration::from_millis(200);
     guard
 }
 
@@ -308,6 +316,7 @@ fn background(scratch: &Scratch, fake: &Fake, task: &str, physical: bool) -> Gua
             agent_display: None,
             autonomy: Default::default(),
             front_window: false,
+            open_apps: false,
             observe_only: false,
         },
         scratch.store(),
@@ -736,6 +745,7 @@ fn with_the_persons_leave_a_background_task_uses_the_window_in_front() {
             agent_display: None,
             autonomy: Default::default(),
             front_window: true,
+            open_apps: true,
             observe_only: false,
         },
         scratch.store(),
@@ -898,6 +908,7 @@ fn real_input_needs_permission_and_shows_hands_off_while_it_runs() {
             agent_display: None,
             autonomy: Default::default(),
             front_window: false,
+            open_apps: false,
             observe_only: false,
         },
         store.clone(),
@@ -1067,6 +1078,7 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
         physical_input: true,
         blocked_apps: vec!["1Password".into()],
         full_control: false,
+        open_apps: false,
     };
     let desktop = McpServer {
         command: "/opt/homebrew/bin/agent-desktop".into(),
@@ -1107,4 +1119,5 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
 
 mod consent;
 mod displays;
+mod open_app;
 mod round_two;

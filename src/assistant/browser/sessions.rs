@@ -47,6 +47,11 @@ pub const WITHHELD_ARGUMENTS: &[&str] = &[
 /// The tool that lists a task's browsers, answered by Hex.
 pub const LIST_TOOL: &str = "hex_browser_sessions";
 
+/// The session a task's first signed-in Chrome runs in, whatever the agent
+/// calls it: `browser::prewarm_for` may have started it already. A leading
+/// `_` is no name an agent may give.
+const WARM_CHROME: &str = "_chrome";
+
 /// How a browser started.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
@@ -105,6 +110,9 @@ pub struct Sessions {
     /// A browser that asks for nothing starts with the person's accounts.
     accounts: bool,
     open: BTreeMap<String, Kind>,
+    /// Browsers that run under another session than their name: the first
+    /// signed-in Chrome, in [`WARM_CHROME`].
+    runs_as: BTreeMap<String, String>,
     /// Whether memory is critically tight now: no browser beyond the first
     /// opens (`capacity::pressure`).
     tight: fn() -> bool,
@@ -121,6 +129,7 @@ impl Sessions {
             clean,
             accounts: false,
             open: BTreeMap::new(),
+            runs_as: BTreeMap::new(),
             tight: critically_tight,
             max: limits.browsers,
             max_chrome: limits.chrome,
@@ -177,9 +186,10 @@ impl Sessions {
         let signed_in = arguments
             .remove("signedIn")
             .and_then(|value| value.as_bool());
-        arguments.insert("session".into(), full_name(&self.task, &name).into());
         if tool == "agent_browser_close" {
+            arguments.insert("session".into(), self.session_of(&name).into());
             self.open.remove(&name);
+            self.runs_as.remove(&name);
             return Ok(());
         }
         let wanted = signed_in.map(|on| if on { Kind::SignedIn } else { Kind::Clean });
@@ -234,16 +244,39 @@ impl Sessions {
                         self.max_chrome
                     ));
                 }
+                // The first signed-in Chrome is the one started ahead.
+                if kind == Kind::SignedIn && !self.runs_as.values().any(|name| name == WARM_CHROME)
+                {
+                    self.runs_as.insert(name.clone(), WARM_CHROME.to_owned());
+                }
                 self.open.insert(name.clone(), kind);
                 kind
             }
         };
+        arguments.insert("session".into(), self.session_of(&name).into());
         arguments.extend(launch_arguments(kind, self.engine_of(kind)));
         Ok(())
     }
 
+    /// The agent-browser session browser `name` runs in.
+    fn session_of(&self, name: &str) -> String {
+        full_name(
+            &self.task,
+            self.runs_as.get(name).map_or(name, String::as_str),
+        )
+    }
+
+    /// The session and launch arguments of the task's first signed-in
+    /// Chrome, to start it ahead (`browser::prewarm_for`).
+    pub fn warm_chrome(&self) -> (String, Map<String, Value>) {
+        (
+            full_name(&self.task, WARM_CHROME),
+            launch_arguments(Kind::SignedIn, Engine::Chrome),
+        )
+    }
+
     /// The `restore` and engine arguments a browser that asks for nothing
-    /// would start with (`browser::prewarm`, which starts a helper's main
+    /// would start with (`browser::prewarm_for`, which starts a job's main
     /// browser before it asks, the same way).
     pub fn default_launch(&self) -> Map<String, Value> {
         let kind = if self.accounts {
@@ -266,7 +299,7 @@ impl Sessions {
                     "session": shown(name),
                     "signedIn": *kind != Kind::Clean,
                     "engine": engine.name(),
-                    "running": running.contains(&full_name(&self.task, name)),
+                    "running": running.contains(&self.session_of(name)),
                 })
             })
             .collect();
@@ -310,6 +343,8 @@ fn parse_name(value: Option<Value>) -> Result<String, String> {
         return Ok(String::new());
     }
     let valid = text.chars().count() <= 16
+        // A leading `_` is Hex's own ([`WARM_CHROME`]).
+        && !text.starts_with('_')
         && text
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
@@ -431,7 +466,8 @@ mod tests {
         let mut call =
             args(json!({"session": "Mail", "signedIn": true, "url": "https://mail.google.com"}));
         sessions.pin("agent_browser_open", &mut call).unwrap();
-        assert_eq!(call["session"], "hex-t1_mail");
+        // The first signed-in Chrome runs in the session started ahead.
+        assert_eq!(call["session"], "hex-t1__chrome");
         assert_eq!(call["restore"], SIGN_IN);
         assert_eq!(call["restoreSave"], "never");
         assert_eq!(call["extraArgs"], json!(["--engine", "chrome"]));
@@ -493,6 +529,44 @@ mod tests {
         assert_eq!(ahead["extraArgs"], json!(["--engine", "lightpanda"]));
         let clean = Sessions::new("t2", Engine::Lightpanda).default_launch();
         assert!(clean.get("restore").is_none());
+    }
+
+    #[test]
+    fn the_first_signed_in_chrome_runs_in_the_one_started_ahead() {
+        let mut sessions = Sessions::new("t1", Engine::Lightpanda).with_limits(12, 4);
+        let (warm, _) = sessions.warm_chrome();
+        let mut gmail = args(json!({"session": "gmail", "signedIn": true}));
+        sessions.pin("agent_browser_open", &mut gmail).unwrap();
+        assert_eq!(gmail["session"], warm.as_str());
+        // Its later calls, and the list, follow it there.
+        let mut later = args(json!({"session": "gmail"}));
+        sessions.pin("agent_browser_snapshot", &mut later).unwrap();
+        assert_eq!(later["session"], warm.as_str());
+        assert_eq!(
+            sessions.list(std::slice::from_ref(&warm))["browsers"][0],
+            json!({"session": "gmail", "signedIn": true, "engine": "chrome", "running": true})
+        );
+        // A second signed-in Chrome runs under its own name.
+        let mut sheets = args(json!({"session": "sheets", "signedIn": true}));
+        sessions.pin("agent_browser_open", &mut sheets).unwrap();
+        assert_eq!(sheets["session"], "hex-t1_sheets");
+        // Closing the first frees the warm one's name for the next.
+        let mut close = args(json!({"session": "gmail"}));
+        sessions.pin("agent_browser_close", &mut close).unwrap();
+        assert_eq!(close["session"], warm.as_str());
+        let mut again = args(json!({"session": "mail", "signedIn": true}));
+        sessions.pin("agent_browser_open", &mut again).unwrap();
+        assert_eq!(again["session"], warm.as_str());
+        // Light browsers keep their own names; nobody names Hex's own.
+        let mut light = args(json!({"session": "a"}));
+        sessions.pin("agent_browser_open", &mut light).unwrap();
+        assert_eq!(light["session"], "hex-t1_a");
+        let refused = sessions.pin(
+            "agent_browser_open",
+            &mut args(json!({"session": "_chrome"})),
+        );
+        assert!(refused.is_err());
+        assert!(belongs("t1", &warm), "closed with the task");
     }
 
     #[test]

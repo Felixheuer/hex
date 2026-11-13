@@ -21,6 +21,17 @@ pub fn command(tool: &str) -> Option<&str> {
     tool.strip_prefix("desktop_")
 }
 
+/// The guard's own tool a tool name stands for (`hex_open_app` for
+/// `mcp__agent-desktop__hex_open_app` or `agent-desktop_hex_open_app`).
+fn guard_tool(tool: &str) -> Option<&str> {
+    let name = tool
+        .strip_prefix("mcp__agent-desktop__")
+        .or_else(|| tool.strip_prefix("agent-desktop_"))
+        .or_else(|| tool.strip_prefix("agent_desktop_"))
+        .unwrap_or(tool);
+    (name == crate::assistant::guard::OPEN_APP_TOOL).then_some(name)
+}
+
 /// A call of Hex's own tools as a step: "Remembered: …", "Scheduled: …".
 fn hex_step(tool: &str, args: &Value) -> Option<Report> {
     let name = tool
@@ -91,6 +102,15 @@ pub struct Describer {
 impl Describer {
     /// The reports for a call of `tool` with `args`, before its result.
     pub fn call(&mut self, tool: &str, args: &Value) -> Vec<Report> {
+        if guard_tool(tool) == Some(crate::assistant::guard::OPEN_APP_TOOL) {
+            let app = text(args, "name")
+                .or_else(|| text(args, "bundle_id"))
+                .unwrap_or("an app");
+            return vec![Report::Step {
+                doing: format!("Opening {app}"),
+                done: format!("Opened {app}"),
+            }];
+        }
         let Some(command) = command(tool) else {
             return hex_step(tool, args)
                 .or_else(|| browser_step(tool, args))
@@ -111,6 +131,35 @@ impl Describer {
     /// MCP text that holds it): the refs a snapshot named, the window an app
     /// opened in.
     pub fn result(&mut self, tool: &str, output: &str) -> Vec<Report> {
+        // The window `hex_open_app` made the task's: shown live on its card.
+        if guard_tool(tool) == Some(crate::assistant::guard::OPEN_APP_TOOL) {
+            let Some(envelope) = envelope(output) else {
+                return Vec::new();
+            };
+            let data = envelope.get("data").unwrap_or(&Value::Null);
+            let app = data.get("app").and_then(Value::as_str).unwrap_or_default();
+            let windows: Vec<TaskWindow> = data
+                .get("windows")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|window| {
+                    Some(TaskWindow {
+                        app: window
+                            .get("app_name")
+                            .and_then(Value::as_str)
+                            .filter(|name| !name.is_empty())
+                            .unwrap_or(app)
+                            .to_owned(),
+                        window_id: Some(window.get("id")?.as_str()?.to_owned()),
+                    })
+                })
+                .collect();
+            return windows
+                .into_iter()
+                .flat_map(|window| self.window(window))
+                .collect();
+        }
         let Some(command) = command(tool) else {
             return Vec::new();
         };
@@ -503,6 +552,31 @@ mod tests {
                 .iter()
                 .all(|report| !matches!(report, Report::Window(_)))
         );
+    }
+
+    #[test]
+    fn an_opened_app_is_a_step_and_its_window_shows_on_the_card() {
+        let mut describer = Describer::default();
+        let tool = "mcp__agent-desktop__hex_open_app";
+        assert_eq!(
+            describer.call(tool, &json!({"name": "WhatsApp"})),
+            [Report::Step {
+                doing: "Opening WhatsApp".into(),
+                done: "Opened WhatsApp".into()
+            }]
+        );
+        let result = json!({"version": "hex-guard", "ok": true, "command": "open-app",
+            "data": {"app": "WhatsApp", "was_running": true,
+                "windows": [{"id": "w-512", "app_name": "WhatsApp", "on_screen": true}]}});
+        let mcp = json!({"content": [{"type": "text", "text": result.to_string()}]}).to_string();
+        assert_eq!(
+            describer.result(tool, &mcp),
+            [Report::Window(TaskWindow {
+                app: "WhatsApp".into(),
+                window_id: Some("w-512".into())
+            })]
+        );
+        assert!(describer.result(tool, &mcp).is_empty(), "reported once");
     }
 
     #[test]

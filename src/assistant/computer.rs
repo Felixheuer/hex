@@ -36,6 +36,7 @@ const MAX_SELECTION: usize = 20_000;
 mod displays;
 #[cfg(target_os = "linux")]
 mod linux;
+pub mod now;
 mod privacy;
 #[cfg(target_os = "windows")]
 mod windows;
