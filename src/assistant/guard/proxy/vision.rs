@@ -186,6 +186,9 @@ impl<D: Desktop> Guard<D> {
         }
         crate::assistant::actions::ax::wake(pid);
         let spot = super::displays::park_spot(&self.screen.displays());
+        if spot.is_some() {
+            self.note_parked(window, super::super::parking::How::OffScreen);
+        }
         let mut last = 0;
         for attempt in 0..6 {
             if attempt > 0 {
@@ -265,6 +268,7 @@ impl<D: Desktop> Guard<D> {
             return;
         };
         let spot = (display.frame.0 + 80.0, display.frame.1 + 80.0);
+        self.note_parked(window, super::super::parking::How::Behind);
         self.move_window(window, spot);
         self.looked = None;
         tracing::info!(
