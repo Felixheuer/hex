@@ -18,6 +18,23 @@ use super::super::child::Desktop;
 use super::{Guard, Resolved, refusal, text};
 use crate::assistant::autonomy::{self, Autonomy, Category};
 
+/// The guard's refusal for an action the person has to allow first: its
+/// envelope, with the gate's one `NEEDS_CONFIRMATION` error.
+pub(super) fn needs_confirmation(refused: &autonomy::Refusal) -> Value {
+    let mut result = refusal(
+        &refused.tool,
+        autonomy::NEEDS_CONFIRMATION,
+        &refused.message(),
+    );
+    let details = &mut result["structuredContent"]["error"]["details"];
+    if let (Some(details), Some(extra)) = (details.as_object_mut(), refused.details().as_object()) {
+        details.extend(extra.clone());
+    }
+    let text = result["structuredContent"].to_string();
+    result["content"][0]["text"] = Value::String(text);
+    result
+}
+
 /// What the guard learned about an element from a result.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Element {
@@ -123,39 +140,9 @@ impl<D: Desktop> Guard<D> {
             return Ok(());
         };
         let authorized = self.store.authorized(&self.config.task);
-        if autonomy::allowed(mode, category, &authorized) {
-            return Ok(());
-        }
-        let verb = match category {
-            Category::Send => "send",
-            Category::Delete => "delete",
-            Category::Pay => "buy or pay",
-            Category::Share => "share",
-            Category::Publish => "publish",
-        };
-        let mode = match mode {
-            Autonomy::Ask => "ask before every consequential action",
-            Autonomy::Smart => "only what the request named",
-            Autonomy::Yolo => "yolo",
-        };
-        let message = format!(
-            "This would {verb} ({target}{}). The person hasn't allowed that for this task \
-             (autonomy: {mode}). Ask them and wait for their yes; Hex refuses it until they \
-             confirm.",
-            if app.is_empty() {
-                String::new()
-            } else {
-                format!(" in {app}")
-            }
-        );
-        let mut result = refusal(tool, "NEEDS_CONFIRMATION", &message);
-        let details = &mut result["structuredContent"]["error"]["details"];
-        details["category"] = json!(category);
-        details["target"] = json!(target);
-        details["app"] = json!(app);
-        let text = result["structuredContent"].to_string();
-        result["content"][0]["text"] = Value::String(text);
-        Err(result)
+        autonomy::Gate::new(tool, mode, authorized)
+            .check(category, &target)
+            .map_err(|refused| needs_confirmation(&refused.in_app(app)))
     }
 
     /// The consequential action `tool` would take, and what it targets.

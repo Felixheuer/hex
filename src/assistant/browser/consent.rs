@@ -149,10 +149,9 @@ impl Consent {
         let Some((category, target)) = self.judge(&session, &act) else {
             return Ok(());
         };
-        if autonomy::allowed(mode, category, &authorized) {
-            return Ok(());
-        }
-        Err(needs_confirmation(tool, mode, category, &target))
+        autonomy::Gate::new(tool, mode, authorized)
+            .check(category, &target)
+            .map_err(|refused| refused.result())
     }
 
     /// The category and a person's description of what `act` would do.
@@ -353,33 +352,6 @@ fn recipients(snapshot: &str) -> usize {
             field.then(|| value.matches('@').count())
         })
         .sum()
-}
-
-/// A refusal the brain turns into a question for the person.
-pub fn needs_confirmation(tool: &str, mode: Autonomy, category: Category, target: &str) -> Value {
-    let category_name = serde_json::to_value(category).unwrap_or(Value::Null);
-    let mode_name = serde_json::to_value(mode).unwrap_or(Value::Null);
-    let envelope = json!({
-        "ok": false,
-        "error": {
-            "code": "NEEDS_CONFIRMATION",
-            "message": format!(
-                "This needs the person's yes first: {target}. Hex is asking them; don't try \
-                 another way around it. Continue with other work, or wait."
-            ),
-            "details": {
-                "category": category_name,
-                "target": target,
-                "tool": tool,
-                "mode": mode_name,
-            },
-        },
-    });
-    json!({
-        "content": [{"type": "text", "text": envelope.to_string()}],
-        "structuredContent": envelope,
-        "isError": true,
-    })
 }
 
 fn plain_error(message: &str) -> Value {

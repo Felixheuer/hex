@@ -1,27 +1,30 @@
 //! What Hex knows about the person's Mac, read locally and read-only:
 //! `hex_lookup` finds their files (Spotlight), contacts, calendar,
-//! reminders, mail (envelopes only), Chrome tabs and history, apps, and the
-//! memory graph in one call, ranked, in milliseconds; `hex_chrome_tab`
-//! reads and acts in the tab the person means in their own Chrome; and the
+//! reminders, mail (envelopes only), the tabs open in their browser and
+//! their browsing history, apps, and the memory graph in one call, ranked,
+//! in milliseconds; `hex_browser_tab` reads and acts in the tab the person
+//! means in their own browser (whichever is their default); and the
 //! memory graph ([`graph`]) links the people, companies, and projects the
 //! person told Hex about, for every turn's context.
 //!
 //! Never message bodies, passwords, cookies, or form data; every answer is
 //! bounded. Contacts and Reminders read only with the permission macOS
-//! already gave (`knowledge.swift`); Mail, Chrome's history, and the
+//! already gave (`knowledge.swift`); Mail, the browsers' history, and the
 //! address book's fallback are read from copies with Full Disk Access.
 //!
 //! OWNER: knowledge.
 
 mod agenda;
-mod chrome;
+mod browser;
 mod exec;
 mod files;
 pub mod graph;
+mod history;
 mod mail;
 pub(crate) mod native;
 mod people;
 mod rank;
+mod script;
 mod tab;
 
 use std::time::{Duration, Instant};
@@ -31,7 +34,7 @@ use serde_json::{Value, json};
 use rank::Hit;
 
 pub const LOOKUP: &str = "hex_lookup";
-pub const CHROME_TAB: &str = "hex_chrome_tab";
+pub const BROWSER_TAB: &str = tab::NAME;
 
 /// How long an `all` lookup waits for its slowest source.
 const ALL_DEADLINE: Duration = Duration::from_millis(3000);
@@ -39,7 +42,7 @@ const DEFAULT_LIMIT: usize = 8;
 const MAX_LIMIT: usize = 25;
 
 /// A line for the system prompt: when to reach for these tools.
-pub const RULES: &str = "\nThe person's own things: hex_lookup finds their files, contacts (numbers in international form), calendar, reminders, mail (subjects and senders), open Chrome tabs and Chrome history, apps, and what you know about people, companies, and projects (scope memory), in milliseconds. Use it first, before opening an app or searching the web for something of theirs. When the person means a tab they have open in Chrome (\u{201c}my open tab\u{201d}, \u{201c}the page I'm on\u{201d}), use hex_chrome_tab on that tab, never a fresh browser.\n";
+pub const RULES: &str = "\nThe person's own things: hex_lookup finds their files, contacts (numbers in international form), calendar, reminders, mail (subjects and senders), the tabs open in their browser and their browsing history, apps, and what you know about people, companies, and projects (scope memory), in milliseconds. Use it first, before opening an app or searching the web for something of theirs. When the person means a tab they have open in their browser (\u{201c}my open tab\u{201d}, \u{201c}the page I'm on\u{201d}), use hex_browser_tab on that tab, never a fresh browser.\n";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Scope {
@@ -49,8 +52,8 @@ pub enum Scope {
     Calendar,
     Reminders,
     Mail,
-    ChromeTabs,
-    ChromeHistory,
+    BrowserTabs,
+    BrowserHistory,
     Apps,
     Memory,
     All,
@@ -64,17 +67,24 @@ impl Scope {
         ("calendar", Self::Calendar),
         ("reminders", Self::Reminders),
         ("mail", Self::Mail),
-        ("chrome_tabs", Self::ChromeTabs),
-        ("chrome_history", Self::ChromeHistory),
+        ("browser_tabs", Self::BrowserTabs),
+        ("browser_history", Self::BrowserHistory),
         ("apps", Self::Apps),
         ("memory", Self::Memory),
         ("all", Self::All),
+    ];
+
+    /// The names they had (kept for one release).
+    const OLD_NAMES: [(&'static str, Scope); 2] = [
+        ("chrome_tabs", Self::BrowserTabs),
+        ("chrome_history", Self::BrowserHistory),
     ];
 
     pub fn parse(name: &str) -> Option<Self> {
         let name = name.trim().to_lowercase().replace([' ', '-'], "_");
         Self::NAMES
             .iter()
+            .chain(Self::OLD_NAMES.iter())
             .find(|(known, _)| *known == name)
             .map(|(_, scope)| *scope)
     }
@@ -91,7 +101,7 @@ impl Scope {
         match self {
             Self::Files | Self::RecentFiles => "used",
             Self::Mail => "received",
-            Self::ChromeHistory => "visited",
+            Self::BrowserHistory => "visited",
             Self::Reminders => "due",
             _ => "",
         }
@@ -105,8 +115,8 @@ impl Scope {
         Self::Calendar,
         Self::Reminders,
         Self::Mail,
-        Self::ChromeTabs,
-        Self::ChromeHistory,
+        Self::BrowserTabs,
+        Self::BrowserHistory,
         Self::Apps,
     ];
 }
@@ -116,9 +126,9 @@ pub fn definitions() -> Vec<Value> {
     vec![
         json!({
             "name": LOOKUP,
-            "description": "Find the person's own things on this Mac in milliseconds, locally and read-only: files (Spotlight: names, else contents), recent_files (used in the last two weeks), contacts (names, company, phone numbers in international form, emails), calendar (events 30 days back to 90 ahead), reminders (open ones), mail (subject, sender, date, mailbox; never bodies), chrome_tabs (the tabs open in their Chrome, with tab ids for hex_chrome_tab), chrome_history (titles, URLs, last visits), apps (installed), memory (people, companies, projects and how they connect), or all of them at once. Results are ranked best first. Use it before opening an app or searching the web for something of theirs.",
+            "description": "Find the person's own things on this Mac in milliseconds, locally and read-only: files (Spotlight: names, else contents), recent_files (used in the last two weeks), contacts (names, company, phone numbers in international form, emails), calendar (events 30 days back to 90 ahead), reminders (open ones), mail (subject, sender, date, mailbox; never bodies), browser_tabs (the tabs open in their default browser, with tab ids for hex_browser_tab), browser_history (titles, URLs, last visits, from every browser), apps (installed), memory (people, companies, projects and how they connect), or all of them at once. Results are ranked best first. Use it before opening an app or searching the web for something of theirs.",
             "inputSchema": {"type": "object", "properties": {
-                "query": {"type": "string", "description": "Words to find (a name, a subject, part of a number or an address). May be empty for recent_files, calendar (what comes next), reminders, chrome_tabs, or mail (the newest)."},
+                "query": {"type": "string", "description": "Words to find (a name, a subject, part of a number or an address). May be empty for recent_files, calendar (what comes next), reminders, browser_tabs, or mail (the newest)."},
                 "scope": {"type": "string", "enum": scopes, "description": "Where to look (default all)."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT, "description": "Most results per source (default 8)."}
             }},
@@ -128,11 +138,17 @@ pub fn definitions() -> Vec<Value> {
 }
 
 pub fn handles(name: &str) -> bool {
-    name == LOOKUP || name == CHROME_TAB
+    name == LOOKUP || name == BROWSER_TAB || name == tab::OLD_NAME
 }
 
-/// Runs one of the knowledge tools for the task `task` (`--task`).
-pub fn call(name: &str, arguments: &Value, task: Option<&str>) -> Result<String, String> {
+/// Runs one of the knowledge tools for the task `task` (`--task`), for
+/// `role` (a background job only reads the person's browser).
+pub fn call(
+    name: &str,
+    arguments: &Value,
+    task: Option<&str>,
+    role: crate::assistant::tools::Role,
+) -> Result<String, String> {
     match name {
         LOOKUP => {
             let query = arguments
@@ -142,7 +158,7 @@ pub fn call(name: &str, arguments: &Value, task: Option<&str>) -> Result<String,
             let scope = match arguments.get("scope").and_then(Value::as_str) {
                 None | Some("") => Scope::All,
                 Some(name) => Scope::parse(name).ok_or_else(|| {
-                    format!("hex_lookup has no scope “{name}”; use one of files, recent_files, contacts, calendar, reminders, mail, chrome_tabs, chrome_history, apps, memory, all")
+                    format!("hex_lookup has no scope “{name}”; use one of files, recent_files, contacts, calendar, reminders, mail, browser_tabs, browser_history, apps, memory, all")
                 })?,
             };
             let limit = arguments
@@ -156,7 +172,7 @@ pub fn call(name: &str, arguments: &Value, task: Option<&str>) -> Result<String,
                         | Scope::Contacts
                         | Scope::Apps
                         | Scope::Memory
-                        | Scope::ChromeHistory
+                        | Scope::BrowserHistory
                         | Scope::All
                 )
             {
@@ -167,7 +183,7 @@ pub fn call(name: &str, arguments: &Value, task: Option<&str>) -> Result<String,
             }
             Ok(lookup(query, scope, limit))
         }
-        CHROME_TAB => tab::call(arguments, task),
+        BROWSER_TAB | tab::OLD_NAME => tab::call(arguments, task, role),
         other => Err(format!("There is no tool “{other}”.")),
     }
 }
@@ -183,8 +199,8 @@ fn search(scope: Scope, query: &str, limit: usize) -> Result<Vec<Hit>, String> {
         Scope::Calendar => agenda::calendar(&tokens, limit, now),
         Scope::Reminders => agenda::reminders(query, &tokens, limit),
         Scope::Mail => mail::mail(query, limit, now),
-        Scope::ChromeTabs => chrome::tabs(&tokens, limit),
-        Scope::ChromeHistory => chrome::history(query, limit, now),
+        Scope::BrowserTabs => browser::tabs(&tokens, limit),
+        Scope::BrowserHistory => history::history(query, limit, now),
         Scope::Apps => Ok(files::apps(&tokens, limit)),
         Scope::Memory => memory(query, limit),
         Scope::All => Err("not a single source".into()),
@@ -208,7 +224,7 @@ fn memory(query: &str, limit: usize) -> Result<Vec<Hit>, String> {
         .collect())
 }
 
-fn memory_on() -> bool {
+pub fn memory_on() -> bool {
     crate::app_settings::assistant_runtime()
         .map(|(_, settings)| settings.memory)
         .or_else(|| {
@@ -369,32 +385,41 @@ pub fn learn_from_task(conversation: &str, request: &str, answer: &str, memory: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assistant::tools::Role;
 
     #[test]
     fn scopes_parse_and_bad_calls_say_why() {
-        assert_eq!(Scope::parse("Chrome tabs"), Some(Scope::ChromeTabs));
+        assert_eq!(Scope::parse("Browser tabs"), Some(Scope::BrowserTabs));
+        assert_eq!(Scope::parse("chrome_tabs"), Some(Scope::BrowserTabs));
+        assert_eq!(Scope::parse("chrome-history"), Some(Scope::BrowserHistory));
         assert_eq!(Scope::parse("recent-files"), Some(Scope::RecentFiles));
         assert_eq!(Scope::parse("x"), None);
         for (name, scope) in Scope::NAMES {
             assert_eq!(scope.name(), name);
         }
         assert!(
-            call(LOOKUP, &json!({"query": "x", "scope": "web"}), None)
-                .unwrap_err()
-                .contains("no scope")
+            call(
+                LOOKUP,
+                &json!({"query": "x", "scope": "web"}),
+                None,
+                Role::Turn
+            )
+            .unwrap_err()
+            .contains("no scope")
         );
         assert!(
-            call(LOOKUP, &json!({"scope": "files"}), None)
+            call(LOOKUP, &json!({"scope": "files"}), None, Role::Turn)
                 .unwrap_err()
                 .contains("needs a “query”")
         );
-        assert!(handles("hex_lookup") && handles("hex_chrome_tab") && !handles("hex_remember"));
+        assert!(handles("hex_lookup") && handles("hex_browser_tab") && !handles("hex_remember"));
+        assert!(handles("hex_chrome_tab"), "the old name, for one release");
         let tools = definitions();
         let names: Vec<&str> = tools
             .iter()
             .filter_map(|tool| tool["name"].as_str())
             .collect();
-        assert_eq!(names, ["hex_lookup", "hex_chrome_tab"]);
+        assert_eq!(names, ["hex_lookup", "hex_browser_tab"]);
     }
 
     #[test]
@@ -440,14 +465,14 @@ mod tests {
 
     /// Measures each source on this Mac (read-only):
     /// `cargo test --bin hex knowledge::tests::measure -- --ignored --nocapture`.
-    /// Chrome's tabs only with HEX_MEASURE_CHROME_TABS=1 (it may ask for
-    /// Automation permission).
+    /// The browser's tabs only with HEX_MEASURE_BROWSER_TABS=1 (it may ask
+    /// for Automation permission).
     #[test]
     #[ignore = "reads this Mac's own data"]
     fn measure() {
         let query = std::env::var("HEX_MEASURE_QUERY").unwrap_or_else(|_| "rechnung".into());
         for scope in Scope::ALL.into_iter().chain([Scope::RecentFiles]) {
-            if scope == Scope::ChromeTabs && std::env::var("HEX_MEASURE_CHROME_TABS").is_err() {
+            if scope == Scope::BrowserTabs && std::env::var("HEX_MEASURE_BROWSER_TABS").is_err() {
                 continue;
             }
             let query = if scope == Scope::RecentFiles {
