@@ -1228,3 +1228,90 @@ mod tests {
         assert!(names.contains(&"desktop_snapshot".to_owned()));
     }
 }
+
+/// Live, by hand only (`cargo test --bin hex live_cua_driver -- --ignored`,
+/// `HEX_CUA_DRIVER` the pinned `cua-driver`, `HEX_LIVE_FILE` a throwaway
+/// text file): the adapter against the real driver and TextEdit in the
+/// background, while another app keeps the front.
+#[cfg(all(test, target_os = "macos"))]
+mod live {
+    use super::*;
+
+    #[test]
+    #[ignore = "drives TextEdit through Cua Driver on this Mac; run by hand"]
+    fn live_cua_driver() {
+        let driver = std::env::var("HEX_CUA_DRIVER").expect("HEX_CUA_DRIVER");
+        let file = std::env::var("HEX_LIVE_FILE").expect("HEX_LIVE_FILE");
+        let running = !std::process::Command::new("/usr/bin/pgrep")
+            .args(["-x", "TextEdit"])
+            .output()
+            .unwrap()
+            .stdout
+            .is_empty();
+        assert!(!running, "TextEdit may hold the person's documents");
+        struct Quit;
+        impl Drop for Quit {
+            fn drop(&mut self) {
+                let _ = std::process::Command::new("/usr/bin/osascript")
+                    .args([
+                        "-e",
+                        "tell application id \"com.apple.TextEdit\" to close every document saving no",
+                        "-e",
+                        "tell application id \"com.apple.TextEdit\" to quit saving no",
+                    ])
+                    .status();
+            }
+        }
+        let _quit = Quit;
+        let backend = crate::assistant::driver::Driver::Cua.backend();
+        let mut cua = Cua::new(super::super::child::AgentDesktop::server(
+            driver.into(),
+            backend.mcp_args(None, "", false),
+            backend.env(),
+        ));
+        assert!(!cua.tools().unwrap().is_empty());
+        let front = crate::dictation::context::frontmost_pid();
+        let call = |cua: &mut Cua<super::super::child::AgentDesktop>, tool: &str, args: Value| {
+            cua.call(tool, args.as_object().unwrap()).unwrap()
+        };
+        let opened = call(&mut cua, "desktop_launch", json!({"app": "com.apple.TextEdit", "args": [file]}));
+        println!("launch: {}", opened["structuredContent"]);
+        let mut window = None;
+        for _ in 0..40 {
+            std::thread::sleep(Duration::from_millis(250));
+            let listed = call(&mut cua, "desktop_list_windows", json!({"app": "TextEdit"}));
+            window = listed["structuredContent"]["data"]
+                .as_array()
+                .and_then(|windows| {
+                    windows
+                        .iter()
+                        .find(|window| window["title"].as_str().is_some_and(|title| !title.is_empty()))
+                })
+                .and_then(|window| window["id"].as_str().map(str::to_owned));
+            if window.is_some() {
+                break;
+            }
+        }
+        let window = window.expect("TextEdit's window");
+        let snapshot = call(&mut cua, "desktop_snapshot", json!({"window_id": window}));
+        println!("{}", snapshot["content"][0]["text"].as_str().unwrap_or_default());
+        let area = snapshot["structuredContent"]["data"]["tree"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| node["role"] == "textarea")
+            .map(|node| node["ref_id"].as_str().unwrap().to_owned())
+            .expect("a text area");
+        let typed = call(&mut cua, "desktop_type", json!({"ref_id": area, "text": "[cua] "}));
+        println!("type: {}", typed["structuredContent"]);
+        let again = call(&mut cua, "desktop_snapshot", json!({"window_id": window}));
+        let text = again["content"][0]["text"].as_str().unwrap_or_default().to_owned();
+        println!("{text}");
+        assert_eq!(
+            crate::dictation::context::frontmost_pid(),
+            front,
+            "the person's app kept the front"
+        );
+        assert!(text.contains("[cua]"), "{text}");
+    }
+}

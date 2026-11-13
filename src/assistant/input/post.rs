@@ -358,6 +358,17 @@ mod macos {
 
     struct Event(CGEventRef);
 
+    /// `-[NSEvent CGEvent]`'s return type, as the runtime encodes it.
+    #[repr(transparent)]
+    struct CgEventPointer(*mut c_void);
+
+    // SAFETY: a pointer to the opaque `__CGEvent` struct, as AppKit
+    // declares `CGEventRef`.
+    unsafe impl objc2::encode::Encode for CgEventPointer {
+        const ENCODING: objc2::encode::Encoding =
+            objc2::encode::Encoding::Pointer(&objc2::encode::Encoding::Struct("__CGEvent", &[]));
+    }
+
     impl Drop for Event {
         fn drop(&mut self) {
             // SAFETY: owned (+1) and non-null.
@@ -420,14 +431,35 @@ mod macos {
         })
     }
 
+    /// Opens this process's window server connection, once.
+    fn connect() {
+        static CONNECTED: OnceLock<()> = OnceLock::new();
+        CONNECTED.get_or_init(|| {
+            type Main = unsafe extern "C" fn() -> i32;
+            // SAFETY: a lookup by name; the call takes nothing.
+            unsafe {
+                let symbol = dlsym(DEFAULT, c"CGSMainConnectionID".as_ptr());
+                if !symbol.is_null() {
+                    let main: Main = std::mem::transmute::<*mut c_void, Main>(symbol);
+                    main();
+                }
+            }
+        });
+    }
+
     /// Tells app `pid` its window `number` has focus, without bringing it
     /// forward or activating the app (a SkyLight focus event record).
     fn focus_record(pid: i32, number: u32) -> Result<(), String> {
         let record = private().record.ok_or("SLPSPostEventRecordTo is missing")?;
         let mut psn = Psn::default();
+        // A process without a window server connection yet (the guard is
+        // a command-line process) gets one first: the Process Manager
+        // calls answer only through it.
+        connect();
         // SAFETY: `psn` is written on success.
-        if unsafe { GetProcessForPID(pid, &raw mut psn) } != 0 {
-            return Err("the app's process wasn't found".into());
+        let status = unsafe { GetProcessForPID(pid, &raw mut psn) };
+        if status != 0 {
+            return Err(format!("the app's process wasn't found ({status})"));
         }
         let mut bytes = [0_u8; 0xf8];
         bytes[0x04] = 0xf8;
@@ -472,11 +504,11 @@ mod macos {
             if ns.is_null() {
                 return std::ptr::null_mut();
             }
-            let cg: *mut c_void = msg_send![ns, CGEvent];
-            if cg.is_null() {
+            let cg: CgEventPointer = msg_send![ns, CGEvent];
+            if cg.0.is_null() {
                 std::ptr::null_mut()
             } else {
-                CFRetain(cg) as *mut c_void
+                CFRetain(cg.0) as *mut c_void
             }
         });
         if event.is_null() {
@@ -673,5 +705,116 @@ mod tests {
             ..all
         };
         assert!(!missing.clicks());
+    }
+}
+
+/// Live, by hand only (`cargo test --bin hex live_background_input --
+/// --ignored`, with `HEX_LIVE_FILE` naming a throwaway text file): opens it
+/// in TextEdit in the background, types and clicks into it by pid while
+/// another app stays in front, reads it back through Accessibility, and
+/// quits TextEdit. Never run against the person's own documents.
+#[cfg(all(test, target_os = "macos"))]
+mod live {
+    use super::super::geometry::Frame;
+    use super::*;
+
+    fn front() -> Option<i32> {
+        crate::dictation::context::frontmost_pid()
+    }
+
+    fn textedit_value() -> String {
+        let output = std::process::Command::new("/usr/bin/osascript")
+            .args(["-e", "tell application \"System Events\" to get value of text area 1 of scroll area 1 of window 1 of process \"TextEdit\""])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    #[test]
+    #[ignore = "drives TextEdit on this Mac; run by hand"]
+    fn live_background_input() {
+        let file = std::env::var("HEX_LIVE_FILE").expect("HEX_LIVE_FILE");
+        assert!(
+            std::process::Command::new("/usr/bin/pgrep")
+                .args(["-x", "TextEdit"])
+                .output()
+                .unwrap()
+                .stdout
+                .is_empty(),
+            "TextEdit is open already: it may hold the person's documents"
+        );
+        let before = front();
+        // TextEdit quits however the test ends.
+        struct Quit;
+        impl Drop for Quit {
+            fn drop(&mut self) {
+                let _ = std::process::Command::new("/usr/bin/osascript")
+                    .args(["-e", "tell application id \"com.apple.TextEdit\" to close every document saving no", "-e", "tell application id \"com.apple.TextEdit\" to quit saving no"])
+                    .status();
+            }
+        }
+        let _quit = Quit;
+        std::process::Command::new("/usr/bin/open")
+            .args(["-g", "-a", "TextEdit", &file])
+            .status()
+            .unwrap();
+        let mut window = None;
+        for _ in 0..40 {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            let pid: Option<i32> = String::from_utf8_lossy(
+                &std::process::Command::new("/usr/bin/pgrep").args(["-x", "TextEdit"]).output().unwrap().stdout,
+            )
+            .split_whitespace()
+            .next()
+            .and_then(|pid| pid.parse().ok());
+            window = pid.and_then(|pid| {
+                crate::assistant::computer::now::all_windows().into_iter().find(|window| {
+                    window.pid == pid && window.layer == 0 && window.bounds[2] > 100.0
+                        && crate::assistant::actions::ax::windows(pid).iter().any(|listed| listed.number == window.number)
+                })
+            });
+            if window.is_some() {
+                break;
+            }
+        }
+        let window = window.expect("TextEdit's window");
+        let [x, y, width, height] = window.bounds;
+        let frame = Frame { x, y, width, height, scale: 2.0 };
+        println!("capabilities: {:?}", capabilities());
+        // Off the screen, as a task's window waits.
+        let displays = crate::assistant::computer::displays();
+        let main = displays.iter().find(|display| display.is_primary).unwrap();
+        let parked = (main.frame.0 + main.frame.2 - 2.0, main.frame.1 + main.frame.3 - 2.0);
+        let mut moved = Err(0);
+        for _ in 0..20 {
+            moved = crate::assistant::actions::ax::set_position(window.pid, window.number, parked);
+            if moved.is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        moved.unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let frame = Frame { x: parked.0, y: parked.1, ..frame };
+        let typed = post(window.pid, window.number, &frame, None, &Gesture::Key("cmd+down".into())).unwrap();
+        let typed2 = post(window.pid, window.number, &frame, None, &Gesture::Text(" [pid keys]".into())).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let after_keys = textedit_value();
+        println!("after keys: {after_keys:?} front kept: {} {}", typed.front_before == typed.front_after, typed2.front_before == typed2.front_after);
+        // Click at the very start of the text (about 10,40 points into the
+        // window: below its title bar), then type there.
+        let target = frame.target((8.0, 36.0), super::super::geometry::Units::Points).unwrap();
+        let clicked = post(window.pid, window.number, &frame, Some(target), &Gesture::Click { button: Button::Left, count: 1 }).unwrap();
+        post(window.pid, window.number, &frame, None, &Gesture::Text("^".into())).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let after_click = textedit_value();
+        println!("after click: {after_click:?} private route: {}", clicked.private);
+        let after = front();
+        let _ = std::process::Command::new("/usr/bin/osascript")
+            .args(["-e", "tell application id \"com.apple.TextEdit\" to close every document saving no", "-e", "tell application id \"com.apple.TextEdit\" to quit saving no"])
+            .status();
+        assert_eq!(before, after, "the person's app kept the front");
+        assert!(after_keys.ends_with("[pid keys]"), "{after_keys}");
+        assert!(after_click.starts_with('^'), "{after_click}");
     }
 }
