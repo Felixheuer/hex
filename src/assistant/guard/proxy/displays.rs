@@ -131,7 +131,7 @@ impl<D: Desktop> Guard<D> {
         }
     }
 
-    fn move_window(&mut self, window: &Window, (x, y): (f64, f64)) {
+    pub(super) fn move_window(&mut self, window: &Window, (x, y): (f64, f64)) {
         let mut args = Map::new();
         args.insert("app".into(), json!(window.app));
         args.insert("window_id".into(), json!(window.id));

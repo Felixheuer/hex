@@ -313,6 +313,15 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             .update(|orb, tx| board_changed(orb, tx, Instant::now()));
     }
     crate::assistant::subscribe(Box::new(on_event));
+    // The desk changed (a quick turn left an app or a browser on it, or one
+    // was let go): the orb shows it.
+    super::minis::watch(|| {
+        if let Some(overlays) = OVERLAYS.get() {
+            overlays
+                .orb
+                .update(|orb, tx| board_changed(orb, tx, Instant::now()));
+        }
+    });
     // A hovered task's browsers coming, going, or showing their first frame.
     super::live::on_change(|| {
         if let Some(overlays) = OVERLAYS.get() {
@@ -541,7 +550,15 @@ fn rearm() {
 /// Tells the previews which jobs' rows show now, so only their browsers
 /// stream (`live::cards`).
 fn show_cards(orb: &Orb) {
-    let carded = orb::carded(&orb.board, orb.expanded);
+    let mut carded = orb::carded(&orb.board, orb.expanded);
+    // The desk's minis show whenever the list is folded.
+    if !orb.expanded {
+        let desk = super::minis::now();
+        if !desk.is_empty() {
+            carded.push(super::minis::DESK.to_owned());
+            carded.extend(desk.browsers);
+        }
+    }
     super::live::cards(&carded);
     super::app_live::cards(&carded);
 }
@@ -655,6 +672,10 @@ fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
         .filter(|task| task.phase.live())
         .map(|task| task.id.clone())
         .collect();
+    // The desk's browsers stream too (quick turns' that stay).
+    let desk = super::minis::now();
+    let mut working = working;
+    working.extend(desk.browsers.iter().cloned());
     super::live::track(&working);
     // Their app windows too: captured while a card shows them, and back on
     // the screen once they leave the job.
@@ -664,6 +685,10 @@ fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
         .iter()
         .filter(|task| task.phase.live())
         .map(|task| (task.id.clone(), task.windows.clone()))
+        .chain(std::iter::once((
+            super::minis::DESK.to_owned(),
+            desk.windows.clone(),
+        )))
         .collect();
     super::app_live::track(&windows);
     // The frame shows only while a task works on the screen right now
@@ -694,7 +719,7 @@ fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
         orb.open_result = None;
     }
     show_cards(orb);
-    let visible = orb.board.orb_shows(now) || orb.expanded;
+    let visible = orb.board.orb_shows(now) || orb.expanded || !desk.is_empty();
     if visible && !orb.shown {
         place_orb(&overlays.orb, orb);
         overlays.orb.fade_in(FADE);

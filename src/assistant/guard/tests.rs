@@ -1107,6 +1107,8 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
             "agent_desktop": "/opt/homebrew/bin/agent-desktop",
             "autonomy": "smart",
             "state_dir": "/Users/me/Library/Application Support/hex/assistant",
+            // Hex itself holds the desk.
+            "desk_pid": std::process::id(),
         })
     );
     let minimal = WireSpec::parse(r#"{"task":"t","lane":"background","agent_id":"a"}"#).unwrap();
@@ -1118,6 +1120,7 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
 }
 
 mod consent;
+mod desk;
 mod displays;
 mod open_app;
 mod round_two;

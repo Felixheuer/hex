@@ -1,0 +1,304 @@
+# App recipes: the fastest way to an app's action (`hex_app_action`), before
+# any click. Read by `actions::recipes` (compiled in) and checked by the
+# guard like any action: blocked apps are refused, and a recipe with a
+# `consequence` (send, delete, pay, share, publish) needs the person's yes
+# unless their autonomy allows it.
+#
+# Each recipe:
+#   app, intent   what the agent names (`app` compares as app names do).
+#   name          the app as it runs, and `bundle_id`: for blocked apps and
+#                 for taking the window it opens.
+#   summary       what it does, for the tool's description.
+#   kind          "url" (opened in the background with `open -g`), "reveal"
+#                 (`open -R`), "applescript" (osascript), or "cli" (a program
+#                 and its arguments, no shell).
+#   template      the URL or the script; `args` for a cli recipe.
+#   params        its parameters; "name?" is optional.
+#   consequence   the autonomy category it falls under, if any.
+#   window        it shows a window of the app (taken for the task, parked).
+#
+# Placeholders: {param} is encoded for where it stands (percent-encoded in a
+# URL, escaped in an AppleScript string, as is in a CLI argument). Filters:
+# {p|phone} (digits, international), {p|email} (an address in a URL),
+# {p|date} ("YYYY-MM-DD HH:MM" as an AppleScript date), {p|pane} (a System
+# Settings pane id), {p|path} (a path, ~ expanded), {p|shell} (quoted for a
+# shell command inside a script).
+
+[[recipe]]
+app = "whatsapp"
+intent = "open_chat"
+window = true
+name = "WhatsApp"
+bundle_id = "net.whatsapp.WhatsApp"
+summary = "Open the WhatsApp chat with a phone number (international, e.g. 4917612345678), with `text` typed in as a draft. It never sends: the person (or a later step they asked for) presses Send."
+kind = "url"
+template = "whatsapp://send?phone={phone|phone}&text={text}"
+params = ["phone", "text?"]
+
+[[recipe]]
+app = "whatsapp"
+intent = "open"
+window = true
+name = "WhatsApp"
+bundle_id = "net.whatsapp.WhatsApp"
+summary = "Open WhatsApp."
+kind = "url"
+template = "whatsapp://"
+params = []
+
+[[recipe]]
+app = "slack"
+intent = "open_channel"
+window = true
+name = "Slack"
+bundle_id = "com.tinyspeck.slackmacgap"
+summary = "Open a Slack channel or DM by its team id (T…) and channel id (C… or D…)."
+kind = "url"
+template = "slack://channel?team={team}&id={channel}"
+params = ["team", "channel"]
+
+[[recipe]]
+app = "slack"
+intent = "open"
+window = true
+name = "Slack"
+bundle_id = "com.tinyspeck.slackmacgap"
+summary = "Open Slack."
+kind = "url"
+template = "slack://open"
+params = []
+
+[[recipe]]
+app = "mail"
+intent = "compose"
+window = true
+name = "Mail"
+bundle_id = "com.apple.mail"
+summary = "A new email in the person's mail app (mailto:) with recipient, subject and body filled in, as a draft; it isn't sent."
+kind = "url"
+template = "mailto:{to|email}?subject={subject}&body={body}"
+params = ["to", "subject?", "body?"]
+
+[[recipe]]
+app = "mail"
+intent = "draft"
+window = true
+name = "Mail"
+bundle_id = "com.apple.mail"
+summary = "A draft in Apple Mail (AppleScript): a compose window with recipient, subject and body; it isn't sent."
+kind = "applescript"
+template = """
+tell application id "com.apple.mail"
+	set draft to make new outgoing message with properties {subject:"{subject}", content:"{body}", visible:true}
+	tell draft to make new to recipient at end of to recipients with properties {address:"{to}"}
+end tell
+"""
+params = ["to", "subject?", "body?"]
+
+[[recipe]]
+app = "messages"
+intent = "send"
+name = "Messages"
+bundle_id = "com.apple.MobileSMS"
+summary = "Send an iMessage to a phone number or address. It sends: only when the request says to send."
+kind = "applescript"
+template = """
+tell application id "com.apple.MobileSMS"
+	set targetService to 1st account whose service type = iMessage
+	send "{text}" to participant "{to}" of targetService
+end tell
+"""
+params = ["to", "text"]
+consequence = "send"
+
+[[recipe]]
+app = "notes"
+intent = "create"
+name = "Notes"
+bundle_id = "com.apple.Notes"
+summary = "Create a note in Apple Notes (its default folder) with a title and text."
+kind = "applescript"
+template = """
+tell application id "com.apple.Notes" to make new note with properties {name:"{title}", body:"{body}"}
+"""
+params = ["title", "body?"]
+
+[[recipe]]
+app = "reminders"
+intent = "create"
+name = "Reminders"
+bundle_id = "com.apple.reminders"
+summary = "Create a reminder in the default list, with optional notes."
+kind = "applescript"
+template = """
+tell application id "com.apple.reminders" to make new reminder with properties {name:"{title}", body:"{notes}"}
+"""
+params = ["title", "notes?"]
+
+[[recipe]]
+app = "reminders"
+intent = "create_due"
+name = "Reminders"
+bundle_id = "com.apple.reminders"
+summary = "Create a reminder due at a time (due: \"YYYY-MM-DD HH:MM\")."
+kind = "applescript"
+template = """
+tell application id "com.apple.reminders" to make new reminder with properties {name:"{title}", body:"{notes}", due date:(my hexDate({due|date}))}
+"""
+params = ["title", "due", "notes?"]
+
+[[recipe]]
+app = "calendar"
+intent = "create_event"
+name = "Calendar"
+bundle_id = "com.apple.iCal"
+summary = "Create an event in the first writable calendar (start and end: \"YYYY-MM-DD HH:MM\"). It invites nobody."
+kind = "applescript"
+template = """
+tell application id "com.apple.iCal"
+	tell (first calendar whose writable is true)
+		make new event with properties {summary:"{title}", start date:(my hexDate({start|date})), end date:(my hexDate({end|date})), location:"{location}"}
+	end tell
+end tell
+"""
+params = ["title", "start", "end", "location?"]
+
+[[recipe]]
+app = "finder"
+intent = "reveal"
+window = true
+name = "Finder"
+bundle_id = "com.apple.finder"
+summary = "Show a file or folder selected in a Finder window."
+kind = "reveal"
+template = "{path|path}"
+params = ["path"]
+
+[[recipe]]
+app = "system settings"
+intent = "open_pane"
+window = true
+name = "System Settings"
+bundle_id = "com.apple.systempreferences"
+summary = "Open a System Settings pane by its id, e.g. com.apple.preference.security?Privacy_Accessibility, com.apple.Network-Settings.extension, com.apple.BluetoothSettings, com.apple.Sound-Settings.extension, com.apple.Displays-Settings.extension."
+kind = "url"
+template = "x-apple.systempreferences:{pane|pane}"
+params = ["pane"]
+
+[[recipe]]
+app = "music"
+intent = "playpause"
+name = "Music"
+bundle_id = "com.apple.Music"
+summary = "Play or pause Apple Music."
+kind = "applescript"
+template = 'tell application id "com.apple.Music" to playpause'
+params = []
+
+[[recipe]]
+app = "music"
+intent = "next"
+name = "Music"
+bundle_id = "com.apple.Music"
+summary = "Next track in Apple Music."
+kind = "applescript"
+template = 'tell application id "com.apple.Music" to next track'
+params = []
+
+[[recipe]]
+app = "music"
+intent = "now_playing"
+name = "Music"
+bundle_id = "com.apple.Music"
+summary = "What Apple Music plays now (name and artist)."
+kind = "applescript"
+template = 'tell application id "com.apple.Music" to if player state is playing then return (name of current track) & " – " & (artist of current track)'
+params = []
+
+[[recipe]]
+app = "spotify"
+intent = "playpause"
+name = "Spotify"
+bundle_id = "com.spotify.client"
+summary = "Play or pause Spotify."
+kind = "applescript"
+template = 'tell application id "com.spotify.client" to playpause'
+params = []
+
+[[recipe]]
+app = "spotify"
+intent = "next"
+name = "Spotify"
+bundle_id = "com.spotify.client"
+summary = "Next track in Spotify."
+kind = "applescript"
+template = 'tell application id "com.spotify.client" to next track'
+params = []
+
+[[recipe]]
+app = "spotify"
+intent = "play_uri"
+name = "Spotify"
+bundle_id = "com.spotify.client"
+summary = "Play a Spotify URI (spotify:track:…, spotify:playlist:…)."
+kind = "applescript"
+template = 'tell application id "com.spotify.client" to play track "{uri}"'
+params = ["uri"]
+
+[[recipe]]
+app = "visual studio code"
+intent = "open"
+window = true
+name = "Visual Studio Code"
+bundle_id = "com.microsoft.VSCode"
+summary = "Open a folder or file in VS Code (the `code` CLI)."
+kind = "cli"
+template = "code"
+args = ["{path|path}"]
+params = ["path"]
+
+[[recipe]]
+app = "terminal"
+intent = "claude"
+window = true
+name = "Terminal"
+bundle_id = "com.apple.Terminal"
+summary = "A new Terminal window in a folder, running `claude` there."
+kind = "applescript"
+template = 'tell application id "com.apple.Terminal" to do script "cd {dir|shell} && claude"'
+params = ["dir"]
+
+[[recipe]]
+app = "ghostty"
+intent = "open"
+window = true
+name = "Ghostty"
+bundle_id = "com.mitchellh.ghostty"
+summary = "A new Ghostty window in a folder."
+kind = "cli"
+template = "/usr/bin/open"
+args = ["-na", "Ghostty", "--args", "--working-directory={dir|path}"]
+params = ["dir"]
+
+[[recipe]]
+app = "ghostty"
+intent = "claude"
+window = true
+name = "Ghostty"
+bundle_id = "com.mitchellh.ghostty"
+summary = "A new Ghostty window in a folder, running `claude` there."
+kind = "cli"
+template = "/usr/bin/open"
+args = ["-na", "Ghostty", "--args", "--working-directory={dir|path}", "-e", "claude"]
+params = ["dir"]
+
+[[recipe]]
+app = "shortcuts"
+intent = "run"
+name = "Shortcuts"
+bundle_id = "com.apple.shortcuts"
+summary = "Run one of the person's Shortcuts by its name."
+kind = "cli"
+template = "/usr/bin/shortcuts"
+args = ["run", "{shortcut}"]
+params = ["shortcut"]

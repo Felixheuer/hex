@@ -147,6 +147,27 @@ impl Store {
         })
     }
 
+    /// Hands `window_id` from `from` (which must hold it) to `to` in process
+    /// `pid` (the desk, held by Hex): the lease outlives `from`'s process.
+    pub fn hand_over(&self, window_id: &str, from: &str, to: &str, pid: u32, now_ms: u64) -> bool {
+        self.locked(|| {
+            let path = self.lease_path(window_id);
+            let Some(lease) = read_lease(&path).filter(|lease| lease.task == from) else {
+                return false;
+            };
+            let _ = std::fs::remove_file(&path);
+            let handed = LeaseFile {
+                task: to.to_owned(),
+                pid,
+                window_id: window_id.to_owned(),
+                app: lease.app,
+                since_ms: now_ms,
+                started: started_us(pid),
+            };
+            create_exclusive(&path, &handed).is_ok()
+        })
+    }
+
     /// Who holds `window_id` now, if anyone live does.
     pub fn holder(&self, window_id: &str) -> Option<LeaseFile> {
         read_lease(&self.lease_path(window_id)).filter(LeaseFile::live)

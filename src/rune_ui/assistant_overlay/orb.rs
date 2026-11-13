@@ -280,7 +280,8 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
     let done = board.results();
     let grow = look.grow;
     let mut parts: Vec<El> = Vec::new();
-    if !tasks.is_empty() || !board.pops.items.is_empty() || !done.is_empty() {
+    let desk = super::minis::any();
+    if !tasks.is_empty() || !board.pops.items.is_empty() || !done.is_empty() || desk {
         parts.push(orb(
             p,
             &tasks,
@@ -412,6 +413,10 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
                 actions.jobs,
             )
             .map(|rows| rows.transition(pop_in(grow))),
+        );
+        // The person's desk: what quick turns opened, live, until let go.
+        bubbles.extend(
+            super::minis::view(p, actions.list).map(|minis| minis.transition(pop_in(grow))),
         );
         bubbles.extend(results.iter().map(|(key, outcome)| {
             results::bubble(

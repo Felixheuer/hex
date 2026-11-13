@@ -155,6 +155,16 @@ pub(crate) fn left(before: &[(String, u32)], after: &[(String, u32)]) -> Vec<(St
         .collect()
 }
 
+/// Of the windows that `left`, those no task (nor the desk) has any more:
+/// only they come back on the screen. One a quick turn handed to the desk
+/// stays parked.
+pub(crate) fn released(gone: &[(String, u32)], after: &[(String, u32)]) -> Vec<u32> {
+    gone.iter()
+        .map(|(_, number)| *number)
+        .filter(|number| !after.iter().any(|(_, kept)| kept == number))
+        .collect()
+}
+
 /// Every live task's windows (task, its windows). New windows get a
 /// capture thread; windows that left stop theirs and come back on the
 /// screen if they hang off it.
@@ -185,6 +195,7 @@ pub(crate) fn track(tasks: &[(String, Vec<TaskWindow>)]) {
     if gone.is_empty() && before.len() == after.len() {
         return;
     }
+    let released = released(&gone, &after);
     for (task, number) in &gone {
         if let Some(preview) = registry
             .tasks
@@ -192,7 +203,9 @@ pub(crate) fn track(tasks: &[(String, Vec<TaskWindow>)]) {
             .and_then(|previews| previews.iter().find(|p| p.number == *number))
         {
             preview.stop.store(true, Ordering::Release);
-            bring_back(preview.window.clone());
+            if released.contains(number) {
+                bring_back(preview.window.clone());
+            }
         }
     }
     registry.tasks = next;
@@ -408,5 +421,15 @@ mod tests {
         let after = [("job".to_owned(), 40), ("other".to_owned(), 7)];
         assert_eq!(left(&before, &after), [("job".to_owned(), 12)]);
         assert!(left(&after, &after).is_empty());
+    }
+
+    #[test]
+    fn a_window_handed_to_the_desk_stays_parked() {
+        // The quick turn ended; its WhatsApp window (77) is the desk's now.
+        let before = [("turn".to_owned(), 77), ("turn".to_owned(), 12)];
+        let after = [("desk".to_owned(), 77)];
+        let gone = left(&before, &after);
+        assert_eq!(gone.len(), 2);
+        assert_eq!(released(&gone, &after), [12]);
     }
 }

@@ -135,7 +135,17 @@ impl<D: Desktop> Guard<D> {
             app: app.name.clone(),
             pid: data.get("pid").and_then(Value::as_i64),
         };
-        let mine = self.wait_for_window(&launched, &held_before);
+        let mut mine = self.wait_for_window(&launched, &held_before);
+        // An app that opens in full screen (its last state) leaves it, so
+        // its window is parked here, not a desktop of its own.
+        if self.full_screen(&app) && self.bring_here(&app).is_ok() {
+            let more = self.wait_for_window(&launched, &held_before);
+            for window in more {
+                if !mine.contains(&window) {
+                    mine.push(window);
+                }
+            }
+        }
         super::front::keep_front(before, launched.pid);
         // Out of the person's way now, before the task acts in it.
         self.place_arrivals();
@@ -144,15 +154,21 @@ impl<D: Desktop> Guard<D> {
         let note = if mine.is_empty() {
             "The app started but shows no window yet; wait with desktop_wait (event \
              window-opened). A window it opens soon becomes yours."
+                .to_owned()
+        } else if self.windows_to_desk(&mine) {
+            format!(
+                "The new window is yours: act in it by its id. {}",
+                super::DESK_NOTE
+            )
         } else {
-            "The new window is yours: act in it by its id."
+            "The new window is yours: act in it by its id.".to_owned()
         };
-        Ok(opened(&app, launched.pid, false, new_instance, mine, note))
+        Ok(opened(&app, launched.pid, false, new_instance, mine, &note))
     }
 
     /// The new windows `launched` shows within `window_wait` that are the
     /// task's now (not among `held_before`).
-    fn wait_for_window(
+    pub(super) fn wait_for_window(
         &mut self,
         launched: &Launched,
         held_before: &HashSet<String>,
@@ -181,28 +197,27 @@ impl<D: Desktop> Guard<D> {
     /// an app with no window at all is asked to reopen one, in the
     /// background. A window that wasn't in front goes out of the person's
     /// way like any the task opens (`place_arrivals`).
-    fn take_running(&mut self, app: &App) -> Value {
-        let pids = self.screen.app_pids(&app.path);
-        let full = self.config.front_window;
-        let of_app = |window: &Window| {
-            window.pid.is_some_and(|pid| pids.contains(&pid)) || same_app(&window.app, &app.name)
-        };
-        let mut on_screen: Vec<Window> = self
-            .list(Look::Check)
-            .unwrap_or_default()
-            .into_iter()
-            // The window in front is the person's unless they gave full
-            // control.
-            .filter(|window| window.visible && of_app(window) && (full || !window.focused))
-            .collect();
-        // Stable: front to back after the one in front.
-        on_screen.sort_by_key(|window| !window.focused);
-        let off_screen: Vec<Window> = self
-            .screen
-            .off_screen_windows()
-            .into_iter()
-            .filter(|window| of_app(window) && !on_screen.iter().any(|on| on.id == window.id))
-            .collect();
+    pub(super) fn take_running(&mut self, app: &App) -> Value {
+        let (mut pids, mut on_screen, mut off_screen) = self.windows_of(app);
+        // No window here but one elsewhere (another desktop, minimized, the
+        // app hidden): it is brought here first (`recover`), since a window
+        // on another desktop can be neither read nor operated.
+        let mut recovered = None;
+        let mut report = None;
+        let elsewhere = off_screen
+            .iter()
+            .any(|window| self.free_for_this_task(&window.id));
+        // A window in full screen is a desktop of its own: as unreachable.
+        let full_screen = !on_screen.is_empty() && self.full_screen(app);
+        if (on_screen.is_empty() && elsewhere) || full_screen {
+            match self.bring_here(app) {
+                Ok(step) => {
+                    recovered = Some(step);
+                    (pids, on_screen, off_screen) = self.windows_of(app);
+                }
+                Err(why) => report = Some(why),
+            }
+        }
         let pid = pids.first().copied().or_else(|| {
             on_screen
                 .iter()
@@ -215,7 +230,7 @@ impl<D: Desktop> Guard<D> {
             let taken =
                 self.store
                     .acquire(&self.config.task, self.pid, &window.id, &window.app, now);
-            if matches!(taken, Acquire::Taken(_)) {
+            if !self.usable(&taken) {
                 continue;
             }
             if taken == Acquire::Acquired && window.visible && !window.focused {
@@ -225,9 +240,18 @@ impl<D: Desktop> Guard<D> {
             let note = if window.focused {
                 "The app was already running and in front: its window is yours now (the person \
                  is looking at it). Act in it by its id."
+                    .to_owned()
+            } else if let (Some(step), true) = (recovered, window.visible) {
+                crate::assistant::actions::recovery::recovered_note(step).to_owned()
             } else if window.visible {
                 "The app was already running: its window is yours now, out of the person's way \
                  (they see it live on your card). Act in it by its id."
+                    .to_owned()
+            } else if let Some(why) = &report {
+                format!(
+                    "{why} (Its window on another desktop is held for you meanwhile; a snapshot \
+                     of it would time out, so don't retry one.)"
+                )
             } else {
                 "The app was already running with its window off this screen (on another \
                  desktop, minimized, or the app hidden): it is yours now. Act in it by its id; \
@@ -235,6 +259,12 @@ impl<D: Desktop> Guard<D> {
                  can't be read from here: if one snapshot finds nothing or times out, don't \
                  retry it; for the web use your own browser tools, for the app open a new \
                  window of it from its File menu."
+                    .to_owned()
+            };
+            let note = if !window.focused && window.visible && self.to_desk(&window.id) {
+                format!("{note} {}", super::DESK_NOTE)
+            } else {
+                note
             };
             let windows = vec![json!({
                 "id": window.id,
@@ -242,7 +272,7 @@ impl<D: Desktop> Guard<D> {
                 "title": window.title,
                 "on_screen": window.visible,
             })];
-            return opened(app, pid, true, false, windows, note);
+            return opened(app, pid, true, false, windows, &note);
         }
         let held_before: HashSet<String> = self
             .held()
@@ -265,6 +295,7 @@ impl<D: Desktop> Guard<D> {
             self.place_arrivals();
             self.notes.clear();
         }
+        let desk = self.windows_to_desk(&mine);
         let note = match (mine.is_empty(), taken_by_others) {
             (false, _) => {
                 "The app was already running without a window; it opened one, which is yours: \
@@ -279,7 +310,39 @@ impl<D: Desktop> Guard<D> {
                  with desktop_wait (event window-opened). Never start a second instance."
             }
         };
-        opened(app, pid, true, false, mine, note)
+        let note = if desk {
+            format!("{note} {}", super::DESK_NOTE)
+        } else {
+            note.to_owned()
+        };
+        opened(app, pid, true, false, mine, &note)
+    }
+
+    /// The processes of `app`, its windows on this screen (the one in front
+    /// only with full control; front to back), and its windows elsewhere.
+    fn windows_of(&mut self, app: &App) -> (Vec<i64>, Vec<Window>, Vec<Window>) {
+        let pids = self.screen.app_pids(&app.path);
+        let full = self.config.front_window;
+        let of_app = |window: &Window| {
+            window.pid.is_some_and(|pid| pids.contains(&pid)) || same_app(&window.app, &app.name)
+        };
+        let mut on_screen: Vec<Window> = self
+            .list(Look::Check)
+            .unwrap_or_default()
+            .into_iter()
+            // The window in front is the person's unless they gave full
+            // control.
+            .filter(|window| window.visible && of_app(window) && (full || !window.focused))
+            .collect();
+        // Stable: front to back after the one in front.
+        on_screen.sort_by_key(|window| !window.focused);
+        let off_screen: Vec<Window> = self
+            .screen
+            .off_screen_windows()
+            .into_iter()
+            .filter(|window| of_app(window) && !on_screen.iter().any(|on| on.id == window.id))
+            .collect();
+        (pids, on_screen, off_screen)
     }
 
     fn app_blocked(&mut self, app: &App) -> bool {
