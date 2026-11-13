@@ -261,7 +261,7 @@ fn card<S: 'static>(
         + previews.len()
         + helpers
             .iter()
-            .map(|helper| live::previews(&helper.id).len() + app_live::previews(&helper.id).len())
+            .map(|helper| super::pictures::count(&helper.id))
             .sum::<usize>();
     let wall = wants_wall(all, apps_shown + shown).then(|| {
         let id = task.id.clone();

@@ -24,10 +24,11 @@ use rune::{Cx, El, Icon, col, el, icon, row, text};
 use rune_kit::{IconButton, IconButtonVariant};
 
 use super::super::controls::Paint;
-use super::app_live::{self, AppPreview};
+use super::app_live;
 use super::board::{Board, Phase, Task};
-use super::live::{self, Preview};
+use super::live;
 use super::minis::{self, Desk};
+use super::pictures::{self, Picture};
 use super::{orb, palette};
 use crate::desktop::i18n::{tr, tr_fill};
 
@@ -220,12 +221,6 @@ pub(crate) fn scrolling_grid(n: usize, groups: usize, room: (f32, f32)) -> Grid 
     }
 }
 
-/// One picture on the wall.
-pub(crate) enum Picture {
-    Browser(std::sync::Arc<Preview>),
-    App(std::sync::Arc<AppPreview>),
-}
-
 /// One picture and whose it is: a task on the board, or the desk's.
 pub(crate) struct Tile<'a> {
     /// The task its stream belongs to (the desk's own id for its windows).
@@ -245,19 +240,10 @@ pub(crate) struct Group<'a> {
 fn team_tiles<'a>(board: &'a Board, lead: &str) -> Vec<Tile<'a>> {
     let mut tiles = Vec::new();
     for task in team(board, lead) {
-        tiles.extend(
-            app_live::previews(&task.id)
-                .into_iter()
-                .map(|preview| Tile {
-                    owner: task.id.clone(),
-                    task: Some(task),
-                    picture: Picture::App(preview),
-                }),
-        );
-        tiles.extend(live::previews(&task.id).into_iter().map(|preview| Tile {
+        tiles.extend(pictures::of(&task.id).into_iter().map(|picture| Tile {
             owner: task.id.clone(),
             task: Some(task),
-            picture: Picture::Browser(preview),
+            picture,
         }));
     }
     tiles

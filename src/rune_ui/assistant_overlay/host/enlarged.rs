@@ -11,8 +11,9 @@ use rune::{
 use super::super::app_live;
 use super::super::board::Board;
 use super::super::enlarged::{self, Enlarged};
-use super::super::live::{self, Viewer};
+use super::super::live;
 use super::super::live_card::Actions;
+use super::super::pictures;
 use super::{FADE, OVERLAYS, leave_out_of_mission_control, open_chats, options};
 
 /// How far below the top of the display the card hangs.
@@ -76,7 +77,7 @@ pub(super) fn open(board: &Board, task: &str, session: &str) {
     let Some(overlays) = OVERLAYS.get() else {
         return;
     };
-    view(task, session);
+    pictures::view(Some((task, session)));
     let (board, task, session) = (board.clone(), task.to_owned(), session.to_owned());
     overlays.enlarged.update(move |state, _| {
         enlarged::open(state, &task, &session, &board);
@@ -90,29 +91,13 @@ pub(super) fn open(board: &Board, task: &str, session: &str) {
 /// and hides the panel (which gives the keyboard back).
 fn close(state: &mut Enlarged) {
     if enlarged::close(state) {
-        live::view(Viewer::Overlay, None);
-        app_live::view(None);
+        pictures::view(None);
     }
     if let Some(overlays) = OVERLAYS.get() {
         overlays.enlarged.fade_out(FADE);
     }
     if SHOWN.swap(false, std::sync::atomic::Ordering::AcqRel) {
         super::wall::refocus();
-    }
-}
-
-/// Streams what the card shows: a browser from `live`, an app window from
-/// `app_live`.
-fn view(task: &str, session: &str) {
-    match app_live::number_of(session) {
-        Some(number) => {
-            live::view(Viewer::Overlay, None);
-            app_live::view(Some((task, number)));
-        }
-        None => {
-            app_live::view(None);
-            live::view(Viewer::Overlay, Some((task, session)));
-        }
     }
 }
 

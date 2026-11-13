@@ -574,8 +574,7 @@ fn show_cards(orb: &Orb) {
             carded.extend(desk.browsers);
         }
     }
-    super::live::cards(&carded);
-    super::app_live::cards(&carded);
+    super::pictures::cards(&carded);
 }
 
 /// The pointer came onto task `id`'s row in the list, or left it: its

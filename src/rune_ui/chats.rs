@@ -683,8 +683,7 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
     } else {
         Vec::new()
     };
-    super::assistant_overlay::live::window(&live);
-    super::assistant_overlay::app_live::window(&live);
+    super::assistant_overlay::pictures::window(&live);
     ui.chats.follow.landed = false;
     if !showing {
         // Read again when it next shows.

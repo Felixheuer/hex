@@ -412,45 +412,38 @@ fn actions(pane: &ChatsPane, p: Paint, id: &str, selected: bool) -> Vec<El> {
 /// (a browser in the live sheet, a window in the overlay's card).
 fn browsers(p: Paint, id: &str) -> Option<El> {
     use super::super::assistant_overlay::app_live;
-    let apps = app_live::previews(id);
-    let previews = super::super::assistant_overlay::live::previews(id);
+    use super::super::assistant_overlay::pictures::{self, Picture};
     let c = &p.k.c;
-    let tile = |key: String, pixels: &rune::Pixels| {
-        el().key(key)
-            .size(THUMB_W, THUMB_H)
-            .radius(6.0)
-            .fill(c.layer_02)
-            .border(p.hair, p.k.alpha(c.text_base, 0.14))
-            .pixels_fit(pixels, rune::SurfaceFit::Fill)
-            .role("button")
-            .label(tr("Open live"))
-    };
-    let mut tiles: Vec<El> = apps
-        .iter()
-        .filter(|preview| preview.has_frame())
+    let tiles: Vec<El> = pictures::of(id)
+        .into_iter()
+        .filter(Picture::has_frame)
         .take(LIVE_TILES)
-        .map(|preview| {
-            let (task, number) = (id.to_owned(), preview.number);
-            tile(format!("app-{number}"), &preview.pixels).on_press(move |_: &mut Ui| {
-                app_live::show(&task, number);
-            })
+        .map(|picture| {
+            let tile = el()
+                .size(THUMB_W, THUMB_H)
+                .radius(6.0)
+                .fill(c.layer_02)
+                .border(p.hair, p.k.alpha(c.text_base, 0.14))
+                .pixels_fit(picture.pixels(), rune::SurfaceFit::Fill)
+                .role("button")
+                .label(tr("Open live"));
+            let task = id.to_owned();
+            match picture {
+                Picture::App(preview) => {
+                    let number = preview.number;
+                    tile.key(format!("app-{number}"))
+                        .on_press(move |_: &mut Ui| app_live::show(&task, number))
+                }
+                Picture::Browser(preview) => {
+                    let session = preview.session.clone();
+                    tile.key(format!("browser-{session}"))
+                        .on_press(move |ui: &mut Ui| {
+                            super::live_view::open(ui, task.clone(), session.clone());
+                        })
+                }
+            }
         })
         .collect();
-    let room = LIVE_TILES.saturating_sub(tiles.len());
-    tiles.extend(
-        previews
-            .iter()
-            .filter(|preview| preview.has_frame())
-            .take(room)
-            .map(|preview| {
-                let (task, session) = (id.to_owned(), preview.session.clone());
-                tile(format!("browser-{}", preview.session), &preview.pixels).on_press(
-                    move |ui: &mut Ui| {
-                        super::live_view::open(ui, task.clone(), session.clone());
-                    },
-                )
-            }),
-    );
     if tiles.is_empty() {
         return None;
     }
