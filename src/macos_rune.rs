@@ -509,17 +509,11 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     // The assistant: the frame, window outlines, task stack, and quick
     // answer; hidden, without windows, until the assistant reports work.
     crate::rune_ui::assistant_overlay::install(&mut app);
-    // Its task stack and "Show in Assistant" open the conversation in the
-    // Assistant pane.
-    crate::rune_ui::assistant_overlay::set_open_chats(|id| open_chat(Some(id.to_owned())));
-    // A hold of the Action shortcut before setup says "Finish setting up the
-    // assistant first" and opens the setup; the bubble's "Continue setup"
-    // opens it too.
-    crate::rune_ui::assistant_overlay::set_open_setup(open_assistant_setup);
-    crate::recognition::ask::set_open_setup(|| {
-        crate::rune_ui::assistant_overlay::setup_needed();
-        open_assistant_setup();
-    });
+    // Its ways to the window, on every OS: only presses the person makes
+    // (the stage's "Open in Agent-Desk", Continue setup, Fix all…); a hold
+    // before setup, a notification's click, and Turn on stay on the
+    // overlays.
+    crate::rune_ui::window_link::wire_assistant();
     // The capture capsule, picker, and ink.
     #[cfg(hex_capture)]
     let capture_overlays =
@@ -626,6 +620,13 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
         });
     }
     app.run();
+    // A job's agent and its guard (this executable) must not outlive the app:
+    // macOS would take the guard for a running Agent-Desk and refuse to open
+    // it again. The jobs resume at the next start.
+    let ended = crate::assistant::provider::orphans::end_own();
+    if ended > 0 {
+        tracing::info!(ended, "ended the running agents as Agent-Desk quits");
+    }
 
     PUMP.with(|slot| {
         if let Some(state) = slot.borrow_mut().take() {
@@ -813,20 +814,27 @@ pub(crate) fn open_chat(conversation: Option<String>) {
     });
 }
 
-/// Opens the window on Assistant settings, in front. Any thread.
-pub(crate) fn open_assistant_settings() {
+/// The overlay's repair card's Fix all…: the guide, the window in front.
+/// Any thread.
+pub(crate) fn open_repair() {
     with_window(|window| {
         window.update(|ui, tx| {
-            crate::rune_ui::show(ui, Destination::AssistantSettings, tx);
+            crate::rune_ui::repair_asked(ui, true, tx);
             bring_window_forward();
         });
     });
 }
 
+/// Changes the window's state without opening it (Turn on, Later). Any
+/// thread.
+pub(crate) fn update_window(change: fn(&mut Ui, &mut rune::Tx)) {
+    with_window(|window| window.update(change));
+}
+
 /// Opens the onboarding where it was left, the window in front: the voice
 /// first run while that isn't done, else the assistant's pages at their
-/// saved page (a hold of the Action shortcut before setup finished, or the
-/// bubble's "Continue setup"). Any thread.
+/// saved page (the bubble's "Continue setup", Fix for what only the setup
+/// repairs). Any thread.
 pub(crate) fn open_assistant_setup() {
     with_window(|window| {
         window.update(|ui, tx| {

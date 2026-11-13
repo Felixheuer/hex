@@ -599,6 +599,25 @@ pub(super) fn open_setup(ui: &mut Ui) {
     setup::open(ui);
 }
 
+/// "Turn on" on a quick turn that failed because the assistant is off: the
+/// switch, as Settings' row turns it (the window isn't opened for it).
+pub(super) fn turn_on(ui: &mut Ui) {
+    switch::set(ui, true);
+}
+
+/// The overlay's repair card: Fix all… opens the guide in Chats (the
+/// caller brings the window forward), Later puts it off.
+pub(super) fn repair(ui: &mut Ui, fix_all: bool, tx: &mut Tx) {
+    if !fix_all {
+        setup::repair::later(ui);
+        return;
+    }
+    if ui.pane != Pane::Chats {
+        ui.select_pane(Pane::Chats, tx);
+    }
+    setup::repair::fix_all(ui, tx);
+}
+
 /// A hold of the Action shortcut before setup finished: the onboarding
 /// where it was left (or as it is, when it shows), saying so.
 pub(super) fn open_setup_from_hold(ui: &mut Ui, tx: &mut Tx) {

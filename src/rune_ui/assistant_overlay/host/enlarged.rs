@@ -11,10 +11,9 @@ use rune::{
 use super::super::app_live;
 use super::super::board::Board;
 use super::super::enlarged::{self, Enlarged};
-use super::super::live;
 use super::super::live_card::Actions;
 use super::super::pictures;
-use super::{FADE, OVERLAYS, leave_out_of_mission_control, open_chats, options};
+use super::{FADE, OVERLAYS, leave_out_of_mission_control, options};
 
 /// How far below the top of the display the card hangs.
 const MARGIN: f32 = 64.0;
@@ -62,9 +61,15 @@ pub(super) fn install<S: 'static>(app: &mut rune::App<S>) -> OverlayHandle<Enlar
                 }
                 crate::assistant::service::hand_back(id);
             },
-            open_chats: Some(|state, task, session| {
-                live::request_view(task, session);
-                open_chats(task);
+            what_it_did: Some(|state, task, _| {
+                // Its steps on the stage; the window stays closed.
+                let task = task.to_owned();
+                if let Some(overlays) = OVERLAYS.get() {
+                    overlays.orb.update_if(move |orb, _| {
+                        super::stage::show_steps(&orb.board, &task);
+                        false
+                    });
+                }
                 close(state);
             }),
         }),
@@ -87,7 +92,7 @@ pub(super) fn open(board: &Board, task: &str, session: &str) {
     overlays.enlarged.request_keys();
 }
 
-/// × , Escape, or Show in Assistant: closes the card, stops its large stream,
+/// × , Escape, or What it did: closes the card, stops its large stream,
 /// and hides the panel (which gives the keyboard back).
 fn close(state: &mut Enlarged) {
     if enlarged::close(state) {

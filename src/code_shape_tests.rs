@@ -412,3 +412,236 @@ fn prefix_families_and_size_ceilings_are_enforced() {
     let exceeded = check_hard_violations(&files, &lines, "src/big.rs 1599\n", "src/foo_* 1\n");
     assert_eq!(exceeded.len(), 2, "{exceeded:?}");
 }
+
+/// Every place that opens or raises Agent-Desk's window, by file and the
+/// function the call is in: explicit asks only (docs/ux/redesign.md §5).
+/// Everything the assistant shows by itself goes to the overlays (the
+/// stage, the bubble, the repair card). A new caller fails this test until
+/// it's added here with why the person asked for the window.
+const WINDOW_OPENERS: &[(&str, &str, &str)] = &[
+    // The openers themselves.
+    ("src/rune_ui/window_link.rs", "open_chat", "the opener"),
+    (
+        "src/rune_ui/window_link.rs",
+        "open_assistant_setup",
+        "the opener",
+    ),
+    ("src/rune_ui/window_link.rs", "open_repair", "the opener"),
+    ("src/macos_rune.rs", "open_chat", "the opener"),
+    ("src/macos_rune.rs", "open_assistant_setup", "the opener"),
+    ("src/macos_rune.rs", "open_repair", "the opener"),
+    ("src/macos_rune.rs", "bring_forward", "the opener"),
+    ("src/macos_rune.rs", "show", "the opener"),
+    ("src/macos_rune.rs", "show_update_check", "the opener"),
+    ("src/macos_rune.rs", "show_settings", "the opener"),
+    // The assistant's explicit asks.
+    (
+        "src/rune_ui/window_link.rs",
+        "wire_assistant",
+        "the stage's Open in Agent-Desk (behind ⋯), Continue setup, the repair card's Fix all…",
+    ),
+    (
+        "src/rune_ui/window_link.rs",
+        "notification_clicked",
+        "a notification's own Open Agent-Desk action (its click goes to the stage)",
+    ),
+    // The menu bar, the Dock, the CLI, links: the person asked.
+    ("src/macos_rune.rs", "status_action", "menu bar items"),
+    (
+        "src/macos_rune.rs",
+        "handle_reopen",
+        "a Dock click or reopening the app",
+    ),
+    (
+        "src/macos_rune.rs",
+        "start_main_thread",
+        "no menu bar item could be made: the window is the only way in",
+    ),
+    (
+        "src/macos_rune.rs",
+        "developer",
+        "`agent-desk dev` pane commands",
+    ),
+    (
+        "src/macos_rune/control.rs",
+        "show_window",
+        "`agent-desk window show`",
+    ),
+    (
+        "src/macos_rune/control.rs",
+        "show_story",
+        "`agent-desk window story`",
+    ),
+    (
+        "src/macos_rune/control.rs",
+        "answer",
+        "`agent-desk onboarding reset`",
+    ),
+    (
+        "src/rune_ui.rs",
+        "on_open_url",
+        "an agent-desk:// link the person opened",
+    ),
+    (
+        "src/windows/rune.rs",
+        "create_tray",
+        "tray items, or no tray",
+    ),
+    (
+        "src/windows/rune.rs",
+        "show_window",
+        "`agent-desk window show`",
+    ),
+    (
+        "src/windows/rune.rs",
+        "onboarding_reset",
+        "`agent-desk onboarding reset`",
+    ),
+    // Meetings (not the assistant): a capsule's Open, and failures the
+    // window explains. Outside this pass; they stay as they are.
+    (
+        "src/macos_rune.rs",
+        "controller_event",
+        "meetings: Open on a capsule, a failed recording",
+    ),
+    (
+        "src/meeting/runtime.rs",
+        "follow",
+        "meetings: Open on a capsule, a failed recording",
+    ),
+    (
+        "src/meeting/runtime.rs",
+        "offer_unshown",
+        "meetings: an offer that couldn't show",
+    ),
+];
+
+/// The callers of the window's openers in `text` (a source file), as
+/// (function, call): `open_chat(`, `bring_window_forward(`, `window.open()`,
+/// `show(&self.window`, and their kin; definitions, comments, and test
+/// modules aside.
+fn window_openers(text: &str) -> Vec<(String, String)> {
+    const CALLS: &[&str] = &[
+        "open_chat(",
+        "open_assistant_setup(",
+        "open_repair(",
+        "bring_window_forward(",
+        "bring_forward(",
+        "show_update_check(",
+        "show(&self.window",
+        "show(&pump.window",
+        "show(window,",
+        "window.open()",
+    ];
+    let lines: Vec<&str> = text.lines().collect();
+    let mut found = Vec::new();
+    let mut within: Option<String> = None;
+    for (at, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("#[cfg(test)]")
+            && lines
+                .get(at + 1)
+                .is_some_and(|next| next.trim().starts_with("mod ") && next.trim().ends_with('{'))
+        {
+            break;
+        }
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        if let Some((before, rest)) = line.split_once("fn ")
+            && (before.is_empty() || before.ends_with(' ') || before.ends_with('('))
+        {
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !name.is_empty() {
+                within = Some(name);
+            }
+        }
+        for call in CALLS {
+            let mut from = 0;
+            while let Some(found_at) = line[from..].find(call) {
+                let start = from + found_at;
+                from = start + call.len();
+                let before = line[..start].chars().next_back();
+                let part_of_a_name = before.is_some_and(|c| c.is_alphanumeric() || c == '_');
+                let defined = line[..start].ends_with("fn ");
+                if part_of_a_name || defined {
+                    continue;
+                }
+                found.push((within.clone().unwrap_or_default(), (*call).to_owned()));
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn only_explicit_entry_points_open_the_window() {
+    fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                out.push(path);
+            }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+    walk(&root.join("src"), &mut files);
+    let allowed: BTreeSet<(&str, &str)> = WINDOW_OPENERS
+        .iter()
+        .map(|(file, function, _)| (*file, *function))
+        .collect();
+    let mut seen = BTreeSet::new();
+    let mut unexpected = Vec::new();
+    for path in files {
+        let relative = path
+            .strip_prefix(root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        if is_test(&relative) || relative == "src/code_shape_tests.rs" {
+            continue;
+        }
+        let text = fs::read_to_string(&path).unwrap();
+        for (function, call) in window_openers(&text) {
+            if allowed.contains(&(relative.as_str(), function.as_str())) {
+                seen.insert((relative.clone(), function));
+            } else {
+                unexpected.push(format!("{relative}: {function} calls {call}"));
+            }
+        }
+    }
+    assert!(
+        unexpected.is_empty(),
+        "the window opens only when the person asks; these callers aren't on the allow-list \
+         (WINDOW_OPENERS): send what they show to the overlays, or add them with why:\n{}",
+        unexpected.join("\n")
+    );
+    let stale: Vec<_> = allowed
+        .iter()
+        .filter(|(file, function)| !seen.contains(&((*file).to_owned(), (*function).to_owned())))
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "allow-list entries no longer used: {stale:?}"
+    );
+}
+
+#[test]
+fn the_opener_scan_finds_calls_and_skips_definitions_and_comments() {
+    let source = "fn open_chat(conversation: Option<String>) {\n    window.open();\n}\n\
+        fn later() {\n    // open_chat(None) in a comment\n    crate::rune_ui::window_link::open_chat(None);\n    reopen_chat(x);\n}\n\
+        #[cfg(test)]\nmod tests {\n    fn t() { open_chat(None); }\n}\n";
+    assert_eq!(
+        window_openers(source),
+        [
+            ("open_chat".to_owned(), "window.open()".to_owned()),
+            ("later".to_owned(), "open_chat(".to_owned()),
+        ]
+    );
+}

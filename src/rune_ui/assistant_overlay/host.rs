@@ -13,6 +13,10 @@
 //!   or after a press opened its list (Escape and a click outside fold it).
 //! - The Here question's bubble, just past the dictation HUD, and the
 //!   "Finish setting up" bubble in its place ([`setup_needed`]).
+//! - The stage ([`stage`]): long answers, results with what they name to
+//!   open, What it did, and the repair card, under the island. The window
+//!   opens only from its "Open in Agent-Desk" (behind ⋯), "Continue
+//!   setup", and Fix for what only the setup repairs: presses.
 //! - The hint past the HUD while the Action shortcut is held, and the
 //!   "Hands off" pill while a task moves the real pointer (Esc stops it).
 //!
@@ -27,6 +31,7 @@ mod displays;
 mod enlarged;
 mod follow;
 mod orb_panel;
+mod stage;
 mod wall;
 mod watcher;
 
@@ -62,6 +67,14 @@ use answer::{
 };
 use follow::{drag_orb, place_orb, place_past_hud};
 pub(crate) use orb_panel::toggle_tasks;
+pub(crate) use stage::{needs_repair, show_result, takes as stage_takes};
+#[cfg(test)]
+pub(crate) fn projected() -> Vec<String> {
+    stage::PROJECTED
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone()
+}
 use orb_panel::{
     ask_again, board_changed, fold, hover_task, orb_event, orb_focus, orb_key, orb_poll, rearm,
     reply_edit, retry, send_reply, start_reply, toggle_pressed,
@@ -84,6 +97,8 @@ struct Overlays {
     enlarged: OverlayHandle<super::enlarged::Enlarged>,
     /// Every browser of a job and its helpers, live (`wall`).
     wall: OverlayHandle<super::wall::Wall>,
+    /// Long answers and results, projected (`stage`).
+    stage: OverlayHandle<super::stage::Stage>,
 }
 
 static OVERLAYS: OnceLock<Overlays> = OnceLock::new();
@@ -94,33 +109,82 @@ static OPEN_CHATS: OnceLock<OpenChats> = OnceLock::new();
 /// Opens the assistant's setup; set by whoever owns it ([`set_open_setup`]).
 type OpenSetup = Box<dyn Fn() + Send + Sync>;
 static OPEN_SETUP: OnceLock<OpenSetup> = OnceLock::new();
+/// Turns the assistant on, in place ([`set_turn_on`]).
+static TURN_ON: OnceLock<OpenSetup> = OnceLock::new();
+/// The repair card's Fix all… and Later ([`set_repair`]).
+type RepairHook = Box<dyn Fn(Repair) + Send + Sync>;
+static REPAIR: OnceLock<RepairHook> = OnceLock::new();
 
-/// Lets the Assistant pane open a conversation when a row, a bubble, or the
-/// Here bubble's "Show in Assistant" is pressed. Called on the main thread
-/// with the conversation's id. Until it's set, a press brings the window
-/// forward.
+/// What the repair card asks of the window's owner.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Repair {
+    /// The guide for all of it, in the window: the person asked.
+    FixAll,
+    /// Put off until Agent-Desk next starts.
+    Later,
+}
+
+/// What "Open in Agent-Desk" (behind ⋯ on the stage) does: the Assistant
+/// pane on that conversation. It is the overlays' only way into the
+/// window; nothing opens it by itself. Called on the main thread.
 pub(crate) fn set_open_chats(open: impl Fn(&str) + Send + Sync + 'static) {
     let _ = OPEN_CHATS.set(Box::new(open));
 }
 
-/// What "Continue setup" on the "Finish setting up" bubble does (the same
-/// as the trigger's own hook). Called on the main thread. Until it's set,
-/// a press brings Agent-Desk's window forward.
+/// What "Continue setup" on the "Finish setting up" bubble (and Fix on
+/// what only the setup repairs) does: a press, so it may open the window.
+/// Called on the main thread.
 pub(crate) fn set_open_setup(open: impl Fn() + Send + Sync + 'static) {
     let _ = OPEN_SETUP.set(Box::new(open));
+}
+
+/// What "Turn on" on a quick turn that failed because the assistant is
+/// off does: switches it on without opening the window.
+pub(crate) fn set_turn_on(on: impl Fn() + Send + Sync + 'static) {
+    let _ = TURN_ON.set(Box::new(on));
+}
+
+/// What the repair card's Fix all… and Later do (the guide lives in the
+/// window's state).
+pub(crate) fn set_repair(repair: impl Fn(Repair) + Send + Sync + 'static) {
+    let _ = REPAIR.set(Box::new(repair));
 }
 
 fn open_chats(id: &str) {
     match OPEN_CHATS.get() {
         Some(open) => open(id),
-        None => crate::rune_ui::window_link::bring_forward(),
+        None => tracing::debug!("Open in Agent-Desk before the window could open"),
     }
 }
 
 fn open_setup() {
     match OPEN_SETUP.get() {
         Some(open) => open(),
-        None => crate::rune_ui::window_link::bring_forward(),
+        None => tracing::debug!("Continue setup before the setup could open"),
+    }
+}
+
+fn turn_on() {
+    match TURN_ON.get() {
+        Some(on) => on(),
+        None => tracing::debug!("Turn on before the settings could change"),
+    }
+}
+
+fn repair_hook(ask: Repair) {
+    if let Some(repair) = REPAIR.get() {
+        repair(ask);
+    }
+}
+
+/// The bubble's Fix: what the failure needs, in place when it can be (the
+/// agent's sign-in, a permission's pane), else the setup at that page.
+fn fix_failure(state: &BubbleOverlay) {
+    use super::failure::Failure;
+    use super::stage::InPlace;
+    match state.bubble.as_ref().and_then(|bubble| bubble.failure) {
+        Some(Failure::SignIn) => stage::fix_in_place(InPlace::SignIn),
+        _ => open_setup(),
     }
 }
 
@@ -225,14 +289,31 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
                             rearm();
                         },
                         expand: |orb, key| {
-                            let open = orb.open_result != Some(key);
-                            if orb.board.pops.hold(key, open, Instant::now()) {
-                                orb.open_result = open.then_some(key);
+                            // More: the whole result, projected on the stage.
+                            let task = orb
+                                .board
+                                .pops
+                                .items
+                                .iter()
+                                .find(|pop| pop.key == key)
+                                .map(|pop| pop.task.clone());
+                            match task.and_then(|id| stage::result_of(&orb.board, &id)) {
+                                Some(panel) => stage::show(panel),
+                                None => {
+                                    let open = orb.open_result != Some(key);
+                                    if orb.board.pops.hold(key, open, Instant::now()) {
+                                        orb.open_result = open.then_some(key);
+                                    }
+                                }
                             }
                             rearm();
                         },
                         recall: |orb, id| {
-                            if let Some(key) = orb.board.recall(id, Instant::now()) {
+                            // A press in the Done group re-projects it.
+                            if let Some(panel) = stage::result_of(&orb.board, id) {
+                                stage::show(panel);
+                                fold(orb);
+                            } else if let Some(key) = orb.board.recall(id, Instant::now()) {
                                 orb.open_result = Some(key);
                                 fold(orb);
                             }
@@ -274,15 +355,23 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             actions: bubble::Actions {
                 dismiss: dismiss_bubble,
                 open: |state, id| {
-                    open_chats(id);
+                    // More: the whole answer on the stage, not the window.
+                    if let Some(bubble) = state.bubble.as_ref().filter(|b| b.conversation == id) {
+                        stage::show_answer(id, &bubble.question, bubble.answer.trim());
+                    }
                     dismiss_bubble(state);
                 },
                 setup: |state| {
-                    open_setup();
+                    if state.setup.is_some() {
+                        open_setup();
+                    } else {
+                        fix_failure(state);
+                    }
                     dismiss_bubble(state);
                 },
                 settings: |state| {
-                    crate::rune_ui::window_link::open_assistant_settings();
+                    // Turn on: in place; the window stays where it is.
+                    turn_on();
                     dismiss_bubble(state);
                 },
                 retry: |state, id, asked| {
@@ -307,6 +396,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
     // The wall first: a tile pressed opens the enlarged card above it.
     let wall = wall::install(app);
     let enlarged = enlarged::install(app);
+    let stage = stage::install(app);
     let _ = OVERLAYS.set(Overlays {
         frames,
         outlines,
@@ -317,6 +407,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         listening,
         enlarged,
         wall,
+        stage,
     });
     // Tasks already running when Agent-Desk started listening.
     if let Some(overlays) = OVERLAYS.get() {

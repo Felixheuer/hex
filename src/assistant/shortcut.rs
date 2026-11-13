@@ -65,9 +65,9 @@ pub(crate) fn toggle_tasks() {
 static OPEN_SETUP: Mutex<Option<Hook>> = Mutex::new(None);
 
 /// Sets what a hold of the Action shortcut does while the assistant's setup
-/// isn't finished: open the onboarding at its saved page, and have the HUD
-/// say "Finish setting up the assistant first". Nothing is recorded or
-/// asked. It is called on the listener's thread, so post to your own and
+/// isn't finished: the bubble says "Finish setting up the assistant first"
+/// (or what went missing) with Continue setup; the window stays shut until
+/// that's pressed. Nothing is recorded or asked. It is called on the listener's thread, so post to your own and
 /// return at once; until it is set, such a hold does nothing.
 // Called by the app (`rune_ui::window_link`) as it starts.
 pub(crate) fn set_open_setup(open: impl Fn() + Send + Sync + 'static) {

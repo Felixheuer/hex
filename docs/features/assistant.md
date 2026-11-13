@@ -88,8 +88,9 @@ job's status, a failure) goes through the interface's translations in the
 language of what was said (`assistant::lines`, `desktop::i18n::tr_in`),
 never a word list of its own. Every message, menu, and button that sends
 people to the window names the sidebar's panes from one constant each
-(`lines::ASSISTANT`, `lines::ASSISTANT_SETTINGS`): "Show in Assistant",
-"Assistant…" in the menu bar and tray, "… in Assistant settings".
+(`lines::ASSISTANT`, `lines::ASSISTANT_SETTINGS`): "Open in Agent-Desk"
+behind ⋯ on the stage, "Open Agent-Desk" in the menu bar and tray, "… in
+Assistant settings".
 
 ## When a quick turn fails
 
@@ -423,7 +424,7 @@ Stop all tasks -> its key swallowed (repeats and release too), once per press;
 Escape -> taken (down, repeats, up) only while shortcut::claims_escape(bound,
     nothing records), refreshed every loop turn; shortcut::escape()
 Tray (shared tray_menu, Windows) -> while assistant::enabled: Stop all tasks
-    (disabled under its own id while nothing runs) and Assistant…
+    (disabled under its own id while nothing runs) and Open Agent-Desk
 ```
 
 Checks: `an_action_hold_asks_here`,
@@ -436,7 +437,7 @@ Checks: `an_action_hold_asks_here`,
 [windows/input.rs](../../src/windows/input.rs) (compile-checked from Linux,
 not run); `tray_menu_ids_round_trip_and_show_the_state` in
 [desktop/tray_menu.rs](../../src/desktop/tray_menu.rs). Not yet observed: any
-of it on Windows. Assistant… opens the window on the Assistant pane
+of it on Windows. Open Agent-Desk opens the window on the Assistant pane
 (`rune_ui::show` with `Destination::Chats`).
 
 ## The Assistant pane and Assistant settings
@@ -455,9 +456,49 @@ routes it), or, after a click on an entry, replies to it or steers it
 a line). Answers render as Markdown, streaming while `AnswerDelta`s arrive.
 The entry showing is named with `assistant::set_focus` and cleared when the
 pane or window goes. `agent-desk://chats?id=<conversation>`, the menu bar's and
-tray's "Assistant…", a notification's click, and "Show in Assistant" on the
-overlays (`assistant_overlay::set_open_chats` → `window_link::open_chat`)
-open it.
+tray's "Open Agent-Desk", a notification's own "Open Agent-Desk" action, and
+"Open in Agent-Desk" behind ⋯ on the overlay's stage
+(`assistant_overlay::set_open_chats` → `window_link::open_chat`) open it.
+
+### The window recedes: the stage
+
+The window opens only when the person asks (docs/ux/redesign.md §5).
+Everything the assistant shows by itself is projected on the overlays, on
+the **stage** under the island (`assistant_overlay/stage.rs`,
+`host/stage.rs`, 640 wide, on the display under the pointer):
+
+- A long Here answer: the bubble's **More** projects it in full (Markdown,
+  scrolling with the wheel, ↑ ↓ and Space; never cut), with Copy, Save as
+  note (`~/Documents/Agent-Desk Notes`, shown in Finder), pin, and what it
+  names to open.
+- A job's result (a notification's click, More on its result bubble, a
+  press in the orb's Done group): the headline, the rest as a preview, its
+  files, folders, and links as rows with their verbs (Open, Show, Open in
+  Finder, Open link), What it did (its steps, and the job's own log file),
+  Try again on a failure.
+- What it did on the enlarged live card (its steps, not the window).
+- The repair check (every five minutes) never switches the window to the
+  guide: a small card says what's missing again, once per new set, with the
+  fix it can do in place (one System Settings pane, the agent's sign-in),
+  Later, and Fix all… (the guide, in the window: a press).
+- A hold before setup says "Finish setting up" in the bubble with Continue
+  setup (the press opens the guide); "Turn on" on a quick turn that failed
+  because the assistant is off switches it on in place.
+
+It folds away 20 s after nobody looks at it (never while pinned, pointed
+at, or read aloud). While it shows a result, a short spoken "open the
+folder", "show the file", "öffne den Ordner" acts on it there instead of
+going to the agent (`stage::spoken`, from `recognition::ask`). Checks:
+`only_explicit_entry_points_open_the_window` (every caller of the window's
+openers on an allow-list, [code_shape_tests.rs](../../src/code_shape_tests.rs)),
+`a_hold_before_setup_does_not_open_the_window` and
+`a_notification_click_shows_the_result_on_the_stage`
+([window_link.rs](../../src/rune_ui/window_link.rs)),
+`the_repair_check_never_switches_the_window`
+([chats/tests.rs](../../src/rune_ui/chats/tests.rs)), and the stage's own
+in [stage_tests.rs](../../src/rune_ui/assistant_overlay/stage_tests.rs)
+(renders: `assistant-stage-*-{light,dark}.png` from the ignored
+`stage_snapshots`).
 
 **Assistant settings** (`Pane::Assistant`, `chats::settings`; also
 `agent-desk://settings/assistant`): the switch first ("Hold right ⌘ to ask,
@@ -526,7 +567,7 @@ for one real spoken question, answered. A row shows ✓ only after its check saw
 it work. Continue waits for its page; Later moves on and marks it unfinished
 (amber in the progress marks). Finish waits until the chosen agent answers
 and can use the desktop tools, then sets `assistant.setup_done`. Menu bar: Stop
-All Tasks and Assistant… show only while the assistant is on. Checks:
+All Tasks and Open Agent-Desk show only while the assistant is on. Checks:
 the tests in [rune_ui/chats/tests.rs](../../src/rune_ui/chats/tests.rs),
 `reads_chats_links` in [deep_link.rs](../../src/rune_ui/deep_link.rs), and
 `the_assistant_rows_start_hidden_and_do_something` in
