@@ -194,6 +194,13 @@ pub enum ControlCli {
         #[command(subcommand)]
         command: crate::assistant::cli::AssistantCommand,
     },
+    /// Agent-Desk's benchmark: ask ~25 typical tasks of the running Hex Dev,
+    /// check them by machine, and compare with the run before
+    /// (docs/bench.md).
+    Bench {
+        #[command(subcommand)]
+        command: crate::bench::BenchCommand,
+    },
     /// Annotate: record your screen with drawing and narration in the
     /// running Hex, then list and send what you recorded (`hex capture`
     /// still works).
@@ -581,6 +588,7 @@ pub fn run(command: ControlCli) -> u8 {
              (`hex settings get preferences`)"
         ))),
         ControlCli::Assistant { command } => crate::assistant::cli::run(command),
+        ControlCli::Bench { command } => crate::bench::run(command),
         ControlCli::Annotate { command } => capture(command),
     }
 }

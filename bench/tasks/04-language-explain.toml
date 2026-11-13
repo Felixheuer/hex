@@ -1,0 +1,19 @@
+id = "language-explain"
+title = "German in, German out (English in, English out)"
+covers = "Language"
+lane = "quick"
+timeout_s = 90
+
+[text]
+de = "Erklär mir in zwei Sätzen, was ein Kondensator ist."
+en = "Explain in two sentences what a capacitor is."
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "answer_language"
+
+[[check]]
+kind = "answer_matches"
+pattern = "(?i)(ladung|elektr|charge|electr)"

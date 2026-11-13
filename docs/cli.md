@@ -333,6 +333,8 @@ vocabulary-list | vocabulary-add {term, sounds_like} | vocabulary-remove {term}
 scrawl-capture {action}                          action: start | stop | cancel | status; `capture` experiment
 scrawl-capture-list {limit?} | scrawl-capture-show {capture}
 scrawl-capture-send {capture, to?, always?} | scrawl-capture-route {capture, ask_jev}
+assistant-submit {text, conversation?}           macOS; asks with no window in front (`hex bench`);
+                                                 `done.message` is the conversation id
 ```
 
 Optional fields may be left out. `hex start` and `hex logs` are local and have

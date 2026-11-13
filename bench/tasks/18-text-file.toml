@@ -1,0 +1,17 @@
+id = "text-file"
+title = "Write a text file"
+covers = "Files in the run's folder"
+lane = "any"
+timeout_s = 180
+
+[text]
+de = "Schreib eine Einkaufsliste mit fünf Dingen als Textdatei in den Ordner {temp_dir}."
+en = "Write a shopping list with five items as a text file in the folder {temp_dir}."
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "file"
+glob = "*.*"
+contains = "\\w"

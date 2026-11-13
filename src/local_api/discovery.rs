@@ -102,9 +102,37 @@ pub fn running_pid() -> Option<u32> {
     live_discovery().ok().map(|document| document.pid)
 }
 
+/// Sends one `hex` control request to the Hex whose data folder is
+/// `support_dir`, whichever variant this binary is (`hex bench --target`
+/// reaches Hex Dev from any build).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn call_control_in(
+    support_dir: &Path,
+    request: &crate::control::ControlRequest,
+) -> Result<crate::control::ControlResponse> {
+    let document = live_discovery_at(&support_dir.join("local-api.json"))?;
+    let body = serde_json::to_vec(request)?;
+    let (status, body) = send(
+        SocketAddr::from(([127, 0, 0, 1], document.port)),
+        &document.token,
+        "/control",
+        "application/json",
+        &body,
+        request.command.deadline() + Duration::from_secs(5),
+        1024 * 1024,
+    )?;
+    if status != 200 {
+        bail!("Hex refused the request ({})", error_code(status, &body));
+    }
+    serde_json::from_slice(&body).wrap_err("Hex sent an invalid control reply")
+}
+
 pub(super) fn live_discovery() -> Result<DiscoveryDocument> {
-    let path = crate::app_paths::local_api_discovery_file()?;
-    let bytes = match fs::read(&path) {
+    live_discovery_at(&crate::app_paths::local_api_discovery_file()?)
+}
+
+fn live_discovery_at(path: &Path) -> Result<DiscoveryDocument> {
+    let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             bail!("Hex is not running")

@@ -113,6 +113,9 @@ the main interface.
 
 ## G. Benchmark and quality
 
+Built as `hex bench` (until the rename to `agent-desk`): 25 tasks in `bench/tasks/`; see
+[docs/bench.md](bench.md).
+
 - **A local benchmark run** (`agent-desk bench`) with about 25 typical tasks:
   - Open, switch to and park an app.
   - Draft a WhatsApp message to a test contact without sending.
@@ -133,6 +136,9 @@ the main interface.
     version.
 
 ## I. Self-improvement loop ("test yourself")
+
+Built as `scripts/self-improve.sh` with the prompt `bench/self-improve.md`; it runs only
+with `--now` or `--when idle[=MIN]` (docs/bench.md).
 
 The goal: "Open Agent-Desk in VS Code and the console, test yourself, find errors and gaps,
 note them, fix them, start your new version, and keep improving."

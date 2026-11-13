@@ -1,0 +1,20 @@
+id = "weekday"
+title = "A quick fact without tools"
+covers = "C. Speed of thinking"
+lane = "quick"
+timeout_s = 60
+
+[text]
+de = "Welcher Wochentag ist heute?"
+en = "What day of the week is it today?"
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "answer_matches"
+pattern = "(?i)(montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+
+[[check]]
+kind = "answer_within_ms"
+ms = 6000

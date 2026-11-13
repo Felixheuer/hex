@@ -229,6 +229,14 @@ substitute for source inspection or a second roadmap.
   adapter (`linux::app::LinuxControl`, `windows::rune::WindowsControl`);
   `macos_rune::control` is macOS's host. What an OS can't do answers
   `unsupported` at runtime. Contract: `docs/cli.md`.
+- `bench`: `hex bench`, Agent-Desk's local benchmark (`docs/bench.md`):
+  tasks as data in `bench/tasks/*.toml`, asked of the running Hex Dev through
+  `/control`'s `assistant-submit` (no window in front), followed in the
+  assistant's conversation and audit files, checked by machine against
+  read-only desktop state, and saved to `bench/results/` with a comparison
+  to the run before. App, desktop, and clock are injected (`bench::run`), so
+  the loop is tested with fakes. `scripts/self-improve.sh` and
+  `bench/self-improve.md` are the self-improvement loop around it.
 - `sdk/typescript`: Promise and Effect v4 host wrappers for direct-child
   lifecycle, authenticated model preparation, and host-audio transcription.
 - `control/developer_control`: the typed debug-only command/reply protocol the local

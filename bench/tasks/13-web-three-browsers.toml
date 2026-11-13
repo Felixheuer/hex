@@ -1,0 +1,21 @@
+id = "web-three-browsers"
+title = "Search the web in three browsers"
+covers = "G. Search the web with three browsers"
+lane = "job"
+timeout_s = 600
+
+[text]
+de = "Suche parallel in drei Browsern nach Vergleichen von Rust-Async-Runtimes und fasse die drei besten Treffer zusammen."
+en = "Search in three browsers in parallel for comparisons of Rust async runtimes and summarize the three best hits."
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "browser_url"
+pattern = "^https?://"
+min = 3
+
+[[check]]
+kind = "answer_matches"
+pattern = "(?i)tokio"

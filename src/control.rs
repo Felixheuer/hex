@@ -205,6 +205,16 @@ pub enum ControlCommand {
         #[serde(default)]
         ask_jev: bool,
     },
+    /// Asks the assistant `text` as a hold of the Action shortcut would,
+    /// but with no window in front, so it never reads or acts on the
+    /// person's front window (`hex bench`). Continues `conversation` when
+    /// given. `done.message` is the conversation's id; its progress and
+    /// result are in the assistant's conversation files.
+    AssistantSubmit {
+        text: String,
+        #[serde(default)]
+        conversation: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1171,6 +1181,10 @@ mod tests {
             },
             ControlCommand::VocabularyRemove {
                 term: "cappuccino".into(),
+            },
+            ControlCommand::AssistantSubmit {
+                text: "Wie viel ist 17 mal 23?".into(),
+                conversation: None,
             },
         ] {
             round_trip_request(command);

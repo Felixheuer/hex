@@ -1,0 +1,24 @@
+id = "find-file-reveal"
+title = "Find a file and show it in Finder"
+covers = "G. Find a file and show it in Finder"
+lane = "any"
+timeout_s = 180
+
+[safety]
+front = "may_change"
+
+[[seed]]
+name = "bench-fundstueck-{run}.txt"
+content = "Hex bench: find me."
+
+[text]
+de = "Finde die Datei bench-fundstueck-{run}.txt und zeig sie mir im Finder."
+en = "Find the file bench-fundstueck-{run}.txt and show it to me in Finder."
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "window"
+app = "Finder"
+title = "find-file-reveal"
