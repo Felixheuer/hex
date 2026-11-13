@@ -178,7 +178,8 @@ pub fn forget_sessions(sessions: Vec<String>) {
                     .all(|c| c.is_ascii_alphanumeric() || c == '_')
         })
         .collect();
-    if sessions.is_empty() {
+    // Tests never reach the person's own OpenCode.
+    if sessions.is_empty() || cfg!(test) {
         return;
     }
     std::thread::spawn(move || {

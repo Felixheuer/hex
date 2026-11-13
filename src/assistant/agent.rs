@@ -300,7 +300,7 @@ pub fn run_with(
     if resume.is_some() && stored.sessions.get(&rules_key) != Some(&rules) {
         tracing::info!("the assistant's rules changed; starting a new session");
         resume = None;
-        stored.sessions.remove(key);
+        drop_session(&mut stored, key);
         run.resume = None;
         run.prompt = message(job, &history, true);
     }
@@ -318,7 +318,7 @@ pub fn run_with(
         let now = engine.now_ms();
         match long.saved_too_large().filter(|_| run.resume.is_some()) {
             Some(why) => {
-                stored.sessions.remove(key);
+                drop_session(&mut stored, key);
                 resume = None;
                 run.resume = None;
                 run.prompt = long.roll_over(job, &why, now);
@@ -373,7 +373,7 @@ pub fn run_with(
         {
             tracing::info!(error = %format!("{error:#}"), "the saved session didn't continue; starting a new one");
             run.resume = None;
-            stored.sessions.remove(key);
+            drop_session(&mut stored, key);
             run.prompt = message(job, &history, true);
             result = run_backend(
                 engine,
@@ -441,7 +441,7 @@ pub fn run_with(
         {
             let why = why.words();
             keep_actions(store, &mut stored, actions);
-            stored.sessions.remove(key);
+            drop_session(&mut stored, key);
             if let Err(error) = store.save(&stored) {
                 tracing::warn!(%error, "couldn't forget the job's old session");
             }
@@ -604,7 +604,11 @@ pub fn run_with(
                 return finish(store, &mut stored, actions, result, emit);
             }
         };
-        let verdict = check(engine, &run, job, &answer, control, store, &mut stored, key);
+        let (verdict, check_cost) =
+            check(engine, &run, job, &answer, control, store, &mut stored, key);
+        if let Some(long) = long.as_mut() {
+            long.journal.cost(check_cost);
+        }
         if let Some(long) = long.as_mut() {
             let found = match &verdict {
                 goal::Verdict::Verified => "verified".to_owned(),
@@ -677,7 +681,7 @@ fn check(
     store: &Store,
     stored: &mut Stored,
     key: &str,
-) -> goal::Verdict {
+) -> (goal::Verdict, f64) {
     let mut checker = run.clone();
     checker.resume = None;
     checker.image = None;
@@ -716,7 +720,7 @@ fn check(
         stored,
         None,
     );
-    stored.sessions.remove(&check_key);
+    drop_session(stored, &check_key);
     let verdict = match result {
         Ok(finished) => goal::verdict(&finished.text),
         Err(error) => {
@@ -729,7 +733,20 @@ fn check(
     {
         tracing::debug!(%error, "couldn't record the job's check");
     }
-    verdict
+    (verdict, seen.cost_usd)
+}
+
+/// Forgets the backend session saved under `key` (it starts fresh, or a
+/// check is over). An OpenCode session is deleted in OpenCode too, so it
+/// doesn't stay in the person's own list (`backends::opencode`).
+fn drop_session(stored: &mut Stored, key: &str) {
+    let Some(session) = stored.sessions.remove(key) else {
+        return;
+    };
+    let opencode = provider::session_key(AssistantBackend::OpenCode, Lane::Background);
+    if key.split('.').next() == Some(opencode.as_str()) {
+        crate::assistant::backends::opencode::forget_sessions(vec![session]);
+    }
 }
 
 /// A short fingerprint of `job`'s rules, to tell when a saved session's
@@ -842,6 +859,8 @@ struct Seen {
     gate: markers::Gate,
     /// Streams nothing: a job's in-between answer, or its check.
     quiet: bool,
+    /// What its steps cost (`Report::Cost`), in USD.
+    cost_usd: f64,
 }
 
 /// Saves what the assistant said while the conversation goes on (a job's
@@ -901,8 +920,9 @@ fn run_backend(
             }
         }
         Report::Cost(usd) => {
+            seen.cost_usd += usd;
             if let Some(long) = long.as_deref_mut() {
-                long.cost_usd += usd;
+                long.journal.cost(usd);
             }
         }
         Report::Thinking => emit(Event::Thinking {

@@ -26,9 +26,6 @@ pub struct Long {
     pub due: Option<Why>,
     /// Failures in a row without a step between them.
     pub retries: u32,
-    /// What this run's steps cost, as the backend reports it (OpenCode's
-    /// providers, in USD).
-    pub cost_usd: f64,
 }
 
 impl Long {
@@ -62,15 +59,15 @@ impl Long {
             rollovers: 0,
             due: None,
             retries: 0,
-            cost_usd: 0.0,
         }
     }
 
-    /// Notes that the run ended (`answered`, `failed`), with what it cost
-    /// when the backend said: `answered · cost 0.0123 USD`.
+    /// Notes that the run ended (`answered`, `failed`), with what the job
+    /// cost so far when the backend said: `answered · cost 0.0123 USD`.
     pub fn done(&mut self, now_ms: u64, how: &str) {
-        let words = if self.cost_usd > 0.0 {
-            format!("{how} · cost {:.4} USD", self.cost_usd)
+        let cost = self.journal.state.cost_micro_usd;
+        let words = if cost > 0 {
+            format!("{how} · cost {:.4} USD", cost as f64 / 1_000_000.0)
         } else {
             how.to_owned()
         };

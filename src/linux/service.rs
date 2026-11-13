@@ -946,11 +946,17 @@ fn custom_root() -> bool {
             .is_some_and(|root| !default_root(Path::new(&root), dirs::data_dir().as_deref()))
 }
 
-/// Whether `root` is the default data root under the user's data directory
-/// (`app_paths::support_dir`'s folder, `agent-desk`; it was `hex` before the
-/// rename).
+/// Whether `root` is the default data root under the user's data directory:
+/// `app_paths::support_dir`'s folder, `agent-desk`, or `hex`, which it was
+/// before the rename and Home Manager's module still names
+/// (`nix/hm-module.nix`).
 fn default_root(root: &Path, data: Option<&Path>) -> bool {
-    data.is_some_and(|data| root == data.join(crate::app_paths::Variant::Live.folder()))
+    let live = crate::app_paths::Variant::Live;
+    data.is_some_and(|data| {
+        [live.folder(), live.legacy().folder]
+            .iter()
+            .any(|folder| root == data.join(folder))
+    })
 }
 
 fn systemctl(arguments: &[&str]) -> Result<()> {
@@ -1281,6 +1287,11 @@ mod tests {
         ));
         assert!(default_root(
             Path::new("/home/alex/.local/share/agent-desk/"),
+            Some(data)
+        ));
+        // Home Manager's module still names the folder from before the rename.
+        assert!(default_root(
+            Path::new("/home/alex/.local/share/hex"),
             Some(data)
         ));
         assert!(!default_root(Path::new("/tmp/agent-desk-test"), Some(data)));

@@ -94,6 +94,10 @@ pub struct State {
     /// What the next prompt must say (a ticked step whose files are
     /// missing).
     pub pending: Vec<String>,
+    /// What the job's steps and checks cost so far, in millionths of a USD,
+    /// as the backend reports it (OpenCode's providers); kept across
+    /// restarts.
+    pub cost_micro_usd: u64,
 }
 
 /// A job's journal.
@@ -207,6 +211,14 @@ impl Journal {
     }
 
     /// The current session's size now.
+    /// Adds `usd` to what the job cost.
+    pub fn cost(&mut self, usd: f64) {
+        if usd.is_finite() && usd > 0.0 {
+            self.state.cost_micro_usd += (usd * 1_000_000.0).round() as u64;
+            self.save();
+        }
+    }
+
     pub fn sized(&mut self, tokens: u64) {
         if self.state.context_tokens != tokens {
             self.state.context_tokens = tokens;

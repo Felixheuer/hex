@@ -191,7 +191,9 @@ pub fn delete(id: &str) {
     runner().cancel(id);
     crate::assistant::autonomy::forget(id);
     if let Ok(store) = Store::open() {
-        // Its OpenCode sessions go too (every lane's, its checks').
+        // The OpenCode sessions it still holds go too (each lane's; ones
+        // it already moved on from, after a fresh session, stay in
+        // OpenCode).
         if let Some(stored) = store.load(id) {
             let opencode = crate::assistant::provider::session_key(
                 crate::app_settings::AssistantBackend::OpenCode,
