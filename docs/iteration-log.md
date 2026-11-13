@@ -48,6 +48,18 @@ maintainable, and nothing that isn't possible.
       element/role/label instead of name
 - [ ] Timing-flaky test: `a_paused_task_waits_and_then_is_told_to_look_again`
 
+## Round 6 (after the rename): Cua only, no legacy
+
+- [ ] Remove agent-desktop completely (driver fallback, session/cursor CLI, guide in the
+      prompt, install/check, onboarding strings); Cua Driver is the only driver
+- [ ] Cua Driver updates: daily check for new releases (GitHub trycua/cua), verify the
+      signature/notarization (team ID) and checksum, install in the background, self-test,
+      roll back on failure; status in setup/repair
+- [ ] No backwards compatibility: no aliases (CLI, URL scheme, env, settings keys, tool
+      names); only dated one-time migrations for data, settings, Keychain and the app bundle
+- [ ] UX redesign per docs/ux/redesign.md (overlay as the main surface, the window recedes)
+- [ ] hex_watch_video and real Chrome codecs in the hidden browser
+
 ## Round 5 (planned): rename and real test
 
 - [ ] Rename Hex → Agent-Desk (display name, CLI, data folder with migration, bundle ID
