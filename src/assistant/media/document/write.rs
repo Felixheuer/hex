@@ -96,7 +96,8 @@ pub fn write(
             std::fs::write(path, csv(sheet))
         }
         "rtf" | "doc" | "odt" => {
-            let html_file = path.with_extension("source.html");
+            // Its own name: a file of that name beside it isn't touched.
+            let html_file = fresh_beside(path, "source.html");
             std::fs::write(&html_file, html(document, base)).map_err(|error| error.to_string())?;
             let converted = apple::textutil_convert(&html_file, path);
             let _ = std::fs::remove_file(&html_file);
@@ -105,7 +106,8 @@ pub fn write(
         }
         "pages" | "numbers" | "key" => {
             let office = apple::iwork_office(&extension).ok_or("not an iWork format")?;
-            let twin = path.with_extension(office);
+            // A new file beside it: an Office file of that name stays.
+            let twin = fresh_beside(path, office);
             write(document, &twin, base, arguments)?;
             apple::iwork_import(&twin, path)?;
             report["office_copy"] = json!(twin);
@@ -728,6 +730,16 @@ pub fn missing_images(document: &Document, base: &Path) -> Vec<PathBuf> {
         })
         .filter(|path| !path.is_file())
         .collect()
+}
+
+/// `path` with `extension`, or `name-2.extension`, … when that is taken.
+fn fresh_beside(path: &Path, extension: &str) -> std::path::PathBuf {
+    let base = path.parent().unwrap_or(Path::new("."));
+    let stem = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "document".into());
+    base.join(super::super::out::fresh_name(base, &stem, extension))
 }
 
 #[cfg(test)]

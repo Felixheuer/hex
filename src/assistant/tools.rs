@@ -423,7 +423,21 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
                     .and_then(Value::as_f64)
                     .map_or(defaults.threshold, |value| value.clamp(0.0, 100.0)),
             };
-            let diff = arguments.get("diff").and_then(Value::as_str);
+            // The diff image goes only where Agent-Desk's tools may write
+            // (`media::out::may_write`), as a PNG.
+            let diff = arguments
+                .get("diff")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|diff| !diff.is_empty());
+            if let Some(diff) = diff {
+                let folder = crate::assistant::media::out::folder(TASK.get().map(String::as_str))?;
+                let path = crate::assistant::media::out::resolve(diff, &folder);
+                if crate::assistant::media::out::extension(&path) != "png" {
+                    return Err("The diff image must be a .png file.".into());
+                }
+                crate::assistant::media::out::may_write(&path, &folder)?;
+            }
             images::compare(&text("a")?, &text("b")?, options, diff)
         }
         "hex_tell_job" => {
@@ -611,6 +625,7 @@ fn team_board(board: &std::path::Path, me: &str, arguments: &Value) -> Result<St
 pub fn serve(task: &str, role: Role, board: Option<std::path::PathBuf>) -> Result<()> {
     let _ = TASK.set(task.to_owned());
     let _ = ROLE.set(role);
+    crate::assistant::media::out::set_job(role.is_job());
     let _ = BOARD.set(board.filter(|_| role.is_job()));
     let _ = MEMORY.set(crate::assistant::knowledge::memory_on());
     let stdin = std::io::stdin();

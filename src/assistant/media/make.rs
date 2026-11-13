@@ -675,6 +675,30 @@ fn remotion(spec: &Value, arguments: &Value, folder: &Path) -> Result<Vec<Value>
     let composition = spec["composition"]
         .as_str()
         .ok_or("remotion needs composition: its id")?;
+    if composition.starts_with('-') {
+        return Err("remotion's composition is an id, not a flag".into());
+    }
+    // Rendering runs the project's own code and tools (`node_modules`,
+    // its config) as the person, outside any sandbox: a job's or helper's
+    // own project renders in its own shell instead, where its sandbox
+    // holds.
+    if out::serves_a_job() {
+        let made_by_a_task = crate::assistant::agent::workspace::root()
+            .into_iter()
+            .chain([std::env::temp_dir()])
+            .filter_map(|root| root.canonicalize().ok())
+            .any(|root| {
+                project
+                    .canonicalize()
+                    .is_ok_and(|real| real.starts_with(&root))
+            });
+        if made_by_a_task {
+            return Err(format!(
+                "Render a Remotion project you made in your own shell: `npx remotion render {composition} out.mp4` in {}.",
+                project.display()
+            ));
+        }
+    }
     let target = out::output(
         arguments,
         "out",
