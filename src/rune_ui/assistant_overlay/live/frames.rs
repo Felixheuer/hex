@@ -64,6 +64,7 @@ pub(super) fn stream_connected(preview: &Preview, path: &std::path::Path) -> Res
                 if let Some((width, height, rgba)) = decode(&jpeg) {
                     let (tw, th, thumb) = fit_width(&rgba, width, height, THUMB_WIDTH);
                     preview.pixels.set(tw as u32, th as u32, thumb);
+                    preview.clock.tick();
                     // The full frame only while someone looks closely.
                     if preview.rate() >= Rate::Wall {
                         preview.full.set(width as u32, height as u32, rgba);

@@ -1,27 +1,28 @@
-//! The question a job waits on, answered right at the orb: its bubble (in
-//! the job's colour, nearest the orb) says who asks, the question, and how
-//! to answer it, by voice ("Hold ⌘ to answer") or typed: Reply (or a press
-//! on the bubble) opens a small field in it; Return sends the answer to the
-//! job (`assistant::submit` in its conversation, as Chats' composer would),
-//! Escape or × puts the field away. Later puts the question behind the
-//! others; × hides the bubble (the question still waits).
+//! The question a job waits on, answered right in the rail: its card (on
+//! top, under the rail's head) says who asks (the task's dot and title,
+//! "Needs you"), the question, and how to answer it, by voice ("Hold ⌘ and
+//! say it") or typed: Reply (or a press on the card) opens a small field in
+//! it; Return sends the answer to the job (`assistant::submit` in its
+//! conversation, as Chats' composer would), Escape or × puts the field
+//! away. Later puts the question behind the others (it still waits).
 //!
-//! The orb's panel takes the keyboard only while the field shows (the host
+//! The rail's panel takes the keyboard only while the field shows (the host
 //! asks for it), and gives it back when the answer is sent or put away.
 
-use rune::{El, TextEdit, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant};
+use rune::{El, TextEdit, col, row, text};
+use rune_kit::{ControlSize, IconButton, IconButtonVariant};
 
 use super::super::controls::Paint;
 use super::board::Asking;
+use super::look::{self, Card, Kind, State};
 use super::{palette, stack};
 use crate::desktop::i18n::{tr, tr_fill};
 
-/// The bubble's width.
-pub(crate) const WIDTH: f32 = 320.0;
-/// The room the bubble takes at most (who asks, three lines, how to
-/// answer); [`FIELD_ROOM`] more while the field shows.
-pub(crate) const ROOM: f32 = 118.0;
+/// The card's width: the rail's.
+pub(crate) const WIDTH: f32 = look::RAIL_W;
+/// The room the card takes at most (its header, three lines, its footer);
+/// [`FIELD_ROOM`] more while the field shows.
+pub(crate) const ROOM: f32 = 160.0;
 pub(crate) const FIELD_ROOM: f32 = 64.0;
 /// A question's most lines.
 const QUESTION_LINES: usize = 3;
@@ -81,10 +82,12 @@ impl<S> Clone for ReplyActions<S> {
 }
 
 impl<S> Copy for ReplyActions<S> {}
-
-/// The question to answer now, in its task's colour: who asks, the
-/// question, how to answer it (or the field, while `reply` is its own),
-/// Later, and × to put the bubble away (it still waits for the answer).
+/// The question to answer now, on the one card anatomy (`look::card`): the
+/// asking task's dot and title with the "Needs you" chip, the question (at
+/// most three lines), and the footer: how to answer by voice at the left,
+/// Later and Reply (the primary: type the answer) at the right; or the
+/// field, while `reply` is its own. A press anywhere on it starts a typed
+/// answer too.
 pub(crate) fn question<S: 'static>(
     p: Paint,
     asking: &Asking,
@@ -92,119 +95,51 @@ pub(crate) fn question<S: 'static>(
     reply: Option<&Reply>,
     actions: stack::Actions<S>,
 ) -> El {
-    let c = &p.k.c;
     let colour = palette::task(asking.colour, p.k.dark);
     let replying = reply.filter(|reply| reply.id == asking.id);
-    let dismiss = actions.dismiss;
     let defer = actions.defer;
     let start = actions.reply.start;
-    let (pressed, put_away, later, replies) = (
-        asking.id.clone(),
-        asking.id.clone(),
-        asking.id.clone(),
-        asking.id.clone(),
-    );
-    let dot = el()
-        .size(8.0, 8.0)
-        .radius(4.0)
-        .fill(colour.alpha(0.3))
-        .border(1.5, colour)
-        .a11y_hidden()
-        .mt(5.0);
-    let foot = match replying {
-        Some(reply) => field(p, reply, colour, actions),
-        None => row()
-            .key("question-foot")
-            .w_full()
-            .gap(4.0)
-            .center_y()
-            .child(
-                text(tr_fill("Hold {} to answer", answer_key))
-                    .key("question-hint")
-                    .truncate()
-                    .font(p.k.ty.small)
-                    .color(p.muted())
-                    .grow(1.0)
-                    .min_w(0.0),
-            )
-            .child(
-                Button::new(tr("Reply"))
-                    .variant(ButtonVariant::Outline)
-                    .control_size(ControlSize::Small)
-                    .on_press(move |s: &mut S| start(s, &replies))
-                    .build(p.k)
-                    .key("reply"),
-            )
-            .child(
-                Button::new(tr("Later"))
-                    .variant(ButtonVariant::GhostMuted)
-                    .control_size(ControlSize::Small)
-                    .on_press(move |s: &mut S| defer(s, &later))
-                    .build(p.k)
-                    .key("later"),
-            ),
-    };
-    let bubble = row()
+    let (pressed, later, replies) = (asking.id.clone(), asking.id.clone(), asking.id.clone());
+    let mut card = Card::named("question");
+    card.lead = Some(look::dot(colour, 9.0));
+    card.title = asking.title.clone();
+    card.chip = Some(look::chip(p, State::NeedsYou));
+    card.body = vec![
+        look::body_text(p, &asking.question)
+            .key("question-text")
+            .max_lines(QUESTION_LINES)
+            .font(look::body(p)),
+    ];
+    card.width = Some(WIDTH);
+    match replying {
+        Some(reply) => card.foot = Some(field(p, reply, colour, actions)),
+        None => {
+            card.hint = Some(tr_fill("Hold {} and say it", answer_key));
+            card.secondary = vec![
+                look::button(p, Kind::Secondary, tr("Later"), move |s: &mut S| {
+                    defer(s, &later)
+                })
+                .key("later"),
+            ];
+            card.primary = Some(
+                look::button(p, Kind::Primary, tr("Reply"), move |s: &mut S| {
+                    start(s, &replies)
+                })
+                .key("reply"),
+            );
+        }
+    }
+    let bubble = look::card(p, card)
         .key(format!("question-{}", asking.id))
-        .w(WIDTH)
-        .pl(12.0)
-        .pr(4.0)
-        .py(8.0)
-        .gap(8.0)
-        .items_start()
-        .radius(16.0)
-        .fill(c.bg_base)
-        .border(1.0, colour.alpha(0.7))
-        .outline(3.0, 0.0, colour.alpha(0.16))
-        .box_shadow(rune::Shadow {
-            x: 0.0,
-            y: 3.0,
-            blur: 14.0,
-            spread: 0.0,
-            color: colour.alpha(if p.k.dark { 0.3 } else { 0.18 }),
-            inset: false,
-        })
         .role("alert")
+        .label(format!(
+            "{}: {} · {}",
+            State::NeedsYou.word(),
+            asking.title,
+            asking.question
+        ))
         .live_region(rune::LiveRegion::Polite)
-        .hit()
-        .child(dot)
-        .child(
-            col()
-                .key("question-lines")
-                .gap(4.0)
-                .grow(1.0)
-                .min_w(0.0)
-                .shrink()
-                .child(
-                    // Short enough that "asks" stays on the line.
-                    text(tr_fill(
-                        "{} asks",
-                        &crate::assistant::store::shorten(&asking.title, 34),
-                    ))
-                    .key("question-who")
-                    .truncate()
-                    .font(p.k.ty.small_medium)
-                    .color(colour),
-                )
-                .child(
-                    text(asking.question.clone())
-                        .key("question-text")
-                        .wrap()
-                        .max_lines(QUESTION_LINES)
-                        .font(p.k.ty.ui_medium)
-                        .color(p.text()),
-                )
-                .child(foot),
-        )
-        .child(
-            IconButton::new(p.k.glyph.close)
-                .variant(IconButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
-                .label(tr("Hide question"))
-                .on_press(move |s: &mut S| dismiss(s, &put_away))
-                .build(p.k)
-                .key("put-away"),
-        );
+        .hit();
     if replying.is_some() {
         bubble
     } else {
@@ -225,7 +160,7 @@ fn field<S: 'static>(
     let send = actions.reply.send;
     let cancel = actions.reply.cancel;
     let empty = reply.answer().is_none();
-    let input = rune::text_input(&reply.edit, k.ty.ui)
+    let input = rune::text_input(&reply.edit, look::body(p))
         .key("reply-input")
         .w_full()
         .color(ink)

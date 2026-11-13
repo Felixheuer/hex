@@ -56,6 +56,13 @@ fn count_prefix<S>(rt: &Runtime<S>, prefix: &str) -> usize {
         .count()
 }
 
+fn text_of<S>(rt: &Runtime<S>, key: &str) -> Option<String> {
+    rt.elements()
+        .into_iter()
+        .find(|e| !e.exiting && e.key.as_deref() == Some(key))
+        .and_then(|e| e.text)
+}
+
 fn inside(r: [f32; 4], size: (f32, f32)) -> bool {
     let [x, y, w, h] = r;
     x >= -0.5 && y >= -0.5 && x + w <= size.0 + 0.5 && y + h <= size.1 + 0.5
@@ -109,7 +116,7 @@ fn the_fixture_has_a_task_in_every_state() {
 }
 
 #[test]
-fn the_orb_shows_a_dot_per_live_task_and_its_bubbles() {
+fn the_rail_head_counts_its_jobs_in_words_and_its_cards_follow() {
     let board = fixture::board();
     // A panel as short as it gets on a small display, below the middle.
     let size = (orb::SIZE.0, 600.0);
@@ -120,15 +127,12 @@ fn the_orb_shows_a_dot_per_live_task_and_its_bubbles() {
         let core = rect(&rt, "core").expect("the orb's core");
         assert!(core[0] < 40.0 && core[1] < 40.0, "in its corner: {core:?}");
         assert_eq!(
-            count_prefix(&rt, "orb-dot-"),
-            5,
-            "running, taken over, queued, waiting, asking"
+            text_of(&rt, "orb-count").as_deref(),
+            Some("5 jobs"),
+            "running, taken over, queued, waiting, asking: in words, no dots"
         );
-        assert_eq!(
-            count(&rt, "ring"),
-            2,
-            "the table task's plan, at its dot and row"
-        );
+        assert_eq!(count_prefix(&rt, "orb-dot-"), 0, "no dot cluster");
+        assert_eq!(count(&rt, "ring"), 1, "the table task's plan, at its row");
         let asked = rect(&rt, "question-invoices").expect("its question");
         assert!(inside(asked, size), "{asked:?}");
         assert!(rect(&rt, "question-hint").is_some(), "Hold ⌘ to answer");
@@ -178,7 +182,8 @@ fn the_list_unfolds_with_every_task_its_state_and_controls() {
         assert!(inside(sheet, orb::SIZE), "{sheet:?}");
         assert_eq!(count_prefix(&rt, "task-"), 5, "the live ones");
         assert_eq!(count_prefix(&rt, "result-row-"), 2, "and the results");
-        assert_eq!(count(&rt, "spinner"), 1, "the running one spins");
+        assert_eq!(count(&rt, "chip-working"), 1, "the running one says so");
+        assert_eq!(count(&rt, "spinner"), 0, "nothing spins");
         assert_eq!(count(&rt, "needs-input"), 1);
         assert_eq!(count(&rt, "plan-current"), 1, "the step it's on");
         assert_eq!(count(&rt, "plan-text"), 5, "its whole plan");
@@ -212,7 +217,7 @@ fn an_escalated_question_flies_into_the_orb() {
         orb::SIZE,
         false,
     );
-    assert!(rect(&rt, &format!("orb-dot-{}", fixture::ESCALATED)).is_some());
+    assert!(rect(&rt, "orb-count").is_some(), "the head counts it");
     // A running job shows as its card (title there), not as a "New" pop.
     assert!(
         rect(&rt, &format!("job-{}", fixture::ESCALATED)).is_some(),
@@ -624,7 +629,8 @@ fn the_inbox_shows_one_question_with_who_asks_later_and_a_count() {
         assert_eq!(count_prefix(&rt, "question-invoices"), 1, "one bubble");
         let bubble = rect(&rt, "question-invoices").expect("the active question");
         assert!(inside(bubble, orb::SIZE), "{bubble:?}");
-        assert!(rect(&rt, "question-who").is_some(), "who asks");
+        assert!(rect(&rt, "question-title").is_some(), "who asks");
+        assert_eq!(count(&rt, "chip-needs-you"), 2, "on the card and the head");
         assert!(rect(&rt, "question-hint").is_some(), "Hold ⌘ to answer");
         assert_eq!(count(&rt, "later"), 1, "Later");
         assert_eq!(count(&rt, "questions-3"), 1, "three open questions");
@@ -773,9 +779,10 @@ fn many_jobs_show_three_calm_rows_and_one_line_for_the_rest() {
         let mut rt = runtime(many_jobs_orb(12), orb::view, orb::SIZE, dark);
         assert_eq!(count_prefix(&rt, "job-job"), 3, "three rows, no more");
         assert_eq!(count(&rt, "jobs-line"), 1, "the rest in one line");
-        assert!(
-            count_prefix(&rt, "orb-dot-") <= orb::MAX_DOTS && count(&rt, "orb-more") == 1,
-            "the orb stays small"
+        assert_eq!(
+            text_of(&rt, "orb-count").as_deref(),
+            Some("12 jobs"),
+            "the head stays small: a count in words"
         );
         for key in ["orb", "jobs", "jobs-line"] {
             let r = rect(&rt, key).unwrap_or_else(|| panic!("{key}"));
@@ -800,6 +807,34 @@ fn many_jobs_show_three_calm_rows_and_one_line_for_the_rest() {
         assert!(inside(sheet, orb::SIZE), "{sheet:?}");
         assert_eq!(count_prefix(&rt, "task-job"), 12, "every job, scrolling");
         assert_eq!(count_prefix(&rt, "job-job"), 0, "the rows make way");
+    }
+}
+
+/// `docs/ux/redesign.md` §3.6: the rail holds its head, at most one
+/// question, three job rows (and one "N more" line), and one result.
+#[test]
+fn rail_shows_at_most_three_rows_and_one_question() {
+    for question in [false, true] {
+        let mut board = fixture::crowd_board(12, 0);
+        if question {
+            fixture::crowd_question(&mut board);
+        }
+        for (_, kind) in [(0, false), (1, true)] {
+            // With and without results to show.
+            let mut board = board.clone();
+            if kind {
+                let landing = fixture::results_board();
+                board.pops = landing.pops.clone();
+                board.recent = landing.recent.clone();
+            }
+            let rt = runtime(orb_state(board, false), orb::view, orb::SIZE, false);
+            let what = format!("question {question}, results {kind}");
+            assert!(count_prefix(&rt, "job-crowd") <= 3, "{what}");
+            assert_eq!(count(&rt, "jobs-line"), 1, "the rest in one line: {what}");
+            assert_eq!(count(&rt, "question-text"), usize::from(question), "{what}");
+            assert!(count(&rt, "result-head") <= 1, "{what}");
+            assert_eq!(count(&rt, "orb"), 1, "{what}");
+        }
     }
 }
 
@@ -987,21 +1022,16 @@ fn results_orb(board: Board) -> Orb {
 #[test]
 fn a_finished_job_leaves_a_result_with_what_to_open_and_a_failure_its_retry() {
     for dark in [false, true] {
+        // The rail shows one result: the failure first, with Try again.
         let rt = runtime(
             results_orb(fixture::results_board()),
             orb::view,
             orb::SIZE,
             dark,
         );
-        assert_eq!(count(&rt, "result-head"), 2, "both results");
-        assert_eq!(count(&rt, "done"), 1);
-        assert_eq!(count(&rt, "failed"), 1);
+        assert_eq!(count(&rt, "result-head"), 1, "one result in the rail");
+        assert_eq!(count(&rt, "failed"), 1, "the failure first");
         assert_eq!(count(&rt, "result-retry"), 1, "Try again on the failure");
-        assert_eq!(
-            count_prefix(&rt, "result-open-"),
-            3,
-            "its file, the shop, its folder"
-        );
         assert!(
             count(&rt, "orb-recent") == 1,
             "nothing live: what it recalls"
@@ -1010,6 +1040,14 @@ fn a_finished_job_leaves_a_result_with_what_to_open_and_a_failure_its_retry() {
             let r = rect(&rt, key).unwrap();
             assert!(inside(r, orb::SIZE), "{key} {r:?}");
         }
+        // The done one: its first two targets as its actions.
+        let rt = runtime(done_results_orb(), orb::view, orb::SIZE, dark);
+        assert_eq!(count(&rt, "done"), 1);
+        assert_eq!(
+            count_prefix(&rt, "result-open-"),
+            2,
+            "its file and the shop; the folder when unfolded"
+        );
     }
     let mut rt = runtime(
         results_orb(fixture::results_board()),
@@ -1019,6 +1057,15 @@ fn a_finished_job_leaves_a_result_with_what_to_open_and_a_failure_its_retry() {
     );
     state_press(&mut rt, "result-retry");
     assert_eq!(RETRIED.lock().unwrap().as_slice(), ["landing"]);
+    let mut rt = runtime(done_results_orb(), orb::view, orb::SIZE, false);
+    state_press(&mut rt, "result-more");
+    rt.settle_all();
+    rt.frame(0.0);
+    assert_eq!(
+        count_prefix(&rt, "result-open-"),
+        3,
+        "every target as a row"
+    );
     state_press(&mut rt, "result-open-2");
     assert!(
         OPENED
@@ -1031,14 +1078,20 @@ fn a_finished_job_leaves_a_result_with_what_to_open_and_a_failure_its_retry() {
     );
 }
 
+/// The results board with only the done result up.
+fn done_results_orb() -> Orb {
+    let mut state = results_orb(fixture::results_board());
+    state
+        .board
+        .pops
+        .items
+        .retain(|pop| pop.kind != super::pops::PopKind::Failed);
+    state
+}
+
 #[test]
 fn more_shows_the_whole_answer_inside_the_panel() {
-    let mut rt = runtime(
-        results_orb(fixture::results_board()),
-        orb::view,
-        orb::SIZE,
-        false,
-    );
+    let mut rt = runtime(done_results_orb(), orb::view, orb::SIZE, false);
     assert!(rect(&rt, "result-answer").is_none(), "folded: two lines");
     state_press(&mut rt, "result-more");
     rt.settle_all();
@@ -1279,6 +1332,23 @@ fn snapshots() {
             );
         }
         let orbs = [
+            // The rail on the one anatomy (`docs/ux/redesign.md` §8, A).
+            ("rail", orb_state(fixture::board(), false)),
+            ("rail-crowd", {
+                let mut board = fixture::crowd_board(6, 3);
+                fixture::crowd_question(&mut board);
+                orb_state(board, false)
+            }),
+            ("question", orb_state(fixture::inbox_board(), false)),
+            ("result-failed", results_orb(fixture::results_board())),
+            ("result-done", done_results_orb()),
+            ("result-open", {
+                let mut state = done_results_orb();
+                state.open_result = state.board.pops.items.first().map(|pop| pop.key);
+                state
+            }),
+            ("list", orb_state(fixture::board(), true)),
+            ("list-recall", orb_state(fixture::recall_board(), true)),
             ("orb-inbox", orb_state(fixture::inbox_board(), false)),
             ("orb-inbox-list", orb_state(fixture::inbox_board(), true)),
             ("orb-bubbles", orb_state(fixture::board(), false)),
@@ -1400,6 +1470,10 @@ fn snapshots() {
             let (w, h) = px(bubble::SIZE);
             save(name, bubble::SIZE, backdrop(&gpu, &mut rt, w, h, dark));
         }
+        // A mini in each of its liveness states.
+        let mut rt = runtime((), minis_states, MINIS_SIZE, dark);
+        let (w, h) = px(MINIS_SIZE);
+        save("minis", MINIS_SIZE, backdrop(&gpu, &mut rt, w, h, dark));
         // A failed quick question, in English and in German (the window
         // and the question both).
         let failures = [
@@ -1437,6 +1511,89 @@ fn snapshots() {
         }
         crate::desktop::i18n::apply(Some("en"));
     }
+}
+
+const MINIS_SIZE: (f32, f32) = (380.0, 260.0);
+
+/// A picture standing in for a page, for [`minis_states`].
+fn stand_in() -> rune::Pixels {
+    let (w, h) = (300u32, 188u32);
+    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let top = y < 26;
+            let (r, g, b) = if top {
+                (230, 232, 236)
+            } else if (40..110).contains(&y) && x > 16 && x < 284 {
+                (40 + (x / 3) as u8, 140, 190)
+            } else if y > 124 && y % 18 < 6 && x > 16 && x < 200 {
+                (205, 208, 214)
+            } else {
+                (250, 250, 251)
+            };
+            rgba.extend_from_slice(&[r, g, b, 255]);
+        }
+    }
+    let pixels = rune::Pixels::new();
+    pixels.set(w, h, rgba);
+    pixels
+}
+
+/// The four looks of a mini: live, stalled, waiting for its first picture,
+/// and without one.
+fn minis_states(_: &(), cx: &mut Cx<()>) -> El {
+    use super::look::Liveness;
+    let p = super::super::controls::Paint::new(cx.system_dark(), cx.env().scale);
+    let picture = stand_in();
+    let none = rune::Pixels::new();
+    let cell = |liveness, pixels: &rune::Pixels, title: &str, name: &str| {
+        rune::col()
+            .gap(3.0)
+            .child(super::jobs::mini(
+                p,
+                format!("mini-{name}"),
+                pixels,
+                liveness,
+                (&super::super::icons::GLOBE, title),
+                true,
+            ))
+            .child(
+                rune::text(name.to_owned())
+                    .font(super::look::meta(p))
+                    .color(p.muted()),
+            )
+    };
+    super::look::material(
+        p,
+        rune::col().w(super::look::RAIL_W).padding(16.0).gap(12.0),
+    )
+    .child(
+        rune::row()
+            .gap(8.0)
+            .child(cell(Liveness::Live, &picture, "Resy", "resy.com · live"))
+            .child(cell(
+                Liveness::Stalled(std::time::Duration::from_secs(8)),
+                &picture,
+                "Resy",
+                "resy.com · stalled",
+            )),
+    )
+    .child(
+        rune::row()
+            .gap(8.0)
+            .child(cell(
+                Liveness::Waiting,
+                &none,
+                "Nopa – Book a table",
+                "nopa.com · waiting",
+            ))
+            .child(cell(
+                Liveness::None,
+                &none,
+                "Supplier list",
+                "light browser",
+            )),
+    )
 }
 
 /// `rt` drawn over a desktop grey, as the clear overlay sits on screen.

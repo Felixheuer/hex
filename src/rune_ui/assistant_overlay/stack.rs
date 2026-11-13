@@ -15,20 +15,21 @@
 //! a click outside the panel folds the list back.
 
 use rune::{El, ScrollSpec, col, icon, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Spinner};
+use rune_kit::{ControlSize, IconButton, IconButtonVariant};
 
 use super::super::controls::Paint;
 use super::super::icons::{GLOBE, PANEL};
 use super::ask::ReplyActions;
 use super::board::{Phase, Place, Task};
 use super::live::{self, Preview};
+use super::look::{self, Kind, State};
 use super::results::{self, Outcome};
 use super::{palette, when};
 use crate::desktop::i18n::{tr, tr_fill};
 
 /// The sheet's width.
-pub(crate) const WIDTH: f32 = 372.0;
-const ROW_GAP: f32 = 2.0;
+pub(crate) const WIDTH: f32 = look::RAIL_W;
+const ROW_GAP: f32 = 4.0;
 
 /// What a press asks of the host.
 pub(crate) struct Actions<S> {
@@ -106,8 +107,8 @@ impl Group {
 
 /// The sheet with `tasks` (oldest first) and the `done` results (newest
 /// first), at most `max_h` tall; its rows scroll past that. `newest_first`
-/// lists the newest at the top (the sheet hangs below the orb). The
-/// `hovered` task shows its browsers live.
+/// lists the newest at the top (the sheet hangs below the rail's head).
+/// The `hovered` task shows its browsers live.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn sheet<S: 'static>(
     p: Paint,
@@ -118,30 +119,24 @@ pub(crate) fn sheet<S: 'static>(
     hovered: Option<&str>,
     actions: Actions<S>,
 ) -> El {
-    let c = &p.k.c;
     let live = tasks.iter().filter(|task| task.phase.live()).count();
     let stop_all = (live >= 2).then(|| {
         let stop_all = actions.stop_all;
-        Button::new(tr("Stop all"))
-            .variant(ButtonVariant::GhostMuted)
-            .control_size(ControlSize::Small)
-            .on_press(move |s: &mut S| stop_all(s))
-            .build(p.k)
-            .key("stop-all")
+        look::button(p, Kind::Quiet, tr("Stop all"), move |s: &mut S| stop_all(s)).key("stop-all")
     });
     let toggle = actions.toggle;
     let header = row()
         .key("sheet-header")
         .w_full()
-        .h(32.0)
-        .pl(10.0)
+        .h(36.0)
+        .pl(12.0)
         .pr(4.0)
         .gap(4.0)
         .center_y()
         .child(
             text(tr("Assistant tasks"))
                 .key("sheet-title")
-                .font(p.k.ty.small_medium)
+                .font(look::label(p))
                 .color(p.muted())
                 .grow(1.0)
                 .min_w(0.0),
@@ -179,10 +174,10 @@ pub(crate) fn sheet<S: 'static>(
         sections.push(
             text(group.title())
                 .key(format!("group-{}", group.key()))
-                .font(p.k.ty.small_medium)
+                .font(look::meta(p))
                 .color(p.faint())
-                .pl(10.0)
-                .pt(if sections.is_empty() { 2.0 } else { 8.0 })
+                .pl(12.0)
+                .pt(if sections.is_empty() { 2.0 } else { 10.0 })
                 .pb(2.0)
                 .role("heading"),
         );
@@ -215,36 +210,33 @@ pub(crate) fn sheet<S: 'static>(
         .role("list")
         .label(tr("Assistant tasks"))
         .children(sections);
-    col()
-        .key("sheet")
-        .w(WIDTH)
-        .max_h(max_h)
-        .padding(4.0)
-        .radius(p.k.radius.md + 10.0)
-        .fill(c.bg_base)
-        .border(p.hair, c.border_base)
-        .box_shadow(rune::Shadow {
-            x: 0.0,
-            y: 8.0,
-            blur: 28.0,
-            spread: 0.0,
-            color: rune::Color::BLACK.alpha(if p.k.dark { 0.45 } else { 0.16 }),
-            inset: false,
-        })
-        .hit()
-        .on_key(move |s: &mut S, key: &rune::KeyEvent, _| {
-            if key.key == rune::Key::Escape {
-                toggle(s);
-                true
-            } else {
-                false
-            }
-        })
-        .animate_layout()
-        .child(header)
-        .child(rows)
+    look::material(
+        p,
+        col()
+            .key("sheet")
+            .w(WIDTH)
+            .max_h(max_h)
+            .padding(4.0)
+            .pb(8.0),
+    )
+    .hit()
+    .on_key(move |s: &mut S, key: &rune::KeyEvent, _| {
+        if key.key == rune::Key::Escape {
+            toggle(s);
+            true
+        } else {
+            false
+        }
+    })
+    .animate_layout()
+    .child(header)
+    .child(rows)
 }
 
+/// One task in the list: its dot (with its plan's ring), title, and state
+/// chip; where it works and what it does ("Safari · in background ·
+/// choosing a time"); its plan's checklist or latest steps; its browsers
+/// while the pointer rests on it; and its actions.
 fn task_row<S: 'static>(
     p: Paint,
     task: &Task,
@@ -253,12 +245,22 @@ fn task_row<S: 'static>(
 ) -> El {
     let colour = palette::task(task.colour, p.k.dark);
     let live = task.phase.live();
-    let dot = super::orb::marker(p, task, colour, 10.0).mt(3.0);
-    let title = text(task.title.clone())
-        .key("title")
-        .truncate()
-        .font(p.k.ty.ui_medium)
-        .color(if live { p.text() } else { p.muted() });
+    let head = row()
+        .key("head")
+        .w_full()
+        .gap(8.0)
+        .center_y()
+        .child(super::orb::marker(p, task, colour, 9.0))
+        .child(
+            text(task.title.clone())
+                .key("title")
+                .truncate()
+                .font(look::label(p))
+                .color(if live { p.text() } else { p.muted() })
+                .grow(1.0)
+                .min_w(0.0),
+        )
+        .child(status(p, task));
     let place = place_line(p, task);
     // A plan's checklist stands for the latest steps; a question or a
     // usage limit still says so above it.
@@ -271,31 +273,28 @@ fn task_row<S: 'static>(
     }
     let lines = col()
         .key("lines")
-        .grow(1.0)
+        .w_full()
         .min_w(0.0)
-        .gap(2.0)
-        .child(title)
+        .gap(3.0)
+        .pl(STEP_INSET)
         .children(place)
         .children(detail)
-        .children(strip(p, &task.id, previews, actions))
-        .children(buttons(p, task, actions));
+        .children(strip(p, &task.id, previews, actions));
     let (hover, hovered_id) = (actions.hover, task.id.clone());
-    let body = row()
+    let body = col()
         .key(format!("task-{}", task.id))
         .w_full()
-        .pl(10.0)
-        .pr(8.0)
-        .py(8.0)
-        .gap(10.0)
-        .items_start()
-        .radius(p.k.radius.md + 4.0)
+        .px(12.0)
+        .py(10.0)
+        .gap(4.0)
+        .radius(12.0)
         .role("listitem")
         .label(task.title.clone())
         .hit()
         .on_hover_change(move |s: &mut S, inside, _| hover(s, &hovered_id, inside))
-        .child(dot)
+        .child(head)
         .child(lines)
-        .child(status(p, task, colour).mt(2.0));
+        .children(buttons(p, task, actions));
     let body = if matches!(task.phase, Phase::Waiting { .. }) {
         body.opacity(0.6)
     } else {
@@ -303,6 +302,9 @@ fn task_row<S: 'static>(
     };
     p.k.interactive(body)
 }
+
+/// How far a row's lines are set in: past its dot.
+const STEP_INSET: f32 = 17.0;
 
 /// A live preview's size in the list.
 const PREVIEW_W: f32 = 148.0;
@@ -404,42 +406,38 @@ fn thumbnail<S: 'static>(p: Paint, task: &str, preview: &Preview, actions: Actio
     p.k.interactive(card)
 }
 
-/// A globe for the web, a window for desktop apps, with the apps' names.
+/// A globe for the web, a window for desktop apps, with the app's name,
+/// and "in background" while it runs there (the chip says the rest).
 fn place_line(p: Paint, task: &Task) -> Option<El> {
-    let (glyph, label) = match task.place() {
-        Place::Web => (&GLOBE, tr("On the web")),
-        Place::Desktop => (&PANEL, tr("Desktop")),
-        Place::Unknown => return None,
-    };
-    let mut apps: Vec<&str> = Vec::new();
-    for window in &task.windows {
-        if !apps.contains(&window.app.as_str()) {
-            apps.push(&window.app);
-        }
-    }
-    let words = if apps.is_empty() {
-        label.to_owned()
+    let app = super::jobs::app_of(task)?;
+    let words = if task.phase == Phase::Running {
+        super::jobs::whereabouts(task).unwrap_or(app)
     } else {
-        apps.join(" · ")
+        app
+    };
+    let glyph = match task.place() {
+        Place::Web => Some(&GLOBE),
+        Place::Desktop => Some(&PANEL),
+        Place::Unknown => None,
     };
     Some(
         row()
             .key("place")
             .gap(5.0)
             .center_y()
-            .label(label)
-            .child(
+            .label(words.clone())
+            .children(glyph.map(|glyph| {
                 icon(glyph, 12.0)
                     .key("place-glyph")
                     .color(p.faint())
-                    .a11y_hidden(),
-            )
+                    .a11y_hidden()
+            }))
             .child(
                 text(words)
                     .key("place-text")
                     .truncate()
-                    .font(p.k.ty.small)
-                    .color(p.faint())
+                    .font(look::meta(p))
+                    .color(p.muted())
                     .min_w(0.0),
             ),
     )
@@ -582,7 +580,9 @@ fn steps(p: Paint, task: &Task) -> Vec<El> {
     }
 }
 
-/// Take over or Hand back, and ×, for a live task.
+/// A live task's actions, right-aligned under it: Take over (or Hand back,
+/// the primary, while the person has it; Later on a question) and a quiet
+/// Stop.
 fn buttons<S: 'static>(p: Paint, task: &Task, actions: Actions<S>) -> Option<El> {
     if !task.phase.live() {
         return None;
@@ -593,36 +593,30 @@ fn buttons<S: 'static>(p: Paint, task: &Task, actions: Actions<S>) -> Option<El>
             let take_over = actions.take_over;
             let id = id.clone();
             Some(
-                Button::new(tr("Take over"))
-                    .variant(ButtonVariant::Outline)
-                    .control_size(ControlSize::Small)
-                    .on_press(move |s: &mut S| take_over(s, &id))
-                    .build(p.k)
-                    .key("take-over"),
+                look::button(p, Kind::Secondary, tr("Take over"), move |s: &mut S| {
+                    take_over(s, &id)
+                })
+                .key("take-over"),
             )
         }
         Phase::Paused => {
             let hand_back = actions.hand_back;
             let id = id.clone();
             Some(
-                Button::new(tr("Hand back"))
-                    .variant(ButtonVariant::Submit)
-                    .control_size(ControlSize::Small)
-                    .on_press(move |s: &mut S| hand_back(s, &id))
-                    .build(p.k)
-                    .key("hand-back"),
+                look::button(p, Kind::Primary, tr("Hand back"), move |s: &mut S| {
+                    hand_back(s, &id)
+                })
+                .key("hand-back"),
             )
         }
         Phase::NeedsInput => {
             let defer = actions.defer;
             let id = id.clone();
             Some(
-                Button::new(tr("Later"))
-                    .variant(ButtonVariant::Outline)
-                    .control_size(ControlSize::Small)
-                    .on_press(move |s: &mut S| defer(s, &id))
-                    .build(p.k)
-                    .key("later"),
+                look::button(p, Kind::Secondary, tr("Later"), move |s: &mut S| {
+                    defer(s, &id)
+                })
+                .key("later"),
             )
         }
         _ => None,
@@ -631,52 +625,41 @@ fn buttons<S: 'static>(p: Paint, task: &Task, actions: Actions<S>) -> Option<El>
     Some(
         row()
             .key("buttons")
+            .w_full()
             .pt(6.0)
-            .gap(6.0)
+            .gap(8.0)
+            .justify_end()
             .center_y()
-            .children(hand)
             .child(
-                Button::new(tr("Stop task"))
-                    .variant(ButtonVariant::GhostMuted)
-                    .control_size(ControlSize::Small)
-                    .on_press(move |s: &mut S| stop(s, &id))
-                    .build(p.k)
-                    .key("stop"),
-            ),
+                look::button(p, Kind::Quiet, tr("Stop task"), move |s: &mut S| {
+                    stop(s, &id)
+                })
+                .key("stop"),
+            )
+            .children(hand),
     )
 }
 
-/// Running: the activity spinner in the task's colour; otherwise a word,
-/// a countdown, or a mark.
-pub(crate) fn status(p: Paint, task: &Task, colour: rune::Color) -> El {
+/// A task's state chip (`look::State`, a glyph and a word): Working while
+/// it runs, with the word saying more when it waits (Queued, You have it,
+/// the minutes left of a usage limit); Needs you, Done, Failed; Stopped
+/// as a plain word.
+pub(crate) fn status(p: Paint, task: &Task) -> El {
     match task.phase {
-        Phase::Running => Spinner::new()
-            .size(14.0)
-            .color(colour)
-            .build(p.k)
-            .key("spinner"),
-        Phase::Queued => tag(p, tr("Queued"), "queued"),
-        Phase::Paused => tag(p, tr("You have it"), "paused"),
-        Phase::NeedsInput => tag(p, tr("Waiting for your answer"), "needs-input"),
+        Phase::Running => look::chip(p, State::Working),
+        Phase::Queued => look::chip_words(p, State::Working, tr("Queued")).key("queued"),
+        Phase::Paused => look::chip_words(p, State::Working, tr("You have it")).key("paused"),
+        Phase::NeedsInput => look::chip(p, State::NeedsYou).key("needs-input"),
         Phase::Waiting { until_ms } => {
             let minutes = when::minutes_left(until_ms, when::now_ms()).max(1);
-            tag(p, &tr_fill("{} min", &minutes.to_string()), "countdown")
+            look::chip_words(p, State::Working, &tr_fill("{} min", &minutes.to_string()))
+                .key("countdown")
         }
-        Phase::Stopped => tag(p, tr("Stopped"), "stopped"),
-        Phase::Done => icon(p.k.glyph.check, 16.0)
-            .key("done")
-            .color(p.success())
-            .label(tr("Done")),
-        Phase::Failed => icon(p.k.glyph.circle_x, 16.0)
-            .key("failed")
-            .color(p.danger())
-            .label(tr("Failed")),
+        Phase::Stopped => text(tr("Stopped"))
+            .key("stopped")
+            .font(look::label(p))
+            .color(p.faint()),
+        Phase::Done => look::chip(p, State::Done).key("done"),
+        Phase::Failed => look::chip(p, State::Failed).key("failed"),
     }
-}
-
-fn tag(p: Paint, word: &str, key: &str) -> El {
-    text(word)
-        .key(key)
-        .font(p.k.ty.small_medium)
-        .color(p.faint())
 }

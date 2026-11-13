@@ -1,23 +1,29 @@
-//! Where the orb sits: beside the HUD by default, past where the Here
-//! bubble hangs, at the HUD's edge of the pointer's display; wherever the
-//! person dragged it on that display once they have, remembered per display
-//! across launches (`<support>/assistant/orb.json`). Which way bubbles and
-//! the list unfold follows from where it sits, so they always grow into the
-//! display. Plain geometry here; the host reads the screens.
+//! Where the rail sits (`docs/ux/redesign.md` §3.1): top right of the
+//! pointer's display, 18 points from its edge, just under the menu bar,
+//! where macOS puts notifications; wherever the person dragged it on that
+//! display once they have, remembered per display across launches
+//! (`<support>/assistant/orb.json`). It never covers an outlined window:
+//! when one is under it, it flips to the display's left edge
+//! ([`clear_of`], [`anchor_clear`]). Which way its cards and the list
+//! unfold follows from where it sits, so they always grow into the
+//! display. Plain geometry here; the host reads the screens and the
+//! watcher's outline rects.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use super::look;
 use super::orb::{self, Grow};
 
 /// A display's visible area (below the menu bar, beside the Dock) in
 /// global points, y down: x, y, width, height.
 pub(crate) type Area = [f64; 4];
 
-/// From the HUD's centre to the orb's: clear of the Here bubble, which
-/// hangs centred under the HUD and is 440 points wide.
-const BESIDE_HUD: f64 = 268.0;
-/// From the display's edge to the orb's centre.
+/// From the display's edge to the rail's cards.
+const RAIL_EDGE: f64 = 18.0;
+/// From the menu bar to the rail's head.
+const RAIL_TOP: f64 = 12.0;
+/// How far the anchor may come to the display's edge (clamping a drag).
 const EDGE: f64 = 24.0;
 /// The orb's core centre from the panel's corner on its side.
 const CORE_IN: (f64, f64) = (
@@ -25,13 +31,81 @@ const CORE_IN: (f64, f64) = (
     orb::INSET as f64 + orb::ORB_H as f64 / 2.0,
 );
 
-/// The orb's default centre on a display: beside the HUD (`hud`: its centre
-/// x and whether it's at the top), else beside the top centre.
+/// The rail's default anchor on a display: top right, its cards
+/// [`RAIL_EDGE`] from the right edge and its head [`RAIL_TOP`] under the
+/// menu bar. `hud` is no longer read (the rail no longer sits beside it);
+/// it stays so the callers keep their shape.
 pub(crate) fn default_anchor(visible: Area, hud: Option<(f64, bool)>) -> (f64, f64) {
-    let [x, y, w, h] = visible;
-    let (centre, top) = hud.unwrap_or((x + w / 2.0, true));
-    let ay = if top { y + EDGE } else { y + h - EDGE };
-    clamp((centre + BESIDE_HUD, ay), visible)
+    let _ = hud;
+    let [x, y, w, _] = visible;
+    // The head's outer end sits CORE_IN.0 - INSET past the anchor.
+    let inward = CORE_IN.0 - f64::from(orb::INSET);
+    let down = CORE_IN.1 - f64::from(orb::INSET);
+    clamp((x + w - RAIL_EDGE - inward, y + RAIL_TOP + down), visible)
+}
+
+/// What the rail's cards cover for an anchor unfolding `grow`, `height`
+/// tall below its head's top: x, y, width, height (global points).
+pub(crate) fn footprint((ax, ay): (f64, f64), grow: Grow, height: f64) -> Area {
+    let inward = CORE_IN.0 - f64::from(orb::INSET);
+    let width = f64::from(look::RAIL_W);
+    let x = if grow.right {
+        ax - inward
+    } else {
+        ax + inward - width
+    };
+    let top = ay - (CORE_IN.1 - f64::from(orb::INSET));
+    let y = if grow.down {
+        top
+    } else {
+        ay + (CORE_IN.1 - f64::from(orb::INSET)) - height
+    };
+    [x, y, width, height]
+}
+
+fn overlaps([ax, ay, aw, ah]: Area, [bx, by, bw, bh]: Area) -> bool {
+    ax < bx + bw && bx < ax + aw && ay < by + bh && by < ay + ah
+}
+
+/// `anchor`, flipped to the display's other side when the rail there
+/// (`height` tall) would cover one of the `outlines` (the windows a live
+/// task works in, as the watcher outlines them) and the other side is
+/// clear of them; else `anchor` as it is.
+pub(crate) fn clear_of(
+    anchor: (f64, f64),
+    visible: Area,
+    outlines: &[Area],
+    height: f64,
+) -> (f64, f64) {
+    let covers = |at: (f64, f64)| {
+        let rail = footprint(at, grow(at, visible), height);
+        outlines.iter().any(|outline| overlaps(rail, *outline))
+    };
+    if !covers(anchor) {
+        return anchor;
+    }
+    let [x, _, w, _] = visible;
+    let mirrored = clamp((x + (x + w - anchor.0), anchor.1), visible);
+    if covers(mirrored) { anchor } else { mirrored }
+}
+
+/// [`anchor`] with the flip rule: where the person dragged it on the
+/// display keyed `key` stays theirs; the default top right flips left when
+/// an outlined window is under it. The host passes the watcher's outline
+/// rects and the rail's height (its panel's room).
+#[allow(dead_code)] // `host/follow.rs` (frames agent) wires it with the watcher's outlines.
+pub(crate) fn anchor_clear(
+    key: &str,
+    visible: Area,
+    hud: Option<(f64, bool)>,
+    outlines: &[Area],
+    height: f64,
+) -> (f64, f64) {
+    let dragged = with_dragged(|dragged| dragged.get(key).copied());
+    match dragged {
+        Some(_) => placed(dragged, visible, hud),
+        None => clear_of(default_anchor(visible, hud), visible, outlines, height),
+    }
 }
 
 /// `anchor` kept far enough inside `visible` that the orb shows whole.
@@ -99,14 +173,14 @@ fn with_dragged<T>(f: impl FnOnce(&mut Dragged) -> T) -> T {
 }
 
 /// The orb's centre on the display keyed `key`: where it was dragged
-/// there, else beside the HUD.
+/// there, else top right ([`default_anchor`]).
 pub(crate) fn anchor(key: &str, visible: Area, hud: Option<(f64, bool)>) -> (f64, f64) {
     let dragged = with_dragged(|dragged| dragged.get(key).copied());
     placed(dragged, visible, hud)
 }
 
 /// The orb's centre from where it was dragged on a display (`dragged`, from
-/// its visible area's top-left), else beside the HUD, kept on the display.
+/// its visible area's top-left), else top right, kept on the display.
 pub(crate) fn placed(
     dragged: Option<(f64, f64)>,
     visible: Area,
@@ -180,14 +254,55 @@ mod tests {
     const VISIBLE: Area = [0.0, 33.0, 1512.0, 879.0];
 
     #[test]
-    fn the_orb_sits_beside_the_hud_clear_of_the_here_bubble() {
-        let (ax, ay) = default_anchor(VISIBLE, Some((756.0, true)));
-        assert!(ax - 756.0 > 220.0, "past the bubble's half width: {ax}");
-        assert_eq!(ay, 33.0 + EDGE);
-        assert_eq!(grow((ax, ay), VISIBLE), Grow::default());
-        let (_, low) = default_anchor(VISIBLE, Some((756.0, false)));
-        assert_eq!(low, 33.0 + 879.0 - EDGE, "with the HUD at the bottom");
-        assert!(!grow((ax, low), VISIBLE).down, "unfolds upward there");
+    fn the_rail_sits_top_right_under_the_menu_bar() {
+        let anchor = default_anchor(VISIBLE, Some((756.0, true)));
+        let toward = grow(anchor, VISIBLE);
+        assert_eq!(
+            toward,
+            Grow {
+                down: true,
+                right: false
+            },
+            "it unfolds down and to the left, into the display"
+        );
+        let [x, y, w, _] = footprint(anchor, toward, 400.0);
+        assert!((1512.0 - (x + w) - RAIL_EDGE).abs() < 0.01, "{x} {w}");
+        assert!((y - (33.0 + RAIL_TOP)).abs() < 0.01, "{y}");
+        // Wherever the HUD is.
+        assert_eq!(default_anchor(VISIBLE, Some((756.0, false))), anchor);
+        assert_eq!(default_anchor(VISIBLE, None), anchor);
+    }
+
+    #[test]
+    fn rail_never_covers_an_outlined_window() {
+        let height = 600.0;
+        let anchor = default_anchor(VISIBLE, None);
+        let rail = footprint(anchor, grow(anchor, VISIBLE), height);
+        // Nothing outlined, or an outline elsewhere: it stays top right.
+        assert_eq!(clear_of(anchor, VISIBLE, &[], height), anchor);
+        let left_window = [40.0, 80.0, 700.0, 500.0];
+        assert_eq!(clear_of(anchor, VISIBLE, &[left_window], height), anchor);
+        // An outlined window under it: it flips to the left edge, clear of it.
+        for window in [
+            [900.0, 60.0, 600.0, 700.0],
+            [1300.0, 600.0, 200.0, 200.0],
+            [rail[0] + 10.0, rail[1] + 10.0, 20.0, 20.0],
+        ] {
+            let moved = clear_of(anchor, VISIBLE, &[window], height);
+            let toward = grow(moved, VISIBLE);
+            assert!(
+                toward.right,
+                "{window:?}: unfolds rightward from the left edge"
+            );
+            let there = footprint(moved, toward, height);
+            assert!(!overlaps(there, window), "{window:?}: {there:?}");
+            assert!((there[0] - RAIL_EDGE).abs() < 0.01, "{there:?}");
+            assert_eq!(moved.1, anchor.1, "still under the menu bar");
+        }
+        // Outlined windows on both sides: it keeps its place rather than
+        // jump between them.
+        let both = [[900.0, 60.0, 600.0, 700.0], [0.0, 60.0, 600.0, 700.0]];
+        assert_eq!(clear_of(anchor, VISIBLE, &both, height), anchor);
     }
 
     #[test]
@@ -246,14 +361,16 @@ mod tests {
                 && f64::from(x + w) <= fx + fw
                 && f64::from(y + h) <= fy + fh
         };
-        // Beside the HUD at the top centre of the built-in display.
+        // Top right of the built-in display.
         let here = default_anchor(built_in, Some((900.0, true)));
-        assert_eq!(here, (1168.0, 37.0 + EDGE));
-        assert_eq!(grow(here, built_in), Grow::default());
-        assert!(inside(rect(here, Grow::default()), screens[0].frame));
-        // On the M27Q above, beside the HUD carried there.
+        let toward = grow(here, built_in);
+        assert!(toward.down && !toward.right, "{toward:?}");
+        assert!(inside(rect(here, toward), screens[0].frame));
+        let [x, _, w, _] = footprint(here, toward, 100.0);
+        assert!((built_in[0] + built_in[2] - (x + w) - RAIL_EDGE).abs() < 0.01);
+        // Top right of the M27Q above.
         let there = default_anchor(external, Some((676.0, true)));
-        assert_eq!(there, (944.0, -1415.0 + EDGE));
+        assert!(there.1 < here.1, "on the display above");
         assert!(inside(rect(there, grow(there, external)), screens[1].frame));
         // Dragged to the M27Q's lower right: kept there, unfolding up and
         // left into it.

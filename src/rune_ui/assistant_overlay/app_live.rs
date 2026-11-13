@@ -47,6 +47,8 @@ pub(crate) struct AppPreview {
     pub(crate) pixels: rune::Pixels,
     /// The latest picture at the window's own pixels, while shown large.
     pub(crate) full: rune::Pixels,
+    /// When its latest picture came, for how live its mini looks.
+    pub(crate) clock: super::live::FrameClock,
     shown: AtomicBool,
     large: AtomicBool,
     failed: AtomicBool,
@@ -63,6 +65,7 @@ impl AppPreview {
             number,
             pixels: rune::Pixels::new(),
             full: rune::Pixels::new(),
+            clock: super::live::FrameClock::default(),
             shown: AtomicBool::new(false),
             large: AtomicBool::new(false),
             failed: AtomicBool::new(false),
@@ -405,6 +408,7 @@ fn run(preview: &AppPreview) {
                     super::live::THUMB_WIDTH,
                 );
                 preview.pixels.set(tw as u32, th as u32, thumb);
+                preview.clock.tick();
                 if large {
                     preview.full.set(width, height, rgba);
                 }

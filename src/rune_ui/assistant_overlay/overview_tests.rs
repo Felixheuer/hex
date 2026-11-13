@@ -119,7 +119,9 @@ fn a_crowded_orb_stays_inside_its_panel_and_its_rows_scroll() {
                     true,
                 );
                 let what = format!("{jobs} jobs in {room}, question {question}");
-                for key in ["orb", "orb-all-live", "jobs", "cluster", "desk-minis"] {
+                // The desk minis follow the rows in their column: in view, or
+                // scrolled to (below).
+                for key in ["orb", "orb-all-live", "jobs", "cluster"] {
                     let r = rect(&rt, key).unwrap_or_else(|| panic!("{key}: {what}"));
                     assert!(inside(r, size), "{key} {r:?}: {what}");
                 }
@@ -147,8 +149,13 @@ fn a_crowded_orb_stays_inside_its_panel_and_its_rows_scroll() {
                 let overflows = desk_before[1] + desk_before[3] > jobs_rect[1] + jobs_rect[3] + 0.5;
                 if overflows {
                     assert!(desk_after[1] < desk_before[1], "scrolled: {what}");
+                    assert!(
+                        inside(desk_after, size),
+                        "scrolled into view: {desk_after:?}: {what}"
+                    );
                 } else {
                     assert_eq!(desk_after, desk_before, "nothing to scroll: {what}");
+                    assert!(inside(desk_after, size), "{desk_after:?}: {what}");
                 }
             }
         }

@@ -1,4 +1,4 @@
-//! The bubbles that stand beside the orb (a task the person has, one
+//! The bubbles that stand in the rail (a task the person has, one
 //! waiting out a usage limit) and how every bubble and the list grow out
 //! of the orb and fold back into it.
 
@@ -20,12 +20,10 @@ pub(super) fn standing_bubble<S: 'static>(
             (
                 format!("{} · {}", tr("You have it"), task.title),
                 Some(
-                    Button::new(tr("Hand back"))
-                        .variant(ButtonVariant::Submit)
-                        .control_size(ControlSize::Small)
-                        .on_press(move |s: &mut S| hand_back(s, &id))
-                        .build(p.k)
-                        .key("hand-back"),
+                    look::button(p, look::Kind::Primary, tr("Hand back"), move |s: &mut S| {
+                        hand_back(s, &id)
+                    })
+                    .key("hand-back"),
                 ),
             )
         }
@@ -37,13 +35,13 @@ pub(super) fn standing_bubble<S: 'static>(
     };
     let waiting = button.is_none();
     let bubble = shell(p, format!("standing-{}", task.id))
-        .pr(if waiting { 12.0 } else { 3.0 })
+        .pr(if waiting { 14.0 } else { 4.0 })
         .child(dot(task, colour, 8.0))
         .child(
             text(words)
                 .key("standing-text")
                 .truncate()
-                .font(p.k.ty.small_medium)
+                .font(look::label(p))
                 .color(if waiting { p.muted() } else { p.text() })
                 .min_w(0.0)
                 .shrink(),
@@ -76,7 +74,7 @@ pub(super) fn all_waiting(p: Paint, waiting: &[&Task]) -> El {
         tr_fill("resumes {}", &when::clock(first))
     );
     shell(p, "standing-waiting".into())
-        .pr(12.0)
+        .pr(14.0)
         .children(
             waiting
                 .iter()
@@ -87,7 +85,7 @@ pub(super) fn all_waiting(p: Paint, waiting: &[&Task]) -> El {
             text(words)
                 .key("standing-text")
                 .truncate()
-                .font(p.k.ty.small_medium)
+                .font(look::label(p))
                 .color(p.muted())
                 .min_w(0.0)
                 .shrink(),
@@ -97,26 +95,18 @@ pub(super) fn all_waiting(p: Paint, waiting: &[&Task]) -> El {
 
 /// A bubble's capsule.
 fn shell(p: Paint, key: String) -> El {
-    let c = &p.k.c;
-    row()
-        .key(key)
-        .h(BUBBLE_H)
-        .max_w(BUBBLE_MAX_W)
-        .pl(10.0)
-        .gap(7.0)
-        .center_y()
-        .radius(BUBBLE_H / 2.0)
-        .fill(c.bg_base)
-        .border(p.hair, c.border_base)
-        .box_shadow(rune::Shadow {
-            x: 0.0,
-            y: 3.0,
-            blur: 12.0,
-            spread: 0.0,
-            color: rune::Color::BLACK.alpha(if p.k.dark { 0.4 } else { 0.12 }),
-            inset: false,
-        })
-        .hit()
+    look::material(
+        p,
+        row()
+            .key(key)
+            .h(BUBBLE_H)
+            .max_w(BUBBLE_MAX_W)
+            .pl(14.0)
+            .gap(8.0)
+            .center_y(),
+    )
+    .radius(BUBBLE_H / 2.0)
+    .hit()
 }
 
 /// The point of the orb a bubble grows from, in the bubble's own unit
@@ -142,24 +132,6 @@ pub(super) fn pop_in(grow: Grow) -> Transition {
     .springs(rune::SpringPair::new(
         Spring::new(0.42, 0.32),
         Spring::new(0.28, 0.0),
-    ))
-}
-
-/// A new dot flies into the cluster from the HUD's side with a little
-/// overshoot (a Here question escalated, or a task started).
-pub(super) fn fly_in(grow: Grow) -> Transition {
-    Transition::asymmetric(
-        Transition::scale(0.5)
-            .allow_small_scale()
-            .combined(Transition::offset(
-                if grow.right { -70.0 } else { 70.0 },
-                6.0,
-            )),
-        Transition::scale(0.5).allow_small_scale(),
-    )
-    .springs(rune::SpringPair::new(
-        Spring::new(0.55, 0.35),
-        Spring::new(0.25, 0.0),
     ))
 }
 
