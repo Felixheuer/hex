@@ -282,18 +282,32 @@ fn own_key_now(
         backends::apply_fix_with(Fix::Install(AssistantBackend::OpenCode), progress)
             .map_err(|error| format!("{error:#}"))?;
     }
-    let _ = model;
     backends::set_provider_key(provider, key).map_err(|error| format!("{error:#}"))?;
     match backends::verify_provider_key(provider) {
-        Ok(found) => {
-            progress(&found);
-            Ok(())
-        }
+        Ok(found) => progress(&found),
         Err(error) => {
             // A key that doesn't work isn't kept.
             let _ = backends::set_provider_key(provider, "");
-            Err(format!("{error:#}"))
+            return Err(format!("{error:#}"));
         }
+    }
+    // The key works; now prove OpenCode answers with it, as a task runs it
+    // (an OpenCode that can't run tasks would otherwise only show up on the
+    // first one). The key stays: it is good.
+    progress("Checking that OpenCode answers…");
+    let settings = AssistantSettings {
+        backend: AssistantBackend::OpenCode,
+        opencode_provider: Some(provider.to_owned()),
+        opencode_model: Some(format!("{provider}/{model}")),
+        ..crate::app_settings::assistant_runtime()
+            .map(|(_, settings)| settings)
+            .unwrap_or_default()
+    };
+    let checked = backends::self_test(Check::Answers(AssistantBackend::OpenCode), &settings);
+    if checked.ok() {
+        Ok(())
+    } else {
+        Err(checked.detail)
     }
 }
 
