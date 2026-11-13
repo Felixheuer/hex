@@ -51,6 +51,9 @@ pub(crate) struct AppPreview {
     large: AtomicBool,
     failed: AtomicBool,
     stop: AtomicBool,
+    /// Painted by a fixture ([`fake`]): no window behind it, so it is never
+    /// captured or brought back, and stays until a fixture replaces it.
+    fixture: bool,
 }
 
 impl AppPreview {
@@ -64,6 +67,7 @@ impl AppPreview {
             large: AtomicBool::new(false),
             failed: AtomicBool::new(false),
             stop: AtomicBool::new(false),
+            fixture: false,
         }
     }
 
@@ -191,6 +195,17 @@ pub(crate) fn track(tasks: &[(String, Vec<TaskWindow>)]) {
             next.insert(task.clone(), previews);
         }
     }
+    // A fixture's pictures stay as painted.
+    for (task, previews) in &registry.tasks {
+        if previews.iter().all(|preview| preview.fixture) {
+            next.entry(task.clone()).or_insert_with(|| previews.clone());
+            after.extend(
+                previews
+                    .iter()
+                    .map(|preview| (task.clone(), preview.number)),
+            );
+        }
+    }
     let gone = left(&before, &after);
     if gone.is_empty() && before.len() == after.len() {
         return;
@@ -274,13 +289,14 @@ pub(crate) fn fake(
         .iter()
         .enumerate()
         .map(|(index, (app, number))| {
-            let preview = AppPreview::new(
+            let mut preview = AppPreview::new(
                 TaskWindow {
                     app: (*app).into(),
                     window_id: Some(format!("w-{number}")),
                 },
                 *number,
             );
+            preview.fixture = true;
             let (width, height, rgba) = paint(index);
             preview.full.set(width, height, rgba.clone());
             preview.pixels.set(width, height, rgba);
@@ -424,6 +440,18 @@ mod tests {
             app: app.into(),
             window_id: id.map(str::to_owned),
         }
+    }
+
+    #[test]
+    fn a_fixture_s_windows_stay_when_no_task_has_them() {
+        let task = "app-live-fixture-test";
+        fake(task, &[("Numbers", 4_242)], |_| (1, 1, vec![0; 4]));
+        // No task works in any window now: nothing is captured or brought
+        // back, and the painted one stays.
+        track(&[]);
+        let kept = previews(task);
+        assert_eq!(kept.len(), 1);
+        assert!(kept[0].fixture && !kept[0].stop.load(Ordering::Acquire));
     }
 
     #[test]

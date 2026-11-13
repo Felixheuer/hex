@@ -209,6 +209,9 @@ impl Preview {
 struct Watch {
     previews: Vec<Arc<Preview>>,
     stop: Arc<AtomicBool>,
+    /// Painted by a fixture ([`fake`]): no browser behind it, so it is never
+    /// listed, and it stays until a fixture replaces it, whatever shows.
+    fixture: bool,
 }
 
 /// Who shows a browser large.
@@ -407,6 +410,7 @@ pub(crate) fn fake(
         Watch {
             previews,
             stop: Arc::new(AtomicBool::new(true)),
+            fixture: true,
         },
     );
 }
@@ -491,9 +495,9 @@ fn sync(registry: &mut Registry) {
     let wanted = wanted(registry);
     let gone: Vec<String> = registry
         .tasks
-        .keys()
-        .filter(|task| !wanted.contains(task))
-        .cloned()
+        .iter()
+        .filter(|(task, watch)| !watch.fixture && !wanted.contains(task))
+        .map(|(task, _)| task.clone())
         .collect();
     for task in gone {
         if let Some(watch) = registry.tasks.remove(&task) {
@@ -510,6 +514,7 @@ fn sync(registry: &mut Registry) {
                 Watch {
                     previews: Vec::new(),
                     stop: Arc::new(AtomicBool::new(false)),
+                    fixture: false,
                 },
             );
         }
@@ -549,7 +554,12 @@ fn list() {
     loop {
         let tasks = {
             let mut registry = registry();
-            let tasks: Vec<String> = registry.tasks.keys().cloned().collect();
+            let tasks: Vec<String> = registry
+                .tasks
+                .iter()
+                .filter(|(_, watch)| !watch.fixture)
+                .map(|(task, _)| task.clone())
+                .collect();
             if tasks.is_empty() {
                 registry.listing = false;
                 return;
@@ -934,6 +944,7 @@ mod tests {
             Watch {
                 previews: sessions.iter().map(|s| preview(s)).collect(),
                 stop: Arc::new(AtomicBool::new(false)),
+                fixture: false,
             },
         );
         // A card's first three browsers stream slowly; the fourth on is "+3".
@@ -957,6 +968,24 @@ mod tests {
         assert!(Rate::Idle < Rate::Background);
         assert_eq!(Rate::from_u8(Rate::Idle as u8), Rate::Idle);
         assert_eq!(Rate::from_u8(Rate::Large as u8), Rate::Large);
+    }
+
+    #[test]
+    fn a_fixture_s_browsers_stay_whatever_shows_and_a_task_s_go() {
+        let watch = |fixture| Watch {
+            previews: vec![Arc::new(Preview::new("hex-x".into(), String::new()))],
+            stop: Arc::new(AtomicBool::new(fixture)),
+            fixture,
+        };
+        let mut registry = Registry::default();
+        registry.tasks.insert("painted".into(), watch(true));
+        registry.tasks.insert("ended".into(), watch(false));
+        // Nothing shows (a window hidden, the wall closed): no list starts.
+        sync(&mut registry);
+        assert!(registry.tasks.contains_key("painted"));
+        assert!(!registry.tasks.contains_key("ended"));
+        assert!(!registry.listing);
+        assert_eq!(registry.tasks["painted"].previews.len(), 1);
     }
 
     #[test]
@@ -1010,6 +1039,7 @@ mod tests {
             Watch {
                 previews: sessions.iter().map(|s| preview(s)).collect(),
                 stop: Arc::new(AtomicBool::new(false)),
+                fixture: false,
             },
         );
         // Closed: a helper's browsers past a card stream nothing.

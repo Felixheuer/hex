@@ -145,7 +145,7 @@ impl Runner {
             || (kind == JobKind::Ask && request.origin == Origin::Background);
         if starts_job && lane == Lane::Background && settings.background_browser && parent.is_none()
         {
-            crate::assistant::browser::prewarm_for(&conversation, &request.text);
+            (self.hooks.browser_ahead)(&conversation, &request.text);
         }
         let mut job = Job {
             conversation: conversation.clone(),
@@ -324,12 +324,9 @@ impl Runner {
         }
         match outcome {
             Outcome::Answer(text) => {
-                crate::assistant::knowledge::learn_from_task(
-                    &conversation,
-                    &request.text,
-                    &text,
-                    settings.memory,
-                );
+                if settings.memory {
+                    (self.hooks.learn)(&conversation, &request.text, &text);
+                }
                 let text = with_workspace(text, workspace.as_deref());
                 if settings.speak_answers {
                     if lane == Lane::Here {

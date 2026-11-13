@@ -305,12 +305,10 @@ impl<D: Desktop> Guard<D> {
                     .and_then(|window| window.bounds)
             })
             .map(|(_, _, width, height)| (width, height));
-        let reading = if cfg!(test) {
-            Ok(ocr::Reading::default())
-        } else {
-            ocr::read(number, size)
-        }
-        .map_err(|why| failure(&format!("Hex couldn't read {id}: {why}")))?;
+        let reading = self
+            .screen
+            .read_window(number, size)
+            .map_err(|why| failure(&format!("Hex couldn't read {id}: {why}")))?;
         let total = reading.lines.len();
         let lines: Vec<&ocr::Line> = reading.lines.iter().take(MAX_LINES).collect();
         Ok(success(

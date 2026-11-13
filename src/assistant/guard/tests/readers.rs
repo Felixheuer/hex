@@ -171,3 +171,45 @@ fn what_a_reader_saw_the_guard_knows() {
     );
     assert_eq!(error_code(&secret).as_deref(), Some("POLICY_DENIED"));
 }
+
+#[test]
+fn a_window_s_text_is_read_from_its_picture_within_the_tasks_leases() {
+    let scratch = Scratch::new();
+    let fake = Fake::recorded();
+    let number: u32 = SETTINGS.trim_start_matches("w-").parse().unwrap();
+    fake.state().readings.insert(
+        number,
+        crate::assistant::actions::ocr::Reading {
+            lines: vec![crate::assistant::actions::ocr::Line {
+                text: "Wi-Fi".into(),
+                x: 10.0,
+                y: 20.0,
+                width: 40.0,
+                height: 12.0,
+                confidence: 0.9,
+            }],
+            cached: false,
+        },
+    );
+    let mut guard = background(&scratch, &fake, "bg", false);
+    let refused = guard.call(
+        policy::READ_WINDOW_TOOL,
+        args(json!({"window_id": SETTINGS})),
+    );
+    assert_eq!(refused["isError"], true, "not this task's window yet");
+    guard.call("desktop_claim_window", args(json!({"window_id": SETTINGS})));
+    let read = guard.call(
+        policy::READ_WINDOW_TOOL,
+        args(json!({"window_id": SETTINGS})),
+    );
+    let data = child::data(&read).expect("read");
+    assert_eq!(data["window"], SETTINGS);
+    assert_eq!(data["text"].as_str().unwrap().trim(), "Wi-Fi");
+    assert_eq!(data["lines"][0]["x"], 10.0);
+    assert_eq!(data["more_lines"], 0);
+    assert!(
+        fake.forwarded()
+            .iter()
+            .all(|tool| tool != "desktop_screenshot")
+    );
+}

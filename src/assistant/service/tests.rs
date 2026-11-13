@@ -260,6 +260,7 @@ impl World {
         let notes = world(self);
         let ended_ahead = world(self);
         let browser = world(self);
+        let learned = world(self);
         let pressure = world(self);
         let (team_asks, team_answer) = (world(self), world(self));
         let (recent, interrupted, prewarm, requests, workspaces) = (
@@ -289,6 +290,10 @@ impl World {
             speaking: Box::new(|| false),
             pick_voice: Box::new(|_| None),
             stop_speaking: Box::new(|| {}),
+            // Never the process's own hold or dictation, which other
+            // tests change.
+            person_talks: Box::new(|| false),
+            announcements_wait: Box::new(|| false),
             now_ms: Box::new(move || clock.clock.load(Ordering::SeqCst)),
             sleep: Box::new(|_| std::thread::sleep(Duration::from_millis(1))),
             pause: Box::new(move |task, paused| pause.log(format!("pause {task} {paused}"))),
@@ -323,6 +328,10 @@ impl World {
             }),
             browser_ahead: Box::new(move |task, words| {
                 browser.log(format!("browser ahead {task} {words}"));
+            }),
+            signed_in_sites: Box::new(|| vec!["github.com".to_owned()]),
+            learn: Box::new(move |task, words, answer| {
+                learned.log(format!("learn {task} {words}: {answer}"));
             }),
             front_window: Box::new(|| {
                 Some(TaskWindow {
@@ -851,6 +860,10 @@ fn a_new_here_request_stops_the_last_one_but_not_background_tasks() {
 
     world.release("second");
     world.wait_for("the second answer", ended(&second));
+    // Read aloud on the voice's own thread, after the answer is shown.
+    world.wait_until("the answer read aloud", || {
+        !world.spoken.lock().unwrap().is_empty()
+    });
     assert_eq!(*world.spoken.lock().unwrap(), ["answer to second"]);
     assert_eq!(runner.tasks().len(), 1);
     assert_eq!(runner.tasks()[0].conversation, background);
@@ -1520,6 +1533,52 @@ fn after_a_quick_answer_the_next_new_conversation_is_kept_ready() {
 }
 
 #[test]
+fn a_finished_answer_is_learned_only_while_memory_is_on() {
+    let world = World::new(8);
+    world.settings.lock().unwrap().memory = true;
+    let runner = world.runner();
+    let first = runner.submit(request("who runs Kalibermarkt", Origin::ActionShortcut));
+    world.release("who runs Kalibermarkt");
+    world.wait_for("the answer", ended(&first));
+    let learned = |id: &str| {
+        let prefix = format!("learn {id} ");
+        world
+            .log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|line| line.starts_with(&prefix))
+    };
+    world.wait_until("the lesson", || learned(&first));
+    assert!(
+        world
+            .log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|line| line.starts_with(&format!("learn {first} who runs Kalibermarkt: ")))
+    );
+    world.settings.lock().unwrap().memory = false;
+    let second = runner.submit(request("and who owns it", Origin::ActionShortcut));
+    world.release("and who owns it");
+    world.wait_for("the second answer", ended(&second));
+    assert!(!learned(&second));
+}
+
+#[test]
+fn a_job_starts_its_browser_ahead_through_its_hook() {
+    let world = World::new(8);
+    world.settings.lock().unwrap().background_browser = true;
+    let runner = world.runner();
+    let id = runner.submit(request("research suppliers", Origin::Background));
+    world.wait_until("the job's browser", || {
+        world.logged(&format!("browser ahead {id} research suppliers"))
+    });
+    world.release("research suppliers");
+    world.wait_for("the answer", ended(&id));
+}
+
+#[test]
 fn words_that_ask_for_the_web_start_the_holds_browser_once() {
     let world = World::new(8);
     world.settings.lock().unwrap().backend = AssistantBackend::ClaudeCode;
@@ -1612,6 +1671,9 @@ fn a_here_request_that_is_a_job_continues_as_a_background_job() {
     assert!(workspace.is_dir());
     // "On it" is said, the Here run says nothing final, and it works as
     // Background work.
+    world.wait_until("\"On it\" read aloud", || {
+        !world.spoken.lock().unwrap().is_empty()
+    });
     assert_eq!(
         *world.spoken.lock().unwrap(),
         ["On it: 50 suppliers and a sheet."]
