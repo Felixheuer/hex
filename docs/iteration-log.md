@@ -66,6 +66,13 @@ maintainable, and nothing that isn't possible.
 - [x] Google/YouTube no longer copied from Chrome into hidden browsers (signed the person
       out of Google in Chrome when agents started); old copies cleaned once
 - [x] Job rules back within budget
+- [x] OpenCode: watchdog fits its whole-part output (120 s), cost per job in the journal,
+      a deleted conversation's OpenCode sessions deleted too; teams, checks and workspaces
+      verified end to end with DeepSeek
+- [ ] OpenCode answers aren't streamed (it writes whole text parts): a server-based run
+      could stream and save ~1.2 s per quick turn, but needs per-session MCP servers
+- [ ] Linux-only UI tests and goldens drifted from the fork's window (18 failures on Linux;
+      the fork ships macOS only)
 
 ## Round 6 (after the rename): Cua only, no legacy
 
