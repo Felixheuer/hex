@@ -20,6 +20,7 @@ fn job(text: &str, origin: Origin, context: Context) -> Job {
         workspace: None,
         authorized: Default::default(),
         memory: None,
+        recall: None,
         helps: None,
     }
 }
@@ -368,18 +369,34 @@ fn front_matter_is_dropped_from_the_guide() {
 }
 
 #[test]
-fn a_session_s_rules_fingerprint_ignores_the_request_s_permissions() {
-    let base = "You are Hex's assistant.\nRules: work in the window.\n";
-    let a = format!("{base}\nAutonomy (Smart): you may only send because…\nmemory A");
-    let b = format!("{base}\nAutonomy (Yolo): nothing waits…\nmemory B");
-    assert_eq!(super::rules_fingerprint(&a), super::rules_fingerprint(&b));
-    let changed = format!(
-        "{base}- If the request needs anything beyond that window, hand it off.\n\nAutonomy (Smart): …"
-    );
-    assert_ne!(
-        super::rules_fingerprint(&a),
-        super::rules_fingerprint(&changed)
-    );
+fn a_session_s_rules_fingerprint_counts_every_rule_but_the_memory_note() {
+    use crate::assistant::autonomy::{Authorized, Category};
+    let run = Run::fixture(AssistantBackend::ClaudeCode);
+    let fingerprint = |job: &Job| super::rules_fingerprint(job, &run);
+    let mut a = job("Send it to Max", Origin::ActionShortcut, Context::default());
+    a.settings.memory = true;
+    a.memory = Some("- Company: A".into());
+    // Another note, other words, and what they allowed: the same rules.
+    let mut b = a.clone();
+    b.memory = Some("- Company: A\n- Max: max@example.com".into());
+    b.request.text = "Schreib Max".into();
+    b.authorized = Authorized {
+        categories: [Category::Send].into(),
+        ..Authorized::default()
+    };
+    b.recall = Some("- Max (person)".into());
+    assert_eq!(fingerprint(&a), fingerprint(&b));
+    // Rules after the autonomy section count: the memory rules, the tools'
+    // rules (a job has none), and the mode.
+    let mut no_memory = a.clone();
+    no_memory.settings.memory = false;
+    assert_ne!(fingerprint(&a), fingerprint(&no_memory));
+    let mut background = a.clone();
+    background.request.origin = Origin::Background;
+    assert_ne!(fingerprint(&a), fingerprint(&background));
+    let mut yolo = a.clone();
+    yolo.settings.autonomy = crate::assistant::autonomy::Autonomy::Yolo;
+    assert_ne!(fingerprint(&a), fingerprint(&yolo));
 }
 
 #[test]
@@ -586,24 +603,41 @@ fn a_job_is_told_the_person_s_language() {
     assert!(rule.contains("speaks German"), "{rule}");
     let rule = super::language_rule("Find ten suppliers and put them in a sheet for me");
     assert!(rule.contains("speaks English"), "{rule}");
+    // Too short to tell: the language of their words, never the Mac's.
+    let rule = super::language_rule("Safari");
+    assert!(rule.contains("in the language of their words"), "{rule}");
+    assert!(!rule.contains("speaks"), "{rule}");
+    // The system prompt names no language of its own.
+    assert!(!system_prompt(Origin::ActionShortcut, None, false).contains("language"));
 }
 
 #[test]
 fn a_backend_started_ahead_has_the_requests_own_system_prompt() {
     use crate::assistant::autonomy::{Authorized, Category};
+    use crate::assistant::knowledge::{self, graph};
     let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
     desktop.front_window = true;
     // As `service::prewarm` builds it: no words yet, nothing authorized.
     let mut ahead = job("", Origin::ActionShortcut, Context::default());
+    ahead.settings.memory = true;
     ahead.memory = Some("- Company: blabla.com".into());
-    // The request: English words on any Mac, and its words allow a send.
+    // The request: English words on any Mac, its words allow a send, and
+    // they name someone the memory graph knows.
     let mut asked = ahead.clone();
-    asked.request.text = "Send the offer to max@example.com".into();
+    asked.request.text = "Send the offer to Max Weber at max@example.com".into();
     asked.authorized = Authorized {
         categories: [Category::Send].into(),
         notes: vec!["only to max@example.com".into()],
         ..Authorized::default()
     };
+    let mut known = graph::Graph::default();
+    known.learn(
+        &graph::extract("Max Weber works at blabla.com", None, "DE"),
+        "remember",
+        1,
+    );
+    asked.recall = knowledge::recall_in(&known, &asked.request.text);
+    let recall = asked.recall.clone().expect("the graph knows Max Weber");
     assert_eq!(
         system_for(&ahead, Some(&desktop), true),
         system_for(&asked, Some(&desktop), true),
@@ -616,12 +650,13 @@ fn a_backend_started_ahead_has_the_requests_own_system_prompt() {
         rules.contains("For this request: Autonomy (Smart): you may only send"),
         "{rules}"
     );
+    assert!(rules.contains(recall.trim()), "{rules}");
     assert!(!request_rules(&ahead).contains("For this request"));
     // (Without the desktop, so the test reads nothing of this computer.)
     asked.settings.control_desktop = false;
     let message = message(&asked, &[], false);
     assert!(message.starts_with(&rules), "{message}");
-    assert!(message.ends_with("Send the offer to max@example.com"));
+    assert!(message.ends_with("Send the offer to Max Weber at max@example.com"));
 }
 
 #[test]

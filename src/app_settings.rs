@@ -383,6 +383,7 @@ const MIGRATIONS: &[&str] = &[
     ANOMALY_IDENTITY_MIGRATION,
     MEETING_RETENTION_DEFAULT_MIGRATION,
     MEETING_SUMMARIES_MIGRATION,
+    SCREENSHOT_ON_DEMAND_MIGRATION,
 ];
 #[cfg(not(hex_capture))]
 const MIGRATIONS: &[&str] = &[
@@ -390,6 +391,7 @@ const MIGRATIONS: &[&str] = &[
     ANOMALY_IDENTITY_MIGRATION,
     MEETING_RETENTION_DEFAULT_MIGRATION,
     MEETING_SUMMARIES_MIGRATION,
+    SCREENSHOT_ON_DEMAND_MIGRATION,
 ];
 /// Scrawl's settings were read into `capture` once. Left out of
 /// `MIGRATIONS` so new settings import them too.
@@ -405,6 +407,9 @@ const MEETING_RETENTION_DEFAULT_MIGRATION: &str = "meeting-retention-default";
 /// Summarize with Apple Intelligence and Summarize with OpenCode became one
 /// choice, `meetings.summaries`.
 const MEETING_SUMMARIES_MIGRATION: &str = "meeting-summaries-choice";
+/// A quick question no longer sends a screenshot by default: the agent
+/// looks on demand with its desktop tools. Turned off once in older files.
+const SCREENSHOT_ON_DEMAND_MIGRATION: &str = "assistant-screenshot-on-demand";
 
 fn deserialize_retired_value<'de, D>(
     deserializer: D,
@@ -908,6 +913,10 @@ impl AppSettings {
                 .push(MEETING_RETENTION_DEFAULT_MIGRATION.into());
         }
         self.migrate_meeting_summaries();
+        if !self.has_migration(SCREENSHOT_ON_DEMAND_MIGRATION) {
+            self.assistant.include_screenshot = false;
+            self.migrations.push(SCREENSHOT_ON_DEMAND_MIGRATION.into());
+        }
         #[cfg(hex_capture)]
         if !self.has_migration(ANNOTATE_DEFAULT_MIGRATION) {
             self.capture.enabled = true;
@@ -1517,6 +1526,23 @@ mod tests {
         settings.capture.enabled = false;
         settings.apply_one_time_migrations_with(|_| true);
         assert!(!settings.capture.enabled, "only once");
+    }
+
+    /// A file from before the screen was looked at on demand stops sending a
+    /// screenshot with every quick question, once.
+    #[test]
+    fn the_quick_question_s_screenshot_turns_off_once() {
+        assert!(!AppSettings::default().assistant.include_screenshot);
+        let mut settings = AppSettings {
+            migrations: vec![STREAMING_ENGLISH_MIGRATION.into()],
+            ..AppSettings::default()
+        };
+        settings.assistant.include_screenshot = true;
+        settings.apply_one_time_migrations_with(|_| true);
+        assert!(!settings.assistant.include_screenshot);
+        settings.assistant.include_screenshot = true;
+        settings.apply_one_time_migrations_with(|_| true);
+        assert!(settings.assistant.include_screenshot, "only once");
     }
 
     /// The two retired summary switches become one choice once; On this Mac

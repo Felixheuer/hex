@@ -204,6 +204,10 @@ impl WireSpec {
 /// The spec names agent-desktop and the guard's folder as this process
 /// found them, so the guard agrees with Hex even when an agent starts its
 /// MCP servers with an environment of its own.
+///
+/// A Here task's window goes through the guard's state
+/// (`guard/here/<task>.json`), not the arguments: a backend started ahead
+/// in one window serves a request asked in another.
 pub fn mcp_server(spec: &TaskSpec) -> Option<McpServer> {
     let active = crate::assistant::driver::active()?;
     let agent = crate::assistant::backends::mcp_server(&[]);
@@ -216,6 +220,7 @@ pub fn mcp_server(spec: &TaskSpec) -> Option<McpServer> {
     });
     let hex = std::env::current_exe().ok()?;
     let store = state::Store::standard()?;
+    store.set_here_window(&spec.task, WireSpec::new(spec).here_window.as_ref());
     let mut server = server_for(spec, &hex, &desktop, store.root());
     if active.driver == crate::assistant::driver::Driver::Cua {
         with_cua(&mut server, &active.path, agent.is_some());
@@ -320,6 +325,9 @@ pub fn process_running(pid: u32, started: Option<u64>) -> bool {
 
 fn server_for(spec: &TaskSpec, hex: &Path, desktop: &McpServer, state_dir: &Path) -> McpServer {
     let mut wire = WireSpec::new(spec);
+    // Read from the state dir ([`mcp_server`]), so the arguments don't
+    // depend on the window.
+    wire.here_window = None;
     wire.agent_desktop = Some(desktop.command.clone());
     wire.state_dir = Some(state_dir.to_path_buf());
     wire.agent_display = crate::assistant::computer::agent_display_setting();
@@ -376,7 +384,11 @@ pub fn serve(spec: &str) -> Result<()> {
     let fallback = child::AgentDesktop::new(program, flags);
     let desktop = Driven::new(wire.cua_driver.as_deref(), fallback);
     let pid = std::process::id();
-    let mut guard = proxy::Guard::new(config(&wire), store.clone(), pid, desktop, screen);
+    let mut config = config(&wire);
+    if config.here_window.is_none() {
+        config.here_window = store.here_window(&wire.task).map(task_window);
+    }
+    let mut guard = proxy::Guard::new(config, store.clone(), pid, desktop, screen);
     guard.desk = wire.desk_pid.filter(|pid| state::alive(*pid));
     let served = server::serve(guard);
     // This process's leases lapse when it ends; free them now.
@@ -458,10 +470,7 @@ fn config(wire: &WireSpec) -> proxy::Config {
     proxy::Config {
         task: wire.task.clone(),
         lane: wire.lane,
-        here_window: wire.here_window.as_ref().map(|window| TaskWindow {
-            app: window.app.clone(),
-            window_id: window.window_id.clone(),
-        }),
+        here_window: wire.here_window.clone().map(task_window),
         physical_input: wire.physical_input,
         blocked_apps: wire.blocked_apps.clone(),
         agent_display: wire.agent_display.clone(),
@@ -469,6 +478,13 @@ fn config(wire: &WireSpec) -> proxy::Config {
         front_window: wire.front_window,
         open_apps: wire.open_apps || wire.front_window,
         observe_only: wire.observe_only,
+    }
+}
+
+fn task_window(window: WireWindow) -> TaskWindow {
+    TaskWindow {
+        app: window.app,
+        window_id: window.window_id,
     }
 }
 

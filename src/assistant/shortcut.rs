@@ -30,18 +30,6 @@ const TRANSCRIPT_WAIT: Duration = Duration::from_secs(300);
 /// what has arrived (the Accessibility part) and drops the rest.
 const CONTEXT_WAIT: Duration = Duration::from_secs(3);
 
-/// Spoken openings that send a question to the Background lane, as words
-/// compared without case or the punctuation around them. `true`: only with a
-/// colon after it ("Hintergrund: …"), since "Hintergrund ändern" asks about
-/// the background itself.
-const SPOKEN_BACKGROUND: [(&[&str], bool); 5] = [
-    (&["im", "hintergrund"], false),
-    (&["in", "the", "background"], false),
-    (&["nebenbei"], false),
-    (&["parallel"], false),
-    (&["hintergrund"], true),
-];
-
 /// Starts a desktop read on its own thread (`computer::context_async`).
 type ReadDesktop = Box<dyn FnOnce() -> ContextHandle + Send>;
 
@@ -103,38 +91,6 @@ pub(crate) fn held(pressed: CaptureInstant, released: CaptureInstant) -> bool {
     released
         .checked_duration_since(pressed)
         .is_some_and(|held| held >= crate::dictation::MINIMUM_HOLD_DURATION)
-}
-
-/// `text` without its spoken opening when it asks for the Background lane
-/// ("Im Hintergrund, räum den Downloads-Ordner auf" becomes "räum den
-/// Downloads-Ordner auf"); `None` when it doesn't start with one. A word
-/// that merely starts like one ("Parallelogramm", "Hintergrundbild") is not
-/// one.
-pub(crate) fn spoken_background(text: &str) -> Option<&str> {
-    let text = text.trim();
-    SPOKEN_BACKGROUND.iter().find_map(|&(words, colon)| {
-        let mut rest = text;
-        let mut last = "";
-        for &word in words {
-            let trimmed = rest.trim_start();
-            let end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
-            let (spoken, after) = trimmed.split_at(end);
-            let bare = spoken.trim_matches(|c: char| !c.is_alphanumeric());
-            if bare.to_lowercase() != word {
-                return None;
-            }
-            last = spoken;
-            rest = after;
-        }
-        // "Hintergrund:" or "Hintergrund :".
-        if colon && !last.ends_with(':') {
-            rest = rest.trim_start().strip_prefix(':')?;
-        }
-        Some(
-            rest.trim_start_matches(|c: char| !c.is_alphanumeric())
-                .trim_end(),
-        )
-    })
 }
 
 /// What one press of the Action shortcut asks, settled as it goes down.
@@ -250,7 +206,7 @@ impl Question {
         if self.background {
             return background(text);
         }
-        if let Some(rest) = spoken_background(text) {
+        if let Some(rest) = crate::assistant::route::spoken_background(text) {
             // Dropping the read cancels it: a Background task sends no
             // screenshot.
             return background(rest);
@@ -443,15 +399,21 @@ pub(crate) fn unready_release(held_for: Duration) {
     }
 }
 
+/// The desktop read a hold starts, the one place every OS's listener and
+/// conversation mode take it from: the Accessibility part, and a screenshot
+/// only when `assistant.include_screenshot` asks for one (off by default:
+/// the agent looks with its desktop tools when it needs to).
+pub(crate) fn desktop_read() -> ContextHandle {
+    let include_screenshot = crate::app_settings::assistant_runtime()
+        .map(|(_, settings)| settings.include_screenshot)
+        .unwrap_or_default();
+    crate::assistant::computer::context_async(include_screenshot)
+}
+
 /// The question a press of the Action shortcut starts on Linux and Windows,
 /// with the desktop read the settings ask for.
 pub(crate) fn press(after_tap: bool) -> Question {
-    let include_screenshot = crate::app_settings::assistant_runtime()
-        .map(|(_, settings)| settings.include_screenshot)
-        .unwrap_or(true);
-    let mut question = Question::press(after_tap, move || {
-        crate::assistant::computer::context_async(include_screenshot)
-    });
+    let mut question = Question::press(after_tap, desktop_read);
     question.hold = true;
     question
 }

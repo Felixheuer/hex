@@ -155,7 +155,7 @@ Action shortcut (assistant::ready)
 │   DictationHotkey::follows_tap) forces a Background task: Request {
 │   conversation: None, origin: Background, context: default }
 ├── Here words opening "im Hintergrund", "in the background", "nebenbei",
-│   "parallel", or "Hintergrund:" (ask::spoken_background; whole words, any
+│   "parallel", or "Hintergrund:" (route::spoken_background; whole words, any
 │   case, punctuation around them ignored) -> Background, without them
 ├── Double tap (both presses shorter than 300 ms, the second within 300 ms
 │   of the first's release) -> HotkeyAction::DoubleTap: the second capture
@@ -226,6 +226,12 @@ real speakers.
   `agent::ESCALATED_NOTE`; so does one that failed (not on a usage limit,
   not when stopped). Handing work to a job (`hex_start_jobs`) puts it on the
   strong model anyway.
+- **Stuck quick turns.** A Here turn whose backend reports nothing (no
+  stream line, no tool call or result) for 45 s is ended
+  (`agent::watchdog`, `Control::stall`) instead of showing "Thinking…" up
+  to its 30-minute limit: on the fast model the strong one takes it over
+  once, in its session; if that stalls too, or there is nothing to hand
+  over, it fails with "… Try again" (`watchdog::STALLED`).
 - **One system prompt per lane and settings.** `agent::system_for` depends
   on the settings and the task only, never on the request's words: the
   person's language and what their words or a yes allowed beyond the
@@ -237,14 +243,19 @@ real speakers.
   shell (`agent::GUIDE_SKIPPED`); `each_lane_s_rules_stay_within_their_budget`
   guards each lane's size.
 - **Kept warm.** Besides the hold's `prewarm` and the follow-up's process,
-  a Here answer starts Claude Code for the next new Here conversation in
-  the window in front then (`service::stand_by`), kept
-  `assistant.warm_minutes` (15; 0 off). It idles without tokens; a hold in
-  another window starts its own.
+  a Here answer starts Claude Code for the next new Here conversation
+  (`service::stand_by`), kept `assistant.warm_minutes` (15; 0 off). It
+  idles without tokens and serves a hold in any window: a Here task's
+  window reaches its guard through the guard's state
+  (`guard/here/<task>.json`, written for each request by
+  `guard::mcp_server`), not the process's arguments. A reservation is
+  matched before it is taken; one a Here request doesn't fit, or one
+  replaced by another, ends its process (`provider::end_ahead`) instead of
+  idling out its time.
 - **Speculative start.** The live transcript of a hold
   (`dictation::audio`, `service::speculate`) starts the reserved
   conversation's own browser once its words ask for the web
-  (`service::warm::wants_web`), before the release.
+  (`route::wants_web`), before the release.
 - Measured with `claude -p` stream-json (Claude Code 2.1.323, the Here
   system prompt, cached, no MCP servers; medians of four, seconds from the
   question to its first finished sentence): before, Haiku 5.5 with the old
@@ -671,7 +682,9 @@ agent-browser) run the same way on every OS; what differs:
   The memory graph (`knowledge::graph`, `memory-graph.json`) links people,
   companies, projects and their numbers, sites, repositories, and folders
   from `hex_remember` (optional `about`) and finished tasks; the part a
-  request mentions goes into its prompt after the memory note.
+  request mentions (`knowledge::recall`) goes with that request's message
+  (`agent::request_rules`), never the system prompt, so a backend started
+  ahead and the prompt cache keep it whatever the words.
 - **Liveness and time**: process start times come from `/proc` on Linux and
   `GetProcessTimes` on Windows; liveness from `OpenProcess` +
   `GetExitCodeProcess` on Windows, so conversations no longer look

@@ -295,10 +295,10 @@ impl Talk {
             crate::audio::output_route::OutputRoute::Headphones => Output::Headphones,
             _ => Output::Speakers,
         };
-        let include_screenshot = crate::app_settings::applied_assistant().include_screenshot;
-        self.question = Some(Question::press(false, move || {
-            crate::assistant::computer::context_async(include_screenshot)
-        }));
+        self.question = Some(Question::press(
+            false,
+            crate::assistant::shortcut::desktop_read,
+        ));
         Ok(())
     }
 

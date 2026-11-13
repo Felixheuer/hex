@@ -49,6 +49,7 @@ pub mod notify;
 pub mod palette;
 pub mod phone;
 pub mod provider;
+pub mod route;
 pub mod schedules;
 pub mod secrets;
 pub mod service;
@@ -60,10 +61,9 @@ pub mod tools;
 pub mod types;
 
 pub use service::{
-    Inbox, agent_mode, background_busy, busy, cancel, cancel_all, conversation, conversations,
-    defer_question, delete, focus, hand_back, inbox, prewarm, reading_aloud, resume_interrupted,
-    set_agent_mode, set_focus, set_listening, set_spoken_announcements, spoken_announcements,
-    stop_all, submit, subscribe, take_over, tasks,
+    Inbox, busy, cancel, cancel_all, conversation, conversations, defer_question, delete, focus,
+    hand_back, inbox, prewarm, reading_aloud, resume_interrupted, set_focus, set_listening,
+    set_spoken_announcements, spoken_announcements, stop_all, submit, subscribe, take_over, tasks,
 };
 pub use types::*;
 
@@ -124,24 +124,7 @@ pub fn trying() -> bool {
 /// request doesn't ask to stay in the background („arbeite nur im
 /// Hintergrund“, „lass meine Fenster in Ruhe“, "only in the background").
 pub fn full_control(allowed: bool, request: &str) -> bool {
-    allowed && !asks_background_only(request)
-}
-
-fn asks_background_only(request: &str) -> bool {
-    let text = request.to_lowercase();
-    [
-        "nur im hintergrund",
-        "ausschließlich im hintergrund",
-        "lass meine fenster",
-        "nicht in meinen fenstern",
-        "nicht in meinem fenster",
-        "fass meine fenster nicht",
-        "only in the background",
-        "don't touch my windows",
-        "leave my windows",
-    ]
-    .iter()
-    .any(|phrase| text.contains(phrase))
+    allowed && !route::asks_background_only(request)
 }
 
 #[cfg(test)]

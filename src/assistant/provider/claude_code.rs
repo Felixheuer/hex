@@ -96,6 +96,7 @@ fn turn(
     if wrote {
         while let Some(line) = process.next_line() {
             lines += 1;
+            report(Report::Alive);
             stream.line(&line, report);
             if stream.outcome.is_some() {
                 break;

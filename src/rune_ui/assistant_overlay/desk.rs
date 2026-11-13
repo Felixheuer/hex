@@ -79,10 +79,6 @@ impl Desk {
 
     pub(crate) fn apply(&mut self, event: &Event) {
         let now = Instant::now();
-        if let Event::ModeChanged { on } = event {
-            self.frame = *on;
-            return;
-        }
         self.board.apply(event, None, now);
         Bubble::apply(&mut self.bubble, event, now);
     }

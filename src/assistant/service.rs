@@ -1,7 +1,7 @@
 //! The assistant's task runner: takes requests, runs them (each through
 //! `agent` on its backend) in their lanes, saves conversations through
-//! `store`, owns the screen frame's state and the agent-desktop multi-agent
-//! session around Background work, and tells every subscriber what happens.
+//! `store`, owns the agent-desktop multi-agent session around Background
+//! work, and tells every subscriber what happens.
 //! Callable from any thread.
 //!
 //! - **Lanes.** At most one Here task (`Origin::ActionShortcut`) runs: a new
@@ -12,8 +12,9 @@
 //!   on in the same conversation with the new instruction.
 //! - **Context.** Every new conversation's first prompt lists the tasks
 //!   running and the conversations just finished (`context::digest`).
-//! - **Frame.** `background_busy` is true while any Background or Chat task
-//!   is queued, running, waiting, or paused (`Event::ModeChanged`).
+//! - **Desktop session.** It runs while any Background task is queued,
+//!   running, waiting, or paused (`session::refresh_mode`). The screen frame
+//!   is the overlay's: it follows screen work (`Event::Acting`).
 //! - **Take over.** `take_over` pauses a task's desktop actions through the
 //!   guard and brings its window forward; `hand_back` resumes it.
 //! - **Durability.** A conversation is `Running` on disk while it runs; one
@@ -89,314 +90,10 @@ const BLIND_RETRIES: u32 = 8;
 /// A task's last steps kept for steering.
 const STEPS_KEPT: usize = 4;
 
-/// Queues `request` and returns its conversation's id at once (a new id when
-/// `request.conversation` is `None`).
-///
-/// - A request for a conversation that is running **steers** it: its current
-///   turn stops, and it goes on in the same conversation (same backend
-///   session, windows, and browser) told "The person interrupted you while
-///   you were doing X … Their new instruction: …". The stopped turn ends
-///   without a final event; the steered run then reports `Started` and ends
-///   with the conversation's one `Answer`/`Failed`/`Cancelled`.
-/// - A new request (`conversation: None`) that names one running task by
-///   its title or apps ("bei der Mail-Aufgabe …") steers that task.
-/// - Otherwise a Here request stops any other Here task; Background and
-///   Chat tasks run beside each other.
-pub fn submit(request: Request) -> ConversationId {
-    runner().submit(request)
-}
-
-/// Passes `text` to the running job `to` names (its short id from the
-/// stream's digest, or words of its title) as the person's instruction;
-/// whether one was found (`hex_tell_job`).
-pub fn tell_job(to: &str, text: &str) -> bool {
-    runner().tell_job(to, text)
-}
-
-/// A hold of the Action shortcut just became real: starts the backend for
-/// the next `lane` request while the person is still speaking. Returns at
-/// once; for the Here lane it reads the window in front itself (a few
-/// milliseconds, off the caller's thread). The next matching `submit` (same
-/// lane, same window, same follow-up conversation) finds the process and its
-/// MCP servers up. Cheap to call again; does nothing for backends that can't
-/// start ahead (only Claude Code can) or while the assistant is off.
-pub fn prewarm(lane: Lane) {
-    std::thread::Builder::new()
-        .name("assistant-prewarm".into())
-        .spawn(move || {
-            let window = match lane {
-                Lane::Here => super::computer::quick_context().window,
-                Lane::Background => None,
-            };
-            runner().prewarm(lane, window);
-        })
-        .ok();
-}
-
-/// The words of the Action shortcut's hold so far (the live transcript, as
-/// it streams): what they will likely need starts now, before the release
-/// (the reserved quick conversation's browser when they ask for the web).
-/// Cheap and quiet to call on every change; does nothing outside a hold.
-pub fn speculate(partial: &str) {
-    if partial.trim().is_empty()
-        || super::interaction::listening() != super::interaction::Listening::Hold
-    {
-        return;
-    }
-    runner().speculate(partial);
-}
-
-/// `prewarm` for a window the caller already knows (`hex assistant ask`).
-pub fn prewarm_for(lane: Lane, window: Option<TaskWindow>) {
-    runner().prewarm(lane, window);
-}
-
-/// Stops one task: its agent process, its desktop actions, and its speech.
-/// It ends with `Event::Cancelled`.
-pub fn cancel(conversation: &str) {
-    runner().cancel(conversation);
-}
-
-/// Stops every task.
-pub fn cancel_all() {
-    runner().cancel_all();
-}
-
-/// The tasks running or queued now, oldest first.
-pub fn tasks() -> Vec<TaskStatus> {
-    runner().tasks()
-}
-
-/// The questions tasks wait on: the one the next hold answers, and the
-/// others behind it (`Event::QuestionsChanged` tells when it changes).
-pub fn inbox() -> Inbox {
-    runner().inbox()
-}
-
-/// The person is holding the Action shortcut or dictating: questions and
-/// finished jobs wait to be read aloud until they stop (or 30 s pass).
-pub fn set_listening(on: bool) {
-    voice::set_listening(on, store::now_ms());
-}
-
-/// Hex goes quiet at once: the line being read stops and the rest of that
-/// answer is dropped; questions and summaries waiting their turn stay
-/// (`interaction::hush`).
-pub fn hush() {
-    let runner = runner();
-    runner.voice.stop();
-    (runner.hooks.stop_speaking)();
-}
-
-/// Whether questions and finished jobs are read aloud (the default), or
-/// only shown, for a surface that plays a soft chime instead.
-#[allow(dead_code, reason = "for the overlay's chime setting")]
-pub fn set_spoken_announcements(on: bool) {
-    voice::set_spoken_announcements(on);
-}
-
-/// Whether an answer is still being read aloud or is about to be: its
-/// sentences wait their turn, or more of it is still streaming. Together
-/// with `speech::speaking()` (what the engine plays or makes now), it tells
-/// conversation mode the reading isn't over between two sentences.
-pub fn reading_aloud() -> bool {
-    runner().voice.reading()
-}
-
-/// Whether questions and finished jobs are read aloud, for the overlay
-/// to chime when they aren't.
-pub fn spoken_announcements() -> bool {
-    voice::spoken_announcements()
-}
-
-/// Puts `conversation`'s question behind the others (the overlay's
-/// Later; saying "später" does the same), and brings up the next.
-pub fn defer_question(conversation: &str) {
-    runner().defer(conversation);
-}
+mod api;
+pub use api::*;
 
 pub use inbox::Inbox;
-
-/// Whether any task is running or queued.
-pub fn busy() -> bool {
-    !runner().state().tasks.is_empty()
-}
-
-/// The screen frame's state (Agent mode is gone: the frame follows the
-/// work, `frame_shown`).
-pub fn agent_mode() -> bool {
-    frame_shown()
-}
-
-/// Whether the screen frame shows: any task is working (a Here question
-/// thinking or acting, or Background work), not just waiting for the
-/// person's answer (`session::frame_visible`).
-pub fn frame_shown() -> bool {
-    runner().state().frame_on
-}
-
-/// Kept for callers of the old Agent mode switch: turning it off stops every
-/// task; turning it on does nothing (Background work turns the frame on).
-pub fn set_agent_mode(on: bool) {
-    if !on {
-        stop_all();
-    }
-}
-
-/// Stops every task (the Stop all shortcut, the stack's and Chats' button,
-/// the menu bar), and ends backends started ahead.
-pub fn stop_all() {
-    cancel_all();
-    provider::cool_down();
-}
-
-/// Whether Background work is running, waiting, paused, or queued: the
-/// screen frame shows while this is true.
-pub fn background_busy() -> bool {
-    runner().state().background_on
-}
-
-/// The person takes `conversation` over: its desktop actions wait (through
-/// the guard), and its window comes forward. `Event::Paused`.
-pub fn take_over(conversation: &str) {
-    runner().take_over(conversation);
-}
-
-/// Gives `conversation` back after `take_over`; it looks again before acting.
-/// `Event::Resumed`.
-pub fn hand_back(conversation: &str) {
-    runner().hand_back(conversation);
-}
-
-/// Continues a conversation Hex quit or crashed in the middle of
-/// (`Outcome::Interrupted`), telling the agent to check what was already
-/// done before going on. A Here conversation goes on in the Background lane:
-/// its window may be gone. `None` when it wasn't interrupted.
-pub fn resume_interrupted(conversation: &str) -> Option<ConversationId> {
-    runner().resume_interrupted(conversation)
-}
-
-/// The plan of a running or finished job (its `plan.md` checklist), if it
-/// made one.
-pub fn plan(conversation: &str) -> Vec<PlanStep> {
-    runner().plan(conversation)
-}
-
-/// The question a task is waiting on (`TaskState::NeedsInput`), if any.
-pub fn question(conversation: &str) -> Option<String> {
-    runner().question(conversation)
-}
-
-/// Calls `subscriber` for every later event, until the process ends.
-pub fn subscribe(subscriber: Subscriber) {
-    runner().subscribe(subscriber);
-}
-
-/// Every stored conversation, newest first.
-pub fn conversations() -> Vec<ConversationSummary> {
-    Store::open().map(|store| store.list()).unwrap_or_default()
-}
-
-pub fn conversation(id: &str) -> Option<Conversation> {
-    Some(Store::open().ok()?.load(id)?.conversation)
-}
-
-pub fn delete(id: &str) {
-    runner().cancel(id);
-    super::autonomy::forget(id);
-    if let Ok(store) = Store::open() {
-        store.delete(id);
-    }
-    {
-        let mut state = runner().state();
-        if state.focus.as_deref() == Some(id) {
-            state.focus = None;
-        }
-        if state
-            .last_quick
-            .as_ref()
-            .is_some_and(|(quick, _)| quick == id)
-        {
-            state.last_quick = None;
-        }
-    }
-    runner().emit(&Event::ConversationsChanged);
-}
-
-/// The conversation Chats shows, so a quick question continues it.
-pub fn set_focus(id: Option<ConversationId>) {
-    runner().state().focus = id;
-}
-
-/// The conversation the next Here request should continue: a task waiting
-/// for the person's answer (`NeedsInput`; the request is the answer), else a
-/// Here task running now (it is steered), else the one Chats shows, else the
-/// last Here conversation answered within `follow_up_seconds`, else `None`
-/// (start a new one).
-pub fn focus(follow_up_seconds: u32) -> Option<ConversationId> {
-    runner().focus(follow_up_seconds)
-}
-
-/// `focus` without the inbox's active question: for a hold during which
-/// that question came up, unheard.
-pub fn focus_past_inbox(follow_up_seconds: u32) -> Option<ConversationId> {
-    let runner = runner();
-    let now = runner.now();
-    focus_past(&runner.state(), follow_up_seconds, now)
-}
-
-/// Jobs' summaries and questions aren't read aloud for `quiet` (the person
-/// said „Stopp“ or pressed Escape); what they ask for still is.
-pub fn quiet_announcements(quiet: std::time::Duration) {
-    voice::quiet_for(quiet, store::now_ms());
-}
-
-/// Starts the scheduler (once): every half minute it starts the scheduled
-/// jobs that are due, as Background jobs; a run missed while the Mac slept
-/// or Hex was closed starts once. The app calls it at launch (the runner
-/// also starts it when it first runs in the app).
-pub fn start_scheduler() {
-    static STARTED: AtomicBool = AtomicBool::new(false);
-    if STARTED.swap(true, Ordering::AcqRel) {
-        return;
-    }
-    // Replies from the person's phone while they're away.
-    crate::assistant::phone::start();
-    std::thread::Builder::new()
-        .name("assistant-scheduler".into())
-        .spawn(|| {
-            loop {
-                if current_settings().0 {
-                    runner().run_due_schedules();
-                }
-                std::thread::sleep(Duration::from_secs(30));
-            }
-        })
-        .ok();
-}
-
-/// Starts the scheduled jobs due now (`hex assistant schedules watch`);
-/// their conversations.
-pub fn run_due_schedules() -> Vec<ConversationId> {
-    runner().run_due_schedules()
-}
-
-/// Lets tasks run while the assistant is off or not set up, for `hex
-/// assistant`, which a person runs on purpose.
-pub fn run_from_cli() {
-    FROM_CLI.store(true, Ordering::Release);
-}
-
-static FROM_CLI: AtomicBool = AtomicBool::new(false);
-
-/// Changes the settings every later task reads, in this process only (for
-/// `hex assistant ask --backend …`).
-pub fn adjust_settings(adjust: impl Fn(&mut AssistantSettings) + Send + Sync + 'static) {
-    *ADJUST.lock().unwrap_or_else(|error| error.into_inner()) = Some(Box::new(adjust));
-}
-
-type Adjust = Box<dyn Fn(&mut AssistantSettings) + Send + Sync>;
-static ADJUST: Mutex<Option<Adjust>> = Mutex::new(None);
 
 fn runner() -> &'static Arc<Runner> {
     static RUNNER: OnceLock<Arc<Runner>> = OnceLock::new();
@@ -516,6 +213,9 @@ pub(crate) struct Hooks {
     pub interrupted: OnTask<Option<(Origin, String)>>,
     /// Starts a job's backend ahead of its question.
     pub prewarm: Box<dyn Fn(&Job) + Send + Sync>,
+    /// Ends what was started ahead for a reservation no request will take
+    /// (`provider::end_ahead`).
+    pub end_ahead: TaskHook,
     /// The window in front now (`computer::quick_context`), for a backend
     /// kept ready after a quick answer (`stand_by`).
     pub front_window: Hook<Option<TaskWindow>>,
@@ -537,6 +237,9 @@ pub(crate) struct Hooks {
     pub authorize: Box<Authorize>,
     /// The person's memory note.
     pub memory: Hook<String>,
+    /// What the memory graph knows about what a request's words name
+    /// (`knowledge::recall`), asked only while memory is on.
+    pub recall: OnTask<Option<String>>,
     /// Shows a job's notification.
     pub notify: Box<dyn Fn(&Note) + Send + Sync>,
     /// The schedules due at a time, marked as run (`schedules::take_due`).
@@ -600,6 +303,7 @@ impl Hooks {
                 Some((stored.conversation.origin, stored.last_question()?))
             }),
             prewarm: Box::new(agent::prewarm),
+            end_ahead: Box::new(provider::end_ahead),
             front_window: Box::new(|| super::computer::quick_context().window),
             browser_ahead: Box::new(super::browser::prewarm_for),
             requests: Box::new(move || {
@@ -627,6 +331,7 @@ impl Hooks {
             authorized: Box::new(super::autonomy::read),
             authorize: Box::new(super::autonomy::write),
             memory: Box::new(super::memory::read),
+            recall: Box::new(|words| super::knowledge::recall(words, true)),
             notify: Box::new(super::notify::show),
             due_schedules: Box::new(super::schedules::take_due),
             pressure: Box::new(super::capacity::pressure),
@@ -715,10 +420,8 @@ pub(crate) struct Runner {
 pub(crate) struct State {
     tasks: Vec<Task>,
     /// Background work is queued, running, waiting, or paused (the desktop
-    /// session runs around it; `background_busy`).
+    /// session runs around it).
     background_on: bool,
-    /// The screen frame shows (`frame_shown`): any task working.
-    frame_on: bool,
     session: Session,
     focus: Option<ConversationId>,
     /// The last Here conversation answered, and when (runner clock).
@@ -757,7 +460,6 @@ struct Warm {
     /// The id the new conversation gets, and its task key (agent id).
     id: ConversationId,
     key: u64,
-    window: Option<TaskWindow>,
     at_ms: u64,
     /// How long it is kept for its request (`agent::ahead_for`).
     for_ms: u64,
@@ -997,8 +699,8 @@ impl Runner {
         let now = self.now();
         let voice = request.origin != Origin::Chat;
         let mut stop = Vec::new();
-        let mut on_it = None;
         let mut steer_note = None;
+        let mut unused = None;
         let id = {
             let mut state = self.state();
             // The answer to a job's question.
@@ -1032,17 +734,27 @@ impl Runner {
             let mut key = None;
             let mut steered_parent: Option<ConversationId> = None;
             let mut steered_title: Option<String> = None;
-            if let Some(warm) = state.warm.take()
-                && kind == JobKind::Ask
-                && warm.lane == request.origin.lane()
-                && warm.conversation == request.conversation
-                && warm.window == request.context.window
-                && now.saturating_sub(warm.at_ms) < warm.for_ms
+            // What `prewarm` reserved: taken when it fits (its lane, its
+            // conversation, in time; the window goes through the guard's
+            // state), matched before it is taken. A Here request it doesn't
+            // fit leaves it unusable: its process ends now instead of idling.
+            if kind == JobKind::Ask
+                && let Some(warm) = state.warm.take()
             {
-                if new_conversation {
-                    id = warm.id;
+                let lane = request.origin.lane();
+                if warm.lane == lane
+                    && warm.conversation == request.conversation
+                    && now.saturating_sub(warm.at_ms) < warm.for_ms
+                {
+                    if new_conversation {
+                        id = warm.id;
+                    }
+                    key = Some(warm.key);
+                } else if warm.lane == lane {
+                    unused = Some(warm.id);
+                } else {
+                    state.warm = Some(warm);
                 }
-                key = Some(warm.key);
             }
             if kind == JobKind::Ask
                 && let Some(target) = state.tasks.iter_mut().find(|task| {
@@ -1071,22 +783,13 @@ impl Runner {
                 };
                 target.control.steer();
             }
-            // A new Background request is a job; a new Here request that is
-            // plainly one goes straight to the background (others are
-            // routed by the Here agent itself, `agent::ROUTING`).
-            if kind == JobKind::Ask && new_conversation {
-                let plainly = request.origin == Origin::ActionShortcut
-                    && context::looks_like_job(&request.text);
-                if plainly {
-                    request.origin = Origin::Background;
-                    request.context.window = None;
-                    on_it = Some(context::on_it(&request.text));
-                }
-                if request.origin == Origin::Background {
-                    kind = JobKind::Job {
-                        title: store::shorten(&request.text, 48),
-                    };
-                }
+            // A new Background request is a job; a Here request is routed by
+            // the Here agent itself, however long (`agent::ROUTING`: it
+            // hands jobs on with `hex_start_jobs`).
+            if kind == JobKind::Ask && new_conversation && request.origin == Origin::Background {
+                kind = JobKind::Job {
+                    title: store::shorten(&request.text, 48),
+                };
             }
             if request.origin.lane() == Lane::Here {
                 stop = state
@@ -1124,6 +827,9 @@ impl Runner {
         for key in stop {
             self.cancel_task(key);
         }
+        if let Some(reserved) = unused {
+            (self.hooks.end_ahead)(&reserved);
+        }
         if let Some((conversation, said)) = steer_note {
             self.note(&conversation, super::types::Role::User, &said);
             self.note(
@@ -1132,19 +838,6 @@ impl Runner {
                 super::lines::tr("Okay, I'll take that into account at the next step.", &said),
             );
             self.emit(&Event::ConversationsChanged);
-        }
-        if let Some(line) = on_it {
-            // Shown where it's heard (the Here bubble), then the job goes on.
-            self.emit(&Event::AnswerDelta {
-                conversation: id.clone(),
-                text: line.clone(),
-            });
-            self.emit(&Event::Escalated {
-                conversation: id.clone(),
-            });
-            if settings.speak_answers {
-                self.voice.finish(self, &id, &line);
-            }
         }
         self.refresh_mode();
         self.pump();

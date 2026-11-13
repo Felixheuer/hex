@@ -43,6 +43,8 @@ struct World {
     events: Mutex<Vec<Event>>,
     log: Mutex<Vec<String>>,
     jobs: Mutex<Vec<Job>>,
+    /// The jobs backends were started ahead for.
+    prewarmed: Mutex<Vec<Job>>,
     spoken: Mutex<Vec<String>>,
     lab_on: Mutex<bool>,
     settings: Mutex<AssistantSettings>,
@@ -96,6 +98,7 @@ impl World {
             events: Mutex::default(),
             log: Mutex::default(),
             jobs: Mutex::default(),
+            prewarmed: Mutex::default(),
             spoken: Mutex::default(),
             lab_on: Mutex::new(true),
             settings: Mutex::new(settings),
@@ -255,6 +258,7 @@ impl World {
             world(self),
         );
         let notes = world(self);
+        let ended_ahead = world(self);
         let browser = world(self);
         let pressure = world(self);
         let (team_asks, team_answer) = (world(self), world(self));
@@ -306,7 +310,9 @@ impl World {
                     .find(|(found, _, _)| found == id)
                     .map(|(_, origin, text)| (*origin, text.clone()))
             }),
+            end_ahead: Box::new(move |task| ended_ahead.log(format!("end ahead {task}"))),
             prewarm: Box::new(move |job| {
+                prewarm.prewarmed.lock().unwrap().push(job.clone());
                 prewarm.log(format!(
                     "prewarm {} {} {:?}",
                     job.conversation, job.agent_id, job.request.origin
@@ -351,6 +357,14 @@ impl World {
                     .insert(task.to_owned(), value.clone());
             }),
             memory: Box::new(move || memory.memory.lock().unwrap().clone()),
+            // The graph knows Kalibermarkt.
+            recall: Box::new(|words| {
+                words.contains("Kalibermarkt").then(|| {
+                    "What you know about the people, companies, and projects this request \
+                     mentions (memory graph):\n- Kalibermarkt (company): site kalibermarkt.de\n"
+                        .to_owned()
+                })
+            }),
             notify: Box::new(move |note| {
                 notify.log(format!("notify {}: {}", note.title, note.body));
             }),
@@ -455,18 +469,6 @@ impl World {
             .iter()
             .filter(|event| event.is_final())
             .cloned()
-            .collect()
-    }
-
-    fn modes(&self) -> Vec<bool> {
-        self.events
-            .lock()
-            .unwrap()
-            .iter()
-            .filter_map(|event| match event {
-                Event::ModeChanged { on } => Some(*on),
-                _ => None,
-            })
             .collect()
     }
 
@@ -975,19 +977,17 @@ fn a_follow_up_naming_a_running_task_steers_it() {
 }
 
 #[test]
-fn the_frame_shows_while_any_task_works_with_one_desktop_session() {
+fn one_desktop_session_runs_around_background_work() {
     let world = World::new(1);
     let runner = world.runner();
     let here = runner.submit(request("here", Origin::ActionShortcut));
     world.wait_for("the Here task", started(&here));
-    // A Here question working shows the frame too, without a desktop
-    // session of its own.
-    assert_eq!(world.modes(), [true]);
+    // A Here question has no desktop session of its own.
     assert!(!runner.state().background_on);
 
     let first = runner.submit(request("first", Origin::Background));
     let queued = runner.submit(request("queued", Origin::Chat));
-    assert_eq!(world.modes(), [true]);
+    assert!(runner.state().background_on);
     world.wait_for("the first background task", started(&first));
     let job = world.job_for("first");
     assert_eq!(job.desktop_session.as_deref(), Some("S1"));
@@ -1002,28 +1002,24 @@ fn the_frame_shows_while_any_task_works_with_one_desktop_session() {
 
     world.release("first");
     world.wait_for("the queued task", started(&queued));
-    // Still on while the queued one runs.
-    assert_eq!(world.modes(), [true]);
     world.release("queued");
     world.wait_for("the queued answer", ended(&queued));
     world.wait_until("the background work to end", || {
         !runner.state().background_on
     });
-    // The Here task still runs: the frame and the session stay until it ends.
-    assert_eq!(world.modes(), [true]);
+    // The Here task still runs: the session stays until it ends.
     assert!(!world.logged("end session S1"));
     world.release("here");
     world.wait_for("the Here answer", ended(&here));
-    world.wait_until("the frame to go off", || world.modes() == [true, false]);
     world.wait_until("the session to end", || world.logged("end session S1"));
 
-    // The old switch: off stops every task.
+    // Stopping everything ends the next one's too.
     let more = runner.submit(request("more", Origin::Background));
     world.wait_for("another", started(&more));
     runner.cancel_all();
     world.wait_for("it to stop", ended(&more));
-    world.wait_until("the frame off again", || {
-        world.modes() == [true, false, true, false]
+    world.wait_until("the background work to end again", || {
+        !runner.state().background_on
     });
 }
 
@@ -1213,7 +1209,9 @@ fn a_task_that_panics_fails_and_still_cleans_up() {
         }]
     );
     assert!(world.logged(&format!("release {id}")));
-    world.wait_until("the frame off", || world.modes() == [true, false]);
+    world.wait_until("the background work to end", || {
+        !runner.state().background_on
+    });
 }
 
 #[test]
@@ -1379,6 +1377,92 @@ fn prewarm_reserves_the_next_requests_conversation_and_agent() {
 }
 
 #[test]
+fn a_reservation_fits_any_window_and_one_left_unused_ends() {
+    let world = World::new(8);
+    world.settings.lock().unwrap().backend = AssistantBackend::ClaudeCode;
+    let runner = world.runner();
+    let reserved = |runner: &Runner| runner.state().warm.as_ref().unwrap().id.clone();
+    runner.prewarm(
+        Lane::Here,
+        Some(TaskWindow {
+            app: "Mail".into(),
+            window_id: Some("w-9".into()),
+        }),
+    );
+    let first = reserved(&runner);
+    // Asked in another window: it still takes what was started ahead (the
+    // window reaches the guard through its state).
+    let mut ask = request("q", Origin::ActionShortcut);
+    ask.context.window = Some(TaskWindow {
+        app: "Notes".into(),
+        window_id: Some("w-1".into()),
+    });
+    assert_eq!(runner.submit(ask), first);
+    world.release("q");
+    world.wait_for("the answer", ended(&first));
+    assert!(!world.logged(&format!("end ahead {first}")));
+
+    // Past the follow-up window: one for a new conversation.
+    world.advance(10 * 60_000);
+    runner.prewarm(Lane::Here, None);
+    let fresh = reserved(&runner);
+    assert_ne!(fresh, first);
+    // Then the follow-up is open again: its reservation replaces that one,
+    // whose process ends rather than idling.
+    runner.state().last_quick = Some((first.clone(), world.clock.load(Ordering::SeqCst)));
+    runner.prewarm(Lane::Here, None);
+    assert_eq!(reserved(&runner), first);
+    assert!(world.logged(&format!("end ahead {fresh}")));
+    // A Background request leaves a Here reservation alone.
+    let job = runner.submit(request("job", Origin::Background));
+    assert_eq!(reserved(&runner), first);
+    // A Here request it doesn't fit (a new conversation) ends it.
+    let other = runner.submit(request("q2", Origin::ActionShortcut));
+    assert_ne!(other, first);
+    assert!(world.logged(&format!("end ahead {first}")));
+    assert!(runner.state().warm.is_none());
+    world.release("q2");
+    world.release("job");
+    world.wait_for("both", |events| {
+        ended(&other)(events) && ended(&job)(events)
+    });
+}
+
+#[test]
+fn a_request_naming_what_the_graph_knows_keeps_the_system_prompt_started_ahead() {
+    let world = World::new(8);
+    {
+        let mut settings = world.settings.lock().unwrap();
+        settings.backend = AssistantBackend::ClaudeCode;
+        settings.memory = true;
+        // The test reads nothing of this computer.
+        settings.control_desktop = false;
+    }
+    *world.memory.lock().unwrap() = "- Company: Kalibermarkt".into();
+    let runner = world.runner();
+    runner.prewarm(Lane::Here, None);
+    world.wait_until("the prewarm", || {
+        !world.prewarmed.lock().unwrap().is_empty()
+    });
+    let id = runner.state().warm.as_ref().unwrap().id.clone();
+    let words = "Wie läuft der Shop von Kalibermarkt?";
+    assert_eq!(runner.submit(request(words, Origin::ActionShortcut)), id);
+    world.wait_until("the job", || world.jobs.lock().unwrap().len() == 1);
+    let ahead = world.prewarmed.lock().unwrap()[0].clone();
+    let asked = world.jobs.lock().unwrap()[0].clone();
+    assert!(asked.memory.is_some(), "the memory note is in both");
+    assert_eq!(
+        crate::assistant::agent::system_for(&ahead, None, false),
+        crate::assistant::agent::system_for(&asked, None, false),
+        "the graph's context must not change the system prompt"
+    );
+    let rules = crate::assistant::agent::request_rules(&asked);
+    assert!(rules.contains("- Kalibermarkt (company)"), "{rules}");
+    world.release(words);
+    world.wait_for("the answer", ended(&id));
+}
+
+#[test]
 fn after_a_quick_answer_the_next_new_conversation_is_kept_ready() {
     let world = World::new(8);
     {
@@ -1457,16 +1541,6 @@ fn words_that_ask_for_the_web_start_the_holds_browser_once() {
         started,
         [format!("browser ahead {id} such mal auf google nach")]
     );
-    assert!(warm::wants_web("Schau auf spiegel punkt de"));
-    assert!(warm::wants_web("Öffne github.com/anomalyco"));
-    assert!(warm::wants_web("go to https://example.org"));
-    assert!(warm::wants_web("example dot com bitte"));
-    assert!(!warm::wants_web("Was steht in dieser Mail?"));
-    // No brand words: a name alone says nothing (the sign-in store decides
-    // that, and tests never read it); "Punkt" in a sentence isn't a dot.
-    assert!(!warm::wants_web("Öffne WhatsApp"));
-    assert!(!warm::wants_web("Ein Punkt und noch einer"));
-    assert!(!warm::wants_web("Version 1.2 ist fertig, z.b. heute."));
 }
 
 #[test]
@@ -1506,7 +1580,7 @@ fn nothing_runs_while_the_assistant_is_off_or_not_set_up() {
         ]
     );
     assert!(runner.tasks().is_empty());
-    assert!(world.modes().is_empty());
+    assert!(!runner.state().background_on);
 }
 
 #[test]
@@ -1533,13 +1607,14 @@ fn a_here_request_that_is_a_job_continues_as_a_background_job() {
     let workspace = job.workspace.clone().unwrap();
     assert!(workspace.to_string_lossy().ends_with(" Supplier research"));
     assert!(workspace.is_dir());
-    // "On it" is said, the Here run says nothing final, and the frame is on.
+    // "On it" is said, the Here run says nothing final, and it works as
+    // Background work.
     assert_eq!(
         *world.spoken.lock().unwrap(),
         ["On it: 50 suppliers and a sheet."]
     );
     assert!(world.finals().is_empty());
-    assert_eq!(world.modes(), [true]);
+    assert!(runner.state().background_on);
     assert!(world.logged(&format!("release {id}")));
     world.release("research suppliers");
     world.wait_for("the job's answer", ended(&id));
@@ -1586,20 +1661,25 @@ fn asking_how_far_a_job_is_tells_its_status_without_running_anything() {
 }
 
 #[test]
-fn a_plainly_long_spoken_request_goes_straight_to_the_background() {
+fn a_long_spoken_request_is_routed_by_the_here_agent_not_by_its_words() {
     let world = World::new(8);
     let runner = world.runner();
     let business = "I'm building my business site blabla.com. Look at it, research 50 suppliers who could list their products there, draft 50 emails in Gmail, build an Excel sheet, document everything, and share it via Google Sheets with my colleague.";
-    let id = runner.submit(request(business, Origin::ActionShortcut));
-    assert!(world.events.lock().unwrap().contains(&Event::Escalated {
+    let mut asked = request(business, Origin::ActionShortcut);
+    asked.context.window = Some(TaskWindow {
+        app: "Mail".into(),
+        window_id: Some("w-1".into()),
+    });
+    let id = runner.submit(asked);
+    world.wait_until("the turn", || world.jobs.lock().unwrap().len() == 1);
+    // A Here turn with its window: the agent hands it on (`hex_start_jobs`).
+    let job = world.jobs.lock().unwrap()[0].clone();
+    assert_eq!(job.kind, JobKind::Ask);
+    assert_eq!(job.request.origin, Origin::ActionShortcut);
+    assert!(job.request.context.window.is_some());
+    assert!(!world.events.lock().unwrap().contains(&Event::Escalated {
         conversation: id.clone()
     }));
-    world.wait_until("the job", || world.jobs.lock().unwrap().len() == 1);
-    let job = world.jobs.lock().unwrap()[0].clone();
-    assert!(matches!(job.kind, JobKind::Job { .. }));
-    assert_eq!(job.request.origin, Origin::Background);
-    world.wait_until("on it", || !world.spoken.lock().unwrap().is_empty());
-    assert!(world.spoken.lock().unwrap()[0].starts_with("On it, in the background."));
     runner.cancel(&id);
     world.wait_for("the end", ended(&id));
 }

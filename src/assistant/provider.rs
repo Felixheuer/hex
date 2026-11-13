@@ -327,6 +327,10 @@ pub enum Report {
         name: String,
         input: String,
     },
+    /// The backend said something (a stream line) that shows nothing: a
+    /// sign it still works, for a quick turn's watchdog
+    /// (`agent::watchdog`).
+    Alive,
 }
 
 impl Report {
@@ -378,6 +382,8 @@ pub struct Control {
     steered: AtomicBool,
     /// Stopped by Hex for this reason (it ran too long): a failure.
     failure: Mutex<Option<String>>,
+    /// Turns ended for making no progress (`stall`).
+    stalls: std::sync::atomic::AtomicUsize,
     groups: Mutex<Vec<Tree>>,
     /// The shell commands held while the person took the task over.
     held: Mutex<Vec<u32>>,
@@ -443,6 +449,26 @@ impl Control {
         self.cancel();
     }
 
+    /// Ends the current turn's processes because it made no progress for
+    /// too long (`agent::watchdog`); unlike [`cancel`](Self::cancel) the
+    /// task goes on: the strong model takes the turn over, or it fails.
+    pub fn stall(&self) {
+        self.stalls.fetch_add(1, Ordering::AcqRel);
+        let groups = self
+            .groups
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        for group in groups {
+            end_group(group);
+        }
+    }
+
+    /// How often [`stall`](Self::stall) ended a turn of this task.
+    pub fn stalls(&self) -> usize {
+        self.stalls.load(Ordering::Acquire)
+    }
+
     /// Why Hex stopped the task as failed, if it did.
     pub fn failure(&self) -> Option<String> {
         self.failure
@@ -483,6 +509,13 @@ pub fn prewarm(run: &Run, ttl: Duration) {
 /// Ends every backend process started ahead.
 pub fn cool_down() {
     warm::clear();
+}
+
+/// Ends the backend processes started ahead for `task` (a reservation the
+/// request it was made for didn't take), instead of letting them idle
+/// until their time is up.
+pub fn end_ahead(task: &str) {
+    warm::end_for(task);
 }
 
 /// Runs `run` on its backend until it answers, fails, or is cancelled.
