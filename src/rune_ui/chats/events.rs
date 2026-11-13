@@ -161,6 +161,7 @@ impl ChatsPane {
         if reload_list {
             self.list = self.source.conversations();
             self.listed = true;
+            self.refresh_stream();
         }
         if reload_shown {
             self.reload_shown();

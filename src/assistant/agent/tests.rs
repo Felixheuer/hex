@@ -326,6 +326,7 @@ fn a_hand_off_starts_its_jobs_and_a_mere_claim_starts_one() {
     );
     // The tool's jobs: the first carries its own part when there are several.
     let handoff = handoff::Handoff {
+        tells: Vec::new(),
         jobs: vec![
             handoff::Job {
                 title: "Werbevideo".into(),
