@@ -7,8 +7,10 @@
 //! frame shows, and then the guard gives the front back to the person's
 //! app and parks the window again, by itself.
 //!
-//! A focus asked before any background action failed in that window is
-//! refused once with how to work without it; asked again, it goes ahead.
+//! A focus asked before any background action failed in that window, and
+//! before keys were sent to it by pid (`hex_window_input` key or type,
+//! `desktop_press`, `desktop_type`), is refused with how to work without
+//! it; asked after either, it goes ahead.
 //!
 //! The borrow is stored a moment ([`ANNOUNCE`]) before the window comes
 //! forward, so the island announces it first; a take-over meanwhile
@@ -52,9 +54,11 @@ pub(super) struct Borrowed {
 /// What a refused first focus says.
 pub(super) const BACKGROUND_FIRST: &str = "Background first: act in the window where it is (click, type, set_value, select, scroll \
      by ref work in a parked or covered window) instead of bringing it in front of the person. \
-     If this app ignored a background action and its retry, or keys (desktop_press) must reach \
-     it, call desktop_focus_window again: Agent-Desk then brings it forward briefly and gives the \
-     person's window back right after your next steps.";
+     Keys reach it in the background too: hex_window_input action key or type (or desktop_press, \
+     desktop_type) sends them to the app by pid without bringing it forward. Only if a fresh \
+     hex_window_shot shows they didn't land, or this app ignored a background action and its \
+     retry, call desktop_focus_window again: Agent-Desk then brings it forward briefly and gives \
+     the person's window back right after your next steps.";
 
 impl<D: Desktop> Guard<D> {
     /// `desktop_focus_window` on a window this task may use (checked).
@@ -75,14 +79,17 @@ impl<D: Desktop> Guard<D> {
             return self.forward(tool, args);
         }
         let failed = self.failures.get(&id).copied().unwrap_or(0) >= FAILS_BEFORE_FOCUS;
-        if !failed && self.focus_asked.insert(id.clone()) {
+        // Keys first go to the app in the background (by pid); the front is
+        // borrowed for keys only once they were sent that way and the agent
+        // still asks (they didn't land), or after background actions failed.
+        if !failed && !self.keys_tried.contains(&id) {
             return Err(refusal(tool, "BACKGROUND_FIRST", BACKGROUND_FIRST));
         }
         // An earlier borrow ends first.
         self.restore_borrowed();
         let windows = self.list(super::Look::Check).unwrap_or_default();
         let listed = windows.iter().find(|window| window.id == id).cloned();
-        let window = listed.unwrap_or(Window {
+        let mut window = listed.unwrap_or(Window {
             id: id.clone(),
             app: target.app.clone(),
             title: String::new(),
@@ -92,11 +99,15 @@ impl<D: Desktop> Guard<D> {
             minimized: false,
             bounds: None,
         });
+        if window.pid.is_none() {
+            // Its process, so the front can go back after (`restore_borrowed`).
+            window.pid = self.window_info(&id).and_then(|info| info.pid);
+        }
         let displays = self.screen.displays();
         let parked = window
             .bounds
             .is_some_and(|bounds| hangs_off(bounds, &displays));
-        let before = super::front::frontmost();
+        let before = self.front.frontmost();
         let before_app = before.and_then(|pid| {
             windows
                 .iter()
@@ -221,13 +232,8 @@ impl<D: Desktop> Guard<D> {
             return;
         };
         self.store.set_borrowed(&self.config.task, None);
-        if let Some(pid) = super::front::give_back_to(
-            borrowed.before,
-            super::front::frontmost(),
-            borrowed.window.pid,
-        ) {
-            super::front::give_back(pid);
-        }
+        let took: Vec<i64> = borrowed.window.pid.into_iter().collect();
+        self.keep_front(borrowed.before, &took, Duration::ZERO);
         if borrowed.parked {
             self.arrived.push(borrowed.window);
             self.place_arrivals();
@@ -235,12 +241,28 @@ impl<D: Desktop> Guard<D> {
         tracing::info!("a borrowed front went back to the person");
     }
 
+    /// Notes that keys were sent to `resolved` by pid (`desktop_press`,
+    /// `desktop_type`, `hex_window_input` key or type) without failing:
+    /// asked again after that, a focus for keys may borrow the front.
+    pub(super) fn note_keys(&mut self, tool: &str, resolved: &[Resolved], result: &Value) {
+        let keys = matches!(
+            tool.strip_prefix("desktop_").unwrap_or(tool),
+            "press" | "type"
+        );
+        if !keys || failed(result) {
+            return;
+        }
+        for window in resolved {
+            if let Some(id) = &window.id {
+                self.keys_tried.insert(id.clone());
+            }
+        }
+    }
+
     /// Notes an acting call's outcome in its windows: failures count toward
     /// offering a brief focus.
     pub(super) fn count_failure(&mut self, resolved: &[Resolved], result: &Value) {
-        let failed = result.get("isError").and_then(Value::as_bool) == Some(true)
-            || super::super::child::envelope(result)
-                .is_some_and(|envelope| envelope.get("ok") == Some(&Value::Bool(false)));
+        let failed = failed(result);
         for window in resolved {
             let Some(id) = &window.id else {
                 continue;
@@ -277,6 +299,13 @@ impl<D: Desktop> Guard<D> {
             }
         }
     }
+}
+
+/// Whether an acting call's result says it failed.
+fn failed(result: &Value) -> bool {
+    result.get("isError").and_then(Value::as_bool) == Some(true)
+        || super::super::child::envelope(result)
+            .is_some_and(|envelope| envelope.get("ok") == Some(&Value::Bool(false)))
 }
 
 /// Why a window comes forward: its app ignored background actions
