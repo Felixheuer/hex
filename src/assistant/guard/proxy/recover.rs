@@ -170,14 +170,39 @@ impl<D: Desktop> Guard<D> {
                     }
                 }
                 Recovery::Restore(id) => {
-                    let name = off_windows
-                        .iter()
-                        .find(|window| &window.id == id)
+                    let listed = off_windows.iter().find(|window| &window.id == id).cloned();
+                    let name = listed
+                        .as_ref()
                         .map_or_else(|| app.name.clone(), |window| window.app.clone());
-                    let mut args = Map::new();
-                    args.insert("window_id".into(), json!(id));
-                    args.insert("app".into(), json!(name));
-                    self.forward("desktop_restore", &args).is_ok()
+                    // Moved off the screen while minimized, then restored
+                    // there (retried while a just-started app can't answer);
+                    // else agent-desktop's restore.
+                    let window = listed.unwrap_or(Window {
+                        id: id.clone(),
+                        app: name.clone(),
+                        title: String::new(),
+                        pid: pid.map(i64::from),
+                        focused: false,
+                        visible: false,
+                        minimized: true,
+                        bounds: None,
+                    });
+                    let window = Window {
+                        pid: window.pid.or(pid.map(i64::from)),
+                        ..window
+                    };
+                    match self.unminimize_parked(&window) {
+                        Ok(()) if !cfg!(test) => true,
+                        outcome => {
+                            if let Err(why) = outcome {
+                                tracing::warn!(why, window = id, "restoring through Accessibility failed");
+                            }
+                            let mut args = Map::new();
+                            args.insert("window_id".into(), json!(id));
+                            args.insert("app".into(), json!(name));
+                            self.forward("desktop_restore", &args).is_ok()
+                        }
+                    }
                 }
                 Recovery::NewWindow(script) => self.recover.new_window(script),
                 Recovery::Relaunch => self.recover.relaunch(&pids, app),

@@ -181,16 +181,24 @@ impl<D: Desktop> Guard<D> {
         if cfg!(test) {
             return Ok(());
         }
-        let ax = crate::assistant::actions::ax::windows(pid);
-        if !ax.iter().any(|listed| listed.number == number && listed.minimized) {
-            return Ok(());
-        }
         crate::assistant::actions::ax::wake(pid);
         let spot = super::displays::park_spot(&self.screen.displays());
         let mut last = 0;
         for attempt in 0..6 {
             if attempt > 0 {
                 std::thread::sleep(Duration::from_millis(250 * attempt));
+            }
+            let listed = crate::assistant::actions::ax::windows(pid)
+                .into_iter()
+                .find(|listed| listed.number == number);
+            match listed {
+                Some(listed) if !listed.minimized => return Ok(()),
+                Some(_) => {}
+                // Not answering yet (an app just started): ask again.
+                None => {
+                    last = -25204;
+                    continue;
+                }
             }
             if let Some(spot) = spot {
                 let _ = crate::assistant::actions::ax::set_position(pid, number, spot);
@@ -206,6 +214,53 @@ impl<D: Desktop> Guard<D> {
             }
         }
         Err(format!("Accessibility couldn't restore it (error {last})"))
+    }
+
+    /// Right after a window was parked off the screen: whether it still
+    /// gives a picture there. One that doesn't waits behind the person's
+    /// windows instead (`decide::place`), on their display but not raised.
+    pub(super) fn measure_parked(&mut self, window: &Window) {
+        if cfg!(test) {
+            return;
+        }
+        let Some(number) = crate::assistant::computer::window_number(&window.id) else {
+            return;
+        };
+        std::thread::sleep(Duration::from_millis(150));
+        let renders = shot::capture(number).is_ok_and(|(_, _, rgba)| {
+            // A picture that is all transparent is no picture.
+            rgba.chunks_exact(4).step_by(31).any(|pixel| pixel[3] != 0)
+        });
+        let measured = decide::Measured {
+            fresh_frame: Some(renders),
+            input_took: None,
+        };
+        if decide::place(measured) == decide::Place::Behind {
+            self.put_behind(window, "it gave no picture off the screen");
+        }
+    }
+
+    /// Window `window` waits behind the person's windows from now on: moved
+    /// onto their display without being raised, so it never covers their
+    /// work but renders and takes input.
+    pub(super) fn put_behind(&mut self, window: &Window, why: &str) {
+        let displays = self.screen.displays();
+        let Some(display) = displays
+            .iter()
+            .find(|display| display.has_focus)
+            .or_else(|| displays.iter().find(|display| display.is_primary))
+            .or(displays.first())
+        else {
+            return;
+        };
+        let spot = (display.frame.0 + 80.0, display.frame.1 + 80.0);
+        self.move_window(window, spot);
+        self.looked = None;
+        tracing::info!(window = window.id, why, "a window waits behind the person's instead of off the screen");
+        self.notes.push(format!(
+            "{} waits behind the person's windows now ({why}); act in it as before.",
+            window.id
+        ));
     }
 
     /// `hex_window_shot`.

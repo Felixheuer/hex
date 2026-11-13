@@ -180,6 +180,18 @@ impl<D: Desktop> Guard<D> {
             let count = self.failures.entry(id.clone()).or_insert(0);
             *count += 1;
             if *count == FAILS_BEFORE_FOCUS {
+                // Measured: it doesn't take input off the screen. It waits
+                // behind the person's windows instead, before any focus.
+                let displays = self.screen.displays();
+                let parked = self
+                    .list(super::Look::Check)
+                    .ok()
+                    .and_then(|windows| windows.into_iter().find(|listed| &listed.id == id))
+                    .filter(|listed| listed.bounds.is_some_and(|bounds| hangs_off(bounds, &displays)));
+                if let Some(parked) = parked {
+                    self.put_behind(&parked, "it ignored actions off the screen");
+                    continue;
+                }
                 self.notes.push(format!(
                     "{} ignored this in the background twice. If a fresh snapshot shows nothing \
                      changed, desktop_focus_window brings {id} forward briefly (Hex gives the \

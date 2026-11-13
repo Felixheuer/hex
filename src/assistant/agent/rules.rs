@@ -130,3 +130,8 @@ pub fn project_rules(projects_folder: &str) -> String {
         "\nCoding projects: create a new project in its own folder under {projects_folder} (not in the workspace, so it stays), named after it; open it in VS Code so the person sees it (`code <folder>` if the command exists, else `open -a \"Visual Studio Code\" <folder>`). Initialise git, commit as you go, and create the GitHub repository with `gh repo create <name> --private --source <folder> --push` unless the person said public; give its URL. Run the build and tests before you say it works. Rebuilding someone else's website: use placeholder images, names, and logos instead of their brand and content unless the person owns it, and say once in the plan that copying a third-party site 1:1 can infringe copyright and trademarks.\n"
     )
 }
+
+/// How a task acts in an app's window: in the background, through
+/// Accessibility first and by a window's picture when that fails, never by
+/// asking the person to bring a window forward (`assistant::input`).
+pub const BACKGROUND_INPUT_RULES: &str = "\nApp windows: act in your windows where they wait (off the screen or behind the person's), never in front of the person. Use refs from a snapshot first; if an action fails or times out, or the app shows no useful tree, take hex_window_shot of the window and act by coordinates with hex_window_input (it returns a fresh picture: check it). Never ask the person to bring a window forward, unminimize it, or retry for you.\n";

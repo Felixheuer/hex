@@ -191,7 +191,13 @@ pub fn plan(state: &AppState, tried: &[Tried]) -> Recovery {
     {
         return Recovery::LeaveFullScreen(window.id.clone());
     }
-    if not_tried(Tried::Restore)
+    // A relaunched app may bring its window back minimized: restoring is
+    // tried again after a relaunch.
+    let since_relaunch = tried
+        .iter()
+        .rposition(|step| *step == Tried::Relaunch)
+        .map_or(tried, |at| &tried[at + 1..]);
+    if !since_relaunch.contains(&Tried::Restore)
         && let Some(window) = state.windows.iter().find(|window| window.minimized)
     {
         return Recovery::Restore(window.id.clone());
@@ -474,10 +480,33 @@ mod tests {
             Tried::Restore,
             Tried::Relaunch,
         ];
+        // It came back minimized: restored once more.
+        assert_eq!(plan(&state, &tried), Recovery::Restore("w-1".into()));
+        let tried = [
+            Tried::Unhide,
+            Tried::LeaveFullScreen,
+            Tried::Restore,
+            Tried::Relaunch,
+            Tried::Restore,
+        ];
         let Recovery::Report(why) = plan(&state, &tried) else {
             panic!("expected a report");
         };
         assert!(why.contains("didn't open a window here"), "{why}");
+    }
+
+    #[test]
+    fn a_window_that_comes_back_minimized_after_a_relaunch_is_restored() {
+        let mut window = off("w-7");
+        window.listed = true;
+        window.minimized = true;
+        let state = app(PLAIN, vec![window]);
+        // Restored once (it failed: the app didn't answer), relaunched, and
+        // its new window is minimized again: restore it, don't report.
+        let tried = [Tried::Restore, Tried::Relaunch];
+        assert_eq!(plan(&state, &tried), Recovery::Restore("w-7".into()));
+        let tried = [Tried::Restore, Tried::Relaunch, Tried::Restore];
+        assert!(matches!(plan(&state, &tried), Recovery::Report(_)));
     }
 
     #[test]

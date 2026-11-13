@@ -988,6 +988,7 @@ pub fn system_for(job: &Job, desktop: Option<&Desktop>, browser: bool) -> String
         system.push_str(TOOLS_RULES);
     }
     system.push_str(crate::assistant::knowledge::RULES);
+    system.push_str(rules::BACKGROUND_INPUT_RULES);
     if settings.memory {
         system.push_str(&memory_rules(job.memory.as_deref(), !job_role));
     }
