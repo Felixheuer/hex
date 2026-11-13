@@ -1,9 +1,40 @@
 # Pilot: Website, Downloads und Update-Kanal
 
-Pilot ist der Name dieses Hex-Forks nach außen: Website, Downloads und
-Update-Hinweise. Binary (`hex`), Bundle-ID (`anomaly.hex`), Datenordner
-(`~/.local/share/hex`, `%APPDATA%\hex`, `~/Library/Application Support/…`) und
-das Rust-Crate heißen weiter wie upstream – macOS-Berechtigungen hängen daran.
+Pilot ist der Name der Website und der Downloads; die App heißt **Agent-Desk**
+(ein Fork von Hex, `anomalyco/hex`): Binary und Crate `agent-desk`, Bundle-ID
+`fheuer.agentdesk` (Dev `fheuer.agentdesk.dev`), URL-Schema `agent-desk://`,
+Datenordner `~/Library/Application Support/agent-desk`, `~/.config/agent-desk`,
+`~/.local/share/agent-desk`, `%APPDATA%\agent-desk`, Umgebungsvariablen
+`AGENT_DESK_*`. Der Pfad des Update-Kanals bleibt `release/hex/`: `hex` ist die
+App-ID des Release-Protokolls, die jede installierte App und jede
+Installations-Quittung nennt.
+
+## Umzug von Hex zu Agent-Desk (einmalig, entfernen nach 2026-12)
+
+Nur diese einmaligen Migrationen gibt es, keine Aliase (kein `hex`-Befehl,
+kein `hex://`, keine `HEX_*`-Variablen):
+
+- **Datenordner** (`src/app_paths.rs`, `take_over`): beim ersten Start wird
+  `~/Library/Application Support/hex` (bzw. `hex-dev`) in `agent-desk`
+  (`agent-desk-dev`) umbenannt und `~/.config/hex` in `~/.config/agent-desk` –
+  nur wenn der neue Ordner fehlt und kein laufendes Hex seine Locks hält;
+  sonst bleiben beide unberührt. Dabei werden umbenannte Schlüssel in
+  `settings.json` einmal auf die neuen Namen geschrieben. Linux und Windows
+  benutzen den alten Ordner an Ort und Stelle (die Installation liegt darin).
+- **Schlüsselbund**: API-Schlüssel unter „Hex Assistant“ ziehen beim ersten
+  Lesen nach „Agent-Desk Assistant“ um.
+- **App**: Ein installiertes Hex nimmt nur Updates mit seiner Bundle-ID an.
+  Darum trägt jedes Release zusätzlich die **Brücke**: `hex-<v>-macos-arm64.zip`,
+  ein `Hex.app` mit `anomaly.hex`, das `Agent-Desk.app` in
+  `Contents/Library` mitbringt (Target `macos-arm64`, das alte Hex-Installationen
+  abfragen). Agent-Desk selbst fragt `macos-arm64-agent-desk` ab. Gestartet
+  legt die Brücke `Agent-Desk.app` daneben, öffnet es und beendet sich;
+  Agent-Desk entfernt danach die Brücke und Hex' Update-Reste
+  (`src/updater/macos.rs`). `--install` entfernt ein altes
+  `/Applications/Hex.app` direkt.
+- **Berechtigungen**: macOS gibt der neuen Bundle-ID keine der alten
+  Freigaben. Einstellungen von vor dem Umzug öffnen die Einrichtung einmal
+  wieder, wenn etwas fehlt (`onboarding::recheck_after_identity_change`).
 
 Alles läuft auf diesem Server (`ai.sms-pilot.de`, 91.99.118.129) mit Caddy:
 
@@ -44,7 +75,7 @@ sudo systemctl reload caddy
 
 ## Wie die App updatet
 
-Unverändert das Protokoll von Hex (`docs/plans/release-service.md`), nur
+Unverändert das Protokoll von Agent-Desk (`docs/plans/release-service.md`), nur
 selbst gehostet: `ORIGIN` in `src/updater.rs` ist
 `https://ai.sms-pilot.de/release`.
 
@@ -53,39 +84,39 @@ selbst gehostet: `ORIGIN` in `src/updater.rs` ist
   **ed25519-Signatur von Pilots Release-Schlüssel** (`<target>-sig`,
   `src/updater/signature.rs`), bereitet das Update vor und zeigt
   „Neu starten, um zu aktualisieren“. Ein Klick startet in die neue Version.
-- Zusätzlich: macOS prüft die Code-Signatur (Bundle-ID `anomaly.hex`, Team aus
-  `HEX_UPDATE_TEAM_ID`, das `pilot-release-macos.sh` beim Bauen einstempelt);
+- Zusätzlich: macOS prüft die Code-Signatur (Bundle-ID `fheuer.agentdesk`, Team aus
+  `AGENT_DESK_UPDATE_TEAM_ID`, das `pilot-release-macos.sh` beim Bauen einstempelt);
   Windows prüft Authenticode nur, wenn der Build einen Signierer kennt
-  (`HEX_AUTHENTICODE_SIGNER`, gesetzt von `pilot-release-windows.ps1
+  (`AGENT_DESK_AUTHENTICODE_SIGNER`, gesetzt von `pilot-release-windows.ps1
   -CertificateThumbprint`).
 - Versionen werden nie verglichen: Linux und Windows erkennen den laufenden
   Build an der SHA-256 der Datei, macOS an der exakten Version. Was im
   Manifest steht, wird installiert – auch ein Rollback.
 
-**Live und Dev (macOS).** Auf dem Mac stehen genau zwei Hex-Apps:
+**Live und Dev (macOS).** Auf dem Mac stehen genau zwei Agent-Desk-Apps:
 
-- **Live**: `/Applications/Hex.app` (`anomaly.hex`), der veröffentlichte
+- **Live**: `/Applications/Agent-Desk.app` (`fheuer.agentdesk`), der veröffentlichte
   Pilot-Build, der sich selbst aktualisiert (`pilot-release-macos.sh
   --install` oder `Pilot.dmg`).
-- **Dev**: `/Applications/Hex Dev.app` (`anomaly.hex.dev`), gebaut aus dem
+- **Dev**: `/Applications/Agent-Desk Dev.app` (`fheuer.agentdesk.dev`), gebaut aus dem
   Checkout mit `scripts/install-fork.sh`: eigene Daten
-  (`~/Library/Application Support/hex-dev`, `~/.config/hex-dev`), eigenes
-  URL-Schema (`hex-dev://`), DEV-Band im Icon, nie Updates.
+  (`~/Library/Application Support/agent-desk-dev`, `~/.config/agent-desk-dev`), eigenes
+  URL-Schema (`agent-desk-dev://`), DEV-Band im Icon, nie Updates.
 
 Startet eine, beendet sie die andere (gleiche Kurzbefehle, gleiches
 Mikrofon). `install-fork.sh` entfernt jede andere Kopie (alte
-`target/app`-Bundles, Hex Test, Downloads), damit eine Freigabe in den
+`target/app`-Bundles, Agent-Desk Test, Downloads), damit eine Freigabe in den
 Systemeinstellungen immer Live oder Dev gehört; `--dry-run` zeigt die
-Liste vorher, `--open` startet Hex Dev danach.
+Liste vorher, `--open` startet Agent-Desk Dev danach.
 
 **Wichtig – Quell-Builds updaten nie.** `scripts/install-fork.sh` (macOS)
-und `scripts/install-linux.sh` bauen „lokale Builds“ (`HEX_LOCAL_BUILD`,
+und `scripts/install-linux.sh` bauen „lokale Builds“ (`AGENT_DESK_LOCAL_BUILD`,
 `source-build`-Marker); die zeigen „Lokaler Build · Updates aus“ und fragen
 den Server nie. Um Updates zu bekommen, die veröffentlichte Version
 installieren:
 
 - macOS: `scripts/pilot-release-macos.sh … --install` (oder `Pilot.dmg`
-  öffnen und `Hex.app` nach `/Applications` ziehen). Mit demselben
+  öffnen und `Agent-Desk.app` nach `/Applications` ziehen). Mit demselben
   Signier-Team bleiben die macOS-Berechtigungen erhalten.
 - Linux: `curl -fsSL https://ai.sms-pilot.de/install-linux.sh | sh`
 - Windows: `PilotSetup.exe` von der Website (oder `install-windows.ps1`).
@@ -145,13 +176,13 @@ git pull                                  # derselbe Commit wie das Linux-Releas
 scripts/pilot-release-macos.sh --version 3.4.0-pilot.1 --install
 ```
 
-- Mit „Developer ID Application“-Zertifikat und `HEX_NOTARY_PROFILE`
+- Mit „Developer ID Application“-Zertifikat und `AGENT_DESK_NOTARY_PROFILE`
   (`xcrun notarytool store-credentials`) wird App und DMG notarisiert – dann
   öffnet jeder Mac sie ohne Warnung.
 - Ohne Developer ID nimmt das Skript das „Apple Development“-Zertifikat (wie
   `install-fork.sh`): läuft auf deinen eigenen Macs; andere sehen eine
   Gatekeeper-Warnung (Rechtsklick → Öffnen).
-- `--install` ersetzt `/Applications/Hex.app` (auch einen Quell-Build) durch
+- `--install` ersetzt `/Applications/Agent-Desk.app` (auch einen Quell-Build) durch
   den veröffentlichten Build, der sich ab dann selbst aktualisiert.
 - `--no-upload` baut nur (Dateien in `dist/pilot-<version>/`).
 
@@ -168,7 +199,7 @@ powershell -ExecutionPolicy Bypass -File scripts\pilot-release-windows.ps1 -Vers
 powershell -ExecutionPolicy Bypass -File scripts\pilot-release-windows.ps1 -Version 3.4.0-pilot.1 -CertificateThumbprint <SHA1>
 ```
 
-Ohne Zertifikat sind `hex.exe`/`PilotSetup.exe` unsigniert (SmartScreen
+Ohne Zertifikat sind `agent-desk.exe`/`PilotSetup.exe` unsigniert (SmartScreen
 warnt beim ersten Start); Updates sind trotzdem durch die Release-Signatur
 geschützt. Wer einmal mit Zertifikat veröffentlicht, sollte dabei bleiben:
 solche Builds nehmen nur noch Updates mit genau diesem Signierer an.
@@ -194,7 +225,7 @@ curl -fsS "https://ai.sms-pilot.de$url" -o hex.sig
 curl -fsSL https://ai.sms-pilot.de/download/linux-x64 -o hex
 PILOT_CHECK_MANIFEST=$PWD/stable.json PILOT_CHECK_SIGNATURE=$PWD/hex.sig \
   PILOT_CHECK_FILE=$PWD/hex PILOT_CHECK_TARGET=linux-x64 \
-  cargo test --locked --bin hex published_release -- --ignored --nocapture
+  cargo test --locked --bin agent-desk published_release -- --ignored --nocapture
 ```
 
 Der Test benutzt den Parser, die Entscheidungsregeln und die

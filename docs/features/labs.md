@@ -3,7 +3,7 @@
 Labs is gone. Pilot is an assistant that operates the Mac, with dictation as a
 side feature, and a store of 75 experimental switches made the window harder to
 understand than the product. There is no Labs pane, no Labs sidebar item, no
-`hex labs` command, no `hex://labs` page and no `labs.*` settings anymore.
+`agent-desk labs` command, no `agent-desk://labs` page and no `labs.*` settings anymore.
 
 Every former lab was decided once:
 
@@ -42,10 +42,10 @@ The runtime gates live in `src/features.rs` (`crate::features`), the settings in
 | Benchmark details | Removed | — |
 | Skip pauses | Removed | — |
 | Notch indicator | Removed | The speech bubble keeps its place at the top; growing out of the notch hid it |
-| Screenshots (and its Captures pane, `hex screenshot`) | Removed | The assistant sees the screen itself; macOS has its own screenshot keys. `screenshots.*` stays in the file, unused |
+| Screenshots (and its Captures pane, `agent-desk screenshot`) | Removed | The assistant sees the screen itself; macOS has its own screenshot keys. `screenshots.*` stays in the file, unused |
 | Annotate replay | Removed | `capture.replay_hotkey` stays in the file, unused |
 | Voice Filter | Removed | Only an installed driver's Uninstall remains |
-| Playground | No switch | Dev builds only: ⌘⇧D or `hex window story` |
+| Playground | No switch | Dev builds only: ⌘⇧D or `agent-desk window story` |
 
 The managed-preferences key `DisableLabs` locks nothing now; `DisableMeetings`
 still locks Meetings.
@@ -69,6 +69,6 @@ run once in `read_saved_from`):
 - Values the user never chose keep what the old file said: an existing user
   keeps Live text off if it was off, even though new installs have it on.
 
-`hex settings` rejects `labs.*` keys with a message pointing at
-`hex settings get preferences`; `hex labs` and `hex experiments` say Labs is
-gone. `hex://labs…` links open the Dictation pane.
+`agent-desk settings` rejects `labs.*` keys with a message pointing at
+`agent-desk settings get preferences`; `agent-desk labs` and `agent-desk experiments` say Labs is
+gone. `agent-desk://labs…` links open the Dictation pane.

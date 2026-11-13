@@ -1,16 +1,16 @@
 # Assistant
 
-Hold one key and say anything: Hex decides whether it is a **quick turn**
+Hold one key and say anything: Agent-Desk decides whether it is a **quick turn**
 (answered beside the HUD and read aloud, about the window in front) or a
 **job** (worked on in the background, in its own windows and hidden
-browsers, beside other jobs). Everything works without opening Hex's window:
+browsers, beside other jobs). Everything works without opening Agent-Desk's window:
 the Here bubble, the orb and its job list, and spoken answers are the
 product; the window's **Assistant** pane is one stream of every quick turn
 and job, and **Assistant settings** hold the rest.
 
 The assistant is on by default in this fork (`assistant.enabled`, default
 `true`; it left Labs, which is gone). Turn it off with the switch at the top
-of Assistant settings, the off card's Turn on, or `hex settings set
+of Assistant settings, the off card's Turn on, or `agent-desk settings set
 assistant.enabled false`. `crate::assistant::enabled` is
 `assistant::available()` (macOS, Linux, Windows) and the switch;
 `assistant::ready` adds `assistant.setup_done`. While it's off, the Action
@@ -22,11 +22,11 @@ shortcut another shortcut took meanwhile is unbound
 (`repair_action_shortcut`).
 
 ```ts
-Assistant           Setting (settings.json, hex settings)    What it does
+Assistant           Setting (settings.json, agent-desk settings)    What it does
 └── Assistant       assistant.enabled (default on) + assistant.action_hotkey
-                    hold the Action shortcut (right ⌘ alone on macOS) and say anything: Hex answers
+                    hold the Action shortcut (right ⌘ alone on macOS) and say anything: Agent-Desk answers
                     (quick turn), acts in the window in front, or starts a job; double-tap for the job list;
-                    after an answer Hex listens for a follow-up (conversation_seconds), and speaking over
+                    after an answer Agent-Desk listens for a follow-up (conversation_seconds), and speaking over
                     an answer interrupts it on headphones (barge_in); Escape stops quick turns and speech;
                     ⌃⌥Esc (assistant.stop_all_hotkey) stops everything. Both recorders are in Assistant
                     settings › Shortcuts; the Assistant pane is in the sidebar either way
@@ -39,9 +39,9 @@ Action shortcut (assistant::shortcut, per-OS listeners) ─┐
 Assistant pane composer (rune_ui::chats) ─────────────────┼─ service::submit ── lanes ── agent::run ── provider (backend)
 iPhone replies (assistant::phone), schedules ────────────┘   Here | Background        claude -p | codex exec | opencode | Claude API
                                                                                             │
-                     every desktop action ── guard (hex assistant mcp) ── agent-desktop     │
+                     every desktop action ── guard (agent-desk assistant mcp) ── agent-desktop     │
                      web ── browser (agent-browser, one hidden session per task)  ──────────┤
-                     Hex's own tools (tools: remember, schedule, team) and knowledge ───────┘
+                     Agent-Desk's own tools (tools: remember, schedule, team) and knowledge ───────┘
 service::subscribe ── Event ── overlays (rune_ui::assistant_overlay): Here bubble, orb, job list, frame, outlines
                            └── the Assistant pane, notifications, the iPhone, speech
 ```
@@ -53,13 +53,13 @@ service::subscribe ── Event ── overlays (rune_ui::assistant_overlay): He
    windows and browsers, its plan, its goal check (`agent::goal`), up to
    `max_parallel` at once (`capacity`). A tap-then-hold or "im Hintergrund"
    starts a job directly.
-2. **Guard** (`assistant::guard`). Every task's agent gets Hex's MCP server
+2. **Guard** (`assistant::guard`). Every task's agent gets Agent-Desk's MCP server
    instead of agent-desktop: window leases (Here holds the front window,
    Background only windows it opened or claimed), real input only when
    allowed, blocked apps, take over, and consent before consequential
    actions (`autonomy`). Prompts are never the only safeguard.
 3. **Backends** (`provider`, `backends`). Claude Code, Codex, OpenCode, or
-   the Claude API runs the task, each with the guard, the browser, Hex's
+   the Claude API runs the task, each with the guard, the browser, Agent-Desk's
    tools, and `knowledge` (`hex_lookup`). `backends` finds, installs,
    checks, and signs them in.
 4. **Overlay** (`rune_ui::assistant_overlay`). `board` turns events into what
@@ -78,7 +78,7 @@ service::subscribe ── Event ── overlays (rune_ui::assistant_overlay): He
 | Assistant | the window's pane with the stream | `Pane::Chats`, `assistant::lines::ASSISTANT` | Assistent |
 | Assistant settings | its settings pane | `Pane::Assistant`, `assistant::lines::ASSISTANT_SETTINGS` | Assistent-Einstellungen |
 | orb | the jobs' presence beside the HUD | `assistant_overlay::orb` | – |
-| guard | Hex's MCP server between every task and the desktop | `assistant::guard` | – |
+| guard | Agent-Desk's MCP server between every task and the desktop | `assistant::guard` | – |
 
 German copy never says „Aufgabe“ for a job: a job is an „Auftrag“, a quick
 turn a „Frage“ („Neuer Auftrag im Hintergrund“, „3 Aufträge laufen“). What
@@ -101,7 +101,7 @@ question was asked in, the brain's own words small beneath it when they say
 more, and one action: **Fix** (Assistant settings for "off"; the setup's
 repair pages, `chats::setup::repair`, for the rest it can fix) or **Try
 again** (the same words, in full, in the same conversation). When answers
-are read aloud, Hex also says the line. The bubble stays 12 s. Checks:
+are read aloud, Agent-Desk also says the line. The bubble stays 12 s. Checks:
 `the_brains_messages_have_their_failure_and_remedy`,
 `every_line_and_label_has_german` (failure.rs), and
 `a_failed_quick_question_says_why_and_offers_one_action`
@@ -112,10 +112,10 @@ are read aloud, Hex also says the line. The bubble stays 12 s. Checks:
 
 While the assistant is on, Assistant settings › Shortcuts shows an "Action
 shortcut" recorder (`assistant.action_hotkey`, right Command alone by
-default on macOS, clearable, with Restore default; also `hex settings set
+default on macOS, clearable, with Restore default; also `agent-desk settings set
 assistant.action_hotkey right-command`) and a "Stop all tasks" recorder
 under it (`assistant.stop_all_hotkey`, ⌃⌥Esc by default, clearable, with
-Restore default since Escape ends the recorder; also `hex settings set
+Restore default since Escape ends the recorder; also `agent-desk settings set
 assistant.stop_all_hotkey control+option+escape`). They are the same
 recorder rows General uses (`general::shortcut_rows`), with their conflicts.
 The gates are
@@ -190,11 +190,11 @@ dictation pipeline's `SpeechFrames` test, two quiet frames forgiven) makes it
 a question (`Started`, `Asking`, the desktop read, `prewarm(Here)`); 900 ms
 without speech (or 60 s) finishes it through the Action shortcut's finish
 into the same conversation. Nothing in time closes it quietly. With
-`assistant.barge_in` (on by default) the capture opens as Hex starts
+`assistant.barge_in` (on by default) the capture opens as Agent-Desk starts
 reading: on headphones or AirPods (`audio::output_route` reads Bluetooth,
 the headphone jack, and Apple silicon's headphone output) 240 ms of speech
 stops the reading (`speech::stop()`) and becomes the follow-up; on speakers,
-where the microphone hears Hex's voice, only speech 6 dB louder than the
+where the microphone hears Agent-Desk's voice, only speech 6 dB louder than the
 answer's own playback level (`speech::level()`) does, and while that level is
 unknown (its stub returns `None`) barge-in is off on speakers. Any key going
 down or modifier changing ends it before the shortcut it may be can start its
@@ -298,8 +298,8 @@ keys. `shortcut_probe::start(slot, wait)` asks for a press: while it runs
 the listener hands every edge to it, not the shortcut machines (nothing
 records), and the HID tap reports every key press
 (`suppression::set_probing`), so it tells a press and release that reached
-Hex with exactly the keys and sides (`Works { held }`) from a key the
-keyboard saw but Hex's tap never got (`Swallowed`), the wrong modifiers or
+Agent-Desk with exactly the keys and sides (`Works { held }`) from a key the
+keyboard saw but Agent-Desk's tap never got (`Swallowed`), the wrong modifiers or
 side (`WrongKeys`), a missing release (`NoRelease`), and nothing
 (`NothingReceived`). It refuses (`Unavailable`) without the listener, while
 Settings records a shortcut, or while a recording runs. Checks: the six
@@ -342,7 +342,7 @@ in [recognition/ask.rs](../../src/recognition/ask.rs);
 [app_settings.rs](../../src/app_settings.rs); `stop_all_is_a_shortcut_setting`
 in [control/settings.rs](../../src/control/settings.rs). Not yet observed: a
 real press on a Mac, the recorder rows' rendering (macOS only, so no golden
-changes), Escape against a running question, or ⌃⌥Esc reaching Hex past
+changes), Escape against a running question, or ⌃⌥Esc reaching Agent-Desk past
 macOS.
 
 ## The Action shortcut on Linux
@@ -356,7 +356,7 @@ need a key), and the listener registers them beside the others, restarting
 when they change. X11 grabs them; on Wayland the GlobalShortcuts portal binds
 them as `assistant-action` ("Ask the assistant (hold)") and
 `assistant-stop-all` ("Stop all assistant tasks"), Hyprland's
-`anomaly.hex:assistant-action` and `anomaly.hex:assistant-stop-all`.
+`fheuer.agentdesk:assistant-action` and `fheuer.agentdesk:assistant-stop-all`.
 
 ```ts
 Shortcut::Action (ShortcutState::action_pressed / action_released; always Hold)
@@ -377,8 +377,8 @@ Escape (X11 only) -> HotkeyEvent::AssistantEscape -> shortcut::escape()
 ```
 
 The Action shortcut and dictation never share a capture (whichever pressed
-first owns it). `hex dictation stop` and `toggle` leave a question alone
-(`stop --print` answers "not recording"); `hex dictation cancel` discards it.
+first owns it). `agent-desk dictation stop` and `toggle` leave a question alone
+(`stop --print` answers "not recording"); `agent-desk dictation cancel` discards it.
 On X11 the dictation loop refreshes whether the assistant takes Escape
 (`claims_escape`, every 100 ms; `linux::input::set_assistant_escape`) and
 the listener grabs Escape only then. The portal can't bind Escape, so on
@@ -417,7 +417,7 @@ Action shortcut (Windows; DictationFlavour::Assistant, its own capture)
 ├── not ready (applied_assistant_ready false) -> nothing records; the release
 │   calls shortcut::unready_release(held_for)
 └── owns its capture: dictation shortcuts never finish it, nor it theirs;
-    `hex dictation stop` refuses while it records, `cancel` discards it
+    `agent-desk dictation stop` refuses while it records, `cancel` discards it
 Stop all tasks -> its key swallowed (repeats and release too), once per press;
     shortcut::stop_all() on the listener's loop, not the hook's thread
 Escape -> taken (down, repeats, up) only while shortcut::claims_escape(bound,
@@ -454,13 +454,13 @@ routes it), or, after a click on an entry, replies to it or steers it
 (`Request { origin: Chat, conversation }`; Return sends, Shift-Return starts
 a line). Answers render as Markdown, streaming while `AnswerDelta`s arrive.
 The entry showing is named with `assistant::set_focus` and cleared when the
-pane or window goes. `hex://chats?id=<conversation>`, the menu bar's and
+pane or window goes. `agent-desk://chats?id=<conversation>`, the menu bar's and
 tray's "Assistant…", a notification's click, and "Show in Assistant" on the
 overlays (`assistant_overlay::set_open_chats` → `window_link::open_chat`)
 open it.
 
 **Assistant settings** (`Pane::Assistant`, `chats::settings`; also
-`hex://settings/assistant`): the switch first ("Hold right ⌘ to ask,
+`agent-desk://settings/assistant`): the switch first ("Hold right ⌘ to ask,
 double-tap for your tasks") and Run setup…; Shortcuts (the Action and Stop
 all recorders); Agent & model (the agent picker, its model, the quick
 turns' model); How it works (autonomy, how long a job may run, waiting out
@@ -473,7 +473,7 @@ hidden browser and the sites jobs may use signed in); Voice, with one
 Follow-ups row for both follow-up windows (Listen, `conversation_seconds`:
 answer back without the shortcut; Continue chat, `follow_up_seconds`: a hold
 that soon continues the chat); Notifications; On my iPhone; and Memory.
-Renamed keys still load and `hex settings` still takes them:
+Renamed keys still load and `agent-desk settings` still takes them:
 `background_front_window` is `full_control`, `agent_space` is
 `park_windows`, `physical_input` is `background_physical_input`.
 
@@ -502,9 +502,9 @@ the assistant is turned on (Settings' switch or the off card's Turn on)
 while `assistant.setup_done` is false, after the voice first run on a fresh
 install, and from Run setup… or the Assistant pane's notice. Pages: Meet your assistant; Choose who answers (the
 agents `backends::detect` found, Claude Code by default, each with its fix:
-install, sign in, start OpenCode, or the API key); Hex's Microphone,
+install, sign in, start OpenCode, or the API key); Agent-Desk's Microphone,
 Accessibility, and Screen Recording, each Allow opening its System Settings
-page with Hex's guide and waiting until macOS reports it on (read every
+page with Agent-Desk's guide and waiting until macOS reports it on (read every
 1.5 s); Automation for System Events and Finder (one macOS prompt each;
 any other app a task scripts asks on first use, and the task's step says
 so first: `automation::first_use_notice`); agent-desktop, installed with
@@ -518,7 +518,7 @@ each failure's fix; the Action and dictation shortcuts, with what else takes
 them (`shortcut_conflicts::conflicts`, read again every 3 s, each with where
 it's fixed and, for the Action shortcut, Choose another…) and a live press
 test of each (`recognition::shortcut_probe`; ✓ only when the press and its
-release reached Hex, and a swallowed press names the app that took it), the
+release reached Agent-Desk, and a swallowed press names the app that took it), the
 page waiting for a free Action shortcut that works (`chats/shortcut.rs`
 adapts both); then the try-it: hold the Action shortcut and ask, waiting
 for one real spoken question, answered. A row shows ✓ only after its check saw
@@ -537,7 +537,7 @@ The release check's `onboarding_walkthrough` in
 [onboarding_check.rs](../../src/rune_ui/tests/onboarding_check.rs) downloads
 the recommended speech model in an isolated data folder, follows the default
 assistant handoff after the voice practice, closes its setup for later, and
-still requires “Hex is ready” before finishing. This checks the window's
+still requires “Agent-Desk is ready” before finishing. This checks the window's
 flow, not live assistant setup or a real spoken question.
 
 The assistant's setup keeps Back clear of macOS's native window controls.
@@ -547,14 +547,14 @@ or the website form remains reachable in a short window.
 ```ts
 Optional website sign-in
 ├── Add website → enter a web address → Open website
-│   └── opens that address in Hex's dedicated browser, once per pending request
+│   └── opens that address in Agent-Desk's dedicated browser, once per pending request
 ├── Sign in there → Save browser data → closes the browser and refreshes saved domains
 │   └── a failed save stays open and can be retried
 └── Saved browser data ≠ a verified login; each website can expire or reject it
 
 macOS permissions
 ├── Allow → the running app's native permission guide and macOS registration
-├── Granted but requires relaunch → Restart Hex and continue
+├── Granted but requires relaunch → Restart Agent-Desk and continue
 ├── Old entry remains unusable after returning from Settings → Repair permission entry
 │   └── explicit action resets that permission for the running bundle and reopens its guide
 └── A grant changes on Checks → refresh affected desktop checks
@@ -574,19 +574,19 @@ authoritative and are never forced green by the window.
 
 ### Back for what's missing
 
-After setup was finished, Hex checks at launch and every five minutes
+After setup was finished, Agent-Desk checks at launch and every five minutes
 (`desktop::setup_gaps`, read off the window's thread by `Job::Gaps`):
 Microphone, Accessibility and Screen Recording, Automation (System Events
 and Finder), Contacts, Reminders, or the Calendar never asked for (so an
 update that adds an ask shows the permissions page once), a translocated or stray copy
 (`permission_doctor`), the speech model, the chosen agent installed and
 signed in, agent-desktop and its grants, agent-browser, the Action shortcut
-still free, the Hex voice's files, and `assistant.setup_version` against
+still free, the Agent-Desk voice's files, and `assistant.setup_version` against
 `SETUP_VERSION` (pages a release adds go in `setup_gaps::ADDED`). When
 something is missing, the onboarding opens on just the pages that fix it
-(`chats::setup::repair`), headed "Hex needs your help for a moment" with one
+(`chats::setup::repair`), headed "Agent-Desk needs your help for a moment" with one
 line per gap, moves on by itself once a page works, and ends after the last.
-Later or Close puts it off until Hex next starts. A missing Hex voice
+Later or Close puts it off until Agent-Desk next starts. A missing Agent-Desk voice
 downloads again without a page. While something essential is missing (a
 copy macOS can't grant, Microphone, Accessibility, the agent), a hold of the
 Action shortcut says what in the HUD instead of asking and opens the guide.
@@ -598,10 +598,10 @@ The agent backends (Claude Code, Codex, OpenCode, agent-desktop,
 agent-browser) run the same way on every OS; what differs:
 
 - **Process trees** (`backends/run.rs` `own_group`/`Tree`): Unix puts each
-  agent in its own process group (on Linux a helper Hex waits for also gets
+  agent in its own process group (on Linux a helper Agent-Desk waits for also gets
   `PR_SET_PDEATHSIG`); Windows puts it in a Job Object (shared with
   `personal_commands/process.rs`) that Cancel, steering, and a failure end
-  at once, and that ends everything if Hex dies. A normal exit releases the
+  at once, and that ends everything if Agent-Desk dies. A normal exit releases the
   job, so a daemon an agent left on purpose (agent-browser's) keeps running,
   as on Unix.
 - **Finding programs** (`backends/search.rs`): Linux asks the login shell
@@ -611,7 +611,7 @@ agent-browser) run the same way on every OS; what differs:
   `%APPDATA%\npm`, WinGet's links, `%USERPROFILE%\.local\bin`, Bun, Scoop,
   pnpm, Volta, fnm, nvm-windows, `%ProgramFiles%\nodejs`, and System32.
   `name.exe` beats an npm `name.cmd` shim, and a shim runs as the
-  `node.exe <script>` (or `.exe`) it wraps (`search::launch`), in Hex's own
+  `node.exe <script>` (or `.exe`) it wraps (`search::launch`), in Agent-Desk's own
   commands and in the MCP server configs given to agents, because batch
   files can't take the newlines and quotes in the agents' arguments. MCP
   servers get `SystemRoot`, `PATHEXT`, `ComSpec`, `APPDATA`, `LOCALAPPDATA`,
@@ -647,8 +647,8 @@ agent-browser) run the same way on every OS; what differs:
   In-between answers aren't streamed or spoken. Jobs run on
   `job_budget_minutes` (7 days by default; questions and chats keep
   `task_timeout_minutes`), keep retrying usage limits for their budget, and
-  resume by themselves after Hex restarts or crashes. Asked by voice
-  ("Wie weit ist der Shop?", "status"), Hex tells each job's plan progress,
+  resume by themselves after Agent-Desk restarts or crashes. Asked by voice
+  ("Wie weit ist der Shop?", "status"), Agent-Desk tells each job's plan progress,
   time, and last check (`service::status`) without running an agent.
   `hex_compare_images` gives jobs a screenshot similarity score.
 - **Knowing the person's things** (`assistant::knowledge`): `hex_lookup`
@@ -671,7 +671,7 @@ agent-browser) run the same way on every OS; what differs:
   assignment, no computed members) unless YOLO on the person's own turn; a
   background job only reads there unless YOLO.
 - **One autonomy gate** (`autonomy::Gate::check(category, target)`): the
-  guard's clicks and shortcuts, Hex's browser, the person's browser tab, and
+  guard's clicks and shortcuts, Agent-Desk's browser, the person's browser tab, and
   app scripts all ask it, and every refusal has one `NEEDS_CONFIRMATION`
   shape (`autonomy::Refusal`: code, message, details {category, target,
   tool, mode, app}).
@@ -709,8 +709,8 @@ windows, the shim launch, job objects, or the agents' sandboxes.
 
 ## Teams, capacity, and the audit log
 
-A background job can lead a team (`assistant::agent::team`): its Hex tools
-(`hex assistant tools-mcp --role job`) offer `hex_team_start` (helpers, each
+A background job can lead a team (`assistant::agent::team`): its Agent-Desk tools
+(`agent-desk assistant tools-mcp --role job`) offer `hex_team_start` (helpers, each
 a Background job of its own in a folder inside the lead's, at most 12 at
 once) and `hex_team_status` (their states, steps, and final answers; with
 `wait_seconds` up to 240 it waits for the next to finish or ask). The
@@ -735,14 +735,14 @@ the person never saw.
 pressure); the monitor starts it once memory eases. Only the browsers a job
 card shows stream (`live::Rate::Idle` for the rest). One task at a time
 holds the real pointer and keyboard (`guard::state::take_hands`). At
-startup, agent process groups an earlier Hex left running end
+startup, agent process groups an earlier Agent-Desk left running end
 (`provider::orphans`), and interrupted jobs' browsers close before the jobs
 resume.
 
 Every tool call of every task goes to `<assistant>/audit/<id>.jsonl`
-(secrets blanked; `hex assistant audit <id>`); a job that ends leaves it in
-its folder as `Hex-Protokoll.txt`. A job's goal check runs with
+(secrets blanked; `agent-desk assistant audit <id>`); a job that ends leaves it in
+its folder as `Agent-Desk-Protokoll.txt`. A job's goal check runs with
 the guard observing only (`WireSpec::observe_only`), browsers that never
-send (`browser-mcp --observe`), a sandboxed shell, and no Hex tools.
-`hex assistant barge-in [--reset]` shows the barge-in thresholds this Mac
+send (`browser-mcp --observe`), a sandboxed shell, and no Agent-Desk tools.
+`agent-desk assistant barge-in [--reset]` shows the barge-in thresholds this Mac
 learnt (`interaction::tuning`).

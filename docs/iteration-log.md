@@ -21,7 +21,7 @@ maintainable, and nothing that isn't possible.
 - [x] Review done: docs/review-round4.md (38 findings)
 - [x] P0 1, 2, 6, 7 · P1 15, 16, 17, 18, 19, 21, 22, 23 (Cua seam), 27, 28 · P2 30, 31, 32, 33,
       34, 35, 37 (pilot.42–43)
-- [x] Crash: system-wide AX reads off the main thread (pilot.44); the release opens Hex
+- [x] Crash: system-wide AX reads off the main thread (pilot.44); the release opens Agent-Desk
       reliably
 - [ ] P0 3 (tool allowlist per backend), 4 (parking store, windows back after a restart),
       5 (an escalated job's browsers), P1 8–14 (tools per lane, guard rules, routing, helper
@@ -45,9 +45,9 @@ maintainable, and nothing that isn't possible.
 
 ## Round 5 (planned): rename and real test
 
-- [ ] Rename Hex → Agent-Desk (display name, CLI, data folder with migration, bundle ID
+- [ ] Rename Agent-Desk → Agent-Desk (display name, CLI, data folder with migration, bundle ID
       fheuer.agentdesk, URL scheme); the LICENSE copyright and the upstream sync stay
-- [ ] Real benchmark against Dev (`hex bench`) once the Mac is free; findings → next round
+- [ ] Real benchmark against Dev (`agent-desk bench`) once the Mac is free; findings → next round
 - [ ] Full test suite once, on its own (CLAUDE.md)
 
 ## Releases

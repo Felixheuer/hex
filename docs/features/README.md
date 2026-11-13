@@ -1,4 +1,4 @@
-# Hex Feature Map
+# Agent-Desk Feature Map
 
 What can the user do, how do they reach it, and what would prove it works?
 This maps existing behavior. [ROADMAP.md](../../ROADMAP.md) owns future work;
@@ -40,7 +40,7 @@ former lab.
 ## Product Map
 
 ```ts
-Hex                                      // macOS release
+Agent-Desk                                      // macOS release
 ├── Get ready                            // install, permissions, local model
 ├── Dictate                              // hold OR double-tap lock
 ├── Use the result                       // paste, paste-last, History
@@ -74,9 +74,9 @@ link toggle (off by default) puts a link to this build's release notes in the
 sidebar footer; its Appearance toggle (off by default) forces the main window
 light or dark instead of following the OS, while the HUD and other overlays
 keep following it; its Transcribe files toggle (off by default) adds
-`hex transcribe <file>`, which prints a saved WAV recording's transcript from
+`agent-desk transcribe <file>`, which prints a saved WAV recording's transcript from
 the selected model ([control-cli.md](control-cli.md)).
-General › Advanced › Interface language offers Português (Brasil), and Hex
+General › Advanced › Interface language offers Português (Brasil), and Agent-Desk
 uses it for any Portuguese system language (#867); it also offers Français,
 used for any French system language (#892), and Русский, used for any
 Russian system language (#1317). None of these has had a native speaker's
@@ -95,13 +95,13 @@ The other capabilities stay here until they need their own verification recipe.
 
 Install the signed macOS app with `brew install --cask anomalyco/tap/hex` or the
 [manual DMG](../../README.md#downloads). The cask uses a versioned, checksum-pinned
-DMG, requires Apple silicon/macOS 15+, and leaves updates to Hex's own updater. It does
+DMG, requires Apple silicon/macOS 15+, and leaves updates to Agent-Desk's own updater. It does
 not require OpenCode, launch the app automatically, migrate the legacy
 Swift app's data, or forcibly replace an existing app destination. Homebrew uninstall
 leaves runtime settings, models, and retained data intact.
 
 ```ts
-Download Hex                              // setup.download-recovery
+Download Agent-Desk                              // setup.download-recovery
 ├── anoma.ly/hex names the visitor's platform  // setup.download-button
 │   ├── Mac -> DMG | Intel Mac -> disabled, "needs Apple silicon"
 │   ├── Windows x64 / ARM64 (UA-CH) -> hex-setup-<version>-windows-<arch>.exe + SmartScreen note
@@ -115,14 +115,14 @@ Download Hex                              // setup.download-recovery
 └── Older app cannot reach its update feed -> manually install the DMG
 
 Install on Windows                        // setup.windows-installer
-├── Setup.exe, per user, no admin -> managed versions\<version>\hex.exe
+├── Setup.exe, per user, no admin -> managed versions\<version>\agent-desk.exe
 │   ├── x64 without a Vulkan 1.2 driver -> installs; speech on the CPU + Settings note (#1240)
 │   ├── another version installed (e.g. self-updated) -> install this one over it
-│   └── finish -> Open Hex -> the first run downloads a model
+│   └── finish -> Open Agent-Desk -> the first run downloads a model
 └── Settings › Apps -> uninstall every version, shortcut, Launch at login; keep data
 
 Install on Linux                          // setup.linux-installer
-└── curl … | sh -> signed feed -> verified artifact -> launcher + hex.service
+└── curl … | sh -> signed feed -> verified artifact -> launcher + agent-desk.service
     ├── cannot start -> name the glibc floor or the missing Arch packages
     └── finish without wl-copy -> print apt/dnf/pacman commands for wl-clipboard and wtype
 
@@ -169,18 +169,18 @@ Executed hosting checks and deployment details are recorded in
 with 2.1.17; the initial 2.1.16 mirror preserves that release's original bytes.
 
 ```ts
-Launch Hex, setup incomplete              // setup.tour; every build and OS, full window
+Launch Agent-Desk, setup incomplete              // setup.tour; every build and OS, full window
 ├── One onboarding: the first-run story (rune_ui/onboarding_kit/live.rs) over
 │   the tour state machine (desktop::onboarding::Flow); no flag, no other tour
 ├── Skip (quiet, top-right, only on the demo and the practice)    // setup.skip
 │   ├── Passes over that part to the next step setup still needs: permissions,
-│   │   then Almost ready while the model downloads, else Hex is ready
+│   │   then Almost ready while the model downloads, else Agent-Desk is ready
 │   ├── Never closes onboarding or records it done
 │   └── No Skip on permissions, the model step or download, or the paste
 │       permission. Check: `onboarding_skip` (scripts/check-onboarding.sh)
 ├── GNOME/KDE Wayland (pastes through the RemoteDesktop portal, no wtype)
-│   and no saved grant -> before Your turn, "Let Hex paste for you"     // setup.paste-access
-│   ├── Says why: Hex only sends the paste keystroke, never sees the screen;
+│   and no saved grant -> before Your turn, "Let Agent-Desk paste for you"     // setup.paste-access
+│   ├── Says why: Agent-Desk only sends the paste keystroke, never sees the screen;
 │   │   the desktop asks once and may call it remote desktop (#932)
 │   ├── Allow -> opens the desktop's dialog; the grant's restore token is saved,
 │   │   so the first paste needs no dialog
@@ -189,7 +189,7 @@ Launch Hex, setup incomplete              // setup.tour; every build and OS, ful
 │   └── Skipped or refused -> Settings › General shows it under "Permissions
 │       needed" until allowed. Check: golden `onboarding-paste`; the real
 │       portal dialog is not exercised
-├── 2.3.1 or Swift Hex -> Sparkle offers the new Hex -> Install Update   // setup.legacy-update; macOS
+├── 2.3.1 or Swift Agent-Desk -> Sparkle offers the new Agent-Desk -> Install Update   // setup.legacy-update; macOS
 │   ├── Replaces the old app in place (its file name kept) and opens the new one
 │   ├── Accepted only because app/Info.plist keeps the old SUPublicEDKey;
 │   │   scripts/validate-app.sh requires it. Feed items: docs/plans/swift-app-handoff.md
@@ -198,27 +198,27 @@ Launch Hex, setup incomplete              // setup.tour; every build and OS, ful
 │   ├── It lands in <data>/voice-control/versions/<version>; its first app or
 │   │   `service` launch from there moves it into the managed layout, then
 │   │   relaunches from it (Linux: exec, so the old unit keeps its process)
-│   ├── Linux -> 2.3.1's marked unit, ~/.local/bin/hex link, and hex.desktop
+│   ├── Linux -> 2.3.1's marked unit, ~/.local/bin/agent-desk link, and hex.desktop
 │   │   entries move aside -> the built-in .github/release/install-linux.sh
 │   │   installs this executable -> session.env copied; failure puts them back
-│   ├── Windows -> %APPDATA%\hex\versions, receipt, Hex.lnk recreated,
+│   ├── Windows -> %APPDATA%\agent-desk\versions, receipt, Agent-Desk.lnk recreated,
 │   │   Launch at login repointed, 2.3.1's Apps & Features entry removed
 │   ├── Failure -> logged, runs in place; the next launch tries again
 │   ├── Settings, history, and models in voice-control are not carried over
 │   └── Check: `a_legacy_linux_install_moves_into_the_installers_layout`,
 │       `a_failed_move_puts_the_legacy_files_back`; Windows and a real 2.3.1
 │       feed update are unverified
-├── Upgrading from 2.3.1 or earlier (same `hex` folder)     // setup.upgrade; macOS
-│   ├── `anomaly.hex` is a new identity: macOS kept none of the old grants
-│   ├── Settings without `anomaly-hex-identity` in `migrations` -> checked once at launch
+├── Upgrading from 2.3.1 or earlier (same `agent-desk` folder)     // setup.upgrade; macOS
+│   ├── `fheuer.agentdesk` is a new identity: macOS kept none of the old grants
+│   ├── Settings without `fheuer-agentdesk-identity` in `migrations` -> checked once at launch
 │   │   ├── Permissions or the selected model not ready -> the old completion
 │   │   │   no longer counts -> onboarding opens from the start
 │   │   └── Everything ready -> no onboarding; nothing but the ID changes
 │   ├── Saved settings are kept; the ID is recorded either way
-│   └── Setup ready, listener starting -> a running 2.3.1 or Swift Hex   // setup.quit-legacy
+│   └── Setup ready, listener starting -> a running 2.3.1 or Swift Agent-Desk   // setup.quit-legacy
 │       (retired bundle IDs) is asked to quit, so both never answer Option;
 │       it stays installed. No check; `macos_rune::quit_legacy_hex`
-├── Setting up Hex -> speech model download starts at once  // setup.background-download
+├── Setting up Agent-Desk -> speech model download starts at once  // setup.background-download
 │   ├── Model -> the selection recommended for the system's first preferred
 │   │            language (English -> Parakeet Unified English; e.g. French ->
 │   │            Parakeet v3, Japanese -> Whisper large-v3-turbo); when that
@@ -246,9 +246,9 @@ Launch Hex, setup incomplete              // setup.tour; every build and OS, ful
 │   │       error), + Download + Add model file…. Check: golden
 │   │       `onboarding-no-model`, `onboarding_continue_without_model`
 │   └── Change or delete the model later in Settings      // setup.delete-model
-├── The demo, while the model downloads: a second on Setting up Hex, then the
+├── The demo, while the model downloads: a second on Setting up Agent-Desk, then the
 │   Launch Room's conversation is there, Jay's messages landing in it ->
-│   "Without Hex" (typed, with typos) -> "With Hex" (the same reply, spoken,
+│   "Without Agent-Desk" (typed, with typos) -> "With Agent-Desk" (the same reply, spoken,
 │   fireworks lighting the page), then moves on by itself; Skip → (or
 │   Escape) cuts to the end
 │   └── Jay's face rides the newest message: it fades out on the older line as
@@ -257,7 +257,7 @@ Launch Hex, setup incomplete              // setup.tour; every build and OS, ful
 │   └── Permissions are read again at launch: a setup they now finish (macOS's
 │       Quit & Reopen after a grant) is passed; past setup, it waits until they do
 ├── Permissions, one page each           // setup.checklist; skipped when granted
-│   ├── macOS: "Let Hex hear you" (Microphone), then "Make it work everywhere"
+│   ├── macOS: "Let Agent-Desk hear you" (Microphone), then "Make it work everywhere"
 │   │   (Accessibility), both before Your turn: the shortcut needs Accessibility;
 │   │   each card floats off once allowed
 │   │   ├── No Input Monitoring row: Accessibility also lets the shortcut taps listen
@@ -267,42 +267,42 @@ Launch Hex, setup incomplete              // setup.tour; every build and OS, ful
 │   │   │   │   `com.kitlangton.Hex.debug`) cleared once in the background (`tccutil reset`,
 │   │   │   │   ignoring `OSStatus -10814` when no bundle is on disk)
 │   │   │   ├── Returned from System Settings still untrusted (2 s, or 6 s side-by-side) ->
-│   │   │   │   "An older Hex entry can keep this off" + "Still grey? Fix it"
+│   │   │   │   "An older Agent-Desk entry can keep this off" + "Still grey? Fix it"
 │   │   │   │   -> resets the running bundle ID + retired IDs, prompts, and reopens the guide
 │   │   │   └── macOS 27 names the list "Device Control and Data Access"; the row follows
 │   │   ├── On in System Settings, unusable until relaunch -> "Needs a restart"
-│   │   │   └── Every permission on -> "Restart Hex" -> relaunch at setup  // setup.restart
+│   │   │   └── Every permission on -> "Restart Agent-Desk" -> relaunch at setup  // setup.restart
 │   │   └── Each grant -> a beat with its check -> the card floats off -> on
-│   ├── Windows: only while the microphone privacy switch is off: "Let Hex hear
+│   ├── Windows: only while the microphone privacy switch is off: "Let Agent-Desk hear
 │   │   you", one Microphone row -> Open Settings (ms-settings:privacy-microphone)
 │   └── Linux: no page
 ├── Almost ready: the model still downloads -> waits, then Your turn
 ├── Your turn: the practice game          // setup.practice; every OS
 │   ├── "Clear your messages": hold the saved shortcut and answer the lit card;
-│   │   Hex's own dictation (macOS listener, Linux and Windows event log) holds
+│   │   Agent-Desk's own dictation (macOS listener, Linux and Windows event log) holds
 │   │   the keys, flies the live words, and lightning burns the answered card
 │   ├── A short, silent, or failed try -> a hint under the field
 │   ├── Listener running but still loading its model, microphone, or shortcuts
-│   │   -> "Getting Hex ready to listen…" in place of the hold prompt until its
+│   │   -> "Getting Agent-Desk ready to listen…" in place of the hold prompt until its
 │   │   first session starts (desktop/host.rs `warming`)
 │   │   // setup.warming; Check: `the_practice_page_waits_for_the_listener`
 │   ├── macOS, mic kept open (General's "Turn off the mic when not dictating"
 │   │   off when the run opened) -> a note at the window's foot, here and on
-│   │   Hex is ready, says why macOS shows the mic in use  // setup.mic-note
-│   └── Done at any time -> Hex is ready  // practice is never required
+│   │   Agent-Desk is ready, says why macOS shows the mic in use  // setup.mic-note
+│   └── Done at any time -> Agent-Desk is ready  // practice is never required
 ├── Listener cannot start after setup     // setup.relaunch; event tap refused
-│   ├── First time -> Hex records a marker, reopens itself, resumes at the practice
-│   └── Within 2 min of that relaunch -> "Hex's shortcut didn't start." + Reopen Hex
-└── Hex is ready -> where Hex lives (menu bar, system tray, or app launcher)
-    ├── macOS: "Open Hex when your Mac starts?" + Launch at login
+│   ├── First time -> Agent-Desk records a marker, reopens itself, resumes at the practice
+│   └── Within 2 min of that relaunch -> "Agent-Desk's shortcut didn't start." + Reopen Agent-Desk
+└── Agent-Desk is ready -> where Agent-Desk lives (menu bar, system tray, or app launcher)
+    ├── macOS: "Open Agent-Desk when your Mac starts?" + Launch at login
     ├── Try again -> back to the practice game
-    └── Start using Hex -> records completion once setup is ready; closes onboarding
-Run setup again (Labs) or `hex onboarding reset` -> the same story from the start,
+    └── Start using Agent-Desk -> records completion once setup is ready; closes onboarding
+Run setup again (Labs) or `agent-desk onboarding reset` -> the same story from the start,
 on every build; settings, models, and permissions stay, so their pages pass
 ```
 
 General > Speech model, selected model not downloaded     // settings.model-missing (#676)
-├── Muted "Hex can't listen until the speech model has downloaded"
+├── Muted "Agent-Desk can't listen until the speech model has downloaded"
 ├── Downloading -> progress bar beside the model
 └── No download running -> Download (the same ChooseModel); a failure shows its error
 
@@ -314,14 +314,14 @@ General > Speech model or Language
 Permissions revoked later
   -> General > Permissions needed: Allow rows like onboarding's
      ├── Returned from System Settings still untrusted -> "Still grey? Fix it"
-     └── On, waiting for a relaunch -> "Restart Hex"
+     └── On, waiting for a relaunch -> "Restart Agent-Desk"
 ```
 
 Observed on macOS 26.6.2 and macOS 27.0 VMs (2026-10-31, SIP enabled): unprivileged
-`/usr/bin/tccutil reset` from inside `anomaly.hex` clears `Accessibility`,
-`ScreenCapture`, and `AudioCapture` entries for retired Hex bundles on disk with
+`/usr/bin/tccutil reset` from inside `fheuer.agentdesk` clears `Accessibility`,
+`ScreenCapture`, and `AudioCapture` entries for retired Agent-Desk bundles on disk with
 no password prompt (`rc=64` / `OSStatus -10814` when absent from disk), and
-resetting `anomaly.hex` followed by `AXIsProcessTrustedWithOptions` /
+resetting `fheuer.agentdesk` followed by `AXIsProcessTrustedWithOptions` /
 `CGRequestScreenCaptureAccess` replaces a stale `CDHash` entry that stayed grey
 or untrusted in System Settings. Checks:
 `tccutil_exit_codes_distinguish_cleared_absent_and_failed_bundles`,
@@ -386,7 +386,7 @@ Choose a supported language              // setup.language-conditioning; macOS +
 ├── Russian -> GigaAM v3 (Russian only, no language input); Parakeet v3 and
 │   Whisper turbo also offer it
 ├── Norwegian -> NB-Whisper Medium, always with the `no` hint (Bokmål is all
-│   Hex measured); stock Whisper turbo also offers it (#1150)
+│   Agent-Desk measured); stock Whisper turbo also offers it (#1150)
 └── Bangla -> Whisper only, with the `bn` hint; Auto lets Whisper guess per clip
 ```
 
@@ -443,10 +443,10 @@ Settings picker > Every model row          // fixed height; scrolls
 │   speed qualified; "Most accurate" only between comparable records (labs.md)
 ├── Labs > Parakeet Ultra (off) -> its row with a Labs tag and Details: languages,  // setup.parakeet-ultra
 │   measured memory, the CC BY 4.0 credit, notice, Source/License links, folded
-│   published benchmarks "not measured in Hex" (labs.md)
+│   published benchmarks "not measured in Agent-Desk" (labs.md)
 ├── Orukeet -> ordinary row with Details: languages, the CC BY-SA 4.0 credit  // setup.orukeet
 │   and notice, Source/License links, folded published FLEURS benchmarks
-│   "not measured in Hex"; never recommended or badged. Checks:
+│   "not measured in Agent-Desk"; never recommended or badged. Checks:
 │   `orukeet_is_offered_for_exactly_parakeet_v3s_languages_and_never_badged`,
 │   `orukeets_details_credit_its_base_and_cover_its_languages_once`
 ├── "Add model file…" in the header -> imported cards after the catalog:  // setup.custom-models
@@ -454,7 +454,7 @@ Settings picker > Every model row          // fixed height; scrolls
 │   prefix; Rename, Remove (not the active
 │   model); missing or changed -> warning line and no Use (own-models.md)
 └── Found on this computer -> a scan of the Hugging Face cache when the picker  // setup.found-models
-    opens: other compatible files at the top (Not tested by Hex, Use); a catalog
+    opens: other compatible files at the top (Not tested by Agent-Desk, Use); a catalog
     model already downloaded there says so and offers Use; a found file's
     Delete is Forget (own-models.md)
 ```
@@ -464,19 +464,19 @@ are the models marked `streams`
 (`only_the_streaming_parakeet_artifacts_are_marked_streaming`). The mark describes
 the artifact; dictation still streams only after the load probe succeeds on a GPU
 device ([Streaming Finish](dictation.md#streaming-finish)). The menu bar lists
-names only and shows no tags. Scenes: `hex app -- --snap OUT --scene picker`
+names only and shows no tags. Scenes: `agent-desk app -- --snap OUT --scene picker`
 (also `picker-downloading`, `picker-japanese`, `picker-japanese-all`,
 `picker-custom-models`, `picker-found`).
 
 Nemotron 3.5 ASR (#834; NVIDIA's `nemotron-3.5-asr-streaming-0.6b`, OpenMDW-1.1)
-streams in 27 of Hex's languages and detects the language with Auto: Hex sends
+streams in 27 of Agent-Desk's languages and detects the language with Auto: Agent-Desk sends
 its language as the locale its prompt takes (`de` -> `de-DE`,
 `runtime_language`), and Auto sends none. It is not anyone's recommendation:
-Hex's own runs of transcribe.cpp's WER harness on apollo (Vulkan, 7045d1c) put
+Agent-Desk's own runs of transcribe.cpp's WER harness on apollo (Vulkan, 7045d1c) put
 it behind Parakeet v3 on every set measured: LibriSpeech test-clean 3.05%
 against 1.95%, FLEURS English 7.91% against 4.88%, and FLEURS German 10.39%
 against 5.17% (8.77% and 10.46% with Auto). It is there to stream with the
-language set, or across English and German in one model. Hex converted the
+language set, or across English and German in one model. Agent-Desk converted the
 pinned `.nemo` itself; the shipped file is handy-computer's, whose 653 tensors
 match that conversion byte for byte (`NEMOTRON_3_5_ASR_ARTIFACT`). Checks:
 `nemotron_takes_its_languages_as_locales_and_detects_with_auto`. Not observed:
@@ -550,7 +550,7 @@ the saved step (`the_tour_step_is_saved_for_the_next_launch`), and the upgrade
 check (`a_fresh_install_onboards_without_the_identity_check`,
 `an_upgrader_without_permissions_gets_the_tour_once`,
 `an_upgrader_whose_setup_is_ready_skips_the_tour`; a real 2.3.1 to
-`anomaly.hex` upgrade on a Mac is not yet observed). Rune tests drive the
+`fheuer.agentdesk` upgrade on a Mac is not yet observed). Rune tests drive the
 first run (`a_new_install_opens_the_first_run`,
 `the_mac_first_run_asks_each_permission_then_practices`,
 `the_practice_game_follows_hex_s_own_dictation_on_every_os`,
@@ -566,7 +566,7 @@ The default model comes from `desktop::i18n::preferred_language` (macOS:
 `NSLocale.preferredLanguages`) through `recommended_selection`; existing
 settings keep their saved model.
 Observed on Linux (apollo, 2026-11-01): a clean first run in a nested
-session, from Setting up Hex through the real download to Hex is ready. Not
+session, from Setting up Agent-Desk through the real download to Agent-Desk is ready. Not
 yet observed: a clean-account Mac run with real grants, a real practice
 answer on macOS or Windows, or a real self-relaunch after an event-tap
 refusal. The story's demo cards and the game's messages stay in English in
@@ -650,11 +650,11 @@ keyboard layout handles, X11 XKB layouts such as `de(neo)`), not inferred speech
 physical keyboard keys, and store a model with a language it supports. Only
 downloaded models from the picker are offered (Apple Speech is never mapped);
 downloads stay in the picker. A mapped model that is no longer downloaded is
-labeled Not installed and can be cleared; a mapping to a model or language Hex no
+labeled Not installed and can be cleared; a mapping to a model or language Agent-Desk no
 longer offers is dropped when settings load. Removing a source hides its row
 without erasing its saved mapping.
 
-Hex reads input sources only while the setting is on: the Windows runtime's poll
+Agent-Desk reads input sources only while the setting is on: the Windows runtime's poll
 of the foreground window's layout and the Linux host's XKB connection (polled
 every 250 ms) exist only then, and the macOS main-thread TIS
 distributed-notification observer, which always runs to rebuild the keyboard
@@ -685,7 +685,7 @@ observer. No check delivers native input-source notifications or switches
 sources through the Input menu or a shortcut.
 
 **Observed October 30, 2026, X11 observer:** on a headless Xvnc with
-`setxkbmap -layout us,ru,de -variant ,,neo`, Hex listed English (US), Russian,
+`setxkbmap -layout us,ru,de -variant ,,neo`, Agent-Desk listed English (US), Russian,
 and German (Neo 2) as `us`, `ru`, `de(neo)` with languages en, ru, de, and
 reported `us`, then `ru` after an XKB group lock. The Windows observer and both
 new runtime paths compile (x64 clippy) but were not run on Windows or a live X11
@@ -704,9 +704,9 @@ Labs > Switch model with app                      // labs.app_model_switching; m
 │   ├── 300 ms after the last change -> Existing installed-only picker preparation
 │   ├── Same model and language already selected -> Nothing loads
 │   └── A model no longer downloaded -> Not installed; the preparation refuses it
-├── Hex's own window, or no app in front -> Ignored; keep the last mode and its pending switch
-├── Enable -> Wait for the next app other than Hex; launch records the app in front without switching
-├── Editing a mode's choice -> Applies when you next focus an app whose mode carries it, never while Hex is in front
+├── Agent-Desk's own window, or no app in front -> Ignored; keep the last mode and its pending switch
+├── Enable -> Wait for the next app other than Agent-Desk; launch records the app in front without switching
+├── Editing a mode's choice -> Applies when you next focus an app whose mode carries it, never while Agent-Desk is in front
 ├── Manual model choice -> Supersede pending automatic work; do not reapply at recording start
 ├── A dictation records or transcribes -> Hold a due switch until idle   // macOS from its press; Windows engine streams and finishes
 ├── Both keyboard and app switching on -> Whichever switch is due later wins; the app wins a tie
@@ -721,9 +721,9 @@ offered (Apple Speech never); downloads stay in the picker, and a switch never
 downloads. A choice whose model is no longer downloaded reads Not installed
 and is refused by preparation, which leaves the selected model alone.
 Editing a mode's choice, Global's included, applies when you next focus an
-app whose mode carries it; it never applies while Hex's own window is in
+app whose mode carries it; it never applies while Agent-Desk's own window is in
 front. Enabling the lab switches nothing by itself: the choice applies when
-you next focus an app other than Hex, after the same 300 ms debounce.
+you next focus an app other than Agent-Desk, after the same 300 ms debounce.
 
 The switch follows the same policy as keyboard-language switching
 ([app_model_switching.rs](../../src/transcription/app_model_switching.rs)):
@@ -736,7 +736,7 @@ application only: macOS matches the foreground application through the same
 dictation profile selectors as mode processing, and Windows matches the
 foreground executable stem through `dictation::modes`; neither reads a
 browser page, so a mode's website rules are ignored and a mode chosen only by
-website never matches. Hex's own window, and a moment with no application in
+website never matches. Agent-Desk's own window, and a moment with no application in
 front, are ignored entirely: they neither schedule nor cancel a switch.
 Linux has no runtime for it, so the lab is not listed there.
 
@@ -775,7 +775,7 @@ Settings picker > Every model > Downloaded row   // setup.delete-model; macOS
 ├── Selected dictation model (any language) -> No Delete
 ├── Preparing or Apple Speech model -> No Delete
 ├── Model choice or closing the picker -> Confirmation cleared
-└── Labs > Downloaded models only (off) -> "Downloaded models take <size>" (Hex's own   // labs.picker-downloaded
+└── Labs > Downloaded models only (off) -> "Downloaded models take <size>" (Agent-Desk's own   // labs.picker-downloaded
     files) + "Only downloaded models", which leaves just the downloaded rows, each
     with its Delete; reset when the picker opens (labs.md, #1018)
 ```
@@ -838,7 +838,7 @@ Labs > Caps Lock dictation (macOS, off)   // labs.md
   -> needs both the HID Caps Lock key and its AlphaShift edge; remapped to
      Control or Escape changes no AlphaShift, so it never toggles dictation
   -> Caps Lock stays off so typing is unchanged; its light is solid while any
-     capture records (normal-shortcut and Annotate too), blinks while Hex
+     capture records (normal-shortcut and Annotate too), blinks while Agent-Desk
      transcribes or processes, off when done
   -> Escape cancels in any mode; in Toggle mode only Escape cancels a Caps
      Lock capture; the normal shortcut stands down while one runs; off or
@@ -851,7 +851,7 @@ Labs > Unload model when idle (off; 5/15/30/60 min, default 15)   // labs.md; tr
 
 The [detailed map](dictation.md) covers timing, successive captures, output
 commitment, named checks, and native-proof gaps.
-The macOS CLI entry is `hex listen`, with an optional authoritative `--device`.
+The macOS CLI entry is `agent-desk listen`, with an optional authoritative `--device`.
 Do not start it beside an existing listener.
 
 ## Use The Result
@@ -898,7 +898,7 @@ said: `live.ndjson` records each dictation's phase and timing with its text
 left out (`events::VoiceEvent::without_words`,
 `the_log_never_keeps_what_was_said`), so History is the only place dictated
 words are kept. They are readable
-only by their owner on macOS and Linux: Hex creates and tightens the logs folder
+only by their owner on macOS and Linux: Agent-Desk creates and tightens the logs folder
 to 0700 and `live.ndjson` and `process.log` to 0600 (`app_paths::create_private_dir`,
 `open_private_append`; `the_logs_folder_is_private`, `the_log_is_private`;
 tightening is best-effort, never fatal), so other
@@ -931,7 +931,7 @@ Sidebar                                  // settings.nav
 ├── General, Output, History, then each feature that is on: Captures
 │   (Labs › Screenshots, macOS), Meetings and Voice Filter (Labs toggles),
 │   Annotate, Playground (Labs, an item)
-└── Labs -> a store of unfinished features, each off by default: search, categories, cards with their own settings inline; hex://labs/<feature> opens its group (labs.md)
+└── Labs -> a store of unfinished features, each off by default: search, categories, cards with their own settings inline; agent-desk://labs/<feature> opens its group (labs.md)
     // Command-1…9 follow the panes' order (labs::order)
 
 General                                  // settings
@@ -942,7 +942,7 @@ General                                  // settings
 │       -> Folds under a clip as the rows below slide over it; no fade in place
 ├── Microphone -> Value names the input in use, with live level bars // settings.microphone
 │   ├── "System default · Kit Pods", or a saved device
-│   ├── Level bars -> peak of the audio Hex receives, ~30 fps while General shows them above rest // input_level
+│   ├── Level bars -> peak of the audio Agent-Desk receives, ~30 fps while General shows them above rest // input_level
 │   │   ├── Peak measured around each chunk's mean, so a microphone's DC offset never lights them
 │   │   ├── Read from one atomic the audio owner stores per chunk; never opens or blocks the mic
 │   │   ├── Quiet room (bars at rest) -> no 30 fps frames; the window's 250 ms tick notices a rise.
@@ -954,17 +954,17 @@ General                                  // settings
 │   ├── Re-listed on a device or default change while General shows (Windows: also every 3 s)
 │   ├── System default -> The OS default input, followed live
 │   │   ├── Default changes -> Switch once capture is idle; new stream opens before the old drops
-│   │   ├── Default is Hex Microphone -> Built-in mic, else first real input; row says so
+│   │   ├── Default is Agent-Desk Microphone -> Built-in mic, else first real input; row says so
 │   │   ├── Stand-ins never include virtual or aggregate inputs (macOS: e.g. Microsoft Teams Audio)
 │   │   │   ├── Nothing real left -> "lid is closed" / "no microphone" error, not silence
 │   │   │   └── A virtual default, saved device, or `--device` is still used as named
 │   │   └── Default is Bluetooth (Advanced switch on) -> Built-in mic, else first wired/USB input
-│   │       ├── Row says "KIT PODS is Bluetooth, so Hex listens to MacBook Pro Microphone"
+│   │       ├── Row says "KIT PODS is Bluetooth, so Agent-Desk listens to MacBook Pro Microphone"
 │   │       ├── Windows: WASAPI `BTHENUM`, or a headset/handset endpoint of unknown bus (`BTHHFENUM`)
-│   │       ├── Linux: a `bluez5` default source; Hex opens ALSA's default, then moves its own
+│   │       ├── Linux: a `bluez5` default source; Agent-Desk opens ALSA's default, then moves its own
 │   │       │   stream to the PCI input, else the first other hardware source (pactl, PipeWire);
 │   │       │   the stream is marked so WirePlumber never remembers the move. A Bluetooth
-│   │       │   default chosen while Hex's stream is open is followed until the next open
+│   │       │   default chosen while Agent-Desk's stream is open is followed until the next open
 │   │       ├── No other usable input (or lid closed, Bluetooth only) -> the Bluetooth default
 │   │       ├── A saved Bluetooth mic or `--device` is always used as named
 │   │       └── Dictation only: meeting recording keeps the Bluetooth default, which
@@ -974,7 +974,7 @@ General                                  // settings
 │   │   ├── Row says "SHURE MV7 isn't connected; using your Mac's input"
 │   │   ├── Menu keeps "SHURE MV7" checked with a faint "not connected"
 │   │   └── Device returns -> Switch back once idle; the setting never changes
-│   ├── Menu lists real inputs only                                // never Hex Microphone
+│   ├── Menu lists real inputs only                                // never Agent-Desk Microphone
 │   └── Open menu covers the controls beneath it; click elsewhere dismisses
 ├── Advanced ▸ -> one fold per pane, closed by default, even while a setting in it is in use
 │   ├── Collapse -> drops a pending release confirmation
@@ -1030,7 +1030,7 @@ General                                  // settings
 │       └── Dictation -> browser_media sequence below
 ├── Sound volume -> immediate feedback; zero suppresses tones
 │   └── Default output changes or disappears (macOS) -> next tone reopens on the current default
-├── Sounds -> Sheet: hear each set on Hex's real HUD, pick one
+├── Sounds -> Sheet: hear each set on Agent-Desk's real HUD, pick one
 └── Linux / Windows -> listener card and desktop commands below the basics
 
 Pause media + Also pause the browser     // browser_media
@@ -1040,9 +1040,9 @@ Pause media + Also pause the browser     // browser_media
 │   └── Any window at or below -60 dBFS, or no level -> leave it alone
 ├── Send the system pause command (MediaRemote 1; never the toggle)
 ├── Poll 5 windows of 100 ms
-│   ├── 2 windows in a row below -90 dBFS -> Hex paused it
+│   ├── 2 windows in a row below -90 dBFS -> Agent-Desk paused it
 │   └── Otherwise (another tab, a sound that ended later, or the pause went elsewhere) -> no play later
-└── Dictation ends and Hex paused it -> first, before the players: listen 300 ms to every browser process
+└── Dictation ends and Agent-Desk paused it -> first, before the players: listen 300 ms to every browser process
     ├── Above -60 dBFS (you started it again) -> no play
     ├── No level, a browser runs and every one has closed its output -> still paused: play
     │   (a pause longer than about 10 s closes the output; a tap on it delivers nothing)
@@ -1059,7 +1059,7 @@ Intentional recording                    // recording.environment, idle_sleep
 ├── Prevent idle sleep
 │   ├── macOS -> IOKit no-idle-sleep assertion
 │   ├── Linux -> logind `idle:sleep` inhibitor; `idle` only where polkit refuses a
-│   │   process outside the seat session (Hex's user service) to block sleep
+│   │   process outside the seat session (Agent-Desk's user service) to block sleep
 │   ├── Windows -> system-required power request (from the press, as its While dictating does)
 │   └── Failure -> Warn and continue recording
 └── Finish/cancel -> Release it
@@ -1087,7 +1087,7 @@ opens the new default. On macOS the CoreAudio listeners on the default output,
 the device list, and an audio service restart advance an output route
 generation; the next tone drops an output opened under an older one and opens
 the current default at once, so unplugging a USB or Bluetooth output no longer
-silences tones until Hex restarts
+silences tones until Agent-Desk restarts
 ([#428](https://github.com/anomalyco/hex/issues/428)). Check:
 `a_route_change_reopens_the_output_on_the_current_default` in
 [feedback.rs](../../src/feedback.rs), with injected opens; a real unplug has not
@@ -1104,9 +1104,9 @@ settling is left alone;
 a newly selected output device is not lowered. Fixed-volume devices and outputs
 whose channel balance cannot be safely restored are left unchanged. Meetings do
 not acquire this dictation environment. Linux lowers the default sink's
-channels through `pactl` (one volume through `wpctl` without it), so Hex's own
+channels through `pactl` (one volume through `wpctl` without it), so Agent-Desk's own
 tones are lowered too and the stop tone waits, as on macOS. Windows lowers
-every other app's audio session instead, leaving Hex's tones at full volume;
+every other app's audio session instead, leaving Agent-Desk's tones at full volume;
 sessions that start while recording are left alone.
 
 HEX snapshots the volumes and applies a smooth ramp in
@@ -1137,12 +1137,12 @@ or physical output).
 On 2026-10-25, the macOS logic/settings checks and strict Clippy passed.
 The seven reference images were regenerated on Ubuntu 24.04 ARM64 with Mesa
 lavapipe, using the unmodified Linux-only Rune test module and
-`HEX_UPDATE_GOLDENS=1 scripts/check ducking`. A subsequent
+`AGENT_DESK_UPDATE_GOLDENS=1 scripts/check ducking`. A subsequent
 `scripts/check rune_ui --nocapture` without the update flag passed all 113 tests,
 including the unchanged control goldens; no golden skipped for lack of a GPU
 adapter. The five existing images differ from the base branch above the existing
 12-level channel tolerance only within the While dictating control; the sidebar,
-Quit Hex, and shortcut layouts remain unchanged. Dark and light ducking previews
+Quit Agent-Desk, and shortcut layouts remain unchanged. Dark and light ducking previews
 were visually inspected. The earlier macOS-generated references were replaced
 because these fixtures retain build-OS-dependent layout and defaults. This
 verifies headless Linux rendering, not audible playback, physical devices,
@@ -1183,8 +1183,8 @@ or VLC through Automation.
 The browser pause runs after the AppleScript players and only when System Audio
 Recording is reported granted (an unknown answer skips it, because the tap would
 open the macOS dialog mid-dictation). macOS 15.4 and later no longer tell other apps
-what is playing, so Hex hears the browsers through a private process tap
-(aggregate `anomaly.hex.browser-tap.<pid>`, apart from the meeting tap) and sends
+what is playing, so Agent-Desk hears the browsers through a private process tap
+(aggregate `fheuer.agentdesk.browser-tap.<pid>`, apart from the meeting tap) and sends
 play only after it saw the browser go silent right after its own pause. The
 sequence checks in [audio/browser_media.rs](../../src/audio/browser_media.rs) run on fakes:
 `a_confirmed_pause_is_resumed`, `two_sounding_tabs_never_get_play`,
@@ -1202,7 +1202,7 @@ Audio Thunderbolt, Studio Display Microphone), then the macOS default with a
 Bluetooth default swapped for the built-in microphone (the 2.1.22 fix for
 [#106](https://github.com/anomalyco/hex/issues/106) and
 [#88](https://github.com/anomalyco/hex/issues/88)). That skipped a user's
-AirPods default, and Hex Microphone then passed the wrong microphone on to
+AirPods default, and Agent-Desk Microphone then passed the wrong microphone on to
 calls. Automatic is now System default: the OS default input, followed live.
 A Bluetooth default (CoreAudio transport Bluetooth or Bluetooth LE) is passed
 over for the built-in microphone, else the first other real input, so AirPods
@@ -1210,7 +1210,7 @@ keep their music out of call quality while you dictate; it is kept when nothing
 else is usable. Only System default is affected: a saved Bluetooth microphone
 and `--device` are honoured, and General › Advanced › "Use the Mac's microphone
 instead of Bluetooth" (`avoid_bluetooth_microphone`, default on) turns it off.
-Hex Microphone carries whichever input Hex records from. Linux and Windows
+Agent-Desk Microphone carries whichever input Agent-Desk records from. Linux and Windows
 don't detect Bluetooth inputs yet and follow the default. Checks in
 [audio.rs](../../src/audio.rs):
 `system_default_passes_over_a_bluetooth_default`,
@@ -1251,7 +1251,7 @@ A pane, detail card or dropdown longer than its space    // ui.scroll-bar (#1209
 ```
 
 The bar is Rune's `rune_kit::scroll_bar`, used by `scroll_body`, `faded_body`
-and every kit `Menu`, `Select` and `Combobox`. Hex's pane and card bodies call
+and every kit `Menu`, `Select` and `Combobox`. Agent-Desk's pane and card bodies call
 `scroll_bar_styled` instead, with an 8 pt `text_faint` thumb that turns
 `text_muted` and widens to 10 pt under the pointer; dropdowns keep the kit's
 thin thumb. Checks:
@@ -1270,15 +1270,15 @@ Gaps: the bar and touch are not verified on a real Windows PC or touchscreen.
 ```ts
 Output (main sidebar, replaces the Modes editor) // rune_ui/output.rs; scenes output*
 ├── Trust prompt -> Allow a config that uses fetch or programs (only when one asks)
-├── Edit with agent -> Copy a prompt naming the steps' keys (the AI rewrite too), `hex settings`,
-│   `hex vocabulary` for names, and the transforms docs
+├── Edit with agent -> Copy a prompt naming the steps' keys (the AI rewrite too), `agent-desk settings`,
+│   `agent-desk vocabulary` for names, and the transforms docs
 ├── Open file -> settings.json in the default editor
 ├── Every dictation -> Global's steps, numbered, read-only
 ├── Try -> Global's corrections and built-ins on a typed sentence
 │   ├── Scripts and rewriting run only when dictating
 │   └── Labs > Fix results in Output (off, #989) -> Vocabulary (the shared sheet) and,
 │       with a sentence typed, Fix this: copies Edit with agent's prompt ending
-│       `When I say "<sentence>", Hex pastes "<result>". It should paste: ` (labs.md)
+│       `When I say "<sentence>", Agent-Desk pastes "<result>". It should paste: ` (labs.md)
 ├── Labs > Transform typed text (Linux, off) -> a Typed text section with typed_text_hotkey,
 │   unbound by default: copies the focused field, runs its Output steps, re-checks the
 │   selection, and replaces it (labs.md, dictation.md)
@@ -1288,7 +1288,7 @@ Output (main sidebar, replaces the Modes editor) // rune_ui/output.rs; scenes ou
 Foreground context -> Select processing
 ├── Matching website                     // macOS: scriptable browsers, then AXWebArea; Windows: UIA; Linux: AT-SPI
 ├── Otherwise matching application
-├── Hex itself in front                  // application only: Hex never reads its own AX tree (#1402)
+├── Agent-Desk itself in front                  // application only: Agent-Desk never reads its own AX tree (#1402)
 └── Otherwise Global
 
 Selected mode                            // replaces Global's rewrite and transformations
@@ -1318,7 +1318,7 @@ Check: `numbers_only_transcripts_skip_the_rewrite` in
 were not run against a live model.
 
 Built-in text transformations run natively. Custom transformations come from
-`~/.config/hex/hex.config.ts` and run in Hex's embedded script engine, each
+`~/.config/agent-desk/hex.config.ts` and run in Agent-Desk's embedded script engine, each
 under its own `timeout` (1 s by default, 30 s when the config uses host APIs,
 60 s cap). OpenCode rewriting sends documented
 context to the configured provider; speech transcription stays local.
@@ -1387,7 +1387,7 @@ poll reads it once when a scriptable browser becomes the frontmost process
 switching away and back reads the page again. A capture asks for one more
 read only once it is real, never on every press: the shortcut held past its
 hold threshold, a finish that lands before that, or a control start
-(`hex dictation start`). A press a chord discards before that hold threshold
+(`agent-desk dictation start`). A press a chord discards before that hold threshold
 reads nothing; holding the shortcut past the threshold first still reads the
 page once.
 A finish waits at most 1 s for the refreshed page and otherwise hands its
@@ -1405,9 +1405,9 @@ to an AT-SPI window by title and process and reads its showing web
 document's `DocURL` (Firefox) or `URI` (Chromium, only with
 `--force-renderer-accessibility`). `linux_context_reads_the_focused_window`
 (ignored, manual) printed `google-chrome-stable` with `https://example.com/path`
-under headless Sway and `chrome` with the page under its XWayland, and `hex`
+under headless Sway and `chrome` with the page under its XWayland, and `agent-desk`
 on niri (Oct 30); the macOS adapters are compiled on CI only and not run.
-With Hex's own window frontmost, its application name still matches but no
+With Agent-Desk's own window frontmost, its application name still matches but no
 Accessibility tree of its own process is read, so its main thread owns that
 tree alone (#1402); `hex_never_reads_its_own_accessibility_tree` in
 [accessibility.rs](../../src/accessibility.rs) covers the skip (macOS only),
@@ -1415,7 +1415,7 @@ though the race it prevents is not reproduced in a test.
 
 OpenCode transformation talks only to an already running OpenCode service,
 found through its registration file ([desktop/opencode_service.rs](../../src/desktop/opencode_service.rs));
-Hex runs no OpenCode executable and starts nothing. On Windows, Labs › OpenCode
+Agent-Desk runs no OpenCode executable and starts nothing. On Windows, Labs › OpenCode
 in WSL adds the default WSL distribution's registration and a Linux
 `x-opencode-directory` workspace when no Windows registration answers; off,
 only the Windows registration is read. The catalog loads only while
@@ -1448,7 +1448,7 @@ rewrites already persisted activations on load, checked by
 **Fixed in 2.1.14:** through 2.1.13, a mode saved with that Finder
 preference enabled never activates and every dictation falls back to Global.
 Update to repair saved selections automatically. For older builds, the workaround
-is to quit Hex, remove the `.app` suffix from
+is to quit Agent-Desk, remove the `.app` suffix from
 `dictation_processing.modes[].applications` in `settings.json`, then relaunch.
 
 ## Record Meetings
@@ -1458,19 +1458,19 @@ Meetings › Settings), call detection and the
 focus-free offer, menu-bar recording state, rolling transcription, echo
 suppression, and the Markdown copy in the user's transcript folder.
 
-## Experimental: Hex Microphone And Voice Filter
+## Experimental: Agent-Desk Microphone And Voice Filter
 
 ```ts
-Labs › Voice Filter (experimental.hex_microphone = true), HEX_EXPERIMENTAL_MIC=1,
+Labs › Voice Filter (experimental.hex_microphone = true), AGENT_DESK_EXPERIMENTAL_MIC=1,
 or the driver installed; off, the pane is hidden  // fun.hex-microphone; macOS, Linux
 ├── Sidebar > Voice Filter  // the only home of these controls
-├── Hex Microphone card
-│   ├── Linux -> no driver: a PipeWire virtual source (Audio/Source "Hex Microphone",
-│   │   node hex_microphone) that Hex plays into through `pw-cat` while the Voice Filter is on
-│   │   ├── Status -> Starting… / Available ("Choose Hex Microphone as your input…") / Unavailable + reason
+├── Agent-Desk Microphone card
+│   ├── Linux -> no driver: a PipeWire virtual source (Audio/Source "Agent-Desk Microphone",
+│   │   node hex_microphone) that Agent-Desk plays into through `pw-cat` while the Voice Filter is on
+│   │   ├── Status -> Starting… / Available ("Choose Agent-Desk Microphone as your input…") / Unavailable + reason
 │   │   ├── pw-cat missing or exits -> Unavailable with its last error line; retries every 2 s
-│   │   ├── Off or Hex quits -> the source disappears (pw-cat ends with its input); no root, nothing installed
-│   │   └── Session priority 1 -> WirePlumber never picks it as the default input Hex records
+│   │   ├── Off or Agent-Desk quits -> the source disappears (pw-cat ends with its input); no root, nothing installed
+│   │   └── Session priority 1 -> WirePlumber never picks it as the default input Agent-Desk records
 │   ├── macOS driver status -> Installed v<ver> / In use by <app> + Uninstall
 │   │   ├── Version mismatch -> v<old> installed + Update + Uninstall
 │   │   ├── Pre-Anomaly com.kitlangton driver at the same path -> Update replaces it in place
@@ -1481,12 +1481,12 @@ or the driver installed; off, the pane is hidden  // fun.hex-microphone; macOS, 
 │   └── Try it -> Example clip OR Record 5s (in-memory only)
 │       ├── Dual waveform -> You vs Call hears with highlighted dictation span
 │       └── Explicit playback -> Play what call hears | Play your voice
-├── Live microphone capture -> Raw audio to Hex transcription (unmodified)
-│   ├── Source -> Hex's dictation microphone (System default follows the OS default, never Hex Microphone itself), never a meeting's second stream
+├── Live microphone capture -> Raw audio to Agent-Desk transcription (unmodified)
+│   ├── Source -> Agent-Desk's dictation microphone (System default follows the OS default, never Agent-Desk Microphone itself), never a meeting's second stream
 │   ├── Lock-free ring -> 48 kHz virtual sink (macOS IOProc; Linux 11 ms blocks into a one-page pipe) -> Raised-cosine fade on intentional hold
 │   │   └── Not dictating -> bit-exact pass-through; non-48 kHz inputs resample continuously
 │   └── Ring underflows/overflows -> process.log each minute while an app reads it, and on sink stop
-└── Offline CLI -> hex dev voice-filter render <in.wav> --mode <m> --dictation <start>-<end> -o <out.wav>
+└── Offline CLI -> agent-desk dev voice-filter render <in.wav> --mode <m> --dictation <start>-<end> -o <out.wav>
 ```
 
 Sources: [audio/voice_filter.rs](../../src/audio/voice_filter.rs),
@@ -1534,36 +1534,36 @@ Menu bar and Settings                    // maintenance
 ├── Menu (macOS), top to bottom: now, things to do, the app
 │   ├── Meetings on or a meeting under way: Recording · <title> · 12:34 (opens
 │   │   the Meetings pane), Stop & Transcribe, Copy Section ▸; idle: Record Meeting
-│   ├── Pause Hex (Labs › Pause from menu bar, off, #82) -> every capture
+│   ├── Pause Agent-Desk (Labs › Pause from menu bar, off, #82) -> every capture
 │   │   shortcut and the secure-input hotkeys go inert, the tap passes keys
-│   │   through, and the row reads Resume Hex (labs.md); Resume waits for a
+│   │   through, and the row reads Resume Agent-Desk (labs.md); Resume waits for a
 │   │   neutral keyboard, and a restart starts unpaused
 │   ├── Paste Last Dictation ⌥⇧V (saved binding), Copy Recent Dictation ▸ (Labs),
 │   │   Copy Last Meeting Transcript (Meetings on), Restore Last Capture (Labs ›
 │   │   Screenshots on; dimmed until a capture card was closed), Speech Model ▸
-│   ├── Settings… ⌘, · Check for Updates… · Quit Hex ⌘Q
+│   ├── Settings… ⌘, · Check for Updates… · Quit Agent-Desk ⌘Q
 │   │   └── Labs > ⌘Q closes Settings (off, #1473) -> ⌘Q closes the Settings
 │   │       window instead; dictation keeps running, the menu bar icon quits (labs.md)
-│   ├── No Meetings… (Settings… opens the same window) and no Show Hex in
+│   ├── No Meetings… (Settings… opens the same window) and no Show Agent-Desk in
 │   │   Screen Recordings (Annotate's pane has it)
 │   └── check: the_menu_reads_meeting_then_actions_then_the_app,
 │       paste_last_shows_the_saved_binding_or_nothing,
 │       the_pause_row_reads_pause_or_resume (status_item.rs; the
 │       row order and key equivalents only, no native menu is drawn)
-├── Icon -> 18 pt monochrome Hex mark template (recording variant + elapsed time)
+├── Icon -> 18 pt monochrome Agent-Desk mark template (recording variant + elapsed time)
 │   └── Labs > Hide menu bar icon (off, #1064) -> hidden unless a meeting is under
 │       way; shortcuts keep working; Finder or Spotlight reopen -> Settings (labs.md)
 ├── Settings / Paste Last -> Reachable with Dock icon hidden
 ├── Launch at Login -> macOS owns registration state
 ├── Check for Updates -> The updater (maintain.updates); opens the window, whose
-│   footer then says "Checking for updates…", "Hex is up to date", or
+│   footer then says "Checking for updates…", "Agent-Desk is up to date", or
 │   "Couldn't check for updates" (#1120)
 └── Quit -> Orderly shutdown (⌘Q closes Settings instead while its Lab is on)
 ```
 
 ```ts
-Launch Hex                               // maintain.startup
-├── `hex app --hidden` + usable menu-bar item -> No startup window, even before setup
+Launch Agent-Desk                               // maintain.startup
+├── `agent-desk app --hidden` + usable menu-bar item -> No startup window, even before setup
 │   └── check: login_item_launch_starts_without_the_window (the decision only); not run on a Mac
 ├── Setup incomplete / permissions or model missing -> Open setup or Settings
 ├── Show Dock icon on -> Open Settings
@@ -1579,12 +1579,12 @@ Launch Hex                               // maintain.startup
 Menu-bar installation fails -> Show Dock icon and open the window // recovery access
 
 Show Dock icon off                       // maintain.dock-policy
-├── Settings window open -> Dock icon stays // hiding it would deactivate Hex
+├── Settings window open -> Dock icon stays // hiding it would deactivate Agent-Desk
 └── Settings window closes -> Menu-bar only
 
-⌘Tab to Hex while it's in the Dock and its window is closed   // maintain.app-switcher (#1298)
+⌘Tab to Agent-Desk while it's in the Dock and its window is closed   // maintain.app-switcher (#1298)
 └── Opens the window in front, on the pane it last showed, as the Dock icon does
-    ├── No reopen Apple event comes with ⌘Tab; Hex watches its own activation
+    ├── No reopen Apple event comes with ⌘Tab; Agent-Desk watches its own activation
     └── Menu-bar only, an overlay that took the keyboard, or the window already open -> nothing
     // check: switching_to_hex_opens_its_closed_window (the decision only); not run on a Mac
 ```
@@ -1638,7 +1638,7 @@ not an input-to-frame latency measurement or a signed-release smoke test.
 
 Closing Settings left the app process alive with zero `login-item` threads;
 reopening produced one new worker. An earlier apparent surviving worker came
-from computer-use observation reopening the window. Cmd+Q and Quit Hex each
+from computer-use observation reopening the window. Cmd+Q and Quit Agent-Desk each
 terminated the process. Local profiles are `/tmp/hex-login-worker-current.sample.txt`
 and `/tmp/hex-login-cycle-{before,closed-no-observe,reobserved}.sample.txt`.
 The tested temporary executable's SHA-256 is
@@ -1675,13 +1675,13 @@ The release Settings preview built and launched, but window screenshot capture
 failed; no visual or installed-app startup verification is claimed.
 
 ```ts
-Hex checks the release service            // maintain.updates
+Agent-Desk checks the release service            // maintain.updates
 ├── 10 s after launch, hourly (Dev channel: every 10 min and on window focus), and Check for updates -> anoma.ly/release/hex/desktop/<channel>.json
 │   ├── User-Agent: hex/<build channel>/<version> (hex/dev/0.0.0-dev-171, hex/stable/2.3.1); nothing else about the install
 │   ├── Failed check -> backs off, never past hourly
 │   └── <channel> -> updates.channel (General › Application › Update channel: Stable | Dev,
-│       or `hex settings set updates.channel`), else the channel the build was published on
-│       (HEX_BUILD_CHANNEL; older builds: dev for a dev version, else the receipt's);
+│       or `agent-desk settings set updates.channel`), else the channel the build was published on
+│       (AGENT_DESK_BUILD_CHANNEL; older builds: dev for a dev version, else the receipt's);
 │       package managers always stable
 │       └── Choosing a channel -> checks now; a staged update stays staged
 ├── Versions never compared: channel's current release != running build -> take it
@@ -1691,7 +1691,7 @@ Hex checks the release service            // maintain.updates
 │   ├── required -> install without waiting for the rollout
 │   └── Rollout -> device-local bucket in <support>/update-bucket, never sent
 ├── Direct install -> download (resumable) -> size + SHA-256 -> code signature -> stage
-│   ├── macOS -> unpack beside Hex.app -> Developer ID 5NZ4Q7NXJ4, anomaly.hex, notarized
+│   ├── macOS -> unpack beside Agent-Desk.app -> Developer ID 5NZ4Q7NXJ4, fheuer.agentdesk, notarized
 │   ├── Windows -> Authenticode valid, signer AUTHENTICODE_SIGNER -> new version directory
 │   ├── Linux -> SHA-256 only -> new version directory, `current` switched
 │   ├── Staged -> checks continue; Restart to update stays offered meanwhile
@@ -1712,7 +1712,7 @@ Hex checks the release service            // maintain.updates
 
 Check for updates pressed (footer, menu bar, app menu)   // maintain.update-feedback (#1120)
 ├── The menu bar's and app menu's open the window at General
-└── Footer -> "Checking for updates…" -> "Hex is up to date" | "Couldn't check for updates"
+└── Footer -> "Checking for updates…" -> "Agent-Desk is up to date" | "Couldn't check for updates"
     // the hourly check alone keeps "Check for updates"; check:
     // an_asked_update_check_says_how_it_went (fixture; not run on a Mac)
 
@@ -1722,14 +1722,14 @@ DisableUpdates at launch                 // maintain.managed-updates
 └── macOS menu bar -> Disabled "Updates Managed by Your Organization"
 ```
 
-Administrators set `DisableUpdates` on macOS as a Boolean in the `anomaly.hex`
+Administrators set `DisableUpdates` on macOS as a Boolean in the `fheuer.agentdesk`
 defaults domain, normally through a configuration profile
 ([#100](https://github.com/anomalyco/hex/issues/100)), and on Windows as a
-non-zero DWORD under `SOFTWARE\Policies\Anomaly\Hex` in HKLM or HKCU. Hex
+non-zero DWORD under `SOFTWARE\Policies\fheuer\Agent-Desk` in HKLM or HKCU. Agent-Desk
 reads it once at launch, so a forced value wins and a change applies after
 relaunch. Speech-model downloads are unaffected. Releases through 2.3.1 read
 `com.kitlangton.hex2`; there is no fallback to it, so profiles must name
-`anomaly.hex`.
+`fheuer.agentdesk`.
 
 [updater.rs](../../src/updater.rs) owns the worker and the shared status the
 window, menu bar, and tray show; `updater/protocol.rs` passes the release
@@ -1780,9 +1780,9 @@ update from an older supported build.
 ### Managed feature locks (macOS)
 
 ```ts
-Configuration profile forces a key in anomaly.hex     // maintain.managed-locks
+Configuration profile forces a key in fheuer.agentdesk     // maintain.managed-locks
 ├── DisableMeetings -> no detection, recording, transcription, or notes;
-│   hex meetings and hex mcp still read existing meetings
+│   agent-desk meetings and agent-desk mcp still read existing meetings
 ├── DisableAnnotate -> Annotate off
 ├── DisableOpenCodeProcessing -> no mode rewrites, meeting notes, or capture sends
 ├── DisableTransforms -> no transforms; the hex.config.ts host never starts
@@ -1790,7 +1790,7 @@ Configuration profile forces a key in anomaly.hex     // maintain.managed-locks
 │   (resolved addresses, every redirect, no proxy); exec/execFile refused
 ├── DisableLabs -> every Labs feature off
 └── Window: setting off, disabled, "Managed by your organization";
-    hex settings set / hex labs on / local API refuse with code "managed"
+    agent-desk settings set / agent-desk labs on / local API refuse with code "managed"
 ```
 
 Only values a profile forces count (`CFPreferencesAppValueIsForced`), read once
@@ -1817,11 +1817,11 @@ or the managed rows in the window.
 
 ```ts
 Linux beta                               // not macOS feature parity
-├── hex start -> One per-user Hex -> Alt-Space capture -> Stream (Vulkan GPU) -> Paste
+├── agent-desk start -> One per-user Agent-Desk -> Alt-Space capture -> Stream (Vulkan GPU) -> Paste
 ├── Labs › Live typing (labs.live_typing, off, wlroots-family Wayland) -> zwp_input_method_v2 preedit in the focused field
 │   ├── Final text committed through the input method; no active input, another input method, multi-line, or no answer -> Paste  // labs.live-typing
 │   ├── CPU engine or non-streaming model -> No words while speaking; the final text still commits there
-│   └── Hex's first-run practice field on Linux takes the preedit and commit too while on
+│   └── Agent-Desk's first-run practice field on Linux takes the preedit and commit too while on
 ├── Speech engine (General › Advanced › Dictation; transcription_device) -> Auto | GPU | CPU (#856)
 │   ├── Auto -> best GPU unless gpu-failures.json lists it under its current driver
 │   │   (kernel + Vulkan driver libraries), then another GPU, then the CPU;
@@ -1833,12 +1833,12 @@ Linux beta                               // not macOS feature parity
 │   │   the CPU too and keeps the faster; a slower GPU is recorded (slow), so
 │   │   later loads go straight to the CPU (#484: UHD 620, Iris Plus 655)
 │   ├── GPU -> tries the GPU anyway; working, it clears that GPU's record
-│   └── CPU -> CPU only; launched on CPU, Hex loads no GPU driver for speech
-│       and switching to Auto or GPU says it turns on when Hex restarts (#1253)
+│   └── CPU -> CPU only; launched on CPU, Agent-Desk loads no GPU driver for speech
+│       and switching to Auto or GPU says it turns on when Agent-Desk restarts (#1253)
 │   // checked on apollo with a planted record (RADV); a real i915 hang not reproduced
 │   └── CPU or a model that cannot stream -> Transcribe the whole clip after release
-├── hex / hex app -> Window in the same process; closing it leaves Hex running
-│   └── Ctrl+Q in the window or Quit Hex in the sidebar -> quits Hex (#808)
+├── hex / agent-desk app -> Window in the same process; closing it leaves Agent-Desk running
+│   └── Ctrl+Q in the window or Quit Agent-Desk in the sidebar -> quits Agent-Desk (#808)
 │       // check: ctrl_q_quits_hex (fixture; not run on a GNOME session)
 ├── Recording sounds -> Shortcut press / capture stop
 ├── Shortcuts -> One state machine, three sources        // linux.shortcuts
@@ -1855,7 +1855,7 @@ Linux beta                               // not macOS feature parity
 │   │   │   an empty trigger (KDE's for one it keeps unbound) counts as refused
 │   │   │   └── Hyprland (XDG_CURRENT_DESKTOP) -> its portal names no trigger, since
 │   │   │       its config binds them: muted "Your desktop assigns this key itself,
-│   │   │       so Hex can't confirm it", no refusal note, info log (#635)
+│   │   │       so Agent-Desk can't confirm it", no refusal note, info log (#635)
 │   │   │       // check: a_missing_trigger_is_unconfirmed_where_the_desktop_assigns_keys
 │   │   │       // (the row's data only); not run on a Hyprland session
 │   │   ├── Portal version 2 -> Desktop shortcuts > Open -> ConfigureShortcuts,
@@ -1881,29 +1881,29 @@ Linux beta                               // not macOS feature parity
 │   │       (Enable, a settings change) tries once more
 │   │       // check: only_backend_failures_count_as_a_missing_portal (the
 │   │       // classification only); not run on niri
-│   ├── Wayland without the portal -> Bind `hex` commands in the desktop
-│   │   ├── The commands reach only the service listener (`hex start`/`hex service`);
-│   │   │   a foreground `hex dictate` receives none and says so at startup (#1506)
+│   ├── Wayland without the portal -> Bind `agent-desk` commands in the desktop
+│   │   ├── The commands reach only the service listener (`agent-desk start`/`agent-desk service`);
+│   │   │   a foreground `agent-desk dictate` receives none and says so at startup (#1506)
 │   │   ├── General hides shortcut rows and lists the commands
 │   │   └── GNOME: Add GNOME keyboard shortcuts -> custom shortcuts running
-│   │       `hex dictation toggle` (#781); written only while the listener has no
+│   │       `agent-desk dictation toggle` (#781); written only while the listener has no
 │   │       portal, and removed once the portal (or X11) binds the shortcuts, so a
 │   │       press never both starts a portal hold and toggles it off (#931)
 │   │       // check: entries_exist_only_without_the_portal (the rule only)
-│   └── Listener starting or stopped -> `hex status` reports Unregistered,
+│   └── Listener starting or stopped -> `agent-desk status` reports Unregistered,
 │       never the X11 mode
-├── hex dictation start|stop|toggle, hex paste-last
+├── agent-desk dictation start|stop|toggle, agent-desk paste-last
 │   -> Same events as a shortcut                     // linux.commands
 │   ├── start|toggle --raw -> Dictate without processing's events
 │   ├── Idempotent: start while recording / stop while idle -> Nothing
-│   └── Hex missing or not listening -> One-line error, non-zero exit
-│       // as for hex quit|restart|status
-├── hex dictation cancel -> Discards whatever records, any mode
+│   └── Agent-Desk missing or not listening -> One-line error, non-zero exit
+│       // as for agent-desk quit|restart|status
+├── agent-desk dictation cancel -> Discards whatever records, any mode
 ├── Toggle's cancel shortcut (Escape by default), only while recording
 │   ├── X11 -> Grabbed only for the recording, and Escape while Annotate draws
-│   └── Portal -> Never bound: bind `hex dictation cancel` in the desktop
-│       └── KDE startup -> before the bind, the pre-#579 `hex` set (with the
-│           pre-#492 `cancel` on Escape), and every action under `anomaly.hex`
+│   └── Portal -> Never bound: bind `agent-desk dictation cancel` in the desktop
+│       └── KDE startup -> before the bind, the pre-#579 `agent-desk` set (with the
+│           pre-#492 `cancel` on Escape), and every action under `fheuer.agentdesk`
 │           this bind doesn't ask for (`cancel`, `cancel-dictation`, and the ids
 │           of shortcuts changed since, which kept their keys so the new id could
 │           never take them, #898) are removed from kglobalaccel (`unregister`);
@@ -1911,7 +1911,7 @@ Linux beta                               // not macOS feature parity
 │           // check: only_requested_shortcuts_are_shown (a stale grant stays
 │           // out), kde_actions_hex_no_longer_binds_are_removed (the list only);
 │           // the KDE removal is not run on a Plasma session
-│       └── KDE's approval dialog -> Hex waits for it up to 30 min, not 60 s:
+│       └── KDE's approval dialog -> Agent-Desk waits for it up to 30 min, not 60 s:
 │           giving up closed the session, and KDE then kept every shortcut
 │           with no key and never asked again (#898). A bind left unapproved
 │           (dismissed, canceled, abandoned) is noted in
@@ -1919,9 +1919,9 @@ Linux beta                               // not macOS feature parity
 │           they still have no key, so the dialog asks again; a key set in
 │           System Settings since stays
 │           // checked in a headless KWin 6.8 session (xdg-desktop-portal-kde
-│           // 6.8.2): the dialog stays up with Hex "Enabling…"; with the note,
+│           // 6.8.2): the dialog stays up with Agent-Desk "Enabling…"; with the note,
 │           // keyless ids are removed and the dialog returns; without it they
-│           // stay; Hex is listed under Applications in System Settings ›
+│           // stay; Agent-Desk is listed under Applications in System Settings ›
 │           // Shortcuts. Approving with OK was not exercised (no input there)
 ├── Recording HUD -> Dot scope, as on macOS, on the
 │   │   top or bottom edge, recording with the voice's level, then transcribing
@@ -1932,13 +1932,13 @@ Linux beta                               // not macOS feature parity
 │   │   ├── Layer-shell (niri, Sway, Hyprland) -> no output pinned: the
 │   │   │   compositor's focused output
 │   │   └── GNOME, KDE (XDG_CURRENT_DESKTOP) -> the primary display
-│   └── Rune overlay in Hex's process (rune_hud, rune_hud.wgsl on the GPU)
+│   └── Rune overlay in Agent-Desk's process (rune_hud, rune_hud.wgsl on the GPU)
 │       ├── Wayland -> layer-shell overlay layer, no keyboard, empty input region
 │       ├── X11 -> override-redirect window, empty input shape
 │       ├── Wayland without layer-shell (zwlr_layer_shell_v1; GNOME) and XWayland
 │       │   (`DISPLAY`) -> only the HUD opens on XWayland: override-redirect ARGB
 │       │   window, notification type, empty input shape, primary monitor's edge,
-│       │   scale from Xft.dpi; the rest of Hex (window, portal shortcuts) stays
+│       │   scale from Xft.dpi; the rest of Agent-Desk (window, portal shortcuts) stays
 │       │   on Wayland (#465)
 │       │   // seen in headless mutter 51 + Xwayland on apollo: HUD at the top
 │       │   // centre, animating, focus unchanged, the pointer over it hits the
@@ -1957,14 +1957,14 @@ Linux beta                               // not macOS feature parity
 │       │       wgpu's reason (Live text or the HUD); the window and other overlays
 │       │       keep running; the next show tries again
 │       │       // checked with a noop-backend Rune test; not on NVIDIA hardware
-│       ├── Window's Rune app panics anyway -> `hex window show` errors and
-│       │   `hex status` reports the window and HUD stopped, with the reason (#979)
+│       ├── Window's Rune app panics anyway -> `agent-desk window show` errors and
+│       │   `agent-desk status` reports the window and HUD stopped, with the reason (#979)
 │       ├── Neither (Rune refused it, or no layer-shell and no XWayland)
-│       │   -> process.log warns once; `hex status` reports `hud_limitation`
+│       │   -> process.log warns once; `agent-desk status` reports `hud_limitation`
 │       │   and the listener's notice or warning (a missing wl-copy outranks it)
-│       └── No window loop (no GPU or display, `hex dictate`) -> no HUD
+│       └── No window loop (no GPU or display, `agent-desk dictate`) -> no HUD
 ├── Tray host (StatusNotifierWatcher) -> Tray icon: click opens the window; menu as Windows' (tray_menu, linux/tray, linux/icons, desktop/tray_icon, rune::Tray)
-│   ├── Symbolic theme icon -> `anomaly.hex-symbolic.svg` written to hicolor/scalable/apps at startup, its name served beside the pixmap
+│   ├── Symbolic theme icon -> `fheuer.agentdesk-symbolic.svg` written to hicolor/scalable/apps at startup, its name served beside the pixmap
 │   │   ├── Plasma 6, GNOME's AppIndicator extension, Waybar -> draw the mark in the panel's text color
 │   │   │   // check: the_tray_icon_is_a_recolorable_symbolic_svg,
 │   │   │   // the_tray_icon_lands_in_the_users_scalable_hicolor_theme,
@@ -1972,7 +1972,7 @@ Linux beta                               // not macOS feature parity
 │   │   │   // not checked against a real KDE or GNOME panel
 │   │   ├── Plasma 6 -> recolors only with icon themes that follow the color scheme (Breeze, Papirus); else the SVG's default color
 │   │   ├── Plasma 5 -> also prefers IconName but has no panel palette, so the SVG's color there is untested
-│   │   ├── A running Plasma session -> told to reload icons after Hex writes the file, since KIconLoader lists hicolor folders at startup
+│   │   ├── A running Plasma session -> told to reload icons after Agent-Desk writes the file, since KIconLoader lists hicolor folders at startup
 │   │   ├── A user's own file at that name -> kept and named; a dangling link or failed write -> the name is unset
 │   │   └── Default color -> the same light/dark guess as the pixmap
 │   ├── Mark (pixmap) -> white; black when the desktop's color scheme prefers light (portal Settings color-scheme)
@@ -1983,11 +1983,11 @@ Linux beta                               // not macOS feature parity
 │   └── No tray host -> No icon; status and sounds remain available
 ├── Microphone -> System default or a saved device; `--device` overrides
 │   └── System default -> ALSA's default, resolved at each stream open // no live follow
-├── General > Launch at login -> writes or removes ~/.config/autostart/anomaly.hex.desktop (X-Hex-Managed; linux/login_item)
-│   ├── Background portal (GNOME, KDE; xdg-desktop-portal 1.20+) -> the portal writes it (X-XDP-Autostart=anomaly.hex; linux/background)
-│   ├── Installed by mise or asdf -> starts the version manager's shim, if it runs Hex from home
-│   ├── An entry without the mark -> error beside the row; Hex never replaces it
-│   └── A user target wants hex.service (~/.config/systemd/user/*.wants/hex.service:
+├── General > Launch at login -> writes or removes ~/.config/autostart/fheuer.agentdesk.desktop (X-Hex-Managed; linux/login_item)
+│   ├── Background portal (GNOME, KDE; xdg-desktop-portal 1.20+) -> the portal writes it (X-XDP-Autostart=fheuer.agentdesk; linux/background)
+│   ├── Installed by mise or asdf -> starts the version manager's shim, if it runs Agent-Desk from home
+│   ├── An entry without the mark -> error beside the row; Agent-Desk never replaces it
+│   └── A user target wants agent-desk.service (~/.config/systemd/user/*.wants/agent-desk.service:
 │       Home Manager's programs.hex.autostart, `systemctl --user enable`) -> on;
 │       turning it off errors, naming where to disable it; no entry is written (#1164)
 │       // check: an_enabled_systemd_unit_starts_hex_at_login (the link scan only)
@@ -2012,7 +2012,7 @@ Linux beta                               // not macOS feature parity
 │           // not run on GNOME
 │   └── Wayland: wl-copy, then the shortcut, chosen at the first paste  // linux.wayland-paste
 │       ├── wl-copy not on PATH (direct installs add no packages) -> Settings and
-│       │   `hex status` warn while the listener runs; capture and transcription
+│       │   `agent-desk status` warn while the listener runs; capture and transcription
 │       │   still run, and the paste fails naming wl-clipboard before a helper
 │       │   is spawned
 │       ├── Asked by a modifier shortcut -> wait for its portal release + 250 ms
@@ -2035,22 +2035,22 @@ Linux beta                               // not macOS feature parity
 │       │       // fixed delay, no acknowledgement; not observed on a real GNOME session
 │       └── Neither works -> Failed: "Copied to the clipboard; press Ctrl+V…" naming
 │           the RemoteDesktop portal; the clipboard keeps the transcript
-└── Portal identity -> Register as `anomaly.hex` (reverse-DNS: GNOME 49/50's
-    shortcuts provider refused the bare `hex`, so binding failed, #579)
-    ├── Installs ship anomaly.hex.desktop (StartupWMClass=anomaly.hex); windows
-    │   report app_id / WM_CLASS anomaly.hex -> one launcher entry
-    ├── Icon=anomaly.hex -> packages install hicolor 16–512 px PNGs (deb/rpm refresh
-    │   the icon cache); otherwise Hex writes them to ~/.local/share/icons/hicolor
+└── Portal identity -> Register as `fheuer.agentdesk` (reverse-DNS: GNOME 49/50's
+    shortcuts provider refused the bare `agent-desk`, so binding failed, #579)
+    ├── Installs ship fheuer.agentdesk.desktop (StartupWMClass=fheuer.agentdesk); windows
+    │   report app_id / WM_CLASS fheuer.agentdesk -> one launcher entry
+    ├── Icon=fheuer.agentdesk -> packages install hicolor 16–512 px PNGs (deb/rpm refresh
+    │   the icon cache); otherwise Agent-Desk writes them to ~/.local/share/icons/hicolor
     │   at startup and fixes Icon= in managed entries it wrote (#652)
-    ├── Startup -> Hex's own managed hex.desktop (launcher, autostart) renamed
-    │   to anomaly.hex.desktop; the installer does the same; unmanaged ones kept
-    └── No anomaly.hex.desktop in XDG data dirs -> Hex writes
-        ~/.local/share/applications/anomaly.hex.desktop (X-Hex-Managed),
-        NoDisplay when an older package's hex.desktop already shows Hex,
-        removed once a package ships anomaly.hex.desktop; never rewritten while
-        its program is there; pointed at this Hex (or a version manager's
+    ├── Startup -> Agent-Desk's own managed hex.desktop (launcher, autostart) renamed
+    │   to fheuer.agentdesk.desktop; the installer does the same; unmanaged ones kept
+    └── No fheuer.agentdesk.desktop in XDG data dirs -> Agent-Desk writes
+        ~/.local/share/applications/fheuer.agentdesk.desktop (X-Hex-Managed),
+        NoDisplay when an older package's hex.desktop already shows Agent-Desk,
+        removed once a package ships fheuer.agentdesk.desktop; never rewritten while
+        its program is there; pointed at this Agent-Desk (or a version manager's
         shim) once its program is gone or superseded by that shim (#810)
-        // KDE bindings and RemoteDesktop grants stored under `hex` are asked again once
+        // KDE bindings and RemoteDesktop grants stored under `agent-desk` are asked again once
         // checked by unit tests only, not on a GNOME 49 session
 GNOME portal shortcuts (#723)            // linux.gnome-shortcuts
 ├── New GNOME or KDE Plasma setup -> dictation default Ctrl+Alt+Space (GNOME's
@@ -2058,16 +2058,16 @@ GNOME portal shortcuts (#723)            // linux.gnome-shortcuts
 │   // checked in a headless KWin 6.8 session: the portal's dialog flags Alt+Space
 ├── Granted key GNOME keeps (Alt+Space, Super+Space, Alt+Tab, Print, …) -> red note under the row
 ├── Keys changed in GNOME Settings -> ShortcutsChanged -> pressing them dictates at once;
-│   the row note, the Status hint and `hex status --json` listener.shortcuts show them
+│   the row note, the Status hint and `agent-desk status --json` listener.shortcuts show them
 └── Annotate's shortcut -> its own row under dictation's in General
     // observed on apollo: gnome-control-center 51.1 provider, portal-gnome 50, stand-in Shell
 Enable / Disable (General, tray)         // linux.listener-persist
-├── Saves enable_on_launch -> a disabled Hex stays disabled after a restart (#575)
+├── Saves enable_on_launch -> a disabled Agent-Desk stays disabled after a restart (#575)
 └── GNOME (XDG_CURRENT_DESKTOP) Disable -> after the listener's session closes, a
     fresh session binds no shortcuts: GNOME Settings stores that empty set, so
-    Hex's entries leave its list; Enable shows GNOME's approval dialog again
+    Agent-Desk's entries leave its list; Enable shows GNOME's approval dialog again
     // never on KDE: an empty bind drops the user's keys (#482)
-GNOME startup -> pre-#579 `hex` set listed in GNOME Settings -> removed through
+GNOME startup -> pre-#579 `agent-desk` set listed in GNOME Settings -> removed through
     gsettings (reset its shortcuts, drop it from `applications`); other apps untouched
     // observed on apollo with gnome-control-center 51.1's provider, portal-gnome 50,
     // a stand-in org.gnome.Shell, not a full GNOME session
@@ -2100,8 +2100,8 @@ real Hyprland session.
 
 ```ts
 Windows beta                             // x64 (Vulkan GPU) and ARM64 (CPU)
-├── Install -> Setup.exe or install-windows.ps1 -> hex.exe + install.json receipt
-├── Launch -> DLLs load from System32 and Hex's folder only, never PATH (#587)
+├── Install -> Setup.exe or install-windows.ps1 -> agent-desk.exe + install.json receipt
+├── Launch -> DLLs load from System32 and Agent-Desk's folder only, never PATH (#587)
 │   └── DX12 compiles shaders with FXC (System32), never a dxcompiler.dll on PATH
 ├── GPU -> Rune draws with DX12 only (Vulkan only without a DX12 adapter) on
 │   the lowest-power adapter that drives a display (an unused integrated GPU
@@ -2132,7 +2132,7 @@ Windows beta                             // x64 (Vulkan GPU) and ARM64 (CPU)
 │       an orderly session end - Rune's quit hook runs on WM_QUERYENDSESSION
 │       and WM_ENDSESSION before the process may end, also for a windowless
 │       launch; a tray launch that never draws writes none) -> high-performance
-│       GPU (WGPU_POWER_PREF=high), warned in process.log, until Hex updates
+│       GPU (WGPU_POWER_PREF=high), warned in process.log, until Agent-Desk updates
 │       or the file is deleted
 ├── Present cadence -> after any change the window presents every refresh for
 │   1 s, then rests: windowed G-SYNC/FreeSync sees one rate change per
@@ -2142,8 +2142,8 @@ Windows beta                             // x64 (Vulkan GPU) and ARM64 (CPU)
 │   Speech engine work as on Linux (#856)
 │   └── A launch that crashed starting the GPU (gpu-start.pending left in the
 │       data folder, same version) -> CPU only, warned in process.log, until
-│       Hex updates or the file is deleted (#662; not run on Windows)
-├── Hex app -> General, tray, HUD; Enabled = shortcut works in every app
+│       Agent-Desk updates or the file is deleted (#662; not run on Windows)
+├── Agent-Desk app -> General, tray, HUD; Enabled = shortcut works in every app
 ├── HUD display -> the monitor under the pointer (GetCursorPos) at each capture
 │   start, inside that monitor's work area, at its own DPI (#486); while
 │   shown, checked every 250 ms; moves once two checks agree (#807)
@@ -2156,13 +2156,13 @@ Windows beta                             // x64 (Vulkan GPU) and ARM64 (CPU)
 │   overlay failure is the Settings/log reason only. Logged once per reason;
 │   Settings' listener warning (dictation.md, rune_hud::FirstFrame)
 ├── Launch again -> Running app shows its window; hidden (login) launch -> no-op
-├── Tray icon -> White Hex mark; light taskbar (SystemUsesLightTheme) -> black mark
+├── Tray icon -> White Agent-Desk mark; light taskbar (SystemUsesLightTheme) -> black mark
 │   └── Theme read when the tray is created; a later switch applies at the next launch
 ├── Tray menu (tray_menu, shared with Linux)    // maintain.tray
 │   ├── Recording / Transcribing… status line and tooltip while the listener works
-│   ├── Show Hex · Paste last dictation (refocuses the app the menu covered)
+│   ├── Show Agent-Desk · Paste last dictation (refocuses the app the menu covered)
 │   ├── Speech model: downloaded models, ✓ on the selected one; none while one prepares
-│   └── Update item · Enable / Disable Hex · Quit Hex
+│   └── Update item · Enable / Disable Agent-Desk · Quit Agent-Desk
 ├── Single-modifier shortcut -> Left / Either / Right side picker, as macOS
 ├── Recordable keys -> letters, digits, F1–F24, named keys, mouse buttons (#794)
 │   ├── Punctuation -> saved by virtual key (`oem 1`…`oem 102`), so a layout
@@ -2204,8 +2204,8 @@ the same mark in black (`a_light_tray_gets_a_dark_mark_with_the_same_shape`
 checks the pixels, not a real taskbar). Releases are Authenticode-signed once Azure Artifact
 Signing is configured ([windows-signing.md](../windows-signing.md)).
 
-**Known defect, outside Hex:** Discord's game detection matches the running
-`hex.exe` to *HEX: Shards of Fate*
+**Known defect, outside Agent-Desk:** Discord's game detection matches the running
+`agent-desk.exe` to *HEX: Shards of Fate*
 ([#445](https://github.com/anomalyco/hex/issues/445)). The executable name stays
 as it is because the managed install layout, updater, shortcut, and login entry
 use it. The workaround is to hide the entry in Discord's Registered Games
@@ -2221,7 +2221,7 @@ smoke tests on Windows 10 and on ARM64 hardware have not been run.
 Linux updates                            // maintain.linux-updates
 ├── Direct install (versions/ + install.json receipt) -> release service -> staged -> sidebar footer: Restart to update
 ├── Source install (source-build marker) -> Sidebar footer: Updated from your source checkout
-├── Local build (HEX_LOCAL_BUILD=1) -> Sidebar footer: Local build · updates off; Version 2.3.1 (local <commit>); no checks, no channel row
+├── Local build (AGENT_DESK_LOCAL_BUILD=1) -> Sidebar footer: Local build · updates off; Version 2.3.1 (local <commit>); no checks, no channel row
 ├── pacman (AUR hex-bin: /usr/bin, root-owned) or Nix store -> Sidebar footer: Updated by your package manager
 └── Anything else (a downloaded executable) -> Sidebar footer: Download update
 ```
@@ -2231,10 +2231,10 @@ observation (a staged update and the sidebar button) predates the release
 service and is not evidence for it.
 
 No Linux meetings. Wayland shortcuts need either the desktop's GlobalShortcuts portal
-or the user's own keybindings for the `hex` commands; Hex reads no input
+or the user's own keybindings for the `agent-desk` commands; Agent-Desk reads no input
 devices. Click-through and a physical portal or keybinding press still need
 native evidence. Its [smoke](../../scripts/test-wayland-paste.sh) explicitly
-isolates `HEX_APPLICATION_SUPPORT_DIR`, pastes while another keyboard holds
+isolates `AGENT_DESK_APPLICATION_SUPPORT_DIR`, pastes while another keyboard holds
 Ctrl and Alt, opens the window through a second launch, and checks that
 closing it leaves the same process answering.
 
@@ -2246,7 +2246,7 @@ plus X11 auto-repeat filtering and a portal release that never arrives
 [dictation.md](dictation.md)). The X11 grab tests run on an isolated display in
 CI; `commands_and_grabs_share_the_x11_listener` drives grabs and commands
 through one listener. [scripts/test-linux-service.py](../../scripts/test-linux-service.py)
-checks that commands fail without a listening Hex.
+checks that commands fail without a listening Agent-Desk.
 On 2026-10-22 the portal path was observed on niri with xdg-desktop-portal-gnome
 using synthetic uinput keys against an isolated service: granted triggers,
 hold and Escape while held (Escape no longer cancels since #786), double-tap lock, Paste Last, and commands. A
@@ -2256,16 +2256,16 @@ physical keyboard press has not been recorded.
 listener's generation slot (an old listener cannot hide a restarted HUD) and
 turns its reports into [rune_hud.rs](../../src/rune_hud.rs)'s events;
 reports before the window's app exists are dropped. The shaders render
-offscreen with `cargo test --bin hex rune_hud_frames -- --ignored`
+offscreen with `cargo test --bin agent-desk rune_hud_frames -- --ignored`
 (2026-10-28 on apollo: Dot scope frames match the Metal look; 2026-10-29 on
 apollo: recording, processing, and done after Dot scope became the default).
 The GTK HUD it replaced is deleted. The text pill was observed on
 2026-10-22 in a headless sway on apollo (isolated data root, real microphone,
-`hex service`): `hex dictation start` showed the pill at the top edge and it
-was gone after `hex dictation stop` and transcription. The Rune overlay itself
+`agent-desk service`): `agent-desk dictation start` showed the pill at the top edge and it
+was gone after `agent-desk dictation stop` and transcription. The Rune overlay itself
 was also observed passing a virtual-pointer click through to the window below
 and leaving keyboard focus where it was (Rune `examples/background`). Not
-observed: X11 with Hex, niri, KWin, Mutter.
+observed: X11 with Agent-Desk, niri, KWin, Mutter.
 
 See the [Linux guide](../linux.md), [linux/app.rs](../../src/linux/app.rs),
 [linux/portal.rs](../../src/linux/portal.rs), and
@@ -2273,31 +2273,31 @@ See the [Linux guide](../linux.md), [linux/app.rs](../../src/linux/app.rs),
 The [direct installer/updater](../../src/updater/linux.rs) and
 [installer tests](../../scripts/test-install-linux-release.sh) do not establish
 a published, supported-host-validated signed release. [Nix](../nix.md) owns its
-package updates; Hex updates only managed direct installs. Its Home Manager
-module merges `programs.hex.settings` into Hex on every activation through
-`hex settings apply` ([control-cli.md](control-cli.md)); `nix/checks.nix`
+package updates; Agent-Desk updates only managed direct installs. Its Home Manager
+module merges `programs.hex.settings` into Agent-Desk on every activation through
+`agent-desk settings apply` ([control-cli.md](control-cli.md)); `nix/checks.nix`
 evaluates the module, not a live activation.
 
 ```ts
 Linux process                            // maintain.linux-service
-├── hex / hex app -> Hex running? -> Activate{activation token} over the socket -> exit 0
-│   ├── No Hex, hex.service loaded -> session.env -> systemctl start (Type=notify) -> Activate
-│   ├── No Hex, no unit or custom data dir -> This process becomes Hex
+├── hex / agent-desk app -> Agent-Desk running? -> Activate{activation token} over the socket -> exit 0
+│   ├── No Agent-Desk, agent-desk.service loaded -> session.env -> systemctl start (Type=notify) -> Activate
+│   ├── No Agent-Desk, no unit or custom data dir -> This process becomes Agent-Desk
 │   │   └── Custom data dir -> Keep the supplied desktop environment; no user-manager query
-│   │       or Wayland socket discovery (unless HEX_SYSTEMD_UNIT explicitly opts in)
-│   └── Two racing launches -> One Hex; the other forwards and exits 0
-├── hex start / desktop autostart / hex service -> Same, without the window
+│   │       or Wayland socket discovery (unless AGENT_DESK_SYSTEMD_UNIT explicitly opts in)
+│   └── Two racing launches -> One Agent-Desk; the other forwards and exits 0
+├── agent-desk start / desktop autostart / agent-desk service -> Same, without the window
 │   └── No WAYLAND_DISPLAY (none at all, or only Xwayland's DISPLAY)
 │       -> Adopt the manager's live WAYLAND_DISPLAY, else the newest answering socket
 │       (#756); behind DISPLAY only for an explicit wayland session type, or an unset
 │       one whose manager names a live display. An explicit x11 or tty login keeps its
 │       X display. Launchers adopt first, so session.env agrees. The shortcut backend
-│       follows the adopted Wayland session: the portal, or the `hex` commands where
+│       follows the adopted Wayland session: the portal, or the `agent-desk` commands where
 │       it has none
-├── hex dictation|paste-last -> Socket worker -> Listener queue (never the UI thread)
-├── hex dictate -> Foreground listener; adopts the session's Wayland display like hex service;
-│   `hex` commands reach only the service listener, never it (#1506)
-├── hex status -> Published status; hex quit / Quit Hex / launcher action -> Drain, exit 0
+├── agent-desk dictation|paste-last -> Socket worker -> Listener queue (never the UI thread)
+├── hex dictate -> Foreground listener; adopts the session's Wayland display like agent-desk service;
+│   `agent-desk` commands reach only the service listener, never it (#1506)
+├── agent-desk status -> Published status; agent-desk quit / Quit Agent-Desk / launcher action -> Drain, exit 0
 ├── Any instance stop still draining after 20 s -> _exit before the unit's 30 s TimeoutStopSec
 │   └── A transcription or paste cut by the deadline is lost; checked by unit tests only,
 │       no observed systemd stop
@@ -2305,12 +2305,12 @@ Linux process                            // maintain.linux-service
 ├── Open the window -> Maps at 980×760 (min = max), tiling WMs float it -> Resizable from 860×560
 ├── Close the window -> Keep microphone, accepted jobs, model preparation, and HUD
 │   └── Uncommitted shortcut capture -> Cancel and restore the prior listening state
-├── Crash -> systemd Restart=on-failure -> Hex without a window
-├── Update -> Restart the unit -> Hex reopens the window
-├── hex restart without a display (SSH) -> Keep the saved session.env
+├── Crash -> systemd Restart=on-failure -> Agent-Desk without a window
+├── Update -> Restart the unit -> Agent-Desk reopens the window
+├── agent-desk restart without a display (SSH) -> Keep the saved session.env
 ├── Saved XAUTHORITY file gone (a reboot: Xwayland's cookie is new each login)
 │   -> Take the user manager's current XAUTHORITY, else drop it (#465)
-├── Window fails (no display, no GPU) -> Logged; Hex keeps running
+├── Window fails (no display, no GPU) -> Logged; Agent-Desk keeps running
 └── Startup -> transcribe.cpp's Vulkan instance first, on the main thread
     └── then the model load and the window's wgpu instance never create one at once
 ```
@@ -2319,10 +2319,10 @@ Sources: the process, host, and window seam in [linux/app.rs](../../src/linux/ap
 the single-instance socket and systemd lifecycle in
 [linux/service.rs](../../src/linux/service.rs), the CLI in
 [linux.rs](../../src/linux.rs), and the managed installer/Nix user units.
-`hex status` queries the running Hex; `--lines` explicitly reads historical
-observations. `hex app --hidden` and `hex start` start Hex without the window;
-`hex stop` equals `hex quit`. Closing the window does not mean Disable; the
-General's listener card Enable/Disable controls the listener, Quit Hex the process. No
+`agent-desk status` queries the running Agent-Desk; `--lines` explicitly reads historical
+observations. `agent-desk app --hidden` and `agent-desk start` start Agent-Desk without the window;
+`agent-desk stop` equals `agent-desk quit`. Closing the window does not mean Disable; the
+General's listener card Enable/Disable controls the listener, Quit Agent-Desk the process. No
 root daemon or new input grants. The window runs on Rune's app lifetime: it
 opens or focuses with the forwarded activation token and keeps its state
 across close and reopen. Observed in a headless sway on apollo on 2026-10-22
@@ -2332,16 +2332,16 @@ reopen, quit); not rerun since GPUI was removed. On niri
 (apollo, 2026-10-22, isolated data directory, listener off) launches spawned
 through `niri msg action spawn` opened the window in the instance's process,
 `close-window` left the same process answering, a relaunch opened a new
-window in it, and `hex quit` exited; the window never took focus although niri
+window in it, and `agent-desk quit` exited; the window never took focus although niri
 passed `XDG_ACTIVATION_TOKEN` (an IPC spawn's token, without user input, so
 this does not show whether a launcher's token focuses it). Not yet on KWin,
 Mutter, or i3.
 
 Listener starts consume the host's settings snapshot; the foreground
-`hex dictate` command loads its own snapshot once. A settings file that isn't
-valid JSON, or isn't a JSON object, starts Hex with defaults and shows the parse
+`agent-desk dictate` command loads its own snapshot once. A settings file that isn't
+valid JSON, or isn't a JSON object, starts Agent-Desk with defaults and shows the parse
 error, but no longer blocks dictation; saving over it is refused, even after it
-is fixed, until Hex restarts. Its two-second poll keeps the running settings
+is fixed, until Agent-Desk restarts. Its two-second poll keeps the running settings
 when the file isn't a JSON object, and adopting a fixed or removed file also
 clears that refusal, so the window's next save works without a restart. A load
 that fails outright still blocks capture until a successful save or a restart.
@@ -2361,9 +2361,9 @@ runtime workers. The virtual-microphone and Wayland scripts open the window
 through a second launch; the Wayland script passed on apollo (headless sway,
 `WLR_RENDERER=gles2`, before GPUI was removed), the X11 virtual-microphone script
 has not run since the single-process change. A throwaway `Type=notify` user unit
-on apollo (`HEX_SYSTEMD_UNIT`) started ready through `hex start`, restarted
+on apollo (`AGENT_DESK_SYSTEMD_UNIT`) started ready through `agent-desk start`, restarted
 after SIGABRT and SIGKILL without a window, stopped cleanly on
-`systemctl stop` and `hex quit`, and an older `Type=simple` unit still started.
+`systemctl stop` and `agent-desk quit`, and an older `Type=simple` unit still started.
 Before the Vulkan ordering fix, a launch with an installed model and
 `enable_on_launch` SIGSEGVed in the Vulkan loader 3/3 in a headless sway on
 apollo (the model load raced the window's wgpu instance); with it, 6/6 ran.
@@ -2395,7 +2395,7 @@ Linux General > Sound volume              // dictate.feedback.linux; X11 + Wayla
 Linux General > Sounds                    // dictate.sound-theme
 └── Signature / Classic -> Save and apply live; preview the start sound
 
-Capture                                  // hex app and hex dictate
+Capture                                  // agent-desk app and hex dictate
 ├── Shortcut starts capture -> Queue start sound immediately, before audio arrives
 ├── Hold passes 300 ms -> While dictating mute/pause/lower begins, never at the press
 ├── Finish retained recording -> Stop sound at the release, while the 200 ms
@@ -2406,7 +2406,7 @@ Capture                                  // hex app and hex dictate
 └── Dictation pasted -> Done sound; failures play the error sound
 ```
 
-The shared [feedback player](../../src/feedback.rs) uses Hex's bundled sounds
+The shared [feedback player](../../src/feedback.rs) uses Agent-Desk's bundled sounds
 ([Feedback](dictation.md#feedback)) on every platform; only macOS wake/sleep
 use `afplay`.
 Decoding happens before the Linux capture loop; the output device opens for
@@ -2444,7 +2444,7 @@ layout evidence.
 ```ts
 TypeScript SDK + local service             // macOS, Linux, Windows
 ├── Caller records audio -> Explicit helper -> Raw transcription
-│   └── Linux, Windows -> No packaged helper; command: hex service --embedded
+│   └── Linux, Windows -> No packaged helper; command: agent-desk service --embedded
 ├── Caller streams audio -> Running app's /streams -> Partials, segments, final
 │   └── Dictation first; uses the loaded model only (docs/streams.md)
 ├── Running app's /transcriptions -> Listener's engine when it holds the model
@@ -2457,14 +2457,14 @@ TypeScript SDK + local service             // macOS, Linux, Windows
 │   │                                     // only recognition-hint echoes are dropped
 │   ├── Linux, Windows -> The listener records it (dictation::service owner)
 │   │   ├── With the microphone chosen in Settings, as the shortcut does
-│   │   ├── Shortcut or `hex dictation` records -> 409 dictation-busy
+│   │   ├── Shortcut or `agent-desk dictation` records -> 409 dictation-busy
 │   │   ├── Client's dictation records -> shortcut starts and ends nothing
 │   │   ├── Lapsed lease or owner's cancel -> only that dictation is dropped
 │   │   ├── Microphone lost -> finish answers microphone-lost (no kept clip)
 │   │   └── Start with "partials": true -> GET /dictations/{id}/partials
 │   │       └── SSE {stable, tentative} while the model streams (GPU)
 │   ├── macOS -> No partials: dictationPartials false; the SSE ends at once
-│   └── hex service -> serviceCapture false, 404 service-capture-unavailable
+│   └── agent-desk service -> serviceCapture false, 404 service-capture-unavailable
 └── Distribution
     ├── SDK 0.3.0 -> Published
     └── Turnkey signed helper -> Unfinished
@@ -2472,7 +2472,7 @@ TypeScript SDK + local service             // macOS, Linux, Windows
 
 Linux and Windows serve the same local API from the running app
 ([linux/app.rs](../../src/linux/app.rs), [windows/rune.rs](../../src/windows/rune.rs))
-and from `hex service [--embedded]`; a failed start only logs, and Hex runs on
+and from `agent-desk service [--embedded]`; a failed start only logs, and Agent-Desk runs on
 without it. On Linux, the embedded service answered `/health`,
 `/capabilities`, `/models`, and transcribed a WAV with Parakeet Unified
 English on the Vulkan iGPU (October 30). The running app's shared-engine path,
@@ -2489,7 +2489,7 @@ SDK is unverified.
 
 Windows `/dictations` uses the same owner in the listener
 ([windows/dictation.rs](../../src/windows/dictation.rs)), so a client gets
-Hex's microphone choice, pre-roll, and While dictating behavior, and the HUD
+Agent-Desk's microphone choice, pre-roll, and While dictating behavior, and the HUD
 shows the recording. Live text is opt-in per dictation: `POST /dictations
 {"source": "…", "partials": true}` holds a live-text demand for the
 recording's stream, and `GET /dictations/{id}/partials` (owner token, once)
@@ -2550,11 +2550,11 @@ microphone behavior.
 ```ts
 macOS debug runtime                      // not release navigation
 ├── Meetings -> Always available; release builds need the Meetings opt-in (its pane's card or Meetings › Settings)
-├── Activity / HUD Lab / hex dev -> Observation and developer controls
+├── Activity / HUD Lab / agent-desk dev -> Observation and developer controls
 └── HUD Lab in release -> Only in the playground (Labs › Playground)
 
-`hex app -- --snap OUT --scene NAME` -> Rendered fixtures    // not proof capture/download/update happened
-Linux `hex` -> the Linux window on Rune, in the Hex process // dev.rune-ui
+`agent-desk app -- --snap OUT --scene NAME` -> Rendered fixtures    // not proof capture/download/update happened
+Linux `agent-desk` -> the Linux window on Rune, in the Agent-Desk process // dev.rune-ui
 ├── Calls the host directly: saves settings through it; woken on host changes
 ├── Sidebar: General, Modes, History
 ├── Transcription picker -> ChooseModel / CancelModel; progress from the snapshot
@@ -2568,13 +2568,13 @@ Linux `hex` -> the Linux window on Rune, in the Hex process // dev.rune-ui
     Meetings (Recordings | Settings, opt-in card), Voice Filter,
     HUD Lab, Activity, permission rows, Launch at login, Dock icon, shortcut
     sides, the permissions page
-macOS `hex app` -> one menu-bar process, Rune window // dev.rune-ui-macos
+macOS `agent-desk app` -> one menu-bar process, Rune window // dev.rune-ui-macos
 ├── rune::App on the main thread: accessory, windowless unless setup/onboarding/Dock icon open it
-├── Same AppKit loop: status item, updater, Hex/File/Window menu, Dock reopen event, the HUD pump (16 ms timer; the HUD itself is a Rune overlay)
+├── Same AppKit loop: status item, updater, Agent-Desk/File/Window menu, Dock reopen event, the HUD pump (16 ms timer; the HUD itself is a Rune overlay)
 ├── Runtime thread: model preparation (menu bar: installed only), starts the listener once setup is ready
 ├── Listener, meeting controller, local API: their own threads
 ├── macos_host: AppKit event monitor records chords (Option, Fn); NativeHost does permissions,
-│   login item, Hex Microphone, meeting start/stop/rename/trash/reveal, relaunch
+│   login item, Agent-Desk Microphone, meeting start/stop/rename/trash/reveal, relaunch
 ├── Meetings pane lists the store through meeting::query (1 s rescan, sent only when changed);
 │   a controller failure shows in the pane; rune::FileDialogs (file_dialog) chooses the
 │   meetings folder and Modes' "Choose a file…" .app
@@ -2586,12 +2586,12 @@ macOS `hex app` -> one menu-bar process, Rune window // dev.rune-ui-macos
 │   with Copy new (N) / Copy all of the in-call transcript; compact until hovered,
 │   dragged to any corner)
 └── Modes app icons: Finder's icon (NSWorkspace) in the picker, chips, and mode rows
-Windows `hex app` -> one tray process, Rune window // dev.rune-ui-windows
+Windows `agent-desk app` -> one tray process, Rune window // dev.rune-ui-windows
 ├── Runtime thread owns WindowsDesktopHost (listener, model preparation, OpenCode, transformations, updater)
 ├── Named event: a second launch shows the window; tray Show / Enable-Disable / Quit
 ├── rune::App: --hidden starts windowless and makes no Direct3D device (on x64
 │   the speech model still loads on the GPU through Vulkan); closing releases
-│   the window and its swapchain too (release_gpu_when_closed), so a tray Hex
+│   the window and its swapchain too (release_gpu_when_closed), so a tray Agent-Desk
 │   holds neither and capture tools such as NVIDIA's Instant Replay don't take
 │   it for the game (#1308); the next open makes them again where the window
 │   was and at its size; Quit or no tray ends it
@@ -2625,7 +2625,7 @@ best-effort deletion is not guaranteed deletion.
 
 `dev.rune-ui` lives in [rune_ui.rs](../../src/rune_ui.rs) and its pane modules;
 its tests drive the Rune runtime headlessly (navigation; General rows per
-shortcut source, fitting the default window with Advanced collapsed, Shortcut mode's modal, saves through the host, Quit Hex, microphone-release
+shortcut source, fitting the default window with Advanced collapsed, Shortcut mode's modal, saves through the host, Quit Agent-Desk, microphone-release
 confirmation, shortcut recording and Escape, conflicts; History select, two-step
 delete and clear, copy; Modes add/delete, corrections, transformations (drag reorder saves once
 on release), application conflicts, a chosen file joining the mode, arrow
@@ -2650,9 +2650,9 @@ service saved a new mode and a correction. See
 [rune_ui/macos_host.rs](../../src/rune_ui/macos_host.rs). On hailmary
 (macOS 26.2, Command Line Tools only) it compiles, passes clippy
 `-D warnings` and the macOS unit tests (including `macos_host`'s chord
-capture), and a debug `hex app` with an isolated data root started, showed
+capture), and a debug `agent-desk app` with an isolated data root started, showed
 its 980×760 window (CGWindowList; `lsappinfo`: Foreground while open),
-answered `hex dev status/show/hud`, and quit cleanly on Ctrl-C, also with
+answered `agent-desk dev status/show/hud`, and quit cleanly on Ctrl-C, also with
 the meeting fixtures copied into its data root and the Meetings pane shown.
 `macos_host`'s tests cover the meeting feed over `tests/fixtures/meetings`
 (order, recovery to Interrupted, turns and pauses, no resend when unchanged)

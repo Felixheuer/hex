@@ -8,18 +8,18 @@ its current driver, and Auto transcribes on the CPU on it until the driver
 changes. An integrated GPU slow enough to miss streaming deadlines is timed
 against the CPU once, and Auto keeps whichever is faster. General › Advanced ›
 **Speech engine** picks Auto, GPU, or CPU
-(`hex settings set transcription_device cpu`). The window still needs a Vulkan driver, even with CPU
+(`agent-desk settings set transcription_device cpu`). The window still needs a Vulkan driver, even with CPU
 inference; `vulkan-icd-loader` alone is not a driver. Install a driver for your GPU
 or a software Vulkan driver. See the Wayland requirements below.
 
-x86_64 machines need a 2013 or newer processor with AVX2 (Intel Haswell / AMD Excavator or later); on an older processor Hex shows a message and quits instead of starting.
+x86_64 machines need a 2013 or newer processor with AVX2 (Intel Haswell / AMD Excavator or later); on an older processor Agent-Desk shows a message and quits instead of starting.
 
 Linux opens the same window as macOS and Windows: Settings, Modes,
 and History. Meetings are macOS-only.
 Paste on Wayland uses `wtype` where the compositor offers the virtual keyboard
 protocol (wlroots compositors, niri) and the desktop's RemoteDesktop portal
 elsewhere (KDE, GNOME). Shortcuts are general: the desktop's GlobalShortcuts portal when it has one, otherwise
-your desktop's own keybindings running `hex` commands (see
+your desktop's own keybindings running `agent-desk` commands (see
 [Shortcuts](#shortcuts)).
 
 With **Labs › Live typing** on (`labs.live_typing`, off by default), a hotkey
@@ -28,7 +28,7 @@ focused text field and the final text is committed through
 `zwp_input_method_v2`, so it lands without the clipboard and Ctrl-V.
 `zwp_input_method_manager_v2` is a wlroots-family protocol (Sway, Hyprland,
 and other wlroots compositors); KWin and Mutter do not offer it, so KDE and
-GNOME use the paste above. Hex takes the input method when the capture
+GNOME use the paste above. Agent-Desk takes the input method when the capture
 becomes intentional (the hold threshold, or at once in Toggle) and gives the
 seat back at Finish or Cancel, including post-release processing; short taps
 and chords create none. It falls back to the paste above when the compositor
@@ -49,45 +49,45 @@ replace it. Spoken formatting, spoken symbols, and filler words are
 dictation-only and do not run on typed text. It takes the clipboard for the
 job, including any paste still waiting to restore, and puts the saved
 clipboard back 500 ms after the paste unless something newer replaced it. If
-Hex could not snapshot the clipboard, the result stays on it. Without
+Agent-Desk could not snapshot the clipboard, the result stays on it. Without
 data-control on GNOME, text is read through `wl-paste`, the clipboard is
-cleared through `wl-copy --clear`, and a result Hex could not snapshot stays
+cleared through `wl-copy --clear`, and a result Agent-Desk could not snapshot stays
 on the clipboard. Because it sends Ctrl+A and Ctrl+C, it is not meant for
 terminals. With **Terminal paste** on, it refuses before sending any
 key: its Ctrl+V would become Ctrl+Shift+V. Select-all replaces the whole
 field, so mixed formatting is not preserved, and on GNOME `wl-paste` may
 briefly take focus. With the lab off, Output and the listener are unchanged
-and the shortcut is not registered; `hex typed-text` runs the same job from a
+and the shortcut is not registered; `agent-desk typed-text` runs the same job from a
 desktop keybinding, and refuses clearly when the lab is off, Terminal paste
-shortcut is on, or Hex isn't listening.
+shortcut is on, or Agent-Desk isn't listening.
 
 For Nix/NixOS, use the [Nix guide](nix.md). Nix owns updates to that installation;
-Hex's signed updater owns only the direct-install layout below.
+Agent-Desk's signed updater owns only the direct-install layout below.
 
-## One Hex Process
+## One Agent-Desk Process
 
-Hex on Linux is **one process per user** (and per data directory), not a
+Agent-Desk on Linux is **one process per user** (and per data directory), not a
 system-wide/root daemon. It owns the microphone, shortcuts, model downloads and
 workers, sounds, paste, History, the recording pill, and the window. The window
 is optional: closing it stops neither dictation nor a model download, and
-launching Hex again opens it. When the desktop has a tray (a
-StatusNotifierItem host, such as Waybar, KDE, or Omarchy's bar), Hex shows a
-tray icon: click it to open the window, or use its menu: **Show Hex**,
+launching Agent-Desk again opens it. When the desktop has a tray (a
+StatusNotifierItem host, such as Waybar, KDE, or Omarchy's bar), Agent-Desk shows a
+tray icon: click it to open the window, or use its menu: **Show Agent-Desk**,
 **Paste last dictation**, the downloaded speech models, the update once one
-is ready (**Restart to update**), **Enable / Disable Hex**, and **Quit Hex**;
-while Hex records or transcribes, the menu and tooltip say so. Hosts that draw
+is ready (**Restart to update**), **Enable / Disable Agent-Desk**, and **Quit Agent-Desk**;
+while Agent-Desk records or transcribes, the menu and tooltip say so. Hosts that draw
 theme icons, such as Plasma 6, GNOME's AppIndicator extension, and Waybar, draw
 a symbolic mark in the panel's own text color, so it stays visible on a light
 or dark panel. Plasma 6 recolors it only with icon themes that follow the color
 scheme (Breeze and Papirus do); other themes show the mark's default color.
 Plasma 5 also prefers the icon name but has no panel palette, so its color
-there is untested. Hosts that don't use theme names get Hex's pixmap: white,
+there is untested. Hosts that don't use theme names get Agent-Desk's pixmap: white,
 and black when the desktop's color scheme prefers light (Waybar also falls
-back to it when it can't find the name). Hex reads that setting when it
+back to it when it can't find the name). Agent-Desk reads that setting when it
 creates the tray, so a later switch applies at the next launch, and asks a
 running Plasma session to reload icons after writing the mark.
-Without a tray, quit with **Quit Hex** at the bottom of the window's
-sidebar, the launcher's **Quit Hex** action, or `hex quit`.
+Without a tray, quit with **Quit Agent-Desk** at the bottom of the window's
+sidebar, the launcher's **Quit Agent-Desk** action, or `agent-desk quit`.
 
 The window opens at 980×760 logical pixels and floats on tiling window
 managers with no window rule: it maps with its minimum size equal to its
@@ -95,39 +95,39 @@ maximum, which sway, Hyprland, niri, and X11 managers such as i3 float, then
 drops the maximum so you can resize it down to 860×560 or up to any size.
 macOS and Windows open the same resizable window.
 
-Settings live in `settings.json` in Hex's data directory, the same file macOS
+Settings live in `settings.json` in Agent-Desk's data directory, the same file macOS
 and Windows use.
 
 ```sh
-hex                             # open the window, starting Hex if needed
-hex start                       # start Hex in the background; no window
-hex status [--json]             # query the running Hex, not an old log entry
-hex quit [--force]              # finish accepted work, release the microphone, exit
-hex restart [--force]           # restart the systemd unit in this desktop's environment
+hex                             # open the window, starting Agent-Desk if needed
+agent-desk start                       # start Agent-Desk in the background; no window
+agent-desk status [--json]             # query the running Agent-Desk, not an old log entry
+agent-desk quit [--force]              # finish accepted work, release the microphone, exit
+agent-desk restart [--force]           # restart the systemd unit in this desktop's environment
                                 # (over SSH: the one it last ran in)
-hex settings set sound_effects off   # every control command (docs/cli.md)
-journalctl --user -u hex.service # diagnostics of the supervised process
+agent-desk settings set sound_effects off   # every control command (docs/cli.md)
+journalctl --user -u agent-desk.service # diagnostics of the supervised process
 ```
 
-`hex app` is the same as `hex`, `hex start` runs `hex app --hidden` in the
-background and waits until Hex answers, and `hex stop` is the same as
-`hex quit`; older desktop and autostart entries keep working after an update
-replaces only the executable. `hex quit` and `hex restart` refuse while a
+`agent-desk app` is the same as `agent-desk`, `agent-desk start` runs `agent-desk app --hidden` in the
+background and waits until Agent-Desk answers, and `agent-desk stop` is the same as
+`agent-desk quit`; older desktop and autostart entries keep working after an update
+replaces only the executable. `agent-desk quit` and `agent-desk restart` refuse while a
 dictation records or transcribes unless `--force`. Linux runs the same
 control commands as macOS ([docs/cli.md](cli.md)): `settings`, `model`,
 `window`, `vocabulary`, `history clear`, `check-for-updates`, `onboarding
 reset`, `annotate status`, `launch-at-login` (the XDG autostart entry),
 `logs`, `commands init|check`, `history`, `meetings`, and `mcp`.
 
-A launch first asks the running Hex over its socket. If one answers, it
+A launch first asks the running Agent-Desk over its socket. If one answers, it
 forwards `Activate` with the launcher's `XDG_ACTIVATION_TOKEN` or
 `DESKTOP_STARTUP_ID` and exits 0; the running process opens or focuses its
-window. If none runs and the installer's (or Home Manager's) `hex.service` user
+window. If none runs and the installer's (or Home Manager's) `agent-desk.service` user
 unit is loaded, the launch writes an owner-only `session.env` and starts the
 unit, which reports readiness to systemd (`Type=notify`) once its socket
 answers, then forwards `Activate`. Otherwise (a custom data directory,
-`cargo run`, a desktop without systemd) the launching process becomes Hex
-itself. Two racing launches produce one Hex; the loser forwards and exits 0.
+`cargo run`, a desktop without systemd) the launching process becomes Agent-Desk
+itself. Two racing launches produce one Agent-Desk; the loser forwards and exits 0.
 
 `session.env` holds the display and session variables, the cursor theme and
 input method (`XCURSOR_THEME`, `XCURSOR_SIZE`, `XMODIFIERS`, `GTK_IM_MODULE`,
@@ -141,16 +141,16 @@ current value, or dropped so Xlib uses `~/.Xauthority`. A unit started with no
 display at all (the desktop never imported its environment into systemd) adopts
 the user manager's `WAYLAND_DISPLAY`, else the newest Wayland socket of yours in
 `XDG_RUNTIME_DIR` that answers. One started with only Xwayland's `DISPLAY` does
-the same when `XDG_SESSION_TYPE` is `wayland` (from Hex's environment, else the
+the same when `XDG_SESSION_TYPE` is `wayland` (from Agent-Desk's environment, else the
 user manager's): it takes the manager's live `WAYLAND_DISPLAY`, else the newest
 answering socket. Any other explicit session type (`x11`, `tty` from startx,
 `mir`, …) keeps its X display even when the user manager still names a nested
 compositor or another login's display, so paste keeps reaching X11 apps; only
-an absent type adopts a live manager display. Launchers (`hex`, `hex start`,
-`hex restart`) make the same decision before they write `session.env`, so the
+an absent type adopts a live manager display. Launchers (`agent-desk`, `agent-desk start`,
+`agent-desk restart`) make the same decision before they write `session.env`, so the
 service and the launcher agree on the session; a launcher never adopts without
 a display, and when it would start the unit with nothing to write it still
-refuses with "Start Hex from your graphical login session". Without the
+refuses with "Start Agent-Desk from your graphical login session". Without the
 adoption, a Wayland desktop's paste goes through XWayland, which native Wayland
 windows never see, and restoring the clipboard clears the compositor's.
 Hyprland imports nothing by default; add this to its config so the service, its
@@ -160,39 +160,39 @@ paste helpers, and the HUD get your session:
 exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
 ```
 
-When the HUD can't show, Hex's log says why: no display, no layer-shell (and
+When the HUD can't show, Agent-Desk's log says why: no display, no layer-shell (and
 no XWayland), or the overlay failing to open, with its error. No
 permissions are granted. The unit is `PartOf=graphical-session.target`;
 desktops managing a custom session target must bind its lifetime to their
-login/logout lifecycle. Systemd restarts a crashed Hex (`Restart=on-failure`)
-without a window; after **Update**, the restarted Hex reopens the window.
-There is one Hex per user: a launch from another desktop session restarts the
+login/logout lifecycle. Systemd restarts a crashed Agent-Desk (`Restart=on-failure`)
+without a window; after **Update**, the restarted Agent-Desk reopens the window.
+There is one Agent-Desk per user: a launch from another desktop session restarts the
 supervised unit in the new session, and refuses to take over an unsupervised
 one (quit it first).
 
-The socket is owner-only in Hex's data directory, with same-user peer
+The socket is owner-only in Agent-Desk's data directory, with same-user peer
 credentials, versioned bounded frames, bounded queues, and I/O deadlines. It is
 not a network API or the macOS embedded transcription SDK service. It carries
-`Activate`, `Status`, and Annotate's recording commands. The `hex` control
-commands reach Hex through its local API's `POST /control`; dictation
+`Activate`, `Status`, and Annotate's recording commands. The `agent-desk` control
+commands reach Agent-Desk through its local API's `POST /control`; dictation
 commands go straight from there to the listener, never through the window.
 The local API's `/dictations` (the TypeScript SDK's `hex.dictation`) also
-records on the listener while Hex is listening, as on macOS: one capture at a
+records on the listener while Agent-Desk is listening, as on macOS: one capture at a
 time, so a client's dictation and the shortcut never end each other.
 
-For development, run `cargo run --release`. `hex dictate` remains an explicit
+For development, run `cargo run --release`. `agent-desk dictate` remains an explicit
 foreground diagnostic listener without the window or HUD and cannot coexist
-with Hex's listener. Like `hex service`, it adopts the session's Wayland
+with Agent-Desk's listener. Like `agent-desk service`, it adopts the session's Wayland
 display when its shell has none, or only Xwayland's `DISPLAY` on a Wayland
-login (#756, #1506). `hex` commands reach only the
-service listener, so a foreground `hex dictate` receives none and says so at
+login (#756, #1506). `agent-desk` commands reach only the
+service listener, so a foreground `agent-desk dictate` receives none and says so at
 startup when no shortcut is bound. With
-`HEX_APPLICATION_SUPPORT_DIR` set, launches never start, stop, or restart the
-installed user unit; they forward to the Hex using that data directory or
-become it. `HEX_SYSTEMD_UNIT` names another unit for isolated tests.
-`hex logs -n 40` is the diagnostic-log view (`hex status --lines` is gone).
+`AGENT_DESK_APPLICATION_SUPPORT_DIR` set, launches never start, stop, or restart the
+installed user unit; they forward to the Agent-Desk using that data directory or
+become it. `AGENT_DESK_SYSTEMD_UNIT` names another unit for isolated tests.
+`agent-desk logs -n 40` is the diagnostic-log view (`agent-desk status --lines` is gone).
 
-The window runs on Rune's app lifetime (`rune::App`): Hex starts it without a
+The window runs on Rune's app lifetime (`rune::App`): Agent-Desk starts it without a
 window, each `Activate` opens or focuses it with the forwarded token (on
 Wayland through `xdg_activation_v1`; without a token most compositors only
 mark it urgent), and closing it keeps the window's state for the next open.
@@ -207,9 +207,9 @@ Vulkan like x64 and fall back to the CPU.
 ### Install script
 
 The script installs the bare executable for your architecture into a
-user-local layout (`~/.local/share/hex`) that updates itself. It installs the
+user-local layout (`~/.local/share/agent-desk`) that updates itself. It installs the
 stable release, or the newest dev build (on the Dev update channel) while
-there is no stable release yet; set `HEX_INSTALL_CHANNEL=stable` or `=dev` to
+there is no stable release yet; set `AGENT_DESK_INSTALL_CHANNEL=stable` or `=dev` to
 choose:
 
 ```sh
@@ -217,8 +217,8 @@ curl -fsSL https://anoma.ly/hex/files/install-linux.sh | sh
 ```
 
 If a runtime library is missing, the installer names the packages to install
-(with Arch names). Then open Hex from your application launcher, or run
-`~/.local/bin/hex`; its first run downloads a speech model.
+(with Arch names). Then open Agent-Desk from your application launcher, or run
+`~/.local/bin/agent-desk`; its first run downloads a speech model.
 
 To install the dependencies up front, or to inspect the installer before
 running it:
@@ -231,38 +231,38 @@ curl --proto '=https' --tlsv1.2 -fsSLO \
   https://anoma.ly/hex/files/install-linux.sh
 less install-linux.sh
 sh install-linux.sh
-~/.local/bin/hex model install
-~/.local/bin/hex
+~/.local/bin/agent-desk model install
+~/.local/bin/agent-desk
 ```
 
 When `wl-copy` is missing, the installer prints the commands to install the
 Wayland helpers: on Debian or Ubuntu, `sudo apt install wl-clipboard wtype`; on
 Fedora, `sudo dnf install wl-clipboard wtype`; on Arch, `sudo pacman -S --needed
 wl-clipboard wtype`. `wtype` is only needed on wlroots compositors and niri,
-where Hex uses it; GNOME and KDE paste through their RemoteDesktop portal.
+where Agent-Desk uses it; GNOME and KDE paste through their RemoteDesktop portal.
 
 The installer verifies the signed release feed, exact artifact size, and
 SHA-256 before installing. It uses no root access. It creates the managed
-version layout, `~/.local/bin/hex`, a desktop launcher, and an XDG autostart
-entry and a `hex.service` user unit. It does not start recording during installation.
+version layout, `~/.local/bin/agent-desk`, a desktop launcher, and an XDG autostart
+entry and a `agent-desk.service` user unit. It does not start recording during installation.
 General › **Launch at login** turns that autostart entry on or off
-(`~/.config/autostart/anomaly.hex.desktop`); Hex leaves an entry it did not write alone.
-Where the desktop has the Background portal (GNOME, KDE), Hex asks it at startup
+(`~/.config/autostart/fheuer.agentdesk.desktop`); Agent-Desk leaves an entry it did not write alone.
+Where the desktop has the Background portal (GNOME, KDE), Agent-Desk asks it at startup
 to run in the background, and Launch at login goes through it: the portal writes
-and removes that same autostart entry (marked `X-XDP-Autostart=anomaly.hex`).
-Elsewhere Hex writes the entry itself. The launcher entry below is written only
+and removes that same autostart entry (marked `X-XDP-Autostart=fheuer.agentdesk`).
+Elsewhere Agent-Desk writes the entry itself. The launcher entry below is written only
 when no installed package or data directory provides one, and left as it is
 while the program it starts is there. Installed by a version manager (mise,
 asdf), both entries start its shim (`~/.local/share/mise/shims/hex`), which
-outlives each version, so an upgrade can't strand them. An entry Hex wrote
-whose program is gone points at this Hex the next time it starts, or goes
+outlives each version, so an upgrade can't strand them. An entry Agent-Desk wrote
+whose program is gone points at this Agent-Desk the next time it starts, or goes
 once a package ships its own.
-The launcher entry is `~/.local/share/applications/anomaly.hex.desktop`, named
-for Hex's app id `anomaly.hex`, which its windows also report. Earlier installs
-named both entries `hex.desktop`; Hex and the installer rename Hex's own.
-Its icon is `anomaly.hex`: packages install it in the hicolor theme, and a
-direct install gets it in `~/.local/share/icons/hicolor` when Hex first starts.
-The tray's symbolic mark, `anomaly.hex-symbolic.svg`, is always written there
+The launcher entry is `~/.local/share/applications/fheuer.agentdesk.desktop`, named
+for Agent-Desk's app id `fheuer.agentdesk`, which its windows also report. Earlier installs
+named both entries `hex.desktop`; Agent-Desk and the installer rename Agent-Desk's own.
+Its icon is `fheuer.agentdesk`: packages install it in the hicolor theme, and a
+direct install gets it in `~/.local/share/icons/hicolor` when Agent-Desk first starts.
+The tray's symbolic mark, `fheuer.agentdesk-symbolic.svg`, is always written there
 too, in `hicolor/scalable/apps`, because packages don't ship it.
 
 Remove the application while preserving logs and settings with:
@@ -276,24 +276,24 @@ or, with a saved copy of the installer, `sh install-linux.sh uninstall`.
 ### Upgrading from 2.3.1
 
 HEX 2.3.1 read every `/dev/input` device on Wayland, so it needed the `input`
-group. Current builds don't: they use the GlobalShortcuts portal or `hex`
+group. Current builds don't: they use the GlobalShortcuts portal or `agent-desk`
 commands bound in your desktop (see [Shortcuts](#shortcuts)). Don't grant input
 access; install the new build instead.
 
-The new build is a separate install in `~/.local/share/hex` and imports
+The new build is a separate install in `~/.local/share/agent-desk` and imports
 nothing from 2.3.1's `~/.local/share/voice-control`, so set up the model and
 settings again. The installer refuses to replace 2.3.1's files, so remove them
 first (the paths below assume the default XDG directories):
 
 ```sh
-systemctl --user disable --now hex.service
-rm -f ~/.config/systemd/user/hex.service ~/.local/bin/hex \
+systemctl --user disable --now agent-desk.service
+rm -f ~/.config/systemd/user/agent-desk.service ~/.local/bin/agent-desk \
   ~/.local/share/applications/hex.desktop ~/.config/autostart/HEX.desktop
 systemctl --user daemon-reload
 rm -rf ~/.local/share/voice-control   # optional: 2.3.1's settings, logs, and models
 curl -fsSL https://anoma.ly/hex/files/install-linux.sh | sh
-~/.local/bin/hex model install
-~/.local/bin/hex
+~/.local/bin/agent-desk model install
+~/.local/bin/agent-desk
 ```
 
 On Hyprland, bind the shortcut in your config as described in
@@ -301,18 +301,18 @@ On Hyprland, bind the shortcut in your config as described in
 
 ### Debian, Ubuntu, Fedora, and openSUSE
 
-The `hex` package installs `/usr/bin/hex`, the desktop entry, and the systemd
-user unit `hex.service` (the same files as the AUR package below). Download
+The `agent-desk` package installs `/usr/bin/hex`, the desktop entry, and the systemd
+user unit `agent-desk.service` (the same files as the AUR package below). Download
 it for your architecture from <https://anoma.ly/hex/download/linux-x64-deb>
 (`linux-arm64-deb`, `linux-x64-rpm`, `linux-arm64-rpm`), then:
 
 ```sh
 sudo apt install ./hex.deb            # Debian, Ubuntu
 sudo dnf install ./hex.rpm            # Fedora (zypper install on openSUSE)
-systemctl --user enable hex.service   # optional: start Hex at login
+systemctl --user enable agent-desk.service   # optional: start Agent-Desk at login
 ```
 
-There is no apt or dnf repository yet. Hex never replaces a package-installed
+There is no apt or dnf repository yet. Agent-Desk never replaces a package-installed
 executable: when a new stable release is out, Settings shows the command that
 downloads and installs its package. Package installs follow the stable channel,
 so a package from the dev channel learns of the next stable release only.
@@ -320,18 +320,18 @@ so a package from the dev channel learns of the next stable release only.
 ### AUR
 
 From the next release on, the AUR package `hex-bin` installs `/usr/bin/hex`,
-the desktop entry, and the systemd user unit `hex.service`, from the same
+the desktop entry, and the systemd user unit `agent-desk.service`, from the same
 release executable, for `x86_64` and `aarch64`. It is not on the AUR yet. With
 an AUR helper:
 
 ```sh
 yay -S hex-bin
-systemctl --user enable hex.service   # optional: start Hex at login
+systemctl --user enable agent-desk.service   # optional: start Agent-Desk at login
 ```
 
-pacman updates it; Hex never replaces a package-installed executable, and
+pacman updates it; Agent-Desk never replaces a package-installed executable, and
 Settings says "Updated by your package manager". It is unrelated to the
-official `hex` package (a hex dump tool that installs `/usr/bin/hx`).
+official `agent-desk` package (a hex dump tool that installs `/usr/bin/hx`).
 
 ## Install From Source
 
@@ -345,14 +345,14 @@ sudo pacman -S --needed base-devel git rustup python alsa-lib curl jq openssl xx
 rustup default stable
 ```
 
-Build and install Hex as your desktop user:
+Build and install Agent-Desk as your desktop user:
 
 ```sh
 git clone https://github.com/anomalyco/hex.git
 cd hex
 ./scripts/install-linux.sh
-~/.local/bin/hex model install
-~/.local/bin/hex
+~/.local/bin/agent-desk model install
+~/.local/bin/agent-desk
 ```
 
 Do not run the installer as root. It installs a user-local binary, desktop
@@ -362,8 +362,8 @@ The in-app updater never replaces a source build; Settings shows "Updated from
 your source checkout", and you update by pulling and running the installer
 again. Installing a published release over it switches back to signed
 updates. With a custom
-`HEX_APPLICATION_SUPPORT_DIR`, `cargo run --release` runs an
-unmanaged development Hex instead; without one it forwards to the installed Hex.
+`AGENT_DESK_APPLICATION_SUPPORT_DIR`, `cargo run --release` runs an
+unmanaged development Agent-Desk instead; without one it forwards to the installed Agent-Desk.
 
 ## Dictate
 
@@ -379,10 +379,10 @@ running state after the edit.
 
 Modes apply corrections, OpenCode rewriting, and transformations per
 application or website; the application picker lists `.desktop` entries. On
-X11, Hex reads the focused application from the active window's process name
+X11, Agent-Desk reads the focused application from the active window's process name
 (`code`, `chrome`). On Wayland, compositors with the foreign-toplevel protocol
 (wlroots compositors such as Sway, niri, Hyprland) report the activated
-window's app ID, which Hex names by its `.desktop` entry
+window's app ID, which Agent-Desk names by its `.desktop` entry
 (`google-chrome-stable`, `firefox`). GNOME and KDE don't report it, so the
 Global mode applies there.
 
@@ -398,7 +398,7 @@ application rule applies. Completed dictations are kept in History.
 on the shortcut press without pre-roll. **While dictating** can mute the default
 output through `wpctl` (PipeWire) or `pactl` (PulseAudio), or pause playing
 MPRIS media players over D-Bus, once the hold passes 300 ms, so shortcut chords
-and short taps never do; Hex restores only what it changed.
+and short taps never do; Agent-Desk restores only what it changed.
 Cancelling shortcut capture preserves the old binding unless the new binding
 has already been saved; listening resumes only if it was previously running.
 
@@ -408,10 +408,10 @@ A Bluetooth headset can't play high-quality audio (A2DP) and use its
 microphone at once. While any application records from the headset's
 microphone, PipeWire (WirePlumber) or the headset switches it to the
 hands-free profile (HFP/HSP): mono, call-quality sound in both directions.
-This is how Bluetooth audio works, not something Hex chooses, and how quickly
+This is how Bluetooth audio works, not something Agent-Desk chooses, and how quickly
 the headset switches back depends on the headset and WirePlumber's settings.
 
-If Hex records from the headset's microphone, **Turn off the mic when not
+If Agent-Desk records from the headset's microphone, **Turn off the mic when not
 dictating** trades off differently on and off:
 
 - **On** opens the microphone only when you press the shortcut,
@@ -419,7 +419,7 @@ dictating** trades off differently on and off:
   drops out or pauses during the switch, and the microphone takes longer to
   open, so the first words can be lost.
 - **Off** (the default) keeps the microphone open, so the headset stays in hands-free
-  mode, with call-quality playback, for as long as Hex listens.
+  mode, with call-quality playback, for as long as Agent-Desk listens.
 
 The recommended setup is a separate microphone for input (the laptop's
 built-in microphone or a USB microphone) and the Bluetooth earbuds for output
@@ -435,129 +435,129 @@ default) helps only part of the way:
   or `--device`, is always used as named.
 - It needs another hardware input that isn't reported unplugged, and
   `pactl` (PipeWire's PulseAudio server or PulseAudio) to move the stream.
-  With no other input, Hex records from the headset.
-- On Linux, Hex can only open ALSA's default device, which is the Bluetooth
+  With no other input, Agent-Desk records from the headset.
+- On Linux, Agent-Desk can only open ALSA's default device, which is the Bluetooth
   source, and then moves its own stream to the other microphone. The stream
   is briefly on the headset first, so the headset may still switch to
-  hands-free mode, and Hex doesn't switch its profile back. Forcing the
+  hands-free mode, and Agent-Desk doesn't switch its profile back. Forcing the
   headset's profile is up to your sound settings.
-- It changes only Hex's own recording, never other applications or the
+- It changes only Agent-Desk's own recording, never other applications or the
   system default.
 
 To avoid the switch entirely, use the recommended setup above.
 
 ## Shortcuts
 
-Hex gets its shortcuts one of three ways, and all of them drive the same
+Agent-Desk gets its shortcuts one of three ways, and all of them drive the same
 dictation rules:
 
-- **X11:** Hex grabs the shortcuts Settings records.
+- **X11:** Agent-Desk grabs the shortcuts Settings records.
 - **Wayland with the GlobalShortcuts portal** (for example niri with
-  `xdg-desktop-portal-gnome`, GNOME, or KDE): Hex asks the desktop for the
+  `xdg-desktop-portal-gnome`, GNOME, or KDE): Agent-Desk asks the desktop for the
   shortcuts Settings records. The desktop decides: it may grant them, assign
   another key, or refuse one that it or another binding already uses. Settings
   lists what the desktop granted under **Desktop shortcuts**, with an error for
   any it refused. A desktop may keep an older binding when you record a new
   shortcut (KDE does); where its portal supports it, **Desktop shortcuts >
-  Open** shows the desktop's own dialog for Hex's shortcuts, and Settings
+  Open** shows the desktop's own dialog for Agent-Desk's shortcuts, and Settings
   follows what you choose there. KDE asks once in a "Global Shortcuts
-  Requested" dialog; Hex waits for your answer, and if you cancel it KDE asks
-  again the next time Hex binds. Hex's shortcuts are listed under **Hex** in
-  System Settings › Keyboard › Shortcuts. The portal identifies Hex by its app id
-  `anomaly.hex`, its installed `anomaly.hex.desktop` entry, and by inspecting
-  the Hex process. A downloaded executable has no entry, so Hex writes a minimal
-  `~/.local/share/applications/anomaly.hex.desktop` that runs it (a managed
+  Requested" dialog; Agent-Desk waits for your answer, and if you cancel it KDE asks
+  again the next time Agent-Desk binds. Agent-Desk's shortcuts are listed under **Agent-Desk** in
+  System Settings › Keyboard › Shortcuts. The portal identifies Agent-Desk by its app id
+  `fheuer.agentdesk`, its installed `fheuer.agentdesk.desktop` entry, and by inspecting
+  the Agent-Desk process. A downloaded executable has no entry, so Agent-Desk writes a minimal
+  `~/.local/share/applications/fheuer.agentdesk.desktop` that runs it (a managed
   install replaces it); if the portal still can't find it, restart the portal with
-  `systemctl --user restart xdg-desktop-portal`. Run `hex service` directly:
+  `systemctl --user restart xdg-desktop-portal`. Run `agent-desk service` directly:
   a setgid wrapper such as `newgrp`, once used to grant input-device access,
-  makes the portal refuse Hex. The desktop delivers the keys to Hex, not to the
+  makes the portal refuse Agent-Desk. The desktop delivers the keys to Agent-Desk, not to the
   focused application. On GNOME and KDE Plasma, new setups dictate with Ctrl+Alt+Space,
   because GNOME keeps Alt+Space for the window menu and Plasma for KRunner; Settings warns when a shortcut uses a key GNOME
   keeps for itself. Keys you change in GNOME Settings › Keyboard work at once,
-  and Hex's Settings and `hex status --json` show them. Annotate's shortcut (F9
-  by default) sits under the dictation shortcut in General. **Disable** (General or the tray) keeps Hex disabled
+  and Agent-Desk's Settings and `agent-desk status --json` show them. Annotate's shortcut (F9
+  by default) sits under the dictation shortcut in General. **Disable** (General or the tray) keeps Agent-Desk disabled
   across restarts until you enable it again. On GNOME, Disable also removes
-  Hex's entries from Settings › Keyboard › Global Shortcuts; Enable then asks
-  you to approve them again. Hex also removes the duplicate list that versions
-  before `anomaly.hex` left under the id `hex`.
+  Agent-Desk's entries from Settings › Keyboard › Global Shortcuts; Enable then asks
+  you to approve them again. Agent-Desk also removes the duplicate list that versions
+  before `fheuer.agentdesk` left under the id `agent-desk`.
 - **Hyprland** has the portal but takes every shortcut without a key, so
   nothing happens until you bind one in your config, and the key Settings
-  records is not used. Hex can't tell whether your config binds it. Prefer
+  records is not used. Agent-Desk can't tell whether your config binds it. Prefer
   keys without modifiers, because Hyprland adds every modifier you still hold
-  to Hex's paste (see [Native Wayland Requirements](#native-wayland-requirements)).
+  to Agent-Desk's paste (see [Native Wayland Requirements](#native-wayland-requirements)).
   Avoid Alt in the bind too: Hyprland takes the key (Space) but lets Alt
   through to the focused window, so Electron apps with a hidden menu bar
   (Slack, Discord, VS Code) see Alt pressed and released alone, move focus to
   their menu, and the paste lands there instead of the message box
-  (#1023). Hex still logs the
+  (#1023). Agent-Desk still logs the
   paste as sent. Ctrl+Space or a key without modifiers works.
-  Hyprland names each shortcut `anomaly.hex:<shortcut>`: `anomaly.hex:dictation`,
-  `anomaly.hex:paste-last`, `anomaly.hex:capture` (Annotate),
-  `anomaly.hex:raw-dictation` (Dictate without processing),
-  `anomaly.hex:terminal-paste` (Labs › Terminal paste shortcut, while on),
-  and, while the assistant is on, `anomaly.hex:assistant-action` and
-  `anomaly.hex:assistant-stop-all`.
+  Hyprland names each shortcut `fheuer.agentdesk:<shortcut>`: `fheuer.agentdesk:dictation`,
+  `fheuer.agentdesk:paste-last`, `fheuer.agentdesk:capture` (Annotate),
+  `fheuer.agentdesk:raw-dictation` (Dictate without processing),
+  `fheuer.agentdesk:terminal-paste` (Labs › Terminal paste shortcut, while on),
+  and, while the assistant is on, `fheuer.agentdesk:assistant-action` and
+  `fheuer.agentdesk:assistant-stop-all`.
   The names stay the
   same when you record another key in Settings (#1376), so a bind keeps
-  working; `hyprctl globalshortcuts` lists them while Hex runs. For example:
+  working; `hyprctl globalshortcuts` lists them while Agent-Desk runs. For example:
 
 ```lua
-hl.bind("End", hl.dsp.global("anomaly.hex:dictation"))
-hl.bind("F10", hl.dsp.global("anomaly.hex:paste-last"))
+hl.bind("End", hl.dsp.global("fheuer.agentdesk:dictation"))
+hl.bind("F10", hl.dsp.global("fheuer.agentdesk:paste-last"))
 ```
 
   Traditional Hyprland configs write
-  `bind = , End, global, anomaly.hex:dictation`. Hex 3.3 and earlier put the
-  recorded key in the name (`anomaly.hex:dictation-ALT-space`); Hex still
+  `bind = , End, global, fheuer.agentdesk:dictation`. Agent-Desk 3.3 and earlier put the
+  recorded key in the name (`fheuer.agentdesk:dictation-ALT-space`); Agent-Desk still
   answers those names, but only for the key recorded in Settings when the
   bind was written, so switch them to the bare names before you record
   another key. Binds to `hex:dictation` or `hex:paste-last` (names from
-  before Hex's app id was `anomaly.hex`) do nothing now, so replace them. Remove any `cancel-dictation`
-  bind: Hex no longer has it. Hyprland 0.56's Lua binds send no release when the modifier comes
+  before Agent-Desk's app id was `fheuer.agentdesk`) do nothing now, so replace them. Remove any `cancel-dictation`
+  bind: Agent-Desk no longer has it. Hyprland 0.56's Lua binds send no release when the modifier comes
   up before the key (Alt before Z); 0.57 fixes this. On 0.56, Toggle is
   unaffected: the next press still finishes. In Hold, recording continues
   until the next press and release, so lift the key first or use Toggle.
-  For hold-to-talk that doesn't depend on the portal's release, bind Hex's
+  For hold-to-talk that doesn't depend on the portal's release, bind Agent-Desk's
   own commands instead (below), for example
-  `bind = , End, exec, hex dictation start` with
-  `bindr = , End, exec, hex dictation stop`, or one
-  `bind = , End, exec, hex dictation toggle`. Pasting into a terminal needs
+  `bind = , End, exec, agent-desk dictation start` with
+  `bindr = , End, exec, agent-desk dictation stop`, or one
+  `bind = , End, exec, agent-desk dictation toggle`. Pasting into a terminal needs
   **Terminal paste** (Ctrl+Shift+V) unless the terminal accepts
   Ctrl+V.
 - **Wayland without the portal** (for example Sway): nothing registers global
   shortcuts. Settings lists these commands; bind them in your desktop's own
-  keyboard configuration. They reach only the listener `hex start` or
-  `hex service` runs; a foreground `hex dictate` can't receive them:
+  keyboard configuration. They reach only the listener `agent-desk start` or
+  `agent-desk service` runs; a foreground `agent-desk dictate` can't receive them:
 
 ```sh
-hex dictation start     # bind to a key's press: start recording
-hex dictation stop      # bind to the same key's release: stop and transcribe
-hex dictation toggle    # one key: start, then stop and transcribe
-hex paste-last          # paste the last dictation again
-hex typed-text          # Labs › Transform typed text: replace the focused field's text
-hex dictation toggle --raw  # dictate without processing: paste the words as heard
+agent-desk dictation start     # bind to a key's press: start recording
+agent-desk dictation stop      # bind to the same key's release: stop and transcribe
+agent-desk dictation toggle    # one key: start, then stop and transcribe
+agent-desk paste-last          # paste the last dictation again
+agent-desk typed-text          # Labs › Transform typed text: replace the focused field's text
+agent-desk dictation toggle --raw  # dictate without processing: paste the words as heard
 ```
 
 For example, hold-to-dictate on F9 in Sway, and a toggle in any desktop that
 runs commands on key presses only:
 
 ```sh
-bindsym F9 exec hex dictation start
-bindsym --release F9 exec hex dictation stop
-bindsym Ctrl+Alt+d exec hex dictation toggle
+bindsym F9 exec agent-desk dictation start
+bindsym --release F9 exec agent-desk dictation stop
+bindsym Ctrl+Alt+d exec agent-desk dictation toggle
 ```
 
 GNOME 46 and older (Ubuntu 24.04) have no shortcuts portal. There, Settings ›
-Desktop shortcuts › **Add GNOME keyboard shortcuts** writes Hex's own entries
+Desktop shortcuts › **Add GNOME keyboard shortcuts** writes Agent-Desk's own entries
 into GNOME Settings › Keyboard › Custom Shortcuts with your shortcuts:
-`hex dictation toggle` (GNOME runs custom shortcuts on the key press only, so
-dictation toggles), `hex paste-last`, `hex typed-text` while Transform typed
-text is on and its shortcut is bound, and `hex annotate toggle` while Annotate
-is on. Hex removes them while it's disabled and puts them back when you enable
+`agent-desk dictation toggle` (GNOME runs custom shortcuts on the key press only, so
+dictation toggles), `agent-desk paste-last`, `agent-desk typed-text` while Transform typed
+text is on and its shortcut is bound, and `agent-desk annotate toggle` while Annotate
+is on. Agent-Desk removes them while it's disabled and puts them back when you enable
 it; **Remove** takes them out for good. Keys you change in GNOME Settings stay.
-Hex never touches your other custom shortcuts.
+Agent-Desk never touches your other custom shortcuts.
 
-`hex dictation stop --print` stops the same way, then waits up to 60 s and
+`agent-desk dictation stop --print` stops the same way, then waits up to 60 s and
 writes the transcript to stdout instead of pasting it, after the same
 processing a paste gets. Only that command waits; the listener stops
 recording at once, so a following `start` isn't blocked. No speech exits 4
@@ -566,7 +566,7 @@ and never pastes. History keeps the text as Printed, and Paste Last skips it.
 See `docs/cli.md`.
 
 The commands are safe to bind anywhere, including X11 beside the grabs. They
-talk to the running Hex and never start it: without one, or while Hex is
+talk to the running Agent-Desk and never start it: without one, or while Agent-Desk is
 not listening, they print a one-line error and exit non-zero. Starting while recording,
 and stopping while idle do nothing, so key repeat is
 harmless. Start and stop bypass Hold, Toggle, and double-tap: start records,
@@ -574,33 +574,33 @@ stop finishes. A shortcut press also finishes a recording a command started.
 
 In **Tap** mode, a **Cancel** shortcut (Escape by default) throws away the
 recording: nothing is pasted or saved, and dictations already transcribing
-still finish. On X11, Hex grabs that key only while a recording runs, so it
+still finish. On X11, Agent-Desk grabs that key only while a recording runs, so it
 works normally everywhere else. On Wayland a desktop shortcut would hold the
-key all the time, so Hex binds nothing; bind `hex dictation cancel` to a key in
-your desktop's keyboard shortcuts instead. `hex dictation cancel` works in any
+key all the time, so Agent-Desk binds nothing; bind `agent-desk dictation cancel` to a key in
+your desktop's keyboard shortcuts instead. `agent-desk dictation cancel` works in any
 mode. In the Hold modes there is no cancel: every dictation finishes and pastes.
-On KDE, Hex removes the Cancel dictation shortcut older builds asked for,
+On KDE, Agent-Desk removes the Cancel dictation shortcut older builds asked for,
 so its key returns to your applications.
 
 Shortcuts need a non-modifier key. Modifier-only shortcuts, such as Super
 alone, are not supported on Linux.
 
-On X11, Hex grabs Escape only while Annotate draws, where it stops drawing. If
-another application holds it, drawing goes on and Hex logs it once.
+On X11, Agent-Desk grabs Escape only while Annotate draws, where it stops drawing. If
+another application holds it, drawing goes on and Agent-Desk logs it once.
 
-While the assistant is on, Hex registers two more shortcuts: the **Action
+While the assistant is on, Agent-Desk registers two more shortcuts: the **Action
 shortcut** (`assistant.action_hotkey`, Ctrl+Alt+A by default) and **Stop all
 tasks** (`assistant.stop_all_hotkey`, Ctrl+Alt+Q by default). Hold the Action
 shortcut and speak to ask the assistant: the words are processed like a
 dictation but never pasted, copied, offered to Paste last, or saved to
 History. Tap it and then hold it to start a background task; double-tap it to
 show or hide the task list. It always works as hold-to-talk, whatever the
-dictation shortcut's mode, and `hex dictation stop` never finishes it (`hex
+dictation shortcut's mode, and `agent-desk dictation stop` never finishes it (`hex
 dictation cancel` discards it). Stop all tasks stops every assistant task and
 the answer being read aloud. On Wayland the portal lists them as "Ask the
 assistant (hold)" (`assistant-action`) and "Stop all assistant tasks"
-(`assistant-stop-all`); Hyprland names them `anomaly.hex:assistant-action` and
-`anomaly.hex:assistant-stop-all`. On X11, Hex also grabs Escape while a quick
+(`assistant-stop-all`); Hyprland names them `fheuer.agentdesk:assistant-action` and
+`fheuer.agentdesk:assistant-stop-all`. On X11, Agent-Desk also grabs Escape while a quick
 question runs or an answer is read aloud and nothing records; Escape then
 stops those (never background tasks). The portal can't bind Escape, so on
 Wayland use Stop all tasks instead.
@@ -612,46 +612,46 @@ or paste), and a cancel sound acknowledges cancellation of an active capture.
 Brief taps still play the start sound, but recordings shorter than 300 ms remain
 discarded and do not play the stop sound. **Sound volume** in Settings
 offers Off, 25%, 50%, 75%, and 100%; changes save immediately without restarting
-the listener and preview the start sound unless set to Off. `hex dictate` uses
+the listener and preview the start sound unless set to Off. `agent-desk dictate` uses
 the same saved volume. Playback uses the default audio output through a bounded
 background worker; unavailable audio output does not prevent dictation.
 
-Closing the window leaves Hex running on both X11 and Wayland. The
+Closing the window leaves Agent-Desk running on both X11 and Wayland. The
 recording/processing pill never takes focus or intercepts clicks, with or
 without the window open: a Rune overlay that is a layer-shell surface on
 Wayland and an override-redirect window on X11. On a Wayland compositor without
 layer-shell (GNOME), only the pill opens on XWayland, as that X11 window with an
-empty input shape on the primary monitor; the rest of Hex, including the window
+empty input shape on the primary monitor; the rest of Agent-Desk, including the window
 and portal shortcuts, stays on Wayland. It needs the window's event
 loop, so it is unavailable when the window cannot start (no display or GPU)
-and in `hex dictate`. **Recording indicator** places it at the top or bottom of the
+and in `agent-desk dictate`. **Recording indicator** places it at the top or bottom of the
 screen, or turns it off.
 
 Insertion uses the clipboard and **Ctrl-V** for new installations. Enable
 **Terminal paste** in Settings for targets that require **Ctrl-Shift-V**.
-Labs › Terminal paste shortcut (`hex labs on terminal-paste-shortcut`, off by
+Labs › Terminal paste shortcut (`agent-desk labs on terminal-paste-shortcut`, off by
 default) adds a second dictation shortcut whose paste is always Ctrl-Shift-V,
-while the main shortcut keeps this setting. On X11 Hex grabs it like the other
-dictation shortcuts; on Wayland it needs the desktop's shortcuts portal (Hex
-asks for `anomaly.hex:terminal-paste`). There is no `hex` command for it, so
+while the main shortcut keeps this setting. On X11 Agent-Desk grabs it like the other
+dictation shortcuts; on Wayland it needs the desktop's shortcuts portal (Agent-Desk
+asks for `fheuer.agentdesk:terminal-paste`). There is no `agent-desk` command for it, so
 without X11 grabs or the portal the shortcut cannot be registered.
 Existing X11 settings retain their previous Ctrl-Shift-V behavior until changed.
 The target application must accept the selected binding.
 
-After a paste, Hex puts the previous clipboard back, as on macOS
+After a paste, Agent-Desk puts the previous clipboard back, as on macOS
 ([#391](https://github.com/anomalyco/hex/issues/391)). Before writing the
 transcript it reads every format the clipboard offers (text, rich text, images),
 up to 32 MiB within one second, and 500 ms after the paste shortcut serves them
-again from Hex until something else copies. It restores only if nothing newer
+again from Agent-Desk until something else copies. It restores only if nothing newer
 replaced the transcript in the meantime: a later dictation, a copy, or another
 application. An empty clipboard stays empty. A larger or unreadable clipboard
-is left holding the transcript, and Hex's log says why. When automatic paste
+is left holding the transcript, and Agent-Desk's log says why. When automatic paste
 fails after `wl-copy` has taken the transcript, it stays on the clipboard for
 Ctrl+V. Nothing confirms the target read the paste, so a target stalled past
 the delay can paste the restored clipboard instead (see
 [#24](https://github.com/anomalyco/hex/issues/24)).
 
-Labs › Keep dictation on clipboard (`hex labs on keep-on-clipboard`, off by
+Labs › Keep dictation on clipboard (`agent-desk labs on keep-on-clipboard`, off by
 default) leaves each ordinary dictation on the clipboard instead: the paste
 snapshots nothing and schedules no restore, and a restore an earlier paste was
 still waiting to make is dropped, so a later paste with the lab off cannot
@@ -665,26 +665,26 @@ compositors, niri, Hyprland); without either the transcript stays, and
 Settings › Output says so.
 
 GNOME offers neither. There you can opt in to Labs › Restore clipboard on
-GNOME (`hex labs on gnome-clipboard-restore`, off by default): Hex then reads
+GNOME (`agent-desk labs on gnome-clipboard-restore`, off by default): Agent-Desk then reads
 and restores the clipboard through XWayland, which GNOME keeps in sync with
 Wayland apps both ways. It works only while XWayland is already running (an X11
-app is open and `DISPLAY` is set); Hex never starts XWayland, and otherwise the
+app is open and `DISPLAY` is set); Agent-Desk never starts XWayland, and otherwise the
 transcript stays and the log says why. The same rules apply: nothing newer is
 ever overwritten.
 
-On GNOME, Hex pastes through the RemoteDesktop portal, and GNOME shows its
-remote-control indicator while that session is open. Hex closes it 15 seconds
+On GNOME, Agent-Desk pastes through the RemoteDesktop portal, and GNOME shows its
+remote-control indicator while that session is open. Agent-Desk closes it 15 seconds
 after the last paste and reopens it at the next one with the grant you
 approved, so you're asked only once.
 
 ## Native Wayland Requirements
 
 - Export the compositor's nonempty `WAYLAND_DISPLAY` in the launch environment.
-  Hex and its window (winit) select the same native backend even when XWayland's
+  Agent-Desk and its window (winit) select the same native backend even when XWayland's
   `DISPLAY` is also present. `XDG_SESSION_TYPE` alone does not select Wayland.
 - Install `wl-clipboard`. Every Wayland copy and paste runs `wl-copy`; without
-  it, Settings and `hex status` warn while the listener runs, and a dictation
-  fails naming the package to install. Hex copies each transcript, then sends
+  it, Settings and `agent-desk status` warn while the listener runs, and a dictation
+  fails naming the package to install. Agent-Desk copies each transcript, then sends
   Ctrl+V (or Ctrl+Shift+V with terminal paste) through one of two general
   paths, chosen at the first paste:
   - `wtype`, when the compositor offers the virtual keyboard protocol
@@ -692,8 +692,8 @@ approved, so you're asked only once.
     `wtype` is installed.
   - Otherwise the desktop's RemoteDesktop portal
     (`org.freedesktop.portal.RemoteDesktop`; KDE, GNOME). The first paste asks
-    you to allow Hex to control the keyboard; Hex keeps the portal's restore
-    token (`remote-desktop-token` in Hex's data folder), so it asks once. Revoke
+    you to allow Agent-Desk to control the keyboard; Agent-Desk keeps the portal's restore
+    token (`remote-desktop-token` in Agent-Desk's data folder), so it asks once. Revoke
     it in the desktop's settings.
   - With neither, the dictation fails with "Copied to the clipboard; press
     Ctrl+V to paste" and, with `wl-copy` installed, the transcript stays on the
@@ -708,33 +708,33 @@ approved, so you're asked only once.
   XWayland as an override-redirect, click-through window that never takes
   focus. The meeting capsules take clicks, so there a call offer opens the
   Meetings pane instead, unless you opt in to Labs › Floating meeting capsules
-  on GNOME (`hex labs on gnome-meeting-capsules`, off by default): the offer
+  on GNOME (`agent-desk labs on gnome-meeting-capsules`, off by default): the offer
   and recording capsule then float over the call on XWayland, taking clicks
   on their buttons but never keyboard focus. It works only while XWayland is
-  already running; Hex never starts it. Annotate's capsule and ink take
+  already running; Agent-Desk never starts it. Annotate's capsule and ink take
   clicks too, so a capture records with no capsule unless you opt in to Labs ›
-  Annotate on GNOME (`hex labs on gnome-annotate`, off by default): the
+  Annotate on GNOME (`agent-desk labs on gnome-annotate`, off by default): the
   capsule and ink then float on XWayland the same way. Esc can't stop drawing
   there, so use the capsule's pen button or let go of a held Annotate key (a
   tap of it stops the recording). With neither, Settings reports that the HUD
   is unavailable rather than presenting a normal focus-taking window as an
   overlay.
 - Shortcuts come from the GlobalShortcuts portal or from your own keybindings
-  for the `hex` commands ([Shortcuts](#shortcuts)). Hex reads no input devices
+  for the `agent-desk` commands ([Shortcuts](#shortcuts)). Agent-Desk reads no input devices
   and needs no `input` group membership or other device permission. If the
   desktop closes the portal session, the listener stops with an error and an
-  active recording is cancelled; enable it again from Settings or `hex start`.
-- Hex can't see which keys are down on Wayland, and some compositors merge
+  active recording is cancelled; enable it again from Settings or `agent-desk start`.
+- Agent-Desk can't see which keys are down on Wayland, and some compositors merge
   held physical modifiers into its paste: on Hyprland, Alt still held from
   Alt+Z turns `wtype`'s Ctrl+V into Ctrl+Alt+V, and a paste-last bound to
   Ctrl+Alt+V is matched by Hyprland again and never reaches the app. The
   RemoteDesktop portal shares the desktop's keyboard the same way. So when a
-  shortcut with modifiers asks for a paste, Hex waits for its release (the
+  shortcut with modifiers asks for a paste, Agent-Desk waits for its release (the
   portal's Deactivated) plus 250 ms, at most 2 s after a press whose release
-  never comes. After a `hex` command, whose keybinding Hex can't see, it waits
+  never comes. After a `agent-desk` command, whose keybinding Agent-Desk can't see, it waits
   250 ms. A modifier still held past that changes the paste, so bind keys
   without modifiers (End, F-keys) or let go of the modifiers before the
-  transcript arrives. Hex logs a dictation as pasted once it sent the paste
+  transcript arrives. Agent-Desk logs a dictation as pasted once it sent the paste
   shortcut; it can't confirm the application accepted it. A compositor that
   passes a shortcut's Alt through to the app (Hyprland) can also open an
   Electron app's menu when Alt comes up, which takes the paste (see
@@ -742,11 +742,11 @@ approved, so you're asked only once.
 
 ## Updates And Validation
 
-Managed installs check for signed updates when Hex starts and every
-24 hours until an update is ready. Hex downloads, verifies, and activates an
+Managed installs check for signed updates when Agent-Desk starts and every
+24 hours until an update is ready. Agent-Desk downloads, verifies, and activates an
 available update, then offers an **Update** button in the window that restarts
 the unit and reopens the window. The next launch
-through `~/.local/bin/hex` also uses the activated version. The signed update
+through `~/.local/bin/agent-desk` also uses the activated version. The signed update
 path is implemented but still awaiting a complete cross-version validation on
 the supported Arch/i3 host.
 
@@ -760,10 +760,10 @@ paste helpers against a GTK target under an isolated headless Sway compositor.
 Its first paste runs while another virtual keyboard holds Ctrl and Alt.
 It then checks that every format of the previous clipboard comes back after the
 paste, and that an empty clipboard stays empty.
-It also starts an isolated Hex, opens its window through a second `hex app`
+It also starts an isolated Agent-Desk, opens its window through a second `agent-desk app`
 (the window must belong to the same process), repeats paste while the window is
 open, closes the window, checks that the same process still answers, opens the
-window again (`HEX_WAYLAND_REOPEN=0` skips that), and quits. It requires the GTK development
+window again (`AGENT_DESK_WAYLAND_REOPEN=0` skips that), and quits. It requires the GTK development
 libraries, Sway, `wl-clipboard`, `wtype`, `dbus-run-session`, and a Vulkan driver
 (Mesa's software driver is sufficient), and must run as a non-root user. It uses
 isolated app data and no microphone; CI runs it with the display-free suite and
@@ -771,8 +771,8 @@ Xvfb hotkey tests.
 
 `scripts/test-linux-dictation.sh /path/to/hex /path/to/parakeet-unified-en-0.6b-Q8_0.gguf /path/to/jfk.wav`
 checks the complete X11 app dictation path with a private PulseAudio virtual
-microphone and Xvfb display. It opens the window in the running Hex through a
-second `hex app`, replays the public JFK sample from whisper.cpp, holds and releases the real
+microphone and Xvfb display. It opens the window in the running Agent-Desk through a
+second `agent-desk app`, replays the public JFK sample from whisper.cpp, holds and releases the real
 shortcut, verifies the transcribed words in a GTK editor, and checks orderly
 application shutdown and microphone release. It needs PulseAudio, its ALSA
 plugin, `xdotool`, Xvfb, the GTK development libraries, and a Vulkan driver for
@@ -781,10 +781,10 @@ temporary settings; it does not use physical audio devices or personal recording
 CI downloads and verifies the pinned model and sample for this check.
 
 `python3 scripts/test-linux-service.py /path/to/hex` is a display-free,
-device-free single-instance check: commands fail fast without Hex, `hex start`
-becomes Hex, second launches (`start`, `app --hidden`, `service`, `app`) forward
+device-free single-instance check: commands fail fast without Agent-Desk, `agent-desk start`
+becomes Agent-Desk, second launches (`start`, `app --hidden`, `service`, `app`) forward
 and exit 0, a window request without a display fails only the window,
 same-user socket permissions, version-1 clients get an error, invalid,
 oversized, and stalled frames, crash/stale-socket recovery, two racing launches
-yield one Hex, `hex quit` drains and removes the socket, and a custom data
+yield one Agent-Desk, `agent-desk quit` drains and removes the socket, and a custom data
 directory never runs `systemctl`.

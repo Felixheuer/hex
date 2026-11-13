@@ -1,4 +1,4 @@
-# Hex for Claude Code
+# Agent-Desk for Claude Code
 
 `AGENTS.md` is the guide for this repo. It is large (about 125 KB), so grep it
 for the section you need instead of reading it whole.
@@ -7,7 +7,7 @@ for the section you need instead of reading it whole.
 
 - **Never run the whole test suite more than once at a time.** Many tests
   open CoreAudio devices and listeners. Several unfiltered
-  `cargo test --bin hex` runs at once (parallel subagents, worktrees, or
+  `cargo test --bin agent-desk` runs at once (parallel subagents, worktrees, or
   terminals) once wedged `coreaudiod` and the Mac had no sound until
   `sudo killall coreaudiod`. Filter to the modules you touch, and avoid
   audio, microphone, feedback, meeting, and recording tests unless you
@@ -18,16 +18,16 @@ for the section you need instead of reading it whole.
   using it. Read-only desktop checks only.
 - This is a fork: commit and push to `Felixheuer/hex`, never to
   `anomalyco/hex`. Its default branch is `dev`; there is no `main`.
-- Two apps on this Mac, side by side: **Live** is `/Applications/Hex.app`
-  (`anomaly.hex`), the published Pilot release that updates itself; **Dev**
-  is `/Applications/Hex Dev.app` (`anomaly.hex.dev`, `HEX_DEV_BUILD=1`),
-  this checkout, with its own data (`hex-dev`), URL scheme (`hex-dev://`),
+- Two apps on this Mac, side by side: **Live** is `/Applications/Agent-Desk.app`
+  (`fheuer.agentdesk`), the published Pilot release that updates itself; **Dev**
+  is `/Applications/Agent-Desk Dev.app` (`fheuer.agentdesk.dev`, `AGENT_DESK_DEV_BUILD=1`),
+  this checkout, with its own data (`agent-desk-dev`), URL scheme (`agent-desk-dev://`),
   and a DEV band on its icon. Starting one quits the other (shared
   shortcuts and microphone). `scripts/install-fork.sh` builds, signs with
   the Apple Development certificate (so Dev's permissions survive rebuilds),
-  installs Hex Dev without opening it (`--open` opens it), and removes every
-  other copy of Hex (old `target/app` bundles, Hex Test, stray downloads;
-  `--dry-run` lists them; `hex dev copies`). Never install a source build
+  installs Agent-Desk Dev without opening it (`--open` opens it), and removes every
+  other copy of Agent-Desk (old `target/app` bundles, Agent-Desk Test, stray downloads;
+  `--dry-run` lists them; `agent-desk dev copies`). Never install a source build
   over Live. `scripts/update-fork.sh` pulls `origin/dev` and reinstalls Dev;
   `scripts/sync-upstream.sh [--merge]` brings in anomalyco's `dev` on a
   `sync/upstream-<date>` branch first.

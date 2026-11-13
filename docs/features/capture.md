@@ -1,17 +1,17 @@
 # Annotate (macOS, Linux, and Windows)
 
-Annotate is Scrawl's capture engine hosted inside Hex (code and settings keep
+Annotate is Scrawl's capture engine hosted inside Agent-Desk (code and settings keep
 the name `capture`), steps 3 to 5 of
 [the plan](../plans/capture-in-hex.md). It runs the real
 `scrawl-capture` crate, imported into `crates/capture`: it records the active
 display with ScreenCaptureKit, on Linux the screen-cast portal and
 PipeWire (`capture.linux`), on Windows Windows.Graphics.Capture
 (`capture.windows`), (or a cabled iPhone through `scrawl-helper`'s
-mirror) and narration from Hex's microphone, takes ink and clicks (Shift on
+mirror) and narration from Agent-Desk's microphone, takes ink and clicks (Shift on
 macOS and Windows, or the Annotate key held or the pen), transcribes the narration with word timestamps on
-Hex's loaded model, writes a Scrawl bundle into Scrawl's captures folder,
+Agent-Desk's loaded model, writes a Scrawl bundle into Scrawl's captures folder,
 copies it to the clipboard, and sends it to an OpenCode session with Scrawl's
-router (`crates/router`), run in Hex's process. Settings › Annotate (under
+router (`crates/router`), run in Agent-Desk's process. Settings › Annotate (under
 Labs in the sidebar) holds its settings. Scrawl's capsule (switch
 chips, the on-screen picker, route chips) and its ink and laser overlay are
 Rune overlays.
@@ -21,7 +21,7 @@ Turn it on                               // capture.gate
 ├── On by default in every macOS, Linux, and Windows build, stable included
 │   (capture.enabled); the `annotate-on-by-default` migration turns it on
 │   once for older settings
-│   └── macOS bundles sign scrawl-helper beside `hex`; validate-app.sh requires it
+│   └── macOS bundles sign scrawl-helper beside `agent-desk`; validate-app.sh requires it
 ├── Nothing is asked at launch: Screen Recording (macOS) at the first capture,
 │   the portal's dialog (Linux) at the first Screen capture; Windows asks
 │   nothing
@@ -29,7 +29,7 @@ Turn it on                               // capture.gate
 │   iPhone, then Microphone, then Accessibility; capture_host::permissions)
 │   -> refused with code `permission`, no error tone, and the capsule's
 │   permission helper opens (capture.permission)
-└── Off -> no capture host, engine, sink, thread, or folder; `hex annotate` -> feature-off
+└── Off -> no capture host, engine, sink, thread, or folder; `agent-desk annotate` -> feature-off
 
 Draw                                     // capture.draw (capture_host::drawing)
 ├── One key: tap (under DRAW_HOLD, 250 ms) to start and again to stop; held
@@ -58,7 +58,7 @@ Draw                                     // capture.draw (capture_host::drawing)
 │   clicks never reach the app; the capsule stays clickable above it (macOS:
 │   its level; Linux: the overlay leaves a hole over the capsule's pill).
 │   Every move draws ink; there are no pins and no undo
-├── `hex annotate draw` (Linux) -> the pen on or off, for desktops without
+├── `agent-desk annotate draw` (Linux) -> the pen on or off, for desktops without
 │   the portal (it starts a recording drawing)
 ├── Default key: ⌥⇧S on macOS; F9 on Linux and Windows, a single key one hand holds
 │   while the other moves the mouse (F10 is GTK's menu key, F11 full screen,
@@ -95,8 +95,8 @@ On Linux                                 // capture.linux
 │   ffmpeg. No
 │   portal and no dialog, so i3 and other desktops without a ScreenCast
 │   backend record (#690, @nefthy). Screen is the RandR monitor under the
-│   pointer; Area is `hex annotate start --area X,Y,W,H` (pixels), clipped to
-│   the screen. Hex's own overlays show in it. A Window still goes through
+│   pointer; Area is `agent-desk annotate start --area X,Y,W,H` (pixels), clipped to
+│   the screen. Agent-Desk's own overlays show in it. A Window still goes through
 │   the portal's picker and, without one, fails saying to record the screen
 │   or an area. Can't open the display, an unusual pixel depth, or no
 │   ffmpeg/x264 -> the capture fails at once with why in the capsule, never
@@ -124,7 +124,7 @@ On Linux                                 // capture.linux
 │   to a 2560 px long edge (1920 for a window, exact even sides padded to 16 px
 │   macroblocks and cropped in SPS) and converted on the video engine, H.264
 │   High at a constant QP and computed level (4.2 at 1080p60, 5.1 at 1440p60,
-│   5.2 at 4K60) with Hex-written headers, 60 fps; `ffmpeg -c copy` muxes
+│   5.2 at 4K60) with Agent-Desk-written headers, 60 fps; `ffmpeg -c copy` muxes
 │   recording.mp4. Every /dev/dri render node is
 │   tried in order, so a hybrid laptop whose first node is a GPU the VA
 │   driver can't use encodes on the next (#853). No VA-API -> frames copied
@@ -138,9 +138,9 @@ On Linux                                 // capture.linux
 │   buffer as rows. A first frame neither path can read (a DMA-BUF the CPU
 │   can't map, or tiled) fails the capture with why, never a capture without
 │   a picture or a crash. Buffers PipeWire removes mid-stream (a
-│   renegotiation) are never queued again, and Hex maps buffers itself and
+│   renegotiation) are never queued again, and Agent-Desk maps buffers itself and
 │   unmaps a removed one only after the recorder's copy, so a renegotiation
-│   can't crash Hex. Check: vaapi render_nodes_in_order,
+│   can't crash Agent-Desk. Check: vaapi render_nodes_in_order,
 │   level_and_sps_crop_match_resolution_and_60fps, pipewire
 │   offered_formats_parse_back, a_negotiated_tiled_modifier_is_read,
 │   capture::platform output_sizes_stay_exact_even_dimensions… and
@@ -162,10 +162,10 @@ On Linux                                 // capture.linux
 │   stream anchored to the monotonic clock); released-while-idle microphones
 │   open for the capture
 ├── Words -> one foreground job on the listener's engine (its loaded model)
-├── Copy -> the summary text through Hex's Linux clipboard (wl-copy or the
+├── Copy -> the summary text through Agent-Desk's Linux clipboard (wl-copy or the
 │   X11 clipboard), as the Mac copies it
 ├── Paste -> as the Mac: the contact sheet (image/png), then the summary,
-│   each with Hex's own Ctrl+V (linux/paste). An app that takes no image (a
+│   each with Agent-Desk's own Ctrl+V (linux/paste). An app that takes no image (a
 │   terminal) gets only the summary, which names the contact sheet; the Mac
 │   pastes a terminal the sheet's path instead
 ├── Finished capsule -> "Copied" with Paste (accent), Inspect, and Send to…;
@@ -178,7 +178,7 @@ On Linux                                 // capture.linux
 │   until Labs › Annotate on GNOME (`labs.gnome_annotate`, off by default)
 │   opens them on XWayland (`OverlayOptions::xwayland_input`): override-redirect
 │   windows that take the pointer in their input shape and never keyboard
-│   focus, only while this user's Xwayland already runs (never started by Hex;
+│   focus, only while this user's Xwayland already runs (never started by Agent-Desk;
 │   the meeting capsules' decision in linux/meeting_capsules.rs). The ink is
 │   made with pointer regions and `KeyPolicy::None`, since Rune refuses an
 │   OnDemand overlay on XWayland, and keeps regions with no hit area while not
@@ -198,9 +198,9 @@ On Linux                                 // capture.linux
 │   with no service the send says "OpenCode isn't running". The capsule's
 │   rows are clicked (no keyboard).
 │   See capture.send: everything goes inline, so a remote server works
-└── Gaps: no Area on Wayland (it gives Hex no pointer to aim it; X11 takes
+└── Gaps: no Area on Wayland (it gives Agent-Desk no pointer to aim it; X11 takes
     `--area`), no area picker on screen, no iPhone, no
-    laser or click log outside draw mode, no window log, `hex capture status`
+    laser or click log outside draw mode, no window log, `agent-desk capture status`
     unsupported, choosing another folder only through settings.json
 
 On Windows                               // capture.windows
@@ -224,13 +224,13 @@ On Windows                               // capture.windows
 ├── Copy and paste -> the engine's own clipboard and Ctrl+V (handoff): the
 │   contact sheet, then the summary
 ├── Pane -> no Screen Recording row, no transcriber choice
-└── Gaps: no `hex annotate` (Windows has no control transport yet), no
+└── Gaps: no `agent-desk annotate` (Windows has no control transport yet), no
     iPhone, keys pressed in the app are not logged. Checked only by
     cross-compiling (`cargo xwin clippy`, x86_64 and aarch64); never run on
     a Windows machine
 
 Settings › Annotate                      // capture.pane
-├── Capture with Hex (capture.enabled, default off) -> off: no host, shortcut,
+├── Capture with Agent-Desk (capture.enabled, default off) -> off: no host, shortcut,
 │   input, retention, or folder
 │   └── On while the shortcut collides -> refused, the shortcut row says why
 ├── Shortcut (capture.hotkey, default ⌥⇧S, F9 on Linux and Windows) -> same keycap and recorder as dictation;
@@ -246,12 +246,12 @@ Settings › Annotate                      // capture.pane
 │   its row or the capsule's permission helper is on screen, plus a one-frame
 │   probe once that says granted
 │   ├── granted -> Allowed, no button
-│   ├── granted in System Settings but unusable until Hex relaunches ->
-│   │   "Turns on when Hex restarts" and Restart Hex, never Allow over a switch
+│   ├── granted in System Settings but unusable until Agent-Desk relaunches ->
+│   │   "Turns on when Agent-Desk restarts" and Restart Agent-Desk, never Allow over a switch
 │   │   already on
 │   ├── Returned from System Settings still untrusted -> "Still grey? Fix it"
 │   │   (`ScreenCapture` reset on running bundle + retired IDs, re-prompt + guide)
-│   └── Allow -> clears retired Hex IDs, rechecks, then opens the permission
+│   └── Allow -> clears retired Agent-Desk IDs, rechecks, then opens the permission
 │       guide over System Settings' list (PermissionKind::ScreenRecording); flips
 │       on the next read. Never part of onboarding (macOS also asks at the first
 │       capture). Check: rune_ui::scrawl tests
@@ -260,10 +260,10 @@ Settings › Annotate                      // capture.pane
 ├── Transcriber (capture.transcriber) -> Parakeet (default) | Apple
 ├── Captures folder (capture.folder, default Scrawl's) -> Reveal | choose another
 ├── Keep (capture.media_days / bundle_days) -> Scrawl's presets, or imported days
-├── Scrawl.app running -> "Scrawl is running" card + Use Hex for captures
-│   └── Click -> asks Scrawl to quit (nothing else quits it); Hex takes the
+├── Scrawl.app running -> "Scrawl is running" card + Use Agent-Desk for captures
+│   └── Click -> asks Scrawl to quit (nothing else quits it); Agent-Desk takes the
 │       shortcut within 2 s of Scrawl leaving
-└── No iPhone pairing row: ScrawlKit pairing needs the ingest server, which Hex
+└── No iPhone pairing row: ScrawlKit pairing needs the ingest server, which Agent-Desk
     doesn't run. A cabled iPhone needs no row (capture.phone)
 
 First launch with Annotate on            // capture.import
@@ -278,12 +278,12 @@ First launch with Annotate on            // capture.import
 ⌥⇧S (capture.shortcut; captures on, Scrawl not running)
 ├── Press, held as long as you like -> armed; nothing records while ⌥⇧ is down
 │   └── One of its modifiers comes up -> start on the display under the pointer,
-│       as `hex capture start`                // a fresh press only, no repeats
+│       as `agent-desk capture start`                // a fresh press only, no repeats
 ├── Esc before the modifiers come up -> nothing records
-├── Press while recording -> stop, as `hex capture stop` // ignored within 400 ms
+├── Press while recording -> stop, as `agent-desk capture stop` // ignored within 400 ms
 ├── Press while the capsule's picker is open -> the picker records what it is on
 ├── Esc while a capture records -> nothing: it reaches the app being recorded,
-│   and Hex's tap lets it through; a dictation under it goes on too (#786)
+│   and Agent-Desk's tap lets it through; a dictation under it goes on too (#786)
 ├── The binding is swallowed, never chord evidence for dictation
 ├── Hold the dictation shortcut mid-capture -> dictation pastes as usual
 └── Another app holds Secure Event Input -> ⌥⇧S still starts and stops (a
@@ -303,7 +303,7 @@ While a capture records                  // capture.quiet
 └── Dictation that began before the capture -> each effect is held from the first session that
     wants it to the last, so neither unmutes or resumes what the other still
     holds; a While dictating change mid-capture composes too (the capture keeps
-    media paused, the dictation mutes). Only what Hex
+    media paused, the dictation mutes). Only what Agent-Desk
     changed is restored. The dictation stop tone plays at once while the capture
     keeps output muted. Check: recording_environment tests (overlap both ways),
     capture_host a_capture_stays_quiet_until_it_stops_is_cancelled_or_hex_quits
@@ -313,14 +313,14 @@ Switching target                         // capture.switch; the capsule's chips
 │   Switching (below) remains for the CLI, the picker, and the playground
 ├── CaptureCommand::Switch(target) -> discard and start in one step: no snapshot
 │   shows nothing recording in between (Scrawl's switch_recording)
-│   ├── No room to start (two writing, Hex stopping) -> refused `busy` before
+│   ├── No room to start (two writing, Agent-Desk stopping) -> refused `busy` before
 │   │   the discard; the recording goes on
 │   └── The start fails after the discard -> the discarded capture settles
 │       `Failed` with the start's error
 ├── Window or Area -> CaptureCommand::Discard: bundle removed, no outcome, gone
 │   from the snapshot at once (and from MAX_FINISHING), so the capsule becomes
 │   the picker
-├── Picker open (take_keys: Picker) -> Hex's tap hands it ⌥⇧S and Esc; it never
+├── Picker open (take_keys: Picker) -> Agent-Desk's tap hands it ⌥⇧S and Esc; it never
 │   takes focus
 ├── A pick -> CaptureCommand::Start(Window | Area | Display); nothing while one
 │   records
@@ -336,11 +336,11 @@ A cabled iPhone                          // capture.phone
 ├── Start(Phone) -> scrawl-helper's mirror window shows the phone and records
 │   its native video into recording.mov; `--no-microphone`: the mirror never
 │   asks for or opens a microphone
-│   ├── Camera access -> macOS asks on Hex's behalf (every bundle carries
+│   ├── Camera access -> macOS asks on Agent-Desk's behalf (every bundle carries
 │   │   NSCameraUsageDescription; validate-app.sh requires it)
 │   └── Pointer and pen input -> normalized to the mirror's picture
-├── Narration -> Hex's timeline, as for the screen, moved onto the movie's clock
-│   (its first frame, measured from the capture's start) and transcribed by Hex's
+├── Narration -> Agent-Desk's timeline, as for the screen, moved onto the movie's clock
+│   (its first frame, measured from the capture's start) and transcribed by Agent-Desk's
 │   transcriber (capture.transcriber), not Scrawl's
 ├── Stop -> as any capture; keyframes decoded from the phone's own video
 └── The mirror ends on its own (unplugged, no phone in 12 s, camera denied) ->
@@ -370,24 +370,24 @@ The capsule                              // capture.capsule (rune_ui/capture_cap
 │   instead; a start that fails before any snapshot showed it
 │   recording still shows, but never over a newer recording, and a capture
 │   already under way that fails in the background never takes it over
-├── Permission helper (capture.permission) -> "Hex needs Screen Recording ·
+├── Permission helper (capture.permission) -> "Agent-Desk needs Screen Recording ·
 │   to see your screen · Allow ✕" (Microphone, Accessibility alike)
 │   ├── Allow -> macOS's microphone prompt, else System Settings with the
 │   │   floating guide beside it (permission_guide), never at launch
 │   ├── Followed once a second (feed::watch_grant, screen_access_watched) ->
-│   │   "… is on · Restart Hex" when macOS needs one, then "… is on ·
+│   │   "… is on · Restart Agent-Desk" when macOS needs one, then "… is on ·
 │   │   Capture ⌥⇧S"; Capture or the shortcut records the pointer's display
 │   ├── ✕ closes it; unanswered it folds after 2 min; the shortcut brings it
 │   │   back as it stood
 │   ├── A capture written with no frames -> sent with only the voice and
 │   │   marks, its summary naming the actual reason the picture is missing
-│   │   (Screen Recording is off for Hex, or the screen source failed or sent
+│   │   (Screen Recording is off for Agent-Desk, or the screen source failed or sent
 │   │   no frames), no contact sheet; a permission miss opens the helper once
 │   │   its capsule folds
-│   └── Story: hex://story/prototypes/capture-capsule/permission; goldens
+│   └── Story: agent-desk://story/prototypes/capture-capsule/permission; goldens
 │       capture-capsule-permission{,-restart,-ready}
 ├── A shown recording that leaves with no outcome (a discard, from a chip or
-│   `hex capture discard`) -> the capsule leaves; the picker a chip opened
+│   `agent-desk capture discard`) -> the capsule leaves; the picker a chip opened
 │   stays. A switch that can't start settles the recording it discarded as
 │   failed, which the capsule shows as "Couldn't start"
 ├── Recording -> `● 0:07 │ ✎ │ ■ ✕`: the timer, the toolbar (the pen, its
@@ -406,9 +406,9 @@ The capsule                              // capture.capsule (rune_ui/capture_cap
 │   └── Window or Area -> Discard; the capsule becomes the picker, and
 │       FindPhone looks for a phone cabled since the recording began
 ├── Picker: ⌥⇧S records what the on-screen picker shows; Esc closes it
-├── ✓ -> `hex capture stop`
+├── ✓ -> `agent-desk capture stop`
 ├── ✕ while recording -> asks first: a destructive "Discard" and "Keep
-│   recording", the recording running on; Discard -> `hex capture cancel`.
+│   recording", the recording running on; Discard -> `agent-desk capture cancel`.
 │   Unanswered, it goes back to recording after 4 s (never while hovered, and
 │   1.5 s after the pointer leaves). Esc never discards
 ├── Routing (Scrawl's routing.md) -> `last.route` once its answer arrives; the
@@ -480,7 +480,7 @@ The capsule                              // capture.capsule (rune_ui/capture_cap
 │   │   │   "No sessions match" and the footer drops Send and Remember. Esc or a click away goes
 │   │   │   back to the suggestions; ⌥⇧S in the search records a new capture
 │   │   ├── Once the capsule has gone, ⌥⇧S records as usual
-│   │   ├── Esc -> not Hex's here: it goes to the app in front
+│   │   ├── Esc -> not Agent-Desk's here: it goes to the app in front
 │   │   └── Unpicked -> they leave with the capsule after the done hold
 │   ├── Taken back (a rule's send or a pick) -> never
 │   │   ends the capture: the list opens again with the same sessions, the one
@@ -529,7 +529,7 @@ The capsule                              // capture.capsule (rune_ui/capture_cap
 │   │   │   to the app. Shift's presses and releases (flagsChanged) reach the
 │   │   │   capsule too (`CapsuleKey::Shift`) and still go on to the app
 │   │   └── List open -> the session tap takes every key press without ⌘ or ⌃
-│   │       that isn't a Hex shortcut: text in the active layout, ⌫, ↑↓, ⏎,
+│   │       that isn't an Agent-Desk shortcut: text in the active layout, ⌫, ↑↓, ⏎,
 │   │       ⇧⏎ (always), Esc; their releases too. Digits are typed (session
 │   │       names have them), and ⌥⇧S goes on to the listener, which records. A send, Esc, or a
 │   │       press off the capsule (the tap reports mouse-downs while the list
@@ -556,7 +556,7 @@ The capsule                              // capture.capsule (rune_ui/capture_cap
 │   │   check. A warning keeps its glyph
 │   │   ├── Paste -> CaptureCommand::Paste: the contact sheet, then the summary,
 │   │   │   into the app in front; a send still in its Undo window is taken back
-│   │   └── Inspect -> CaptureCommand::Inspect: opens the contact sheet (Hex
+│   │   └── Inspect -> CaptureCommand::Inspect: opens the contact sheet (Agent-Desk
 │   │       has no review window, and opening the bundle could launch
 │   │       Scrawl.app)
 │   ├── Undo is a click only, with no shortcut: Escape meant for another app
@@ -590,7 +590,7 @@ The capsule                              // capture.capsule (rune_ui/capture_cap
     r22-flows). Only the guesses' look changes; rules, Undo, ✕ and the
     keys the capsule takes stay the same. Each capsule story's variants
     pick one, so a link opens a state in a flow:
-    `hex://story/prototypes/capture-capsule/suggestions?variant=toast`
+    `agent-desk://story/prototypes/capture-capsule/suggestions?variant=toast`
     ├── list (default) -> today's list under the capsule, as above
     ├── toast -> one line "Send to X ⏎" with "Next ⇥" for more than one
     │   guess; ⇥/⇧⇥ cycle (CapsuleKeys::Suggest { cycle }), ⏎ or a click on
@@ -607,13 +607,13 @@ The capsule                              // capture.capsule (rune_ui/capture_cap
         there reads; left and right edges snapped to the backing pixels, the
         panel moved under its middle and pinned to the display it was
         measured on, so the panel and the notch can't disagree. Pinned, Rune
-        doesn't follow the pointer for it; while the picker is open, Hex
+        doesn't follow the pointer for it; while the picker is open, Agent-Desk
         re-reads the pointer's screen at the picker's display-check cadence
         (`picker::DISPLAY_EVERY`, 100 ms) and re-places display and inset
         together, so the capsule crosses with the picker within that
         cadence. Only the fallback that couldn't read the screen keeps
         `UnderPointer`, where Rune can show one frame at the previous inset
-        before Hex re-places it; 185 pt
+        before Agent-Desk re-places it; 185 pt
         on a flat display, a pretend one the menu bar's height, so its panel
         lands within a point of the display's middle rather than exactly on
         it) into the pill and the same card, its content under the notch,
@@ -637,7 +637,7 @@ The on-screen picker                     // capture.picker (capture_capsule/pick
 │   left out of recordings (`OwnWindow::Picker`); it takes the pointer only while
 │   picking and never takes focus; it follows the pointer to another display
 ├── Made at launch, hidden; away from macOS its window holds no GPU surface
-│   while hidden (`release_gpu_when_hidden`), so a Hex that never annotates
+│   while hidden (`release_gpu_when_hidden`), so an Agent-Desk that never annotates
 │   holds no GPU memory for it (`perf/idle.bench.ts#window-closed-memory`,
 │   `gpu.vram`)
 ├── Everything but the target dims; the dim moves with the target as one piece
@@ -653,8 +653,8 @@ The on-screen picker                     // capture.picker (capture_capsule/pick
 └── Windows load off the UI thread (`list_selectable_windows`); nothing picks
     until they arrive
 
-Hex's own windows                        // capture.own-windows
-├── Chrome (the capsule, ink, picker, HUDs, meeting capsules: Hex's named
+Agent-Desk's own windows                        // capture.own-windows
+├── Chrome (the capsule, ink, picker, HUDs, meeting capsules: Agent-Desk's named
 │   windows and any of its windows above the normal level) -> never recorded,
 │   never in the window log, never the target, clicks on it not logged
 │   ├── Other recorders -> the capsule, picker, and ink are left out
@@ -664,7 +664,7 @@ Hex's own windows                        // capture.own-windows
 │   │       before sharingType returns to readOnly; prewarming keeps the
 │   │       surface ready but leaves no invisible panel ordered in. This
 │   │       avoids relying on macOS restoring sharing after exclusion
-│   ├── Show in screen recordings on -> every recorder, Hex's captures
+│   ├── Show in screen recordings on -> every recorder, Agent-Desk's captures
 │   │   included, shows all of it (sharingType readOnly, no SCK exclusions);
 │   │   still never in the window log or the target. Rune's
 │   │   OverlayHandle::set_exclude_from_capture flips open windows, and the
@@ -672,7 +672,7 @@ Hex's own windows                        // capture.own-windows
 │   │   the recording's (capture-core's Recording::set_exclusions)
 │   └── Rune's presence tests check ordering and sharing together, including
 │       stale fade completions and setting changes. Its native `spaces_probe`
-│       checks this process's WindowServer ordering. A native Hex smoke on
+│       checks this process's WindowServer ordering. A native Agent-Desk smoke on
 │       2026-11-02 failed before the pin bump and passed after it: capsule,
 │       Screen/Area picker, ink, dictation HUD and meeting capsule show and
 │       leave no onscreen window after hiding. This used isolated test state,
@@ -680,11 +680,11 @@ Hex's own windows                        // capture.own-windows
 │       third-party recording exclusion remain unverified
 │   └── Click-through chrome (the full-screen ink overlay, the capsule's
 │       640×424 panel outside its pill) -> clicks there count for the app
-│       beneath; only the pill's (capture_host::set_capsule_pill) are Hex's
+│       beneath; only the pill's (capture_host::set_capsule_pill) are Agent-Desk's
 └── Normal windows (Settings) -> like any app's: recorded, logged, pickable,
-    and Hex is the front app when its window is the topmost normal one, so a
-    capture of Settings routes by Hex's name. A capsule Paste still goes to
-    the last other app, never into Hex
+    and Agent-Desk is the front app when its window is the topmost normal one, so a
+    capture of Settings routes by Agent-Desk's name. A capsule Paste still goes to
+    the last other app, never into Agent-Desk
 
 Ink and laser                            // capture.ink
 ├── A click-through overlay over the recorded display, excluded from the
@@ -697,21 +697,21 @@ Ink and laser                            // capture.ink
 While a capture records                  // capture.input
 ├── The existing session tap adds mouse down/up/drag/scroll and Shift (no second tap)
 ├── -> Capture::input() through a bounded queue; full -> events dropped and counted
-├── Keys pressed in the app -> logged; keys Hex consumes (its shortcuts, Esc) and
+├── Keys pressed in the app -> logged; keys Agent-Desk consumes (its shortcuts, Esc) and
 │   anything while a shortcut is being recorded -> not logged
 ├── Scrawl's rules in the engine (hosted_input): Shift drag inks, a
 │   Shift-click is part of the drawing (no pins, no ⌘Z undo), clicks on
-│   Hex's capture chrome ignored; while drawing, capture_host::as_pen makes
+│   Agent-Desk's capture chrome ignored; while drawing, capture_host::as_pen makes
 │   every pointer event Shift ink
 └── Shift still held from ⌥⇧S -> must come up once before it can ink; Shift up
     at the start -> the first Shift drag inks
 
-hex capture start                        // capture.start; needs a listening Hex
+agent-desk capture start                        // capture.start; needs a listening Agent-Desk
 ├── Creates <captures folder>/<unix ms>.scrawl (owner-only) -> reply: recording + bundle path
 ├── Two stopped captures still writing -> refused `busy`
 ├── Copies the dictation timeline from now into a bounded sink (no second stream)
 ├── In the background: Scrawl's engine starts on the active display
-│   ├── Needs Screen Recording for Hex (or the terminal running it)
+│   ├── Needs Screen Recording for Agent-Desk (or the terminal running it)
 │   └── Fails to start -> sink closed, bundle removed, last outcome `failed`;
 │       Esc and the next ⌥⇧S see nothing recording
 ├── Release microphone while idle -> the capture keeps the microphone open
@@ -722,17 +722,17 @@ While it records                         // capture.audio
 ├── Sink full (collector stalled) -> capture audio dropped as a gap, dictation untouched
 └── Microphone gap or recovery -> the gap is recorded, positions stay on the clock
 
-Never on Hex's path                      // capture.isolation
+Never on Agent-Desk's path                      // capture.isolation
 ├── No microphone, event tap, global shortcut, or model of its own
 ├── No ingest server (47777) or recovery workers; delivery retries only while
 │   neither Scrawl.app runs nor anything serves the ingest port (capture.route)
 ├── No ingest token used; Scrawl's two config files read once by the import, never
-│   written; nothing else of Scrawl's touched (its log goes to Hex's tracing)
-└── Settings from Hex (capture.*), not Scrawl's config: auto-crop on (display
+│   written; nothing else of Scrawl's touched (its log goes to Agent-Desk's tracing)
+└── Settings from Agent-Desk (capture.*), not Scrawl's config: auto-crop on (display
     captures), the agentContext summary format off
 
 Retention                                // capture.retention
-├── Hex's own thread: Scrawl's retention pass with capture.*'s policy, 90 s after
+├── Agent-Desk's own thread: Scrawl's retention pass with capture.*'s policy, 90 s after
 │   captures turn on, then hourly; skipped while a capture records or writes,
 │   or while Scrawl.app runs (it cleans the shared folder then)
 ├── Linux sends media to the desktop Trash itself (the freedesktop.org Trash
@@ -745,7 +745,7 @@ Retention                                // capture.retention
 └── Old media goes to the Trash and the prompt stays; after bundleDays the
     whole bundle goes
 
-hex capture stop                         // capture.stop
+agent-desk capture stop                         // capture.stop
 ├── Closes the sink (≤ 100 ms wait) -> reply: idle + the bundle path, at once
 ├── The screen recording, window log, and input stop at once (Capture::stop)
 ├── recording.mp4 finishes after that on capture-core's own thread: detached
@@ -763,8 +763,8 @@ hex capture stop                         // capture.stop
     ├── Past 20 min -> audio kept to 20 min, the rest one gap
     ├── recording.mp4, capture.json, audio.wav, frames/, scrawl.json,
     │   summary.md; then every file 0600 and folder 0700
-    ├── Keyframes decoded from recording.mp4 by scrawl-helper (beside `hex`: in
-    │   Hex.app's Contents/MacOS or target/<profile>; or $SCRAWL_HELPER); helper
+    ├── Keyframes decoded from recording.mp4 by scrawl-helper (beside `agent-desk`: in
+    │   Agent-Desk.app's Contents/MacOS or target/<profile>; or $SCRAWL_HELPER); helper
     │   missing -> the 480 px sampled frames
     ├── Spoken cues (look, now, here, this…) pick the keyframe the screen
     │   changes to; they also count in Spanish (mira, ahora, aquí, esto…),
@@ -807,8 +807,8 @@ What a send carries                      // capture.send (router opencode::send_
 
 Where it goes                            // capture.route; capture.routing's autoSend on
 ├── Once recording starts -> a capture-look thread reads the tab,
-│   terminal, and sessions in front (Scrawl's router, in Hex's process, with
-│   Scrawl's own router folders, so `scrawl router undo` and its evals see Hex's
+│   terminal, and sessions in front (Scrawl's router, in Agent-Desk's process, with
+│   Scrawl's own router folders, so `scrawl router undo` and its evals see Agent-Desk's
 │   sends as Scrawl's). The whole look has 15 s: steps not begun by then are
 │   skipped, and routing waits 1 s more for the one under way, then goes on
 │   without it. The newest-session list starts beside local sensing; exact
@@ -846,7 +846,7 @@ Where it goes                            // capture.route; capture.routing's aut
 │   ├── Guess -> everything else the router would send (Jev's pick, HOME when
 │   │   Jev couldn't tell, a dev server's port, a page's data-session or
 │   │   publisher, a name that was said, the captured app's checkout (the one
-│   │   open session folder named like the app, such as `…/hex` for Hex's own
+│   │   open session folder named like the app, such as `…/hex` for Agent-Desk's own
 │   │   Settings; smartRouting only), the port ladder) is suggestion #1, its
 │   │   reason as the row's word ("dev server", "same page", "mentioned"; none
 │   │   for Jev's pick or fallback), then
@@ -858,7 +858,7 @@ Where it goes                            // capture.route; capture.routing's aut
 │   │   or `send --always`) would save, after which that site's captures are Rules;
 │   │   ⇧⏎ in a Rule's list saves the rule for the session picked instead
 │   ├── Each Rule or Guess -> routing.json's `shown`: `as` rule or guess, and
-│   │   `why`, the router's leading reason; `hex capture route` prints it
+│   │   `why`, the router's leading reason; `agent-desk capture route` prints it
 │   ├── Nothing / NoAnswer -> recent sessions only
 │   └── Unreachable -> the look read no sessions (OpenCode slow past the look's
 │       deadline, down, or refusing); a warning in process.log with the error, and
@@ -866,9 +866,9 @@ Where it goes                            // capture.route; capture.routing's aut
 │       answer"), or "OpenCode isn't running" alone, keeping Paste. A reason is
 │       shown only in plain words: one with a path, URL, OS error or code goes
 │       to process.log and the capsule shows none
-│       └── OpenCode refusing Hex's password (HTTP 401/403) -> "OpenCode needs a
-│           password Hex doesn't have", for the look and for a send, and
-│           process.log says where Hex reads it (service.json under this user's
+│       └── OpenCode refusing Agent-Desk's password (HTTP 401/403) -> "OpenCode needs a
+│           password Agent-Desk doesn't have", for the look and for a send, and
+│           process.log says where Agent-Desk reads it (service.json under this user's
 │           ~/.local/state/opencode, or OPENCODE_PASSWORD), never the password.
 │           The capture stays saved and copied. Check: capture_host::routing
 │           a_look_that_read_no_sessions_answers_unreachable,
@@ -876,7 +876,7 @@ Where it goes                            // capture.route; capture.routing's aut
 │           OpenCode in WSL on, the capture router reaches the WSL service
 │           too (capture.send)
 ├── An answer for a capsule already closed (dismissed, or past its hold)
-│   leaves it closed; `hex capture list` and `send` still offer the capture
+│   leaves it closed; `agent-desk capture list` and `send` still offer the capture
 ├── Starting another capture preserves an older rule's accepted pending send;
 │   its eventual answer does not replace the newest capsule
 ├── The capsule's commands act only on `last`, the newest routed capture:
@@ -895,11 +895,11 @@ Where it goes                            // capture.route; capture.routing's aut
 │   does too
 └── autoSend off -> no look, no route; the capture is only copied
 
-hex capture list|show|send|route         // capture.cli; docs/cli.md
+agent-desk capture list|show|send|route         // capture.cli; docs/cli.md
 ├── list [--limit N] -> the newest bundles in the captures folder: mode, words,
 │   where it went
 ├── show <capture> -> one capture's words, files, and send
-├── send <capture> [--to <session>] [--always] -> needs a listening Hex
+├── send <capture> [--to <session>] [--always] -> needs a listening Agent-Desk
 │   ├── The last routed capture -> as the capsule's pick (no --to: the Rule's
 │   │   session, a Guess's first suggestion, or the recorded destination), so
 │   │   the capsule's Undo follows it; --always also saves the site or app rule
@@ -909,10 +909,10 @@ hex capture list|show|send|route         // capture.cli; docs/cli.md
 ├── route <capture> [--ask-jev] -> what the router sees and decides; sends nothing
 └── <capture> = bundle name, path, or `latest`; unknown -> `not-found`
 
-hex capture cancel -> engine cancelled, sink closed, bundle removed
-hex capture status -> recording (bundle, elapsed), bundles still writing, last outcome
+agent-desk capture cancel -> engine cancelled, sink closed, bundle removed
+agent-desk capture status -> recording (bundle, elapsed), bundles still writing, last outcome
                       (words, audio gaps, or why it has no transcript)
-Hex quits mid-capture -> cancelled, bundle removed; captures still writing stop
+Agent-Desk quits mid-capture -> cancelled, bundle removed; captures still writing stop
 transcribing between chunks and keep their audio (shutdown waits ≤ 2 s)
 
 15 s replay buffer (Labs, macOS 27+)     // capture.replay; labs.annotate_replay
@@ -924,22 +924,22 @@ transcribing between chunks and keep their audio (shutdown waits ≤ 2 s)
 ├── On (with Annotate on and Scrawl.app not running) -> one worker thread waits
 │   until Screen Recording is already granted (never prompts in the background),
 │   then runs one 15 fps `SCStream` with `SCClipBufferingOutput` on the pointer's
-│   display (≤ 2560 px long edge, cursor hidden, audio off, Hex's `OWN_WINDOWS`
+│   display (≤ 2560 px long edge, cursor hidden, audio off, Agent-Desk's `OWN_WINDOWS`
 │   and non-layer-0 overlays excluded unless Show in screen recordings is on)
 │   ├── `replayd` encodes the rolling 15 s H.264 ring out-of-process; macOS keeps
 │   │   the menu-bar screen-recording indicator lit while the stream is active
 │   └── Display plug/unplug (`CGDisplayRegisterReconfigurationCallback`) or a
 │       stopped stream -> reopens on the active display with bounded backoff
-├── `hex capture replay` (`hex annotate replay`) -> exports up to 15 s (`> 15 s`
+├── `agent-desk capture replay` (`agent-desk annotate replay`) -> exports up to 15 s (`> 15 s`
 │   is rejected by ScreenCaptureKit `-3812`) into `<captures>/<unix ms>.scrawl`
 │   without stopping the buffer, probes and decodes keyframes with `scrawl-helper`,
 │   writes `capture.json` and `scrawl.json` (`missing: "no_audio"`), copies to
 │   the clipboard, and feeds `capture.route`
 └── `capture.replay_hotkey` (unbound by default; recordable in
-    Settings › Annotate while the lab is on, or `hex settings set capture.replay_hotkey`)
+    Settings › Annotate while the lab is on, or `agent-desk settings set capture.replay_hotkey`)
     ├── Tap (< 300 ms) -> exports the silent 15 s clip at once, no mic opened
     └── Hold (≥ 300 ms) -> exports the frozen 15 s clip at the press and records
-        Hex's microphone timeline with "While dictating" until release + tail;
+        Agent-Desk's microphone timeline with "While dictating" until release + tail;
         narration is shifted onto the bundle clock after the clip (`video_ms..`),
         transcribed with word timestamps, and anchored onto the final keyframe
 ```
@@ -950,7 +950,7 @@ boot-time clock audio and shortcuts share), and `audio.wav` starts at that
 start too, padded with silence when the microphone began late or dropped
 audio.
 
-`hex dev capture-replay <wav>…` (debug, with the feature) runs the same
+`agent-desk dev capture-replay <wav>…` (debug, with the feature) runs the same
 capture host on a fresh transcription engine with the selected model, feeding
 WAV files instead of the microphone, and prints the bundle path. It needs
 Annotate on too, and records the screen meanwhile.
@@ -1011,7 +1011,7 @@ Checks:
   `the_hosts_normal_windows_count_and_its_chrome_does_not` in
   [window_log.rs](../../crates/capture/src/window_log.rs) and
   `helper_windows_are_scrawl_s_except_the_capture_source` in
-  [capture.rs](../../crates/capture/src/capture.rs) for Hex's own windows;
+  [capture.rs](../../crates/capture/src/capture.rs) for Agent-Desk's own windows;
   the ink and click rules in hosted_input.rs, including
   `a_capture_started_by_its_shortcut_waits_for_shift_to_come_up`,
   `a_capture_started_without_shift_held_inks_from_the_first_stroke`, and
@@ -1021,7 +1021,7 @@ Checks:
   and `a_mirror_ending_never_stops_a_screen_capture` in capture_host.rs;
   `since_moves_audio_and_gaps_onto_a_later_clock` in
   [audio.rs](../../crates/capture/src/audio.rs). The mirror, its
-  `--no-microphone`, and the camera prompt have not run in Hex.
+  `--no-microphone`, and the camera prompt have not run in Agent-Desk.
 - Routing, in [routing.rs](../../src/capture_host/routing.rs):
   `only_a_saved_rule_sends_on_its_own`,
   `a_rule_sends_and_lists_the_rest`,
@@ -1095,7 +1095,7 @@ Checks:
   `tests/golden/capture-capsule-*.png`, and
   `the_capsule_moves_inside_its_panel_and_comes_to_rest`, which traces every
   scripted state change per frame, Calm and Reduce Motion, for no pops,
-  jumps, or jiggle. `HEX_CAPSULE_MOTION` also writes rune-motion traces for
+  jumps, or jiggle. `AGENT_DESK_CAPSULE_MOTION` also writes rune-motion traces for
   motion-lint. `cues_mark_start_stop_sent_and_taking_back`,
   `nothing_heard_says_so`, and `a_capture_with_no_words_says_nothing_was_heard`
   cover the tones and the empty transcript. Observed (Oct 27, worker, r19 motion): all 28
@@ -1122,12 +1122,12 @@ Checks:
   `only_an_open_picker_over_a_pinned_capsule_looks_again`. The native
   read, the re-place, and the 100 ms wake itself have no test: they need two
   real displays.
-- Playground: `hex capsule-playground` (feature builds; hidden), or
+- Playground: `agent-desk capsule-playground` (feature builds; hidden), or
   `scripts/build-capsule-playground.sh` for an ad-hoc signed
-  `Hex Playground.app`, runs the real capsule in a window of its own against a
+  `Agent-Desk Playground.app`, runs the real capsule in a window of its own against a
   fake host, with state buttons, the whole flow, slow motion, Reduce Motion,
   the tones, and live tuning ([tuning.rs](../../src/rune_ui/capture_capsule/tuning.rs);
-  "Copy values" copies its `DEFAULT`). It reads and writes no Hex data and
+  "Copy values" copies its `DEFAULT`). It reads and writes no Agent-Desk data and
   records or sends nothing. The whole flow picks the first suggestion;
   its "Saved rule" toggle plays a rule's send, sent at once, instead.
   `--snap --scene suggestions|shift|sent-rule|search|typed|picked|rule|recording`
@@ -1145,7 +1145,7 @@ Checks:
   `retention_names_presets_and_imported_days` in rune_ui/scrawl.rs; scenes
   `mac-scrawl-off`, `mac-scrawl`, `mac-scrawl-running`, `mac-scrawl-permission`
   (feature builds only, so no goldens: those run on Linux).
-- Settings: every `capture.*` key in `hex settings`
+- Settings: every `capture.*` key in `agent-desk settings`
   (`every_persisted_setting_has_a_cli_key`).
 - Replay, in [capture_host/replay.rs](../../src/capture_host/replay.rs) and
   [capture_host/replay/sck.rs](../../src/capture_host/replay/sck.rs):
@@ -1156,16 +1156,16 @@ Checks:
   and `error_completion_block_carries_xpc_signature`.
 
 Observed 2026-10-25 on pro (M2 Max), before the real engine, with the
-stand-in: `HEX_EXPERIMENTS=capture hex dev capture-replay` over three
+stand-in: `AGENT_DESK_EXPERIMENTS=capture agent-desk dev capture-replay` over three
 vocabulary fixtures (6.5 s) loaded Parakeet unified English on Metal and
-wrote 18 words with plausible times. The non-replay `hex capture` engine has
+wrote 18 words with plausible times. The non-replay `agent-desk capture` engine has
 not run end to end in automated tests (unit tests use a fake engine over
 Scrawl's real bundle writer). Observed 2026-11-04 in a macOS 27.0
-(`26A428`) guest VM on Apple Silicon with Developer ID-signed `Hex Test.app`:
+(`26A428`) guest VM on Apple Silicon with Developer ID-signed `Agent-Desk Test.app`:
 `labs.annotate_replay` opened a 15 fps `1920×1080` `SCClipBufferingOutput`
 stream, exported 15,000 ms silent and 19,581 ms narrated bundles (13 Parakeet
-words anchored on the final keyframe, cursor hidden, Hex chrome excluded,
-clipboard handoff populated) via `hex capture replay`, an `⌥⇧R` tap, and a
+words anchored on the final keyframe, cursor hidden, Agent-Desk chrome excluded,
+clipboard handoff populated) via `agent-desk capture replay`, an `⌥⇧R` tap, and a
 3.5 s `⌥⇧R` hold, recovered across `CGVirtualDisplay` plug/unplug and
 display sleep/wake, and rejected a 16 s request with
 `SCStreamErrorDomain -3812`. The menu-bar screen-recording indicator stays lit

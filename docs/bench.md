@@ -1,6 +1,6 @@
 # Bench: Agent-Desk's local benchmark
 
-`hex bench` asks about 25 typical tasks of the running Hex Dev, checks each
+`agent-desk bench` asks about 25 typical tasks of the running Agent-Desk Dev, checks each
 result by machine, and compares the run with the one before
 (docs/roadmap-agent-desk.md, G). `scripts/self-improve.sh` wraps it in the
 self-improvement loop (I).
@@ -12,7 +12,7 @@ self-improvement loop (I).
 | Tasks | `bench/tasks/*.toml`, one per file, run in file-name order |
 | Test recipients, reading-task values | `bench/config.toml` (not committed; copy `bench/config.example.toml`) |
 | Results | `bench/results/<version>-<YYYYMMDD-HHMMSS>.json` (UTC), committed |
-| Temp folders | `~/Documents/Hex/bench/<run>/<task>-<lang>/`, emptied before each task |
+| Temp folders | `~/Documents/Agent-Desk/bench/<run>/<task>-<lang>/`, emptied before each task |
 | Findings | `bench/findings.md`, written by the loop |
 | Code | `src/bench.rs` (CLI), `src/bench/{task,check,run,results,live}.rs` |
 
@@ -23,27 +23,27 @@ shortcut would, but with **no window in front**, so the task never reads or
 acts on the person's front window. It follows each task in the
 assistant's conversation files (`<data>/assistant/conversations/<id>.json`)
 and audit log (`<data>/assistant/audit/<id>.jsonl`), and stops a task that
-times out the way `hex assistant stop-all` does. The desktop is only read:
+times out the way `agent-desk assistant stop-all` does. The desktop is only read:
 `lsappinfo` for the front app, and agent-desktop's `list-apps` and
 `list-windows`.
 
-`--target dev` (the default) uses `~/Library/Application Support/hex-dev`;
-`--target live` must be named to use Hex's `hex` folder. The bench never
+`--target dev` (the default) uses `~/Library/Application Support/agent-desk-dev`;
+`--target live` must be named to use Agent-Desk's `agent-desk` folder. The bench never
 starts either app: when the target isn't running it says so and exits 3.
 
 ## Usage
 
 ```sh
-hex bench run --dry-run                 # validate tasks, config, checks; ask nothing
-hex bench run                           # every task, in German, against Hex Dev
-hex bench run --lang both --filter 'web|supplier'
-hex bench run --allow-front             # also tasks that bring an app forward (nobody at the Mac)
-hex bench run --target live             # only when named
-hex bench report [FILE] [--against FILE] [--json] [--fail-on-regression]
-hex bench list
+agent-desk bench run --dry-run                 # validate tasks, config, checks; ask nothing
+agent-desk bench run                           # every task, in German, against Agent-Desk Dev
+agent-desk bench run --lang both --filter 'web|supplier'
+agent-desk bench run --allow-front             # also tasks that bring an app forward (nobody at the Mac)
+agent-desk bench run --target live             # only when named
+agent-desk bench report [FILE] [--against FILE] [--json] [--fail-on-regression]
+agent-desk bench list
 ```
 
-From a checkout, `cargo run --bin hex -- bench run --dry-run` works too: the
+From a checkout, `cargo run --bin agent-desk -- bench run --dry-run` works too: the
 control commands never open the app. `run` exits 0 when the run is not worse
 than the previous run of the same target, 1 when it is (a task that passed
 fails now, or fewer pass), 2 when a task file breaks the rules, and 3 when
@@ -151,11 +151,11 @@ in = temp|workspace}`, `browser_url {pattern, min?}`, `tool_used {pattern}`,
 ## The self-improvement loop
 
 `scripts/self-improve.sh` runs only when the person allows it, because
-starting Hex Dev quits Hex: `--now`, or `--when idle[=MIN]` (no keyboard or
+starting Agent-Desk Dev quits Agent-Desk: `--now`, or `--when idle[=MIN]` (no keyboard or
 mouse input for MIN minutes, 20 by default, from `HIDIdleTime`). It installs
 Dev (`scripts/install-fork.sh`), opens it in the background, runs the
 bench, and starts Claude Code with `bench/self-improve.md`: findings into
 `bench/findings.md`, fixes in a worktree with filtered tests only, a new Dev
 build, a rerun, and a PR when the bench isn't worse. `--bench-only` stops
-after the bench; afterwards it reopens Hex if it ran before (`--keep-dev`
+after the bench; afterwards it reopens Agent-Desk if it ran before (`--keep-dev`
 leaves Dev). `--dry-run` only validates.

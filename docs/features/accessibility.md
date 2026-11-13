@@ -1,15 +1,15 @@
 # Accessibility
 
-Hex's window, its dictation HUD, and its capsules expose their elements to the
+Agent-Desk's window, its dictation HUD, and its capsules expose their elements to the
 OS accessibility API: UI Automation on Windows (Narrator, NVDA, Voice
 Access), NSAccessibility on macOS (VoiceOver, Voice Control), and AT-SPI on
 Linux (Orca). Rune builds the tree with AccessKit from what each element
-already is (role, label, text, key, focus) and the builders Hex adds
+already is (role, label, text, key, focus) and the builders Agent-Desk adds
 (`description`, `checked`, `disabled`, `a11y_value`, `live_region`,
 `position_in_set`, `a11y_hidden`). The same tree is what strobe drives in
 [the interaction benches](../perf.md#interaction-cases).
 
-Nothing is built until an assistive client asks, so Hex pays nothing for it
+Nothing is built until an assistive client asks, so Agent-Desk pays nothing for it
 until then. Names and descriptions go through `desktop::i18n` like the visible
 copy.
 
@@ -104,7 +104,7 @@ strobe's selectors are element keys, which the tree exposes as UI Automation
 
 - No live screen reader session: Narrator, NVDA, VoiceOver, or Orca reading
   the window has not been observed.
-- No live UI Automation read of a running Hex: the interaction benches' first
+- No live UI Automation read of a running Agent-Desk: the interaction benches' first
   runs need an unlocked Windows session.
 - The meeting and Annotate capsules and the HUD have no tree test.
 - The onboarding story and practice game are covered only by the

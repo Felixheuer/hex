@@ -1,4 +1,4 @@
-# Hex Local Transcription Service and SDK
+# Agent-Desk Local Transcription Service and SDK
 
 **Status:** The internal service and direct-child mode are implemented.
 `@kitlangton/hex@0.3.0` publishes ready transcribers through Promise and Effect
@@ -13,11 +13,11 @@ is the current consumer guide. Delivery scope, evidence, and acceptance gates li
 
 ## Product Boundary
 
-HEX Service owns local transcription models and inference. Host applications
+Agent-Desk Service owns local transcription models and inference. Host applications
 own recording.
 
 ```text
-Host application                         HEX Service
+Host application                         Agent-Desk Service
 ----------------                         -----------
 microphone permission                    service discovery and authentication
 device selection                         model download and verification
@@ -28,7 +28,7 @@ settings and model choice
 ```
 
 The host's signed app owns the microphone grant. A correctly configured packaged
-host prompts under its own identity, not Hex; a development Electron runtime may
+host prompts under its own identity, not Agent-Desk; a development Electron runtime may
 appear as Electron. The embedded helper never opens the microphone.
 
 ## Decisions
@@ -56,14 +56,14 @@ without an npm install script, administrator access, login-item approval, Dock i
 or foreground window. The host must not launch the helper through Launch Services.
 
 Because the embedded service does not capture audio, it does not need microphone
-TCC identity. Full `Hex.app` already owns its global-hotkey capture and
+TCC identity. Full `Agent-Desk.app` already owns its global-hotkey capture and
 transcription pipeline; desktop `connect()` can also use the app's microphone
 through its separate capture API.
 
 Verified model artifacts remain shared per user under Application Support.
 Each embedded helper has its own warm model and inference queue. Multiple hosts
 may reuse the same verified file, but they do not share Metal allocations or
-runtime selection. Inside `Hex.app`, a clip of up to 30 seconds for the GGUF
+runtime selection. Inside `Agent-Desk.app`, a clip of up to 30 seconds for the GGUF
 model dictation has loaded runs on dictation's model between dictations, so
 the app holds one copy; another model, or a longer clip, uses the service's own,
 and a longer clip's copy is released when dictation holds the model. The current cache is filename-based; immutable revision-safe
@@ -71,7 +71,7 @@ storage for independently versioned helpers remains planned.
 
 ## Embedded Startup and Authentication
 
-The host spawns `hex-service service --embedded` with piped stdin and stdout.
+The host spawns `agent-desk-service service --embedded` with piped stdin and stdout.
 The helper binds `127.0.0.1:0` and writes exactly one JSON line to stdout after
 the authenticated API is ready:
 
@@ -99,7 +99,7 @@ Every request requires `Authorization: Bearer <token>`. The token is delivered
 only over the child's stdout pipe. The server deliberately sends no CORS
 headers. A parsed request with a missing or incorrect bearer credential returns
 an empty `401` response; malformed HTTP can be rejected before authentication.
-The standalone Hex application may still publish owner-only discovery for its
+The standalone Agent-Desk application may still publish owner-only discovery for its
 own existing local API. Embedded `create()` uses the child handshake; desktop
 `connect()` remains a separate discovery-based path.
 
@@ -129,7 +129,7 @@ transformations. Processing is best-effort and deadline-bounded like a paste,
 so a failed stage keeps its input and the request still succeeds. It never
 pastes, records History, updates the last dictation, or touches the clipboard.
 Any other value, or a repeated parameter, answers `400 invalid-request`.
-`hex service` and `--embedded` install no processor and answer `409
+`agent-desk service` and `--embedded` install no processor and answer `409
 processing-unavailable`, even while the lab is off; with a processor installed
 and the lab off the answer is `403 processing-disabled`. Processing runs one at
 a time across the local API, so while another holds it the answer is `429
@@ -140,7 +140,7 @@ processor is installed and the lab is on.
 `POST /transcriptions` also accepts an optional `timestamps` query parameter:
 `none`, `segment`, or `word` (Labs › Timestamps in API transcripts, off by
 default). The running desktop app reads the lab live, so its next request sees
-a toggle. A `hex service` process without the app reads the saved
+a toggle. A `agent-desk service` process without the app reads the saved
 `labs.api_timestamps` once, at startup, and the embedded helper (the SDK's
 direct child) loads no settings and reads the saved value once, on its first
 request. Neither re-reads it, so changing the lab reaches a running helper only
@@ -295,9 +295,9 @@ system-managed metadata do not make it a supported service model.
 
 For the available GGUF models, preparation means download if needed, checksum
 verification (or reuse of a matching verification receipt), strict-Metal load, and
-prewarm. `managed` means system-managed, not downloaded by Hex, so these models
+prewarm. `managed` means system-managed, not downloaded by Agent-Desk, so these models
 report `managed: false`. Preparation activates the helper's warm model but does
-not change full `Hex.app` settings. The service serializes preparation, publishes
+not change full `Agent-Desk.app` settings. The service serializes preparation, publishes
 only verified replacement files, and preserves the previous warm runtime if
 candidate loading fails. A verified download can remain installed after a load
 failure; artifact publication and runtime activation are separate steps.
@@ -322,7 +322,7 @@ SDK `0.3.0` adds a model-bound operation to both entrypoints:
 import { create } from "@kitlangton/hex"
 
 const transcriber = await create({
-  command: ["/path/to/hex-service", "service", "--embedded"],
+  command: ["/path/to/agent-desk-service", "service", "--embedded"],
   model: "parakeet_unified_en",
   language: "en",
   onProgress,

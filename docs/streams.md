@@ -1,13 +1,13 @@
 # Live transcription streams (`/streams`)
 
-`/streams` lets another app on this computer transcribe its own audio live on Hex's
+`/streams` lets another app on this computer transcribe its own audio live on Agent-Desk's
 loaded dictation model. The app records the microphone (or anything else) and
-pushes 16 kHz mono samples; Hex sends partial text while it listens, one final
+pushes 16 kHz mono samples; Agent-Desk sends partial text while it listens, one final
 segment per window, and the final text when the app finishes.
 
 This is the API of the planned shared engine service (`ROADMAP.md`, "Shared
-engine service"). Today the running Hex app serves it; later a launchd service
-(`anomaly.hex.engine`) will serve the same routes and the Hex UI will become
+engine service"). Today the running Agent-Desk app serves it; later a launchd service
+(`fheuer.agentdesk.engine`) will serve the same routes and the Agent-Desk UI will become
 one more client. Clients written against this document should not need to
 change.
 
@@ -16,7 +16,7 @@ The code is `src/local_api/streams.rs` (routes) and `src/transcription/stream.rs
 
 ## Availability
 
-- The running Hex app on macOS, Linux, and Windows, with a GGUF model loaded
+- The running Agent-Desk app on macOS, Linux, and Windows, with a GGUF model loaded
   by dictation (on Linux and Windows, once the listener is on).
 - `GET /capabilities` reports `"streams": true` when the routes exist, and
   `"outputProcessing": true` when `process=global` would run (Labs › Process
@@ -27,9 +27,9 @@ The code is `src/local_api/streams.rs` (routes) and `src/transcription/stream.rs
 
 ## Discovery and auth
 
-Read the owner-only discovery file `local-api.json` in Hex's data folder
-(`~/Library/Application Support/hex` on macOS, `$XDG_DATA_HOME/hex` or
-`~/.local/share/hex` on Linux, `%APPDATA%\hex` on Windows) (`port`, `token`,
+Read the owner-only discovery file `local-api.json` in Agent-Desk's data folder
+(`~/Library/Application Support/agent-desk` on macOS, `$XDG_DATA_HOME/hex` or
+`~/.local/share/agent-desk` on Linux, `%APPDATA%\agent-desk` on Windows) (`port`, `token`,
 `apiVersion`), then call `http://127.0.0.1:<port>` with:
 
 | Header | On | Value |
@@ -128,7 +128,7 @@ Transcribes what's left and answers with the final, as the `final` event:
 { "text": "…", "segments": [{ "segment": 0, "startMs": 0, "endMs": 7420, "text": "…" }], "durationMs": 31250 }
 ```
 
-`?process=global` (Labs › Process API transcripts) adds the text after Hex's
+`?process=global` (Labs › Process API transcripts) adds the text after Agent-Desk's
 Global-mode output processing, exactly as a paste with no matching app or
 website mode gets it: global replacements, Global mode corrections, the
 optional OpenCode rewrite, and Global's selected transformations. `true` and
@@ -143,7 +143,7 @@ as above.
 `processed` is the paste-ready text. Processing is best-effort and follows
 the paste path: a failed stage keeps its input, so the call still succeeds.
 It never pastes, saves History, updates Paste Last, or touches the clipboard.
-Without an installed processor (for example `hex service`) the answer is `409
+Without an installed processor (for example `agent-desk service`) the answer is `409
 processing-unavailable`, even while the lab is off; with a processor installed
 and the lab off it is `403 processing-disabled`. Processing runs one at a time
 across the local API; while another holds the slot the answer is `429
@@ -184,7 +184,7 @@ every few seconds. The lease doesn't run while finishing.
 
 ## Scheduling: dictation always comes first
 
-Hex's dictation shares the engine, and the hotkey must never wait for a
+Agent-Desk's dictation shares the engine, and the hotkey must never wait for a
 stream. So:
 
 - Audio is cut into windows at pauses (at most 25 s). Each window is fed to
@@ -219,13 +219,13 @@ has no body.
 | 400 | `invalid-request` | Create body isn't the JSON above, or `process` is not `global`, `true`, or `1` (or is repeated). |
 | 400 | `unsupported-sample-rate` | `sampleRate` isn't 16000. |
 | 400 | `unsupported-sample-format` | Not `f32le` or `s16le`. |
-| 400 | `unknown-model` | `model` isn't a Hex model id. |
+| 400 | `unknown-model` | `model` isn't an Agent-Desk model id. |
 | 400 | `invalid-audio` | Partial sample or non-finite float. |
 | 401 | (no body) | Missing or wrong bearer token. |
 | 403 | `processing-disabled` | `process` was asked for with a processor installed but Labs › Process API transcripts off. |
 | 404 | `stream-not-found` | Unknown id, replaced stream, or wrong stream token. |
 | 409 | `model-mismatch` | Requested model/language isn't the held one. |
-| 409 | `processing-unavailable` | `process` was asked for and no processor is installed (for example `hex service`). |
+| 409 | `processing-unavailable` | `process` was asked for and no processor is installed (for example `agent-desk service`). |
 | 409 | `stream-busy` | Another stream is live. |
 | 409 | `stream-ended` | Audio or heartbeat after the end. |
 | 409 | `stream-finishing` | Audio after `finish`. |
@@ -236,37 +236,37 @@ has no body.
 | 415 | `unsupported-content-type` | Wrong `Content-Type`. |
 | 429 | `queue-full` | A processing run is already under way; retry after it ends. |
 | 429 | `stream-backlog-full` | 120 s not yet transcribed; slow down or wait. |
-| 503 | `engine-unavailable` | Hex's dictation engine isn't running. |
+| 503 | `engine-unavailable` | Agent-Desk's dictation engine isn't running. |
 | 503 | `model-not-loaded` | Dictation holds no GGUF model (for example Apple Speech). |
-| 503 | `shutting-down` | Hex is quitting. |
+| 503 | `shutting-down` | Agent-Desk is quitting. |
 | 504 | `stream-finish-timeout` | `finish` waited 120 s; the stream continues. |
 
 `model-changed` means the user switched dictation's model during the stream;
-start a new one. `hex-quitting` means Hex quit.
+start a new one. `hex-quitting` means Agent-Desk quit.
 
 ## Meeting finished events (`GET /meetings/events`, Labs)
 
 Not part of `/streams`, but on the same local API with the same discovery
 and bearer token. Only while Labs › Meeting finished event
-(`labs.meeting_finished_event`, `hex labs on meeting-finished-event`) is on;
+(`labs.meeting_finished_event`, `agent-desk labs on meeting-finished-event`) is on;
 off, it answers `404 labs-off`. Code: `src/local_api/meeting_events.rs`
 (route) and `src/meeting/finished_events.rs` (the hub the recorder publishes
 to).
 
 Server-sent events with `: keep-alive` comments every 15 s. Once per meeting,
 after its final transcript and Markdown are written and its manifest reads
-`complete` (a Stop, or the final pass of a meeting Hex quit while recording):
+`complete` (a Stop, or the final pass of a meeting Agent-Desk quit while recording):
 
 ```text
 data: {"type":"meeting.finished","id":"1730700000000-4242"}
 ```
 
 Only the id is sent: no title, path, transcript, or audio. Read the rest with
-`hex meetings show <id>` (or `hex mcp`). One subscriber at a time; a
+`agent-desk meetings show <id>` (or `agent-desk mcp`). One subscriber at a time; a
 second answers `409 subscriber-busy`. Nothing is queued while nobody listens,
 so a client that reconnects should list meetings to catch up. A meeting whose
-final transcript fails sends nothing. The stream ends when Hex quits or the
-toggle turns off. `hex service` serves the route but records no meetings, so
+final transcript fails sends nothing. The stream ends when Agent-Desk quits or the
+toggle turns off. `agent-desk service` serves the route but records no meetings, so
 it never sends one.
 
 ### Catching up after being offline
@@ -277,11 +277,11 @@ meetings folder as the record and the event as a hint to look now:
 1. Keep a cursor: the end time (`timestamp_ms + duration_ms`, Unix ms) of the
    newest meeting you've handled, and the ids you've handled near it.
 2. On start or reconnect, subscribe to `GET /meetings/events` first, then run
-   `hex meetings list --since <cursor> --limit 200 --json` (or MCP's
+   `agent-desk meetings list --since <cursor> --limit 200 --json` (or MCP's
    `list_meetings` with `since`). Subscribing first means a meeting that
    finishes while you list still arrives as an event.
 3. A meeting is finished when its `status` is `complete` and its
-   `transcript_source` is `final`; read it with `hex meetings show <id> --json`.
+   `transcript_source` is `final`; read it with `agent-desk meetings show <id> --json`.
    Leave the cursor before any meeting that is still `recording`,
    `transcribing`, or `interrupted`, so the next list sees it again.
 4. Delivery is at least once: the same id can come from the list and the
@@ -295,7 +295,7 @@ Limits:
 - `--since`/`--until` include every meeting whose recording overlaps the
   range, so the meeting at the cursor comes back; the dedupe handles it.
 - A meeting retention already removed is gone and can't be caught up.
-- A meeting Hex quit while recording reads `interrupted` until its final
+- A meeting Agent-Desk quit while recording reads `interrupted` until its final
   pass on the next launch with Meetings on; then it reads `complete` and the
   event is sent.
 - There is no separate transcript revision id; the meeting id is the key.
@@ -305,7 +305,7 @@ Limits:
 Final-transcript readiness is separate from notes. The event and `complete`
 mean the transcript and Markdown are written; notes (Apple Intelligence, or
 OpenCode with Summarize with OpenCode) are written after that, may fail, and
-can be regenerated later. Read them from `notes` in `hex meetings show <id>
+can be regenerated later. Read them from `notes` in `agent-desk meetings show <id>
 --json` (`null` until written; `generated_at_ms` changes when they're
 rewritten). Subscribing, listing, and showing are read-only: they run no
 command, upload nothing, and write nothing.
