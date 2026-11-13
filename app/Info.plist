@@ -38,7 +38,7 @@
   <key>LSUIElement</key>
   <true/>
   <key>NSAppleEventsUsageDescription</key>
-  <string>Hex uses automation to identify the foreground app and browser and pause supported media while you dictate.</string>
+  <string>Hex uses automation to identify the foreground app and browser, pause supported media while you dictate, and let the assistant operate your apps for you.</string>
   <key>NSAccessibilityUsageDescription</key>
   <string>Hex uses Accessibility to paste dictation and read selected text for Voice Action.</string>
   <key>NSAudioCaptureUsageDescription</key>

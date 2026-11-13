@@ -11,8 +11,8 @@ use std::time::Duration;
 use color_eyre::{Result, eyre::eyre};
 use scrawl_capture::win;
 
-use super::displays::{Display, Frame};
 use super::Screenshot;
+use super::displays::{Display, Frame};
 use crate::assistant::{Context, TaskWindow};
 
 /// How long the focused app may take to say what's selected.

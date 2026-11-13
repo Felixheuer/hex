@@ -16,8 +16,8 @@ use x11rb::connection::Connection as _;
 use x11rb::protocol::randr::ConnectionExt as _;
 use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, Window as XWindow};
 
-use super::displays::{Display, Frame};
 use super::Screenshot;
+use super::displays::{Display, Frame};
 use crate::assistant::{Context, TaskWindow};
 
 /// How long the selection's owner may take to hand its text over.

@@ -106,6 +106,13 @@ pub(in crate::rune_ui) fn read_facts(settings: &AppSettings) -> Facts {
         microphone: status.microphone == PermissionState::Ready,
         accessibility: status.accessibility == PermissionState::Ready,
         screen_recording: permissions.screen_recording,
+        automation: {
+            use crate::desktop::automation::{self, AutomationState};
+            !matches!(
+                automation::refresh(),
+                AutomationState::NotAsked | AutomationState::Denied
+            )
+        },
         transcription_model: status.transcription_model,
         agent_installed: agent.is_some_and(|agent| {
             agent.path.is_some()
