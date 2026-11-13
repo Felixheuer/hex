@@ -340,6 +340,8 @@ pub fn start_scheduler() {
     if STARTED.swap(true, Ordering::AcqRel) {
         return;
     }
+    // Replies from the person's phone while they're away.
+    crate::assistant::phone::start();
     std::thread::Builder::new()
         .name("assistant-scheduler".into())
         .spawn(|| {
@@ -883,6 +885,8 @@ impl Runner {
         mut kind: JobKind,
         said: Said,
     ) -> ConversationId {
+        // „Ich gehe jetzt zum Friseur …“: from now on the phone hears it.
+        crate::assistant::phone::note_request(&request.text);
         let (enabled, settings) = (self.hooks.settings)();
         let refuse = |message: &str| {
             let id = request.conversation.clone().unwrap_or_else(store::new_id);

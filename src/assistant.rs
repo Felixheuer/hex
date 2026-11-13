@@ -40,6 +40,7 @@ pub mod interaction;
 pub mod memory;
 pub mod notify;
 pub mod palette;
+pub mod phone;
 pub mod provider;
 pub mod schedules;
 pub mod secrets;
