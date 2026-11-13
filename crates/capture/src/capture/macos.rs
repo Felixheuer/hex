@@ -2288,3 +2288,8 @@ mod tests {
         )));
     }
 }
+
+// Window pictures by window number (a job's app windows, even off the screen).
+#[path = "macos_window.rs"]
+mod window_shot;
+pub use window_shot::{capture_window, window_pixels};

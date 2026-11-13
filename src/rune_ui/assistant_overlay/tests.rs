@@ -1179,3 +1179,72 @@ fn backdrop<S: 'static>(
     gpu.queue.submit([encoder.finish()]);
     target.read(&gpu.device)
 }
+
+/// The frame shows only while a task works on the screen: a desktop action
+/// keeps it for `ACTING_FOR`, a Here question reading the screen counts, a
+/// job's reading or hidden browsers don't, and real input holds it.
+#[test]
+fn the_frame_shows_only_while_a_task_works_on_the_screen() {
+    use super::board::ACTING_FOR;
+    let now = std::time::Instant::now();
+    let mut board = Board::default();
+    for (id, origin) in [
+        ("job", Origin::Background),
+        ("here", Origin::ActionShortcut),
+    ] {
+        board.apply(
+            &Event::Started {
+                conversation: id.into(),
+                origin,
+                question: "q".into(),
+            },
+            None,
+            now,
+        );
+    }
+    // Working, but not on the screen (thinking, browsers, files): no frame.
+    assert_eq!(board.frame_until(now), None);
+    // A job only reading a window: still no frame.
+    board.apply(
+        &Event::Acting {
+            conversation: "job".into(),
+            looking: true,
+        },
+        None,
+        now,
+    );
+    assert_eq!(board.frame_until(now), None);
+    // A job clicking: the frame, for ACTING_FOR.
+    board.apply(
+        &Event::Acting {
+            conversation: "job".into(),
+            looking: false,
+        },
+        None,
+        now,
+    );
+    assert_eq!(board.frame_until(now), Some(now + ACTING_FOR));
+    assert_eq!(board.frame_until(now + ACTING_FOR), None, "it fades after");
+    // A question about the screen reading the window: the frame too.
+    let later = now + ACTING_FOR * 2;
+    board.apply(
+        &Event::Acting {
+            conversation: "here".into(),
+            looking: true,
+        },
+        None,
+        later,
+    );
+    assert_eq!(board.frame_until(later), Some(later + ACTING_FOR));
+    // Real input under "Hands off" holds it while it lasts.
+    let much_later = later + ACTING_FOR * 3;
+    board.apply(
+        &Event::HandsOff {
+            conversation: "job".into(),
+            on: true,
+        },
+        None,
+        much_later,
+    );
+    assert!(board.frame_until(much_later).is_some());
+}

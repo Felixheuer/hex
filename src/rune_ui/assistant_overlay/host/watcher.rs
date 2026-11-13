@@ -44,7 +44,8 @@ const DISPLAY_POLL: Duration = Duration::from_secs(1);
 /// What the watcher thread watches, set from the subscriber and the orb.
 #[derive(Default)]
 struct Watch {
-    frame: bool,
+    /// The screen frame shows until then (`Board::frame_until`).
+    frame: Option<Instant>,
     outlined: Vec<Outlined>,
     /// A task is live, so one might take the real pointer.
     live: bool,
@@ -53,7 +54,7 @@ struct Watch {
 }
 
 static WATCH: Mutex<Watch> = Mutex::new(Watch {
-    frame: false,
+    frame: None,
     outlined: Vec::new(),
     live: false,
     generation: 0,
@@ -65,9 +66,9 @@ fn watch() -> MutexGuard<'static, Watch> {
     WATCH.lock().unwrap_or_else(|error| error.into_inner())
 }
 
-/// Shows or hides the screen frame.
-pub(super) fn set_frame(on: bool) {
-    change(|watch| std::mem::replace(&mut watch.frame, on) != on);
+/// Shows the screen frame until `until` (`None` hides it).
+pub(super) fn set_frame_until(until: Option<Instant>) {
+    change(|watch| std::mem::replace(&mut watch.frame, until) != until);
 }
 
 /// The windows to outline, and whether any task is live.
@@ -155,7 +156,7 @@ impl Watcher {
             let (frame, outlined, live) = {
                 let mut watch = watch();
                 // Sleep while there's nothing to show, move, or ask.
-                while !watch.frame
+                while watch.frame.is_none_or(|until| until <= Instant::now())
                     && watch.outlined.is_empty()
                     && !watch.live
                     && watch.generation == seen
@@ -166,7 +167,11 @@ impl Watcher {
                         .unwrap_or_else(|error| error.into_inner());
                 }
                 seen = watch.generation;
-                (watch.frame, watch.outlined.clone(), watch.live)
+                (
+                    watch.frame.is_some_and(|until| until > Instant::now()),
+                    watch.outlined.clone(),
+                    watch.live,
+                )
             };
             if displays::take_changed() {
                 // Read them again now, not within the second.

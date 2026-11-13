@@ -834,3 +834,8 @@ mod tests {
         assert_eq!(x264_preset((3840, 2160), (2560, 1440)), "ultrafast");
     }
 }
+
+/// Window pictures by number are a macOS feature here.
+pub fn capture_window(_window_id: u32, _max_long_edge: u32) -> Option<(u32, u32, Vec<u8>)> {
+    None
+}

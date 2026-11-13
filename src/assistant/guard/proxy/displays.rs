@@ -31,7 +31,10 @@ impl<D: Desktop> Guard<D> {
     }
 
     /// Moves windows the task just got (`arrived`) onto the agents'
-    /// display, cascading; with one display they stay where they opened.
+    /// display, cascading; with one display, parks them off the screen
+    /// (`assistant.agent_space`, on by default) so a job works its apps out
+    /// of the person's way, as Codex does: they stay operable through
+    /// Accessibility and show live in the job's card at the orb.
     pub(super) fn place_arrivals(&mut self) {
         if self.config.lane != Lane::Background || self.arrived.is_empty() {
             return;
@@ -41,6 +44,13 @@ impl<D: Desktop> Guard<D> {
         let Some(agents) =
             computer::agents_display(&displays, self.config.agent_display.as_deref()).cloned()
         else {
+            if park_allowed() {
+                for window in &arrived {
+                    if let Some(spot) = park_spot(&displays) {
+                        self.move_window(window, spot);
+                    }
+                }
+            }
             return;
         };
         for window in arrived {
@@ -143,3 +153,33 @@ pub(super) fn tool() -> Value {
         "inputSchema": {"type": "object", "additionalProperties": false, "properties": {}},
     })
 }
+
+/// Whether windows a job opens may be parked off the screen
+/// (`assistant.agent_space`), read once per guard process.
+fn park_allowed() -> bool {
+    static ALLOWED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ALLOWED.get_or_init(|| {
+        crate::app_settings::AppSettings::read()
+            .map(|settings| settings.assistant.agent_space)
+            .unwrap_or(true)
+    })
+}
+
+/// Where a parked window's top-left corner goes on these displays
+/// (`space::parking_spot`): a corner of a display with nothing beyond it,
+/// so the window hangs off every screen but a sliver.
+pub(super) fn park_spot(displays: &[crate::assistant::computer::Display]) -> Option<(f64, f64)> {
+    let spaced: Vec<crate::assistant::space::Display> = displays
+        .iter()
+        .map(|display| crate::assistant::space::Display {
+            id: display.id.clone(),
+            x: display.frame.0,
+            y: display.frame.1,
+            width: display.frame.2,
+            height: display.frame.3,
+            primary: display.is_primary,
+        })
+        .collect();
+    crate::assistant::space::parking_spot(&spaced, None)
+}
+
