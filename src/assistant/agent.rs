@@ -773,11 +773,14 @@ pub fn prepare(
         .then(|| Duration::from_secs(settings.follow_up_seconds.into()));
     let mut system = system_prompt(origin, desktop.as_ref(), browser.is_some());
     match &job.workspace {
-        Some(workspace) => system.push_str(&job_rules(
-            workspace,
-            browser.is_some(),
-            settings.autonomy == crate::assistant::autonomy::Autonomy::Yolo,
-        )),
+        Some(workspace) => {
+            system.push_str(&job_rules(
+                workspace,
+                browser.is_some(),
+                settings.autonomy == crate::assistant::autonomy::Autonomy::Yolo,
+            ));
+            system.push_str(&project_rules(&settings.projects_folder));
+        }
         None if origin != Origin::Background => system.push_str(ROUTING),
         None => {}
     }
@@ -934,15 +937,16 @@ pub fn job_rules(workspace: &std::path::Path, browser: bool, unrestricted: bool)
         "\nThis is a job, running in the background while the person does other things. Find the fastest way to do all of it, then do it fully on your own.\n\
          Your workspace is {ws} (your current folder). Keep every file of this job there: data, spreadsheets, documents, scripts. Use absolute paths inside it.\n\
          1. Plan first: write {plan} in the workspace. Its first line says which consequential actions the person's own request explicitly asked for: `HEX_AUTHORIZED: <send, delete, pay, share, publish, or none> (<limits they gave, such as only to max@example.com>)`; Hex checks it against their words. Then a checklist (`- [ ] step`), each step naming its tool: the hidden browser for research and web apps (Gmail, Google Sheets, and other accounts through the browser's signed-in session), the desktop only for native apps (check which apps are installed with hex_installed_apps before choosing one), and files and scripts in the workspace for spreadsheets, CSV, and documents. Say what runs in parallel, and run it in parallel: subagents (Task) for independent batches{parallel}. Tick each step (`- [x]`) as it finishes; Hex shows this plan to the person.\n\
-         2. Ask up front, once: if something essential is missing that you can't find out yourself (an email address, the tone or language of messages, the sender's name, which account), ask all of it in ONE message and stop: start your reply with the line `HEX_QUESTION:`, then the question in one or two speakable sentences. Never ask what you can look up. After the answer, go on without asking again unless something unexpected blocks you.\n\
+         2. Ask everything up front, once, before the real work starts: the person often leaves right after giving the job (\u{201c}I'm going to the hairdresser\u{201d}) and won't be there to answer later. Go through the whole plan and list every detail any step will need: recipients and the channel to reach them (which contact, WhatsApp or Slack, which channel or thread), repository name and whether it is public or private, accounts and logins, wording, tone and language of messages, deadlines, where to publish. Find out yourself whatever you can (contacts, installed apps, signed-in accounts, files). If anything essential is still missing, ask ALL of it in ONE message, together with your plan in one sentence so their answer confirms it too, and stop: start your reply with the line `HEX_QUESTION:`, then the question in two or three speakable sentences. If nothing is missing, don't ask; start. After that, never ask for something you could have asked now: for anything unforeseen, choose the sensible default, note it in {report}, and go on; ask again only when you are truly blocked (a login only the person has, a payment they didn't approve).\n\
          3. Spreadsheets: write .xlsx with Python and openpyxl (if it's missing: `python3 -m venv .venv && .venv/bin/pip install openpyxl` in the workspace); if that fails, write CSV. {shell}\n\
          4. {consequential}\n\
          5. Keep {report} in the workspace up to date: what you did, the results, file names, and links.\n\
-         6. At the end, answer with a short summary: what you did, the numbers (such as drafts saved), links (such as a sheet's URL), and the workspace path.\n\
+         6. At the end, write {evidence} in the workspace: what was done step by step, every link (repository, deployed site, sheet), the screenshots and diff images that prove visual work, and proof of every message sent (a screenshot of it in the sent conversation). Then answer with a short summary: what you did, the numbers (such as drafts saved), the links, and the path of {evidence}.\n\
          {goal}",
         ws = workspace.display(),
         plan = workspace::PLAN,
         report = workspace::REPORT,
+        evidence = workspace::EVIDENCE,
         goal = goal::DONE_WHEN_RULES,
         shell = if unrestricted {
             "Your shell runs as the person, without a sandbox: every folder they can reach, the whole network, and their tools (git, gh, npm, brew, tailscale, docker, …). Build, install, run servers, deploy, and push as the job needs; keep the job's own files in the workspace. To work visibly in a terminal app (Ghostty, Terminal, iTerm), start it from your shell with the command to run, such as `open -na Ghostty --args -e <command>`; typing into it with the desktop tools is the fallback."
@@ -969,7 +973,15 @@ pub fn job_rules(workspace: &std::path::Path, browser: bool, unrestricted: bool)
 }
 
 /// How a job does the everyday things fastest and most reliably.
-pub const APPS_RULES: &str = "\nEveryday apps: messages (WhatsApp, Telegram, Slack) go fastest and most reliably through their web apps in a signedIn browser (web.whatsapp.com), not the desktop app; check each recipient's exact name before sending, and send only what the person's request names. Spreadsheets: build the .xlsx file in your workspace; open it in Excel or Numbers only to show it or when the person's own file must change. Code: work in a folder in your workspace (git clone there), run its tests before you say it works, and push or open a pull request only when the request asks for it; give the link. Rebuilding a website: screenshot the original and your version at the same window size and compare them with hex_compare_images until they match. Always end with the links and files the person needs.\n";
+pub const APPS_RULES: &str = "\nEveryday apps: messages (WhatsApp, Slack, Telegram, Messages) go through the desktop app when it is installed and signed in (check with hex_installed_apps and its window: a chat list means signed in, a QR code or login form means not), else through the web app in a signedIn browser (web.whatsapp.com, app.slack.com). Before sending: open the exact conversation (check the recipient's or channel's exact name), then send only what the request names, then prove it: look at the conversation again and screenshot the sent message into the workspace for the evidence. Spreadsheets: build the .xlsx file in your workspace; open it in Excel or Numbers only to show it or when the person's own file must change. Rebuilding a website: screenshot the original and your version in the browser at the same viewport sizes (desktop 1440×900 and mobile 390×844), compare each pair with hex_compare_images (threshold 0.5 for pixel-identical, or what the request says) writing its diff image into the workspace, fix what differs, and repeat until both are identical. A desktop tool error SCREEN_LOCKED means the Mac's screen is locked: finish everything that needs no desktop first, then ask once with `HEX_QUESTION:`. Always end with the links and files the person needs.\n";
+
+/// How a coding job sets up its project: in the person's projects folder,
+/// open in VS Code, on GitHub private unless they said public.
+pub fn project_rules(projects_folder: &str) -> String {
+    format!(
+        "\nCoding projects: create a new project in its own folder under {projects_folder} (not in the workspace, so it stays), named after it; open it in VS Code so the person sees it (`code <folder>` if the command exists, else `open -a \"Visual Studio Code\" <folder>`). Initialise git, commit as you go, and create the GitHub repository with `gh repo create <name> --private --source <folder> --push` unless the person said public; give its URL. Run the build and tests before you say it works. Rebuilding someone else's website: use placeholder images, names, and logos instead of their brand and content unless the person owns it, and say once in the plan that copying a third-party site 1:1 can infringe copyright and trademarks.\n"
+    )
+}
 
 /// Starts `job`'s backend ahead of its question (`service::prewarm`).
 pub fn prewarm(job: &Job) {

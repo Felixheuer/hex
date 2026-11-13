@@ -164,10 +164,13 @@ pub fn definitions() -> Vec<Value> {
         }),
         json!({
             "name": "hex_compare_images",
-            "description": "How alike two images look (PNG or JPEG files, such as screenshots of a reference page and of your own result at the same window size): a similarity from 0 to 100 and the regions that differ most, as fractions of the image. Use it to check visual work against a reference.",
+            "description": "Compares two images (PNG or JPEG, such as screenshots of a reference page and of your result at the SAME viewport size) at full resolution: the share of differing pixels, whether that is within `threshold` (\"identical\"), a similarity from 0 to 100, the regions that differ most, and with `diff` a PNG showing every differing pixel in red. Use it to prove visual work matches (pixel-identical: threshold 0.5 or less, at desktop and mobile sizes).",
             "inputSchema": {"type": "object", "properties": {
                 "a": {"type": "string", "description": "Absolute path of the first image (the reference)."},
-                "b": {"type": "string", "description": "Absolute path of the second image."}
+                "b": {"type": "string", "description": "Absolute path of the second image."},
+                "tolerance": {"type": "integer", "description": "Per-channel difference 0-255 a pixel may have and still match (default 16, for anti-aliasing and compression)."},
+                "threshold": {"type": "number", "description": "Percent of differing pixels still called identical (default 0.5)."},
+                "diff": {"type": "string", "description": "Absolute path to write the diff PNG to (in your workspace)."}
             }, "required": ["a", "b"]},
         }),
         json!({
@@ -265,7 +268,21 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
                 titles.join("; ")
             ))
         }
-        "hex_compare_images" => images::compare(&text("a")?, &text("b")?),
+        "hex_compare_images" => {
+            let defaults = images::Options::default();
+            let options = images::Options {
+                tolerance: arguments
+                    .get("tolerance")
+                    .and_then(Value::as_u64)
+                    .map_or(defaults.tolerance, |value| value.min(255) as u8),
+                threshold: arguments
+                    .get("threshold")
+                    .and_then(Value::as_f64)
+                    .map_or(defaults.threshold, |value| value.clamp(0.0, 100.0)),
+            };
+            let diff = arguments.get("diff").and_then(Value::as_str);
+            images::compare(&text("a")?, &text("b")?, options, diff)
+        }
         "hex_remember" => {
             if !memory_on() {
                 return Err("The person turned memory off; nothing is remembered.".into());

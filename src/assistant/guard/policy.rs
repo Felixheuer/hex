@@ -39,6 +39,15 @@ pub enum Kind {
 }
 
 impl Kind {
+    /// Whether it needs a usable desktop (an unlocked screen): everything
+    /// but listings, Hex's own lookups, and refusals.
+    pub fn needs_desktop(self) -> bool {
+        !matches!(
+            self,
+            Self::Free | Self::InstalledApps | Self::Displays | Self::Refused(_)
+        )
+    }
+
     /// Whether it changes something on the desktop (and so waits while the
     /// task is paused, and needs the window to be the task's).
     pub fn acts(self) -> bool {
@@ -378,5 +387,16 @@ mod lean_tests {
         let mut find = Map::new();
         lean_snapshot("desktop_find", &mut find);
         assert!(find.is_empty());
+    }
+
+    #[test]
+    fn only_desktop_steps_wait_for_an_unlocked_screen() {
+        assert!(Kind::Observe.needs_desktop());
+        assert!(Kind::Act.needs_desktop());
+        assert!(Kind::OpenApp.needs_desktop());
+        assert!(!Kind::Free.needs_desktop());
+        assert!(!Kind::InstalledApps.needs_desktop());
+        assert!(!Kind::Displays.needs_desktop());
+        assert!(!Kind::Refused("no").needs_desktop());
     }
 }

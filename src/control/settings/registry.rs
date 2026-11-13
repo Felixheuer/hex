@@ -342,6 +342,11 @@ pub(super) const KEYS: &[Key] = &[
         "Background assistant tasks may also operate the window in front, like the ChatGPT app (macOS)",
     ),
     key(
+        "assistant.projects_folder",
+        Kind::Text,
+        "Where the assistant's coding jobs create their projects; ~/dev by default (macOS)",
+    ),
+    key(
         "assistant.keep_awake",
         Kind::Bool,
         "The computer doesn't sleep while a background assistant task works (the display may)",
