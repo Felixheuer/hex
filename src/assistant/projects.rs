@@ -137,8 +137,16 @@ impl Projects {
         }
     }
 
-    /// The person's.
+    /// The person's (`AGENT_DESK_PROJECTS_DIR` puts them elsewhere). Tests
+    /// never touch the person's folders: theirs are made with [`Self::at`].
     pub fn system() -> Option<Self> {
+        if let Some(root) = std::env::var_os("AGENT_DESK_PROJECTS_DIR") {
+            let root = PathBuf::from(root);
+            return Some(Self::at(root.join("Projects"), root.join("projects.json")));
+        }
+        if cfg!(test) {
+            return None;
+        }
         let state = crate::assistant::store::assistant_dir()
             .ok()?
             .join("projects.json");
