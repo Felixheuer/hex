@@ -58,9 +58,14 @@ pub(super) fn orb_key(orb: &mut Orb, key: &rune::KeyEvent, _tx: &mut Tx) -> bool
     key.key == rune::Key::Escape && escape(orb)
 }
 
-/// Escape at the orb: the answer field goes, else an unfolded result folds,
-/// else the list; whether anything did.
+/// Escape at the orb: the project picker folds, else the answer field
+/// goes, else an unfolded result folds, else the list; whether anything
+/// did.
 pub(in super::super) fn escape(orb: &mut Orb) -> bool {
+    if orb.project.open {
+        cancel_project(orb);
+        return true;
+    }
     if orb.reply.take().is_some() {
         return true;
     }
@@ -85,6 +90,12 @@ pub(super) fn orb_focus(orb: &mut Orb, focused: bool, _tx: &mut Tx) {
     }
     if orb.expanded {
         fold(orb);
+    }
+    // A click outside folds the picker, unless a name is being typed.
+    if orb.project.open && orb.project.typed().is_none() {
+        orb.project.open = false;
+        orb.project.naming = None;
+        refresh_projects();
     }
     if orb
         .reply
@@ -254,7 +265,81 @@ pub(super) fn colour_of(conversation: &ConversationId) -> Option<u8> {
         .map(|task| task.colour)
 }
 
+/// The project chip: the picker unfolds (and the list folds), or folds.
+pub(super) fn toggle_project(orb: &mut Orb) {
+    orb.project.open = !orb.project.open;
+    orb.project.naming = None;
+    if orb.project.open {
+        orb.project.snapshot = crate::assistant::projects::snapshot();
+        if orb.expanded {
+            fold(orb);
+        }
+        if let Some(overlays) = OVERLAYS.get() {
+            overlays.orb.request_keys();
+        }
+    }
+    refresh_projects();
+}
+
+/// A project picked in the picker (`None`: "No project"): it is the active
+/// one for the next requests; the picker folds.
+pub(super) fn pick_project(orb: &mut Orb, id: Option<&str>) {
+    if let Err(error) = crate::assistant::projects::switch(id) {
+        tracing::warn!(%error, "couldn't switch projects");
+    }
+    orb.project.open = false;
+    orb.project.naming = None;
+    refresh_projects();
+}
+
+/// "New project…": its name field shows and takes the keyboard.
+pub(super) fn name_project(orb: &mut Orb) {
+    let mut edit = rune::TextEdit::default();
+    edit.focused = true;
+    orb.project.naming = Some(edit);
+    if let Some(overlays) = OVERLAYS.get() {
+        overlays.orb.request_keys();
+    }
+}
+
+/// Return in the name field: the project is made (its folder and soul)
+/// and becomes the active one.
+pub(super) fn create_project(orb: &mut Orb) {
+    let Some(name) = orb.project.typed() else {
+        return;
+    };
+    let made = crate::assistant::projects::Projects::system()
+        .ok_or_else(|| color_eyre::eyre::eyre!("no folder for projects"))
+        .and_then(|projects| projects.create(&name))
+        .and_then(|(project, _)| crate::assistant::projects::switch(Some(&project.id)));
+    if let Err(error) = made {
+        tracing::warn!(%error, "couldn't make the project");
+    }
+    orb.project.open = false;
+    orb.project.naming = None;
+    refresh_projects();
+}
+
+/// Escape in the picker: the name field goes, else the picker folds.
+pub(super) fn cancel_project(orb: &mut Orb) {
+    if orb.project.naming.take().is_none() {
+        orb.project.open = false;
+    }
+    refresh_projects();
+}
+
+/// The chip reads the projects again and the rail shows or hides for it.
+pub(super) fn refresh_projects() {
+    if let Some(overlays) = OVERLAYS.get() {
+        overlays
+            .orb
+            .update(|orb, tx| board_changed(orb, tx, Instant::now()));
+    }
+}
+
 pub(super) fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
+    // The project chip's names, read at most every two seconds.
+    orb.project.snapshot = crate::assistant::projects::snapshot();
     let mut outlined = orb.board.outlined();
     let hands = orb.board.hands_off().cloned();
     if let Some(task) = &hands
@@ -345,7 +430,8 @@ pub(super) fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
         orb.open_result = None;
     }
     show_cards(orb);
-    let visible = orb.board.orb_shows(now) || orb.expanded || !desk.is_empty();
+    let visible =
+        orb.board.orb_shows(now) || orb.expanded || !desk.is_empty() || orb.project.shows();
     if visible && !orb.shown {
         place_orb(&overlays.orb, orb);
         overlays.orb.fade_in(FADE);

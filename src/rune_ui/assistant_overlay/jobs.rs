@@ -163,7 +163,7 @@ pub(crate) fn running_for(minutes: u64) -> String {
 }
 
 /// Where the job rows sit and how tall they may get.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Room {
     /// Downward from the orb (else upward: the newest row sits at the
     /// bottom, nearest the orb).
@@ -174,6 +174,8 @@ pub(crate) struct Room {
     pub(crate) appear: rune::Transition,
     /// Hold the minis' "Live" pulse still (Reduce motion, or a render).
     pub(crate) still: bool,
+    /// The active project's name: a row in another project wears a tag.
+    pub(crate) active_project: Option<String>,
 }
 
 /// The rows (and the "more" line) for `jobs`, as laid out: one column that
@@ -210,6 +212,9 @@ pub(crate) fn view<S: 'static>(
                 actions,
                 line_actions.wall,
                 room.still,
+                task.project
+                    .as_deref()
+                    .filter(|name| Some(*name) != room.active_project.as_deref()),
             )
             .transition(room.appear)
         })
@@ -277,6 +282,7 @@ fn card<S: 'static>(
     actions: stack::Actions<S>,
     open_wall: fn(&mut S, &str),
     still: bool,
+    project: Option<&str>,
 ) -> El {
     let c = &p.k.c;
     let colour = palette::task(task.colour, p.k.dark);
@@ -332,6 +338,7 @@ fn card<S: 'static>(
                 .min_w(0.0)
                 .grow(1.0),
         )
+        .children(project.map(|name| super::project::tag(p, name)))
         .children(wall)
         .children(when);
     let step = doing(task).map(|words| {
