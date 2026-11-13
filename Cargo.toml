@@ -97,6 +97,17 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 transcribe-cpp = "=0.4.1"
 transcribe-rs = { git = "https://github.com/cjpais/transcribe-rs", rev = "e37c66b6df43af51fde8dec34f98a07aaf09564c", features = ["onnx"], optional = true }
 unicode-normalization = "0.1.25"
+# The assistant's media tools (`assistant::media`): images decoded, edited,
+# and encoded (`hex_image`), shapes and text drawn on images and video
+# overlays (tiny-skia; ab_glyph with a system font), Office files read and
+# written as zipped XML (flate2, crc32fast, roxmltree). All of them were in
+# Cargo.lock already, through other crates.
+ab_glyph = "0.2.32"
+crc32fast = "1.5.2"
+flate2 = "1.1.10"
+image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tiff", "webp"] }
+roxmltree = "0.21.2"
+tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "simd"] }
 unicode-segmentation = "1.13.3"
 url = "2.5.8"
 # Agent-Desk's HTTPS (`net`): model downloads, update checks, and transformation

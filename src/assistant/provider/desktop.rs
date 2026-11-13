@@ -61,8 +61,10 @@ fn hex_step(tool: &str, args: &Value) -> Option<Report> {
             "Removed a schedule".to_owned(),
         ),
         "schedules" => ("Checking the schedules".to_owned(), String::new()),
-        "watch_video" => crate::assistant::media::step(args),
-        _ => return None,
+        name => {
+            return crate::assistant::media::step(name, args)
+                .map(|(doing, done)| Report::Step { doing, done });
+        }
     };
     Some(Report::Step { doing, done })
 }
