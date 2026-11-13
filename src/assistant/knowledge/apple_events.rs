@@ -13,7 +13,7 @@ pub const FOR_PERSON: &str = "For the person: ";
 /// What went wrong, read from the error's code and words.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Trouble {
-    /// macOS doesn't let Hex control the browser (-1743).
+    /// macOS doesn't let Agent-Desk control the browser (-1743).
     NotAllowed,
     /// No answer in time: macOS may be asking the person, or the browser is busy.
     NoAnswer,
@@ -80,10 +80,10 @@ pub fn fix(trouble: Trouble, browser: &Browser) -> Option<String> {
     let name = &browser.name;
     Some(match trouble {
         Trouble::NotAllowed => format!(
-            "Allow Hex to control {name}: System Settings › Privacy & Security › Automation › Hex › {name}."
+            "Allow Agent-Desk to control {name}: System Settings › Privacy & Security › Automation › Agent-Desk › {name}."
         ),
         Trouble::NoAnswer => format!(
-            "If macOS asks whether Hex may control {name}, click Allow (else System Settings › Privacy & Security › Automation › Hex › {name}); then ask again."
+            "If macOS asks whether Agent-Desk may control {name}, click Allow (else System Settings › Privacy & Security › Automation › Agent-Desk › {name}); then ask again."
         ),
         Trouble::JavaScriptOff => format!(
             "Turn on JavaScript from Apple Events {}.",
@@ -100,9 +100,9 @@ pub fn explain(error: &str, browser: &Browser) -> String {
     let trouble = classify(error);
     let name = &browser.name;
     let meaning = match trouble {
-        Trouble::NotAllowed => format!("macOS doesn't let Hex control {name} (Automation)"),
+        Trouble::NotAllowed => format!("macOS doesn't let Agent-Desk control {name} (Automation)"),
         Trouble::NoAnswer => format!(
-            "{name} didn't answer in time: macOS may be asking the person whether Hex may control it, or it is busy"
+            "{name} didn't answer in time: macOS may be asking the person whether Agent-Desk may control it, or it is busy"
         ),
         Trouble::JavaScriptOff => format!("{name} doesn't allow JavaScript from Apple Events"),
         Trouble::NotRunning => format!("{name} isn't running"),
@@ -172,7 +172,7 @@ mod tests {
         assert_eq!(
             person_fix(&text).as_deref(),
             Some(
-                "Allow Hex to control Google Chrome: System Settings › Privacy & Security › Automation › Hex › Google Chrome."
+                "Allow Agent-Desk to control Google Chrome: System Settings › Privacy & Security › Automation › Agent-Desk › Google Chrome."
             )
         );
         let js = explain(JS_OFF, &chrome());
