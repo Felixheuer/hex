@@ -388,16 +388,12 @@ impl Conversation {
                 if !*open || self.other_audio {
                     return None;
                 }
-                let voice = frame.speech
-                    && match (output, frame.over_echo) {
-                        (Output::Headphones, _) => true,
-                        // The echo of Hex's voice taken out: the person.
-                        (Output::Speakers, Some(over)) => over,
-                        // Not learnt yet: only a voice clearly over Hex's.
-                        (Output::Speakers, None) => playback_db.is_some_and(|playback| {
-                            frame.level_db > playback + self.thresholds.speaker_margin_db
-                        }),
-                    };
+                // Only with headphones: on speakers Hex's own voice comes
+                // back too loud and too varied for any judge to tell from
+                // the person (it interrupted itself over and over); there a
+                // hold or „Stopp“ interrupts.
+                let voice = frame.speech && output == Output::Headphones;
+                let _ = (frame.over_echo, playback_db);
                 let conversation = conversation.clone();
                 let needed = self.needed(output, frame.over_echo.is_some());
                 if self.count(voice) < needed {
@@ -629,35 +625,6 @@ mod tests {
 
     /// On speakers, with the echo of Hex's voice taken out, the person
     /// interrupts at a normal voice: no need to be louder than the answer.
-    #[test]
-    fn barge_in_on_speakers_with_the_echo_taken_out() {
-        let start = Instant::now();
-        let mut machine = Conversation::default();
-        machine.answered("c1".into(), start);
-        assert_eq!(
-            machine.tick(after(start, 100), true, false, ON),
-            Some(Step::Watch)
-        );
-        let echo_only = Frame {
-            over_echo: Some(false),
-            ..speech(-20.0)
-        };
-        let person = Frame {
-            over_echo: Some(true),
-            ..speech(-35.0)
-        };
-        // Hex's own voice, loud in the microphone: no barge-in, whatever its
-        // level against the answer's.
-        assert!(feed(&mut machine, echo_only, 100, Output::Speakers, Some(-60.0)).is_empty());
-        // The person, quieter than the answer: 500 ms interrupt.
-        assert!(feed(&mut machine, person, 24, Output::Speakers, Some(-12.0)).is_empty());
-        assert_eq!(
-            feed(&mut machine, person, 1, Output::Speakers, Some(-12.0)),
-            [Step::BargeIn]
-        );
-        assert!(machine.is_hearing());
-    }
-
     /// The echo judge is only asked on speakers, under an answer.
     #[test]
     fn the_echo_is_judged_only_under_an_answer_on_speakers() {
@@ -805,66 +772,6 @@ mod tests {
     /// On speakers, the microphone hears Hex's own voice: only speech
     /// clearly louder than the answer interrupts, and without the answer's
     /// level nothing does. Once the answer ends, Hex listens as usual.
-    #[test]
-    fn barge_in_on_speakers_needs_a_voice_over_the_answer() {
-        let start = Instant::now();
-        let mut machine = Conversation::default();
-        machine.answered("c1".into(), start);
-        assert_eq!(
-            machine.tick(after(start, 200), true, false, ON),
-            Some(Step::Watch)
-        );
-        // Hex's own voice through the speakers, as loud as it plays or a
-        // little louder: never a barge-in.
-        assert!(
-            feed(
-                &mut machine,
-                speech(-20.0),
-                100,
-                Output::Speakers,
-                Some(-20.0)
-            )
-            .is_empty()
-        );
-        assert!(
-            feed(
-                &mut machine,
-                speech(-15.0),
-                100,
-                Output::Speakers,
-                Some(-20.0)
-            )
-            .is_empty()
-        );
-        // Without the playback level, speakers never barge in.
-        assert!(feed(&mut machine, speech(0.0), 100, Output::Speakers, None).is_empty());
-        // The person, clearly louder than the answer.
-        assert_eq!(
-            feed(
-                &mut machine,
-                speech(-10.0),
-                12,
-                Output::Speakers,
-                Some(-20.0)
-            ),
-            [Step::BargeIn]
-        );
-
-        // Not interrupted: when the reading ends the open capture listens.
-        let mut machine = Conversation::default();
-        machine.answered("c2".into(), start);
-        machine.tick(after(start, 200), true, false, ON);
-        machine.tick(after(start, 2_600), false, false, ON);
-        assert_eq!(
-            machine.tick(after(start, 3_000), false, false, ON),
-            Some(Step::Listen)
-        );
-        assert_eq!(
-            feed(&mut machine, speech(-30.0), 8, Output::Speakers, None),
-            [Step::Heard]
-        );
-    }
-
     /// A new answer while one is being listened for keeps the capture and
     /// follows the newer conversation; a follow-up being heard keeps going.
     #[test]
@@ -1048,5 +955,26 @@ mod tests {
         hearing.other_audio(true);
         assert_eq!(hearing.tick(after(start, 2_500), false, false, ON), None);
         assert!(hearing.is_hearing());
+    }
+
+    /// On speakers a voice over the answer never interrupts, however loud
+    /// or however the echo judge rules: Hex's own voice did, again and
+    /// again. A hold or „Stopp“ interrupts there.
+    #[test]
+    fn speakers_never_barge_in() {
+        let start = Instant::now();
+        let mut machine = Conversation::default();
+        machine.answered("c1".into(), start);
+        assert_eq!(
+            machine.tick(after(start, 100), true, false, ON),
+            Some(Step::Watch)
+        );
+        let person = Frame {
+            over_echo: Some(true),
+            ..speech(0.0)
+        };
+        assert!(feed(&mut machine, person, 200, Output::Speakers, Some(-30.0)).is_empty());
+        assert!(feed(&mut machine, speech(0.0), 200, Output::Speakers, None).is_empty());
+        assert!(!machine.is_hearing());
     }
 }

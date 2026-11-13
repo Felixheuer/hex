@@ -170,7 +170,9 @@ impl Talk {
         let blocked = blocked || !ready || crate::meeting::watcher::recording();
         let options = Options {
             listen_for: Duration::from_secs(settings.conversation_seconds.into()),
-            barge_in: settings.barge_in,
+            // Interrupting is by key only (a hold, or „Stopp“ said in one):
+            // nothing listens under an answer, so Hex never hears itself.
+            barge_in: false,
             spoken: settings.speak_answers,
         };
         // Between two sentences the engine can be idle while more of the

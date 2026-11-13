@@ -37,6 +37,11 @@ pub(crate) fn after_barge_in(
     if heard_back(text) {
         return AfterBargeIn::Resume("own echo");
     }
+    // One or two words over an answer ("Ides.") are far more often a
+    // fragment of Hex's own voice than a question.
+    if text.split_whitespace().count() < 3 {
+        return AfterBargeIn::Resume("too short");
+    }
     AfterBargeIn::TakeOver
 }
 
@@ -101,5 +106,23 @@ mod tests {
             AfterBargeIn::TakeOver
         );
         assert_eq!(after_barge_in(Some("Stopp!"), never), AfterBargeIn::Stop);
+    }
+
+    #[test]
+    fn a_word_or_two_over_an_answer_resumes_it() {
+        let never = |_: &str| false;
+        assert_eq!(
+            after_barge_in(Some("Ides."), never),
+            AfterBargeIn::Resume("too short")
+        );
+        assert_eq!(
+            after_barge_in(Some("Und Hamburg?"), never),
+            AfterBargeIn::Resume("too short")
+        );
+        assert_eq!(
+            after_barge_in(Some("Und wie ist es in Hamburg?"), never),
+            AfterBargeIn::TakeOver
+        );
+        assert_eq!(after_barge_in(Some("Stopp"), never), AfterBargeIn::Stop);
     }
 }
