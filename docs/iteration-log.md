@@ -8,8 +8,8 @@ maintainable, and nothing that isn't possible.
 
 - [ ] Cua Driver as the desktop backend (background like Codex, cursor and focus stay with
       the person), agent-desktop as fallback
-- [ ] Universal app control: `hex_app_capabilities` (sdef, URL schemes, AX), no recipe list,
-      no brand word lists
+- [x] Universal app control: `hex_app_capabilities` (sdef, URL schemes, AX), no recipe list,
+      no brand word lists (pilot.40)
 - [ ] Orb view: "All live" overview, scrolling, nothing clipped, checked visually with
       headless renders
 - [x] Permissions: Contacts/Reminders/Calendar/Automation/FDA in setup and repair
@@ -26,6 +26,10 @@ maintainable, and nothing that isn't possible.
       actions, knowledge, browser)
 - [ ] Error paths: every error the person sees has a way forward (no dead ends)
 - [ ] Docs: AGENTS.md / docs/features/assistant.md brought up to date
+- [ ] Consent checks without app lists: `guard/proxy/consent.rs` (Return sends in chat apps),
+      `browser/consent.rs` (mail hosts), `knowledge/graph.rs` (messenger names), recognized by
+      element/role/label instead of name
+- [ ] Timing-flaky test: `a_paused_task_waits_and_then_is_told_to_look_again`
 
 ## Round 5 (planned): rename and real test
 
@@ -46,3 +50,4 @@ maintainable, and nothing that isn't possible.
 | pilot.37 | Knowledge, speed (two models, warm), bench |
 | pilot.38 | Background apps, desk, recipes/OCR |
 | pilot.39 | Browsers with live pictures (Chrome) |
+| pilot.40 | Universal app control, permissions in setup, stable tests |
