@@ -36,7 +36,11 @@ impl<D: Desktop> Guard<D> {
     /// of the person's way, as Codex does: they stay operable through
     /// Accessibility and show live in the job's card at the orb.
     pub(super) fn place_arrivals(&mut self) {
-        if self.config.lane != Lane::Background || self.arrived.is_empty() {
+        // The Here lane gets windows here only from apps it opens with full
+        // control (`adopt`, `take_running`).
+        let reaches = self.config.lane == Lane::Background || self.opens_apps();
+        if !reaches || self.arrived.is_empty() {
+            self.arrived.clear();
             return;
         }
         let arrived = std::mem::take(&mut self.arrived);
@@ -44,8 +48,7 @@ impl<D: Desktop> Guard<D> {
         // A display for the agents only when the person picked one; else
         // a job's windows park off the screen and show as live pictures on
         // its card (as Codex does), never on another monitor of theirs.
-        let Some(agents) = picked_display(&displays, self.config.agent_display.as_deref())
-        else {
+        let Some(agents) = picked_display(&displays, self.config.agent_display.as_deref()) else {
             if park_allowed() {
                 for window in &arrived {
                     if let Some(spot) = park_spot(&displays) {
@@ -206,4 +209,3 @@ pub(super) fn park_spot(displays: &[crate::assistant::computer::Display]) -> Opt
         .collect();
     crate::assistant::space::parking_spot(&spaced, None)
 }
-

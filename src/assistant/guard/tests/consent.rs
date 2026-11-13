@@ -37,6 +37,7 @@ fn guard_with(scratch: &Scratch, fake: &Fake, autonomy: Autonomy) -> Guard<Fake>
             agent_display: None,
             autonomy,
             front_window: false,
+            open_apps: false,
             observe_only: false,
         },
         scratch.store(),

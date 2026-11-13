@@ -63,6 +63,9 @@ pub struct Desktop {
     /// A Background task may also operate the window in front
     /// (`assistant.background_front_window`; the guard enforces it).
     pub front_window: bool,
+    /// A Here task may open and use apps in windows of its own, parked out
+    /// of the person's way (the guard enforces it).
+    pub open_apps: bool,
 }
 
 impl Desktop {
@@ -83,6 +86,7 @@ impl Desktop {
             agent_id: agent_id.to_owned(),
             headed: false,
             front_window: false,
+            open_apps: false,
         }
     }
 
@@ -113,6 +117,7 @@ impl Desktop {
             agent_id,
             headed,
             front_window: false,
+            open_apps: false,
         })
     }
 

@@ -48,10 +48,134 @@ fn a_quick_question_carries_what_was_on_screen() {
     );
     assert_eq!(
         prompt,
-        "What the person has on screen as they ask:\nFrontmost app: Mail\nIts window: Inbox\nYour only window, the one in front: Mail (window id w-3)\nDisplays: The person is working on M27Q (display 5).\nSelected text:\n<<<\nthe invoice total\n>>>\n\nThe person asks: What's this?"
+        "What the person has on screen as they ask:\nFrontmost app: Mail\nIts window: Inbox\nThe window in front: Mail (window id w-3)\nDisplays: The person is working on M27Q (display 5).\nSelected text:\n<<<\nthe invoice total\n>>>\n\nThe person asks: What's this?"
     );
     let plain = job("Hi", Origin::ActionShortcut, Context::default());
     assert_eq!(super::prompt(&plain, &[], true), "Hi");
+    // Without full control the window in front is its only one.
+    let mut kept = job(
+        "What's this?",
+        Origin::ActionShortcut,
+        Context {
+            window: Some(mail()),
+            ..Context::default()
+        },
+    );
+    kept.settings.background_front_window = false;
+    assert!(
+        super::prompt(&kept, &[], false)
+            .contains("Your only window, the one in front: Mail (window id w-3)")
+    );
+}
+
+#[test]
+fn every_turn_says_what_runs_now_before_the_question() {
+    let mut asked = job(
+        "Kannst du mal WhatsApp öffnen?",
+        Origin::ActionShortcut,
+        Context {
+            frontmost_app: Some("Mail".into()),
+            ..Context::default()
+        },
+    );
+    asked.digest = Some("Finished recently: WhatsApp is open on another desktop".into());
+    let now = "The desktop right now (…):\nRunning apps:\n- WhatsApp: no open window";
+    let prompt = super::prompt_with(&asked, &[], false, Some(now));
+    let digest = prompt.find("Finished recently").unwrap();
+    let desktop = prompt.find("The desktop right now").unwrap();
+    let screen = prompt.find("What the person has on screen").unwrap();
+    let question = prompt.find("The person asks: Kannst du").unwrap();
+    // The fresh look comes after the older stream, so it is what stands.
+    assert!(
+        digest < desktop && desktop < screen && screen < question,
+        "{prompt}"
+    );
+    // A steer, an answer, or a follow-up gets it too.
+    asked.kind = JobKind::Answer {
+        question: "Which chat?".into(),
+    };
+    assert!(
+        super::prompt_with(&asked, &[], false, Some(now)).contains("- WhatsApp: no open window")
+    );
+}
+
+#[test]
+fn staying_in_the_background_still_opens_apps_in_windows_of_its_own() {
+    let asked = job(
+        "Kannst du jede beliebige App nur im Hintergrund bedienen?",
+        Origin::ActionShortcut,
+        Context::default(),
+    );
+    let spec = task_spec(&asked);
+    assert!(!spec.full_control);
+    assert!(spec.open_apps);
+    let mut desktop = Desktop::fixture(None, "hex-1");
+    desktop.open_apps = true;
+    let here = system_prompt(Origin::ActionShortcut, Some(&desktop), false);
+    assert!(
+        here.contains("open or switch to any app with hex_open_app"),
+        "{here}"
+    );
+    assert!(here.contains("their own windows left alone"));
+}
+
+#[test]
+fn a_running_job_is_told_the_persons_own_words() {
+    let asked = job(
+        "Kannst du auch WhatsApp im Hintergrund öffnen?",
+        Origin::ActionShortcut,
+        Context::default(),
+    );
+    assert_eq!(
+        super::told_words(
+            &asked,
+            "Der Nutzer fragt: Bitte öffne WhatsApp im Hintergrund."
+        ),
+        "Kannst du auch WhatsApp im Hintergrund öffnen?"
+    );
+    // A job telling its helpers passes its own words.
+    let mut lead = job("Recherchiere", Origin::Background, Context::default());
+    lead.workspace = Some("/tmp/job".into());
+    assert_eq!(super::told_words(&lead, "Nimm Firma B"), "Nimm Firma B");
+}
+
+#[test]
+fn small_things_and_capability_questions_never_become_jobs() {
+    assert!(ROUTING.contains("Never a job: opening, switching to, or using one app"));
+    assert!(ROUTING.contains("can you …?"));
+    assert!(ROUTING.contains("pass it to that job with hex_tell_job instead of starting another"));
+    let rules = job_rules(std::path::Path::new("/tmp/job"), true, true);
+    assert!(rules.contains("skips the paperwork"), "{rules}");
+    assert!(rules.contains("Only when the job sent, posted, published"));
+    let background = system_prompt(
+        Origin::Background,
+        Some(&Desktop::fixture(None, "hex-1")),
+        true,
+    );
+    assert!(background.contains("even one that already runs, call hex_open_app first"));
+    assert!(background.contains("Never only check that an app runs"));
+}
+
+#[test]
+fn with_full_control_a_quick_turn_opens_apps_itself() {
+    let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
+    desktop.front_window = true;
+    let here = system_prompt(Origin::ActionShortcut, Some(&desktop), false);
+    assert!(
+        here.contains("open or switch to any app with hex_open_app"),
+        "{here}"
+    );
+    assert!(here.contains("Never say you can't open, reach, or use an app"));
+    assert!(here.contains("never offer a background job for something you can do now"));
+    assert!(
+        here.contains("ask what to do in it"),
+        "an app opened without a task asks"
+    );
+    assert!(here.contains("trust it over anything said earlier"));
+    assert!(!here.contains("ACT only in the window in front"));
+    // Routing no longer sends every other app to the background.
+    assert!(!ROUTING.contains("other apps,"));
+    assert!(ROUTING.contains("open or switch to it"));
 }
 
 #[test]
@@ -137,6 +261,7 @@ fn the_guard_learns_each_lanes_window_and_input_policy() {
             blocked_apps: vec!["1Password".into()],
             // Full control is the default (`background_front_window`).
             full_control: true,
+            open_apps: true,
         }
     );
     let mut background = here.clone();
@@ -174,7 +299,7 @@ fn each_lane_gets_its_own_rules() {
     assert!(here.contains("speakable"));
     assert!(!here.contains("desktop_launch"));
     let background = system_prompt(Origin::Background, Some(&desktop), true);
-    assert!(background.contains("open apps with hex_open_app"));
+    assert!(background.contains("to use any app, even one that already runs, call hex_open_app"));
     assert!(background.contains("desktop_claim_window"));
     assert!(background.contains("The clipboard is Here-only"));
     assert!(background.contains("Never the person's window"));
@@ -411,7 +536,9 @@ fn an_unattended_job_asks_everything_up_front_and_proves_its_work() {
 
 #[test]
 fn a_job_is_told_the_person_s_language() {
-    let rule = super::language_rule("Antworte Michael Schwarz auf WhatsApp und schreib ihm, dass er das rausnehmen soll");
+    let rule = super::language_rule(
+        "Antworte Michael Schwarz auf WhatsApp und schreib ihm, dass er das rausnehmen soll",
+    );
     assert!(rule.contains("speaks German"), "{rule}");
     let rule = super::language_rule("Find ten suppliers and put them in a sheet for me");
     assert!(rule.contains("speaks English"), "{rule}");

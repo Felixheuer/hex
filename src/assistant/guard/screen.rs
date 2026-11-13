@@ -39,6 +39,18 @@ pub trait Screen: Send {
     fn displays(&mut self) -> Vec<Display> {
         Vec::new()
     }
+
+    /// The windows that aren't on the screen now (on another desktop,
+    /// minimized, or of a hidden app), as `visible: false`; a window
+    /// [`Screen::windows`] lists isn't among them.
+    fn off_screen_windows(&mut self) -> Vec<Window> {
+        Vec::new()
+    }
+
+    /// The processes running the app bundle `bundle` (`…/Name.app`).
+    fn app_pids(&mut self, _bundle: &std::path::Path) -> Vec<i64> {
+        Vec::new()
+    }
 }
 
 /// This Mac, read in process.
@@ -93,10 +105,43 @@ impl Screen for CoreGraphics {
     fn running_apps(&mut self) -> Vec<PathBuf> {
         let paths = process_paths();
         if cfg!(target_os = "macos") {
-            paths.iter().filter_map(|path| bundle_of(path)).collect()
-        } else {
             paths
+                .iter()
+                .filter_map(|(_, path)| bundle_of(path))
+                .collect()
+        } else {
+            paths.into_iter().map(|(_, path)| path).collect()
         }
+    }
+
+    fn off_screen_windows(&mut self) -> Vec<Window> {
+        crate::assistant::computer::now::all_windows()
+            .into_iter()
+            .filter(|window| {
+                !window.on_screen && crate::assistant::computer::now::real_window(window)
+            })
+            .map(|window| {
+                let [x, y, width, height] = window.bounds;
+                Window {
+                    id: format!("w-{}", window.number),
+                    app: window.owner,
+                    title: window.title,
+                    pid: Some(i64::from(window.pid)),
+                    focused: false,
+                    visible: false,
+                    minimized: false,
+                    bounds: Some((x, y, width, height)),
+                }
+            })
+            .collect()
+    }
+
+    fn app_pids(&mut self, bundle: &std::path::Path) -> Vec<i64> {
+        process_paths()
+            .into_iter()
+            .filter(|(_, path)| bundle_of(path).as_deref() == Some(bundle))
+            .filter_map(|(pid, _)| pid)
+            .collect()
     }
 }
 
@@ -187,8 +232,8 @@ pub fn bundle_of(executable: &std::path::Path) -> Option<PathBuf> {
     Some(PathBuf::from(&text[..end + ".app".len()]))
 }
 
-/// Every running process's executable.
-fn process_paths() -> Vec<PathBuf> {
+/// Every running process's executable, with its pid where known.
+fn process_paths() -> Vec<(Option<i64>, PathBuf)> {
     #[cfg(target_os = "macos")]
     {
         let mut pids = vec![0_i32; 8192];
@@ -206,8 +251,9 @@ fn process_paths() -> Vec<PathBuf> {
                     libc::proc_pidpath(*pid, buffer.as_mut_ptr().cast(), buffer.len() as u32)
                 };
                 let length = usize::try_from(length).ok().filter(|length| *length > 0)?;
-                Some(PathBuf::from(
-                    String::from_utf8_lossy(&buffer[..length]).into_owned(),
+                Some((
+                    Some(i64::from(*pid)),
+                    PathBuf::from(String::from_utf8_lossy(&buffer[..length]).into_owned()),
                 ))
             })
             .collect()
@@ -215,5 +261,8 @@ fn process_paths() -> Vec<PathBuf> {
     #[cfg(not(target_os = "macos"))]
     {
         crate::assistant::computer::process_paths()
+            .into_iter()
+            .map(|path| (None, path))
+            .collect()
     }
 }

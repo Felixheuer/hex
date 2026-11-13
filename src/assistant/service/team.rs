@@ -85,7 +85,7 @@ impl Runner {
                 task.parent = Some(ask.lead.clone());
             }
             // Its main browser starts now, while its agent does.
-            crate::assistant::browser::prewarm(&id);
+            crate::assistant::browser::prewarm_for(&id, &job.task);
             members.push(agent::team::Member {
                 id,
                 title: job.title.clone(),

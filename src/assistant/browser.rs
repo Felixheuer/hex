@@ -167,22 +167,27 @@ fn server(hex: PathBuf, task: &str, browser: &Path) -> McpServer {
     }
 }
 
-/// Starts `task`'s main browser now, on a blank page, exactly as its first
-/// browser call would start it (`Sessions::default_launch`): a job's first
-/// page then opens in a warm browser while its agent is still starting
-/// (twenty helpers' at once measured 0.36 s, against about 4 s for twenty
-/// cold first pages). Only a light Lightpanda browser is started ahead,
-/// and only while memory is fine: a Chrome nobody uses would cost hundreds
-/// of megabytes. The task's end closes it like any other ([`close`]), and
-/// it closes itself when unused for half an hour. Runs on its own thread.
-pub fn prewarm(task: &str) {
+/// Starts `task`'s main browser now, exactly as its first browser call
+/// would start it (`Sessions::default_launch`): a job's first page then
+/// opens in a warm browser while its agent is still starting. Measured with
+/// agent-browser 0.42 on this Mac: a cold first page took 0.31 s in
+/// Lightpanda and 0.56–1.09 s in Chrome, a warm one 0.10 s and 0.12 s
+/// (twenty helpers' at once 0.36 s, against about 4 s cold). Only a light
+/// Lightpanda browser is started for every job, and only while memory is
+/// fine; real Chrome with the person's accounts only when `request` names a
+/// web app that needs it (Gmail, Google Sheets, …) and they signed in for
+/// Hex: the task's first `signedIn: true` browser is that one
+/// (`Sessions::pin`). The task's end closes them like any other
+/// ([`close`]), and they close themselves when unused for half an hour.
+/// Runs on threads of its own; starting one that runs already changes
+/// nothing (it reads the page's address and never navigates).
+pub fn prewarm_for(task: &str, request: &str) {
     if cfg!(test) {
         return;
     }
     let enabled = crate::app_settings::assistant_runtime()
         .is_none_or(|(_, settings)| settings.background_browser);
     if !enabled
-        || clean_engine() != Engine::Lightpanda
         || crate::assistant::capacity::pressure() != crate::assistant::capacity::Pressure::Normal
     {
         return;
@@ -190,31 +195,81 @@ pub fn prewarm(task: &str) {
     let Some(path) = executable() else {
         return;
     };
-    let launch = sessions::Sessions::new(task, Engine::Lightpanda)
-        .with_accounts(accounts_by_default())
-        .default_launch();
-    let session = session(task);
-    let spawned = std::thread::Builder::new()
-        .name("hex-browser-prewarm".into())
-        .spawn(move || {
-            let (args, env) = prewarm_command(&launch);
-            let mut command = command(&path, &session);
-            command.envs(env).arg("--json").args(&args);
-            match run::bounded(command, COMMAND_LIMIT) {
-                Ok(ran) if !ran.timed_out() => {
-                    tracing::debug!(session, "started a job's browser ahead");
+    let sessions =
+        sessions::Sessions::new(task, clean_engine()).with_accounts(accounts_by_default());
+    let mut starts = Vec::new();
+    if clean_engine() == Engine::Lightpanda {
+        starts.push((session(task), sessions.default_launch()));
+    }
+    if wants_signed_in_chrome(request) && signed_in() {
+        let (name, launch) = sessions.warm_chrome();
+        starts.push((name, launch));
+    }
+    for (session, launch) in starts {
+        let path = path.clone();
+        let spawned = std::thread::Builder::new()
+            .name("hex-browser-prewarm".into())
+            .spawn(move || {
+                let started = std::time::Instant::now();
+                let (args, env) = prewarm_command(&launch);
+                let mut command = command(&path, &session);
+                command.envs(env).arg("--json").args(&args);
+                match run::bounded(command, COMMAND_LIMIT) {
+                    Ok(ran) if !ran.timed_out() => tracing::debug!(
+                        session,
+                        ms = started.elapsed().as_millis() as u64,
+                        "started a job's browser ahead"
+                    ),
+                    Ok(_) | Err(_) => {
+                        tracing::debug!(session, "couldn't start a job's browser ahead")
+                    }
                 }
-                Ok(_) | Err(_) => tracing::debug!(session, "couldn't start a job's browser ahead"),
-            }
-        });
-    if let Err(error) = spawned {
-        tracing::debug!(%error, "couldn't start a browser ahead");
+            });
+        if let Err(error) = spawned {
+            tracing::debug!(%error, "couldn't start a browser ahead");
+        }
     }
 }
 
-/// The agent-browser arguments and environment that open a blank page in a
-/// browser started with `launch` (`Sessions::default_launch`'s `restore`,
-/// `restoreSave`, and `extraArgs`).
+/// Whether `request` names a web app that works only in real Chrome with
+/// the person's accounts, so a job is worth a warm one.
+pub fn wants_signed_in_chrome(request: &str) -> bool {
+    const APPS: &[&str] = &[
+        "gmail",
+        "google mail",
+        "google sheet",
+        "google-sheet",
+        "google tabelle",
+        "google-tabelle",
+        "google doc",
+        "google-doc",
+        "google drive",
+        "google calendar",
+        "google kalender",
+        "docs.google",
+        "sheets.google",
+        "drive.google",
+        "calendar.google",
+        "outlook",
+        "linkedin",
+        "notion",
+        "airtable",
+        "hubspot",
+        "salesforce",
+        "web.whatsapp",
+        "whatsapp web",
+        "instagram",
+        "facebook",
+    ];
+    let text = request.to_lowercase();
+    APPS.iter().any(|app| text.contains(app))
+}
+
+/// The agent-browser arguments and environment that start a browser with
+/// `launch` (`Sessions::default_launch`'s `restore`, `restoreSave`, and
+/// `extraArgs`) and only read its page's address: on a browser that runs
+/// already they change nothing, so a prewarm that comes late never takes a
+/// task's page away.
 fn prewarm_command(
     launch: &serde_json::Map<String, Value>,
 ) -> (Vec<String>, Vec<(String, String)>) {
@@ -229,7 +284,7 @@ fn prewarm_command(
                 .collect()
         })
         .unwrap_or_default();
-    args.extend(["open".to_owned(), "about:blank".to_owned()]);
+    args.extend(["get".to_owned(), "url".to_owned()]);
     let mut env = Vec::new();
     for (key, name) in [
         ("restore", "AGENT_BROWSER_RESTORE"),
@@ -466,9 +521,32 @@ pub fn sign_in_url(input: &str) -> Result<String, &'static str> {
 }
 
 /// Whether browser data is saved for any website; it can expire independently.
+/// Cheap: asked as every job and browser starts, and the saved state is
+/// often a megabyte of cookies, so a state file of any real size answers
+/// without reading it; only a tiny one is read to see whether it is blank.
 pub fn signed_in() -> bool {
-    !saved_sites().is_empty()
+    let Some(dir) = state_dir() else {
+        return false;
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries
+        .flatten()
+        .filter(|entry| is_sign_in_state(&entry.file_name().to_string_lossy()))
+        .any(|entry| {
+            let size = entry.metadata().map_or(0, |metadata| metadata.len());
+            size > BLANK_STATE_BYTES
+                || std::fs::read(entry.path())
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                    .is_some_and(|state| !sites_in_state(&state).is_empty())
+        })
 }
+
+/// A saved state this small may hold no site (`{"cookies":[],"origins":[]}`);
+/// one larger holds at least a cookie or some storage.
+const BLANK_STATE_BYTES: u64 = 512;
 
 /// Whether a task's browser that asks for nothing starts with the person's
 /// accounts: the setting is on (read fresh) and some are saved.
@@ -655,7 +733,8 @@ mod tests {
             .with_accounts(true)
             .default_launch();
         let (args, env) = prewarm_command(&with_accounts);
-        assert_eq!(args, ["--engine", "lightpanda", "open", "about:blank"]);
+        // It reads the address: a browser already in use keeps its page.
+        assert_eq!(args, ["--engine", "lightpanda", "get", "url"]);
         assert_eq!(
             env,
             [
@@ -665,8 +744,32 @@ mod tests {
         );
         let clean = sessions::Sessions::new("t", Engine::Lightpanda).default_launch();
         let (args, env) = prewarm_command(&clean);
-        assert_eq!(args, ["--engine", "lightpanda", "open", "about:blank"]);
+        assert_eq!(args, ["--engine", "lightpanda", "get", "url"]);
         assert!(env.is_empty(), "a clean browser restores nothing");
+        // The warm Chrome is the one a first `signedIn: true` call gets.
+        let mut sessions = sessions::Sessions::new("t", Engine::Lightpanda);
+        let (name, chrome) = sessions.warm_chrome();
+        let (args, env) = prewarm_command(&chrome);
+        assert_eq!(args, ["--engine", "chrome", "get", "url"]);
+        assert_eq!(env[0].1, SIGN_IN);
+        let mut first = serde_json::json!({"session": "mail", "signedIn": true})
+            .as_object()
+            .cloned()
+            .unwrap();
+        sessions.pin("agent_browser_open", &mut first).unwrap();
+        assert_eq!(first["session"], name.as_str());
+    }
+
+    #[test]
+    fn only_jobs_naming_a_signed_in_web_app_warm_a_chrome() {
+        assert!(wants_signed_in_chrome(
+            "Schreib 20 Entwürfe in Gmail und trag sie in ein Google Sheet ein"
+        ));
+        assert!(wants_signed_in_chrome("Check my LinkedIn messages"));
+        assert!(!wants_signed_in_chrome(
+            "Recherchiere 10 Lieferanten für Keramik"
+        ));
+        assert!(!wants_signed_in_chrome(""));
     }
 
     #[test]

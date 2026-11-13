@@ -129,6 +129,14 @@ impl Runner {
                 (self.hooks.notify)(&note);
             }
         };
+        // A job's browsers start now, while its agent does, so its first
+        // page opens warm (a helper's started when its lead made it).
+        let starts_job = matches!(kind, JobKind::Job { .. })
+            || (kind == JobKind::Ask && request.origin == Origin::Background);
+        if starts_job && lane == Lane::Background && settings.background_browser && parent.is_none()
+        {
+            crate::assistant::browser::prewarm_for(&conversation, &request.text);
+        }
         let mut job = Job {
             conversation: conversation.clone(),
             request: request.clone(),

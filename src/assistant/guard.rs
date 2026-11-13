@@ -47,7 +47,7 @@ use serde::{Deserialize, Serialize};
 use crate::assistant::backends::McpServer;
 use crate::assistant::types::{ConversationId, Lane, TaskWindow};
 
-pub use policy::CLAIM_TOOL;
+pub use policy::{CLAIM_TOOL, OPEN_APP_TOOL};
 
 /// What the guard needs to know about one task; passed to its MCP server.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -67,6 +67,11 @@ pub struct TaskSpec {
     /// too) and open any app, in either lane — unless the person asked it
     /// to work only in the background (`assistant::full_control`).
     pub full_control: bool,
+    /// The task may open and use apps in windows of its own (parked out of
+    /// the person's way), in either lane: full control is allowed in the
+    /// settings, even when this request asked to stay out of the person's
+    /// windows.
+    pub open_apps: bool,
 }
 
 /// A [`TaskSpec`] as `hex assistant mcp --spec` reads it (JSON).
@@ -104,6 +109,10 @@ pub struct WireSpec {
     /// the window in front of the person too.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub front_window: bool,
+    /// A Here task may open and use apps in windows of its own
+    /// ([`TaskSpec::open_apps`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub open_apps: bool,
     /// Reads only: every action is refused (a job's check, which must
     /// change nothing).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -154,6 +163,7 @@ impl WireSpec {
             agent_display: None,
             autonomy: crate::assistant::autonomy::Autonomy::default(),
             front_window: spec.full_control,
+            open_apps: spec.open_apps,
             observe_only: false,
         }
     }
@@ -295,6 +305,7 @@ fn config(wire: &WireSpec) -> proxy::Config {
         agent_display: wire.agent_display.clone(),
         autonomy: wire.autonomy,
         front_window: wire.front_window,
+        open_apps: wire.open_apps || wire.front_window,
         observe_only: wire.observe_only,
     }
 }
