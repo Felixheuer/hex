@@ -5,8 +5,10 @@
 //! (a job's own check, `agent::goal`), and `hex_start_jobs` hands a request
 //! that is a job to the background (`agent::handoff`). `hex_lookup` and
 //! `hex_browser_tab` find the person's own things and act in the tab of
-//! their own browser (`knowledge`; a job only reads there). Newline-delimited JSON-RPC on stdio, like the other
-//! servers.
+//! their own browser (`knowledge`; a job only reads there). The media
+//! tools (`media`) watch a video, read and write documents, edit images
+//! and sound, and make videos. Newline-delimited JSON-RPC on stdio, like
+//! the other servers.
 //!
 //! Three roles, each with only the tools its rules name. A quick question
 //! or a chat (the person's own turn) hands jobs on, remembers (when memory
@@ -19,7 +21,7 @@
 //!
 //! OWNER: brain.
 
-mod images;
+pub(crate) mod images;
 
 use std::io::{BufRead, Write};
 
@@ -101,7 +103,7 @@ impl Role {
             names.retain(|name| *name != "hex_remember");
         }
         names.extend(crate::assistant::knowledge::NAMES);
-        names.push(crate::assistant::media::NAME);
+        names.extend(crate::assistant::media::NAMES);
         if self == Self::Job {
             names.extend(TEAM_TOOLS);
         }
@@ -253,7 +255,7 @@ fn definitions() -> Vec<Value> {
         }),
     ];
     tools.extend(crate::assistant::knowledge::definitions());
-    tools.push(crate::assistant::media::definition());
+    tools.extend(crate::assistant::media::definitions());
     tools
 }
 
@@ -501,6 +503,7 @@ pub fn answer(message: &Value) -> Option<Value> {
                     notify_progress(token.as_ref(), done, step);
                 };
                 match crate::assistant::media::call(
+                    name,
                     &arguments,
                     TASK.get().map(String::as_str),
                     &mut progress,
@@ -656,7 +659,12 @@ mod tests {
                 "hex_unschedule",
                 "hex_lookup",
                 "hex_browser_tab",
-                "hex_watch_video"
+                "hex_watch_video",
+                "hex_document_read",
+                "hex_document_write",
+                "hex_image",
+                "hex_audio",
+                "hex_video_make"
             ]
         );
         let secret = answer(&json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -688,6 +696,11 @@ mod tests {
                 "hex_lookup",
                 "hex_browser_tab",
                 "hex_watch_video",
+                "hex_document_read",
+                "hex_document_write",
+                "hex_image",
+                "hex_audio",
+                "hex_video_make",
                 "hex_team_start",
                 "hex_team_tell",
                 "hex_team_status"
@@ -700,7 +713,12 @@ mod tests {
                 "hex_compare_images",
                 "hex_lookup",
                 "hex_browser_tab",
-                "hex_watch_video"
+                "hex_watch_video",
+                "hex_document_read",
+                "hex_document_write",
+                "hex_image",
+                "hex_audio",
+                "hex_video_make"
             ]
         );
         // Every name has its definition; memory off offers no hex_remember.
