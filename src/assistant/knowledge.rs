@@ -15,6 +15,7 @@
 //! OWNER: knowledge.
 
 mod agenda;
+mod apple_events;
 mod browser;
 mod exec;
 mod files;
@@ -32,6 +33,8 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use rank::Hit;
+
+pub use apple_events::person_fix;
 
 pub const LOOKUP: &str = "hex_lookup";
 pub const BROWSER_TAB: &str = tab::NAME;
@@ -171,6 +174,17 @@ pub fn call(
                     "hex_lookup needs a “query” for scope {}",
                     scope.name()
                 ));
+            }
+            // A source that failed is the call's error, with its real text
+            // (the audit log keeps it, and the person sees their fix).
+            if scope != Scope::All {
+                return match search(scope, query, limit) {
+                    Ok(hits) if hits.is_empty() => {
+                        Ok(format!("Nothing found in {}.", scope.name()))
+                    }
+                    Ok(hits) => Ok(format_hits(scope, &hits)),
+                    Err(error) => Err(format!("{} couldn't be searched: {error}", scope.name())),
+                };
             }
             Ok(lookup(query, scope, limit))
         }

@@ -107,17 +107,6 @@ fn javascript_off(error: &str) -> bool {
     lower.contains("javascript") && (lower.contains("turned off") || lower.contains("allow"))
 }
 
-/// What the person turns on so Agent-Desk can act in `browser`'s tabs.
-fn javascript_off_note(browser: &Browser) -> String {
-    format!(
-        "{} doesn't allow JavaScript from Apple Events, so Agent-Desk can't act in the tab. The person \
-         can turn it on in {}: “Allow JavaScript from Apple Events” (in Chromium-based browsers \
-         under View › Developer, in Safari under Develop once Settings › Advanced › “Show \
-         features for web developers” is on).",
-        browser.name, browser.name
-    )
-}
-
 /// A JS string literal.
 fn js(text: &str) -> String {
     serde_json::to_string(text).unwrap_or_else(|_| "\"\"".into())
@@ -268,7 +257,7 @@ fn read(browser: &Browser, tab: &Tab, max_chars: usize) -> Result<String, String
             Ok(format!(
                 "{}\n(This is the page fetched fresh, without the person's sign-in. {})\n\n{text}",
                 header(tab),
-                javascript_off_note(browser)
+                error.trim()
             ))
         }
         Err(error) => Err(error),
@@ -385,14 +374,7 @@ fn find(
         tab,
         "js",
         &find_script(text("selector"), text("text"), fields, nonce),
-    )
-    .map_err(|error| {
-        if javascript_off(&error) {
-            javascript_off_note(browser)
-        } else {
-            error
-        }
-    })?;
+    )?;
     let found: Value = serde_json::from_str(&found).unwrap_or_default();
     if found["found"] != json!(true) {
         return Err("No such element in the tab; read it first and pick a selector or the exact visible text.".into());
@@ -471,13 +453,7 @@ pub fn call(arguments: &Value, task: Option<&str>, role: Role) -> Result<String,
                 return Err("run needs a “script”".into());
             }
             check_script(script, gate.mode(), role)?;
-            let value = act(&browser, tab, "js", script).map_err(|error| {
-                if javascript_off(&error) {
-                    javascript_off_note(&browser)
-                } else {
-                    error
-                }
-            })?;
+            let value = act(&browser, tab, "js", script)?;
             Ok(crate::assistant::store::shorten(&value, READ_MAX))
         }
         "show" => {

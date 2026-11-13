@@ -44,6 +44,7 @@ pub mod input;
 pub mod interaction;
 pub mod knowledge;
 pub mod lines;
+pub mod media;
 pub mod memory;
 pub mod notify;
 pub mod palette;

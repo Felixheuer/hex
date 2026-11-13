@@ -66,6 +66,7 @@ pub fn system_for(job: &Job, desktop: Option<&Desktop>, browser: bool) -> String
         system.push_str(SCHEDULE_RULES);
     }
     system.push_str(crate::assistant::knowledge::RULES);
+    system.push_str(crate::assistant::media::RULES);
     if desktop.is_some() {
         system.push_str(super::rules::BACKGROUND_INPUT_RULES);
     }

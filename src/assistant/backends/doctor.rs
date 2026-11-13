@@ -57,6 +57,11 @@ pub fn run(doctor: Doctor) -> color_eyre::Result<()> {
         crate::assistant::browser::agent_browser(),
         crate::assistant::browser::signed_in()
     );
+    println!("video tools: {}", crate::assistant::media::status());
+    println!(
+        "hidden Chrome executable: {:?}",
+        crate::assistant::media::codecs::chromium_executable()
+    );
     println!(
         "computer::permissions_now(): {:?}",
         computer::permissions_now()

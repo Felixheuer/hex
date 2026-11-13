@@ -101,6 +101,7 @@ impl Role {
             names.retain(|name| *name != "hex_remember");
         }
         names.extend(crate::assistant::knowledge::NAMES);
+        names.push(crate::assistant::media::NAME);
         if self == Self::Job {
             names.extend(TEAM_TOOLS);
         }
@@ -252,6 +253,7 @@ fn definitions() -> Vec<Value> {
         }),
     ];
     tools.extend(crate::assistant::knowledge::definitions());
+    tools.push(crate::assistant::media::definition());
     tools
 }
 
@@ -491,11 +493,31 @@ pub fn answer(message: &Value) -> Option<Value> {
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
-            let (text, is_error) = match call(name, &arguments) {
-                Ok(text) => (text, false),
-                Err(text) => (text, true),
+            let (content, is_error) = if crate::assistant::media::handles(name) {
+                let token = params.pointer("/_meta/progressToken").cloned();
+                let mut done = 0;
+                let mut progress = |step: &str| {
+                    done += 1;
+                    notify_progress(token.as_ref(), done, step);
+                };
+                match crate::assistant::media::call(
+                    &arguments,
+                    TASK.get().map(String::as_str),
+                    &mut progress,
+                ) {
+                    Ok(content) => (content, false),
+                    Err(text) => (vec![json!({"type": "text", "text": text})], true),
+                }
+            } else {
+                match call(name, &arguments) {
+                    Ok(text) => (vec![json!({"type": "text", "text": text})], false),
+                    Err(text) => (vec![json!({"type": "text", "text": text})], true),
+                }
             };
-            json!({"content": [{"type": "text", "text": text}], "isError": is_error})
+            if is_error {
+                audit_error(name, &content);
+            }
+            json!({"content": content, "isError": is_error})
         }
         "ping" => json!({}),
         other => {
@@ -504,6 +526,44 @@ pub fn answer(message: &Value) -> Option<Value> {
         }
     };
     Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))
+}
+
+/// A step of a long call (`hex_watch_video`) as MCP progress, when the
+/// client asked for it with a progress token.
+fn notify_progress(token: Option<&Value>, done: u64, step: &str) {
+    let Some(token) = token else {
+        return;
+    };
+    let note = json!({"jsonrpc": "2.0", "method": "notifications/progress",
+        "params": {"progressToken": token, "progress": done, "message": step}});
+    if let Ok(mut line) = serde_json::to_vec(&note) {
+        line.push(b'\n');
+        let mut stdout = std::io::stdout().lock();
+        let _ = stdout.write_all(&line);
+        let _ = stdout.flush();
+    }
+}
+
+/// A failed call's real error text into the task's audit log
+/// (`assistant::audit`), beside the call the backend recorded.
+fn audit_error(name: &str, content: &[Value]) {
+    let Some(task) = TASK.get() else {
+        return;
+    };
+    let text: String = content
+        .iter()
+        .filter_map(|item| item["text"].as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    crate::assistant::audit::record(
+        task,
+        &crate::assistant::audit::Entry {
+            at_ms: crate::assistant::store::now_ms(),
+            tool: format!("{name} (error)"),
+            input: crate::assistant::store::shorten(&text, 1500),
+            check: false,
+        },
+    );
 }
 
 /// What a task did and found, for `hex_job_result`: its title and outcome,
@@ -595,7 +655,8 @@ mod tests {
                 "hex_schedules",
                 "hex_unschedule",
                 "hex_lookup",
-                "hex_browser_tab"
+                "hex_browser_tab",
+                "hex_watch_video"
             ]
         );
         let secret = answer(&json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -626,6 +687,7 @@ mod tests {
                 "hex_compare_images",
                 "hex_lookup",
                 "hex_browser_tab",
+                "hex_watch_video",
                 "hex_team_start",
                 "hex_team_tell",
                 "hex_team_status"
@@ -634,7 +696,12 @@ mod tests {
         // A helper is a job without a team of its own.
         assert_eq!(
             names(Role::Helper, true),
-            ["hex_compare_images", "hex_lookup", "hex_browser_tab"]
+            [
+                "hex_compare_images",
+                "hex_lookup",
+                "hex_browser_tab",
+                "hex_watch_video"
+            ]
         );
         // Every name has its definition; memory off offers no hex_remember.
         for role in [Role::Turn, Role::Job, Role::Helper] {

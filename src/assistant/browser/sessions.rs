@@ -342,7 +342,15 @@ fn launch_arguments(kind: Kind, engine: Engine) -> Map<String, Value> {
         arguments.insert("restore".into(), SIGN_IN.into());
         arguments.insert("restoreSave".into(), "never".into());
     }
-    arguments.insert("extraArgs".into(), json!(["--engine", engine.name()]));
+    let mut extra = vec![json!("--engine"), json!(engine.name())];
+    // Real Chrome sessions run the person's Chromium-family browser where
+    // there is one, so pages with H.264 video play (`media::codecs`).
+    if engine == Engine::Chrome
+        && let Some(executable) = crate::assistant::media::codecs::chromium_executable()
+    {
+        extra.extend([json!("--executable-path"), json!(executable)]);
+    }
+    arguments.insert("extraArgs".into(), Value::Array(extra));
     arguments
 }
 
