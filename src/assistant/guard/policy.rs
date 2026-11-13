@@ -341,9 +341,18 @@ pub fn snapshot_ids(value: &Value, found: &mut Vec<String>) {
 
 /// An app name as compared: case, soft hyphens, and spacing don't count
 /// ("System\u{ad}einstellungen" is "Systemeinstellungen").
+fn is_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{ad}' | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2069}' | '\u{feff}'
+    )
+}
+
 pub fn app_key(name: &str) -> String {
     name.chars()
-        .filter(|c| *c != '\u{ad}')
+        // Invisible marks some apps carry in their name (WhatsApp's is
+        // "\u{200e}WhatsApp"): a name the agent types must still match.
+        .filter(|c| !is_invisible(*c))
         .flat_map(char::to_lowercase)
         .collect::<String>()
         .split_whitespace()
@@ -398,5 +407,14 @@ mod lean_tests {
         assert!(!Kind::InstalledApps.needs_desktop());
         assert!(!Kind::Displays.needs_desktop());
         assert!(!Kind::Refused("no").needs_desktop());
+    }
+}
+
+#[cfg(test)]
+mod invisible_tests {
+    #[test]
+    fn invisible_marks_in_app_names_don_t_matter() {
+        assert_eq!(super::app_key("\u{200e}WhatsApp"), super::app_key("WhatsApp"));
+        assert_eq!(super::app_key("Google\u{a0}Chrome"), "google chrome");
     }
 }

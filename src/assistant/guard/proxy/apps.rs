@@ -231,7 +231,10 @@ impl<D: Desktop> Guard<D> {
             } else {
                 "The app was already running with its window off this screen (on another \
                  desktop, minimized, or the app hidden): it is yours now. Act in it by its id; \
-                 if a snapshot finds nothing, desktop_restore brings a minimized one back."
+                 a minimized one comes back with desktop_restore. A window on another desktop \
+                 can't be read from here: if one snapshot finds nothing or times out, don't \
+                 retry it; for the web use your own browser tools, for the app open a new \
+                 window of it from its File menu."
             };
             let windows = vec![json!({
                 "id": window.id,
