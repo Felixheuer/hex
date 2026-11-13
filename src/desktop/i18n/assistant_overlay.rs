@@ -28,6 +28,7 @@ overlay_strings![
     ("Here · {}", ["Tutaj · {}", "此处 · {}", "ここ · {}", "Hier · {}", "Aquí · {}", "Тут · {}", "Aqui · {}", "Ici · {}", "Здесь · {}"]),
     ("You have it", ["Masz kontrolę", "由你操作", "あなたが操作中", "Du hast übernommen", "Lo tienes tú", "Керуєте ви", "Com você", "C'est à vous", "Управляете вы"]),
     ("All {} live", ["Wszystkie {} na żywo", "全部 {} 个实时", "{} 件すべてをライブで", "Alle {} live", "Los {} en vivo", "Усі {} наживо", "Todos os {} ao vivo", "Les {} en direct", "Все {} вживую"]),
+    ("{} live", ["{} na żywo", "{} 个实时", "{} 件をライブで", "{} live", "{} en vivo", "{} наживо", "{} ao vivo", "{} en direct", "{} вживую"]),
     ("Your desk", ["Twoje biurko", "你的桌面", "あなたのデスク", "Dein Desk", "Tu escritorio", "Ваш стіл", "Sua mesa", "Votre bureau", "Ваш стол"]),
     ("Show {}", ["Pokaż {}", "显示 {}", "{} を表示", "{} zeigen", "Mostrar {}", "Показати {}", "Mostrar {}", "Afficher {}", "Показать {}"]),
     ("Let go of {}", ["Zwolnij {}", "释放 {}", "{} を手放す", "{} freigeben", "Soltar {}", "Відпустити {}", "Liberar {}", "Libérer {}", "Отпустить {}"]),
@@ -108,8 +109,7 @@ mod tests {
                     .chars()
                     .next_back()
                     .is_some_and(|c| c.is_alphanumeric() || c == '_');
-                let Some(rest) = source[start + call.len()..].trim_start().strip_prefix('"')
-                else {
+                let Some(rest) = source[start + call.len()..].trim_start().strip_prefix('"') else {
                     continue;
                 };
                 if ident {

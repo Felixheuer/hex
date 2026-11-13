@@ -16,14 +16,13 @@ use rune::{El, col, el, icon, row, text};
 
 use super::super::controls::Paint;
 use super::super::icons::GLOBE;
+use super::jobs::{THUMB_H, THUMB_W};
 use super::{app_live, live, stack};
 use crate::assistant::TaskWindow;
 use crate::desktop::i18n::{tr, tr_fill};
 
 /// The desk's task in `app_live`.
 pub(crate) const DESK: &str = crate::assistant::guard::DESK;
-const THUMB_W: f32 = 70.0;
-const THUMB_H: f32 = 44.0;
 /// How often the desk is read.
 const EVERY: Duration = Duration::from_millis(1000);
 
@@ -52,11 +51,6 @@ fn state() -> std::sync::MutexGuard<'static, Desk> {
 /// The desk as last read.
 pub(crate) fn now() -> Desk {
     state().clone()
-}
-
-/// Whether anything is on the desk.
-pub(crate) fn any() -> bool {
-    !state().is_empty()
 }
 
 /// Starts reading the desk every second; `changed` runs (on that thread)
@@ -88,8 +82,8 @@ pub(crate) fn watch(changed: fn()) {
 }
 
 /// The desk's row at the orb; `None` when it's empty.
-pub(crate) fn view<S: 'static>(p: Paint, actions: stack::Actions<S>) -> Option<El> {
-    let desk = now();
+pub(crate) fn view<S: 'static>(p: Paint, desk: &Desk, actions: stack::Actions<S>) -> Option<El> {
+    let desk = desk.clone();
     if desk.is_empty() {
         return None;
     }
@@ -128,6 +122,14 @@ pub(crate) fn view<S: 'static>(p: Paint, actions: stack::Actions<S>) -> Option<E
             .radius(14.0)
             .fill(c.bg_base)
             .border(p.hair, c.border_base)
+            .box_shadow(rune::Shadow {
+                x: 0.0,
+                y: 3.0,
+                blur: 12.0,
+                spread: 0.0,
+                color: rune::Color::BLACK.alpha(if p.k.dark { 0.4 } else { 0.12 }),
+                inset: false,
+            })
             .role("group")
             .label(tr("Your desk"))
             .child(

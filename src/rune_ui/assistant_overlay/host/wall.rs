@@ -1,8 +1,9 @@
 //! The live wall's panel: made with the other overlays, shown on the
-//! display under the pointer when "All N live" on a job's row is pressed,
-//! keyed while it shows (Escape), and hidden when it closes: ×, Escape, or
-//! a click outside it (the panel loses the keyboard), but not while the
-//! enlarged card a tile opened is on top. Its jobs' browsers and windows
+//! display under the pointer when "All N live" on a job's row, or "All
+//! live" beside the orb, is pressed, keyed while it shows (Escape), and
+//! hidden when it closes: ×, Escape, a click beside the panel, or a click
+//! outside the window (the panel loses the keyboard), but not while the
+//! enlarged card a tile opened is on top. Its tasks' browsers and windows
 //! stream only while it shows (`live::wall`, `app_live::wall`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,7 +16,8 @@ use rune::{
 use super::super::app_live;
 use super::super::board::Board;
 use super::super::live;
-use super::super::wall::{self, Actions, Wall};
+use super::super::minis;
+use super::super::wall::{self, Actions, Scope, Wall};
 use super::{FADE, OVERLAYS, leave_out_of_mission_control, options};
 
 /// How far below the top of the display the wall hangs.
@@ -43,7 +45,7 @@ pub(super) fn install<S: 'static>(app: &mut rune::App<S>) -> OverlayHandle<Wall>
     })
     // Escape wherever the focus is inside the panel (or none is).
     .on_key(|state, key, _| {
-        if key.key == rune::Key::Escape && state.lead.is_some() {
+        if key.key == rune::Key::Escape && state.scope.is_some() {
             close(state);
             true
         } else {
@@ -53,7 +55,7 @@ pub(super) fn install<S: 'static>(app: &mut rune::App<S>) -> OverlayHandle<Wall>
     .on_focus(|state, focused, _| {
         // A click outside: it goes. A tile's enlarged card taking the
         // keyboard leaves it be.
-        if !focused && state.lead.is_some() && !super::enlarged::shown() {
+        if !focused && state.scope.is_some() && !super::enlarged::shown() {
             close(state);
         }
     })
@@ -73,14 +75,26 @@ pub(super) fn install<S: 'static>(app: &mut rune::App<S>) -> OverlayHandle<Wall>
 /// "All N live" on `lead`'s card (whose board is `board`): shows every
 /// browser and window of it and its helpers, streaming from now on.
 pub(super) fn open(board: &Board, lead: &str) {
+    show(board, Scope::Job(lead.to_owned()));
+}
+
+/// "All live" beside the orb: every live picture of every job and of the
+/// desk.
+pub(super) fn open_all(board: &Board) {
+    show(board, Scope::All);
+}
+
+fn show(board: &Board, scope: Scope) {
     let Some(overlays) = OVERLAYS.get() else {
         return;
     };
-    stream(&wall::tasks(board, lead));
-    let (board, lead) = (board.clone(), lead.to_owned());
+    let desk = minis::now();
+    stream(&wall::tasks(board, &desk, &scope));
+    let board = board.clone();
     overlays.wall.update(move |state, _| {
-        state.lead = Some(lead);
+        state.scope = Some(scope);
         state.board = board;
+        state.desk = desk;
     });
     SHOWN.store(true, Ordering::Release);
     overlays.wall.fade_in(FADE);
@@ -97,9 +111,9 @@ pub(super) fn refocus() {
     }
 }
 
-/// × or Escape: stops the wall's streams and hides it.
+/// ×, Escape, or a click outside: stops the wall's streams and hides it.
 fn close(state: &mut Wall) {
-    state.lead = None;
+    state.scope = None;
     SHOWN.store(false, Ordering::Release);
     stream(&[]);
     if let Some(overlays) = OVERLAYS.get() {
@@ -112,19 +126,21 @@ fn stream(tasks: &[String]) {
     app_live::wall(tasks);
 }
 
-/// The orb's board changed: the wall follows its team (a helper started
-/// joins it at once).
+/// The orb's board (or the desk) changed: the wall follows its tasks (a
+/// helper started joins it at once).
 pub(super) fn follow(board: &Board) {
     let Some(overlays) = OVERLAYS.get() else {
         return;
     };
     let board = board.clone();
+    let desk = minis::now();
     overlays.wall.update_if(move |state, _| {
-        let Some(lead) = state.lead.clone() else {
+        let Some(scope) = state.scope.clone() else {
             return false;
         };
-        stream(&wall::tasks(&board, &lead));
+        stream(&wall::tasks(&board, &desk, &scope));
         state.board = board;
+        state.desk = desk;
         true
     });
 }
@@ -132,6 +148,6 @@ pub(super) fn follow(board: &Board) {
 /// A frame or a page change: redraw the wall while it shows.
 pub(super) fn redraw() {
     if let Some(overlays) = OVERLAYS.get() {
-        overlays.wall.update_if(|state, _| state.lead.is_some());
+        overlays.wall.update_if(|state, _| state.scope.is_some());
     }
 }

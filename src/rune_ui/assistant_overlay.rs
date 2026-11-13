@@ -58,6 +58,8 @@ mod minis;
 mod multi;
 mod orb;
 mod outline;
+#[cfg(test)]
+mod overview_tests;
 mod palette;
 mod place;
 mod pops;

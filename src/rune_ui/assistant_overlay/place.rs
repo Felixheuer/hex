@@ -71,6 +71,22 @@ pub(crate) fn rect((ax, ay): (f64, f64), grow: Grow) -> [f32; 4] {
     [x as f32, y as f32, orb::SIZE.0, orb::SIZE.1]
 }
 
+/// [`rect`], no taller than the room `visible` has past the orb the way
+/// things unfold, so nothing hangs off the display: the panel says its
+/// height to the view ([`orb::Orb::room`]), where the rows scroll in it.
+pub(crate) fn fitted(anchor: (f64, f64), grow: Grow, visible: Area) -> [f32; 4] {
+    let [x, y, w, h] = rect(anchor, grow);
+    let [_, top, _, height] = visible;
+    let room = if grow.down {
+        top + height - f64::from(y)
+    } else {
+        f64::from(y + h) - top
+    };
+    let fit = (room as f32).clamp(orb::ORB_H + 2.0 * orb::INSET, h);
+    let y = if grow.down { y } else { y + h - fit };
+    [x, y, w, fit]
+}
+
 /// Where the person dragged the orb on each display: its centre from the
 /// visible area's top-left, by the display's lasting key (its UUID).
 static DRAGGED: Mutex<Option<Dragged>> = Mutex::new(None);
@@ -256,5 +272,32 @@ mod tests {
         // kept on it.
         let squeezed = placed(Some((2400.0, 1300.0)), built_in, None);
         assert_eq!(squeezed, (1800.0 - EDGE, 37.0 + 1132.0 - EDGE));
+    }
+
+    #[test]
+    fn the_panel_never_hangs_off_its_display() {
+        // Beside the HUD at the top: the tallest panel fits.
+        let top = default_anchor(VISIBLE, Some((756.0, true)));
+        let [_, y, _, h] = fitted(top, grow(top, VISIBLE), VISIBLE);
+        assert_eq!(h, orb::SIZE.1.min(879.0 + 33.0 - y));
+        assert!(f64::from(y + h) <= 33.0 + 879.0);
+        // Just above the middle, unfolding down: only the room left.
+        for anchor in [(400.0, 460.0), (400.0, 480.0), (1400.0, 880.0)] {
+            let toward = grow(anchor, VISIBLE);
+            let [_, y, _, h] = fitted(anchor, toward, VISIBLE);
+            assert!(f64::from(y) >= 33.0 - 0.01, "{anchor:?}: {y}");
+            assert!(
+                f64::from(y + h) <= 33.0 + 879.0 + 0.01,
+                "{anchor:?}: {y} {h}"
+            );
+            assert!(h > 400.0, "still roomy: {h}");
+            // The orb stays on its anchor.
+            let core = if toward.down {
+                f64::from(y) + CORE_IN.1
+            } else {
+                f64::from(y + h) - CORE_IN.1
+            };
+            assert!((core - anchor.1).abs() < 0.01, "{core} {anchor:?}");
+        }
     }
 }
