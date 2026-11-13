@@ -1,24 +1,28 @@
-//! The expanded task list: a sheet that unfolds from the orb (double-tap
-//! the Action shortcut, press the orb, or rest the pointer on it) with every
+//! The task list: a sheet that unfolds from the orb (double-tap the Action
+//! shortcut, press the orb, a job's row, or its "more" line) with every
 //! Background task in three groups ([`Group`]): Waiting for you (a question
-//! to answer, with Later), Running, and Done, empty ones left out; newest
-//! nearest the orb within each. Each row shows its colour, its
-//! question, where it works (a globe for the web, a window for desktop
-//! apps, with their names), its last few steps, and its state: Queued,
-//! Running, "You have it" (paused), the minutes until a usage limit lifts,
-//! ✓, ✗, or Stopped. Take over and Hand back pass a running task between
-//! the agent and the person; × stops one, Stop all every one (with two or
-//! more); pressing a row opens its conversation in Chats. While the pointer
-//! rests on a row, its browsers stream live below it ([`live`]); pressing
-//! one opens it large in Chats.
+//! to answer, with Later), Running, and Done (the results the orb recalls,
+//! [`super::results`]), empty ones left out; newest nearest the orb within
+//! each. Each running row shows its colour, its question, where it works (a
+//! globe for the web, a window for desktop apps, with their names), its
+//! plan or last few steps, and its state: Queued, Running, "You have it"
+//! (paused), or the minutes until a usage limit lifts. Take over and Hand
+//! back pass a running task between the agent and the person; Stop task
+//! stops one, Stop all every one (with two or more). A result offers what
+//! it names to open, or Try again; a press brings its bubble back. While
+//! the pointer rests on a row, its browsers stream live below it
+//! ([`live`]); pressing one opens it large. The rows scroll; ×, Escape, or
+//! a click outside the panel folds the list back.
 
 use rune::{El, ScrollSpec, col, icon, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Spinner};
 
 use super::super::controls::Paint;
 use super::super::icons::{GLOBE, PANEL};
+use super::ask::ReplyActions;
 use super::board::{Phase, Place, Task};
 use super::live::{self, Preview};
+use super::results::{self, Outcome};
 use super::{palette, when};
 use crate::desktop::i18n::{tr, tr_fill};
 
@@ -28,10 +32,8 @@ const ROW_GAP: f32 = 2.0;
 
 /// What a press asks of the host.
 pub(crate) struct Actions<S> {
-    /// × on a task: stop it.
+    /// Stop task: stop it.
     pub(crate) stop: fn(&mut S, &str),
-    /// A row: open its conversation in Chats.
-    pub(crate) open: fn(&mut S, &str),
     /// Take over a running task: its desktop actions wait.
     pub(crate) take_over: fn(&mut S, &str),
     /// Hand a taken-over task back.
@@ -48,6 +50,10 @@ pub(crate) struct Actions<S> {
     pub(crate) open_preview: fn(&mut S, &str, &str),
     /// Later on a question: behind the other questions.
     pub(crate) defer: fn(&mut S, &str),
+    /// A typed answer to a question.
+    pub(crate) reply: ReplyActions<S>,
+    /// A finished job's result.
+    pub(crate) results: results::Actions<S>,
 }
 
 impl<S> Clone for Actions<S> {
@@ -65,7 +71,7 @@ pub(crate) enum Group {
     Waiting,
     /// Queued, running, taken over, or waiting out a usage limit.
     Running,
-    /// Answered, failed, or stopped (they linger a moment).
+    /// Answered or failed: the results the orb recalls.
     Done,
 }
 
@@ -98,12 +104,15 @@ impl Group {
     }
 }
 
-/// The sheet with `tasks` (oldest first), at most `max_h` tall; its rows
-/// scroll past that. `newest_first` lists the newest at the top (the sheet
-/// hangs below the orb). The `hovered` task shows its browsers live.
+/// The sheet with `tasks` (oldest first) and the `done` results (newest
+/// first), at most `max_h` tall; its rows scroll past that. `newest_first`
+/// lists the newest at the top (the sheet hangs below the orb). The
+/// `hovered` task shows its browsers live.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn sheet<S: 'static>(
     p: Paint,
     tasks: &[Task],
+    done: &[&Outcome],
     newest_first: bool,
     max_h: f32,
     hovered: Option<&str>,
@@ -139,10 +148,10 @@ pub(crate) fn sheet<S: 'static>(
         )
         .children(stop_all)
         .child(
-            IconButton::new(p.k.glyph.chevron_up)
+            IconButton::new(p.k.glyph.close)
                 .variant(IconButtonVariant::GhostMuted)
                 .control_size(ControlSize::Small)
-                .label(tr("Hide details"))
+                .label(tr("Close"))
                 .on_press(move |s: &mut S| toggle(s))
                 .build(p.k)
                 .key("fold"),
@@ -151,13 +160,21 @@ pub(crate) fn sheet<S: 'static>(
     for group in Group::ALL {
         let mut members: Vec<&Task> = tasks
             .iter()
-            .filter(|task| Group::of(task) == group)
+            .filter(|task| task.phase.live() && Group::of(task) == group)
             .collect();
-        if members.is_empty() {
-            continue;
-        }
         if newest_first {
             members.reverse();
+        }
+        let mut results: Vec<&Outcome> = if group == Group::Done {
+            done.to_vec()
+        } else {
+            Vec::new()
+        };
+        if !newest_first {
+            results.reverse();
+        }
+        if members.is_empty() && results.is_empty() {
+            continue;
         }
         sections.push(
             text(group.title())
@@ -177,6 +194,11 @@ pub(crate) fn sheet<S: 'static>(
             };
             task_row(p, task, &previews, actions)
         }));
+        sections.extend(
+            results
+                .into_iter()
+                .map(|outcome| results::list_row(p, outcome, actions.results)),
+        );
     }
     let rows = col()
         .key("sheet-rows")
@@ -208,6 +230,14 @@ pub(crate) fn sheet<S: 'static>(
             inset: false,
         })
         .hit()
+        .on_key(move |s: &mut S, key: &rune::KeyEvent, _| {
+            if key.key == rune::Key::Escape {
+                toggle(s);
+                true
+            } else {
+                false
+            }
+        })
         .animate_layout()
         .child(header)
         .child(rows)
@@ -247,9 +277,7 @@ fn task_row<S: 'static>(
         .children(detail)
         .children(strip(p, &task.id, previews, actions))
         .children(buttons(p, task, actions));
-    let open = actions.open;
     let (hover, hovered_id) = (actions.hover, task.id.clone());
-    let id = task.id.clone();
     let body = row()
         .key(format!("task-{}", task.id))
         .w_full()
@@ -262,7 +290,6 @@ fn task_row<S: 'static>(
         .role("listitem")
         .label(task.title.clone())
         .hit()
-        .on_press(move |s: &mut S| open(s, &id))
         .on_hover_change(move |s: &mut S, inside, _| hover(s, &hovered_id, inside))
         .child(dot)
         .child(lines)

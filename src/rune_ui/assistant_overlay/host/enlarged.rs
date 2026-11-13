@@ -18,6 +18,14 @@ use super::{FADE, OVERLAYS, leave_out_of_mission_control, open_chats, options};
 /// How far below the top of the display the card hangs.
 const MARGIN: f32 = 64.0;
 
+/// Whether the card shows (the wall under it then keeps itself open).
+static SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the card shows now.
+pub(super) fn shown() -> bool {
+    SHOWN.load(std::sync::atomic::Ordering::Acquire)
+}
+
 /// Adds the panel to the app.
 pub(super) fn install<S: 'static>(app: &mut rune::App<S>) -> OverlayHandle<Enlarged> {
     let spec = OverlaySpec {
@@ -73,6 +81,7 @@ pub(super) fn open(board: &Board, task: &str, session: &str) {
     overlays.enlarged.update(move |state, _| {
         enlarged::open(state, &task, &session, &board);
     });
+    SHOWN.store(true, std::sync::atomic::Ordering::Release);
     overlays.enlarged.fade_in(FADE);
     overlays.enlarged.request_keys();
 }
@@ -86,6 +95,9 @@ fn close(state: &mut Enlarged) {
     }
     if let Some(overlays) = OVERLAYS.get() {
         overlays.enlarged.fade_out(FADE);
+    }
+    if SHOWN.swap(false, std::sync::atomic::Ordering::AcqRel) {
+        super::wall::refocus();
     }
 }
 

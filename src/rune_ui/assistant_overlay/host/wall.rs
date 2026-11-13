@@ -1,8 +1,11 @@
 //! The live wall's panel: made with the other overlays, shown on the
-//! display under the pointer when "All N live" on a job's card is pressed,
-//! keyed while it shows (Escape), and hidden when it closes. Its jobs'
-//! browsers and windows stream only while it shows (`live::wall`,
-//! `app_live::wall`); a tile opens the enlarged card above it.
+//! display under the pointer when "All N live" on a job's row is pressed,
+//! keyed while it shows (Escape), and hidden when it closes: ×, Escape, or
+//! a click outside it (the panel loses the keyboard), but not while the
+//! enlarged card a tile opened is on top. Its jobs' browsers and windows
+//! stream only while it shows (`live::wall`, `app_live::wall`).
+
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rune::{
     Align, DisplayTarget, KeyPolicy, OverlayHandle, OverlayInput, OverlayPlacement, OverlaySpec,
@@ -17,6 +20,9 @@ use super::{FADE, OVERLAYS, leave_out_of_mission_control, options};
 
 /// How far below the top of the display the wall hangs.
 const MARGIN: f32 = 40.0;
+
+/// Whether the wall shows, for the enlarged card to hand the keyboard back.
+static SHOWN: AtomicBool = AtomicBool::new(false);
 
 /// Adds the panel to the app.
 pub(super) fn install<S: 'static>(app: &mut rune::App<S>) -> OverlayHandle<Wall> {
@@ -34,6 +40,22 @@ pub(super) fn install<S: 'static>(app: &mut rune::App<S>) -> OverlayHandle<Wall>
             inset: 0.0,
         }),
         ..options(OverlayInput::Regions)
+    })
+    // Escape wherever the focus is inside the panel (or none is).
+    .on_key(|state, key, _| {
+        if key.key == rune::Key::Escape && state.lead.is_some() {
+            close(state);
+            true
+        } else {
+            false
+        }
+    })
+    .on_focus(|state, focused, _| {
+        // A click outside: it goes. A tile's enlarged card taking the
+        // keyboard leaves it be.
+        if !focused && state.lead.is_some() && !super::enlarged::shown() {
+            close(state);
+        }
     })
     .on_created(|created| leave_out_of_mission_control(created.window_number))
     .release_gpu_when_hidden();
@@ -60,13 +82,25 @@ pub(super) fn open(board: &Board, lead: &str) {
         state.lead = Some(lead);
         state.board = board;
     });
+    SHOWN.store(true, Ordering::Release);
     overlays.wall.fade_in(FADE);
     overlays.wall.request_keys();
+}
+
+/// The enlarged card above the wall closed: the wall takes the keyboard
+/// back (for Escape, and to close on a click outside).
+pub(super) fn refocus() {
+    if SHOWN.load(Ordering::Acquire)
+        && let Some(overlays) = OVERLAYS.get()
+    {
+        overlays.wall.request_keys();
+    }
 }
 
 /// × or Escape: stops the wall's streams and hides it.
 fn close(state: &mut Wall) {
     state.lead = None;
+    SHOWN.store(false, Ordering::Release);
     stream(&[]);
     if let Some(overlays) = OVERLAYS.get() {
         overlays.wall.fade_out(FADE);

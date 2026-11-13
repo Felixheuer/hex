@@ -62,40 +62,10 @@ fn inside(r: [f32; 4], size: (f32, f32)) -> bool {
 }
 
 fn orb_state(board: Board, expanded: bool) -> Orb {
-    Orb {
-        board,
-        shown: true,
-        armed: None,
-        expanded,
-        peek: false,
-        hovered: None,
-        jobs_hovered: false,
-        jobs_pinned: false,
-        grow: orb::Grow::default(),
-        answer_key: fixture::ANSWER_KEY.into(),
-        voice: None,
-        actions: orb::Actions {
-            list: stack::Actions {
-                stop: |_, _| {},
-                open: |_, _| {},
-                take_over: |_, _| {},
-                hand_back: |_, _| {},
-                stop_all: |_| {},
-                toggle: |_| {},
-                dismiss: |_, _| {},
-                hover: |_, _, _| {},
-                open_preview: |_, _, _| {},
-                defer: |_, _| {},
-            },
-            hover: |_, _| {},
-            drag: |_, _| {},
-            jobs: super::jobs::LineActions {
-                hover: |_, _| {},
-                pin: |_| {},
-                wall: |_, _| {},
-            },
-        },
-    }
+    let mut orb = Orb::new(board, fixture::ANSWER_KEY.into(), orb::Actions::inert());
+    orb.shown = true;
+    orb.expanded = expanded;
+    orb
 }
 
 fn bubble_state(bubble: Option<super::board::Bubble>) -> BubbleOverlay {
@@ -148,7 +118,11 @@ fn the_orb_shows_a_dot_per_live_task_and_its_bubbles() {
             5,
             "running, taken over, queued, waiting, asking"
         );
-        assert_eq!(count(&rt, "ring"), 1, "the table task's plan");
+        assert_eq!(
+            count(&rt, "ring"),
+            2,
+            "the table task's plan, at its dot and row"
+        );
         let asked = rect(&rt, "question-invoices").expect("its question");
         assert!(inside(asked, orb::SIZE), "{asked:?}");
         assert!(rect(&rt, "question-hint").is_some(), "Hold ⌘ to answer");
@@ -158,7 +132,11 @@ fn the_orb_shows_a_dot_per_live_task_and_its_bubbles() {
         assert!(rect(&rt, "standing-mail").is_some(), "You have it");
         assert!(rect(&rt, "standing-news").is_some(), "Waiting for limit");
         assert_eq!(count(&rt, "hand-back"), 1);
-        assert!(count_prefix(&rt, "pop-") >= 1, "bubbles about the tasks");
+        // Beside the question, three tasks, and a row, one result has room:
+        // the failure (a done one gives way first; the list recalls it).
+        assert_eq!(count(&rt, "result-head"), 1, "one result beside it all");
+        assert_eq!(count(&rt, "result-retry"), 1, "the failure stays");
+        assert_eq!(count(&rt, "pop-text"), 0, "no toasts while jobs work");
         assert!(rect(&rt, "sheet").is_none(), "the list stays folded");
         for key in ["orb", "standing-mail", "standing-news"] {
             assert!(inside(rect(&rt, key).unwrap(), orb::SIZE), "{key} inside");
@@ -192,7 +170,8 @@ fn the_list_unfolds_with_every_task_its_state_and_controls() {
         let rt = runtime(orb_state(board.clone(), true), orb::view, orb::SIZE, dark);
         let sheet = rect(&rt, "sheet").expect("the list");
         assert!(inside(sheet, orb::SIZE), "{sheet:?}");
-        assert_eq!(count_prefix(&rt, "task-"), 7);
+        assert_eq!(count_prefix(&rt, "task-"), 5, "the live ones");
+        assert_eq!(count_prefix(&rt, "result-row-"), 2, "and the results");
         assert_eq!(count(&rt, "spinner"), 1, "the running one spins");
         assert_eq!(count(&rt, "needs-input"), 1);
         assert_eq!(count(&rt, "plan-current"), 1, "the step it's on");
@@ -208,7 +187,7 @@ fn the_list_unfolds_with_every_task_its_state_and_controls() {
         assert!(rect(&rt, "stop-all").is_some(), "two or more live tasks");
         assert!(count(&rt, "place-glyph") >= 3, "where each works");
         assert_eq!(
-            count_prefix(&rt, "pop-"),
+            count(&rt, "result-head"),
             0,
             "the list replaces the bubbles"
         );
@@ -627,30 +606,15 @@ fn hands_off_desk() -> Desk {
     }
 }
 
-/// The fixture's board after the service told its inbox: the invoices
-/// task's question is the one to answer, two more wait behind it.
-fn inbox_board() -> Board {
-    let mut board = fixture::board();
-    board.apply(
-        &Event::QuestionsChanged {
-            active: Some(crate::assistant::WaitingQuestion {
-                conversation: "invoices".into(),
-                title: "File this month's invoices".into(),
-                question: fixture::INVOICE_QUESTION.into(),
-                asked_ms: 1,
-            }),
-            waiting: 2,
-        },
-        None,
-        std::time::Instant::now(),
-    );
-    board
-}
-
 #[test]
 fn the_inbox_shows_one_question_with_who_asks_later_and_a_count() {
     for dark in [false, true] {
-        let rt = runtime(orb_state(inbox_board(), false), orb::view, orb::SIZE, dark);
+        let rt = runtime(
+            orb_state(fixture::inbox_board(), false),
+            orb::view,
+            orb::SIZE,
+            dark,
+        );
         assert_eq!(count_prefix(&rt, "question-invoices"), 1, "one bubble");
         let bubble = rect(&rt, "question-invoices").expect("the active question");
         assert!(inside(bubble, orb::SIZE), "{bubble:?}");
@@ -663,7 +627,7 @@ fn the_inbox_shows_one_question_with_who_asks_later_and_a_count() {
 
 #[test]
 fn the_badge_counts_every_open_question_and_none_hides_it() {
-    let mut board = inbox_board();
+    let mut board = fixture::inbox_board();
     assert_eq!(board.open_questions(), 3);
     board.apply(
         &Event::QuestionsChanged {
@@ -682,7 +646,7 @@ fn the_badge_counts_every_open_question_and_none_hides_it() {
 
 #[test]
 fn a_put_away_question_comes_back_when_another_is_active() {
-    let mut board = inbox_board();
+    let mut board = fixture::inbox_board();
     assert!(board.dismiss_question("invoices"));
     assert!(board.active_question().is_none(), "put away");
     assert_eq!(board.open_questions(), 3, "it still waits");
@@ -720,7 +684,7 @@ static DEFERRED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new(
 
 #[test]
 fn later_puts_the_question_behind_the_others() {
-    let mut state = orb_state(inbox_board(), false);
+    let mut state = orb_state(fixture::inbox_board(), false);
     state.actions.list.defer = |_, id| DEFERRED.lock().unwrap().push(id.to_owned());
     let mut rt = runtime(state, orb::view, orb::SIZE, false);
     state_press(&mut rt, "later");
@@ -730,7 +694,7 @@ fn later_puts_the_question_behind_the_others() {
 #[test]
 fn the_list_groups_waiting_running_and_done_in_that_order() {
     use stack::Group;
-    let board = inbox_board();
+    let board = fixture::inbox_board();
     let groups: Vec<Group> = board.stack().iter().map(stack::Group::of).collect();
     assert!(groups.contains(&Group::Waiting));
     for dark in [false, true] {
@@ -793,69 +757,77 @@ fn rest_on<S: 'static>(rt: &mut Runtime<S>, key: &str, seconds: f32) {
 
 fn many_jobs_orb(count: usize) -> Orb {
     let mut state = orb_state(fixture::many_jobs_board(count), false);
-    state.actions.hover = |orb, inside| {
-        orb.peek = inside && !orb.jobs_hovered;
-        if !inside {
-            orb.jobs_hovered = false;
-        }
-    };
-    state.actions.jobs.hover = |orb, inside| {
-        orb.jobs_hovered = inside;
-        if inside {
-            orb.peek = false;
-        }
-    };
-    state.actions.jobs.pin = |orb| orb.jobs_pinned = !orb.jobs_pinned;
+    state.actions.list.toggle = |orb| orb.expanded = !orb.expanded;
     state
 }
 
 #[test]
-fn resting_on_the_count_unfolds_every_job_s_card() {
+fn many_jobs_show_three_calm_rows_and_one_line_for_the_rest() {
     for dark in [false, true] {
         let mut rt = runtime(many_jobs_orb(12), orb::view, orb::SIZE, dark);
-        assert_eq!(count(&rt, "jobs-line"), 1, "twelve jobs fold into the line");
+        assert_eq!(count_prefix(&rt, "job-job"), 3, "three rows, no more");
+        assert_eq!(count(&rt, "jobs-line"), 1, "the rest in one line");
         assert!(
             count_prefix(&rt, "orb-dot-") <= orb::MAX_DOTS && count(&rt, "orb-more") == 1,
             "the orb stays small"
         );
-        let orb_rect = rect(&rt, "orb").expect("the orb");
-        assert!(inside(orb_rect, orb::SIZE), "{orb_rect:?}");
-        assert_eq!(count_prefix(&rt, "job-job"), 0, "no card while folded");
-        rest_on(&mut rt, "jobs-line-text", 0.5);
-        rt.settle_all();
-        rt.frame(0.0);
-        assert_eq!(
-            count_prefix(&rt, "job-job"),
-            12,
-            "every job's card, none summarised away"
-        );
-        assert!(
-            rect(&rt, "sheet").is_none(),
-            "resting on the cards shows the cards, not the list"
-        );
-        // The cards scroll inside the panel instead of running past it.
-        let all = rect(&rt, "jobs-all").expect("the unfolded cards");
-        assert!(inside(all, orb::SIZE), "{all:?} inside {:?}", orb::SIZE);
-        // Leaving folds them back.
-        rt.pointer_move(-50.0, -50.0);
-        for _ in 0..60 {
-            rt.frame(1.0 / 60.0);
+        for key in ["orb", "jobs", "jobs-line"] {
+            let r = rect(&rt, key).unwrap_or_else(|| panic!("{key}"));
+            assert!(inside(r, orb::SIZE), "{key} {r:?}");
         }
+        // The newest first, each with its step, in the order they started.
+        let y = |rt: &Runtime<Orb>, key: &str| rect(rt, key).unwrap()[1];
+        assert!(y(&rt, "job-job11") < y(&rt, "job-job10"));
+        assert!(y(&rt, "job-job10") < y(&rt, "job-job9"));
+        assert_eq!(count(&rt, "job-step"), 3);
+        // Resting on the rows changes nothing: no list pops over them.
+        rest_on(&mut rt, "job-job10", 1.0);
         rt.settle_all();
         rt.frame(0.0);
-        assert_eq!(count_prefix(&rt, "job-job"), 0, "folded again");
+        assert!(rect(&rt, "sheet").is_none());
+        assert_eq!(count_prefix(&rt, "job-job"), 3, "nothing jumps");
+        // The line opens the list, where every job is.
+        state_press(&mut rt, "jobs-line-text");
+        rt.settle_all();
+        rt.frame(0.0);
+        let sheet = rect(&rt, "sheet").expect("the list");
+        assert!(inside(sheet, orb::SIZE), "{sheet:?}");
+        assert_eq!(count_prefix(&rt, "task-job"), 12, "every job, scrolling");
+        assert_eq!(count_prefix(&rt, "job-job"), 0, "the rows make way");
     }
 }
 
 #[test]
-fn resting_on_a_card_keeps_the_cards_so_a_browser_can_be_pressed() {
+fn a_press_on_a_job_s_row_opens_the_list_and_its_close_folds_it() {
     let mut rt = runtime(many_jobs_orb(2), orb::view, orb::SIZE, false);
-    assert_eq!(count_prefix(&rt, "job-job"), 2, "two jobs, two cards");
-    rest_on(&mut rt, "job-job1", 1.0);
+    assert_eq!(count_prefix(&rt, "job-job"), 2, "two jobs, two rows");
+    assert_eq!(count(&rt, "jobs-line"), 0, "nothing more to sum up");
+    state_press(&mut rt, "job-job1");
     rt.settle_all();
     rt.frame(0.0);
-    assert!(rect(&rt, "sheet").is_none(), "the list stays folded");
+    assert!(rect(&rt, "sheet").is_some());
+    state_press(&mut rt, "fold");
+    rt.settle_all();
+    rt.frame(0.0);
+    assert!(rect(&rt, "sheet").is_none(), "× folds it");
     assert_eq!(count_prefix(&rt, "job-job"), 2);
+}
+
+#[test]
+fn escape_puts_the_field_away_then_folds_a_result_then_the_list() {
+    use super::host::escape;
+    let mut orb = results_orb(fixture::results_board());
+    orb.reply = Some(super::ask::Reply::new("invoices"));
+    orb.open_result = orb.board.pops.items.first().map(|pop| pop.key);
+    orb.expanded = true;
+    assert!(escape(&mut orb));
+    assert!(orb.reply.is_none(), "the answer field first");
+    assert!(orb.open_result.is_some() && orb.expanded);
+    assert!(escape(&mut orb));
+    assert!(orb.open_result.is_none(), "then the unfolded result");
+    assert!(escape(&mut orb));
+    assert!(!orb.expanded, "then the list");
+    assert!(!escape(&mut orb), "nothing left: the key goes on");
 }
 
 #[test]
@@ -882,38 +854,225 @@ fn a_usage_limit_on_every_job_is_one_bubble() {
 }
 
 #[test]
-fn helpers_fold_into_their_lead_s_card_and_unfold_under_it() {
+fn helpers_fold_into_their_lead_s_row() {
     let mut state = many_jobs_orb(0);
     state.board = fixture::team_board(5);
     let mut rt = runtime(state, orb::view, orb::SIZE, false);
-    assert_eq!(count(&rt, "job-lead"), 1, "the lead's card");
+    assert_eq!(count(&rt, "job-lead"), 1, "the lead's row");
     assert_eq!(count(&rt, "job-team"), 1, "with its helpers summed up");
-    assert_eq!(count_prefix(&rt, "helper-"), 0, "folded in");
+    assert_eq!(count_prefix(&rt, "job-helper"), 0, "folded in");
+    assert_eq!(count(&rt, "jobs-line"), 0, "helpers aren't more jobs");
     rest_on(&mut rt, "job-lead", 0.6);
     rt.settle_all();
     rt.frame(0.0);
-    assert_eq!(count_prefix(&rt, "helper-"), 5, "each under its lead");
-    let lead = rect(&rt, "job-lead").unwrap();
-    let helper = rect(&rt, "job-helper0").unwrap();
-    assert!(helper[1] > lead[1], "below the lead's card");
-    assert!(helper[0] > lead[0], "set in");
+    assert_eq!(count_prefix(&rt, "job-helper"), 0, "resting doesn't unfold");
+    state_press(&mut rt, "job-lead");
+    rt.settle_all();
+    rt.frame(0.0);
+    assert_eq!(count_prefix(&rt, "task-helper"), 5, "the list shows each");
+}
+
+static SENT: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn replying_orb() -> Orb {
+    let mut state = orb_state(fixture::inbox_board(), false);
+    let reply = &mut state.actions.list.reply;
+    reply.start = |orb, id| orb.reply = Some(super::ask::Reply::new(id));
+    reply.cancel = |orb| orb.reply = None;
+    reply.send = |orb| {
+        if let Some(text) = orb.reply.as_ref().and_then(super::ask::Reply::answer) {
+            SENT.lock().unwrap().push(text);
+            orb.reply = None;
+        }
+    };
+    reply.edit = |orb| {
+        &mut orb
+            .reply
+            .get_or_insert_with(super::ask::Reply::default)
+            .edit
+    };
+    state
 }
 
 #[test]
-fn a_press_on_the_count_keeps_every_card_open() {
-    let mut rt = runtime(many_jobs_orb(5), orb::view, orb::SIZE, false);
-    state_press(&mut rt, "jobs-line-text");
-    rt.pointer_move(-50.0, -50.0);
-    for _ in 0..60 {
+fn a_question_is_answered_by_typing_right_at_the_orb() {
+    for dark in [false, true] {
+        let mut rt = runtime(replying_orb(), orb::view, orb::SIZE, dark);
+        assert!(rect(&rt, "question-hint").is_some(), "Hold ⌘ to answer");
+        assert!(rect(&rt, "reply-input").is_none(), "no field until asked");
+        state_press(&mut rt, "reply");
+        rt.settle_all();
+        rt.frame(0.0);
+        let field = rect(&rt, "reply-input").expect("the answer field");
+        let bubble = rect(&rt, "question-invoices").unwrap();
+        assert!(inside(bubble, orb::SIZE), "{bubble:?}");
+        assert!(field[1] > bubble[1] && field[1] < bubble[1] + bubble[3]);
+        assert!(
+            rect(&rt, "question-hint").is_none(),
+            "the field in its place"
+        );
+        assert_eq!(count(&rt, "later"), 0);
+        // Nothing beside it overlaps: the rows sit past the taller bubble.
+        let rows = rect(&rt, "jobs").expect("the job rows");
+        assert!(rows[1] >= bubble[1] + bubble[3], "{rows:?} past {bubble:?}");
+        assert!(inside(rows, orb::SIZE), "{rows:?}");
+    }
+    let mut rt = runtime(replying_orb(), orb::view, orb::SIZE, false);
+    state_press(&mut rt, "reply");
+    rt.ime(rune::Ime::Commit("Finance".into()));
+    rt.frame(1.0 / 60.0);
+    rt.key(rune::KeyEvent {
+        key: rune::Key::Enter,
+        mods: rune::Mods::default(),
+    });
+    for _ in 0..5 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(
+        SENT.lock().unwrap().iter().any(|sent| sent == "Finance"),
+        "Return sends it: {:?}",
+        SENT.lock().unwrap()
+    );
+    rt.settle_all();
+    rt.frame(0.0);
+    assert!(rect(&rt, "reply-input").is_none(), "and the field goes");
+}
+
+#[test]
+fn escape_puts_the_answer_field_away() {
+    let mut rt = runtime(replying_orb(), orb::view, orb::SIZE, false);
+    state_press(&mut rt, "reply");
+    assert!(rect(&rt, "reply-input").is_some());
+    rt.key(rune::KeyEvent {
+        key: rune::Key::Escape,
+        mods: rune::Mods::default(),
+    });
+    for _ in 0..5 {
         rt.frame(1.0 / 60.0);
     }
     rt.settle_all();
     rt.frame(0.0);
-    assert_eq!(count_prefix(&rt, "job-job"), 5, "pinned open");
-    assert_eq!(
-        count(&rt, "jobs-line-list"),
-        1,
-        "the list stays a press away"
+    assert!(rect(&rt, "reply-input").is_none());
+    assert!(rect(&rt, "question-hint").is_some(), "back to Hold ⌘");
+}
+
+static OPENED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+static RETRIED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn results_orb(board: Board) -> Orb {
+    let mut state = orb_state(board, false);
+    let results = &mut state.actions.list.results;
+    results.open = |_, target| OPENED.lock().unwrap().push(target.to_owned());
+    results.retry = |_, id| RETRIED.lock().unwrap().push(id.to_owned());
+    results.expand = |orb, key| {
+        orb.open_result = (orb.open_result != Some(key)).then_some(key);
+    };
+    results.dismiss = |orb, key| {
+        orb.board.pops.dismiss(key);
+    };
+    results.recall = |orb, id| {
+        orb.open_result = orb.board.recall(id, std::time::Instant::now());
+        orb.expanded = false;
+    };
+    state.actions.list.toggle = |orb| orb.expanded = !orb.expanded;
+    state
+}
+
+#[test]
+fn a_finished_job_leaves_a_result_with_what_to_open_and_a_failure_its_retry() {
+    for dark in [false, true] {
+        let rt = runtime(
+            results_orb(fixture::results_board()),
+            orb::view,
+            orb::SIZE,
+            dark,
+        );
+        assert_eq!(count(&rt, "result-head"), 2, "both results");
+        assert_eq!(count(&rt, "done"), 1);
+        assert_eq!(count(&rt, "failed"), 1);
+        assert_eq!(count(&rt, "result-retry"), 1, "Try again on the failure");
+        assert_eq!(
+            count_prefix(&rt, "result-open-"),
+            3,
+            "its file, the shop, its folder"
+        );
+        assert!(
+            count(&rt, "orb-recent") == 1,
+            "nothing live: what it recalls"
+        );
+        for key in ["orb", "result-head"] {
+            let r = rect(&rt, key).unwrap();
+            assert!(inside(r, orb::SIZE), "{key} {r:?}");
+        }
+    }
+    let mut rt = runtime(
+        results_orb(fixture::results_board()),
+        orb::view,
+        orb::SIZE,
+        false,
+    );
+    state_press(&mut rt, "result-retry");
+    assert_eq!(RETRIED.lock().unwrap().as_slice(), ["landing"]);
+    state_press(&mut rt, "result-open-2");
+    assert!(
+        OPENED
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|opened| opened == "/tmp/Hex Jobs/Lieferanten"),
+        "{:?}",
+        OPENED.lock().unwrap()
+    );
+}
+
+#[test]
+fn more_shows_the_whole_answer_inside_the_panel() {
+    let mut rt = runtime(
+        results_orb(fixture::results_board()),
+        orb::view,
+        orb::SIZE,
+        false,
+    );
+    assert!(rect(&rt, "result-answer").is_none(), "folded: two lines");
+    state_press(&mut rt, "result-more");
+    rt.settle_all();
+    rt.frame(0.0);
+    let answer = rect(&rt, "result-answer").expect("the whole answer");
+    assert!(inside(answer, orb::SIZE), "{answer:?}");
+    assert_eq!(count(&rt, "result-head"), 1, "the unfolded one alone");
+}
+
+#[test]
+fn the_orb_recalls_results_after_their_bubbles_left() {
+    let mut rt = runtime(
+        results_orb(fixture::recall_board()),
+        orb::view,
+        orb::SIZE,
+        false,
+    );
+    assert!(rect(&rt, "orb").is_some(), "it stays, quietly");
+    assert_eq!(count(&rt, "result-head"), 0);
+    state_press(&mut rt, "orb");
+    rt.settle_all();
+    rt.frame(0.0);
+    assert!(rect(&rt, "group-done").is_some());
+    assert_eq!(count_prefix(&rt, "result-row-"), 2);
+    // On its title, clear of its buttons.
+    let [x, y, ..] = rect(&rt, "result-row-suppliers").unwrap();
+    rt.pointer_move(x + 40.0, y + 12.0);
+    rt.frame(1.0 / 60.0);
+    rt.pointer_down(x + 40.0, y + 12.0);
+    rt.frame(1.0 / 60.0);
+    rt.pointer_up(x + 40.0, y + 12.0);
+    for _ in 0..10 {
+        rt.frame(1.0 / 60.0);
+    }
+    rt.settle_all();
+    rt.frame(0.0);
+    assert!(rect(&rt, "sheet").is_none(), "the list folds");
+    assert!(
+        rect(&rt, "result-answer").is_some(),
+        "its bubble is back, unfolded"
     );
 }
 
@@ -1001,7 +1160,7 @@ fn snapshots() {
         for (name, open) in [("orb-team", false), ("orb-team-open", true)] {
             let mut state = many_jobs_orb(0);
             state.board = fixture::team_board(5);
-            state.jobs_pinned = open;
+            state.expanded = open;
             let mut rt = runtime(state, orb::view, orb::SIZE, dark);
             rt.settle_all();
             let (w, h) = px(orb::SIZE);
@@ -1013,7 +1172,7 @@ fn snapshots() {
         }
         for (name, open) in [("orb-many-jobs", false), ("orb-many-jobs-open", true)] {
             let mut state = many_jobs_orb(14);
-            state.jobs_pinned = open;
+            state.expanded = open;
             let mut rt = runtime(state, orb::view, orb::SIZE, dark);
             rt.settle_all();
             let (w, h) = px(orb::SIZE);
@@ -1050,8 +1209,8 @@ fn snapshots() {
             );
         }
         let orbs = [
-            ("orb-inbox", orb_state(inbox_board(), false)),
-            ("orb-inbox-list", orb_state(inbox_board(), true)),
+            ("orb-inbox", orb_state(fixture::inbox_board(), false)),
+            ("orb-inbox-list", orb_state(fixture::inbox_board(), true)),
             ("orb-bubbles", orb_state(fixture::board(), false)),
             ("orb-quiet", orb_state(fixture::quiet_board(), false)),
             ("orb-list", orb_state(fixture::board(), true)),
@@ -1059,6 +1218,27 @@ fn snapshots() {
                 "orb-escalated",
                 orb_state(fixture::escalated_board(), false),
             ),
+            ("orb-results", results_orb(fixture::results_board())),
+            ("orb-recall", orb_state(fixture::recall_board(), false)),
+            ("orb-recall-list", orb_state(fixture::recall_board(), true)),
+            ("orb-replying", {
+                let mut state = replying_orb();
+                let mut reply = super::ask::Reply::new("invoices");
+                reply.edit.text = "Finance, please".into();
+                state.reply = Some(reply);
+                state
+            }),
+            ("orb-result-open", {
+                let mut state = results_orb(fixture::results_board());
+                state.open_result = state
+                    .board
+                    .pops
+                    .items
+                    .iter()
+                    .find(|pop| pop.task == "suppliers")
+                    .map(|pop| pop.key);
+                state
+            }),
         ];
         for (name, state) in orbs {
             let mut rt = runtime(state, orb::view, orb::SIZE, dark);

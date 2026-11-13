@@ -13,6 +13,7 @@ use crate::assistant::{
 use super::palette::COLOURS;
 use super::pops::Pops;
 pub(crate) use super::quick::{Bubble, BubblePhase, Due};
+use super::results::{Outcome, RECALL_FOR, RECENT_MAX};
 
 /// How long a finished task stays in the stack with its ✓ or ✗.
 pub(crate) const FINISHED_LINGER: Duration = Duration::from_secs(5);
@@ -290,6 +291,9 @@ pub(crate) struct Board {
     /// The active question whose bubble the person put away (×); it comes
     /// back when another becomes active.
     hidden: Option<ConversationId>,
+    /// The jobs that ended lately, oldest first: the orb recalls them for
+    /// [`RECALL_FOR`] ([`super::results`]).
+    pub(crate) recent: Vec<Outcome>,
 }
 
 impl Board {
@@ -318,6 +322,7 @@ impl Board {
             asked: 0,
             inbox: None,
             hidden: None,
+            recent: Vec::new(),
         }
     }
 
@@ -329,14 +334,79 @@ impl Board {
             .conversation()
             .is_none_or(|id| self.task(id).is_none_or(|task| !task.phase.live()));
         let changed = self.apply_task(event, colour, now);
-        let popped = match event.conversation().and_then(|id| self.task(id)) {
-            Some(task) if task.origin == Origin::Background => {
-                let task = task.clone();
-                self.pops.apply(event, &task, fresh, now)
+        // Running again (Try again, an answer, a follow-up), however it was
+        // asked: its old result is moot.
+        let restarted = match event {
+            Event::Queued { conversation, .. } | Event::Started { conversation, .. } => {
+                let before = self.recent.len();
+                self.recent.retain(|outcome| &outcome.id != conversation);
+                self.recent.len() != before
             }
             _ => false,
         };
-        changed || popped
+        // Jobs' results; a team's helpers stay quiet (their lead says it).
+        let popped = match event.conversation().and_then(|id| self.task(id)) {
+            Some(task) if task.origin == Origin::Background && task.lead.is_none() => {
+                let task = task.clone();
+                let noted = self.note_outcome(event, &task, now);
+                self.pops.apply(event, &task, fresh, now) || noted
+            }
+            _ => false,
+        };
+        changed || popped || restarted
+    }
+
+    /// Keeps a job's result for the orb to recall; whether it did.
+    fn note_outcome(&mut self, event: &Event, task: &Task, now: Instant) -> bool {
+        match event {
+            Event::Answer { .. } | Event::Failed { .. } => {
+                self.recent.retain(|outcome| outcome.id != task.id);
+                self.recent.push(Outcome::of(
+                    task,
+                    matches!(event, Event::Failed { .. }),
+                    now,
+                ));
+                let extra = self.recent.len().saturating_sub(RECENT_MAX);
+                self.recent.drain(..extra);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The results the orb recalls, newest first.
+    pub(crate) fn results(&self) -> Vec<&Outcome> {
+        self.recent.iter().rev().collect()
+    }
+
+    /// `id`'s result.
+    pub(crate) fn outcome(&self, id: &str) -> Option<&Outcome> {
+        self.recent.iter().find(|outcome| outcome.id == id)
+    }
+
+    /// `id`'s result as its bubble again, unfolded (a press in the list);
+    /// the bubble's key.
+    pub(crate) fn recall(&mut self, id: &str, now: Instant) -> Option<u64> {
+        let outcome = self.outcome(id)?.clone();
+        // Recalled, it counts as new: it stays its full time again.
+        if let Some(kept) = self.recent.iter_mut().find(|kept| kept.id == id) {
+            kept.at = now;
+        }
+        let task = Task::new(
+            outcome.id.clone(),
+            Origin::Background,
+            &outcome.title,
+            outcome.colour,
+            if outcome.failed {
+                Phase::Failed
+            } else {
+                Phase::Done
+            },
+        );
+        Some(
+            self.pops
+                .recall(&task, outcome.failed, outcome.summary(), now),
+        )
     }
 
     fn apply_task(&mut self, event: &Event, colour: Option<u8>, now: Instant) -> bool {
@@ -491,21 +561,24 @@ impl Board {
         }
     }
 
-    /// Drops finished tasks and bubbles whose time is up; whether any went.
+    /// Drops finished tasks, bubbles, and results whose time is up;
+    /// whether any went.
     pub(crate) fn expire(&mut self, now: Instant) -> bool {
-        let before = self.tasks.len();
+        let before = (self.tasks.len(), self.recent.len());
         self.tasks
             .retain(|task| task.leaves_at().is_none_or(|at| now < at));
+        self.recent.retain(|outcome| now < outcome.at + RECALL_FOR);
         let popped = self.pops.expire(now);
-        self.tasks.len() != before || popped
+        (self.tasks.len(), self.recent.len()) != before || popped
     }
 
-    /// When the next finished task or bubble leaves.
+    /// When the next finished task, bubble, or result leaves.
     pub(crate) fn next_expiry(&self) -> Option<Instant> {
         self.tasks
             .iter()
             .filter_map(Task::leaves_at)
             .chain(self.pops.next_expiry())
+            .chain(self.recent.iter().map(|outcome| outcome.at + RECALL_FOR))
             .min()
     }
 
@@ -520,14 +593,18 @@ impl Board {
             .collect()
     }
 
-    /// Whether the orb has anything to show: a Background task, or a
-    /// bubble about one.
-    pub(crate) fn orb_shows(&self) -> bool {
+    /// Whether the orb has anything to show at `now`: a Background task, a
+    /// bubble about one, or a result it can still recall.
+    pub(crate) fn orb_shows(&self, now: Instant) -> bool {
         !self.pops.items.is_empty()
             || self
                 .tasks
                 .iter()
                 .any(|task| task.origin == Origin::Background)
+            || self
+                .recent
+                .iter()
+                .any(|outcome| now < outcome.at + RECALL_FOR)
     }
 
     /// Whether any task waits out a usage limit (its countdown ticks).
@@ -911,15 +988,94 @@ mod tests {
             board.outlined().is_empty(),
             "a finished task's outline goes"
         );
-        let leaves = t0 + Duration::from_secs(10) + FINISHED_LINGER;
-        let tick = board.next_expiry().unwrap();
-        assert!(tick < leaves, "its ✓ bubble dissolves first");
-        assert!(board.expire(tick));
-        assert_eq!(board.tasks.len(), 1, "the list still shows it");
-        assert_eq!(board.next_expiry(), Some(leaves));
+        let ended = t0 + Duration::from_secs(10);
+        let leaves = ended + FINISHED_LINGER;
+        assert_eq!(board.next_expiry(), Some(leaves), "the task goes first");
         assert!(!board.expire(leaves - Duration::from_millis(1)));
         assert!(board.expire(leaves));
         assert!(board.tasks.is_empty());
+        assert_eq!(board.pops.items.len(), 1, "its ✓ bubble stays a while");
+        assert_eq!(board.results().len(), 1, "and its result longer");
+        assert!(board.orb_shows(leaves));
+        assert!(board.expire(ended + super::super::pops::DONE));
+        assert!(board.pops.items.is_empty());
+        let recalled = ended + super::super::results::RECALL_FOR;
+        assert_eq!(board.next_expiry(), Some(recalled));
+        assert!(board.orb_shows(recalled - Duration::from_secs(1)));
+        assert!(board.expire(recalled));
+        assert!(board.results().is_empty());
+        assert!(!board.orb_shows(recalled), "nothing left: the orb goes");
+    }
+
+    #[test]
+    fn a_result_is_recalled_unfolded_and_dropped_when_the_job_runs_again() {
+        let t0 = Instant::now();
+        let mut board = Board::default();
+        for n in 1..=2 {
+            board.apply(
+                &started(n, Origin::Background, "Compare suppliers"),
+                None,
+                t0,
+            );
+        }
+        board.apply(
+            &Event::Answer {
+                conversation: id(1),
+                origin: Origin::Background,
+                text: "Fertig.\n\nFiles: /tmp/Angebote".into(),
+            },
+            None,
+            t0,
+        );
+        board.apply(
+            &Event::Failed {
+                conversation: id(2),
+                message: "The shop refused the login.".into(),
+            },
+            None,
+            t0,
+        );
+        let ids: Vec<_> = board.results().iter().map(|o| o.id.clone()).collect();
+        assert_eq!(ids, [id(2), id(1)], "newest first");
+        assert!(board.results()[0].failed);
+        board.expire(t0 + super::super::pops::FAILED);
+        assert!(board.pops.items.is_empty());
+        let key = board.recall(&id(1), t0 + Duration::from_secs(1)).unwrap();
+        assert_eq!(board.pops.items.len(), 1);
+        assert_eq!(board.pops.items[0].key, key);
+        assert!(board.recall(&id(9), t0).is_none());
+        // Try again, after its task left the board: the failure's result
+        // goes, and it's a job again.
+        assert!(board.tasks.is_empty());
+        board.apply(
+            &started(2, Origin::Background, "Please try again"),
+            None,
+            t0,
+        );
+        assert!(board.outcome(&id(2)).is_none());
+        assert_eq!(board.stack().len(), 1, "a job again");
+        // However a follow-up is asked, the old result goes.
+        board.apply(&started(1, Origin::Chat, "And the prices?"), None, t0);
+        assert!(board.results().is_empty());
+    }
+
+    #[test]
+    fn helpers_leave_no_result_of_their_own() {
+        let t0 = Instant::now();
+        let mut board = Board::default();
+        board.apply(&started(1, Origin::Background, "Helper"), None, t0);
+        board.tasks[0].lead = Some(id(9));
+        board.apply(
+            &Event::Answer {
+                conversation: id(1),
+                origin: Origin::Background,
+                text: "Done".into(),
+            },
+            None,
+            t0,
+        );
+        assert!(board.results().is_empty());
+        assert!(board.pops.items.is_empty());
     }
 
     #[test]
@@ -1219,7 +1375,7 @@ mod tests {
             t0
         ));
         assert_eq!(board.stack().len(), 1);
-        assert_eq!(board.pops.items.len(), 1, "its title pops from the orb");
+        assert!(board.pops.items.is_empty(), "its row says it; no toast");
         let mut bubble = None;
         Bubble::apply(&mut bubble, &quick(1), t0);
         Bubble::apply(

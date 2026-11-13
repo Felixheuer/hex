@@ -375,8 +375,7 @@ pub(crate) fn escalated_board() -> Board {
 }
 
 /// `count` Background jobs at work, each with a step, as many as fold into
-/// the orb's count line: research, spreadsheets, messages, and code.
-#[cfg(test)]
+/// the orb's "more" line: research, spreadsheets, messages, and code.
 pub(crate) fn many_jobs_board(count: usize) -> Board {
     const JOBS: [(&str, &str); 8] = [
         ("Recherche Lieferanten", "Vergleicht Preise auf 12 Seiten"),
@@ -407,7 +406,6 @@ pub(crate) fn many_jobs_board(count: usize) -> Board {
 
 /// One job leading `helpers` helpers (`assistant::agent::team`), each at a
 /// supplier.
-#[cfg(test)]
 pub(crate) fn team_board(helpers: usize) -> Board {
     let now = Instant::now();
     let mut board = Board::default();
@@ -438,6 +436,77 @@ pub(crate) fn team_board(helpers: usize) -> Board {
         }
     }
     board.pops = Default::default();
+    board
+}
+
+/// What the supplier job answers: its table, the shop, and its folder.
+pub(crate) const SUPPLIER_ANSWER: &str = "**Fertig:** 50 Lieferanten verglichen, \
+    die günstigsten drei sind markiert.\n\n\
+    - Tabelle: `/tmp/Hex Jobs/Lieferanten/Vergleich.xlsx`\n\
+    - Bester Preis bei [Muster GmbH](https://muster.example.com/preise)\n\n\
+    Files: /tmp/Hex Jobs/Lieferanten";
+/// Why the landing page job failed.
+pub(crate) const LANDING_ERROR: &str =
+    "The site asked for a login the job doesn't have (xyz.com/admin).";
+
+/// Two jobs just ended, nothing else at work: the supplier comparison with
+/// its answer (a file, a link, its folder) and the landing page that
+/// failed. Their result bubbles are up, and the orb recalls both.
+pub(crate) fn results_board() -> Board {
+    let now = Instant::now();
+    let mut board = Board::default();
+    for event in [
+        started(
+            "suppliers",
+            Origin::Background,
+            "50 Lieferanten vergleichen",
+        ),
+        started(
+            "landing",
+            Origin::Background,
+            "Landingpage von xyz.com nachbauen",
+        ),
+        Event::Failed {
+            conversation: "landing".into(),
+            message: LANDING_ERROR.into(),
+        },
+        Event::Answer {
+            conversation: "suppliers".into(),
+            origin: Origin::Background,
+            text: SUPPLIER_ANSWER.into(),
+        },
+    ] {
+        board.apply(&event, None, now);
+    }
+    // Their lingering tasks gone: only the results remain.
+    board.tasks.clear();
+    board
+}
+
+/// [`results_board`] after the bubbles left: the orb only recalls.
+pub(crate) fn recall_board() -> Board {
+    let mut board = results_board();
+    board.pops = Default::default();
+    board
+}
+
+/// The fixture's board after the service told its inbox: the invoices
+/// task's question is the one to answer, two more wait behind it.
+pub(crate) fn inbox_board() -> Board {
+    let mut board = board();
+    board.apply(
+        &Event::QuestionsChanged {
+            active: Some(crate::assistant::WaitingQuestion {
+                conversation: "invoices".into(),
+                title: "File this month's invoices".into(),
+                question: INVOICE_QUESTION.into(),
+                asked_ms: 1,
+            }),
+            waiting: 2,
+        },
+        None,
+        Instant::now(),
+    );
     board
 }
 
