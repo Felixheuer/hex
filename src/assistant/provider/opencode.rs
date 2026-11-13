@@ -61,6 +61,24 @@ pub(super) fn run(
     let mut stream = Stream::default();
     while let Some(line) = process.next_line() {
         stream.line(&line, report);
+        // A quick turn on the fast model that needs many tools: the strong
+        // model goes on in this session, which already holds every
+        // finished tool's result (OpenCode reports a tool once it ended).
+        if run
+            .escalate_after
+            .is_some_and(|after| stream.error.is_none() && stream.tools >= after)
+        {
+            tracing::info!(
+                tools = stream.tools,
+                "the fast model hands the turn to the strong one"
+            );
+            super::end_group(process.tree.clone());
+            let _ = process.finish(control);
+            return Err(super::Escalate {
+                tools: stream.tools,
+            }
+            .into());
+        }
     }
     let (status, stderr) = process.finish(control);
     if control.cancelled() {
@@ -150,6 +168,8 @@ pub(super) struct Stream {
     wrote: bool,
     tool_after_text: bool,
     error: Option<String>,
+    /// The tool calls made so far.
+    tools: usize,
 }
 
 impl Stream {
@@ -182,6 +202,7 @@ impl Stream {
                 report(Report::Delta(text.trim().to_owned()));
             }
             Some("tool_use") => {
+                self.tools += 1;
                 self.answer.clear();
                 if self.wrote {
                     self.tool_after_text = true;
@@ -419,6 +440,16 @@ mod tests {
             );
             assert_eq!(args[args.len() - 2..], ["--".to_owned(), "hi".to_owned()]);
         }
+    }
+
+    #[test]
+    fn tool_calls_are_counted_for_the_hand_over() {
+        let mut stream = Stream::default();
+        for line in include_str!("../../../tests/fixtures/assistant/opencode-desktop.jsonl").lines()
+        {
+            stream.line(line, &mut |_| {});
+        }
+        assert!(stream.tools > 0);
     }
 
     #[test]

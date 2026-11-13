@@ -38,7 +38,7 @@ pub use install::{
     Installers, Os, Plan, Step, Tool, apply_fix, apply_fix_with, install_command, plan,
 };
 pub use providers::{
-    Provider, agent_env_for, has_provider_key, merge_config, opencode_model,
+    Provider, agent_env_for, has_provider_key, merge_config, opencode_here_model, opencode_model,
     opencode_provider_config, parse_models, provider, providers, set_provider_key,
     signed_in_providers, verify_provider_key,
 };
