@@ -62,8 +62,13 @@ maintainable, and nothing that isn't possible.
       redesign (`rune_ui/assistant_overlay`)
 - [ ] No backwards compatibility: no aliases (CLI, URL scheme, env, settings keys, tool
       names); only dated one-time migrations for data, settings, Keychain and the app bundle
-- [ ] UX redesign per docs/ux/redesign.md (overlay as the main surface, the window recedes)
-- [ ] hex_watch_video and real Chrome codecs in the hidden browser
+- [x] UX D: the stage, the window recedes (pilot.53)
+- [x] UX A: shared look, task colours, rail, live minis (pilot.54)
+- [ ] UX B: island (black, from the notch), live words, visible reasoning
+- [ ] UX C: three frames, foreground announced and handed back, mini rings, rail flip rule
+- [x] hex_watch_video and real Chrome codecs in the hidden browser (pilot.50)
+- [x] Agent-Desk opens again after quit/update (orphaned guard), update target name valid
+      (pilot.51), live minis 5–6 fps (pilot.52)
 
 ## Round 5 (planned): rename and real test
 
@@ -93,3 +98,9 @@ maintainable, and nothing that isn't possible.
 | pilot.46 | One toolset per lane and backend |
 | pilot.47 | Clear setting names, file splits, stable tests |
 | pilot.48 | One view model for overlay and stream |
+| pilot.49 | Rename Hex → Agent-Desk |
+| pilot.50 | Watching videos, hidden browsers with codecs, clear tab errors |
+| pilot.51 | Opens again after quit/update; valid update index |
+| pilot.52 | Live minis 5–6 fps |
+| pilot.53 | The stage; the window only opens when asked |
+| pilot.54 | Cua Driver only with verified updates; rail and shared look |
