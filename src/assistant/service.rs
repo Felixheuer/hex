@@ -173,6 +173,7 @@ type Settle = dyn Fn(&str, Ended, &str) + Send + Sync;
 type Authorize = dyn Fn(&str, &Authorized) + Send + Sync;
 type DueSchedules = dyn Fn(u64) -> Vec<Schedule> + Send + Sync;
 type WriteNote = dyn Fn(&str, super::types::Message) + Send + Sync;
+type Learn = dyn Fn(&str, &str, &str) + Send + Sync;
 /// (question, task title, what the person said) → whether it answers the
 /// question; `None` when it can't tell in time.
 type ClassifyReply = dyn Fn(&str, &str, &str) -> Option<bool> + Send + Sync;
@@ -195,6 +196,12 @@ pub(crate) struct Hooks {
     /// The voice for an answer, from its first sentence, when none is set.
     pub pick_voice: OnTask<Option<String>>,
     pub stop_speaking: Hook<()>,
+    /// The person holds the Action shortcut or dictates now: an answer
+    /// waits before it is read (`voice::person_talks`).
+    pub person_talks: Hook<bool>,
+    /// Jobs' questions and summaries wait now: the person speaks or asked
+    /// for quiet (`voice::announcements_wait`).
+    pub announcements_wait: Hook<bool>,
     /// Unix ms now, and a pause: the runner's clock.
     pub now_ms: Hook<u64>,
     pub sleep: Box<dyn Fn(Duration) + Send + Sync>,
@@ -222,8 +229,12 @@ pub(crate) struct Hooks {
     /// kept ready after a quick answer (`stand_by`).
     pub front_window: Hook<Option<TaskWindow>>,
     /// Starts a task's browser ahead for its request's words
-    /// (`browser::prewarm_for`).
+    /// (`browser::prewarm_for`): a hold's that asks for the web, a job's,
+    /// a helper's.
     pub browser_ahead: Box<OnWords>,
+    /// The sites the person signed in to for Hex
+    /// (`browser::signed_in_sites`): words naming one ask for the web.
+    pub signed_in_sites: Hook<Vec<String>>,
     /// Requests from other Hex processes (`remote`).
     pub requests: Hook<Vec<(String, remote::Verb)>>,
     /// Makes a new job's workspace for its title.
@@ -242,6 +253,9 @@ pub(crate) struct Hooks {
     /// What the memory graph knows about what a request's words name
     /// (`knowledge::recall`), asked only while memory is on.
     pub recall: OnTask<Option<String>>,
+    /// Learns from a finished task's answer while memory is on
+    /// (`knowledge::learn_from_task`): conversation, request, answer.
+    pub learn: Box<Learn>,
     /// Shows a job's notification.
     pub notify: Box<dyn Fn(&Note) + Send + Sync>,
     /// The schedules due at a time, marked as run (`schedules::take_due`).
@@ -278,6 +292,8 @@ impl Hooks {
             speaking: Box::new(super::speech::speaking),
             pick_voice: Box::new(super::speech::automatic_voice),
             stop_speaking: Box::new(super::speech::stop),
+            person_talks: Box::new(voice::person_talks),
+            announcements_wait: Box::new(voice::announcements_wait),
             now_ms: Box::new(store::now_ms),
             sleep: Box::new(std::thread::sleep),
             pause: Box::new(super::guard::set_paused),
@@ -308,6 +324,7 @@ impl Hooks {
             end_ahead: Box::new(provider::end_ahead),
             front_window: Box::new(super::computer::front_window_quick),
             browser_ahead: Box::new(super::browser::prewarm_for),
+            signed_in_sites: Box::new(super::browser::signed_in_sites),
             requests: Box::new(move || {
                 remote::take_new(&mut seen.lock().unwrap_or_else(|error| error.into_inner()))
             }),
@@ -334,6 +351,7 @@ impl Hooks {
             authorize: Box::new(super::autonomy::write),
             memory: Box::new(super::memory::read),
             recall: Box::new(|words| super::knowledge::recall(words, true)),
+            learn: Box::new(super::knowledge::learn_from_task),
             notify: Box::new(super::notify::show),
             due_schedules: Box::new(super::schedules::take_due),
             pressure: Box::new(super::capacity::pressure),

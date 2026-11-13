@@ -212,6 +212,14 @@ const WEB_TABLE: &[(&str, &str, bool)] = &[
 #[test]
 fn words_that_ask_for_the_web_in_every_language() {
     for &(language, words, web) in WEB_TABLE {
-        assert_eq!(wants_web(words), web, "{language}: {words:?}");
+        assert_eq!(wants_web(words, &[]), web, "{language}: {words:?}");
     }
+}
+
+#[test]
+fn a_site_the_person_signed_in_to_asks_for_the_web() {
+    let sites = ["mail.example.com".to_owned(), "github.com".to_owned()];
+    assert!(wants_web("was gibt es neues auf github", &sites));
+    assert!(!wants_web("was gibt es neues auf github", &[]));
+    assert!(!wants_web("Was steht in dieser Mail?", &sites));
 }

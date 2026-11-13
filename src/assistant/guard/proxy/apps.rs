@@ -52,13 +52,8 @@ impl<D: Desktop> Guard<D> {
             .collect();
         apps.sort_by_key(|app| policy::app_key(&app.name));
         // Which app is the person's browser, mail app, …: the links each
-        // opens by default (LaunchServices), never a list of apps. Tests
-        // never read the person's.
-        let defaults = if cfg!(test) {
-            None
-        } else {
-            crate::assistant::actions::capabilities::launch_services()
-        };
+        // opens by default (LaunchServices), never a list of apps.
+        let defaults = self.screen.link_handlers();
         let listed: Vec<Value> = apps
             .iter()
             .map(|app| {

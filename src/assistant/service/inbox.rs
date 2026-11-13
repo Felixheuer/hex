@@ -20,6 +20,7 @@ use std::time::Duration;
 
 use super::voice::Priority;
 use super::{Runner, State, context};
+use crate::assistant::lines;
 use crate::assistant::types::{
     ConversationId, Event, Lane, Origin, Request, TaskState, TaskStatus,
 };
@@ -144,7 +145,7 @@ impl Runner {
                     _ => Route::Answer,
                 };
         }
-        let german = speaks_german(&request.text, &active.question);
+        let language = reply_language(&request.text, &active.question);
         match route {
             Route::Answer | Route::Unsure => None,
             Route::Task(id) => {
@@ -157,17 +158,13 @@ impl Runner {
                 None
             }
             Route::List => {
-                let line = list_line(&inbox, german);
+                let line = list_line(&inbox, language);
                 self.voice
                     .announce(self, Priority::Answer, &conversation, "", &line);
                 Some(conversation)
             }
             Route::Defer => {
-                let line = if german {
-                    "Okay, später."
-                } else {
-                    "Okay, later."
-                };
+                let line = crate::desktop::i18n::tr_in(language, "Okay, later.");
                 self.voice
                     .announce(self, Priority::Answer, &conversation, "", line);
                 self.defer(&conversation);
@@ -200,48 +197,29 @@ impl Runner {
     }
 }
 
-/// Whether to answer the person in German: what they said, else the
-/// question, reads German.
-fn speaks_german(said: &str, question: &str) -> bool {
-    let of = crate::assistant::speech::language_of;
-    of(said).or_else(|| of(question)) == Some("de")
+/// The language to answer the person in (`lines::language`): what they
+/// said, else the question's; `None` keeps the interface's.
+fn reply_language(said: &str, question: &str) -> Option<&'static str> {
+    lines::language(said).or_else(|| lines::language(question))
 }
 
-/// The waiting questions as one spoken line.
-pub(super) fn list_line(inbox: &Inbox, german: bool) -> String {
+/// The waiting questions as one spoken line, in `language`.
+pub(super) fn list_line(inbox: &Inbox, language: Option<&str>) -> String {
     let all: Vec<&Asked> = inbox.active.iter().chain(inbox.waiting.iter()).collect();
-    if all.is_empty() {
-        return if german {
-            "Keine Fragen offen.".into()
-        } else {
-            "No questions are waiting.".into()
-        };
-    }
-    let head = match (all.len(), german) {
-        (1, true) => "Eine Frage ist offen.".to_owned(),
-        (1, false) => "One question is waiting.".to_owned(),
-        (n, true) => format!("{} Fragen sind offen.", number(n, true)),
-        (n, false) => format!("{} questions are waiting.", number(n, false)),
+    let head = match all.len() {
+        0 => return crate::desktop::i18n::tr_in(language, "No questions are waiting.").into(),
+        1 => crate::desktop::i18n::tr_in(language, "One question is waiting.").to_owned(),
+        n => lines::tr_named_in(
+            language,
+            "{count} questions are waiting.",
+            &[("count", &n.to_string())],
+        ),
     };
     let items: Vec<String> = all
         .iter()
         .map(|asked| format!("{}: {}", asked.title, asked.question))
         .collect();
     format!("{head} {}", items.join(" "))
-}
-
-/// A small count as a word, capitalised ("Drei", "Three").
-pub(super) fn number(n: usize, german: bool) -> String {
-    const DE: [&str; 11] = [
-        "Null", "Eine", "Zwei", "Drei", "Vier", "Fünf", "Sechs", "Sieben", "Acht", "Neun", "Zehn",
-    ];
-    const EN: [&str; 11] = [
-        "No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
-    ];
-    let words = if german { DE } else { EN };
-    words
-        .get(n)
-        .map_or_else(|| n.to_string(), |word| (*word).to_owned())
 }
 
 /// The questions waiting on the person: the one to answer now, and the
@@ -466,6 +444,31 @@ fn starts_with_command(lower: &str) -> bool {
 mod tests {
     use super::*;
     use crate::assistant::types::{Origin, TaskState};
+
+    #[test]
+    fn the_waiting_questions_are_told_in_the_language_they_were_asked_in() {
+        let language = reply_language("Welche Fragen sind gerade noch für mich offen?", "");
+        assert_eq!(language, Some("de"));
+        let mut inbox = Inbox::default();
+        assert_eq!(list_line(&inbox, language), "Keine Fragen offen.");
+        inbox.active = Some(asked("a", "Mails", "An wen soll ich schreiben?", 1));
+        assert_eq!(
+            list_line(&inbox, language),
+            "Eine Frage ist offen. Mails: An wen soll ich schreiben?"
+        );
+        inbox.waiting = vec![asked("b", "Wetter", "Welche Stadt?", 2)];
+        assert!(
+            list_line(&inbox, language).starts_with("2 Fragen sind offen. Mails:"),
+            "{}",
+            list_line(&inbox, language)
+        );
+        assert!(list_line(&inbox, Some("en")).starts_with("2 questions are waiting."));
+        // Said in neither, the question's language answers.
+        assert_eq!(
+            reply_language("ok", "Welche Stadt soll ich nehmen?"),
+            Some("de")
+        );
+    }
 
     fn asked(id: &str, title: &str, question: &str, at: u64) -> Asked {
         Asked {
