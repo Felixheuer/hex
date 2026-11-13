@@ -1,5 +1,5 @@
-//! Links into the playground: `hex://story/<group>/<story>[?variant=V&play=1]`
-//! (`hex-test://` in a test build) and `hex window story`. Both open the
+//! Links into the playground: `agent-desk://story/<group>/<story>[?variant=V&play=1]`
+//! (`agent-desk-test://` in a test build) and `agent-desk window story`. Both open the
 //! window on the story, pick the variant, and with `play` run its `r`
 //! trigger, as pressing R does. Only in dev builds.
 
@@ -10,7 +10,7 @@ use super::playground;
 /// Why a link opened only the window.
 pub(crate) const PLAYGROUND_OFF: &str = "the playground exists only in dev builds";
 
-/// Longer links are ignored: they come from outside Hex.
+/// Longer links are ignored: they come from outside Agent-Desk.
 pub(super) const MAX_LINK: usize = 2048;
 
 /// A story to open in the playground.
@@ -35,7 +35,7 @@ impl StoryLink {
 }
 
 /// The scheme this build registers: a Dev or Test build's never opens the
-/// real Hex.
+/// real Agent-Desk.
 pub(crate) fn scheme() -> &'static str {
     crate::app_paths::variant().scheme()
 }
@@ -141,23 +141,29 @@ mod tests {
     fn reads_story_links() {
         assert_eq!(
             parse(
-                "hex://story/prototypes/hud/recording-your-voice?play=1",
-                "hex"
+                "agent-desk://story/prototypes/hud/recording-your-voice?play=1",
+                "agent-desk"
             ),
             Ok(link("prototypes-hud-recording-your-voice", None, true))
         );
         assert_eq!(
-            parse("hex://story/Prototypes/HUD/Processing?variant=2", "hex"),
+            parse(
+                "agent-desk://story/Prototypes/HUD/Processing?variant=2",
+                "agent-desk"
+            ),
             Ok(link("Prototypes/HUD/Processing", Some("2"), false))
         );
         assert_eq!(
-            parse("hex://story/Window/General/Microphone%20missing", "hex"),
+            parse(
+                "agent-desk://story/Window/General/Microphone%20missing",
+                "agent-desk"
+            ),
             Ok(link("Window/General/Microphone missing", None, false))
         );
         assert_eq!(
             parse(
-                "hex://story/Prototypes/HUD/Recording%20%C2%B7%20your%20voice?variant=Quiet&play=0",
-                "hex"
+                "agent-desk://story/Prototypes/HUD/Recording%20%C2%B7%20your%20voice?variant=Quiet&play=0",
+                "agent-desk"
             ),
             Ok(link(
                 "Prototypes/HUD/Recording · your voice",
@@ -166,7 +172,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            parse("hex://story/processing/", "hex"),
+            parse("agent-desk://story/processing/", "agent-desk"),
             Ok(link("processing", None, false))
         );
     }
@@ -175,26 +181,35 @@ mod tests {
     fn links_from_before_the_list_nested_still_open_their_story() {
         for (old, now) in [
             (
-                "hex://story/hud/recording-your-voice?play=1",
+                "agent-desk://story/hud/recording-your-voice?play=1",
                 "prototypes-hud-recording-your-voice",
             ),
-            ("hex://story/HUD/Processing", "Prototypes/HUD/Processing"),
-            ("hex://story/hud/processing", "Prototypes/hud/processing"),
             (
-                "hex://story/onboarding/option-pill",
+                "agent-desk://story/HUD/Processing",
+                "Prototypes/HUD/Processing",
+            ),
+            (
+                "agent-desk://story/hud/processing",
+                "Prototypes/hud/processing",
+            ),
+            (
+                "agent-desk://story/onboarding/option-pill",
                 "prototypes-onboarding-option-pill",
             ),
-            ("hex://story/mac-settings", "Window/General/Settings"),
+            ("agent-desk://story/mac-settings", "Window/General/Settings"),
             (
-                "hex://story/Meetings/meetings-calendar",
+                "agent-desk://story/Meetings/meetings-calendar",
                 "Window/Meetings/Calendar",
             ),
             (
-                "hex://story/general/mac-settings",
+                "agent-desk://story/general/mac-settings",
                 "Window/General/Settings",
             ),
         ] {
-            assert_eq!(parse(old, "hex").map(|link| link.story), Ok(now.into()));
+            assert_eq!(
+                parse(old, "agent-desk").map(|link| link.story),
+                Ok(now.into())
+            );
         }
         assert_eq!(
             StoryLink::new("HUD/Processing", None, false).story,
@@ -205,18 +220,18 @@ mod tests {
     #[test]
     fn ignores_other_links() {
         for bad in [
-            "hex-test://story/hud/processing",
-            "hex://settings",
-            "hex://story",
-            "hex://story/",
-            "hex://story/%FF",
+            "agent-desk-test://story/hud/processing",
+            "agent-desk://settings",
+            "agent-desk://story",
+            "agent-desk://story/",
+            "agent-desk://story/%FF",
             "not a link",
             "",
         ] {
-            assert!(parse(bad, "hex").is_err(), "{bad}");
+            assert!(parse(bad, "agent-desk").is_err(), "{bad}");
         }
-        let long = format!("hex://story/{}", "a".repeat(MAX_LINK));
-        assert!(parse(&long, "hex").is_err());
-        assert!(parse("hex-test://story/hud/processing", "hex-test").is_ok());
+        let long = format!("agent-desk://story/{}", "a".repeat(MAX_LINK));
+        assert!(parse(&long, "agent-desk").is_err());
+        assert!(parse("agent-desk-test://story/hud/processing", "agent-desk-test").is_ok());
     }
 }

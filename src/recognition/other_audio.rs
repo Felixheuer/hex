@@ -4,10 +4,10 @@
 //! question. Read from Core Audio's metadata at most every
 //! [`CHECK_EVERY`], never from audio.
 //!
-//! macOS 14.2 and later tell per process, so Hex (and the `say` it starts)
+//! macOS 14.2 and later tell per process, so Agent-Desk (and the `say` it starts)
 //! is left out. Earlier systems only tell whether the default output runs
-//! at all, which Hex's own reading also does: there it counts only while
-//! Hex isn't speaking.
+//! at all, which Agent-Desk's own reading also does: there it counts only while
+//! Agent-Desk isn't speaking.
 
 use std::time::{Duration, Instant};
 
@@ -23,7 +23,7 @@ pub(super) struct OtherAudio {
 
 impl OtherAudio {
     /// Whether another app plays audio at `now`; `hex_speaking`, whether
-    /// Hex reads aloud (for the fallback that can't tell Hex apart).
+    /// Agent-Desk reads aloud (for the fallback that can't tell Agent-Desk apart).
     pub(super) fn playing(&mut self, now: Instant, hex_speaking: bool) -> bool {
         if !due(self.checked, now) {
             return self.playing;
@@ -42,9 +42,9 @@ fn due(checked: Option<Instant>, now: Instant) -> bool {
 /// What Core Audio said.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Read {
-    /// Per process, Hex left out.
+    /// Per process, Agent-Desk left out.
     Others(bool),
-    /// Only the default output device, Hex included.
+    /// Only the default output device, Agent-Desk included.
     Device(bool),
     /// Nothing could be read.
     Unknown,
@@ -88,7 +88,10 @@ mod tests {
         assert!(decide(Read::Others(true), true));
         assert!(!decide(Read::Others(false), false));
         assert!(decide(Read::Device(true), false));
-        assert!(!decide(Read::Device(true), true), "Hex's own reading");
+        assert!(
+            !decide(Read::Device(true), true),
+            "Agent-Desk's own reading"
+        );
         assert!(!decide(Read::Unknown, false));
     }
 }

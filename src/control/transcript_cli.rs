@@ -47,7 +47,7 @@ pub struct HistoryArgs {
     pub action: Option<HistoryAction>,
 }
 
-/// History changes, carried out by the running Hex (`crate::control`).
+/// History changes, carried out by the running Agent-Desk (`crate::control`).
 #[derive(Subcommand, Debug)]
 pub enum HistoryAction {
     /// Delete every retained dictation.
@@ -121,7 +121,7 @@ pub enum MeetingsCommand {
         /// Only entries starting before this offset: mm:ss, h:mm:ss, or seconds.
         #[arg(long)]
         to: Option<String>,
-        /// Only chapter N (counting from 1), as `hex meetings chapters` lists them.
+        /// Only chapter N (counting from 1), as `agent-desk meetings chapters` lists them.
         #[arg(long, conflicts_with_all = ["from", "to"])]
         chapter: Option<usize>,
     },
@@ -142,7 +142,7 @@ pub enum MeetingsCommand {
         #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u32).range(1..=50))]
         limit: u32,
     },
-    /// Start recording a meeting in the running Hex, visibly, as the menu
+    /// Start recording a meeting in the running Agent-Desk, visibly, as the menu
     /// bar's Record Meeting does (needs meetings.enabled).
     Record {
         /// The meeting's title (default: the calendar event's, or a
@@ -346,7 +346,7 @@ fn stats_output(
 /// Dictation stats are a Labs feature, refused before History is read
 /// while its toggle is off.
 
-/// `hex history stats`.
+/// `agent-desk history stats`.
 fn history_stats(since: Option<&str>, until: Option<&str>, json: bool) -> Result<()> {
     let root = crate::app_paths::support_dir()?;
     let entries = crate::history::read_snapshot(&root.join("history.json"))
@@ -396,7 +396,7 @@ fn stats_text(stats: &HistoryStats) -> String {
     text
 }
 
-/// Keep recordings for `hex history`, read from the saved settings: this
+/// Keep recordings for `agent-desk history`, read from the saved settings: this
 /// command never applies them to the process.
 fn keep_recordings(settings: &AppSettings) -> bool {
     settings.preferences.keep_recordings
@@ -673,14 +673,16 @@ pub fn meetings(command: &MeetingsCommand) -> Result<()> {
             )?;
             Ok(())
         }
-        // `main` sends these to the running Hex.
+        // `main` sends these to the running Agent-Desk.
         MeetingsCommand::Record { .. }
         | MeetingsCommand::Stop { .. }
-        | MeetingsCommand::CopyLast { .. } => Err(eyre!("this command needs the running Hex")),
+        | MeetingsCommand::CopyLast { .. } => {
+            Err(eyre!("this command needs the running Agent-Desk"))
+        }
     }
 }
 
-/// A timed subtitle format for `hex meetings show --srt|--vtt`.
+/// A timed subtitle format for `agent-desk meetings show --srt|--vtt`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SubtitleFormat {
     Srt,

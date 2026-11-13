@@ -115,7 +115,7 @@ fn is_more_call_app(canonical_bundle_id: &str) -> bool {
     )
 }
 
-/// One of the browsers Hex knows, or one of their audio helpers.
+/// One of the browsers Agent-Desk knows, or one of their audio helpers.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn browser_bundle(bundle_id: &str, name: Option<&str>) -> bool {
     is_browser_id(canonical_bundle_id_for(bundle_id, name))
@@ -141,7 +141,7 @@ impl BrowserProcesses {
 }
 
 #[cfg(target_os = "macos")]
-/// The Core Audio process objects of the running browsers, Hex excluded.
+/// The Core Audio process objects of the running browsers, Agent-Desk excluded.
 pub(crate) fn browser_process_objects(which: BrowserProcesses) -> Result<Vec<AudioObjectID>> {
     objc2::rc::autoreleasepool(|_| {
         let own_pid = std::process::id() as i32;
@@ -199,7 +199,7 @@ pub(crate) fn application_running_output(canonical_bundle_id: &str) -> Result<bo
 }
 
 #[cfg(target_os = "macos")]
-/// Whether any process but Hex (and the processes Hex started, such as
+/// Whether any process but Agent-Desk (and the processes Agent-Desk started, such as
 /// `say` reading an answer) is playing output now: music, a video, a call.
 /// Read from Core Audio's process metadata (macOS 14.2 and later), never
 /// from audio; an error means the system can't tell.
@@ -220,7 +220,7 @@ pub(crate) fn others_running_output() -> Result<bool> {
 }
 
 #[cfg(target_os = "macos")]
-/// Whether the default output device is running for any process, Hex
+/// Whether the default output device is running for any process, Agent-Desk
 /// included: the fallback where per-process output isn't reported.
 pub(crate) fn default_output_running() -> Result<bool> {
     use objc2_core_audio::{
@@ -274,7 +274,7 @@ pub(crate) fn application_input_devices(canonical_bundle_id: &str) -> Result<Vec
 
 #[cfg(target_os = "macos")]
 /// The process IDs recording from the input device `uid`, read from Core
-/// Audio's process metadata: devices only, never audio samples. Hex's own
+/// Audio's process metadata: devices only, never audio samples. Agent-Desk's own
 /// process is included; a caller that records excludes itself. A failed
 /// per-process read, including a listed device's UID, fails the whole call,
 /// so a dropped pid is never mistaken for an app that stopped recording.
@@ -1120,7 +1120,7 @@ mod tests {
                 true,
             ),
             ("company.thebrowser.dia", "Dia", None, false),
-            ("anomaly.hex", "Hex", None, false),
+            ("fheuer.agentdesk", "Agent-Desk", None, false),
             ("zoom", "Zoom", Some("us.zoom.xos"), false),
             (
                 "ms-teams.exe",

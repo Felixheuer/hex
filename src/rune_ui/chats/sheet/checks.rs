@@ -36,13 +36,13 @@ pub(super) fn result_row(
         CheckState::Ok => tr("Ready").to_owned(),
         CheckState::Failed if doctor(detail).is_some() => doctor(detail).unwrap().to_owned(),
         CheckState::Failed
-            if detail.starts_with("Hex needs Accessibility")
+            if detail.starts_with("Agent-Desk needs Accessibility")
                 || detail.starts_with("agent-desktop has no Accessibility") =>
         {
-            tr("Switch on Hex in System Settings").to_owned()
+            tr("Switch on Agent-Desk in System Settings").to_owned()
         }
         CheckState::Failed
-            if detail.starts_with("Hex needs Screen Recording")
+            if detail.starts_with("Agent-Desk needs Screen Recording")
                 || detail.starts_with("agent-desktop has no Screen Recording") =>
         {
             tr("Open Screen Recording…").to_owned()

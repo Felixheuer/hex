@@ -1,10 +1,10 @@
-//! `hex assistant browser-mcp --task <id>`: agent-browser's own MCP server
+//! `agent-desk assistant browser-mcp --task <id>`: agent-browser's own MCP server
 //! (`agent-browser mcp`) for one task, relayed line by line over stdio.
 //! On the way through every tool call is pinned to one of the task's own
 //! browsers ([`Sessions`]), losing the arguments that would show a window,
 //! reach another task, keep state, or pass raw flags; the tool list and the
-//! server's instructions offer Hex's `session` and `signedIn` instead, plus
-//! a tool listing the task's browsers that Hex answers itself. Before a
+//! server's instructions offer Agent-Desk's `session` and `signedIn` instead, plus
+//! a tool listing the task's browsers that Agent-Desk answers itself. Before a
 //! consequential action the autonomy mode is enforced ([`Consent`]), and
 //! while the person has the task (Take over) its calls wait ([`Pause`]).
 
@@ -20,13 +20,13 @@ use serde_json::{Value, json};
 use super::consent::Consent;
 use super::sessions::{self, LIST_TOOL, Sessions};
 
-/// What Hex tells the agent about the browser, after agent-browser's own
+/// What Agent-Desk tells the agent about the browser, after agent-browser's own
 /// instructions.
 const NOTE: &str = "These browsers are hidden and belong to this task alone: use them \
 for anything on the web instead of the person's browser windows. Omit `session` for the \
 task's main browser, or name others (\"a\", \"b\", …) to read several pages at once; \
 hex_browser_sessions lists them. A browser is clean and light unless its first call says \
-signedIn: true, which starts real Chrome with the sites the person signed in to for Hex \
+signedIn: true, which starts real Chrome with the sites the person signed in to for Agent-Desk \
 (for heavy web apps and logins). Nothing is saved.";
 
 /// Serves `task`'s browser tool on stdin and stdout until the agent closes
@@ -225,12 +225,12 @@ pub fn relay<W: Write + Send + 'static>(
 /// Where a line from the agent goes.
 enum Forward {
     Server(String),
-    /// Answered by Hex: the list tool, or a call it refused.
+    /// Answered by Agent-Desk: the list tool, or a call it refused.
     Agent(String),
 }
 
 /// The reply refusing `line` when it calls a browser tool while the person
-/// has (or just had) the task; Hex's own list tool always passes.
+/// has (or just had) the task; Agent-Desk's own list tool always passes.
 fn held(line: &str, pause: &mut Pause) -> Option<String> {
     let message = serde_json::from_str::<Value>(line).ok()?;
     let calls: Vec<&Value> = match &message {
@@ -282,7 +282,7 @@ fn rewrite_request(
     }
     match pin(&mut message, sessions, consent) {
         Ok(()) => {
-            // A browser Hex is starting ahead for this task: its first call
+            // A browser Agent-Desk is starting ahead for this task: its first call
             // waits for that start rather than racing it.
             if let Some(session) = message["params"]["arguments"]["session"].as_str()
                 && !cfg!(test)
@@ -348,7 +348,7 @@ fn reply(request: &Value, result: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": request.get("id"), "result": result})
 }
 
-/// One line from agent-browser, with Hex's arguments in what it offers;
+/// One line from agent-browser, with Agent-Desk's arguments in what it offers;
 /// a tool result teaches `consent` what the page shows.
 fn rewrite_response(line: &str, pending: &Pending, consent: &Mutex<Consent>) -> String {
     let Ok(mut message) = serde_json::from_str::<Value>(line) else {
@@ -585,7 +585,7 @@ done"#;
         });
         assert!(held(&call("agent_browser_type"), &mut pause).is_some());
         hand_back.join().unwrap();
-        // Hex's own list tool and other messages are never held.
+        // Agent-Desk's own list tool and other messages are never held.
         paused.store(true, Ordering::SeqCst);
         assert_eq!(held(&call(LIST_TOOL), &mut pause), None);
         assert_eq!(

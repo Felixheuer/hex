@@ -85,7 +85,7 @@ pub(in crate::rune_ui) fn autonomy_choice(ui: &Ui, p: Paint) -> El {
 /// A voice's name without its quality, and the quality as a word.
 fn voice_label(name: &str) -> String {
     if let Some(preset) = crate::assistant::speech::neural::preset(name) {
-        return format!("{} {preset} · {}", tr("Hex voice"), tr("Neural"));
+        return format!("{} {preset} · {}", tr("Agent-Desk voice"), tr("Neural"));
     }
     let quality = match voices::quality(name) {
         voices::Quality::Premium => tr("Premium"),
@@ -106,7 +106,7 @@ pub(super) fn voice_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
             std::cmp::Reverse(voices::quality(voice)),
         )
     });
-    // Once Hex's own voice is here, only its presets are offered: the
+    // Once Agent-Desk's own voice is here, only its presets are offered: the
     // system voices still read what it can't (another language, a
     // failure), without crowding the list.
     let hex_voices = voices
@@ -166,7 +166,7 @@ pub(super) fn voice_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     )
 }
 
-/// Hex's own voice, until it's downloaded: what it is, and Download (its
+/// Agent-Desk's own voice, until it's downloaded: what it is, and Download (its
 /// progress, or why it failed).
 pub(super) fn hex_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
     use crate::assistant::speech::neural::files;
@@ -212,7 +212,7 @@ pub(super) fn hex_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
         described_row(
             p,
             "assistant-hex-voice",
-            tr("Hex voice"),
+            tr("Agent-Desk voice"),
             Some((description, color)),
             control,
         )
@@ -220,7 +220,7 @@ pub(super) fn hex_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
     )
 }
 
-/// The two follow-up windows in one row: how long Hex listens for an
+/// The two follow-up windows in one row: how long Agent-Desk listens for an
 /// answer back after a spoken answer (`conversation_seconds`, "Listen"),
 /// and how soon a hold continues that chat (`follow_up_seconds`,
 /// "Continue chat").
@@ -295,7 +295,7 @@ pub(super) fn notifications_row(ui: &Ui, p: Paint) -> CardRow {
     .into()
 }
 
-/// Loads what Hex knows, for the editor.
+/// Loads what Agent-Desk knows, for the editor.
 pub(super) fn opened(ui: &mut Ui) {
     ui.chats.settings.memory = rune::TextEdit::new(memory::read());
     ui.chats.settings.memory_saved = true;
@@ -309,7 +309,7 @@ fn save_memory(ui: &mut Ui) {
     }
 }
 
-/// "What Hex knows about you": the switch, and the facts as text.
+/// "What Agent-Desk knows about you": the switch, and the facts as text.
 /// Clear…, then "Clear everything it knows" to confirm: empties the note
 /// and saves it.
 fn clear_memory_button(ui: &Ui, p: Paint) -> El {
@@ -357,7 +357,7 @@ pub(in crate::rune_ui) fn memory_section(ui: &Ui, p: Paint) -> El {
             .placeholder(tr(
                 "For example: I work at Acme as a designer. My manager is Sam.",
             ))
-            .label(tr("What Hex knows about you"))
+            .label(tr("What Agent-Desk knows about you"))
             .width(None)
             .auto_grow(3, 12)
             .on_edit(|ui: &mut Ui| {
@@ -398,7 +398,7 @@ pub(in crate::rune_ui) fn memory_section(ui: &Ui, p: Paint) -> El {
     section(
         p,
         "assistant-memory-section",
-        tr("What Hex knows about you"),
+        tr("What Agent-Desk knows about you"),
         rows,
     )
 }

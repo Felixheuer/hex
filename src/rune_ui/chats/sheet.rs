@@ -111,7 +111,7 @@ fn repair_banner(flow: &SetupFlow, p: Paint) -> Option<El> {
             .gap(4.0)
             .pt(4.0)
             .child(
-                text(tr("Hex needs your help for a moment"))
+                text(tr("Agent-Desk needs your help for a moment"))
                     .key("repair-title")
                     .font(p.k.ty.ui_medium)
                     .color(p.accent()),
@@ -525,7 +525,7 @@ fn welcome(ui: &Ui, p: Paint) -> El {
             "chats",
             CHAT,
             tr("Assistant"),
-            tr("Everything you asked and every job, in one stream in Hex's window"),
+            tr("Everything you asked and every job, in one stream in Agent-Desk's window"),
             p.muted(),
             el().key("none"),
         ),
@@ -536,24 +536,24 @@ fn welcome(ui: &Ui, p: Paint) -> El {
             tr("Now, your assistant"),
             if cfg!(target_os = "macos") {
                 tr(
-                    "Hex can also answer questions about what's on screen and use your Mac for you. A few checks, and you're done.",
+                    "Agent-Desk can also answer questions about what's on screen and use your Mac for you. A few checks, and you're done.",
                 )
             } else {
                 tr(
-                    "Hex can also answer questions about what's on screen and use your computer for you. A few checks, and you're done.",
+                    "Agent-Desk can also answer questions about what's on screen and use your computer for you. A few checks, and you're done.",
                 )
             },
         )
     } else if flow.is_some_and(|flow| flow.new_in_hex) {
         (
-            tr("New in Hex: your assistant"),
+            tr("New in Agent-Desk: your assistant"),
             if cfg!(target_os = "macos") {
                 tr(
-                    "Ask about what's on screen, or let it use your Mac for you. Hex makes sure every piece works first.",
+                    "Ask about what's on screen, or let it use your Mac for you. Agent-Desk makes sure every piece works first.",
                 )
             } else {
                 tr(
-                    "Ask about what's on screen, or let it use your computer for you. Hex makes sure every piece works first.",
+                    "Ask about what's on screen, or let it use your computer for you. Agent-Desk makes sure every piece works first.",
                 )
             },
         )
@@ -562,11 +562,11 @@ fn welcome(ui: &Ui, p: Paint) -> El {
             tr("Meet your assistant"),
             if cfg!(target_os = "macos") {
                 tr(
-                    "Ask anything by voice, or let it use your Mac for you. Hex makes sure every piece works first.",
+                    "Ask anything by voice, or let it use your Mac for you. Agent-Desk makes sure every piece works first.",
                 )
             } else {
                 tr(
-                    "Ask anything by voice, or let it use your computer for you. Hex makes sure every piece works first.",
+                    "Ask anything by voice, or let it use your computer for you. Agent-Desk makes sure every piece works first.",
                 )
             },
         )

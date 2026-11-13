@@ -135,7 +135,7 @@ pub fn query_copy(database: &Path, sql: &str, timeout: Duration) -> Result<Vec<V
 fn copy_error(database: &Path, error: &std::io::Error) -> String {
     if error.kind() == std::io::ErrorKind::PermissionDenied || error.raw_os_error() == Some(1) {
         format!(
-            "Hex may not read {} (it needs Full Disk Access in System Settings › Privacy & Security)",
+            "Agent-Desk may not read {} (it needs Full Disk Access in System Settings › Privacy & Security)",
             database.display()
         )
     } else {

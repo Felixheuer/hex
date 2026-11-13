@@ -528,7 +528,7 @@ impl Runner {
     }
 }
 
-/// A job's answer names its workspace; Hex adds it when the agent didn't.
+/// A job's answer names its workspace; Agent-Desk adds it when the agent didn't.
 fn with_workspace(text: String, workspace: Option<&std::path::Path>) -> String {
     match workspace {
         Some(workspace) if !text.contains(&*workspace.to_string_lossy()) => {
@@ -595,10 +595,10 @@ mod tests {
 
     #[test]
     fn a_job_answer_names_its_workspace_and_speaks_its_first_sentence() {
-        let path = std::path::Path::new("/Users/p/Documents/Hex/2026-11-12 Job");
+        let path = std::path::Path::new("/Users/p/Documents/Agent-Desk/2026-11-12 Job");
         assert_eq!(
             with_workspace("Done.".into(), Some(path)),
-            "Done.\n\nFiles: /Users/p/Documents/Hex/2026-11-12 Job"
+            "Done.\n\nFiles: /Users/p/Documents/Agent-Desk/2026-11-12 Job"
         );
         let named = format!("Saved in {}.", path.display());
         assert_eq!(with_workspace(named.clone(), Some(path)), named);

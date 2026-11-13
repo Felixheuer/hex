@@ -1,6 +1,6 @@
-//! Which GPU Hex draws on. Rune takes the lowest-power adapter that drives a
+//! Which GPU Agent-Desk draws on. Rune takes the lowest-power adapter that drives a
 //! display, which keeps a hybrid laptop's discrete GPU asleep. A broken
-//! integrated GPU driver can crash Hex before its first frame (#662), and a
+//! integrated GPU driver can crash Agent-Desk before its first frame (#662), and a
 //! driver crash can't be caught, so the app marks its launch from when Rune
 //! starts its first GPU device until a frame reaches the screen or it starts
 //! to quit (a clean quit, or the Windows logoff or shutdown Rune's quit hook
@@ -60,7 +60,7 @@ pub(crate) fn watch() {
         SETTLED.store(true, Ordering::Relaxed);
         tracing::warn!(
             marker = %marker().map(|path| path.display().to_string()).unwrap_or_default(),
-            "a previous launch of this Hex crashed before drawing; drawing on the high-performance GPU until Hex updates or the marker is deleted"
+            "a previous launch of this Agent-Desk crashed before drawing; drawing on the high-performance GPU until Agent-Desk updates or the marker is deleted"
         );
         return;
     }
@@ -89,7 +89,7 @@ fn arm() {
     }
 }
 
-/// A frame reached the screen, or Hex quit cleanly: this launch's GPU works.
+/// A frame reached the screen, or Agent-Desk quit cleanly: this launch's GPU works.
 pub(crate) fn disarm() {
     if SETTLED.swap(true, Ordering::Relaxed) {
         return;

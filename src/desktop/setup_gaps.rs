@@ -1,7 +1,7 @@
 //! What the assistant's setup is missing now, after it was finished once: a
 //! permission an update or macOS took away, an agent that was removed or
 //! signed out, a shortcut another app took, a voice whose files are gone,
-//! or a setup step a release added. Hex checks at launch and every few
+//! or a setup step a release added. Agent-Desk checks at launch and every few
 //! minutes; when something is missing it brings back only the onboarding
 //! pages that fix it (`rune_ui::chats::setup::repair`), and a hold of the
 //! Action shortcut says what's missing.
@@ -19,16 +19,16 @@ pub const SETUP_VERSION: u32 = 1;
 /// setup at an older version sees just these.
 pub const ADDED: &[(u32, &str)] = &[];
 
-/// What Hex knows about this Mac, read afresh.
+/// What Agent-Desk knows about this Mac, read afresh.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Facts {
-    /// Something keeps macOS from giving Hex permissions (a translocated
+    /// Something keeps macOS from giving Agent-Desk permissions (a translocated
     /// or stray copy; `permission_doctor`).
     pub copy_problem: bool,
     pub microphone: bool,
     pub accessibility: bool,
     pub screen_recording: bool,
-    /// Hex may control other apps (Automation for System Events and
+    /// Agent-Desk may control other apps (Automation for System Events and
     /// Finder), or macOS couldn't tell.
     pub automation: bool,
     /// macOS asked about Contacts, Reminders, and the Calendar, and the
@@ -38,7 +38,7 @@ pub struct Facts {
     pub transcription_model: bool,
     /// The chosen agent is installed.
     pub agent_installed: bool,
-    /// The chosen agent is installed and, as far as Hex can tell, signed in.
+    /// The chosen agent is installed and, as far as Agent-Desk can tell, signed in.
     pub agent_ready: bool,
     /// Tasks operate apps (`assistant.control_desktop`).
     pub desktop_wanted: bool,
@@ -50,7 +50,7 @@ pub struct Facts {
     pub agent_browser_installed: bool,
     /// Another app or macOS feature takes the Action shortcut.
     pub shortcut_taken: bool,
-    /// A Hex voice (`hex-voice:*`) is selected …
+    /// An Agent-Desk voice (`hex-voice:*`) is selected …
     pub hex_voice_selected: bool,
     /// … and its files are there.
     pub hex_voice_installed: bool,
@@ -61,7 +61,7 @@ pub struct Facts {
 /// One missing thing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Gap {
-    /// macOS can't give this copy of Hex permissions.
+    /// macOS can't give this copy of Agent-Desk permissions.
     CopyProblem,
     Microphone,
     Accessibility,
@@ -81,7 +81,7 @@ pub enum Gap {
     AgentDesktopGrants,
     AgentBrowser,
     Shortcut,
-    /// The selected Hex voice's files are gone.
+    /// The selected Agent-Desk voice's files are gone.
     HexVoice,
     /// Steps a release added since the person's setup, by page name.
     NewSteps(Vec<&'static str>),
@@ -92,7 +92,7 @@ pub enum Gap {
 pub enum Fix {
     /// The onboarding page with this name.
     Page(&'static str),
-    /// Downloads the selected Hex voice again.
+    /// Downloads the selected Agent-Desk voice again.
     DownloadVoice,
     /// Opens the transcription models in Settings.
     Models,
@@ -137,15 +137,19 @@ impl Gap {
     /// (English; translated where shown).
     pub fn message(&self) -> &'static str {
         match self {
-            Self::CopyProblem => "macOS can't give this copy of Hex its permissions",
-            Self::Microphone => "Hex can't hear you: the microphone permission is off",
-            Self::Accessibility => "Hex can't see its shortcut or read text: Accessibility is off",
-            Self::ScreenRecording => "Hex can't see the screen: Screen Recording is off",
-            Self::Automation => "Hex may not control other apps yet: Automation is off",
+            Self::CopyProblem => "macOS can't give this copy of Agent-Desk its permissions",
+            Self::Microphone => "Agent-Desk can't hear you: the microphone permission is off",
+            Self::Accessibility => {
+                "Agent-Desk can't see its shortcut or read text: Accessibility is off"
+            }
+            Self::ScreenRecording => "Agent-Desk can't see the screen: Screen Recording is off",
+            Self::Automation => "Agent-Desk may not control other apps yet: Automation is off",
             Self::PersonalData => {
                 "New: let the assistant read your contacts, reminders, and calendar"
             }
-            Self::TranscriptionModel => "The speech model is missing, so Hex can't understand you",
+            Self::TranscriptionModel => {
+                "The speech model is missing, so Agent-Desk can't understand you"
+            }
             Self::Agent => "The assistant's agent isn't installed any more",
             Self::AgentSignIn => "The assistant's agent is signed out",
             Self::AgentDesktop => "agent-desktop, which operates apps, is missing",
@@ -154,7 +158,7 @@ impl Gap {
             }
             Self::AgentBrowser => "agent-browser, for web tasks, is missing",
             Self::Shortcut => "Another app took the assistant's shortcut",
-            Self::HexVoice => "The Hex voice's files are missing",
+            Self::HexVoice => "The Agent-Desk voice's files are missing",
             Self::NewSteps(_) => "New in this update: a short setup step",
         }
     }

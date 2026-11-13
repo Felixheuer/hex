@@ -65,9 +65,9 @@ pub(super) struct Hotkeys {
     /// gesture rather than a lock, whatever the dictation shortcut's mode.
     pub(super) action: Option<DictationHotkey>,
     /// The recording (or the last) skips processing: the raw shortcut or
-    /// `hex dictation start --raw` started it.
+    /// `agent-desk dictation start --raw` started it.
     pub(super) raw_capture: bool,
-    /// The recording answers a `hex dictation start --print` instead of
+    /// The recording answers a `agent-desk dictation start --print` instead of
     /// pasting or copying, however it ends.
     pub(super) print_capture: Option<PrintReply>,
     /// Whether the listener last saw shortcuts suspended, so that a capture
@@ -342,17 +342,17 @@ impl Hotkeys {
         }
     }
 
-    /// Keeps a `hex dictation start --print`'s reply for the recording it
+    /// Keeps a `agent-desk dictation start --print`'s reply for the recording it
     /// just started, which answers it instead of pasting or copying.
     pub(super) fn keep_print(&mut self, print: PrintReply) {
         self.print_capture = Some(print);
     }
 
     /// Takes the print-only recording's reply for the shortcut `action` that
-    /// ends it. Only the dictation machine owns the reply: `hex dictation
+    /// ends it. Only the dictation machine owns the reply: `agent-desk dictation
     /// start` locks that one, and another shortcut's action leaves it alone.
     /// A finish hands the reply to transcription; a discard never spoke, and
-    /// anything else Hex or the person ends it with is refused. A start means
+    /// anything else Agent-Desk or the person ends it with is refused. A start means
     /// the recording it belonged to already ended, so it is failed rather
     /// than left to answer a later dictation.
     pub(super) fn print_for(
@@ -382,7 +382,7 @@ impl Hotkeys {
         None
     }
 
-    /// Answers a print-only recording that Hex itself ends without a
+    /// Answers a print-only recording that Agent-Desk itself ends without a
     /// transcript (a microphone loss, a suspended shortcut, a closed
     /// listener), so its command never waits for the full cap.
     pub(super) fn fail_print(&mut self, why: &str) {
@@ -391,7 +391,7 @@ impl Hotkeys {
         }
     }
 
-    /// Answers a print-only recording that `hex dictation cancel` discards.
+    /// Answers a print-only recording that `agent-desk dictation cancel` discards.
     pub(super) fn cancel_print(&mut self) {
         if let Some(print) = self.print_capture.take() {
             print.send(PrintedTranscript::Cancelled);
@@ -725,7 +725,7 @@ mod tests {
         assert!(!hotkeys.any_recording());
     }
 
-    /// A `hex dictation start --print` recording is finished by the shortcut
+    /// A `agent-desk dictation start --print` recording is finished by the shortcut
     /// itself, and its reply goes with the capture to transcription.
     #[test]
     fn a_printing_start_follows_the_shortcut_that_finishes_it() {

@@ -1,7 +1,7 @@
 //! The Assistant pane (the main window's sidebar): the agent that answers
 //! and its model, how freely it acts and how long and how many jobs run,
 //! apps and windows (real input, the window in front, blocked apps,
-//! displays), the web, its voice (one picker: the system voices and Hex's
+//! displays), the web, its voice (one picker: the system voices and Agent-Desk's
 //! own), notifications, and what it remembers, after its two shortcuts
 //! (Action, and Stop all tasks).
 
@@ -40,7 +40,7 @@ pub(in crate::rune_ui) struct SettingsState {
     pub(in crate::rune_ui) found: Option<Vec<Found>>,
     /// The installed voices, once listed.
     pub(in crate::rune_ui) voices: Option<Vec<String>>,
-    /// Hex's voice downloading (its bytes so far) or why it couldn't.
+    /// Agent-Desk's voice downloading (its bytes so far) or why it couldn't.
     pub(in crate::rune_ui) voice_download: Option<Result<u64, String>>,
     /// Each backend's model, in [`BACKENDS`] order, as typed.
     pub(in crate::rune_ui) models: [TextEdit; 4],
@@ -59,7 +59,7 @@ pub(in crate::rune_ui) struct SettingsState {
     pub(in crate::rune_ui) browser: Option<AgentBrowser>,
     /// The connected displays, read when Settings or the onboarding opens.
     pub(in crate::rune_ui) displays: Vec<crate::assistant::computer::Display>,
-    /// What Hex knows about you, as edited, and whether that's saved.
+    /// What Agent-Desk knows about you, as edited, and whether that's saved.
     pub(in crate::rune_ui) memory: TextEdit,
     pub(in crate::rune_ui) memory_saved: bool,
     /// Clear was pressed once: the next press empties what it knows.
@@ -72,7 +72,7 @@ pub(in crate::rune_ui) struct SettingsState {
     pub(in crate::rune_ui) installing_lightpanda: bool,
     /// Browser data is saved for at least one site; its login can expire.
     pub(in crate::rune_ui) signed_in: bool,
-    /// Hex's browser shows for signing in.
+    /// Agent-Desk's browser shows for signing in.
     pub(in crate::rune_ui) signing_in: bool,
     pub(in crate::rune_ui) sign_in_busy: bool,
     pub(in crate::rune_ui) sign_in_editor: bool,
@@ -300,7 +300,7 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
     );
     desktop.push(super::displays::settings_row(ui, p, layer).into());
     desktop.push(lanes::park_windows_row(ui, p).into());
-    // One voice picker: the system voices and Hex's own, with its download.
+    // One voice picker: the system voices and Agent-Desk's own, with its download.
     let mut voice: Vec<CardRow> = vec![
         toggle_row(
             p,
@@ -360,7 +360,7 @@ fn shortcut_rows(ui: &Ui, p: Paint) -> Vec<CardRow> {
         &KEYBOARD,
         tr("Action shortcut"),
         ShortcutTarget::Action,
-        Some(tr("Hold and say anything; Hex decides")),
+        Some(tr("Hold and say anything; Agent-Desk decides")),
     );
     all.extend(rows(
         ui,

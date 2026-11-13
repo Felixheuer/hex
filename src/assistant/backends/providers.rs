@@ -170,7 +170,7 @@ const PROVIDERS: &[Provider] = &[
     },
 ];
 
-/// Every provider Hex offers for OpenCode, in the order setup lists them.
+/// Every provider Agent-Desk offers for OpenCode, in the order setup lists them.
 pub fn providers() -> Vec<Provider> {
     PROVIDERS.to_vec()
 }
@@ -181,7 +181,8 @@ pub fn provider(id: &str) -> Option<Provider> {
 
 /// Saves `key` for `provider` in the Keychain; an empty key forgets it.
 pub fn set_provider_key(id: &str, key: &str) -> Result<()> {
-    let provider = provider(id).ok_or_else(|| eyre!("Hex doesn't know the provider “{id}”"))?;
+    let provider =
+        provider(id).ok_or_else(|| eyre!("Agent-Desk doesn't know the provider “{id}”"))?;
     keys::save(provider.id, key)
 }
 
@@ -199,7 +200,8 @@ pub(super) fn provider_key(id: &str) -> Option<String> {
 /// found, for a person; `Err` says whether the key is wrong or the account
 /// is out of credit. Blocks for seconds at most; off the UI thread.
 pub fn verify_provider_key(id: &str) -> Result<String> {
-    let provider = provider(id).ok_or_else(|| eyre!("Hex doesn't know the provider “{id}”"))?;
+    let provider =
+        provider(id).ok_or_else(|| eyre!("Agent-Desk doesn't know the provider “{id}”"))?;
     let key = keys::load(provider.id).ok_or_else(|| eyre!("No {} key is saved", provider.name))?;
     verify(provider, &key, provider.api)
 }

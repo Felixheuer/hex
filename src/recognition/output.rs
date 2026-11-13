@@ -67,7 +67,7 @@ pub(super) fn interrupted_dictation(
     )
 }
 
-/// A shortcut dictation or `hex dictation start` control capture whose
+/// A shortcut dictation or `agent-desk dictation start` control capture whose
 /// microphone failed keeps the audio delivered before the loss and hands it
 /// to `submit`: a normal one is transcribed and processed like an ordinary
 /// dictation, a raw one as heard, and either is copied instead of pasted

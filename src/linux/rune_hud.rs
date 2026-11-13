@@ -1,10 +1,10 @@
 //! The Linux recording HUD: the shared Rune HUD (`rune_hud`), the capsule or
-//! Dot scope drawn on the GPU, as an overlay in the Hex process.
+//! Dot scope drawn on the GPU, as an overlay in the Agent-Desk process.
 //! Rune makes it a layer-shell surface on Wayland (overlay layer, no
 //! keyboard, empty input region) and an override-redirect window with an
 //! empty input shape on X11, so it never takes focus or a click. On a
 //! Wayland compositor without layer-shell (GNOME), Rune opens only the HUD
-//! as that X11 window on XWayland; the rest of Hex stays on Wayland.
+//! as that X11 window on XWayland; the rest of Agent-Desk stays on Wayland.
 //!
 //! It only observes: the listener reports its capture, meter, and pending
 //! output through `LinuxIndicator`, which never waits on the HUD and turns
@@ -148,7 +148,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
     let _ = HUD.set(sender);
 }
 
-/// Why the HUD can't show, logged once per reason: Hex reaches no display at
+/// Why the HUD can't show, logged once per reason: Agent-Desk reaches no display at
 /// all (a service started without the session's environment, #756), the
 /// Wayland compositor offers no layer-shell (GNOME's Mutter) and there is no
 /// XWayland for Rune to show it on instead, or Rune could not open the overlay.
@@ -187,8 +187,8 @@ impl Limitation {
     fn describe(&self) -> (String, String) {
         match self {
             Self::NoDisplay => (
-                "Hex has no Wayland or X11 display (no WAYLAND_DISPLAY or DISPLAY in its environment)".into(),
-                "Recording HUD unavailable: Hex can't reach your display. If Hex runs as a systemd service, import the session's environment (on Hyprland: exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP). Dictation still works.".into(),
+                "Agent-Desk has no Wayland or X11 display (no WAYLAND_DISPLAY or DISPLAY in its environment)".into(),
+                "Recording HUD unavailable: Agent-Desk can't reach your display. If Agent-Desk runs as a systemd service, import the session's environment (on Hyprland: exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP). Dictation still works.".into(),
             ),
             Self::NoLayerShell => (
                 "compositor has no layer-shell and XWayland is not running".into(),

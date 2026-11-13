@@ -1,4 +1,4 @@
-// Hex at rest, measured from outside (docs/perf.md): no input, no listener.
+// Agent-Desk at rest, measured from outside (docs/perf.md): no input, no listener.
 // Each run waits 8 s; strobe counts the process's CPU, thread wakeups and
 // memory over it.
 import { bench, native, type Page } from "@hona/strobe"
@@ -25,7 +25,7 @@ export default bench({
   targets: {
     // The Settings window open on General. Needs an unlocked session. A block
     // on another screen (a first-run dialog, another pane) is refused.
-    window: native("hex", { expect: { title: "Hex", heading: "General" } }),
+    window: native("hex", { expect: { title: "Agent-Desk", heading: "General" } }),
     // A login launch: the tray only, no window. Runs on a locked session too.
     tray: native("hex", { args: ["--hidden"], window: false }),
   },
@@ -53,7 +53,7 @@ export default bench({
     },
     // The same tray, judged by what it holds. The capture capsule, picker,
     // and ink wait hidden from launch; a GPU device, and their swapchains,
-    // count here and in gpu.vram. memory.app.host is Hex's own memory
+    // count here and in gpu.vram. memory.app.host is Agent-Desk's own memory
     // without the VRAM a driver maps into the process.
     "window-closed-memory": {
       targets: ["tray"],

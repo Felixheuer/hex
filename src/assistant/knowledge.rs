@@ -1,11 +1,11 @@
-//! What Hex knows about the person's Mac, read locally and read-only:
+//! What Agent-Desk knows about the person's Mac, read locally and read-only:
 //! `hex_lookup` finds their files (Spotlight), contacts, calendar,
 //! reminders, mail (envelopes only), the tabs open in their browser and
 //! their browsing history, apps, and the memory graph in one call, ranked,
 //! in milliseconds; `hex_browser_tab` reads and acts in the tab the person
 //! means in their own browser (whichever is their default); and the
 //! memory graph ([`graph`]) links the people, companies, and projects the
-//! person told Hex about, for every turn's context.
+//! person told Agent-Desk about, for every turn's context.
 //!
 //! Never message bodies, passwords, cookies, or form data; every answer is
 //! bounded. Contacts and Reminders read only with the permission macOS
@@ -201,7 +201,7 @@ fn memory(query: &str, limit: usize) -> Result<Vec<Hit>, String> {
     if !memory_on() {
         return Err("the person turned memory off".into());
     }
-    let (_, graph) = graph::load().ok_or("Hex has no memory folder")?;
+    let (_, graph) = graph::load().ok_or("Agent-Desk has no memory folder")?;
     Ok(graph
         .search(query, limit)
         .into_iter()
@@ -486,15 +486,17 @@ mod tests {
     }
 
     /// Measures each source on this Mac (read-only):
-    /// `cargo test --bin hex knowledge::tests::measure -- --ignored --nocapture`.
-    /// The browser's tabs only with HEX_MEASURE_BROWSER_TABS=1 (it may ask
+    /// `cargo test --bin agent-desk knowledge::tests::measure -- --ignored --nocapture`.
+    /// The browser's tabs only with AGENT_DESK_MEASURE_BROWSER_TABS=1 (it may ask
     /// for Automation permission).
     #[test]
     #[ignore = "reads this Mac's own data"]
     fn measure() {
-        let query = std::env::var("HEX_MEASURE_QUERY").unwrap_or_else(|_| "rechnung".into());
+        let query = std::env::var("AGENT_DESK_MEASURE_QUERY").unwrap_or_else(|_| "rechnung".into());
         for scope in Scope::ALL.into_iter().chain([Scope::RecentFiles]) {
-            if scope == Scope::BrowserTabs && std::env::var("HEX_MEASURE_BROWSER_TABS").is_err() {
+            if scope == Scope::BrowserTabs
+                && std::env::var("AGENT_DESK_MEASURE_BROWSER_TABS").is_err()
+            {
                 continue;
             }
             let query = if scope == Scope::RecentFiles {

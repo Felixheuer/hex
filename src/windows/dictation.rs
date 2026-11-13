@@ -45,7 +45,7 @@ const IDLE_RELEASED_WAIT: Duration = Duration::from_millis(50);
 static LISTENER: Mutex<Option<thread::Thread>> = Mutex::new(None);
 
 /// Ends the listener's idle wait at once: the keyboard hook calls it for
-/// each shortcut event, and the tray and `hex` commands after sending one.
+/// each shortcut event, and the tray and `agent-desk` commands after sending one.
 pub fn wake() {
     if let Some(listener) = LISTENER
         .lock()
@@ -66,7 +66,7 @@ struct Job {
     /// The shortcut that started this capture (dictation, raw, terminal
     /// paste, or second dictation).
     flavour: crate::dictation::DictationFlavour,
-    /// `hex dictation stop --print`: the text goes here, never pasted.
+    /// `agent-desk dictation stop --print`: the text goes here, never pasted.
     print: Option<PrintReply>,
 }
 
@@ -140,7 +140,7 @@ pub struct WindowsDictationConfig {
     pub dictations: DictationQueue,
 }
 
-/// A request from outside the keyboard hook, from the tray or a `hex`
+/// A request from outside the keyboard hook, from the tray or a `agent-desk`
 /// command (`crate::control::host`), handled as its shortcut would be.
 #[derive(Debug)]
 pub enum ListenerCommand {
@@ -150,7 +150,7 @@ pub enum ListenerCommand {
         raw: bool,
     },
     PasteLast,
-    /// `hex dictation stop --print`.
+    /// `agent-desk dictation stop --print`.
     StopAndPrint(PrintReply),
 }
 
@@ -366,7 +366,7 @@ pub fn run(
     })?;
     emit_state(&mut events, VoiceState::Listening, &device_label)?;
     println!(
-        "Hex is ready on {}. Hold {} to dictate, release to paste; Ctrl-C stops.",
+        "Agent-Desk is ready on {}. Hold {} to dictate, release to paste; Ctrl-C stops.",
         device_label, hotkey_label
     );
 
@@ -498,7 +498,7 @@ pub fn run(
                         Some(host) => host.control(action, &timeline),
                         None => crate::control::ControlReply::error(
                             "feature-off",
-                            "Annotate is off; turn it on with `hex settings set capture.enabled on`",
+                            "Annotate is off; turn it on with `agent-desk settings set capture.enabled on`",
                         ),
                     });
                     continue;
@@ -632,7 +632,7 @@ pub fn run(
         for (id, result) in service_finished.try_iter() {
             service.complete(id, result);
         }
-        // A tray or `hex` command acts as its shortcut would, at once; a
+        // A tray or `agent-desk` command acts as its shortcut would, at once; a
         // printing stop's reply rides with the capture it finishes.
         let mut print = None;
         while finishing.is_none()
@@ -694,7 +694,7 @@ pub fn run(
                 }
                 // The shortcut that starts a capture owns it: the Action
                 // shortcut never finishes a dictation, nor the dictation
-                // shortcuts (or `hex dictation stop`) a question; `hex
+                // shortcuts (or `agent-desk dictation stop`) a question; `hex
                 // dictation cancel` still discards one.
                 HotkeyAction::Finish | HotkeyAction::Cancel | HotkeyAction::DoubleTap
                     if (recording || start_pending)
@@ -747,7 +747,7 @@ pub fn run(
                             crate::dictation::hotkey_pre_roll(while_dictating),
                         );
                         recording = true;
-                        // A toggle press or a `hex` command is deliberate, so
+                        // A toggle press or a `agent-desk` command is deliberate, so
                         // it streams at once; the Action shortcut is always
                         // held.
                         recording_feedback_started =
@@ -1205,7 +1205,7 @@ fn resolve_device_name(query: &str) -> Result<String> {
         .ok_or_else(|| eyre!("microphone is unavailable: {query}"))
 }
 
-/// The next shortcut event or `hex` command, as the action the loop takes,
+/// The next shortcut event or `agent-desk` command, as the action the loop takes,
 /// when it occurred, whether it was deliberate (a command records at once,
 /// like a toggle press), the shortcut's flavour, and whether an Action
 /// shortcut press followed a tap. A printing stop leaves its reply in

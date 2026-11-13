@@ -41,7 +41,7 @@ fn guard_tool(tool: &str) -> Option<&str> {
     (name == crate::assistant::guard::OPEN_APP_TOOL).then_some(name)
 }
 
-/// A call of Hex's own tools as a step: "Remembered: …", "Scheduled: …".
+/// A call of Agent-Desk's own tools as a step: "Remembered: …", "Scheduled: …".
 fn hex_step(tool: &str, args: &Value) -> Option<Report> {
     let name = tool
         .strip_prefix("mcp__hex__")

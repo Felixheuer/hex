@@ -467,7 +467,7 @@ fn the_meeting_summary_model_is_picked_from_opencode_s_models() {
     rt.state.models.open_picker();
     rt.invalidate();
     settle(&mut rt);
-    // Hex's automatic choice, then the catalog in order.
+    // Agent-Desk's automatic choice, then the catalog in order.
     tap(&mut rt, "model-picker-option-3");
     assert_eq!(
         rt.state.settings.meetings.opencode_model.as_deref(),
@@ -481,7 +481,7 @@ fn the_meeting_summary_model_is_picked_from_opencode_s_models() {
     assert!(
         texts(&rt)
             .iter()
-            .any(|text| text == "Hex picks a fast model")
+            .any(|text| text == "Agent-Desk picks a fast model")
     );
 
     let rt = runtime("meetings-summary-model-not-running", true, size);
@@ -518,7 +518,7 @@ fn the_cancel_shortcut_shows_in_toggle_and_restores_escape() {
     );
 
     // On Wayland the portal would hold the key for good: the row points
-    // to `hex dictation cancel` instead of recording one.
+    // to `agent-desk dictation cancel` instead of recording one.
     let portal = runtime("portal-toggle-cancel", true, PANE_SIZE);
     assert!(portal.find("cancel-shortcut").is_some());
     assert!(portal.find("cancel-hotkey").is_none());
@@ -862,18 +862,21 @@ fn the_practice_game_follows_hex_s_own_dictation_on_every_os() {
         assert!(!holding(&rt));
         onboarding::input(&mut rt.state, Input::Dictation(Observation::Started));
         refresh(&mut rt);
-        assert!(holding(&rt), "{scene}: the shortcut held, as Hex records");
+        assert!(
+            holding(&rt),
+            "{scene}: the shortcut held, as Agent-Desk records"
+        );
         onboarding::input(&mut rt.state, Input::Dictation(Observation::Transcribing));
         refresh(&mut rt);
         assert!(!holding(&rt), "{scene}: released");
     }
 }
 
-/// The practice waits for the listener: while it warms up, the page says Hex
+/// The practice waits for the listener: while it warms up, the page says Agent-Desk
 /// is getting ready instead of inviting a hold that does nothing.
 #[test]
 fn the_practice_page_waits_for_the_listener() {
-    let warming = "Getting Hex ready to listen…";
+    let warming = "Getting Agent-Desk ready to listen…";
     let warming_state = |rt: &mut Runtime<Ui>, warming: bool| {
         if let Some(view) = &mut rt.state.view {
             view.listener.warming = warming;
@@ -1418,7 +1421,7 @@ fn reveal_markdown_asks_for_the_exported_file_and_reveal_files_for_the_recording
         asked(&rt),
         [PlatformRequest::Meeting(MeetingRequest::Reveal(
             crate::meeting::RevealTarget::Markdown(
-                "~/Documents/Hex Meetings/Arcade launch plan.md".into()
+                "~/Documents/Agent-Desk Meetings/Arcade launch plan.md".into()
             )
         ))]
     );
@@ -1431,7 +1434,7 @@ fn reveal_markdown_asks_for_the_exported_file_and_reveal_files_for_the_recording
         asked(&rt),
         [PlatformRequest::Meeting(MeetingRequest::Reveal(
             crate::meeting::RevealTarget::Folder(
-                "~/Library/Application Support/hex/meetings/preview-notes".into()
+                "~/Library/Application Support/agent-desk/meetings/preview-notes".into()
             )
         ))]
     );
@@ -1453,7 +1456,7 @@ fn reveal_markdown_asks_for_the_exported_file_and_reveal_files_for_the_recording
         asked(&rt),
         [PlatformRequest::Meeting(MeetingRequest::Reveal(
             crate::meeting::RevealTarget::Folder(
-                "~/Library/Application Support/hex/meetings/preview-design".into()
+                "~/Library/Application Support/agent-desk/meetings/preview-design".into()
             )
         ))]
     );
@@ -1523,7 +1526,7 @@ fn the_mac_first_run_asks_each_permission_then_practices() {
         rt.state.tour.as_ref().unwrap().flow.view().practice,
         Practice::Landed
     );
-    // Done leaves the game at any point; Start using Hex closes onboarding.
+    // Done leaves the game at any point; Start using Agent-Desk closes onboarding.
     tap(&mut rt, "done");
     tap(&mut rt, "start-using-hex");
     assert!(rt.state.tour.is_none());
@@ -1560,7 +1563,7 @@ fn a_refused_microphone_points_to_system_settings() {
     assert!(
         shown
             .iter()
-            .any(|text| text == "Switch on Hex in System Settings")
+            .any(|text| text == "Switch on Agent-Desk in System Settings")
     );
     tap(&mut rt, "mic-pill-allow");
     assert_eq!(
@@ -1576,7 +1579,7 @@ fn windows_onboarding_asks_only_for_the_microphone_switch() {
     let mut rt = runtime("windows-onboarding-microphone", true, PANE_SIZE);
     let shown = texts(&rt);
     assert!(
-        shown.iter().any(|text| text == "Let Hex hear you"),
+        shown.iter().any(|text| text == "Let Agent-Desk hear you"),
         "{shown:?}"
     );
     assert!(rt.find("ax-row").is_none(), "no Accessibility on Windows");
@@ -1605,7 +1608,7 @@ fn stale_permissions_offer_fix_it_and_reset_entries_across_panes() {
     assert!(
         shown
             .iter()
-            .any(|text| text == "An older Hex entry can keep this off")
+            .any(|text| text == "An older Agent-Desk entry can keep this off")
     );
     tap(&mut rt, "ax-pill-allow");
     assert_eq!(
@@ -1623,7 +1626,7 @@ fn stale_permissions_offer_fix_it_and_reset_entries_across_panes() {
     assert!(
         shown
             .iter()
-            .any(|text| text == "An older Hex entry can keep this off")
+            .any(|text| text == "An older Agent-Desk entry can keep this off")
     );
     tap(&mut rt, "permission-accessibility-allow");
     assert_eq!(
@@ -1644,7 +1647,7 @@ fn stale_permissions_offer_fix_it_and_reset_entries_across_panes() {
     assert!(
         shown
             .iter()
-            .any(|text| text == "An older Hex entry can keep this off")
+            .any(|text| text == "An older Agent-Desk entry can keep this off")
     );
     tap(&mut rt, "meeting-system-audio-allow");
     assert_eq!(

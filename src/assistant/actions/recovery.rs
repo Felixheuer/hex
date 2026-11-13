@@ -216,7 +216,7 @@ pub fn plan(state: &AppState, tried: &[Tried]) -> Recovery {
     Recovery::Report(if edited {
         format!(
             "{name}'s window is on another desktop (or in full screen) and has unsaved changes, \
-             so Hex didn't quit it to bring it here. {SWITCH_METHOD}"
+             so Agent-Desk didn't quit it to bring it here. {SWITCH_METHOD}"
         )
     } else if tried.contains(&Tried::Relaunch) || tried.contains(&Tried::NewWindow) {
         format!(
@@ -225,7 +225,7 @@ pub fn plan(state: &AppState, tried: &[Tried]) -> Recovery {
         )
     } else {
         format!(
-            "{name}'s window is on another desktop (or in full screen), where Hex can neither \
+            "{name}'s window is on another desktop (or in full screen), where Agent-Desk can neither \
              read nor operate it, and {name} keeps documents, so it isn't quit. {SWITCH_METHOD}"
         )
     })
@@ -242,24 +242,24 @@ window over or to try again later.";
 pub fn recovered_note(step: Tried) -> &'static str {
     match step {
         Tried::Unhide => {
-            "The app was hidden; Hex showed it again without bringing it in front. Its window is \
+            "The app was hidden; Agent-Desk showed it again without bringing it in front. Its window is \
              yours, parked out of the person's way: act in it by its id."
         }
         Tried::LeaveFullScreen => {
             "The app's window was in full screen (a desktop of its own, unreadable from here); \
-             Hex ended its full screen and parked it out of the person's way. It is yours: act \
+             Agent-Desk ended its full screen and parked it out of the person's way. It is yours: act \
              in it by its id."
         }
         Tried::Restore => {
-            "The app's window was minimized; Hex restored it, parked out of the person's way. It \
+            "The app's window was minimized; Agent-Desk restored it, parked out of the person's way. It \
              is yours: act in it by its id."
         }
         Tried::NewWindow => {
-            "The app's windows were on another desktop; Hex asked it for a new window on this \
+            "The app's windows were on another desktop; Agent-Desk asked it for a new window on this \
              one, parked out of the person's way. It is yours: act in it by its id."
         }
         Tried::Relaunch => {
-            "The app's only window was on another desktop (or in full screen); Hex quit it \
+            "The app's only window was on another desktop (or in full screen); Agent-Desk quit it \
              quietly and reopened it in the background, so its window is on this desktop now, \
              parked out of the person's way. It is yours: act in it by its id."
         }

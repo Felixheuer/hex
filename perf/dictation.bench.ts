@@ -1,10 +1,10 @@
 // Dictation end to end (docs/perf.md). The copy hears `speech.wav`, one
 // spoken sentence and then silence, instead of a microphone
-// (HEX_AUDIO_FIXTURE, seeds/dictation.ts), so nobody is recorded. The bench
-// drives it through its local API as `hex dictation` does: `start` as the
+// (AGENT_DESK_AUDIO_FIXTURE, seeds/dictation.ts), so nobody is recorded. The bench
+// drives it through its local API as `agent-desk dictation` does: `start` as the
 // sentence begins, then `stop --print` in the silence after it, which
 // returns the processed text instead of pasting it. Nothing reaches another
-// app. Only bench builds that have HEX_AUDIO_FIXTURE (#1230): an
+// app. Only bench builds that have AGENT_DESK_AUDIO_FIXTURE (#1230): an
 // older one opens the real microphone, which setup notices too late.
 // - `warm`: the microphone open while idle, the default (`hex-dictation`).
 // - `released`: Release microphone while idle (`hex-dictation-released`).
@@ -15,7 +15,7 @@ import { pathToFileURL } from "node:url"
 import { dictationSeed, SILENCE_MS, speechMs } from "./seeds/dictation"
 
 const home = dictationSeed()
-if (!home) throw new Error("dictation.bench.ts needs Hex's English model installed and a text-to-speech voice")
+if (!home) throw new Error("dictation.bench.ts needs Agent-Desk's English model installed and a text-to-speech voice")
 
 const SPEECH_MS = speechMs(home)
 /** The fixture's length: it loops. */
@@ -26,7 +26,7 @@ const STOP_AFTER_MS = SPEECH_MS + 500
 type Ctx = { home: string; target: string; page: { wait(ms: number): Promise<unknown> } }
 type Reply = { status: string; text?: string; code?: string; message?: string }
 
-/** One `POST /control` to the copy, as the `hex` CLI sends it (docs/cli.md). */
+/** One `POST /control` to the copy, as the `agent-desk` CLI sends it (docs/cli.md). */
 async function control(ctx: Ctx, command: Record<string, unknown>): Promise<Reply> {
   const api = JSON.parse(readFileSync(join(ctx.home, "hex-data", "local-api.json"), "utf8"))
   const response = await fetch(`http://127.0.0.1:${api.port}/control`, {
@@ -42,7 +42,7 @@ const stop = (ctx: Ctx) => control(ctx, { command: "dictation", action: "stop", 
 /** When the fixture last opened (epoch ms), from the copy's log: it plays from its start at each open. */
 function fixtureOpened(ctx: Ctx): number {
   const log = readFileSync(join(ctx.home, "hex-data", "logs", "process.log"), "utf8")
-  const opened = [...log.matchAll(/^\S*?(\d{4}-\d\d-\d\dT[\d:.]+Z).*HEX_AUDIO_FIXTURE replaces the microphone/gm)]
+  const opened = [...log.matchAll(/^\S*?(\d{4}-\d\d-\d\dT[\d:.]+Z).*AGENT_DESK_AUDIO_FIXTURE replaces the microphone/gm)]
   if (!opened.length) throw new Error("the copy never opened its audio fixture")
   return Date.parse(opened[opened.length - 1][1])
 }
@@ -140,7 +140,7 @@ export default bench({
     released: native("hex-dictation-released", { args, home, window: false }),
     // Released and idle between dictations. ggml keeps a Metal model's
     // memory wired for 3 minutes after its last use; 2 s lets a run see what
-    // an idle Hex does once that has run out.
+    // an idle Agent-Desk does once that has run out.
     idle: native("hex-dictation-released", { args, home, window: false, env: { GGML_METAL_RESIDENCY_KEEP_ALIVE_S: "2" } }),
   },
   // The model loads and the listener starts; one dictation then warms the

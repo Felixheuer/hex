@@ -6,7 +6,7 @@
 //! click records the display.
 //!
 //! It takes the pointer only while it shows and never takes focus: Escape
-//! and the capture shortcut reach the capsule through Hex's tap, and the
+//! and the capture shortcut reach the capsule through Agent-Desk's tap, and the
 //! shortcut records what the picker shows ([`PickerOverlay::aim`]).
 //!
 //! [`Scene::at`] decides what shows from the mode, the windows, the pointer
@@ -911,7 +911,7 @@ impl PickerOverlay {
             app,
             act,
             PickerRole {
-                name: "Hex capture picker",
+                name: "Agent-Desk capture picker",
                 screen_label: FULL_SCREEN,
                 exclude_from_capture: !crate::capture_host::own_windows_recorded(),
                 prewarm: true,

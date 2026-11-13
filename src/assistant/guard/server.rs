@@ -1,4 +1,4 @@
-//! `hex assistant mcp --spec …`: the guard as an MCP stdio server. Tool
+//! `agent-desk assistant mcp --spec …`: the guard as an MCP stdio server. Tool
 //! lists and results pass through as agent-desktop wrote them; the guard
 //! decides each call (`proxy`).
 
@@ -29,7 +29,7 @@ impl<D: Desktop + 'static> ServerHandler for Server<D> {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(
                 Implementation::new(crate::assistant::backends::MCP_NAME, crate::VERSION)
-                    .with_title("Hex desktop guard"),
+                    .with_title("Agent-Desk desktop guard"),
             )
             .with_instructions(self.instructions.clone())
     }

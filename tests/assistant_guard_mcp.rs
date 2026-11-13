@@ -1,4 +1,4 @@
-//! `hex assistant mcp --spec …` (the assistant's desktop guard) over stdio,
+//! `agent-desk assistant mcp --spec …` (the assistant's desktop guard) over stdio,
 //! in front of a fake agent-desktop that records what reaches it: refused
 //! calls never do, and two guard processes agree on who holds a window.
 #![cfg(target_os = "macos")]
@@ -27,10 +27,10 @@ struct Guard {
 
 impl Guard {
     fn start(spec: &Value, log: &Path, support: &Path) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_hex"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_agent-desk"))
             .args(["assistant", "mcp", "--spec", &spec.to_string()])
             .env("FAKE_AGENT_DESKTOP_LOG", log)
-            .env("HEX_APPLICATION_SUPPORT_DIR", support)
+            .env("AGENT_DESK_APPLICATION_SUPPORT_DIR", support)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -56,14 +56,14 @@ impl Guard {
         let hello = guard.request(
             "initialize",
             json!({"protocolVersion": "2025-06-18", "capabilities": {},
-                "clientInfo": {"name": "hex-test", "version": "1"}}),
+                "clientInfo": {"name": "agent-desk-test", "version": "1"}}),
         );
         assert_eq!(hello["result"]["serverInfo"]["name"], "agent-desktop");
         assert!(
             hello["result"]["instructions"]
                 .as_str()
                 .unwrap()
-                .contains("Hex guards these tools")
+                .contains("Agent-Desk guards these tools")
         );
         guard.send(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
         guard

@@ -79,15 +79,15 @@ pub(in crate::rune_ui) fn conflicts(slot: HotkeySlot, settings: &AppSettings) ->
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(in crate::rune_ui) enum Probe {
-    /// Its press and release reached Hex with exactly its keys.
+    /// Its press and release reached Agent-Desk with exactly its keys.
     Works(Duration),
-    /// The press reached Hex, but the release never did.
+    /// The press reached Agent-Desk, but the release never did.
     NoRelease,
     /// The keyboard sent the key, but another app or macOS took it first.
     Swallowed,
     /// Its keys came with other modifiers or sides: what was held.
     WrongKeys(String),
-    /// Nothing reached Hex in time.
+    /// Nothing reached Agent-Desk in time.
     NothingReceived,
     /// The test couldn't run; why, for a person.
     Unavailable(String),

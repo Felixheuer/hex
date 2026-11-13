@@ -1,4 +1,4 @@
-//! The languages Hex names, in the order Settings offers them.
+//! The languages Agent-Desk names, in the order Settings offers them.
 
 use super::models::AUTO_LANGUAGE;
 
@@ -117,7 +117,7 @@ pub(crate) fn is_listed(code: &str) -> bool {
     LANGUAGES.iter().any(|(candidate, _)| *candidate == code)
 }
 
-/// The language's English name, or its code when Hex has none.
+/// The language's English name, or its code when Agent-Desk has none.
 pub fn language_name(code: &str) -> &str {
     LANGUAGES
         .iter()

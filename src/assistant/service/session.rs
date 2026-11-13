@@ -136,7 +136,7 @@ pub(super) mod desktop_session {
             "--cursor",
             "--multi-agent",
             "--name",
-            "Hex background tasks",
+            "Agent-Desk background tasks",
         ]);
         let id = reply
             .as_ref()
@@ -210,7 +210,7 @@ pub(super) mod desktop_session {
             return;
         };
         std::thread::spawn(move || {
-            // Hex moves and fronts it itself, whichever driver runs.
+            // Agent-Desk moves and fronts it itself, whichever driver runs.
             if window.window_id.is_some() && crate::assistant::space::show_now(&window).is_ok() {
                 return;
             }

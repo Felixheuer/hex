@@ -42,7 +42,7 @@ nonisolated enum WarmSessionDuration: String, Codable, CaseIterable, Sendable {
     }
 }
 
-/// Curated App Store-safe URL schemes for returning from Hex after a cold-start handoff.
+/// Curated App Store-safe URL schemes for returning from Agent-Desk after a cold-start handoff.
 /// Apps without a registered scheme (or when unset) use the bottom-edge swipe fallback.
 nonisolated struct HostApp: Identifiable, Equatable, Codable, Sendable {
     let id: String
@@ -112,7 +112,7 @@ nonisolated enum KeyboardLaunchRequest: Equatable, Sendable {
     /// Any cold-start recording handoff older than 10 seconds warms the session instead of surprise-recording.
     static let handoffWindow: TimeInterval = 10.0
 
-    /// Opens Hex's keyboard setup screen without starting a session.
+    /// Opens Agent-Desk's keyboard setup screen without starting a session.
     case setup
     case startSession(requestedAt: TimeInterval?, returnAppID: String?)
     case startRecording(

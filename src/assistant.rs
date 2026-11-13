@@ -1,5 +1,5 @@
 //! The assistant (on by default, `assistant.enabled`): a second, "Action"
-//! shortcut. Hold it and say anything; Hex decides whether it is a quick
+//! shortcut. Hold it and say anything; Agent-Desk decides whether it is a quick
 //! turn (the Here lane: about the window in front, answered beside the HUD
 //! and read aloud) or a job (the Background lane: its own windows and
 //! hidden browsers, beside the others, its dot on the orb). Double-tap shows
@@ -7,9 +7,9 @@
 //! job and takes typed messages; Assistant settings hold its settings and
 //! shortcuts.
 //!
-//! Hex does the voice, the overlays, and the window. The thinking is done by
+//! Agent-Desk does the voice, the overlays, and the window. The thinking is done by
 //! an agent already on this computer (Claude Code, Codex, OpenCode) or the
-//! Claude API; every desktop action goes through the guard, Hex's MCP server
+//! Claude API; every desktop action goes through the guard, Agent-Desk's MCP server
 //! in front of agent-desktop. `docs/features/assistant.md` and AGENTS.md's
 //! "Assistant architecture" have the whole picture.
 //!
@@ -76,7 +76,7 @@ pub fn enabled(settings: &AppSettings) -> bool {
     available() && settings.assistant.enabled
 }
 
-/// Whether this OS has the assistant: every desktop Hex runs on.
+/// Whether this OS has the assistant: every desktop Agent-Desk runs on.
 pub const fn available() -> bool {
     cfg!(any(
         target_os = "macos",

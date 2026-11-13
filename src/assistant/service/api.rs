@@ -1,5 +1,5 @@
 //! The runner's public facade: what the Action shortcut, the overlay, the
-//! Assistant pane, and `hex assistant` call. Each goes to the one runner.
+//! Assistant pane, and `agent-desk assistant` call. Each goes to the one runner.
 
 use super::*;
 
@@ -61,7 +61,7 @@ pub fn speculate(partial: &str) {
     runner().speculate(partial);
 }
 
-/// `prewarm` for a window the caller already knows (`hex assistant ask`).
+/// `prewarm` for a window the caller already knows (`agent-desk assistant ask`).
 pub fn prewarm_for(lane: Lane, window: Option<TaskWindow>) {
     runner().prewarm(lane, window);
 }
@@ -94,7 +94,7 @@ pub fn set_listening(on: bool) {
     voice::set_listening(on, store::now_ms());
 }
 
-/// Hex goes quiet at once: the line being read stops and the rest of that
+/// Agent-Desk goes quiet at once: the line being read stops and the rest of that
 /// answer is dropped; questions and summaries waiting their turn stay
 /// (`interaction::hush`).
 pub fn hush() {
@@ -154,7 +154,7 @@ pub fn hand_back(conversation: &str) {
     runner().hand_back(conversation);
 }
 
-/// Continues a conversation Hex quit or crashed in the middle of
+/// Continues a conversation Agent-Desk quit or crashed in the middle of
 /// (`Outcome::Interrupted`), telling the agent to check what was already
 /// done before going on. A Here conversation goes on in the Background lane:
 /// its window may be gone. `None` when it wasn't interrupted.
@@ -239,7 +239,7 @@ pub fn quiet_announcements(quiet: std::time::Duration) {
 
 /// Starts the scheduler (once): every half minute it starts the scheduled
 /// jobs that are due, as Background jobs; a run missed while the Mac slept
-/// or Hex was closed starts once. The app calls it at launch (the runner
+/// or Agent-Desk was closed starts once. The app calls it at launch (the runner
 /// also starts it when it first runs in the app).
 pub fn start_scheduler() {
     static STARTED: AtomicBool = AtomicBool::new(false);
@@ -261,7 +261,7 @@ pub fn start_scheduler() {
         .ok();
 }
 
-/// Starts the scheduled jobs due now (`hex assistant schedules watch`);
+/// Starts the scheduled jobs due now (`agent-desk assistant schedules watch`);
 /// their conversations.
 pub fn run_due_schedules() -> Vec<ConversationId> {
     runner().run_due_schedules()
@@ -276,7 +276,7 @@ pub fn run_from_cli() {
 pub(super) static FROM_CLI: AtomicBool = AtomicBool::new(false);
 
 /// Changes the settings every later task reads, in this process only (for
-/// `hex assistant ask --backend …`).
+/// `agent-desk assistant ask --backend …`).
 pub fn adjust_settings(adjust: impl Fn(&mut AssistantSettings) + Send + Sync + 'static) {
     *ADJUST.lock().unwrap_or_else(|error| error.into_inner()) = Some(Box::new(adjust));
 }

@@ -435,7 +435,7 @@ impl Voice {
 }
 
 /// The person holds the Action shortcut or dictates: the microphone would
-/// hear Hex. (Conversation mode's window waits for the reading itself.)
+/// hear Agent-Desk. (Conversation mode's window waits for the reading itself.)
 /// The runner asks through its `person_talks` hook.
 pub(super) fn person_talks() -> bool {
     use crate::assistant::interaction::{Listening, listening};

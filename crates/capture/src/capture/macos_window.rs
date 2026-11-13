@@ -1,4 +1,4 @@
-//! One window's picture by its CoreGraphics number, wherever it is: Hex's
+//! One window's picture by its CoreGraphics number, wherever it is: Agent-Desk's
 //! live pictures of the app windows a job works in.
 
 use screencapturekit::prelude::*;

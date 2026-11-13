@@ -119,7 +119,7 @@ pub enum DictationPhase {
     /// The paste shortcut was sent. No platform confirms that the focused
     /// application accepted it, so this does not prove the text landed.
     Pasted,
-    /// `hex dictation stop --print` received the text instead of a paste.
+    /// `agent-desk dictation stop --print` received the text instead of a paste.
     Printed,
     Edited,
     VoiceAction,
@@ -355,7 +355,7 @@ impl EventLog {
 impl VoiceEvent {
     /// The event as it is written: what was said stays out of the log. The
     /// log is a plain file kept for diagnosis, never trimmed by History's
-    /// retention or Clear all, and `hex logs` prints it, so dictated words
+    /// retention or Clear all, and `agent-desk logs` prints it, so dictated words
     /// live only in History.
     fn without_words(&self) -> Self {
         let mut event = self.clone();

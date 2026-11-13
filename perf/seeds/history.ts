@@ -1,4 +1,4 @@
-// A home seed holding a full History: 10,000 dictations, Hex's cap, one a
+// A home seed holding a full History: 10,000 dictations, Agent-Desk's cap, one a
 // minute back from when the seed was written, oldest first as the store
 // keeps them. Written once; strobe copies it into each private home, so base
 // and head read the same file. History is kept forever in strobe.json's

@@ -137,7 +137,7 @@ pub(super) fn basics(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Opt
         if let Some(row) = configure_shortcuts_row(ui, p) {
             rows.push_described(
                 tr("Desktop shortcuts"),
-                Some(tr("Change the keys your desktop gave Hex")),
+                Some(tr("Change the keys your desktop gave Agent-Desk")),
                 row,
             );
         }
@@ -151,7 +151,7 @@ pub(super) fn basics(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Opt
         super::picker::open,
     );
     let (description, control) = match missing_model(ui) {
-        // Hex can't listen without the selected model: say so, with the
+        // Agent-Desk can't listen without the selected model: say so, with the
         // download's progress, or Download and Add model file… when none
         // runs, as after Continue without a model (#894).
         Some(progress) => {
@@ -160,7 +160,7 @@ pub(super) fn basics(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Opt
                 super::model_import::download_failure(ui),
             ) {
                 (Some(_), _) => (
-                    tr("Hex can't listen until the speech model has downloaded").to_string(),
+                    tr("Agent-Desk can't listen until the speech model has downloaded").to_string(),
                     p.muted(),
                 ),
                 (None, Some(error)) => {
@@ -247,13 +247,13 @@ pub(super) fn basics(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Opt
 }
 
 /// The selected speech model's download, while it is not installed, so
-/// Hex can't listen yet. Fixtures that name no installed models say nothing,
+/// Agent-Desk can't listen yet. Fixtures that name no installed models say nothing,
 /// so their rows never depend on this machine's models.
 pub(super) fn missing_model(ui: &Ui) -> Option<crate::desktop::onboarding::ModelProgress> {
     if !ui.live() && ui.picker.installed.is_none() {
         return None;
     }
-    // A saved import that is missing or changed: Hex listens with a
+    // A saved import that is missing or changed: Agent-Desk listens with a
     // downloaded model in its place, and the row's notice says how to fix it.
     if ui.settings.transcription.model.is_labs_gated()
         && super::model_import::selection_notice(ui).is_some()
@@ -280,7 +280,7 @@ fn configure_shortcuts_row(ui: &Ui, p: Paint) -> Option<El> {
                 "configure-shortcuts",
                 &KEYBOARD,
                 tr("Desktop shortcuts"),
-                Some(tr("Change the keys your desktop gave Hex")),
+                Some(tr("Change the keys your desktop gave Agent-Desk")),
                 button(
                     p,
                     "configure-shortcuts-control",
@@ -321,7 +321,7 @@ fn microphone_release_row(ui: &Ui, p: Paint) -> (&'static str, CardRow) {
 }
 
 /// Also pause the browser's permission, under Pause media on macOS:
-/// Hex hears the browser through System Audio Recording, asked for here,
+/// Agent-Desk hears the browser through System Audio Recording, asked for here,
 /// never while you dictate.
 fn pause_browser_rows(ui: &Ui, p: Paint) -> Vec<El> {
     let on = ui.settings.pause_browser_media;
@@ -335,7 +335,7 @@ fn pause_browser_rows(ui: &Ui, p: Paint) -> Vec<El> {
         |ui: &mut Ui| {
             let on = !ui.settings.pause_browser_media;
             ui.update(|settings| settings.pause_browser_media = on);
-            // Hex hears the browser through System Audio Recording.
+            // Agent-Desk hears the browser through System Audio Recording.
             if on && !ui.platform.system_audio {
                 ui.ask(PlatformRequest::SystemAudio);
             }
@@ -354,7 +354,7 @@ fn pause_browser_rows(ui: &Ui, p: Paint) -> Vec<El> {
             "pause-browser-audio",
             &SPEAKER,
             tr("Screen & System Audio Recording"),
-            Some(tr("Lets Hex hear whether a tab is playing")),
+            Some(tr("Lets Agent-Desk hear whether a tab is playing")),
             permission_control(
                 p,
                 "pause-browser-allow",
@@ -449,7 +449,7 @@ fn microphone_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<CardRow> {
     let mac = ui.platform.caps.os == super::platform::Os::Macos;
     let lid_note = |built_in: &str| match default_name {
         Some(name) => tr_named(
-            "{built_in} is off while the lid is closed, so Hex listens to {input}",
+            "{built_in} is off while the lid is closed, so Agent-Desk listens to {input}",
             &[("built_in", built_in), ("input", name)],
         ),
         None => tr_fill("{} is off while the lid is closed", built_in),
@@ -465,7 +465,7 @@ fn microphone_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<CardRow> {
         }),
         None if devices.default_is_hex_microphone => default_name.map(|name| {
             tr_fill(
-                "Hex Microphone is the system default, so Hex listens to {}",
+                "Agent-Desk Microphone is the system default, so Agent-Desk listens to {}",
                 name,
             )
         }),
@@ -476,7 +476,7 @@ fn microphone_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<CardRow> {
             .zip(default_name)
             .map(|(bluetooth, input)| {
                 tr_named(
-                    "{bluetooth} is Bluetooth, so Hex listens to {input}",
+                    "{bluetooth} is Bluetooth, so Agent-Desk listens to {input}",
                     &[("bluetooth", bluetooth), ("input", input)],
                 )
             }),
@@ -577,7 +577,7 @@ fn shown_level(level: f32) -> f32 {
     f32::from(level_step(level)) / LEVEL_STEPS
 }
 const MIC_LEVEL: f32 = 14.0;
-/// Three short bars, as tall as Hex hears it.
+/// Three short bars, as tall as Agent-Desk hears it.
 fn mic_bars(p: Paint, level: f32, tint: Color) -> El {
     const WEIGHTS: [f32; 3] = [0.6, 1.0, 0.75];
     let mut bars = row()
@@ -600,7 +600,7 @@ fn mic_bars(p: Paint, level: f32, tint: Color) -> El {
 
 const LEVEL_FRAME: Duration = Duration::from_millis(33);
 
-/// What the microphone row's level shows: the audio Hex receives from the
+/// What the microphone row's level shows: the audio Agent-Desk receives from the
 /// microphone in use, or nothing while none arrives (released while idle,
 /// failed, or not allowed), as flat, dimmed bars.
 pub(super) struct MicLevel {
@@ -976,7 +976,7 @@ pub(super) fn output(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Vec
     {
         rows.extend_described(
             tr("Screen & System Audio Recording"),
-            Some(tr("Lets Hex hear whether a tab is playing")),
+            Some(tr("Lets Agent-Desk hear whether a tab is playing")),
             pause_browser_rows(ui, p).into_iter().map(CardRow::from),
         );
     }
@@ -1165,12 +1165,12 @@ fn speech_engine_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> CardRow {
     #[cfg(target_os = "linux")]
     let vulkan_missing = false;
     let vulkan_note = (ui.live() && vulkan_missing).then(|| {
-        tr("Hex uses the CPU because the graphics driver's Vulkan is missing or too old. Update the GPU driver to use the GPU.")
+        tr("Agent-Desk uses the CPU because the graphics driver's Vulkan is missing or too old. Update the GPU driver to use the GPU.")
             .to_owned()
     });
-    // Launched on CPU, Hex loaded no GPU driver (#1253).
+    // Launched on CPU, Agent-Desk loaded no GPU driver (#1253).
     let restart_note = (ui.live() && crate::transcription::local_transcriber::gpu_after_restart())
-        .then(|| tr("Turns on when Hex restarts").to_owned());
+        .then(|| tr("Turns on when Agent-Desk restarts").to_owned());
     let note = vulkan_note.or(restart_note).or_else(|| failed.map(|failure| {
         tr_named(
             if failure.slow {

@@ -763,11 +763,13 @@ fn the_guide_keeps_what_a_task_uses() {
 // 9_300: the knowledge tools (hex_lookup, hex_browser_tab) add a short rule.
 // 9_600: acting by a window's picture when Accessibility fails (BACKGROUND_INPUT_RULES).
 // 9_700: one routing rule per lane (the web, hex_job_result) and letting go of desk windows.
-const HERE_BUDGET: usize = 9_700;
+// 9_800: the product name is Agent-Desk (ten letters, not three).
+const HERE_BUDGET: usize = 9_800;
 // 15_900: the knowledge tools add a short rule; every app's ways, scripting first (APP_METHODS).
 // 16_200: acting by a window's picture (BACKGROUND_INPUT_RULES).
 // 16_500: the work-fast rules reach jobs too (speed_rules).
-const JOB_BUDGET: usize = 16_500;
+// 16_600: the product name is Agent-Desk.
+const JOB_BUDGET: usize = 16_600;
 
 #[test]
 fn each_lane_s_rules_stay_within_their_budget() {

@@ -1,11 +1,11 @@
-//! Setup's self-tests: each proves one piece really works from Hex, and
+//! Setup's self-tests: each proves one piece really works from Agent-Desk, and
 //! says what to do when it doesn't. They only read: the agents are asked to
 //! reply "OK" or to call agent-desktop's `desktop_status`, and agent-desktop
 //! lists apps and windows and reads the Dock; nothing is clicked, typed, or
 //! quit.
 //!
-//! Run from Hex, so macOS judges Hex.app's permissions: agent-desktop
-//! started by Hex (directly, or by an agent Hex started) acts with Hex's
+//! Run from Agent-Desk, so macOS judges Agent-Desk.app's permissions: agent-desktop
+//! started by Agent-Desk (directly, or by an agent Agent-Desk started) acts with Agent-Desk's
 //! Accessibility and Screen Recording.
 
 mod answer;
@@ -32,12 +32,12 @@ use driver::{desktop_permissions, round_trip, through_agent};
 /// One self-test.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Check {
-    /// Hex can read other apps and the screen (its own Accessibility and
+    /// Agent-Desk can read other apps and the screen (its own Accessibility and
     /// Screen Recording), for a question's context.
     HexPermissions,
     /// The agent answers a tiny prompt ("Reply with OK"), 30 s at most.
     Answers(AssistantBackend),
-    /// agent-desktop runs from Hex and has Accessibility and Screen
+    /// agent-desktop runs from Agent-Desk and has Accessibility and Screen
     /// Recording there.
     DesktopPermissions,
     /// agent-desktop lists the running apps and windows and reads the Dock,
@@ -45,13 +45,13 @@ pub enum Check {
     DesktopRoundTrip,
     /// The agent calls agent-desktop through MCP (`desktop_status`), and
     /// agent-desktop has Accessibility there too. Not for `ClaudeApi`, whose
-    /// tasks Hex runs agent-desktop for itself.
+    /// tasks Agent-Desk runs agent-desktop for itself.
     DesktopThroughAgent(AssistantBackend),
     /// agent-browser opens a page in a hidden browser of its own, reads its
     /// title, and closes it.
     BrowserRoundTrip,
-    /// The agent opens a page through Hex's browser tool over MCP and reads
-    /// its title (for the Claude API, Hex does, as it does for its tasks).
+    /// The agent opens a page through Agent-Desk's browser tool over MCP and reads
+    /// its title (for the Claude API, Agent-Desk does, as it does for its tasks).
     BrowserThroughAgent(AssistantBackend),
     /// Lightpanda, the light engine for clean (research) browsers, opens a
     /// page through agent-browser. Optional: without it they run Chrome.
@@ -85,7 +85,7 @@ impl Check {
     /// What it proves, for its row.
     pub fn title(self) -> String {
         match self {
-            Self::HexPermissions => "Hex can read the screen and selected text".into(),
+            Self::HexPermissions => "Agent-Desk can read the screen and selected text".into(),
             Self::Answers(backend) => format!("{} answers", name(backend)),
             Self::DesktopPermissions => {
                 "agent-desktop has Accessibility and Screen Recording".into()
@@ -206,14 +206,14 @@ pub enum Fix {
     AddApiKey,
     /// agent-desktop's own guide (`permissions --guide`).
     GuidePermissions,
-    /// System Settings at Hex's own missing permission.
+    /// System Settings at Agent-Desk's own missing permission.
     OpenSettings(Permission),
     /// Run it again (a timeout, a hiccup).
     Retry,
-    /// Hex runs translocated: drop the download mark from the original and
+    /// Agent-Desk runs translocated: drop the download mark from the original and
     /// open that (`desktop::permission_doctor`).
     RepairHex,
-    /// Remove the other copies of Hex that confuse its permissions.
+    /// Remove the other copies of Agent-Desk that confuse its permissions.
     RemoveCopies,
     /// A permission is granted but needs a fresh process.
     RestartHex,
@@ -234,9 +234,9 @@ impl Fix {
             Self::GuidePermissions => "Grant permissions".into(),
             Self::OpenSettings(permission) => format!("Open {} settings", permission.name()),
             Self::Retry => "Try again".into(),
-            Self::RepairHex => "Repair Hex".into(),
+            Self::RepairHex => "Repair Agent-Desk".into(),
             Self::RemoveCopies => "Remove other copies".into(),
-            Self::RestartHex => "Restart Hex".into(),
+            Self::RestartHex => "Restart Agent-Desk".into(),
         }
     }
 }
@@ -303,7 +303,7 @@ pub fn self_tests(
 }
 
 fn hex_permissions(check: Check) -> CheckResult {
-    // First what keeps any grant from reaching this copy of Hex.
+    // First what keeps any grant from reaching this copy of Agent-Desk.
     #[cfg(target_os = "macos")]
     if let Some(finding) = crate::desktop::permission_doctor::diagnose() {
         use crate::desktop::permission_doctor::{Finding, message};
@@ -332,18 +332,18 @@ fn hex_permissions(check: Check) -> CheckResult {
         (true, true) => CheckResult::passed(check, "Accessibility and Screen Recording are on"),
         (false, _) => CheckResult::failed(
             check,
-            "Hex needs Accessibility to read the selected text",
+            "Agent-Desk needs Accessibility to read the selected text",
             Some(Fix::OpenSettings(Permission::Accessibility)),
         ),
         (true, false) => CheckResult::failed(
             check,
-            "Hex needs Screen Recording to send a screenshot with a question",
+            "Agent-Desk needs Screen Recording to send a screenshot with a question",
             Some(Fix::OpenSettings(Permission::ScreenRecording)),
         ),
     }
 }
 
-/// Where the agents run during a check: an empty folder of Hex's own, so no
+/// Where the agents run during a check: an empty folder of Agent-Desk's own, so no
 /// project's settings or files come into it.
 fn scratch() -> PathBuf {
     let folder = std::env::temp_dir().join("hex-assistant-check");

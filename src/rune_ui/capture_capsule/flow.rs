@@ -45,7 +45,7 @@ pub(crate) const DISCARD_LINGER_S: f64 = 1.5;
 /// router has that many, and the most a search shows.
 pub(crate) const SUGGEST_ROWS: usize = 5;
 /// The menu-bar flow's hint of the guesses stays this long, then the
-/// capsule folds into Hex's menu-bar item, where the capture waits.
+/// capsule folds into Agent-Desk's menu-bar item, where the capture waits.
 pub(crate) const MENU_HINT_S: f64 = 4.0;
 /// The permission helper waits this long for a grant, then folds; the
 /// capture shortcut brings it back.
@@ -68,7 +68,7 @@ impl Mode {
     pub(crate) fn chips(phone: bool) -> impl Iterator<Item = Mode> {
         [Mode::Area, Mode::Window, Mode::Screen]
             .into_iter()
-            // Wayland gives Hex no pointer to aim an area with yet.
+            // Wayland gives Agent-Desk no pointer to aim an area with yet.
             .filter(|mode| cfg!(not(target_os = "linux")) || *mode != Mode::Area)
             .chain(phone.then_some(Mode::Iphone))
     }
@@ -177,7 +177,7 @@ pub(crate) enum Delivered {
     },
 }
 
-/// How a send the capsule asked to take back ended (Hex's router undo).
+/// How a send the capsule asked to take back ended (Agent-Desk's router undo).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Undone {
     /// Taken back before the session saw it, or reverted.
@@ -203,7 +203,7 @@ pub(crate) enum Grant {
     Off,
     /// Allow was pressed: System Settings and its guide are open.
     Asked,
-    /// Granted, but Hex must restart to use it.
+    /// Granted, but Agent-Desk must restart to use it.
     Restart,
     /// Granted: the next capture records.
     Ready,
@@ -213,7 +213,7 @@ pub(crate) enum Grant {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Input {
     /// A capture (or the Screenshots picker) was refused for a permission
-    /// Hex lacks: the helper opens in its place, and its grant returns to
+    /// Agent-Desk lacks: the helper opens in its place, and its grant returns to
     /// what asked.
     NeedsPermission(CaptureNeed, AskedBy),
     /// How that permission stands now, while the helper shows.
@@ -268,7 +268,7 @@ pub(crate) enum Input {
     /// The ✕, or anything that should just close it.
     Dismiss,
     /// The recording it shows left the snapshot with no outcome: a chip's
-    /// discard (the picker is already up) or `hex capture discard`.
+    /// discard (the picker is already up) or `agent-desk capture discard`.
     Gone,
     /// A mouse button went down while the list was open: off the capsule,
     /// the list closes, so typing goes back to the app in front.
@@ -276,7 +276,7 @@ pub(crate) enum Input {
     /// The written capture has no words: the microphone heard no speech.
     NothingHeard,
     /// The router sent the capture, from the capsule or not
-    /// (`hex capture send`): it no longer waits for a pick.
+    /// (`agent-desk capture send`): it no longer waits for a pick.
     Settled,
 }
 
@@ -298,7 +298,7 @@ pub(crate) enum Action {
     /// The permission helper's Allow: macOS's prompt, or System Settings
     /// with the guide beside it.
     Allow(CaptureNeed),
-    /// The permission helper's Restart Hex.
+    /// The permission helper's Restart Agent-Desk.
     Restart,
     /// Switch the recording's mode.
     Switch(Mode),
@@ -683,7 +683,7 @@ pub(crate) struct Flow {
     /// out); news of it leaves the capsule closed.
     closed: bool,
     /// The latest capture's list, closed before anything was picked: kept
-    /// until a pick, a paste, a send from elsewhere (`hex capture send`), or
+    /// until a pick, a paste, a send from elsewhere (`agent-desk capture send`), or
     /// the next capture.
     waiting: Option<Routed>,
     /// The latest capture was pasted, inspected, or sent from elsewhere:
@@ -1004,7 +1004,7 @@ impl Flow {
         }
     }
 
-    /// The keys the capsule takes from Hex's tap: the picker's, an open
+    /// The keys the capsule takes from Agent-Desk's tap: the picker's, an open
     /// list's (Escape only in a list Kit opened or the picker). Closed or
     /// routed with nothing open, it takes none.
     pub(crate) fn keys(&self) -> Option<crate::capture_host::CapsuleKeys> {
@@ -1308,7 +1308,7 @@ mod tests {
             assert!(shown.open.is_none());
             flow.tick(MENU_HINT_S + 0.1);
             assert_eq!(flow.pres(MENU_HINT_S + 0.1), Pres::Hidden);
-            assert_eq!(flow.keys(), None, "no key is Hex's once it's gone");
+            assert_eq!(flow.keys(), None, "no key is Agent-Desk's once it's gone");
 
             let mut flow = Flow::new();
             flow.input(Input::Stage(Stage::Done), 0.0);
@@ -1378,7 +1378,7 @@ mod tests {
         assert_eq!(flow.keys(), None);
     }
 
-    /// The search's field is a `TextEdit` fed by Hex's tap: typing inserts
+    /// The search's field is a `TextEdit` fed by Agent-Desk's tap: typing inserts
     /// at the caret, Backspace takes one character (not one byte) back,
     /// and the caret follows the text.
     #[test]
@@ -1585,7 +1585,7 @@ mod tests {
             "taken back, the list opens"
         );
         // Escape never takes a send back or closes it, in the window or
-        // after it: it was never Hex's.
+        // after it: it was never Agent-Desk's.
         for at in [1.0, 5.5] {
             let mut late = Flow::new();
             late.input(Input::Routed(rule()), 0.0);
@@ -2070,7 +2070,7 @@ mod tests {
         assert!(flow.take_cues().is_empty());
     }
 
-    /// A queued send that went on a retry can't be taken back by Hex: it
+    /// A queued send that went on a retry can't be taken back by Agent-Desk: it
     /// says so plainly, with no Undo and no Escape.
     #[test]
     fn a_retried_send_has_no_undo() {
@@ -2811,7 +2811,7 @@ mod tests {
     fn a_click_away_folds_the_suggestions_and_they_leave_like_any_capsule() {
         let mut flow = Flow::new();
         flow.input(Input::Routed(guess()), 0.0);
-        // Escape is never Hex's here: it changes nothing.
+        // Escape is never Agent-Desk's here: it changes nothing.
         assert!(flow.input(Input::Escape, 0.5).is_empty());
         assert!(done(&flow, 0.5).open.is_some());
         flow.input(Input::ClickAway, 1.0);
@@ -2867,7 +2867,7 @@ mod tests {
 
     /// Send to… after a guess opens the list while the capsule shows, and
     /// brings it back after it closed with nothing picked, until something
-    /// settles the capture. No key is Hex's while it's closed.
+    /// settles the capture. No key is Agent-Desk's while it's closed.
     #[test]
     fn send_to_brings_back_a_capture_waiting_for_a_pick() {
         use crate::capture_host::CapsuleKeys;
@@ -2898,7 +2898,7 @@ mod tests {
         assert_eq!(flow.pres(32.0 + hold), Pres::Hidden);
         flow.input(Input::OpenList, 40.0);
         assert!(done(&flow, 40.0).open.is_some());
-        // A pick settles it: no key is Hex's, Escape goes to the app.
+        // A pick settles it: no key is Agent-Desk's, Escape goes to the app.
         assert_eq!(
             flow.input(Input::SendRow(1), 41.0),
             [Action::Send {
@@ -2910,7 +2910,7 @@ mod tests {
         flow.tick(41.0 + hold + 1.0);
         assert_eq!(flow.keys(), None);
 
-        // `hex capture send` while it's closed settles it too.
+        // `agent-desk capture send` while it's closed settles it too.
         let mut flow = Flow::new();
         flow.input(Input::Stage(Stage::Done), 0.0);
         flow.input(Input::Routed(guess()), 0.0);
@@ -3219,7 +3219,7 @@ mod tests {
         flow.input(Input::NeedsPermission(screen, AskedBy::Capture), 1.0);
         let shown = done(&flow, 1.0);
         assert_eq!(shown.lead, Lead::Warning);
-        assert_eq!(shown.text, "Hex needs Screen Recording");
+        assert_eq!(shown.text, "Agent-Desk needs Screen Recording");
         assert_eq!(shown.why.as_deref(), Some("to see your screen"));
         assert_eq!(shown.ask.as_deref(), Some("Allow"));
         assert_eq!(flow.keys(), None);
@@ -3232,7 +3232,7 @@ mod tests {
         let waiting = done(&flow, 4.0);
         assert_eq!(
             waiting.why.as_deref(),
-            Some("turn Hex on in System Settings")
+            Some("turn Agent-Desk on in System Settings")
         );
         // It waits a good while, and never folds under the pointer.
         flow.tick(60.0);
@@ -3241,7 +3241,7 @@ mod tests {
         flow.input(Input::Permission(screen, Grant::Restart), 61.0);
         let restart = done(&flow, 61.0);
         assert_eq!(restart.text, "Screen Recording is on");
-        assert_eq!(restart.ask.as_deref(), Some("Restart Hex"));
+        assert_eq!(restart.ask.as_deref(), Some("Restart Agent-Desk"));
         assert_eq!(flow.click(Id::Ask, 62.0), vec![Action::Restart]);
 
         flow.input(Input::Permission(screen, Grant::Ready), 63.0);
@@ -3259,7 +3259,7 @@ mod tests {
             Input::NeedsPermission(CaptureNeed::Microphone, AskedBy::Capture),
             70.0,
         );
-        assert_eq!(done(&flow, 70.0).text, "Hex needs Microphone");
+        assert_eq!(done(&flow, 70.0).text, "Agent-Desk needs Microphone");
         assert!(flow.tick(70.0 + PERMISSION_HOLD_S));
         assert_eq!(flow.pres(70.0 + PERMISSION_HOLD_S), Pres::Hidden);
         flow.input(Input::NeedsPermission(screen, AskedBy::Capture), 300.0);
@@ -3287,7 +3287,7 @@ mod tests {
                 Input::NeedsPermission(screen, AskedBy::Screenshots { record }),
                 1.0,
             );
-            assert_eq!(done(&flow, 1.0).text, "Hex needs Screen Recording");
+            assert_eq!(done(&flow, 1.0).text, "Agent-Desk needs Screen Recording");
             flow.input(Input::Permission(screen, Grant::Ready), 2.0);
             assert_eq!(flow.click(Id::Ask, 3.0), vec![action]);
             assert_eq!(flow.pres(3.0), Pres::Hidden, "the helper folds");

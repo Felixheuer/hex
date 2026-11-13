@@ -30,7 +30,7 @@ pub fn worth_checking(steps: usize) -> bool {
 pub const VERIFIED: &str = "HEX_VERIFIED";
 /// The check's verdict when something is missing; the gaps follow.
 pub const NOT_DONE: &str = "HEX_NOT_DONE:";
-/// The job's last check, in its workspace, for the status Hex tells on
+/// The job's last check, in its workspace, for the status Agent-Desk tells on
 /// request (`service::status`): `verified`, or the gaps.
 pub const CHECK_FILE: &str = ".hex-check.md";
 

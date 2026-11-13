@@ -1,13 +1,13 @@
 //! OpenCode: `opencode run --standalone --format json`, with the person's
 //! own OpenCode configuration and sign-ins.
 //!
-//! Why the CLI and not the running service: Hex's other features only talk
+//! Why the CLI and not the running service: Agent-Desk's other features only talk
 //! to an already running OpenCode service, but that service loads its MCP
 //! servers once, from its own configuration, and its API has no way to give
 //! one session its own agent-desktop with this task's agent id and session.
 //! `--standalone` runs a private server for just this task, and
 //! `OPENCODE_CONFIG_CONTENT` adds to the person's configuration an agent
-//! `hex` (Hex's instructions; shell and file edits denied) and agent-desktop
+//! `agent-desk` (Agent-Desk's instructions; shell and file edits denied) and agent-desktop
 //! as a local MCP server. `--auto` approves the rest, so nothing waits on a
 //! prompt; `--archived` keeps these sessions out of the person's list.
 //! A conversation continues with `--session <id>`.
@@ -46,7 +46,7 @@ pub(super) fn run(
     }
     command.env("OPENCODE_CONFIG_CONTENT", config(run).to_string());
     // A Windows batch file can't take the prompt's newlines and quotes as
-    // an argument; when OpenCode is one Hex couldn't unwrap, the prompt goes
+    // an argument; when OpenCode is one Agent-Desk couldn't unwrap, the prompt goes
     // on its input, which `opencode run` reads as the message.
     let batch = is_batch_file(&crate::assistant::backends::search::launch(&executable).0);
     let mut args = arguments(run);
@@ -132,7 +132,7 @@ fn config(run: &Run) -> Value {
     };
     let mut config = json!({"agent": {AGENT: {
         "mode": "primary",
-        "description": "Hex's assistant",
+        "description": "Agent-Desk's assistant",
         "prompt": run.system,
         "permission": permission,
     }}});
@@ -381,7 +381,7 @@ mod tests {
             config["provider"]["deepseek"]["options"]["apiKey"],
             "{env:DEEPSEEK_API_KEY}"
         );
-        // Hex's own agent stays.
+        // Agent-Desk's own agent stays.
         assert_eq!(config["agent"]["hex"]["mode"], "primary");
     }
 

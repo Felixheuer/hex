@@ -286,7 +286,7 @@ impl HudSender {
             drop(watch);
             // Rune only gives a shown overlay up when a frame it draws fades it
             // out, and a HUD that never presents draws nothing: it would stay
-            // shown until Hex restarts. Hide it at once instead (the immediate
+            // shown until Agent-Desk restarts. Hide it at once instead (the immediate
             // hide, not the exit fade), on the overlay's own thread through
             // `update`, so the HUD's shown state clears, Rune releases its
             // window and GPU surface (a zero idle on Windows), and the next
@@ -382,7 +382,7 @@ impl Hud {
         // Rune drops an overlay whose layer surface the compositor closed,
         // which it does when the HUD's output goes away (a monitor
         // unplugged, or a KVM switching away and back, #1663), without
-        // telling Hex: ask Rune for the HUD at each capture's start, so a
+        // telling Agent-Desk: ask Rune for the HUD at each capture's start, so a
         // later one appears on an output that exists. Rune's show is a no-op
         // while the overlay is visible.
         #[cfg(target_os = "linux")]
@@ -521,7 +521,7 @@ const EXIT_FADE: Duration = Duration::from_millis(120);
 /// about 150 MB and the GPU driver's threads waking some 65 times a second.
 /// Windows gives it back, window included, once the HUD's exit fade ends: a hidden
 /// topmost window that presented with DXGI let NVIDIA's Instant Replay take
-/// Hex for the running game (#1308). The device itself waits five minutes for
+/// Agent-Desk for the running game (#1308). The device itself waits five minutes for
 /// the next show either way, so dictations reuse one device (#1268). The
 /// painter goes once Rune's parked device would also have gone, which is this
 /// plus the five minutes Rune parks a device (`PAINTER_IDLE`, #1431); macOS
@@ -613,7 +613,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) -> HudSender {
         // The shaders write display (sRGB-encoded) values.
         .srgb_blend(true)
         // On Linux a burst of dictations keeps the GPU surface, so each HUD
-        // shows at once; a Hex at rest gives the GPU device back.
+        // shows at once; an Agent-Desk at rest gives the GPU device back.
         .release_gpu_after(GPU_IDLE)
         .compositor(HudCompositor {
             #[cfg(not(target_os = "macos"))]
@@ -986,7 +986,7 @@ impl Compositor<Hud> for HudCompositor {
         self.animating.load(Ordering::Acquire)
     }
 
-    /// The view is empty, so Rune's UI pass is skipped: Hex's own pass
+    /// The view is empty, so Rune's UI pass is skipped: Agent-Desk's own pass
     /// clears the target.
     fn render(&mut self, f: &mut Frame<'_, Hud>) {
         let reduce = f.rt.reduced_motion;

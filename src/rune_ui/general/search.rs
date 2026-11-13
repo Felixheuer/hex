@@ -50,8 +50,8 @@ pub(crate) fn pane(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
 }
 
 /// Toggle's cancel shortcut. A shortcuts portal would hold its key from
-/// every app for as long as Hex runs, so on Wayland it says to bind
-/// `hex dictation cancel` in the desktop instead. Its description comes back
+/// every app for as long as Agent-Desk runs, so on Wayland it says to bind
+/// `agent-desk dictation cancel` in the desktop instead. Its description comes back
 /// for search too.
 pub(super) fn cancel_rows(ui: &Ui, p: Paint) -> (&'static str, Vec<CardRow>) {
     if matches!(
@@ -59,7 +59,7 @@ pub(super) fn cancel_rows(ui: &Ui, p: Paint) -> (&'static str, Vec<CardRow>) {
         Some(crate::desktop::host::DesktopShortcuts::Portal(_))
     ) {
         let description =
-            tr("Bind hex dictation cancel to a key in your desktop's keyboard shortcuts");
+            tr("Bind agent-desk dictation cancel to a key in your desktop's keyboard shortcuts");
         return (
             description,
             vec![

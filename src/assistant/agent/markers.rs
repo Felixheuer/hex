@@ -1,13 +1,13 @@
-//! The two lines an agent starts its reply with to tell Hex something
+//! The two lines an agent starts its reply with to tell Agent-Desk something
 //! instead of answering:
 //!
 //! - `HEX_JOB: <title>` then a short spoken line: the request is a job, so
-//!   Hex continues it as a Background job (planning first). More
+//!   Agent-Desk continues it as a Background job (planning first). More
 //!   `HEX_JOB: <title> | <the job>` lines right after it start further jobs
 //!   beside it, each in a conversation of its own.
 //! - `HEX_QUESTION:` then one batched question: the job needs the person's
 //!   answer before it goes on.
-//! - `HEX_CONFIRM: <category> <target>` then the question: Hex refused a
+//! - `HEX_CONFIRM: <category> <target>` then the question: Agent-Desk refused a
 //!   consequential action (`NEEDS_CONFIRMATION`) and the person's yes allows
 //!   that kind of action for the task (`autonomy`).
 //!
@@ -18,7 +18,7 @@ const JOB: &str = "HEX_JOB:";
 const QUESTION: &str = "HEX_QUESTION:";
 const CONFIRM: &str = "HEX_CONFIRM:";
 
-/// What a reply asks of Hex.
+/// What a reply asks of Agent-Desk.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Marker {
     Job {

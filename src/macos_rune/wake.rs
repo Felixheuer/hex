@@ -1,6 +1,6 @@
 //! The pump's timer and wakes: every frame (16 ms) while the HUD animates,
 //! otherwise every 250 ms, and whatever sends the pump work wakes it at once
-//! ([`wake_pump`]), so an idle Hex barely wakes its main thread (#1378).
+//! ([`wake_pump`]), so an idle Agent-Desk barely wakes its main thread (#1378).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};

@@ -1,9 +1,9 @@
-//! The tray mark Linux and Windows share: the white Hex mark, drawn in black
+//! The tray mark Linux and Windows share: the white Agent-Desk mark, drawn in black
 //! on a light panel or taskbar, where white would vanish.
 
 /// The mark's edge, in pixels.
 pub(crate) const SIZE: u32 = 32;
-/// The white Hex mark, raw 32×32 RGBA.
+/// The white Agent-Desk mark, raw 32×32 RGBA.
 const RGBA: &[u8] = include_bytes!("../../resources/windows/tray-32.rgba");
 
 /// The tray mark for a light panel or taskbar: the white mark on a dark one,

@@ -181,7 +181,7 @@ fn encode_png(image: &Image) -> Option<Vec<u8>> {
 
 fn load(path: &str) -> Result<Image, String> {
     let bytes = std::fs::read(path).map_err(|error| format!("Couldn't read {path}: {error}"))?;
-    decode(&bytes).ok_or_else(|| format!("{path} isn't a PNG or JPEG image Hex can read."))
+    decode(&bytes).ok_or_else(|| format!("{path} isn't a PNG or JPEG image Agent-Desk can read."))
 }
 
 fn decode(bytes: &[u8]) -> Option<Image> {

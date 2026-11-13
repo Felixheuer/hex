@@ -1,11 +1,11 @@
-//! What Hex reads from a Linux desktop for a question: the focused app and
+//! What Agent-Desk reads from a Linux desktop for a question: the focused app and
 //! window (`linux::context`, X11 or wlroots' foreign toplevels), the
 //! selected text (the PRIMARY selection, which every X11 and Wayland app
 //! sets as text is selected), the windows and displays (X11), and a
 //! screenshot of the display the person works on: X11 grabs the root
 //! window itself; Wayland asks `grim` (wlroots compositors) or the desktop
-//! portal's Screenshot (GNOME, KDE; the desktop asks once whether Hex may).
-//! Blocked apps' windows are blacked out on X11, where Hex can see them.
+//! portal's Screenshot (GNOME, KDE; the desktop asks once whether Agent-Desk may).
+//! Blocked apps' windows are blacked out on X11, where Agent-Desk can see them.
 
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
@@ -318,7 +318,7 @@ fn wayland_shot() -> Result<(u32, u32, Vec<u8>)> {
 }
 
 /// The desktop portal's Screenshot, without its dialog (`interactive`
-/// false): the desktop asks the person once whether Hex may.
+/// false): the desktop asks the person once whether Agent-Desk may.
 fn portal_shot() -> Result<(u32, u32, Vec<u8>)> {
     use std::collections::HashMap;
     use zbus::Variant;
@@ -326,7 +326,7 @@ fn portal_shot() -> Result<(u32, u32, Vec<u8>)> {
     let mut bus = crate::linux::portal::PortalBus::open("org.freedesktop.portal.Screenshot", &stop)
         .map_err(|error| eyre!("Couldn't reach the desktop portal: {error:#}"))?
         .ok_or_else(|| {
-            eyre!("This desktop can't give Hex a screenshot; install grim or xdg-desktop-portal")
+            eyre!("This desktop can't give Agent-Desk a screenshot; install grim or xdg-desktop-portal")
         })?;
     let results = bus.request(
         "Screenshot",

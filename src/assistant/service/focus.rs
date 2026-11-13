@@ -14,7 +14,11 @@ pub(super) fn focus_in(state: &State, follow_up_seconds: u32, now: u64) -> Optio
 
 /// `focus_in` past the inbox: a running Here task, Chats' conversation, or
 /// the last Here answer within `follow_up_seconds`.
-pub(super) fn focus_past(state: &State, follow_up_seconds: u32, now: u64) -> Option<ConversationId> {
+pub(super) fn focus_past(
+    state: &State,
+    follow_up_seconds: u32,
+    now: u64,
+) -> Option<ConversationId> {
     if let Some(task) = state
         .tasks
         .iter()

@@ -1,5 +1,5 @@
 //! The OS's rules for a shortcut, the ones Settings applies when recording
-//! one; shared with `hex settings set`. Kept out of `rune_ui.rs` so its
+//! one; shared with `agent-desk settings set`. Kept out of `rune_ui.rs` so its
 //! source stays under the file cap.
 
 use super::host;

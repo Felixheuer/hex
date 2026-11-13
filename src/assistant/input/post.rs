@@ -712,8 +712,8 @@ mod tests {
     }
 }
 
-/// Live, by hand only (`cargo test --bin hex live_background_input --
-/// --ignored`, with `HEX_LIVE_FILE` naming a throwaway text file): opens it
+/// Live, by hand only (`cargo test --bin agent-desk live_background_input --
+/// --ignored`, with `AGENT_DESK_LIVE_FILE` naming a throwaway text file): opens it
 /// in TextEdit in the background, types and clicks into it by pid while
 /// another app stays in front, reads it back through Accessibility, and
 /// quits TextEdit. Never run against the person's own documents.
@@ -737,7 +737,7 @@ mod live {
     #[test]
     #[ignore = "drives TextEdit on this Mac; run by hand"]
     fn live_background_input() {
-        let file = std::env::var("HEX_LIVE_FILE").expect("HEX_LIVE_FILE");
+        let file = std::env::var("AGENT_DESK_LIVE_FILE").expect("AGENT_DESK_LIVE_FILE");
         assert!(
             std::process::Command::new("/usr/bin/pgrep")
                 .args(["-x", "TextEdit"])

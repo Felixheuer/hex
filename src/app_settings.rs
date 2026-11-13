@@ -56,7 +56,7 @@ static DOUBLE_TAP_ONLY: AtomicBool = AtomicBool::new(false);
 static SHORTCUT_TOGGLE: AtomicBool = AtomicBool::new(false);
 static MEETINGS_ENABLED: AtomicBool = AtomicBool::new(false);
 static PAUSE_BROWSER_MEDIA: AtomicBool = AtomicBool::new(false);
-static HEX_MICROPHONE_ENABLED: AtomicBool = AtomicBool::new(false);
+static AGENT_DESK_MICROPHONE_ENABLED: AtomicBool = AtomicBool::new(false);
 static MEETING_SUMMARIES: AtomicU8 = AtomicU8::new(MeetingSummaries::platform_default() as u8);
 static MEETING_INDICATOR_ENABLED: AtomicBool = AtomicBool::new(true);
 static MEETING_INDICATOR_CORNER: AtomicU8 = AtomicU8::new(0);
@@ -121,16 +121,16 @@ impl Default for ExperimentalSettings {
     }
 }
 
-/// Whether the Voice Filter runs: the listener streams the Hex Microphone
-/// and Hex watches its driver. Its developer switch (`experimental.hex_microphone`,
-/// or `HEX_EXPERIMENTAL_MIC`) or an installed driver turns it on, so a driver
+/// Whether the Voice Filter runs: the listener streams the Agent-Desk Microphone
+/// and Agent-Desk watches its driver. Its developer switch (`experimental.hex_microphone`,
+/// or `AGENT_DESK_EXPERIMENTAL_MIC`) or an installed driver turns it on, so a driver
 /// apps already use keeps receiving audio.
 pub fn voice_filter_enabled(setting: bool, driver_installed: bool) -> bool {
     setting || env_hex_experimental_mic() || driver_installed
 }
 
 pub fn env_hex_experimental_mic() -> bool {
-    std::env::var("HEX_EXPERIMENTAL_MIC")
+    std::env::var("AGENT_DESK_EXPERIMENTAL_MIC")
         .ok()
         .is_some_and(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes"))
 }
@@ -274,7 +274,7 @@ pub struct AppSettings {
     )]
     pub retired_edit_hotkey: Option<serde_json::Value>,
     pub paste_last_hotkey: Option<HotkeyBinding>,
-    /// Toggle mode's cancel shortcut: discards the recording. Hex takes it
+    /// Toggle mode's cancel shortcut: discards the recording. Agent-Desk takes it
     /// only while a toggled recording runs; Hold mode has no cancel.
     pub cancel_hotkey: HotkeyBinding,
     /// Dictate without processing: records like the dictation shortcut and
@@ -332,12 +332,12 @@ pub struct AppSettings {
     pub screenshots: ScreenshotSettings,
     /// The assistant's shortcut, model, and voice (macOS).
     pub assistant: AssistantSettings,
-    /// Start listening when Hex opens (Windows and Linux, where the
+    /// Start listening when Agent-Desk opens (Windows and Linux, where the
     /// listener can be off).
     pub enable_on_launch: bool,
     /// Paste with Ctrl-Shift-V for terminals (Linux and Windows).
     pub paste_with_shift: bool,
-    /// Hex keeps its own GNOME custom keyboard shortcuts, on GNOME without a
+    /// Agent-Desk keeps its own GNOME custom keyboard shortcuts, on GNOME without a
     /// shortcuts portal (Linux, #781).
     pub gnome_keyboard_shortcuts: bool,
     /// Let other apps see the dictation shortcut's key presses too
@@ -633,7 +633,7 @@ impl AppSettings {
     /// Reads Scrawl's settings into `capture`, never writing Scrawl's
     /// files: `engine` is `~/.config/scrawl/config.json` (transcriber,
     /// captures folder, retention) and `app` is the app's shortcut file.
-    /// Missing or unreadable values keep Hex's defaults.
+    /// Missing or unreadable values keep Agent-Desk's defaults.
     #[cfg(hex_capture)]
     fn import_scrawl_settings(&mut self, engine: Option<&[u8]>, app: Option<&[u8]>) {
         if let Some(config) = engine.and_then(|bytes| {
@@ -791,7 +791,7 @@ impl AppSettings {
                 .unwrap_or_default();
             CAPSULE_FLOW.store(flow as u8, Ordering::Release);
         }
-        HEX_MICROPHONE_ENABLED.store(self.experimental.hex_microphone, Ordering::Release);
+        AGENT_DESK_MICROPHONE_ENABLED.store(self.experimental.hex_microphone, Ordering::Release);
         crate::audio::hex_microphone::sync_from_settings(
             self.experimental.hex_microphone_mode,
             self.experimental.hex_microphone_comfort_noise,
@@ -1054,7 +1054,7 @@ impl AppSettings {
     /// bound, sharing no key with another active shortcut, and, on Linux and
     /// Windows, naming a key (both register a key). On macOS a shortcut
     /// without a key can still run (a loaded file folds it into the extra
-    /// dictation shortcuts). Otherwise Hex matches, suppresses, registers,
+    /// dictation shortcuts). Otherwise Agent-Desk matches, suppresses, registers,
     /// and checks nothing for it.
     pub fn active_second_dictation_hotkey(&self) -> Option<&HotkeyBinding> {
         self.second_dictation_hotkey
@@ -1065,7 +1065,7 @@ impl AppSettings {
 
     /// The assistant's Action shortcut while it takes effect: the assistant
     /// on, bound, and sharing no key with another active shortcut. Otherwise
-    /// Hex matches, suppresses, and checks nothing for it.
+    /// Agent-Desk matches, suppresses, and checks nothing for it.
     pub fn active_action_hotkey(&self) -> Option<&HotkeyBinding> {
         if !crate::assistant::enabled(self) {
             return None;
@@ -1090,7 +1090,7 @@ impl AppSettings {
 
     /// The terminal paste shortcut's binding while it takes effect:
     /// Windows or Linux, bound, and sharing no key with another active
-    /// shortcut. Otherwise Hex registers, matches, and checks nothing for it.
+    /// shortcut. Otherwise Agent-Desk registers, matches, and checks nothing for it.
     #[cfg_attr(not(any(target_os = "windows", target_os = "linux")), allow(dead_code))]
     pub fn active_terminal_paste_hotkey(&self) -> Option<&HotkeyBinding> {
         if !cfg!(any(target_os = "windows", target_os = "linux")) {
@@ -1200,7 +1200,7 @@ impl AppSettings {
     }
 }
 
-/// A shortcut Settings and `hex settings` record.
+/// A shortcut Settings and `agent-desk settings` record.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HotkeySlot {
     Dictation,
@@ -1328,7 +1328,7 @@ pub fn shortcut_toggle() -> bool {
 pub fn hex_microphone_enabled() -> bool {
     crate::features::voice_filter()
         && voice_filter_enabled(
-            HEX_MICROPHONE_ENABLED.load(Ordering::Acquire),
+            AGENT_DESK_MICROPHONE_ENABLED.load(Ordering::Acquire),
             crate::audio::hex_microphone::driver_bundle_installed(),
         )
 }
@@ -1432,14 +1432,14 @@ pub fn set_hotkey_capture_active(active: bool) {
 }
 
 /// Whether shortcut matching is suspended: a new shortcut binding is being
-/// recorded, or Pause from menu bar paused Hex. Every capture
+/// recorded, or Pause from menu bar paused Agent-Desk. Every capture
 /// shortcut reads this instead of `hotkey_capture_active` alone.
 pub fn shortcuts_suspended() -> bool {
     hotkey_capture_active() || crate::shortcut_pause::suspended()
 }
 
 /// The Dock policy while no Settings window is open. An open window always
-/// shows the icon: hiding it deactivates Hex asynchronously, which would drop
+/// shows the icon: hiding it deactivates Agent-Desk asynchronously, which would drop
 /// that window behind other applications.
 pub fn dock_icon_visible(show_dock_icon: bool, status_item_available: bool) -> bool {
     show_dock_icon || !status_item_available
@@ -1465,7 +1465,7 @@ pub fn set_dock_icon_visible(visible: bool) {
 #[cfg(target_os = "macos")]
 pub fn hide_application() {
     let Some(marker) = MainThreadMarker::new() else {
-        tracing::warn!("cannot hide Hex outside the main thread");
+        tracing::warn!("cannot hide Agent-Desk outside the main thread");
         return;
     };
     NSApplication::sharedApplication(marker).hide(None);
@@ -1724,9 +1724,9 @@ mod tests {
             ..AppSettings::default()
         })
         .unwrap();
-        file["transcription"]["recognition_hints"] = "Hex, rune\nKaffar".into();
+        file["transcription"]["recognition_hints"] = "Agent-Desk, rune\nKaffar".into();
         file["transcription_recents"] = serde_json::json!([
-            {"model": "parakeet_v3", "language": "de", "recognition_hints": "Old; Hex"},
+            {"model": "parakeet_v3", "language": "de", "recognition_hints": "Old; Agent-Desk"},
             {"model": "qwen3_asr06_b", "language": "en", "recognition_hints": "Rodolfo"},
         ]);
         fs::write(&dir.path, serde_json::to_vec(&file).unwrap()).unwrap();
@@ -1736,7 +1736,7 @@ mod tests {
             .iter()
             .map(|entry| entry.term.as_str())
             .collect();
-        assert_eq!(terms, ["Rune", "Hex", "Kaffar", "Rodolfo", "Old"]);
+        assert_eq!(terms, ["Rune", "Agent-Desk", "Kaffar", "Rodolfo", "Old"]);
         assert_eq!(loaded.vocabulary[0].sounds_like, ["rune's"]);
         assert_eq!(loaded.sound_effect_volume, 0.25);
         let written = fs::read_to_string(&dir.path).unwrap();
@@ -2284,7 +2284,7 @@ mod tests {
             settings
                 .meetings
                 .resolved_output_folder()
-                .ends_with("Hex Meetings")
+                .ends_with("Agent-Desk Meetings")
         );
         assert!(settings.text_replacements.is_empty());
     }

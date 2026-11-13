@@ -2,10 +2,10 @@
 //! CleanShot does, and the shot lands on the clipboard, in the folder, and
 //! in a thumbnail in the corner.
 //!
-//! The shortcut is taken in Hex's session tap ([`key`]), never by the
+//! The shortcut is taken in Agent-Desk's session tap ([`key`]), never by the
 //! listener: a press opens a second capture picker, Escape closes it and
 //! Space switches it between an area and a window. What it picks is shot
-//! by ScreenCaptureKit at the display's own pixels, with Hex's overlays and
+//! by ScreenCaptureKit at the display's own pixels, with Agent-Desk's overlays and
 //! the pointer left out, on its own thread.
 //!
 //! The record shortcut (unbound until set) opens the same picker to record
@@ -53,7 +53,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         app,
         picked,
         PickerRole {
-            name: "Hex screenshot picker",
+            name: "Agent-Desk screenshot picker",
             screen_label: crate::desktop::i18n::tr("Full screen · Click to capture"),
             exclude_from_capture: true,
             prewarm: crate::features::screenshots(),
@@ -196,11 +196,11 @@ fn picked(action: Action) {
     }
 }
 
-/// `hex screenshot`: the whole display under the pointer, at once.
+/// `agent-desk screenshot`: the whole display under the pointer, at once.
 pub(crate) fn shoot_display() -> anyhow::Result<std::path::PathBuf> {
     anyhow::ensure!(
         crate::features::screenshots(),
-        "Screenshots are no longer part of Hex"
+        "Screenshots are no longer part of Agent-Desk"
     );
     let at = scrawl_capture::screens::pointer().unwrap_or_default();
     take(CaptureTarget::Display { at })
@@ -393,8 +393,8 @@ fn source(target: CaptureTarget) -> anyhow::Result<Shot> {
     })
 }
 
-/// Hex's own overlays (every window of Hex's above the normal layer) and
-/// the picker, left out of the shot. Hex's settings window stays in.
+/// Agent-Desk's own overlays (every window of Agent-Desk's above the normal layer) and
+/// the picker, left out of the shot. Agent-Desk's settings window stays in.
 fn exclusions() -> capture_core::Exclusions {
     let pid = std::process::id() as i32;
     let mut windows: Vec<u32> = scrawl_capture::windows::raw_windows()
@@ -598,8 +598,8 @@ pub(crate) fn key(key: Key) -> Take {
     dead_code,
     reason = "Screenshots left with Labs; its code goes with it"
 )]
-/// Whether macOS's own screenshot shortcut takes Hex's now: it's matched
-/// in the window server before any app's tap, so Hex never sees the press.
+/// Whether macOS's own screenshot shortcut takes Agent-Desk's now: it's matched
+/// in the window server before any app's tap, so Agent-Desk never sees the press.
 /// Read again at most every 2 s, since Settings draws it each frame.
 pub(crate) fn system_takes_shortcut() -> bool {
     use std::time::{Duration, Instant};

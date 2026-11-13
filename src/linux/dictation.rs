@@ -53,7 +53,7 @@ struct Job {
     language: String,
     /// The clip, kept for History while Keep recordings is on.
     recording: Option<crate::history::Recording>,
-    /// `hex dictation stop --print`: the text goes here, never pasted.
+    /// `agent-desk dictation stop --print`: the text goes here, never pasted.
     print: Option<PrintReply>,
     /// The shortcut that started this capture: dictation, Dictate without
     /// processing, or Terminal paste.
@@ -76,7 +76,7 @@ enum OutputJob {
 #[derive(Clone, Copy, PartialEq)]
 enum OutputKind {
     Dictation,
-    /// A dictation printed by `hex dictation stop --print`.
+    /// A dictation printed by `agent-desk dictation stop --print`.
     Printed,
     PasteLast,
     TypedText,
@@ -165,7 +165,7 @@ fn microphone_input(settings: &AppSettings, device: Option<&str>) -> RecoveringA
 }
 
 /// The line a listener prints once its shortcuts are settled: what actually
-/// starts dictation from here. `commands` is whether `hex` commands reach
+/// starts dictation from here. `commands` is whether `agent-desk` commands reach
 /// this listener.
 fn readiness_message(
     device: &str,
@@ -173,7 +173,7 @@ fn readiness_message(
     shortcuts: &DesktopShortcuts,
     commands: bool,
 ) -> String {
-    let ready = format!("Hex dictation is ready on {device}.");
+    let ready = format!("Agent-Desk dictation is ready on {device}.");
     match shortcuts {
         DesktopShortcuts::Registered | DesktopShortcuts::Portal(_) => {
             format!("{ready} Hold {hotkey} to dictate; Ctrl-C stops.")
@@ -182,12 +182,12 @@ fn readiness_message(
         // listener prints this.
         DesktopShortcuts::Unregistered => format!("{ready} Ctrl-C stops."),
         DesktopShortcuts::Commands if commands => format!(
-            "{ready} No shortcut is bound: bind `hex dictation start` and `hex dictation stop` \
-             (or `hex dictation toggle`) in your desktop's keybindings; Ctrl-C stops."
+            "{ready} No shortcut is bound: bind `agent-desk dictation start` and `agent-desk dictation stop` \
+             (or `agent-desk dictation toggle`) in your desktop's keybindings; Ctrl-C stops."
         ),
         DesktopShortcuts::Commands => format!(
-            "{ready} No shortcut is bound and this foreground listener can't receive `hex` \
-             commands: run `hex start` and bind `hex dictation toggle` in your desktop's \
+            "{ready} No shortcut is bound and this foreground listener can't receive `agent-desk` \
+             commands: run `agent-desk start` and bind `agent-desk dictation toggle` in your desktop's \
              keybindings; Ctrl-C stops."
         ),
     }
@@ -602,7 +602,7 @@ pub(crate) fn run(
                         Some(host) => host.control(action, &timeline),
                         None => crate::control::ControlReply::error(
                             "feature-off",
-                            "Annotate is off; turn it on with `hex settings set capture.enabled on`",
+                            "Annotate is off; turn it on with `agent-desk settings set capture.enabled on`",
                         ),
                     };
                     let _ = answer.send(report);
@@ -1517,7 +1517,7 @@ mod tests {
     fn the_ready_line_names_what_starts_dictation() {
         assert_eq!(
             readiness_message("System default", "Alt", &DesktopShortcuts::Registered, true),
-            "Hex dictation is ready on System default. Hold Alt to dictate; Ctrl-C stops."
+            "Agent-Desk dictation is ready on System default. Hold Alt to dictate; Ctrl-C stops."
         );
         assert_eq!(
             readiness_message(
@@ -1526,7 +1526,7 @@ mod tests {
                 &DesktopShortcuts::Portal(Vec::new()),
                 false
             ),
-            "Hex dictation is ready on Yeti. Hold Alt+Space to dictate; Ctrl-C stops."
+            "Agent-Desk dictation is ready on Yeti. Hold Alt+Space to dictate; Ctrl-C stops."
         );
         let unregistered =
             readiness_message("Yeti", "Alt+Space", &DesktopShortcuts::Unregistered, true);
@@ -1534,17 +1534,17 @@ mod tests {
 
         let service = readiness_message("Yeti", "Alt+Space", &DesktopShortcuts::Commands, true);
         assert!(service.contains("No shortcut is bound"));
-        assert!(service.contains("`hex dictation start`"));
-        assert!(service.contains("`hex dictation stop`"));
-        assert!(service.contains("`hex dictation toggle`"));
+        assert!(service.contains("`agent-desk dictation start`"));
+        assert!(service.contains("`agent-desk dictation stop`"));
+        assert!(service.contains("`agent-desk dictation toggle`"));
         assert!(service.contains("desktop's keybindings"));
         assert!(!service.contains("Hold"));
 
         let foreground = readiness_message("Yeti", "Alt+Space", &DesktopShortcuts::Commands, false);
         assert!(foreground.contains("No shortcut is bound"));
-        assert!(foreground.contains("can't receive `hex` commands"));
-        assert!(foreground.contains("run `hex start`"));
-        assert!(foreground.contains("`hex dictation toggle`"));
+        assert!(foreground.contains("can't receive `agent-desk` commands"));
+        assert!(foreground.contains("run `agent-desk start`"));
+        assert!(foreground.contains("`agent-desk dictation toggle`"));
         assert!(!foreground.contains("Hold"));
     }
 

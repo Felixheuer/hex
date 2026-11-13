@@ -1,4 +1,4 @@
-//! The model rows as dropdowns: the Claude models Hex knows (Opus, Sonnet,
+//! The model rows as dropdowns: the Claude models Agent-Desk knows (Opus, Sonnet,
 //! Haiku, Fable, newest first), "Default", and "Other…", which shows the
 //! field for any other model id. Codex and OpenCode name their models
 //! themselves, so they keep the field.
@@ -50,7 +50,7 @@ pub(in crate::rune_ui) fn choice(saved: Option<&str>, default: Option<&str>) -> 
         .map_or(Choice::Other, Choice::Known)
 }
 
-/// Whether `backend` runs Claude models Hex can list.
+/// Whether `backend` runs Claude models Agent-Desk can list.
 pub(in crate::rune_ui) fn lists_models(backend: AssistantBackend) -> bool {
     matches!(
         backend,

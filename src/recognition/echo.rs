@@ -1,14 +1,14 @@
-//! Whether the person speaks over Hex's own voice on the speakers (barge-in
-//! without headphones). Hex knows exactly what it plays
+//! Whether the person speaks over Agent-Desk's own voice on the speakers (barge-in
+//! without headphones). Agent-Desk knows exactly what it plays
 //! (`audio::playback_reference`), so each 20 ms of microphone audio is
-//! compared, band by band, with what Hex played a moment earlier:
+//! compared, band by band, with what Agent-Desk played a moment earlier:
 //!
 //! - the delay from output to microphone (output buffer, the room, the
 //!   input buffer) is found among 0 to 300 ms as the one whose loudness
 //!   follows the microphone's best;
-//! - each band's echo path (how much of Hex's voice reaches the microphone)
+//! - each band's echo path (how much of Agent-Desk's voice reaches the microphone)
 //!   is a low percentile ([`PATH_PERCENTILE`]) of its microphone-to-reference
-//!   ratio over the last two seconds: mostly Hex's echo alone, so the
+//!   ratio over the last two seconds: mostly Agent-Desk's echo alone, so the
 //!   person's voice (which only raises the ratio) doesn't count, and a few
 //!   frames before the echo arrived don't hold it down;
 //! - what the echo can't explain is the person. A frame is the person when
@@ -17,7 +17,7 @@
 //!
 //! A double-talk detector on band energies rather than an adaptive filter on
 //! samples: a laptop's speakers distort, which a linear filter can't
-//! cancel, and barge-in only needs the decision, not clean audio (Hex stops
+//! cancel, and barge-in only needs the decision, not clean audio (Agent-Desk stops
 //! reading at once, so the follow-up itself is heard without echo). Pure:
 //! the reference comes from a closure, so tests feed synthetic signals.
 
@@ -35,7 +35,7 @@ const DELAYS: usize = 16;
 const DELAY_STEP: Duration = Duration::from_millis(20);
 /// Frames each delay's fit is scored over: one second.
 const SCORE_FRAMES: usize = 50;
-/// Frames with Hex's voice it needs before it trusts its echo path.
+/// Frames with Agent-Desk's voice it needs before it trusts its echo path.
 const SETTLE_FRAMES: u32 = 15;
 /// The echo is taken out this many times over, for its variation.
 const OVER_SUBTRACT: f32 = 1.5;
@@ -48,14 +48,14 @@ const PATH_PERCENTILE: f32 = 0.2;
 /// Reference energy below which a band counts as silent.
 const QUIET: f32 = 1e-9;
 
-/// What a frame holds besides Hex's echo.
+/// What a frame holds besides Agent-Desk's echo.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Verdict {
-    /// Hex played nothing lately: there is no echo, as with headphones.
+    /// Agent-Desk played nothing lately: there is no echo, as with headphones.
     NoEcho,
-    /// Hex plays, but its echo path isn't learnt yet.
+    /// Agent-Desk plays, but its echo path isn't learnt yet.
     Unsure,
-    /// The person speaks over Hex's voice (or not).
+    /// The person speaks over Agent-Desk's voice (or not).
     OverEcho(bool),
 }
 
@@ -69,7 +69,7 @@ pub(super) struct EchoGate {
     window: Vec<f32>,
     /// Recent microphone-to-reference ratios per band.
     ratios: Vec<std::collections::VecDeque<f32>>,
-    /// Frames with Hex's voice seen.
+    /// Frames with Agent-Desk's voice seen.
     settled: u32,
     /// Per delay: recent (log mic energy, log reference energy) pairs.
     history: Vec<std::collections::VecDeque<(f32, f32)>>,
@@ -123,7 +123,7 @@ impl EchoGate {
         DELAY_STEP * self.delay as u32
     }
 
-    /// Judges one frame of microphone audio. `reference(delay)` is what Hex
+    /// Judges one frame of microphone audio. `reference(delay)` is what Agent-Desk
     /// played over the frame's span, `delay` earlier (frame-long, at this
     /// rate), or `None` when it played nothing lately.
     pub(super) fn judge(
@@ -165,7 +165,7 @@ impl EchoGate {
         };
         let played_total: f32 = played.iter().sum();
         if played_total <= QUIET * BANDS as f32 {
-            // Hex is between words: whatever is heard is the person's.
+            // Agent-Desk is between words: whatever is heard is the person's.
             return if self.settled >= SETTLE_FRAMES {
                 Verdict::OverEcho(true)
             } else {
@@ -286,7 +286,7 @@ mod tests {
             .collect()
     }
 
-    /// Runs `mic` (with Hex's `played` voice reaching it after `delay`
+    /// Runs `mic` (with Agent-Desk's `played` voice reaching it after `delay`
     /// frames) through a gate; the verdicts per frame.
     fn run(played: &[f32], mic: &[f32]) -> Vec<Verdict> {
         let mut gate = EchoGate::new(RATE);

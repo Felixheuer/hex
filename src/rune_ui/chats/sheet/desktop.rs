@@ -1,10 +1,10 @@
 //! The onboarding's permissions page: what the assistant needs to see and
-//! use the Mac. Screen Recording for Hex, the Microphone and Accessibility
+//! use the Mac. Screen Recording for Agent-Desk, the Microphone and Accessibility
 //! only when the voice setup didn't already grant them (one ask for both),
 //! then Automation (System Events and Finder), agent-desktop, installed
 //! with one click, and its own grants, then the person's data (Contacts,
 //! Reminders, the Calendar, and optional Full Disk Access). A grant macOS
-//! applies only after a restart gets one button that relaunches Hex and
+//! applies only after a restart gets one button that relaunches Agent-Desk and
 //! reopens this page.
 
 use rune::{Align, El, Tx, col, row, text};
@@ -25,16 +25,16 @@ use crate::assistant::backends::Fix;
 use crate::desktop::i18n::{tr, tr_fill};
 
 /// A permission's control: Allow, then a waiting dot until macOS reports
-/// it on, then Allowed; Restart Hex and continue when macOS wants that.
+/// it on, then Allowed; Restart Agent-Desk and continue when macOS wants that.
 fn grant_control(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, primary: bool) -> El {
     if needs_restart(ui, grant) {
         if !primary {
-            return waiting_pill(p, "restart-needed", tr("Restart Hex and continue"));
+            return waiting_pill(p, "restart-needed", tr("Restart Agent-Desk and continue"));
         }
         return push(
             p,
             "restart",
-            tr("Restart Hex and continue"),
+            tr("Restart Agent-Desk and continue"),
             true,
             move |ui: &mut Ui| setup::allow(ui, grant),
         );
@@ -54,7 +54,7 @@ fn grant_control(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, primary: boo
         State::Waiting if needs_restart(ui, grant) => push(
             p,
             "restart",
-            tr("Restart Hex and continue"),
+            tr("Restart Agent-Desk and continue"),
             true,
             move |ui: &mut Ui| setup::allow(ui, grant),
         ),
@@ -88,7 +88,7 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
             &glyphs::CURSOR_TEXT,
             tr("Accessibility"),
             if shared {
-                tr("Lets Hex and agent-desktop read and operate apps")
+                tr("Lets Agent-Desk and agent-desktop read and operate apps")
             } else {
                 tr("Notices the shortcut and reads the text you selected")
             },
@@ -97,7 +97,7 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
             SCREEN,
             tr("Screen Recording"),
             if shared {
-                tr("Lets Hex and agent-desktop see the screen")
+                tr("Lets Agent-Desk and agent-desktop see the screen")
             } else {
                 tr("Sends the screen you ask about with your question")
             },
@@ -115,13 +115,13 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
     };
     let state = grant_state(ui, flow, grant);
     let detail = match state {
-        _ if setup::permissions::kind(grant).is_some_and(|kind| ui.platform.stale(kind)) => {
-            tr("Already enabled? Repair the entry for this copy of Hex, then allow it again.")
-        }
+        _ if setup::permissions::kind(grant).is_some_and(|kind| ui.platform.stale(kind)) => tr(
+            "Already enabled? Repair the entry for this copy of Agent-Desk, then allow it again.",
+        ),
         State::Waiting if needs_restart(ui, grant) => {
-            tr("macOS turns it on when Hex restarts. Hex reopens right here")
+            tr("macOS turns it on when Agent-Desk restarts. Agent-Desk reopens right here")
         }
-        State::Waiting => tr("Switch on Hex in System Settings"),
+        State::Waiting => tr("Switch on Agent-Desk in System Settings"),
         _ => detail,
     };
     row_of(
@@ -135,7 +135,7 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
     )
 }
 
-/// Automation: Hex may control other apps (System Events and Finder),
+/// Automation: Agent-Desk may control other apps (System Events and Finder),
 /// asked here so tasks never stop midway for macOS's prompt. Allow shows
 /// one prompt each; a denial opens System Settings › Automation. Other apps
 /// ask on first use, and the task's step says so first.
@@ -158,7 +158,7 @@ fn automation_row(p: Paint) -> El {
     };
     let detail = match automation::last() {
         AutomationState::Denied => {
-            tr("Turn on System Events and Finder under Hex in System Settings › Automation")
+            tr("Turn on System Events and Finder under Agent-Desk in System Settings › Automation")
         }
         _ => tr(
             "Lets tasks operate your apps through System Events and Finder. Other apps ask the first time a task uses them",
@@ -199,7 +199,7 @@ fn personal_data_row(p: Paint) -> El {
         let names: Vec<&str> = refused.iter().map(|source| name(*source)).collect();
         (
             tr_fill(
-                "Off for {}: switch on Hex there in System Settings",
+                "Off for {}: switch on Agent-Desk there in System Settings",
                 &names.join(", "),
             ),
             push(
@@ -372,12 +372,14 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     // With two or more displays: which one agents work on (optional).
     rows.extend(super::super::displays::onboarding_row(ui, p));
     let resumed = flow.resumed.then(|| {
-        text(tr("Hex restarted. Checking again where you left off…"))
-            .key("resumed")
-            .role("status")
-            .font(p.k.ty.small_medium)
-            .color(p.accent())
-            .transition(arrives())
+        text(tr(
+            "Agent-Desk restarted. Checking again where you left off…",
+        ))
+        .key("resumed")
+        .role("status")
+        .font(p.k.ty.small_medium)
+        .color(p.accent())
+        .transition(arrives())
     });
     let failure = flow
         .fix_error
@@ -398,7 +400,7 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         (
             tr("Let the assistant see and use your Mac"),
             tr(
-                "Each one opens its page in System Settings, and this page waits until macOS turns it on. Hex starts agent-desktop, so macOS asks for Hex.",
+                "Each one opens its page in System Settings, and this page waits until macOS turns it on. Agent-Desk starts agent-desktop, so macOS asks for Agent-Desk.",
             ),
         )
     } else if cfg!(target_os = "windows") {

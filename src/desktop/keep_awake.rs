@@ -2,7 +2,7 @@
 //!
 //! A job may run for hours or days; if the Mac goes to sleep it stops. No
 //! mouse movement: while a Background job is queued, running, taken over,
-//! or waiting out a usage limit, Hex holds a power assertion
+//! or waiting out a usage limit, Agent-Desk holds a power assertion
 //! (`PreventUserIdleSystemSleep` on macOS, so the display may still sleep;
 //! with `keep_display_awake` also `PreventUserIdleDisplaySleep`), and lets
 //! it go when none is left. A job waiting for the person's answer doesn't
@@ -81,9 +81,9 @@ fn update_in(
         return;
     }
     let reason = if jobs == 1 {
-        "Hex: 1 assistant task is running".to_owned()
+        "Agent-Desk: 1 assistant task is running".to_owned()
     } else {
-        format!("Hex: {jobs} assistant tasks are running")
+        format!("Agent-Desk: {jobs} assistant tasks are running")
     };
     match platform::hold(next, &reason) {
         Some(handle) => {
@@ -167,7 +167,7 @@ mod platform {
 
     use super::Want;
 
-    /// The state is per thread; Hex sets it from whichever thread updates,
+    /// The state is per thread; Agent-Desk sets it from whichever thread updates,
     /// and `release` clears it on that same call path.
     pub type Handle = ();
 

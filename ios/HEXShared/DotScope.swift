@@ -1145,7 +1145,7 @@ final class DotScopeMetalPipeline {
         }
 
         let scopeDesc = MTLRenderPipelineDescriptor()
-        scopeDesc.label = "Hex DotScope"
+        scopeDesc.label = "Agent-Desk DotScope"
         scopeDesc.vertexFunction = vertex
         scopeDesc.fragmentFunction = scopeFragment
         scopeDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
@@ -1164,7 +1164,7 @@ final class DotScopeMetalPipeline {
     private func makeSwipePipeline() -> MTLRenderPipelineState? {
         guard let swipeFragmentFunction = self.swipeFragmentFunction else { return nil }
         let desc = MTLRenderPipelineDescriptor()
-        desc.label = "Hex DotSwipeCue"
+        desc.label = "Agent-Desk DotSwipeCue"
         desc.vertexFunction = vertexFunction
         desc.fragmentFunction = swipeFragmentFunction
         desc.colorAttachments[0].pixelFormat = .bgra8Unorm

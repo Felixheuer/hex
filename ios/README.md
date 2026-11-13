@@ -1,4 +1,4 @@
-# Hex for iPhone
+# Agent-Desk for iPhone
 
 **Status:** Internal TestFlight app (`HEXMobile`), custom keyboard extension
 (`HEXKeyboard`), and Live Activity + Control Center widget extension
@@ -12,14 +12,14 @@ it never accesses the microphone, speech model, or network.
 ## Capabilities
 
 - **One-tap keyboard dictation (`HEXKeyboard`):**
-  - **Setup:** The keyboard needs Full Access to reach Hex through the App
-    Group. Without it, the keyboard shows the Settings path and an **Open Hex
+  - **Setup:** The keyboard needs Full Access to reach Agent-Desk through the App
+    Group. Without it, the keyboard shows the Settings path and an **Open Agent-Desk
     setup** button (`hex-dictation://keyboard/setup`). The app's setup card
     shows live status for the keyboard, Full Access, the microphone, and the
-    speech model, and opens Hex's page in Settings. Full Access shows as on
+    speech model, and opens Agent-Desk's page in Settings. Full Access shows as on
     once the keyboard has run with it (`keyboard.fullAccessSeenAt`).
-  - **Opening Hex:** SwiftUI `Link`, `openURL`, and `extensionContext.open`
-    do nothing in a keyboard extension, so the keyboard opens Hex through
+  - **Opening Agent-Desk:** SwiftUI `Link`, `openURL`, and `extensionContext.open`
+    do nothing in a keyboard extension, so the keyboard opens Agent-Desk through
     the `UIApplication` at the end of its responder chain
     (`ContainingAppOpener`).
   - **Cold start:** Tapping **Dictate** opens the containing app
@@ -34,7 +34,7 @@ it never accesses the microphone, speech model, or network.
     bar and quick-jump chips. **Edit apps…** in the app's return menu picks and
     orders the apps the keyboard tray and jump bar offer.
   - **GPU Dot Scope (`HEXShared/DotScope.swift`, `DotScopeShader.metal`):**
-    Both `HEXMobile` and `HEXKeyboard` render Hex's desktop menu-bar braided
+    Both `HEXMobile` and `HEXKeyboard` render Agent-Desk's desktop menu-bar braided
     oscilloscope (`src/dot_scope.rs`, `src/rune_hud.wgsl`) at native display
     refresh via `CAMetalLayer` + `CADisplayLink`, pausing at 0% CPU/GPU once
     settled in idle. The keyboard extension mounts it only while a capture or
@@ -58,9 +58,9 @@ it never accesses the microphone, speech model, or network.
     `Casual` (lowercase chat without trailing period), `Notes` (spoken
     `"bullet"` / `"next line"` markers), and `Verbatim`, with cursor-aware
     insertion spacing and repeating backspace.
-  - **Full keyboard Hex key (Experiments › Full keyboard):** A tap does
+  - **Full keyboard Agent-Desk key (Experiments › Full keyboard):** A tap does
     nothing, so a stray one while typing is harmless. A still hold of 0.35 s
-    starts dictation in a warm session (or opens Hex without one), with a
+    starts dictation in a warm session (or opens Agent-Desk without one), with a
     haptic. Moving more than 10 pt before then opens the style and **Return
     to** menu; releasing over a row picks it, and releasing elsewhere leaves
     the menu open for taps (`HexKeyGesture`). VoiceOver activation dictates,
@@ -130,7 +130,7 @@ xcodebuild test -project HEXMobile.xcodeproj -scheme HEXMobile -destination "id=
   that condition through `ActiveAudioCapture`.
 - **Apple Speech hint:** Custom vocabulary's contextual strings are best effort
   and unverified on a physical iPhone. Apple documents contextual strings only
-  for `DictationTranscriber`, Hex sets them on `SpeechTranscriber`, and
+  for `DictationTranscriber`, Agent-Desk sets them on `SpeechTranscriber`, and
   Parakeet's batch path gets no hint.
 - **No iOS CI:** Custom vocabulary is covered by unit tests only. No CI job
   compiles or tests the iOS targets, so these checks run only in a local

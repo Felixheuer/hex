@@ -1,6 +1,6 @@
 //! Codex: `codex exec --json`, signed in with the person's ChatGPT account.
 //!
-//! The prompt goes in on stdin, Hex's instructions as `developer_instructions`,
+//! The prompt goes in on stdin, Agent-Desk's instructions as `developer_instructions`,
 //! and agent-desktop as an MCP server through `-c mcp_servers.desktop.*`
 //! with its tools approved up front (`default_tools_approval_mode`), because
 //! `exec` never asks. Shell commands run in the read-only sandbox. A

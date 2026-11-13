@@ -376,7 +376,7 @@ impl ChatsPane {
             }
             return self.steer(id, question);
         }
-        // Here asks about the window in front of Hex, read now; Background
+        // Here asks about the window in front of Agent-Desk, read now; Background
         // looks for itself; Auto lets the assistant choose, knowing the
         // window in front.
         let (origin, context) = match self.lane {
@@ -478,7 +478,7 @@ impl ChatsPane {
         self.view.apply(&resumed, None, Instant::now());
     }
 
-    /// Continues conversation `id` after Hex quit while it ran.
+    /// Continues conversation `id` after Agent-Desk quit while it ran.
     pub(super) fn resume(&mut self, id: &str) {
         let Some(resumed) = self.source.resume(id) else {
             self.error = Some(tr("Couldn't resume this task. Try asking again.").into());
@@ -505,7 +505,8 @@ impl ChatsPane {
             .find(|row| row.id == id)
             .map_or(Origin::Background, |row| row.origin);
         self.view.clear_failure(&resumed);
-        self.turns.insert(resumed.clone(), Turn::new(question, origin));
+        self.turns
+            .insert(resumed.clone(), Turn::new(question, origin));
         self.follow.to_end = true;
         self.select(resumed);
     }
@@ -578,7 +579,7 @@ pub(super) fn connect(ui: &mut Ui, waker: Waker) {
 }
 
 /// Opens the window's Chats pane on `conversation`, from the menu bar, a
-/// `hex://chats?id=` link, the HUD's bubble, or its task stack; without
+/// `agent-desk://chats?id=` link, the HUD's bubble, or its task stack; without
 /// one, on the most relevant conversation.
 pub(super) fn show(ui: &mut Ui, conversation: Option<ConversationId>, tx: &mut Tx) {
     if !on(ui) {

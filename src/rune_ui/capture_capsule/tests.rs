@@ -1,6 +1,6 @@
-//! The capsule's states at rest (goldens, and `HEX_CAPSULE_SNAPS` stills)
+//! The capsule's states at rest (goldens, and `AGENT_DESK_CAPSULE_SNAPS` stills)
 //! and its changes played frame by frame (motion checks, and with
-//! `HEX_CAPSULE_MOTION` the frames and motion-lint traces).
+//! `AGENT_DESK_CAPSULE_MOTION` the frames and motion-lint traces).
 
 use std::sync::{Arc, Mutex};
 
@@ -601,7 +601,7 @@ const GOLDENS: &[&str] = &[
 ];
 
 /// States against `tests/golden/capture-capsule-*.png`;
-/// `HEX_UPDATE_GOLDENS=1` rewrites them. Without a GPU adapter they skip.
+/// `AGENT_DESK_UPDATE_GOLDENS=1` rewrites them. Without a GPU adapter they skip.
 #[test]
 fn capture_capsule_goldens() {
     let Ok(gpu) = rune::render::Gpu::try_new(rune::render::Gpu::instance(), None) else {
@@ -615,7 +615,7 @@ fn capture_capsule_goldens() {
             let theme = if dark { "dark" } else { "light" };
             let path = folder.join(format!("capture-capsule-{name}-{theme}.png"));
             let (w, h, pixels) = render(&gpu, pres.clone(), dark);
-            if std::env::var_os("HEX_UPDATE_GOLDENS").is_some() {
+            if std::env::var_os("AGENT_DESK_UPDATE_GOLDENS").is_some() {
                 rune::render::write_png(&path, w, h, &pixels).unwrap();
                 continue;
             }
@@ -658,26 +658,26 @@ fn capture_capsule_goldens() {
     assert!(misses.is_empty(), "{}", misses.join("\n"));
 }
 
-/// `HEX_CAPSULE_TOP_LINE=quiet|icons` draws the finished capsule's top
-/// line that way and `HEX_CAPSULE_FOOTER=band|well` the list's footer, to
+/// `AGENT_DESK_CAPSULE_TOP_LINE=quiet|icons` draws the finished capsule's top
+/// line that way and `AGENT_DESK_CAPSULE_FOOTER=band|well` the list's footer, to
 /// compare them.
 fn top_line_from_env() {
     let mut tuning = super::tuning::DEFAULT;
-    if let Ok(name) = std::env::var("HEX_CAPSULE_TOP_LINE") {
+    if let Ok(name) = std::env::var("AGENT_DESK_CAPSULE_TOP_LINE") {
         tuning.top_line = super::tuning::TopLine::ALL
             .into_iter()
             .find(|m| format!("{m:?}").eq_ignore_ascii_case(&name))
-            .expect("HEX_CAPSULE_TOP_LINE is quiet or icons");
+            .expect("AGENT_DESK_CAPSULE_TOP_LINE is quiet or icons");
     }
-    if let Ok(name) = std::env::var("HEX_CAPSULE_FOOTER") {
+    if let Ok(name) = std::env::var("AGENT_DESK_CAPSULE_FOOTER") {
         tuning.list_footer = super::tuning::ListFooter::ALL
             .into_iter()
             .find(|m| format!("{m:?}").eq_ignore_ascii_case(&name))
-            .expect("HEX_CAPSULE_FOOTER is band or well");
+            .expect("AGENT_DESK_CAPSULE_FOOTER is band or well");
     }
-    // `HEX_CAPSULE_FLOW=list|toast|menu_bar|cursor|notch` plays that flow,
-    // and `HEX_CAPSULE_UNDO_S` shortens Undo's window for a short clip.
-    if let Ok(name) = std::env::var("HEX_CAPSULE_FLOW") {
+    // `AGENT_DESK_CAPSULE_FLOW=list|toast|menu_bar|cursor|notch` plays that flow,
+    // and `AGENT_DESK_CAPSULE_UNDO_S` shortens Undo's window for a short clip.
+    if let Ok(name) = std::env::var("AGENT_DESK_CAPSULE_FLOW") {
         tuning.flow = super::tuning::CapsuleFlow::ALL
             .into_iter()
             .find(|f| {
@@ -685,25 +685,25 @@ fn top_line_from_env() {
                     .replace('_', "")
                     .eq_ignore_ascii_case(&name.replace('_', ""))
             })
-            .expect("HEX_CAPSULE_FLOW is list, toast, menu_bar, cursor or notch");
+            .expect("AGENT_DESK_CAPSULE_FLOW is list, toast, menu_bar, cursor or notch");
     }
-    if let Ok(secs) = std::env::var("HEX_CAPSULE_UNDO_S") {
-        tuning.undo_s = secs.parse().expect("HEX_CAPSULE_UNDO_S is seconds");
+    if let Ok(secs) = std::env::var("AGENT_DESK_CAPSULE_UNDO_S") {
+        tuning.undo_s = secs.parse().expect("AGENT_DESK_CAPSULE_UNDO_S is seconds");
     }
     if tuning != super::tuning::DEFAULT {
         super::tuning::set(tuning);
     }
 }
 
-/// `HEX_CAPSULE_SNAPS=<folder>` writes every state, light and dark;
-/// `HEX_CAPSULE_LANGUAGE=de` (any interface language code) in that language.
+/// `AGENT_DESK_CAPSULE_SNAPS=<folder>` writes every state, light and dark;
+/// `AGENT_DESK_CAPSULE_LANGUAGE=de` (any interface language code) in that language.
 #[test]
 fn capture_capsule_snapshots() {
-    let Some(folder) = std::env::var_os("HEX_CAPSULE_SNAPS") else {
+    let Some(folder) = std::env::var_os("AGENT_DESK_CAPSULE_SNAPS") else {
         return;
     };
     top_line_from_env();
-    if let Ok(language) = std::env::var("HEX_CAPSULE_LANGUAGE") {
+    if let Ok(language) = std::env::var("AGENT_DESK_CAPSULE_LANGUAGE") {
         crate::desktop::i18n::apply(Some(&language));
     }
     let Ok(gpu) = rune::render::Gpu::try_new(rune::render::Gpu::instance(), None) else {
@@ -892,7 +892,7 @@ fn scripts() -> Vec<Script> {
             ],
             end: 5.4,
         },
-        // Every flow's whole path (`HEX_CAPSULE_FLOW`): a recording that
+        // Every flow's whole path (`AGENT_DESK_CAPSULE_FLOW`): a recording that
         // ⌥⇧S stops (the host's stages), the guesses come, one is picked (the toast's ⇥ then ⏎,
         // the rest a digit), Sent with Undo, gone; then a saved rule sends
         // on its own and leaves by itself.
@@ -1171,7 +1171,7 @@ fn settle(rt: &mut Runtime<CapsuleState>) {
 }
 
 /// Clicks the middle of the live element keyed `key` as a Mac delivers it:
-/// the pointer gets there, Hex's session tap hears the press first and
+/// the pointer gets there, Agent-Desk's session tap hears the press first and
 /// tells the capsule it may be a click away (`CapsuleKey::Press`), and only
 /// then does the overlay get the press and the release.
 fn click_on(rt: &mut Runtime<CapsuleState>, key: &str, nth: usize) {
@@ -1220,7 +1220,7 @@ fn point_at(rt: &mut Runtime<CapsuleState>, key: &str) {
     settle(rt);
 }
 
-/// `input` from Hex's tap, as a key reaches the live capsule.
+/// `input` from Agent-Desk's tap, as a key reaches the live capsule.
 fn tap(rt: &mut Runtime<CapsuleState>, input: Input) {
     rt.update(move |s, tx| {
         s.inbox.push(input);
@@ -1229,12 +1229,12 @@ fn tap(rt: &mut Runtime<CapsuleState>, input: Input) {
     settle(rt);
 }
 
-/// `HEX_CAPSULE_HOVER_SNAPS=<folder>` writes the live capsule with the
+/// `AGENT_DESK_CAPSULE_HOVER_SNAPS=<folder>` writes the live capsule with the
 /// pointer resting on RUNE, the fourth row, and Shift down, over the
 /// suggestions and over the search, light and dark.
 #[test]
 fn capture_capsule_hover_snapshots() {
-    let Some(folder) = std::env::var_os("HEX_CAPSULE_HOVER_SNAPS") else {
+    let Some(folder) = std::env::var_os("AGENT_DESK_CAPSULE_HOVER_SNAPS") else {
         return;
     };
     let Ok(gpu) = rune::render::Gpu::try_new(rune::render::Gpu::instance(), None) else {
@@ -1382,19 +1382,19 @@ fn processing_input() -> Input {
     Input::Stage(Stage::Transcribing)
 }
 
-/// `HEX_CAPSULE_MOTION=<folder>` plays every script, light and dark, calm
+/// `AGENT_DESK_CAPSULE_MOTION=<folder>` plays every script, light and dark, calm
 /// and under Reduce Motion: motion-lint traces in
 /// `<folder>/runs/<script>-<variant>/trace.jsonl` (`motion-lint analyze
-/// <folder>`), and with `HEX_CAPSULE_FRAMES=1` each frame as a PNG in
-/// `<folder>/frames/<script>-<variant>-<theme>/`. `HEX_CAPSULE_SCRIPTS`
-/// picks scripts by name, and `HEX_CAPSULE_FLOW` the flow they play.
+/// <folder>`), and with `AGENT_DESK_CAPSULE_FRAMES=1` each frame as a PNG in
+/// `<folder>/frames/<script>-<variant>-<theme>/`. `AGENT_DESK_CAPSULE_SCRIPTS`
+/// picks scripts by name, and `AGENT_DESK_CAPSULE_FLOW` the flow they play.
 #[test]
 fn capture_capsule_motion() {
-    let Some(folder) = std::env::var_os("HEX_CAPSULE_MOTION") else {
+    let Some(folder) = std::env::var_os("AGENT_DESK_CAPSULE_MOTION") else {
         return;
     };
     let folder = std::path::PathBuf::from(folder);
-    let frames = std::env::var_os("HEX_CAPSULE_FRAMES").is_some();
+    let frames = std::env::var_os("AGENT_DESK_CAPSULE_FRAMES").is_some();
     let gpu = if frames {
         rune::render::Gpu::try_new(rune::render::Gpu::instance(), None).ok()
     } else {
@@ -1407,9 +1407,9 @@ fn capture_capsule_motion() {
             crate::rune_ui::offscreen::target(&gpu.device, w, h),
         )
     });
-    let only = std::env::var("HEX_CAPSULE_SCRIPTS").ok();
-    // `HEX_CAPSULE_FRAMES=all` writes Reduce Motion's frames too.
-    let reduced_frames = std::env::var("HEX_CAPSULE_FRAMES").is_ok_and(|v| v == "all");
+    let only = std::env::var("AGENT_DESK_CAPSULE_SCRIPTS").ok();
+    // `AGENT_DESK_CAPSULE_FRAMES=all` writes Reduce Motion's frames too.
+    let reduced_frames = std::env::var("AGENT_DESK_CAPSULE_FRAMES").is_ok_and(|v| v == "all");
     top_line_from_env();
     let mut report = Vec::new();
     for script in scripts() {
@@ -1425,9 +1425,9 @@ fn capture_capsule_motion() {
             let frames = frames && (reduced_frames || matches!(variant, Variant::Calm));
             for dark in [true, false] {
                 let theme = if dark { "dark" } else { "light" };
-                // `HEX_CAPSULE_THEME=light|dark` writes one theme's frames.
+                // `AGENT_DESK_CAPSULE_THEME=light|dark` writes one theme's frames.
                 let frames = frames
-                    && std::env::var("HEX_CAPSULE_THEME")
+                    && std::env::var("AGENT_DESK_CAPSULE_THEME")
                         .ok()
                         .is_none_or(|t| t == theme);
                 // One trace per script and variant: the motion is the same
@@ -1562,14 +1562,14 @@ fn ink_at(now: u64) -> super::ink::Scene {
     super::ink::Scene::at(&snapshot, now, tip)
 }
 
-/// `HEX_CAPSULE_SNAPS=<folder>` writes the ink overlay's moments as stills,
-/// and with `HEX_CAPSULE_FRAMES=1` and `HEX_CAPSULE_MOTION=<folder>` the
+/// `AGENT_DESK_CAPSULE_SNAPS=<folder>` writes the ink overlay's moments as stills,
+/// and with `AGENT_DESK_CAPSULE_FRAMES=1` and `AGENT_DESK_CAPSULE_MOTION=<folder>` the
 /// whole capture as frames in `<folder>/frames/ink-<theme>/`.
 #[test]
 fn ink_overlay_stills_and_frames() {
-    let snaps = std::env::var_os("HEX_CAPSULE_SNAPS").map(std::path::PathBuf::from);
-    let motion = std::env::var_os("HEX_CAPSULE_MOTION")
-        .filter(|_| std::env::var_os("HEX_CAPSULE_FRAMES").is_some())
+    let snaps = std::env::var_os("AGENT_DESK_CAPSULE_SNAPS").map(std::path::PathBuf::from);
+    let motion = std::env::var_os("AGENT_DESK_CAPSULE_MOTION")
+        .filter(|_| std::env::var_os("AGENT_DESK_CAPSULE_FRAMES").is_some())
         .map(std::path::PathBuf::from);
     if snaps.is_none() && motion.is_none() {
         return;
@@ -2043,18 +2043,18 @@ fn a_pick_that_goes_nowhere_brings_the_picker_back() {
     assert_eq!(rt.state.aim().unwrap().mode, Mode::Area);
 }
 
-/// `HEX_CAPSULE_SNAPS=<folder>` writes the picker's stills, light and dark;
-/// `HEX_CAPSULE_MOTION=<folder>` its motion-lint traces in
-/// `<folder>/runs/<script>-<variant>/`, and with `HEX_CAPSULE_FRAMES=1` its
+/// `AGENT_DESK_CAPSULE_SNAPS=<folder>` writes the picker's stills, light and dark;
+/// `AGENT_DESK_CAPSULE_MOTION=<folder>` its motion-lint traces in
+/// `<folder>/runs/<script>-<variant>/`, and with `AGENT_DESK_CAPSULE_FRAMES=1` its
 /// calm frames in `<folder>/frames/<script>-calm-<theme>/`.
 #[test]
 fn picker_stills_and_motion() {
-    let snaps = std::env::var_os("HEX_CAPSULE_SNAPS").map(std::path::PathBuf::from);
-    let motion = std::env::var_os("HEX_CAPSULE_MOTION").map(std::path::PathBuf::from);
+    let snaps = std::env::var_os("AGENT_DESK_CAPSULE_SNAPS").map(std::path::PathBuf::from);
+    let motion = std::env::var_os("AGENT_DESK_CAPSULE_MOTION").map(std::path::PathBuf::from);
     if snaps.is_none() && motion.is_none() {
         return;
     }
-    let frames = std::env::var_os("HEX_CAPSULE_FRAMES").is_some();
+    let frames = std::env::var_os("AGENT_DESK_CAPSULE_FRAMES").is_some();
     let gpu = rune::render::Gpu::try_new(rune::render::Gpu::instance(), None).ok();
     let (w, h) = ((DISPLAY[0] * 2.0) as u32, (DISPLAY[1] * 2.0) as u32);
     let mut parts = gpu.as_ref().map(|gpu| {

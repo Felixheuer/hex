@@ -1,7 +1,7 @@
 //! Launch at login. macOS registers the app with `SMAppService` through a
 //! worker thread, since ServiceManagement can block; Windows writes the
 //! current user's `Run` registry value (`windows_login_item`). Linux starts
-//! the `hex.service` unit from its install script or Nix module, so Hex does
+//! the `agent-desk.service` unit from its install script or Nix module, so Agent-Desk does
 //! not offer the setting there.
 
 #[cfg(target_os = "macos")]

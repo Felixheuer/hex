@@ -39,7 +39,7 @@ const PORTAL_IDLE: Duration = Duration::from_secs(15);
 /// How long after the paste shortcut the previous clipboard comes back, as
 /// on macOS. Nothing acknowledges that the target read the paste.
 const RESTORE_DELAY: Duration = Duration::from_millis(500);
-/// How long an X11 paste waits for modifiers no Hex shortcut holds.
+/// How long an X11 paste waits for modifiers no Agent-Desk shortcut holds.
 const MODIFIER_WAIT_LIMIT: Duration = Duration::from_secs(2);
 
 pub(crate) struct LinuxPaster {
@@ -300,7 +300,7 @@ const WL_COPY: &str = "wl-copy";
 const WL_COPY_MISSING: &str =
     "wl-copy is not installed. Install the wl-clipboard package, then try again.";
 
-/// What Settings and `hex status` warn with while this Wayland session can't
+/// What Settings and `agent-desk status` warn with while this Wayland session can't
 /// copy or paste at all.
 pub(crate) fn missing_wayland_helper() -> Option<&'static str> {
     if !LinuxSession::detect().is_wayland() {
@@ -309,7 +309,7 @@ pub(crate) fn missing_wayland_helper() -> Option<&'static str> {
     missing_wl_copy(std::env::var_os("PATH").as_deref())
 }
 
-/// The notice Settings and `hex status` show while one runs.
+/// The notice Settings and `agent-desk status` show while one runs.
 pub(crate) fn listener_warning(running: bool) -> Option<String> {
     if !running {
         return None;
@@ -427,7 +427,7 @@ impl LinuxPaster {
 
     /// Starts a job that owns the clipboard until it restores: cancels any
     /// pending paste restore, adopts the clipboard that paste replaced when
-    /// there is one, or snapshots the clipboard now. `None` when Hex cannot
+    /// there is one, or snapshots the clipboard now. `None` when Agent-Desk cannot
     /// read it; the job still runs, and its result stays on the clipboard.
     pub(crate) fn begin_clipboard_job(&mut self) -> Result<Option<Snapshot>> {
         let selection = self.selection.current();
@@ -811,7 +811,7 @@ fn chord_keys(chord: Chord, with_shift: bool) -> Vec<String> {
     keys
 }
 
-/// Waits until the X server reports no held modifiers. While one of Hex's
+/// Waits until the X server reports no held modifiers. While one of Agent-Desk's
 /// shortcuts is down, a newer capture owns them, so its predecessor stays
 /// queued for as long as it is held. Otherwise the wait ends after `limit`
 /// and the paste goes ahead: XWayland's modifier state goes stale while a
@@ -834,7 +834,7 @@ fn wait_for_modifiers(
         if began.elapsed() >= limit && !shortcut_held() {
             tracing::warn!(
                 waited_ms = began.elapsed().as_millis() as u64,
-                "modifiers still read as held with no Hex shortcut down; pasting anyway"
+                "modifiers still read as held with no Agent-Desk shortcut down; pasting anyway"
             );
             return Ok(());
         }
@@ -1226,7 +1226,7 @@ mod tests {
     #[ignore = "run scripts/test-wayland-paste.sh with the compiled test executable"]
     fn native_wayland_clipboard_shortcut() {
         assert!(LinuxSession::detect().is_wayland());
-        let path = std::env::var_os("HEX_WAYLAND_PASTE_OUTPUT")
+        let path = std::env::var_os("AGENT_DESK_WAYLAND_PASTE_OUTPUT")
             .expect("the isolated Wayland test runner must supply its output file");
         let expected = "Example dictation: --flags, punctuation, \u{6f22}\u{5b57}.\nSecond line.";
         let wait_for = |what: &str, done: &mut dyn FnMut() -> bool| {

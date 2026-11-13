@@ -1,11 +1,11 @@
 //! Signing an agent in: its own sign-in command in a terminal window (a
 //! `.command` file Terminal opens on macOS, the desktop's terminal on
-//! Linux, a console window on Windows), while Hex asks the agent every few
+//! Linux, a console window on Windows), while Agent-Desk asks the agent every few
 //! seconds whether it's signed in.
 
 use super::*;
 
-/// How long Hex waits for a sign-in in Terminal.
+/// How long Agent-Desk waits for a sign-in in Terminal.
 const SIGN_IN_LIMIT: Duration = Duration::from_secs(600);
 
 /// The sign-in command for `backend`, after its executable.
@@ -92,7 +92,7 @@ pub(super) fn open_sign_in(folder: &Path, path: &Path, arguments: &str, agent: &
         }
     }
     Err(eyre!(
-        "Hex couldn't find a terminal to open. Run `{quoted}{arguments}` in one yourself"
+        "Agent-Desk couldn't find a terminal to open. Run `{quoted}{arguments}` in one yourself"
     ))
 }
 

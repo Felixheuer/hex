@@ -107,10 +107,10 @@ fn javascript_off(error: &str) -> bool {
     lower.contains("javascript") && (lower.contains("turned off") || lower.contains("allow"))
 }
 
-/// What the person turns on so Hex can act in `browser`'s tabs.
+/// What the person turns on so Agent-Desk can act in `browser`'s tabs.
 fn javascript_off_note(browser: &Browser) -> String {
     format!(
-        "{} doesn't allow JavaScript from Apple Events, so Hex can't act in the tab. The person \
+        "{} doesn't allow JavaScript from Apple Events, so Agent-Desk can't act in the tab. The person \
          can turn it on in {}: “Allow JavaScript from Apple Events” (in Chromium-based browsers \
          under View › Developer, in Safari under Develop once Settings › Advanced › “Show \
          features for web developers” is on).",
@@ -445,7 +445,8 @@ pub fn call(arguments: &Value, task: Option<&str>, role: Role) -> Result<String,
             let (label, kind) = find(&browser, tab, arguments, true, &nonce)?;
             if kind == "password" {
                 return Err(
-                    "Hex never types into password fields; the person signs in themselves.".into(),
+                    "Agent-Desk never types into password fields; the person signs in themselves."
+                        .into(),
                 );
             }
             check_fill(&label, &gate)?;

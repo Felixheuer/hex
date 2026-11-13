@@ -131,7 +131,7 @@ impl Runtime {
             }
             Request::UseInstalledSelection(selection) => {
                 self.manual_choice();
-                // `hex model use` replies "already in use" on the same test.
+                // `agent-desk model use` replies "already in use" on the same test.
                 if !same_model_and_language(&selection, &self.settings.transcription) {
                     self.preparation.start(selection, true);
                 }
@@ -219,7 +219,7 @@ impl Runtime {
         }
     }
 
-    /// Feeds one foreground read to the app switcher. Hex's own window and a
+    /// Feeds one foreground read to the app switcher. Agent-Desk's own window and a
     /// moment with no application in front carry no mode, so they leave the
     /// last match and any switch it scheduled alone. A dictation that records
     /// or transcribes holds a due switch until it finishes.
@@ -266,7 +266,7 @@ impl Runtime {
 
     pub(super) fn tick_at(&mut self, now: Instant) {
         self.switch_with_keyboard(now);
-        // Read the frontmost application only while the lab is on. Hex's own
+        // Read the frontmost application only while the lab is on. Agent-Desk's own
         // window names no mode and is ignored.
         let application = crate::features::app_model_switching()
             .then(crate::dictation::context::frontmost_other_application)

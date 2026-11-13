@@ -1,5 +1,5 @@
 //! The person's replies, read from the Mac's Messages database
-//! (`~/Library/Messages/chat.db`, read-only; macOS lets Hex read it only
+//! (`~/Library/Messages/chat.db`, read-only; macOS lets Agent-Desk read it only
 //! with Full Disk Access). Only messages from the configured handle, and
 //! only rows after a given one, are read.
 
@@ -33,7 +33,7 @@ pub fn database() -> Option<PathBuf> {
     crate::app_paths::home_dir().map(|home| home.join("Library/Messages/chat.db"))
 }
 
-/// Whether Hex may read the Messages database (Full Disk Access).
+/// Whether Agent-Desk may read the Messages database (Full Disk Access).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Access {
     Granted,
@@ -209,7 +209,7 @@ pub fn parse(rows: &[Value]) -> Vec<Reply> {
                 })?;
             // The handle is the person's own: in the chat with themselves
             // ("Ich") their replies are stored as sent by this Mac too.
-            // Hex's own messages are left out by how they start.
+            // Agent-Desk's own messages are left out by how they start.
             let mine = row.get("mine").and_then(Value::as_i64) == Some(1);
             if mine && from_hex(&text) {
                 return None;
@@ -223,14 +223,16 @@ pub fn parse(rows: &[Value]) -> Vec<Reply> {
         .collect()
 }
 
-/// Whether `text` is one of Hex's own messages (`outgoing`): its marks
+/// Whether `text` is one of Agent-Desk's own messages (`outgoing`): its marks
 /// (question, warning, done), or the test's name first.
 pub fn from_hex(text: &str) -> bool {
     let text = text.trim_start();
     ['\u{2753}', '\u{26a0}', '\u{2705}']
         .iter()
         .any(|mark| text.starts_with(*mark))
-        || ["Hex:", "Agent-Desk:"].iter().any(|name| text.starts_with(name))
+        || ["Agent-Desk:", "Agent-Desk:"]
+            .iter()
+            .any(|name| text.starts_with(name))
 }
 
 /// The query for the last message this Mac sent to `handle` (already
@@ -420,7 +422,7 @@ mod self_chat_tests {
     fn in_the_chat_with_oneself_replies_count_but_hex_s_own_messages_don_t() {
         let rows = vec![
             serde_json::json!({"rowid": 1, "date": 0, "text": "\u{2705} Done:\nresult", "mine": 1}),
-            serde_json::json!({"rowid": 2, "date": 0, "text": "Hex: test", "mine": 1}),
+            serde_json::json!({"rowid": 2, "date": 0, "text": "Agent-Desk: test", "mine": 1}),
             serde_json::json!({"rowid": 3, "date": 0, "text": "ja, mach weiter", "mine": 1}),
             serde_json::json!({"rowid": 4, "date": 0, "text": "\u{2705} from someone", "mine": 0}),
         ];

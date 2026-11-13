@@ -1,7 +1,7 @@
 import UIKit
 
-/// The Hex key right of space. Warm session: an orange core, and a hold records here.
-/// Otherwise the mark is faded with ↗, and a hold leaves for Hex to start one.
+/// The Agent-Desk key right of space. Warm session: an orange core, and a hold records here.
+/// Otherwise the mark is faded with ↗, and a hold leaves for Agent-Desk to start one.
 /// A tap does nothing; holding and sliding opens the style menu (`HexKeyGesture`).
 @MainActor
 final class HexKeyControl: UIControl {
@@ -10,7 +10,7 @@ final class HexKeyControl: UIControl {
     /// The drawn keycap inside the control's (larger) touch target.
     var keycapFrame: CGRect = .zero { didSet { if keycapFrame != oldValue { setNeedsDisplay() } } }
 
-    /// A still hold: dictate, or open Hex.
+    /// A still hold: dictate, or open Agent-Desk.
     var onHold: (() -> Void)?
     /// Points are in this control's coordinates.
     var onMenuOpen: ((CGPoint) -> Void)?
@@ -45,7 +45,7 @@ final class HexKeyControl: UIControl {
     }
 
     private func updateAccessibility() {
-        accessibilityLabel = isWarm ? "Dictate with Hex" : "Open Hex to dictate"
+        accessibilityLabel = isWarm ? "Dictate with Agent-Desk" : "Open Agent-Desk to dictate"
         accessibilityHint = "Hold to dictate, hold and slide for styles"
     }
 
@@ -298,7 +298,7 @@ final class PanelKeyButton: UIControl {
     }
 }
 
-/// Holding the Hex key: dictation styles, then "Return to" for the app Hex goes back to.
+/// Holding the Agent-Desk key: dictation styles, then "Return to" for the app Agent-Desk goes back to.
 @MainActor
 final class HexStyleMenuView: UIView {
     enum Page { case styles, returnApps }
@@ -309,7 +309,7 @@ final class HexStyleMenuView: UIView {
     var onStyle: ((DictationStyle) -> Void)?
     var onReturnApp: ((String?) -> Void)?
     var onDismiss: (() -> Void)?
-    /// The Hex key's keycap, in this view's coordinates; the panel opens above it.
+    /// The Agent-Desk key's keycap, in this view's coordinates; the panel opens above it.
     var anchor: CGRect = .zero { didSet { setNeedsLayout() } }
 
     private var page: Page = .styles
@@ -422,7 +422,7 @@ final class HexStyleMenuView: UIView {
         let available = max(80, anchor.minY - 8 - 4)
         let rowH = min(38, (available - 2 * padding) / CGFloat(max(1, rows.count)))
         let height = CGFloat(rows.count) * rowH + 2 * padding
-        // Opens toward the middle of the keyboard: the Hex key sits right of space.
+        // Opens toward the middle of the keyboard: the Agent-Desk key sits right of space.
         let x = min(bounds.width - 4 - width, max(4, anchor.maxX - width))
         panel.frame = CGRect(x: x, y: max(4, anchor.minY - 8 - height), width: width, height: height)
         for (i, row) in rows.enumerated() {

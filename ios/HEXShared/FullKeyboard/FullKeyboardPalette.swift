@@ -52,7 +52,7 @@ struct FullKeyboardPalette: Equatable {
     static let cornerRadius: CGFloat = 8.5
 }
 
-/// The Hex mark (two hexagon outlines and a filled core) as UIKit paths.
+/// The Agent-Desk mark (two hexagon outlines and a filled core) as UIKit paths.
 enum HexMarkPath {
     private static let outer: [CGPoint] = [
         CGPoint(x: 32, y: 4), CGPoint(x: 57, y: 18.5), CGPoint(x: 57, y: 45.5),

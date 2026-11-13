@@ -81,9 +81,9 @@ fn schedule(model: &mut IndicatorModel, start: Instant) -> Vec<DotFrame> {
         (3.6, HudEvent::Processing { job_id: 1 }),
         (4.4, HudEvent::JobCompleted { job_id: 1 }),
     ];
-    // `HEX_HUD_ASK=quick` or `agent`: the Action shortcut asks the
+    // `AGENT_DESK_HUD_ASK=quick` or `agent`: the Action shortcut asks the
     // assistant instead.
-    if let Ok(ask) = std::env::var("HEX_HUD_ASK") {
+    if let Ok(ask) = std::env::var("AGENT_DESK_HUD_ASK") {
         events.insert(
             1,
             (
@@ -170,8 +170,8 @@ fn place_on(
         plate: (f64::from(width) - 24.0, f64::from(dot_scope::PLATE_HEIGHT)),
         island_spread: f64::from(tuning.island_spread),
     };
-    // `HEX_HUD_EARS=1` places the notch indicator instead.
-    if std::env::var("HEX_HUD_EARS").as_deref() == Ok("1")
+    // `AGENT_DESK_HUD_EARS=1` places the notch indicator instead.
+    if std::env::var("AGENT_DESK_HUD_EARS").as_deref() == Ok("1")
         && let Some(placed) = crate::rune_hud::hud_placement::ears(screen, content)
     {
         return placed;
@@ -207,22 +207,24 @@ fn backdrop(
 /// at 60 fps over a desktop colour, from a fixed schedule:
 ///
 /// ```sh
-/// HEX_HUD_FRAMES=/tmp/frames cargo test --bin hex rune_hud_frames -- --ignored
+/// AGENT_DESK_HUD_FRAMES=/tmp/frames cargo test --bin agent-desk rune_hud_frames -- --ignored
 /// ```
 ///
-/// `HEX_HUD_TUNING` overrides Dot scope's tuning as JSON, such as
+/// `AGENT_DESK_HUD_TUNING` overrides Dot scope's tuning as JSON, such as
 /// `{"processing": "pulse", "placement": "notch"}`, placed on a 14-inch
-/// MacBook Pro, or with `HEX_HUD_SCREEN=studio` on a Studio Display (no
-/// notch); `HEX_HUD_EARS=1` draws the notch indicator; `HEX_HUD_THEME=light` draws over a light desktop. `HEX_HUD_DUMP=<file>` also writes
+/// MacBook Pro, or with `AGENT_DESK_HUD_SCREEN=studio` on a Studio Display (no
+/// notch); `AGENT_DESK_HUD_EARS=1` draws the notch indicator; `AGENT_DESK_HUD_THEME=light` draws over a light desktop. `AGENT_DESK_HUD_DUMP=<file>` also writes
 /// every frame's shader inputs, for rendering the same frames elsewhere.
 #[test]
 #[ignore = "writes frames for a review clip"]
 fn rune_hud_frames() {
-    let out = std::path::PathBuf::from(std::env::var("HEX_HUD_FRAMES").expect("HEX_HUD_FRAMES"));
+    let out = std::path::PathBuf::from(
+        std::env::var("AGENT_DESK_HUD_FRAMES").expect("AGENT_DESK_HUD_FRAMES"),
+    );
     std::fs::create_dir_all(&out).unwrap();
-    let dark = std::env::var("HEX_HUD_THEME").as_deref() != Ok("light");
+    let dark = std::env::var("AGENT_DESK_HUD_THEME").as_deref() != Ok("light");
     let mut fields = serde_json::to_value(Tuning::default()).unwrap();
-    if let Ok(json) = std::env::var("HEX_HUD_TUNING") {
+    if let Ok(json) = std::env::var("AGENT_DESK_HUD_TUNING") {
         let overrides: serde_json::Value = serde_json::from_str(&json).unwrap();
         for (key, value) in overrides.as_object().unwrap() {
             fields[key] = value.clone();
@@ -230,7 +232,7 @@ fn rune_hud_frames() {
     }
     let tuning: Tuning = serde_json::from_value(fields).unwrap();
     let start = Instant::now();
-    let screen = if std::env::var("HEX_HUD_SCREEN").as_deref() == Ok("studio") {
+    let screen = if std::env::var("AGENT_DESK_HUD_SCREEN").as_deref() == Ok("studio") {
         studio_display()
     } else {
         macbook()
@@ -245,9 +247,9 @@ fn rune_hud_frames() {
     let instance =
         wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter = block_on(instance.request_adapter(&Default::default())).expect("a GPU adapter");
-    // `HEX_HUD_BUFFERS=1` draws through the uniform buffer, as a device
+    // `AGENT_DESK_HUD_BUFFERS=1` draws through the uniform buffer, as a device
     // without immediates does.
-    let features = if std::env::var("HEX_HUD_BUFFERS").as_deref() == Ok("1") {
+    let features = if std::env::var("AGENT_DESK_HUD_BUFFERS").as_deref() == Ok("1") {
         wgpu::Features::empty()
     } else {
         adapter.features() & Painter::FEATURES
@@ -340,7 +342,7 @@ fn rune_hud_frames() {
             backdrop,
         );
     }
-    if let Ok(path) = std::env::var("HEX_HUD_DUMP") {
+    if let Ok(path) = std::env::var("AGENT_DESK_HUD_DUMP") {
         std::fs::write(path, dump).unwrap();
     }
 }

@@ -1,6 +1,6 @@
 //! The Anthropic API key, kept where this computer keeps secrets
 //! (`assistant::secrets`: the Keychain, the keyring, or Credential
-//! Manager; service "Hex Assistant", account "anthropic"), never in
+//! Manager; service "Agent-Desk Assistant", account "anthropic"), never in
 //! settings.json. The `ANTHROPIC_API_KEY` environment variable wins when
 //! set.
 //!

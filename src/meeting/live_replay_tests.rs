@@ -4,9 +4,9 @@
 //! repository; never run it against a live data folder:
 //!
 //! ```sh
-//! HEX_APPLICATION_SUPPORT_DIR=<scratch> HEX_MEETING_DIR=<recorded meeting> \
-//!   HEX_MEETING_MODELS=<folder with the selected GGUF> HEX_MEETING_REPORT=<dir> \
-//!   HEX_MEETING_SECONDS=600 cargo test meeting_live_replay -- --ignored --nocapture
+//! AGENT_DESK_APPLICATION_SUPPORT_DIR=<scratch> AGENT_DESK_MEETING_DIR=<recorded meeting> \
+//!   AGENT_DESK_MEETING_MODELS=<folder with the selected GGUF> AGENT_DESK_MEETING_REPORT=<dir> \
+//!   AGENT_DESK_MEETING_SECONDS=600 cargo test meeting_live_replay -- --ignored --nocapture
 //! ```
 //!
 //! Both tracks are fed in 10 ms packets at real time, on the recording's
@@ -142,22 +142,22 @@ struct Track {
 }
 
 #[test]
-#[ignore = "requires HEX_APPLICATION_SUPPORT_DIR, HEX_MEETING_DIR, HEX_MEETING_MODELS and HEX_MEETING_REPORT"]
+#[ignore = "requires AGENT_DESK_APPLICATION_SUPPORT_DIR, AGENT_DESK_MEETING_DIR, AGENT_DESK_MEETING_MODELS and AGENT_DESK_MEETING_REPORT"]
 fn meeting_live_replay() {
-    let source_dir = PathBuf::from(env("HEX_MEETING_DIR"));
-    let report = PathBuf::from(env("HEX_MEETING_REPORT"));
+    let source_dir = PathBuf::from(env("AGENT_DESK_MEETING_DIR"));
+    let report = PathBuf::from(env("AGENT_DESK_MEETING_REPORT"));
     let seconds: u64 =
-        std::env::var("HEX_MEETING_SECONDS").map_or(600, |value| value.parse().unwrap());
+        std::env::var("AGENT_DESK_MEETING_SECONDS").map_or(600, |value| value.parse().unwrap());
     let support = crate::app_paths::support_dir().unwrap();
     assert!(
-        std::env::var_os("HEX_APPLICATION_SUPPORT_DIR").is_some(),
+        std::env::var_os("AGENT_DESK_APPLICATION_SUPPORT_DIR").is_some(),
         "isolate the data folder"
     );
     fs::create_dir_all(&report).unwrap();
     fs::create_dir_all(&support).unwrap();
     let models = support.join("models");
     if !models.exists() {
-        std::os::unix::fs::symlink(env("HEX_MEETING_MODELS"), &models).unwrap();
+        std::os::unix::fs::symlink(env("AGENT_DESK_MEETING_MODELS"), &models).unwrap();
     }
 
     let selection = TranscriptionSelection::default();

@@ -197,7 +197,7 @@ fn browser(bundle_id: &str) -> Result<Browser, String> {
     .unwrap_or_default();
     let family = Family::of_dictionary(&dictionary).ok_or_else(|| {
         format!(
-            "the person's browser, {name}, can't run JavaScript in its tabs by script; Hex \
+            "the person's browser, {name}, can't run JavaScript in its tabs by script; Agent-Desk \
              reads and acts in tabs of browsers that can (Chromium-based ones and Safari)"
         )
     })?;
@@ -247,7 +247,7 @@ pub fn jxa(
     .map_err(|error| {
         if error.contains("-1743") || error.contains("Not authorized") {
             format!(
-                "Hex may not control {} yet (System Settings › Privacy & Security › Automation › Hex › {})",
+                "Agent-Desk may not control {} yet (System Settings › Privacy & Security › Automation › Agent-Desk › {})",
                 browser.name, browser.name
             )
         } else if error.contains("-600") || error.contains("Application can't be found") {

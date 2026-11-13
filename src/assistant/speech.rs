@@ -2,14 +2,14 @@
 //! for the answer's language.
 //!
 //! macOS's speech engine (AVSpeechSynthesizer, through the Swift bridge in
-//! `src/speech_output.swift`) writes each sentence to audio, which Hex
+//! `src/speech_output.swift`) writes each sentence to audio, which Agent-Desk
 //! plays itself ([`output`]): so sentences follow each other without the
 //! engine's long pauses, a stop is heard at once, and [`level`] measures
 //! what plays. Where the engine can't answer (nothing serves the main
 //! thread, as in tests), `/usr/bin/say` writes the audio instead ([`say`]).
 //!
 //! The person's chosen voice wins. Otherwise the answer's language picks:
-//! their Personal Voice when Hex may use it, then Premium, then Enhanced
+//! their Personal Voice when Agent-Desk may use it, then Premium, then Enhanced
 //! voices, then the default voice of that language.
 //!
 //! OWNER: speech output.
@@ -148,7 +148,7 @@ fn ask(engine: Engine, request: &Request) {
         Engine::Bridge => {}
         Engine::Neural => match neural_plan(request) {
             Some((preset, language)) => {
-                tracing::debug!(preset, language, "reading aloud with Hex's voice");
+                tracing::debug!(preset, language, "reading aloud with Agent-Desk's voice");
                 neural::speak(
                     request.id,
                     &request.text,
@@ -212,7 +212,7 @@ pub fn stop() {
 }
 
 /// Holds the reading for a barge-in: the person may be talking, or it may
-/// be Hex's own voice heard back. [`resume`] reads on from the start of the
+/// be Agent-Desk's own voice heard back. [`resume`] reads on from the start of the
 /// sentence it cut; [`stop`] (the person's words were a request) drops it;
 /// a pause neither ends within `playback::PAUSE_LIMIT` drops itself.
 /// While paused, [`speaking`] stays true. Whether anything was being read.
@@ -345,7 +345,7 @@ extern "C" fn from_bridge(id: u64, samples: *const f32, count: usize, done: bool
     }
 }
 
-/// Hex's voice for `request`, when it was chosen, is installed, and reads
+/// Agent-Desk's voice for `request`, when it was chosen, is installed, and reads
 /// the sentence's language (the system's when the sentence doesn't tell):
 /// its preset and language.
 fn neural_plan(request: &Request) -> Option<(&'static str, &'static str)> {
@@ -356,7 +356,7 @@ fn neural_plan(request: &Request) -> Option<(&'static str, &'static str)> {
     neural::plan(Some(chosen), Some(language), neural::files::installed())
 }
 
-/// Hex's voice made a piece of sentence `id` (`done` with its last), or
+/// Agent-Desk's voice made a piece of sentence `id` (`done` with its last), or
 /// couldn't make it: then the system engine reads it.
 fn from_neural(id: u64, audio: Option<Vec<f32>>, done: bool) {
     let Some(shared) = started() else {
@@ -390,7 +390,7 @@ fn from_say(id: u64, audio: Option<Vec<f32>>) {
     }
 }
 
-/// The installed voices' names, for Settings: Hex's own first, once
+/// The installed voices' names, for Settings: Agent-Desk's own first, once
 /// downloaded, then the system's.
 pub fn voices() -> Vec<String> {
     let mut names = neural::voices();

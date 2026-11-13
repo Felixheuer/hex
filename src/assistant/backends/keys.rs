@@ -1,6 +1,6 @@
 //! Provider API keys, kept where this computer keeps secrets
 //! (`assistant::secrets`: the Keychain, the keyring, or Credential
-//! Manager; service "Hex Assistant", account `provider:<id>`), never in
+//! Manager; service "Agent-Desk Assistant", account `provider:<id>`), never in
 //! settings.json.
 
 use color_eyre::{Result, eyre::eyre};

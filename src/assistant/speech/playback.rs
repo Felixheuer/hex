@@ -17,7 +17,7 @@ const SENTENCE_GAP: usize = RATE as usize * 120 / 1000;
 const FIRST_AUDIO_ENGINE: Duration = Duration::from_secs(3);
 /// `say` writes a whole sentence before any of it plays.
 const FIRST_AUDIO_SAY: Duration = Duration::from_secs(10);
-/// Hex's voice loads its model with the first sentence and makes each one
+/// Agent-Desk's voice loads its model with the first sentence and makes each one
 /// whole: past this, `say` reads it instead.
 const FIRST_AUDIO_NEURAL: Duration = Duration::from_secs(20);
 /// A sentence whose audio stopped coming this long ago is over.
@@ -33,7 +33,7 @@ pub enum Engine {
     Bridge,
     /// `/usr/bin/say`, writing a file.
     Say,
-    /// Hex's own voice (`neural`), a sentence at a time.
+    /// Agent-Desk's own voice (`neural`), a sentence at a time.
     Neural,
 }
 
@@ -157,7 +157,7 @@ impl Playback {
         written
     }
 
-    /// Hands sentence `id` from `from` to `to` (Hex's voice couldn't make
+    /// Hands sentence `id` from `from` to `to` (Agent-Desk's voice couldn't make
     /// it): its request, to be asked of `to`, or `None` when it's no longer
     /// queued with `from`.
     pub fn reassign(&mut self, id: u64, from: Engine, to: Engine, now: Instant) -> Option<Request> {

@@ -223,12 +223,12 @@ impl Source {
     }
 
     /// What a Here question typed in Chats is about: the frontmost window
-    /// that isn't Hex's own (Chats is in front while it's typed).
+    /// that isn't Agent-Desk's own (Chats is in front while it's typed).
     pub(super) fn here_context(&self) -> Context {
         match self {
             Self::Fixture(_) => Context {
                 frontmost_app: Some("Safari".into()),
-                window_title: Some("Hex — Voice to text".into()),
+                window_title: Some("Agent-Desk — Voice to text".into()),
                 window: Some(TaskWindow {
                     app: "Safari".into(),
                     window_id: Some("w-42".into()),
@@ -251,7 +251,7 @@ fn expand_home(path: &str) -> std::path::PathBuf {
 }
 
 /// [`crate::assistant::computer::quick_context`], with the window in front
-/// of Hex's own as the Here lane's window.
+/// of Agent-Desk's own as the Here lane's window.
 fn live_here_context() -> Context {
     let mut context = crate::assistant::computer::quick_context();
     #[cfg(target_os = "macos")]
@@ -271,7 +271,7 @@ fn live_here_context() -> Context {
                 .as_deref()
                 .is_none_or(|app| app == crate::app_paths::app_name() || app == front.owner);
             if hex_in_front {
-                // What Accessibility read was Hex's own window.
+                // What Accessibility read was Agent-Desk's own window.
                 context.selected_text = None;
                 context.frontmost_app = Some(front.owner.clone());
                 context.window_title = (!front.title.is_empty()).then(|| front.title.clone());
@@ -282,14 +282,12 @@ fn live_here_context() -> Context {
             });
         }
     }
-    // Linux and Windows: typing in Chats puts Hex in front, and Hex's own
+    // Linux and Windows: typing in Chats puts Agent-Desk in front, and Agent-Desk's own
     // window is never what a question is about.
     #[cfg(not(target_os = "macos"))]
-    if context
-        .frontmost_app
-        .as_deref()
-        .is_some_and(|app| app.eq_ignore_ascii_case("hex") || app.eq_ignore_ascii_case("hex.exe"))
-    {
+    if context.frontmost_app.as_deref().is_some_and(|app| {
+        app.eq_ignore_ascii_case("agent-desk") || app.eq_ignore_ascii_case("agent-desk.exe")
+    }) {
         context.selected_text = None;
         context.frontmost_app = None;
         context.window_title = None;

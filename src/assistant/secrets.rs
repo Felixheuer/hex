@@ -55,7 +55,8 @@ pub fn load(account: &str) -> Option<String> {
 fn move_legacy_key(account: &str, key: &str) {
     match system::save(SERVICE, account, key) {
         Ok(()) => {
-            if let Err(error) = system::delete(crate::app_paths::legacy::KEYCHAIN_SERVICE, account) {
+            if let Err(error) = system::delete(crate::app_paths::legacy::KEYCHAIN_SERVICE, account)
+            {
                 tracing::warn!(%error, "could not remove the key Hex saved");
             }
         }

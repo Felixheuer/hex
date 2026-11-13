@@ -95,14 +95,14 @@ pub fn send_test(settings: &AssistantSettings) -> bool {
     true
 }
 
-/// Whether Hex may control Messages, once asked from Settings.
+/// Whether Agent-Desk may control Messages, once asked from Settings.
 static MESSAGES: Mutex<Option<AutomationState>> = Mutex::new(None);
 
 pub fn messages_permission() -> Option<AutomationState> {
     *MESSAGES.lock().unwrap_or_else(|error| error.into_inner())
 }
 
-/// Asks macOS (once it shows a prompt) whether Hex may control Messages,
+/// Asks macOS (once it shows a prompt) whether Agent-Desk may control Messages,
 /// off the main thread.
 pub fn ask_messages() {
     let _ = std::thread::Builder::new()
@@ -135,7 +135,9 @@ fn send_async(handle: String, message: String) {
                     return;
                 }
             };
-            *LAST_FAILED.lock().unwrap_or_else(|error| error.into_inner()) = failed;
+            *LAST_FAILED
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = failed;
         });
 }
 
@@ -147,7 +149,9 @@ static LAST_FAILED: Mutex<bool> = Mutex::new(false);
 
 /// Whether the last message to the phone couldn't be delivered.
 pub fn last_delivery_failed() -> bool {
-    *LAST_FAILED.lock().unwrap_or_else(|error| error.into_inner())
+    *LAST_FAILED
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
 }
 
 static STARTED: AtomicBool = AtomicBool::new(false);

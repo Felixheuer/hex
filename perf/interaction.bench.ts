@@ -1,5 +1,5 @@
 // Using the Settings window (docs/perf.md), driven as a person would: strobe
-// finds each control in Hex's accessibility tree by its key (UI Automation's
+// finds each control in Agent-Desk's accessibility tree by its key (UI Automation's
 // AutomationId) and posts mouse and key input to the window. The home holds
 // a full History (seeds/history.ts). Needs an unlocked session: pointer input
 // and presented frames don't reach a locked one.
@@ -20,7 +20,7 @@ export default bench({
   targets: {
     // Each case names the pane its blocks show before and after the runs; a
     // block on another screen (a first-run dialog) is refused, not timed.
-    window: native("hex", { home, viewport: { width: 980, height: 760 }, expect: { title: "Hex" } }),
+    window: native("hex", { home, viewport: { width: 980, height: 760 }, expect: { title: "Agent-Desk" } }),
   },
   // Fonts, the GPU and the first frames settle, then each case starts from
   // its pane.
@@ -33,7 +33,7 @@ export default bench({
     }
   },
   cases: {
-    // General → History (200 rows of 10,000) → Output → General. Hex keeps
+    // General → History (200 rows of 10,000) → Output → General. Agent-Desk keeps
     // drawing for about a second after a pane switch, and strobe takes no
     // sample from a click sent while the window still draws, so each click
     // waits for the window to go idle first. The waits are untimed: the run

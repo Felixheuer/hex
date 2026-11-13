@@ -111,7 +111,7 @@ fn whatsapp_on_another_desktop_is_reopened_here_and_stays_on_the_desk() {
     on_another_desktop(&fake);
     let steps = Arc::new(Mutex::new(Vec::new()));
     // "Öffne WhatsApp" from a hold, with full control.
-    let mut guard = here(&scratch, &fake, FRONT, "Hex Test", false);
+    let mut guard = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
     guard.config.front_window = true;
     guard.desk = Some(std::process::id());
     guard.recover = Box::new(FakeRecoverer {
@@ -146,7 +146,7 @@ fn whatsapp_on_another_desktop_is_reopened_here_and_stays_on_the_desk() {
     scratch.store().release_all("here-task");
     assert_eq!(scratch.store().holder("w-901").unwrap().task, "desk");
     // A later turn acts in it directly.
-    let mut later = here(&scratch, &fake, FRONT, "Hex Test", false);
+    let mut later = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
     later.config.task = "later".into();
     later.config.open_apps = true;
     let read = later.call("desktop_snapshot", args(json!({"window_id": "w-901"})));
@@ -184,7 +184,7 @@ fn focusing_waits_for_background_actions_to_fail_first() {
     let scratch = Scratch::new();
     let fake = Fake::recorded();
     with_running_apps(&fake);
-    let mut guard = here(&scratch, &fake, FRONT, "Hex Test", false);
+    let mut guard = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
     guard.config.front_window = true;
     guard.call("hex_open_app", args(json!({"name": "Citrix Viewer"})));
     // Background first: the first ask is refused with how to do without.
@@ -357,7 +357,7 @@ fn a_desk_window_is_one_task_s_at_a_time_and_a_job_must_claim_it() {
     assert_eq!(error_code(&read).as_deref(), Some("DESK_BUSY"), "{read}");
     assert!(message(&read).contains("desktop_claim_window"));
     // The person's next quick turn acts in it, and borrows it.
-    let mut turn = here(&scratch, &fake, FRONT, "Hex Test", false);
+    let mut turn = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
     turn.config.open_apps = true;
     turn.desk = Some(pid);
     let clicked = click_in(&mut turn, CITRIX);
@@ -381,7 +381,7 @@ fn a_desk_window_is_one_task_s_at_a_time_and_a_job_must_claim_it() {
     let claim = other.call("desktop_claim_window", args(json!({"window_id": CITRIX})));
     assert_eq!(error_code(&claim).as_deref(), Some("DESK_BUSY"), "{claim}");
     // A new quick turn takes it from the job, whose next action is refused.
-    let mut next = here(&scratch, &fake, FRONT, "Hex Test", false);
+    let mut next = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
     next.config.task = "next-turn".into();
     next.config.open_apps = true;
     next.desk = Some(pid);

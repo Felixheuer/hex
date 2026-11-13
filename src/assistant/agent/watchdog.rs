@@ -20,9 +20,9 @@ pub const HERE_INACTIVITY: Duration = Duration::from_secs(45);
 /// What a quick turn that stalled, and stalled again with the strong
 /// model, ends with.
 pub const STALLED: &str =
-    "It got stuck: nothing happened for 45 seconds, so Hex stopped it. Try again.";
+    "It got stuck: nothing happened for 45 seconds, so Agent-Desk stopped it. Try again.";
 
-/// The inactivity limit of `run`: a quick turn on a backend Hex runs as a
+/// The inactivity limit of `run`: a quick turn on a backend Agent-Desk runs as a
 /// process (the Claude API's requests have their own timeouts); `None`
 /// for anything else.
 pub fn limit(run: &Run) -> Option<Duration> {

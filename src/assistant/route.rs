@@ -7,7 +7,7 @@
 //!
 //! These are cheap guesses, not the routing: the Here agent decides what is
 //! a job and hands it on with `hex_start_jobs` (`agent::routing`). Each list
-//! carries the languages Hex speaks most (German, English, French, Spanish,
+//! carries the languages Agent-Desk speaks most (German, English, French, Spanish,
 //! Italian, Dutch); `route/tests.rs` holds one table per language.
 //!
 //! OWNER: brain.
@@ -198,7 +198,7 @@ const WEB: &[&str] = &[
 
 /// Whether words said so far ask for the web: a browser or a search, an
 /// address (written, or spoken as "spiegel punkt de"), or one of the
-/// `signed_in` sites, those the person signed in to for Hex
+/// `signed_in` sites, those the person signed in to for Agent-Desk
 /// (`browser::signed_in_sites`). No list of sites.
 pub fn wants_web(words: &str, signed_in: &[String]) -> bool {
     let text = words.to_lowercase();

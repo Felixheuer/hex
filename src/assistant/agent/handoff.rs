@@ -3,7 +3,7 @@
 //! A quick question or a chat that turns out to be a job used to say so
 //! only with a text marker (`HEX_JOB:`, `markers`); an agent that answered
 //! in prose instead („Das läuft als Hintergrundauftrag …“) started nothing.
-//! Now the agent calls Hex's `hex_start_jobs` tool (`tools`), which leaves
+//! Now the agent calls Agent-Desk's `hex_start_jobs` tool (`tools`), which leaves
 //! the jobs in a small file per conversation; when the run ends, the runner
 //! takes them ([`take`]) and starts them. The marker stays as a fallback,
 //! and an answer that *claims* it went to the background without either
@@ -52,7 +52,7 @@ fn file(conversation: &str) -> Option<PathBuf> {
 /// Records `handoff` for `conversation` (the tools server's side); jobs
 /// already recorded in this run are kept.
 pub fn record(conversation: &str, handoff: Handoff) -> Result<usize, String> {
-    let path = file(conversation).ok_or("this task has no id Hex can use")?;
+    let path = file(conversation).ok_or("this task has no id Agent-Desk can use")?;
     let mut all: Handoff = std::fs::read(&path)
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())

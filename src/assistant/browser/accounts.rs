@@ -1,4 +1,4 @@
-//! The person's accounts in Hex's hidden browsers: signed in once, then
+//! The person's accounts in Agent-Desk's hidden browsers: signed in once, then
 //! every task's browser starts with them.
 //!
 //! Two ways in, both into the one sign-in state every browser restores
@@ -6,10 +6,10 @@
 //! - **From Chrome** ([`import_from_chrome`]): the cookies of one of the
 //!   person's Chrome profiles, read from a copy of its `Cookies` database
 //!   and decrypted with Chrome's own key from the login Keychain ("Chrome
-//!   Safe Storage"; macOS asks once whether Hex may read it). They are
+//!   Safe Storage"; macOS asks once whether Agent-Desk may read it). They are
 //!   merged into the sign-in state, newest wins. Re-imported when older than
 //!   a day ([`refresh_if_stale`]), off the main thread.
-//! - **By hand** in Hex's visible sign-in window ([`super::sign_in`]).
+//! - **By hand** in Agent-Desk's visible sign-in window ([`super::sign_in`]).
 //!
 //! The state is a session-token file only this user may read; nothing is
 //! logged but counts and site names. Chrome itself is never touched: its
@@ -133,7 +133,7 @@ pub fn import_from_chrome(profile: &str) -> Result<Vec<String>> {
     tracing::info!(
         cookies = cookies.len(),
         sites = sites.len(),
-        "took the person's Chrome logins into Hex's browsers"
+        "took the person's Chrome logins into Agent-Desk's browsers"
     );
     Ok(sites)
 }
@@ -158,7 +158,7 @@ pub fn stale(at_ms: u64, now_ms: u64) -> bool {
 }
 
 /// Takes Chrome's logins again when the last import from `profile` (the
-/// setting) is stale. Called on Hex's launch, on its own thread.
+/// setting) is stale. Called on Agent-Desk's launch, on its own thread.
 pub fn refresh_if_stale(profile: Option<&str>) {
     let Some(profile) = profile.filter(|profile| !profile.is_empty()) else {
         return;
@@ -205,7 +205,7 @@ fn chrome_password() -> Result<String> {
     let password = String::from_utf8(output.stdout)?.trim_end().to_owned();
     if !output.status.success() || password.is_empty() {
         return Err(eyre!(
-            "macOS didn't let Hex read Chrome's key; allow it when asked"
+            "macOS didn't let Agent-Desk read Chrome's key; allow it when asked"
         ));
     }
     Ok(password)

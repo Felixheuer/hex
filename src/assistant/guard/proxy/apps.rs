@@ -1,4 +1,4 @@
-//! Hex's own app tools: `hex_installed_apps` (what's installed, and what
+//! Agent-Desk's own app tools: `hex_installed_apps` (what's installed, and what
 //! runs) and `hex_open_app` (a launch that waits for the app's new window
 //! and makes it the task's).
 
@@ -402,8 +402,8 @@ pub(super) fn success(command: &str, data: Value) -> Value {
 pub(super) fn tools(open: bool) -> Vec<Value> {
     let mut tools = vec![json!({
         "name": INSTALLED_APPS_TOOL,
-        "description": "Hex: the apps installed on this Mac, each with its name, bundle id, path, \
-            whether it is running, and whether Hex blocks it. Read-only and fast.",
+        "description": "Agent-Desk: the apps installed on this Mac, each with its name, bundle id, path, \
+            whether it is running, and whether Agent-Desk blocks it. Read-only and fast.",
         "inputSchema": {
             "type": "object",
             "additionalProperties": false,
@@ -415,7 +415,7 @@ pub(super) fn tools(open: bool) -> Vec<Value> {
     if open {
         tools.push(json!({
             "name": OPEN_APP_TOOL,
-            "description": "Hex: open or switch to an installed app and make its window this \
+            "description": "Agent-Desk: open or switch to an installed app and make its window this \
                 task's, without covering the person's window. Prefer it to desktop_launch. An app \
                 that isn't running starts and its new window is yours. An app that already runs \
                 is never started again: its window (on this screen, else on another desktop or \

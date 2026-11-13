@@ -241,16 +241,16 @@ impl OfflineGgufSession {
     /// [`STREAM_PREWARM_SAMPLES`]). Without an extension
     /// Parakeet buffers with its largest left, chunk, and right context
     /// (Unified English: 5.6 s, 1.04 s, 1.04 s), its most accurate and least
-    /// compute-intensive setting. `HEX_STREAMING=0` keeps the model offline
-    /// and `HEX_STREAMING=1` streams on any device (diagnostics and CI);
-    /// `HEX_STREAM_CHUNK_MS` overrides the chunk and right context.
+    /// compute-intensive setting. `AGENT_DESK_STREAMING=0` keeps the model offline
+    /// and `AGENT_DESK_STREAMING=1` streams on any device (diagnostics and CI);
+    /// `AGENT_DESK_STREAM_CHUNK_MS` overrides the chunk and right context.
     pub(crate) fn probe_stream(
         &mut self,
         options: &transcribe_cpp::RunOptions,
         architecture: &str,
     ) -> Option<transcribe_cpp::StreamOptions> {
         use transcribe_cpp::DeviceType;
-        let forced = match std::env::var("HEX_STREAMING").as_deref() {
+        let forced = match std::env::var("AGENT_DESK_STREAMING").as_deref() {
             Ok("0") => return None,
             Ok("1") => true,
             _ => false,
@@ -266,7 +266,7 @@ impl OfflineGgufSession {
         if !forced && !matches!(device_type, DeviceType::Gpu | DeviceType::Igpu) {
             return None;
         }
-        let chunk_ms = std::env::var("HEX_STREAM_CHUNK_MS")
+        let chunk_ms = std::env::var("AGENT_DESK_STREAM_CHUNK_MS")
             .ok()
             .and_then(|value| value.parse::<i32>().ok());
         let stream_options = transcribe_cpp::StreamOptions {

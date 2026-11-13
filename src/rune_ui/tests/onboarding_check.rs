@@ -10,9 +10,9 @@ use crate::desktop::onboarding::Step;
 
 /// Every onboarding state a person can see, on macOS and on Linux and
 /// Windows. An intentional change refreshes these goldens in the same PR
-/// (`HEX_UPDATE_GOLDENS=1`).
+/// (`AGENT_DESK_UPDATE_GOLDENS=1`).
 pub(super) const SCENES: &[&str] = &[
-    // A fresh install: setting up Hex, the recommended model downloading.
+    // A fresh install: setting up Agent-Desk, the recommended model downloading.
     "onboarding",
     "mac-onboarding",
     // The download stopped; Continue without a model, then Settings.
@@ -43,7 +43,7 @@ pub(super) const SCENES: &[&str] = &[
     "onboarding-try",
     "mac-onboarding-try",
     "mac-onboarding-reopen",
-    // Hex is ready.
+    // Agent-Desk is ready.
     "onboarding-ready",
     "mac-onboarding-ready",
 ];
@@ -59,7 +59,7 @@ const OPTIONAL: &[&str] = &[
 
 /// Skip shows only on the optional pages, the demo and the practice, and
 /// passes over them to the next step setup still needs: permissions, then
-/// the model, else Hex is ready. It never closes onboarding.
+/// the model, else Agent-Desk is ready. It never closes onboarding.
 #[test]
 fn onboarding_skip() {
     for scene in SCENES {
@@ -94,7 +94,7 @@ fn onboarding_skip() {
     let mut rt = runtime("onboarding-demo", true, PANE_SIZE);
     skip(&mut rt, "onboarding-demo", Page::Waiting);
 
-    // Nothing left to set up: the demo and the practice skip to Hex is ready.
+    // Nothing left to set up: the demo and the practice skip to Agent-Desk is ready.
     let mut rt = runtime("onboarding-demo", true, PANE_SIZE);
     rt.update(|ui, tx| {
         ui.picker.installed = Some(vec![ui.settings.transcription.model]);
@@ -141,7 +141,8 @@ fn onboarding_continue_without_model() {
         "Add model file…"
     );
     assert!(
-        texts(&rt).contains(&"Hex can't dictate until a speech model is installed".to_owned()),
+        texts(&rt)
+            .contains(&"Agent-Desk can't dictate until a speech model is installed".to_owned()),
         "the status says so too"
     );
 
@@ -276,10 +277,10 @@ fn onboarding_goldens() {
 }
 
 /// A first run on Linux or Windows, in the clean data folder
-/// `HEX_APPLICATION_SUPPORT_DIR` names (no settings, no models, an empty
+/// `AGENT_DESK_APPLICATION_SUPPORT_DIR` names (no settings, no models, an empty
 /// Hugging Face cache): the real settings load, the real decision to open
 /// onboarding, the real download and verification of the model it picks,
-/// and every page to Hex is ready. Downloads the recommended model, so only
+/// and every page to Agent-Desk is ready. Downloads the recommended model, so only
 /// scripts/check-onboarding.sh runs it. The window here is a fixture, not
 /// connected to a service: the test does the service's download itself,
 /// plays the story on its own clock, and nothing writes the completion
@@ -289,8 +290,8 @@ fn onboarding_goldens() {
 fn onboarding_walkthrough() {
     let support = crate::app_paths::support_dir().unwrap();
     assert!(
-        std::env::var_os("HEX_APPLICATION_SUPPORT_DIR").is_some(),
-        "set HEX_APPLICATION_SUPPORT_DIR to a clean folder"
+        std::env::var_os("AGENT_DESK_APPLICATION_SUPPORT_DIR").is_some(),
+        "set AGENT_DESK_APPLICATION_SUPPORT_DIR to a clean folder"
     );
     assert!(
         std::fs::read_dir(&support).map_or(true, |mut entries| entries.next().is_none()),
@@ -326,13 +327,16 @@ fn onboarding_walkthrough() {
     let mut rt = runtime_for(ui, true, PANE_SIZE);
     let step = |rt: &Runtime<Ui>| rt.state.tour.as_ref().map(|tour| tour.flow.step());
     let shown = texts(&rt);
-    assert!(shown.contains(&"Setting up Hex".to_owned()), "{shown:?}");
+    assert!(
+        shown.contains(&"Setting up Agent-Desk".to_owned()),
+        "{shown:?}"
+    );
     assert!(
         !shown.contains(&"Choose a speech model".to_owned()),
         "nothing found, so no model step"
     );
 
-    // Setting up Hex asks the service for the recommended model at once.
+    // Setting up Agent-Desk asks the service for the recommended model at once.
     assert_eq!(step(&rt), Some(Step::Setup));
     let (model, language) = match sent(&rt) {
         [Request::ChooseModel { model, language }] => (*model, language.clone()),
@@ -363,13 +367,13 @@ fn onboarding_walkthrough() {
     );
     rt.state.picker.installed = Some(vec![model]);
 
-    // The story plays on: the demo, then the practice game ("With Hex")
-    // once the model is ready, then the assistant's setup before Hex is ready.
+    // The story plays on: the demo, then the practice game ("With Agent-Desk")
+    // once the model is ready, then the assistant's setup before Agent-Desk is ready.
     settle(&mut rt);
     rt.update(|ui, _| super::super::onboarding_kit::live::fixture_resume(ui, Page::Try));
     settle(&mut rt);
     assert_eq!(step(&rt), Some(Step::TryIt));
-    assert!(texts(&rt).contains(&"With Hex".to_owned()));
+    assert!(texts(&rt).contains(&"With Agent-Desk".to_owned()));
     assert!(rt.find("skip").is_some(), "Skip shows on the practice too");
     tap(&mut rt, "done");
     let shown = texts(&rt);
@@ -385,19 +389,22 @@ fn onboarding_walkthrough() {
             .is_some_and(|flow| flow.merged),
         "the assistant continues the same first run"
     );
-    assert!(!shown.contains(&"Hex is ready".to_owned()));
+    assert!(!shown.contains(&"Agent-Desk is ready".to_owned()));
     tap(&mut rt, "close-setup");
     settle(&mut rt);
     assert!(
         !rt.state.settings.assistant.setup_done,
         "setup waits in Chats"
     );
-    assert!(texts(&rt).contains(&"Hex is ready".to_owned()));
+    assert!(texts(&rt).contains(&"Agent-Desk is ready".to_owned()));
     tap(&mut rt, "start-using-hex");
-    assert!(rt.state.tour.is_none(), "Start using Hex closes onboarding");
+    assert!(
+        rt.state.tour.is_none(),
+        "Start using Agent-Desk closes onboarding"
+    );
     assert!(rt.state.first_run.is_none());
     println!(
-        "onboarding walkthrough: Setting up Hex -> {} downloaded ({} bytes) -> Your turn -> Assistant setup left for later -> Hex is ready",
+        "onboarding walkthrough: Setting up Agent-Desk -> {} downloaded ({} bytes) -> Your turn -> Assistant setup left for later -> Agent-Desk is ready",
         definition.name,
         downloaded.load(std::sync::atomic::Ordering::Relaxed)
     );

@@ -78,7 +78,7 @@ pub(super) struct WslHome {
     /// `/etc/wsl.conf`'s `[automount]`, read once when the home was looked
     /// up, so naming a capture folder never reads over UNC again.
     automount: Automount,
-    /// Set once Hex's workspace was created through `unc`; clones share it,
+    /// Set once Agent-Desk's workspace was created through `unc`; clones share it,
     /// so one success is remembered by every request.
     workspace_ready: Arc<AtomicBool>,
 }
@@ -130,12 +130,12 @@ impl WslHome {
         self.unc.join(".local").join("state").join("opencode")
     }
 
-    /// Hex's workspace in the same home, through Windows.
+    /// Agent-Desk's workspace in the same home, through Windows.
     fn unc_workspace(&self) -> PathBuf {
         self.unc
             .join(".local")
             .join("share")
-            .join("hex")
+            .join("agent-desk")
             .join("opencode")
     }
 
@@ -145,9 +145,9 @@ impl WslHome {
         self.workspace_ready.store(false, Ordering::Release);
     }
 
-    /// Hex's workspace as the service in WSL sees it.
+    /// Agent-Desk's workspace as the service in WSL sees it.
     fn linux_workspace(&self) -> String {
-        format!("{}/.local/share/hex/opencode", self.linux)
+        format!("{}/.local/share/agent-desk/opencode", self.linux)
     }
 
     /// `host` as a server in this distribution sees it, using the
@@ -753,7 +753,7 @@ mod tests {
         assert_eq!(trimmed.linux, "/home/dax");
         assert_eq!(
             localhost.linux_workspace(),
-            "/home/dax/.local/share/hex/opencode"
+            "/home/dax/.local/share/agent-desk/opencode"
         );
     }
 
@@ -793,16 +793,16 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         let home = WslHome::for_test(root.join("home"), "/home/dax");
         assert_eq!(home.state_dir(), root.join("home/.local/state/opencode"));
-        let workspace = root.join("home/.local/share/hex/opencode");
+        let workspace = root.join("home/.local/share/agent-desk/opencode");
         assert_eq!(
             home.workspace().unwrap(),
-            "/home/dax/.local/share/hex/opencode"
+            "/home/dax/.local/share/agent-desk/opencode"
         );
         assert!(workspace.is_dir());
         fs::remove_dir_all(&workspace).unwrap();
         assert_eq!(
             home.workspace().unwrap(),
-            "/home/dax/.local/share/hex/opencode"
+            "/home/dax/.local/share/agent-desk/opencode"
         );
         assert!(
             !workspace.exists(),

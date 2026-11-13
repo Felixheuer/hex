@@ -100,7 +100,7 @@ pub fn init_backends() -> Result<Backend> {
     if gpu_guard::crashed_before() {
         tracing::warn!(
             marker = %gpu_guard::marker().map(|path| path.display().to_string()).unwrap_or_default(),
-            "a previous launch of this Hex crashed while starting the GPU for transcription; transcribing on the CPU until Hex updates or the marker is deleted"
+            "a previous launch of this Agent-Desk crashed while starting the GPU for transcription; transcribing on the CPU until Agent-Desk updates or the marker is deleted"
         );
         cpu_only()?;
         return Ok(*BACKEND.get_or_init(|| Backend::Cpu));
@@ -215,7 +215,7 @@ pub fn transcribe_wav_with_selection(
     LocalTranscriber::load(selection)?.transcribe(&samples)
 }
 
-/// A WAV already in memory, as `hex transcribe` read it.
+/// A WAV already in memory, as `agent-desk transcribe` read it.
 pub fn transcribe_wav_bytes(wav: &[u8], selection: &TranscriptionSelection) -> Result<String> {
     let samples = read_wav(std::io::Cursor::new(wav))?;
     LocalTranscriber::load(selection)?.transcribe(&samples)

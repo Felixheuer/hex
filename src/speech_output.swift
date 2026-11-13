@@ -138,7 +138,7 @@ private final class Reader: NSObject, AVSpeechSynthesizerDelegate, @unchecked Se
     }
 }
 
-/// The main thread runs no run loop: a command-line `hex` calling from it.
+/// The main thread runs no run loop: a command-line `agent-desk` calling from it.
 private func mainLoopIdle() -> Bool {
     Thread.isMainThread && CFRunLoopCopyCurrentMode(CFRunLoopGetMain()) == nil
 }
@@ -220,7 +220,7 @@ private struct BridgeVoice: Codable {
 
 /// The installed voices as JSON (owned; free it with
 /// `hex_speech_output_free_string`). Personal Voices are listed only once
-/// the person allowed Hex to use them.
+/// the person allowed Agent-Desk to use them.
 @_cdecl("hex_speech_output_voices")
 public func hexSpeechOutputVoices() -> UnsafeMutablePointer<CChar>? {
     let voices = AVSpeechSynthesisVoice.speechVoices().map { voice in

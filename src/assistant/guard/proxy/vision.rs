@@ -58,7 +58,7 @@ struct Seen {
     rgba: Vec<u8>,
 }
 
-/// The ref Hex files a spot's label under, to ask `consent` about it.
+/// The ref Agent-Desk files a spot's label under, to ask `consent` about it.
 const SPOT_REF: &str = "@hexspot:e1";
 
 #[cfg(test)]
@@ -290,8 +290,12 @@ impl<D: Desktop> Guard<D> {
     ) -> Result<Value, Value> {
         let (_, mut window) = self.vision_window(tool, Kind::Observe, args)?;
         if window.minimized {
-            self.unminimize_parked(&window)
-                .map_err(|why| failure(&format!("Hex couldn't bring {} back: {why}", window.id)))?;
+            self.unminimize_parked(&window).map_err(|why| {
+                failure(&format!(
+                    "Agent-Desk couldn't bring {} back: {why}",
+                    window.id
+                ))
+            })?;
             window = self.window_info(&window.id).unwrap_or(window);
         }
         let number = crate::assistant::computer::window_number(&window.id)
@@ -337,11 +341,15 @@ impl<D: Desktop> Guard<D> {
             .shots
             .get(&number)
             .map(|seen| seen.rgba.clone());
-        let (taken, rgba) = shot::take(number, &dir, before.as_deref())
-            .map_err(|why| failure(&format!("Hex couldn't take {}'s picture: {why}", window.id)))?;
+        let (taken, rgba) = shot::take(number, &dir, before.as_deref()).map_err(|why| {
+            failure(&format!(
+                "Agent-Desk couldn't take {}'s picture: {why}",
+                window.id
+            ))
+        })?;
         let (width, height, small) = shot::fit(&rgba, taken.width, taken.height, IMAGE_EDGE);
         let png = shot::encode_png(width, height, &small)
-            .map_err(|why| failure(&format!("Hex couldn't encode the picture: {why}")))?;
+            .map_err(|why| failure(&format!("Agent-Desk couldn't encode the picture: {why}")))?;
         self.learned.vision.lock().shots.insert(
             number,
             Seen {
@@ -395,12 +403,16 @@ impl<D: Desktop> Guard<D> {
         let number = crate::assistant::computer::window_number(&window.id)
             .ok_or_else(|| refusal(tool, "WINDOW_NOT_FOUND", "That isn't a window id (w-1234)."))?;
         if window.minimized {
-            self.unminimize_parked(&window)
-                .map_err(|why| failure(&format!("Hex couldn't bring {} back: {why}", window.id)))?;
+            self.unminimize_parked(&window).map_err(|why| {
+                failure(&format!(
+                    "Agent-Desk couldn't bring {} back: {why}",
+                    window.id
+                ))
+            })?;
             window = self.window_info(&window.id).unwrap_or(window);
         }
         let frame = self.frame_of(&window).ok_or_else(|| {
-            failure("Hex can't tell where that window is; take a hex_window_shot first.")
+            failure("Agent-Desk can't tell where that window is; take a hex_window_shot first.")
         })?;
         let units = match (
             text(args, "units").as_deref(),
@@ -517,7 +529,7 @@ impl<D: Desktop> Guard<D> {
         let pid = window
             .pid
             .and_then(|pid| i32::try_from(pid).ok())
-            .ok_or_else(|| failure("Hex can't tell which process that window is."))?;
+            .ok_or_else(|| failure("Agent-Desk can't tell which process that window is."))?;
         // Text at a spot: click there first, so it lands in that field.
         if let (Gesture::Text(_), Some(spot)) = (&gesture, spot) {
             self.deliver(
@@ -567,8 +579,11 @@ impl<D: Desktop> Guard<D> {
         }
         #[cfg(not(test))]
         {
-            let delivered = post::post(pid, number, frame, spot, gesture)
-                .map_err(|why| failure(&format!("Hex couldn't send that to the window: {why}")))?;
+            let delivered = post::post(pid, number, frame, spot, gesture).map_err(|why| {
+                failure(&format!(
+                    "Agent-Desk couldn't send that to the window: {why}"
+                ))
+            })?;
             if let (Some(before), Some(after)) = (delivered.front_before, delivered.front_after)
                 && before != after
                 && after == pid
@@ -700,7 +715,7 @@ impl<D: Desktop> Guard<D> {
                 "fallback": "pid_input",
                 "window": id,
                 "at_points": [spot.local.0.round(), spot.local.1.round()],
-                "note": "The app didn't answer through Accessibility, so Hex did this at the \
+                "note": "The app didn't answer through Accessibility, so Agent-Desk did this at the \
                          element's spot by input sent to the app in the background. Check the \
                          result with a fresh snapshot or hex_window_shot.",
             }),
@@ -772,7 +787,7 @@ fn sanitize(task: &str) -> String {
 pub(super) fn shot_tool() -> Value {
     json!({
         "name": WINDOW_SHOT_TOOL,
-        "description": "Hex: a picture of one of your windows wherever it waits (off the screen, \
+        "description": "Agent-Desk: a picture of one of your windows wherever it waits (off the screen, \
             behind the person's windows), as an image whose pixels are the coordinates \
             hex_window_input takes, plus the full-resolution PNG's path. For apps whose \
             Accessibility tree is missing or doesn't answer: look, then act by coordinates. \
@@ -792,7 +807,7 @@ pub(super) fn shot_tool() -> Value {
 pub(super) fn input_tool() -> Value {
     json!({
         "name": WINDOW_INPUT_TOOL,
-        "description": "Hex: act in one of your windows at a spot of its last hex_window_shot, \
+        "description": "Agent-Desk: act in one of your windows at a spot of its last hex_window_shot, \
             by input sent to its app in the background: the person's pointer doesn't move and \
             their app keeps the front and the keyboard. action: click, double_click, \
             right_click, scroll (dx, dy in pixels; negative dy scrolls down), type (text; with \

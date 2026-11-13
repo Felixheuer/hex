@@ -10,7 +10,7 @@ pub enum HotkeyAction {
     Start,
     Finish,
     Discard(DiscardCause),
-    /// Hex ended the recording: its input was lost or suspended.
+    /// Agent-Desk ended the recording: its input was lost or suspended.
     Cancel,
     /// Toggle's cancel shortcut discarded the recording.
     CancelShortcut,
@@ -168,7 +168,7 @@ pub struct DictationHotkey {
     function_modifier: (CaptureInstant, Option<bool>),
     // Recent HID key presses, which another app's shortcut may have hidden.
     physical_key_downs: VecDeque<(CaptureInstant, u16, HidTiming)>,
-    // When the held modifier-only press Hex owns is due its chord breaker.
+    // When the held modifier-only press Agent-Desk owns is due its chord breaker.
     chord_break_at: Option<CaptureInstant>,
     modifier_history: ModifierHistory,
     // When each tracked key last went down.
@@ -253,7 +253,7 @@ impl DictationHotkey {
     }
 
     /// Recording hands-free: locked by a double tap, a Toggle release, or
-    /// `hex dictation start`.
+    /// `agent-desk dictation start`.
     #[cfg(test)]
     pub fn is_locked(&self) -> bool {
         matches!(self.state, State::Locked)
@@ -347,7 +347,7 @@ impl DictationHotkey {
         was_recording.then_some(HotkeyAction::Cancel)
     }
 
-    /// Locks an idle machine without a press, as a `hex dictation start`
+    /// Locks an idle machine without a press, as a `agent-desk dictation start`
     /// does: the next shortcut press finishes it, the same as a double-tap
     /// lock. Returns false while a press is in flight.
     pub fn lock(&mut self) -> bool {
@@ -609,7 +609,7 @@ impl DictationHotkey {
     }
 
     /// A bare modifier passes through to other apps, so a hold reads to them
-    /// as a tap on release (Raycast's Option-tap hotkey, for one). Once Hex
+    /// as a tap on release (Raycast's Option-tap hotkey, for one). Once Agent-Desk
     /// owns the press (a hold past the threshold, a Toggle start past the
     /// chord grace, or the press that finishes a lock) it is owed one chord
     /// breaker while still held.
@@ -663,7 +663,7 @@ impl DictationHotkey {
 
     /// Posts the chord breaker the held press is due, if exactly its modifiers
     /// are still physically down; any other modifier already breaks the tap.
-    /// The posted key carries Hex's marker, so neither shortcut machine sees
+    /// The posted key carries Agent-Desk's marker, so neither shortcut machine sees
     /// it, and the key tap drops it before the focused app.
     pub fn break_chord(&mut self, now: CaptureInstant) {
         if !self.take_chord_break(now) {

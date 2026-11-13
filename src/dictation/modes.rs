@@ -65,7 +65,7 @@ impl ModeRuntime {
     }
 
     /// [`Self::process`] with a cancellation flag the stages check, for work
-    /// that ends early when Hex quits.
+    /// that ends early when Agent-Desk quits.
     pub fn process_cancellable(
         &self,
         raw_text: &str,
@@ -355,7 +355,7 @@ mod tests {
             processing.default_mode.replacements =
                 vec![crate::dictation::text_replacements::TextReplacement {
                     matched_phrase: "hex".into(),
-                    output: "Hex".into(),
+                    output: "Agent-Desk".into(),
                 }];
             processing.modes = vec![DictationMode {
                 replacements: vec![crate::dictation::text_replacements::TextReplacement {
@@ -379,7 +379,7 @@ mod tests {
             crate::dictation::processor::Source::Dictation,
         );
 
-        assert_eq!(processed.text, "Use OpenCode in Hex.");
+        assert_eq!(processed.text, "Use OpenCode in Agent-Desk.");
         assert!(processed.observation.is_none());
     }
 

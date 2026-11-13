@@ -22,10 +22,10 @@ pub(in crate::rune_ui) enum Job {
     Detect,
     /// agent-desktop and its permissions (`backends::agent_desktop`).
     Desktop,
-    /// Hex's own Accessibility and Screen Recording, read afresh.
+    /// Agent-Desk's own Accessibility and Screen Recording, read afresh.
     Permissions,
     /// What a failed check or row offers (`backends::apply_fix_with`),
-    /// reporting its installer's lines as it goes. Opening Hex's own System
+    /// reporting its installer's lines as it goes. Opening Agent-Desk's own System
     /// Settings guide runs on the window's thread, where the guide can show.
     Fix(Fix),
     /// The self-tests for these settings' agent, in order.
@@ -40,13 +40,13 @@ pub(in crate::rune_ui) enum Job {
     Voices,
     /// Reads a line aloud with this voice.
     Speak(Option<String>),
-    /// Downloads Hex's own voice (`speech::neural`), reporting its bytes.
+    /// Downloads Agent-Desk's own voice (`speech::neural`), reporting its bytes.
     DownloadVoice,
     /// agent-browser, its own browser, and whether anyone signed in to it.
     Browser,
     /// The browser's self-tests for these settings' agent.
     BrowserChecks(Box<AssistantSettings>),
-    /// Opens Hex's own browser in a window to sign in to sites, at this
+    /// Opens Agent-Desk's own browser in a window to sign in to sites, at this
     /// page or a blank one (`browser::sign_in`).
     SignIn(Option<String>),
     /// Saves and closes that window (`browser::finish_sign_in`).
@@ -56,7 +56,7 @@ pub(in crate::rune_ui) enum Job {
     /// Chrome's profiles and the last import of their logins.
     #[allow(dead_code, reason = "asked by the accounts rows (`accounts::read`)")]
     Accounts,
-    /// Takes this Chrome profile's logins into Hex's browsers.
+    /// Takes this Chrome profile's logins into Agent-Desk's browsers.
     #[allow(dead_code, reason = "asked by the accounts rows")]
     ImportChrome(String),
     /// The apps running now, for Settings' blocked apps.
@@ -97,9 +97,9 @@ pub(in crate::rune_ui) enum Done {
     Conflicts(Vec<(HotkeySlot, Conflict)>),
     KeySaved(Result<(), String>),
     Voices(Vec<String>),
-    /// Bytes of Hex's voice downloaded so far.
+    /// Bytes of Agent-Desk's voice downloaded so far.
     VoiceProgress(u64),
-    /// Hex's voice downloaded, or why not.
+    /// Agent-Desk's voice downloaded, or why not.
     VoiceDownloaded(Result<(), String>),
     /// agent-browser as found, sites with saved browser data, and the
     /// engine its clean browsers run.
@@ -157,7 +157,7 @@ impl Jobs {
             return;
         };
         if let Job::Fix(fix @ Fix::OpenSettings(_)) = job {
-            // Hex's floating guide shows only from the main thread.
+            // Agent-Desk's floating guide shows only from the main thread.
             let result = crate::assistant::backends::apply_fix(fix);
             let _ = self.sender.send(Done::Fixed(
                 fix,
@@ -299,7 +299,7 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
     }
 }
 
-/// The regular (Dock) apps running now, by name, sorted, without Hex.
+/// The regular (Dock) apps running now, by name, sorted, without Agent-Desk.
 fn running_apps() -> Vec<String> {
     #[cfg(target_os = "macos")]
     {
@@ -400,7 +400,7 @@ pub(in crate::rune_ui) fn receive(ui: &mut Ui, done: Done) {
     super::setup::receive(ui, done);
 }
 
-/// Downloads Hex's voice, telling `send` its progress twice a second.
+/// Downloads Agent-Desk's voice, telling `send` its progress twice a second.
 fn download_voice(send: &dyn Fn(Done)) -> Result<(), String> {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     let canceled = AtomicBool::new(false);

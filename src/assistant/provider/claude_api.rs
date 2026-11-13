@@ -1,5 +1,5 @@
 //! The Claude Messages API, with the key from the Keychain
-//! (`credentials::api_key`). Hex runs the tool loop itself: each turn's
+//! (`credentials::api_key`). Agent-Desk runs the tool loop itself: each turn's
 //! tool calls go to the task's MCP servers (`mcp`: its desktop tool and its
 //! browser, whichever offers the tool), their results go
 //! back in one user message, and the loop ends at an answer or after
@@ -131,7 +131,7 @@ fn run_loop(
         }
     }
     Err(eyre!(
-        "It took more than {MAX_STEPS} steps, so Hex stopped it."
+        "It took more than {MAX_STEPS} steps, so Agent-Desk stopped it."
     ))
 }
 

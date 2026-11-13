@@ -1,4 +1,4 @@
-//! `hex dev assistant-space-probe` (debug builds): whether parking a window
+//! `agent-desk dev assistant-space-probe` (debug builds): whether parking a window
 //! keeps it usable on this Mac. It opens a TextEdit window of its own (a
 //! file in a temporary folder), parks it, has agent-desktop read and set its
 //! text there, shows it again, and quits TextEdit, printing each step.
@@ -18,9 +18,9 @@ use crate::assistant::TaskWindow;
 use crate::assistant::backends::{desktop, search};
 
 const APP: &str = "TextEdit";
-const TITLE: &str = "Hex Space Probe";
-const BEFORE: &str = "Hex space probe: before";
-const AFTER: &str = "Hex space probe: after";
+const TITLE: &str = "Agent-Desk Space Probe";
+const BEFORE: &str = "Agent-Desk space probe: before";
+const AFTER: &str = "Agent-Desk space probe: after";
 
 /// How the probe went, step by step.
 #[derive(Default)]

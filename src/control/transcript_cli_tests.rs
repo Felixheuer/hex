@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 const NOW: u64 = 1_792_700_000_000;
 
-/// The shared command tree every OS's `hex` flattens.
+/// The shared command tree every OS's `agent-desk` flattens.
 #[derive(Parser)]
 struct Cli {
     #[command(subcommand)]
@@ -16,8 +16,12 @@ use crate::control::cli::ControlCli;
 const FIXTURE: &str = include_str!("../../tests/fixtures/history.json");
 
 fn args(extra: &[&str]) -> HistoryArgs {
-    let cli =
-        Cli::try_parse_from(["hex", "history"].into_iter().chain(extra.iter().copied())).unwrap();
+    let cli = Cli::try_parse_from(
+        ["agent-desk", "history"]
+            .into_iter()
+            .chain(extra.iter().copied()),
+    )
+    .unwrap();
     match cli.command.unwrap() {
         ControlCli::History(args) => args,
         _ => panic!("expected history"),
@@ -215,7 +219,9 @@ fn history_search_ranks_fuzzy_stemmed_matches_within_retention() {
         )
         .is_err()
     );
-    assert!(Cli::try_parse_from(["hex", "history", "--search", "x", "--oldest-first"]).is_err());
+    assert!(
+        Cli::try_parse_from(["agent-desk", "history", "--search", "x", "--oldest-first"]).is_err()
+    );
 }
 
 #[test]
@@ -485,7 +491,8 @@ fn meeting_show_ranges_filter_json_entries_and_markdown() {
 
     assert!(OffsetRange::parse(Some("0:14"), Some("0:06")).is_err());
     assert!(OffsetRange::parse(Some("0:06"), Some("0:06")).is_err());
-    let cli = Cli::try_parse_from(["hex", "meetings", "show", "latest", "--to", "0"]).unwrap();
+    let cli =
+        Cli::try_parse_from(["agent-desk", "meetings", "show", "latest", "--to", "0"]).unwrap();
     let Some(ControlCli::Meetings {
         command: MeetingsCommand::Show { from, to, .. },
     }) = cli.command
@@ -499,7 +506,15 @@ fn meeting_show_ranges_filter_json_entries_and_markdown() {
         "The range start 00:00 must be earlier than its end 00:00."
     );
     let cli = Cli::try_parse_from([
-        "hex", "meetings", "show", "latest", "--from", "1:53:03", "--to", "120:43", "--json",
+        "agent-desk",
+        "meetings",
+        "show",
+        "latest",
+        "--from",
+        "1:53:03",
+        "--to",
+        "120:43",
+        "--json",
     ])
     .unwrap();
     let Some(ControlCli::Meetings {
@@ -679,10 +694,10 @@ fn subtitles_follow_the_range() {
         SubtitleFormat::from_flags(false, true),
         Some(SubtitleFormat::Vtt)
     );
-    assert!(Cli::try_parse_from(["hex", "meetings", "show", "latest", "--srt"]).is_ok());
+    assert!(Cli::try_parse_from(["agent-desk", "meetings", "show", "latest", "--srt"]).is_ok());
     assert!(
         Cli::try_parse_from([
-            "hex",
+            "agent-desk",
             "meetings",
             "show",
             "latest",
@@ -693,7 +708,7 @@ fn subtitles_follow_the_range() {
         .is_ok()
     );
     for conflict in [["--srt", "--vtt"], ["--srt", "--json"], ["--vtt", "--md"]] {
-        let command = ["hex", "meetings", "show", "latest"]
+        let command = ["agent-desk", "meetings", "show", "latest"]
             .into_iter()
             .chain(conflict);
         assert!(Cli::try_parse_from(command).is_err(), "{conflict:?}");
@@ -703,13 +718,13 @@ fn subtitles_follow_the_range() {
 #[test]
 fn parses_release_commands_and_rejects_invalid_limits_and_times() {
     for command in [
-        vec!["hex", "history"],
-        vec!["hex", "meetings", "list", "--json"],
-        vec!["hex", "meetings", "show", "latest", "--md"],
-        vec!["hex", "meetings", "search", "problems"],
-        vec!["hex", "meetings", "chapters", "latest", "--json"],
+        vec!["agent-desk", "history"],
+        vec!["agent-desk", "meetings", "list", "--json"],
+        vec!["agent-desk", "meetings", "show", "latest", "--md"],
+        vec!["agent-desk", "meetings", "search", "problems"],
+        vec!["agent-desk", "meetings", "chapters", "latest", "--json"],
         vec![
-            "hex",
+            "agent-desk",
             "meetings",
             "show",
             "latest",
@@ -721,11 +736,11 @@ fn parses_release_commands_and_rejects_invalid_limits_and_times() {
         assert!(Cli::try_parse_from(command).is_ok());
     }
     for command in [
-        vec!["hex", "history", "--limit", "0"],
-        vec!["hex", "history", "--limit", "10001"],
-        vec!["hex", "meetings", "show", "latest", "--md", "--json"],
+        vec!["agent-desk", "history", "--limit", "0"],
+        vec!["agent-desk", "history", "--limit", "10001"],
+        vec!["agent-desk", "meetings", "show", "latest", "--md", "--json"],
         vec![
-            "hex",
+            "agent-desk",
             "meetings",
             "show",
             "latest",
@@ -734,7 +749,14 @@ fn parses_release_commands_and_rejects_invalid_limits_and_times() {
             "--from",
             "1:00",
         ],
-        vec!["hex", "meetings", "show", "latest", "--chapter", "two"],
+        vec![
+            "agent-desk",
+            "meetings",
+            "show",
+            "latest",
+            "--chapter",
+            "two",
+        ],
     ] {
         assert!(Cli::try_parse_from(command).is_err());
     }

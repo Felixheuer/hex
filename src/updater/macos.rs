@@ -108,7 +108,7 @@ pub fn running_sha256() -> Option<String> {
     None
 }
 
-/// Hex replaces the bundle by renaming it inside its parent directory, so
+/// Agent-Desk replaces the bundle by renaming it inside its parent directory, so
 /// both must be writable by this user, on a writable volume, and not a
 /// Gatekeeper App Translocation copy.
 fn replaceable(bundle: &Path) -> bool {
@@ -237,8 +237,14 @@ fn install_carried(carried: &Path, requirement: &str) -> Result<PathBuf> {
         .ok_or_else(|| eyre!("the bridge has no parent folder"))?;
     let version = plist_value(carried, "CFBundleShortVersionString")?;
     let installed = parent.join(BUNDLE_NAME);
-    if plist_value(&installed, "CFBundleShortVersionString").ok().as_deref() == Some(&version)
-        && plist_value(&installed, "CFBundleIdentifier").ok().as_deref() == Some(BUNDLE_ID)
+    if plist_value(&installed, "CFBundleShortVersionString")
+        .ok()
+        .as_deref()
+        == Some(&version)
+        && plist_value(&installed, "CFBundleIdentifier")
+            .ok()
+            .as_deref()
+            == Some(BUNDLE_ID)
     {
         return Ok(installed);
     }
@@ -528,8 +534,12 @@ mod tests {
         let app = root.join(BUNDLE_NAME);
         fs::create_dir_all(&app).unwrap();
         assert!(replaceable(&app));
-        assert!(!replaceable(&root.join("AppTranslocation/x/Agent-Desk.app")));
-        assert!(!replaceable(Path::new("/System/Applications/Agent-Desk.app")));
+        assert!(!replaceable(
+            &root.join("AppTranslocation/x/Agent-Desk.app")
+        ));
+        assert!(!replaceable(Path::new(
+            "/System/Applications/Agent-Desk.app"
+        )));
         let _ = fs::remove_dir_all(root);
     }
 
@@ -575,7 +585,10 @@ mod tests {
         let bridge = applications_after_hex_update(&root, "9.9.9");
         let carried = bridge.join("Contents/Library").join(BUNDLE_NAME);
         let installed = install_carried(&carried, &plain(BUNDLE_ID)).unwrap();
-        assert_eq!(plist_value(&installed, "CFBundleShortVersionString").unwrap(), "9.9.9");
+        assert_eq!(
+            plist_value(&installed, "CFBundleShortVersionString").unwrap(),
+            "9.9.9"
+        );
         assert!(!root.join(format!("{STAGING_PREFIX}9.9.9")).exists());
 
         // A carried bundle that fails its check changes nothing.

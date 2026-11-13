@@ -1,7 +1,7 @@
 //! The onboarding's Browser page: agent-browser found (or installed with
 //! one click, its own Chrome with it), and its self-tests green, so web
 //! tasks run in browsers of their own instead of the person's. Signing in
-//! to sites in Hex's own browser is offered, never required.
+//! to sites in Agent-Desk's own browser is offered, never required.
 
 use std::time::Duration;
 

@@ -1,7 +1,7 @@
-//! System default on Linux passes over a Bluetooth headset. Hex records
+//! System default on Linux passes over a Bluetooth headset. Agent-Desk records
 //! through ALSA's default device, which PipeWire (or PulseAudio) routes to
 //! its default source and cannot name another one, so when that source is
-//! Bluetooth Hex moves its own capture streams to the built-in microphone,
+//! Bluetooth Agent-Desk moves its own capture streams to the built-in microphone,
 //! else the first other hardware input, passing over any whose active port
 //! the sound server reports unplugged (an empty headset jack records only
 //! silence). The streams are marked so
@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
-/// Properties every PipeWire ALSA stream Hex opens carries: no remembered
-/// target, so a move lasts only for that stream, and Hex's PID to find it.
+/// Properties every PipeWire ALSA stream Agent-Desk opens carries: no remembered
+/// target, so a move lasts only for that stream, and Agent-Desk's PID to find it.
 const STREAM_PROPERTIES: &str = "PIPEWIRE_ALSA";
 const PID_PROPERTY: &str = "hex.process.id";
 /// How long a new stream has to appear in the sound server.
@@ -21,7 +21,7 @@ const STREAM_DEADLINE: Duration = Duration::from_secs(2);
 const STREAM_POLL: Duration = Duration::from_millis(50);
 
 /// Marks the PipeWire ALSA streams this process opens. Called on the main
-/// thread before Hex starts any other thread.
+/// thread before Agent-Desk starts any other thread.
 pub(crate) fn mark_streams() {
     if std::env::var_os(STREAM_PROPERTIES).is_some() {
         return;
@@ -31,10 +31,10 @@ pub(crate) fn mark_streams() {
     unsafe { std::env::set_var(STREAM_PROPERTIES, properties) };
 }
 
-/// The stream properties: a stable `hex` application and node name (the
+/// The stream properties: a stable `agent-desk` application and node name (the
 /// ALSA plugin otherwise names it after the binary with spaces, which
 /// varies by packaging), so tools such as audio idle inhibitors can tell
-/// Hex's microphone stream apart and ignore it.
+/// Agent-Desk's microphone stream apart and ignore it.
 fn stream_properties(pid: u32) -> String {
     format!(
         "{{ state.restore-target = false, application.name = \"{STREAM_NAME}\", \
@@ -74,7 +74,7 @@ impl Source {
     }
 
     /// A hardware microphone: not a monitor, loopback, filter or virtual
-    /// device, which may record silence or Hex itself.
+    /// device, which may record silence or Agent-Desk itself.
     fn is_hardware_input(&self) -> bool {
         self.property("device.api") == Some("alsa")
             && self.property("device.class") != Some("monitor")

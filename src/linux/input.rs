@@ -1,5 +1,5 @@
 //! Linux dictation shortcuts: the one state machine every input feeds, the
-//! X11 key grabs, the Wayland shortcuts portal, and the `hex` commands a
+//! X11 key grabs, the Wayland shortcuts portal, and the `agent-desk` commands a
 //! desktop keybinding runs. Dictation sees only [`HotkeyEvent`]s.
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -145,7 +145,7 @@ impl LinuxHotkey {
     pub(crate) fn portal_trigger(&self) -> Result<String> {
         if mouse_button(&self.key).is_some() {
             return Err(eyre!(
-                "Wayland's shortcuts portal cannot request mouse buttons; bind the hex commands in the desktop settings"
+                "Wayland's shortcuts portal cannot request mouse buttons; bind the agent-desk commands in the desktop settings"
             ));
         }
         let key = keysym_name(&self.key)?;
@@ -259,10 +259,10 @@ const KEY_REPEAT_GAP: Duration = Duration::from_secs(1);
 /// or a release is settling.
 const POLL_INTERVAL: Duration = Duration::from_millis(5);
 /// How long a listening portal waits for the desktop's next signal: a press
-/// wakes it at once, and this only bounds how long a queued `hex` command
+/// wakes it at once, and this only bounds how long a queued `agent-desk` command
 /// waits behind it.
 const PORTAL_WAIT: Duration = Duration::from_millis(50);
-/// How long a monitor without a portal sleeps: a `hex` command wakes it, and
+/// How long a monitor without a portal sleeps: a `agent-desk` command wakes it, and
 /// its next portal check is due much later than this.
 const COMMAND_WAIT: Duration = Duration::from_millis(250);
 /// Binding through the portal can wait for the user to approve a dialog.
@@ -277,7 +277,7 @@ pub(crate) enum HotkeyEvent {
         flavour: DictationFlavour,
     },
     Finish,
-    /// `hex dictation stop --print` finished the dictation: its transcript
+    /// `agent-desk dictation stop --print` finished the dictation: its transcript
     /// goes to the reply instead of being pasted.
     FinishPrinting(crate::control::PrintReply),
     Cancel,
@@ -307,24 +307,24 @@ pub(crate) enum HotkeyEvent {
     AssistantEscape,
 }
 
-/// What a `hex` command asks of the running listener. Each one is
+/// What a `agent-desk` command asks of the running listener. Each one is
 /// idempotent: starting while recording or stopping while idle does nothing.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) enum ShortcutCommand {
     DictationStart,
     DictationStop,
     DictationToggle,
-    /// `hex dictation cancel`: discards whatever records, in any mode.
+    /// `agent-desk dictation cancel`: discards whatever records, in any mode.
     DictationCancel,
     PasteLast,
-    /// `hex typed-text`: the typed-text shortcut's one job.
+    /// `agent-desk typed-text`: the typed-text shortcut's one job.
     TypedText,
-    /// `hex dictation start --raw` and `toggle --raw`.
+    /// `agent-desk dictation start --raw` and `toggle --raw`.
     DictationStartRaw,
     DictationToggleRaw,
 }
 
-/// What the listener's command queue carries: a `hex` command, or a
+/// What the listener's command queue carries: a `agent-desk` command, or a
 /// printing stop with the reply only its own connection waits on.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum ListenerCommand {
@@ -362,7 +362,7 @@ pub(crate) struct HotkeyOptions {
     /// Annotate's one key, while Annotate is on: tap to start and stop,
     /// hold to draw.
     pub(crate) capture: Option<LinuxHotkey>,
-    /// Toggle mode's cancel shortcut, which Hex takes only while a
+    /// Toggle mode's cancel shortcut, which Agent-Desk takes only while a
     /// recording runs; `None` in Hold mode, which has no cancel.
     pub(crate) cancel: Option<LinuxHotkey>,
     /// The assistant's Action shortcut, while the assistant is on and it
@@ -387,7 +387,7 @@ fn assistant_escape() -> bool {
     ASSISTANT_ESCAPE.load(Ordering::Acquire)
 }
 
-/// Whether Annotate draws now, so Escape is Hex's (it stops drawing).
+/// Whether Annotate draws now, so Escape is Agent-Desk's (it stops drawing).
 fn annotate_drawing() -> bool {
     #[cfg(hex_capture)]
     return crate::capture_host::drawing();
@@ -403,7 +403,7 @@ pub(crate) struct HotkeyStatus {
     configurable: Arc<AtomicBool>,
     /// Settings asked for that dialog.
     configure: Arc<AtomicBool>,
-    /// The person disabled Hex: clear its shortcuts from the desktop's list
+    /// The person disabled Agent-Desk: clear its shortcuts from the desktop's list
     /// when the listener stops.
     forget: Arc<AtomicBool>,
     keys: ShortcutKeys,
@@ -426,12 +426,12 @@ impl HotkeyStatus {
         self.configurable.load(Ordering::Acquire)
     }
 
-    /// Opens the desktop's dialog for Hex's shortcuts, when it has one.
+    /// Opens the desktop's dialog for Agent-Desk's shortcuts, when it has one.
     pub(crate) fn configure(&self) {
         self.configure.store(true, Ordering::Release);
     }
 
-    /// Clears Hex's shortcuts from the desktop's list once the listener
+    /// Clears Agent-Desk's shortcuts from the desktop's list once the listener
     /// stops, as Disable does; a restart for a settings change keeps them.
     pub(crate) fn forget_on_stop(&self) {
         self.forget.store(true, Ordering::Release);
@@ -446,18 +446,18 @@ impl HotkeyStatus {
 }
 
 /// How long after a Wayland shortcut's last event its modifiers may still be
-/// down. Hex cannot see them there, so this is the bounded estimate.
+/// down. Agent-Desk cannot see them there, so this is the bounded estimate.
 const MODIFIER_GRACE: Duration = Duration::from_millis(250);
 /// The longest a press without its release holds a paste back, for desktops
 /// that drop the release.
 const HELD_LIMIT: Duration = Duration::from_secs(2);
 
-/// When the keys of a Hex shortcut may still be down. Some Wayland
+/// When the keys of an Agent-Desk shortcut may still be down. Some Wayland
 /// compositors (Hyprland) add every held physical modifier to virtual
-/// keyboard input, turning a paste's Ctrl+V into Ctrl+Alt+V. Hex reads no
+/// keyboard input, turning a paste's Ctrl+V into Ctrl+Alt+V. Agent-Desk reads no
 /// input devices, so the paste waits on the shortcut's own events: until a
 /// modifier shortcut's release (portal Deactivated) plus [`MODIFIER_GRACE`],
-/// and [`MODIFIER_GRACE`] after a `hex` command, whose keybinding is unknown.
+/// and [`MODIFIER_GRACE`] after a `agent-desk` command, whose keybinding is unknown.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ShortcutKeys(Arc<Mutex<HeldKeys>>);
 
@@ -508,7 +508,7 @@ impl ShortcutKeys {
             .held = 0;
     }
 
-    /// Whether a Hex shortcut is down now (pressed without its release), so
+    /// Whether an Agent-Desk shortcut is down now (pressed without its release), so
     /// a newer capture owns the modifiers a paste sees held.
     pub(crate) fn any_held(&self) -> bool {
         self.0
@@ -540,7 +540,7 @@ impl ShortcutKeys {
 }
 
 /// Whether a portal trigger holds modifiers: the one the desktop granted,
-/// else the one Hex asked for.
+/// else the one Agent-Desk asked for.
 fn trigger_has_modifiers(granted: Option<&str>, requested: &LinuxHotkey) -> bool {
     match granted.map(str::trim).filter(|trigger| !trigger.is_empty()) {
         Some(trigger) => crate::linux::portal::readable_trigger(trigger).contains('+'),
@@ -550,14 +550,14 @@ fn trigger_has_modifiers(granted: Option<&str>, requested: &LinuxHotkey) -> bool
 
 /// The portal id of a shortcut asking for `trigger`. A desktop keeps the
 /// trigger it stored for an id and ignores a later `preferred_trigger`
-/// (GNOME, KDE), so a shortcut changed in Hex gets a new id, which the
+/// (GNOME, KDE), so a shortcut changed in Agent-Desk gets a new id, which the
 /// desktop binds to the new trigger (#575). An unchanged shortcut keeps its
 /// id, and with it any trigger the user assigned in the desktop.
 ///
 /// With `desktop_assigns` (Hyprland), the desktop ignores the trigger and
 /// the user binds the id by name in its config, so the id is the bare
-/// `base`: recording another key in Hex must not leave that bind pointing
-/// at a name Hex no longer listens to (#1376).
+/// `base`: recording another key in Agent-Desk must not leave that bind pointing
+/// at a name Agent-Desk no longer listens to (#1376).
 fn portal_shortcut_id(base: &str, trigger: &str, desktop_assigns: bool) -> String {
     if desktop_assigns {
         return base.to_string();
@@ -565,9 +565,9 @@ fn portal_shortcut_id(base: &str, trigger: &str, desktop_assigns: bool) -> Strin
     format!("{base}-{}", trigger.replace('+', "-"))
 }
 
-/// The name Hex 3.3 and earlier gave `shortcut` on Hyprland, the trigger in
+/// The name Agent-Desk 3.3 and earlier gave `shortcut` on Hyprland, the trigger in
 /// the id (`dictation-ALT-space`), which configs written then still bind.
-/// Hex binds it beside the bare id so those binds keep working while the
+/// Agent-Desk binds it beside the bare id so those binds keep working while the
 /// recorded key is the one they were written for. Only the shortcuts 3.3
 /// had get one.
 fn hyprland_legacy_id(shortcut: Shortcut, trigger: &str) -> Option<String> {
@@ -578,7 +578,7 @@ fn hyprland_legacy_id(shortcut: Shortcut, trigger: &str) -> Option<String> {
     .then(|| portal_shortcut_id(shortcut.portal_id().0, trigger, false))
 }
 
-/// The trigger the desktop granted a shortcut, by the id Hex bound it under.
+/// The trigger the desktop granted a shortcut, by the id Agent-Desk bound it under.
 fn granted_trigger<'a>(
     granted: &'a std::collections::HashMap<String, Option<String>>,
     ids: &[Option<String>; Shortcut::ALL.len()],
@@ -590,7 +590,7 @@ fn granted_trigger<'a>(
         .and_then(Option::as_deref)
 }
 
-/// What the desktop granted, as Settings shows it: each shortcut Hex asked
+/// What the desktop granted, as Settings shows it: each shortcut Agent-Desk asked
 /// for. With `desktop_assigns` (Hyprland), a shortcut without a trigger is
 /// unconfirmed rather than refused.
 fn project_grants(
@@ -698,7 +698,7 @@ enum Input {
     /// Escape, which stops Annotate's drawing (#786), else, while the
     /// assistant took it (X11), its Here tasks and speech.
     Escape,
-    /// The cancel shortcut, pressed while Hex held it.
+    /// The cancel shortcut, pressed while Agent-Desk held it.
     Cancel,
     /// The backend can no longer tell which keys are down.
     Lost,
@@ -784,7 +784,7 @@ impl ShortcutState {
         matches!(self.capture, Capture::Idle | Capture::Armed)
     }
 
-    /// Whether the cancel shortcut is Hex's now: only in Toggle mode, and
+    /// Whether the cancel shortcut is Agent-Desk's now: only in Toggle mode, and
     /// only while something records, so the key stays with every app
     /// otherwise.
     fn wants_cancel(&self) -> bool {
@@ -850,8 +850,8 @@ impl ShortcutState {
         event
     }
 
-    /// `hex dictation stop` (or `toggle`'s stop). An Action shortcut's
-    /// question is left alone: only its release asks it (`hex dictation
+    /// `agent-desk dictation stop` (or `toggle`'s stop). An Action shortcut's
+    /// question is left alone: only its release asks it (`agent-desk dictation
     /// cancel` still discards it).
     fn stop_dictation(&mut self) -> Option<HotkeyEvent> {
         if !matches!(self.capture, Capture::Held { .. } | Capture::Locked)
@@ -1001,7 +1001,7 @@ impl ShortcutState {
             }
             Input::Released(Shortcut::PasteLast) => None,
             // The typed-text job owns no capture state: pressing its shortcut
-            // or sending `hex typed-text` while idle asks for one job, and
+            // or sending `agent-desk typed-text` while idle asks for one job, and
             // while recording it does nothing at all.
             Input::Pressed(Shortcut::TypedText) | Input::Command(ShortcutCommand::TypedText) => {
                 self.idle().then_some(HotkeyEvent::TypedText)
@@ -1095,13 +1095,13 @@ impl ShortcutState {
     }
 }
 
-/// `hex` commands for whichever monitor runs now. The listener keeps one
+/// `agent-desk` commands for whichever monitor runs now. The listener keeps one
 /// queue while it registers its shortcuts again after a settings change.
 #[derive(Clone)]
 pub(crate) struct CommandQueue {
     commands: Arc<Mutex<Receiver<ListenerCommand>>>,
-    /// Whether `hex` commands reach this listener: they go to the service,
-    /// never to a foreground `hex dictate` process.
+    /// Whether `agent-desk` commands reach this listener: they go to the service,
+    /// never to a foreground `agent-desk dictate` process.
     connected: bool,
 }
 
@@ -1115,7 +1115,7 @@ impl From<Receiver<ListenerCommand>> for CommandQueue {
 }
 
 impl CommandQueue {
-    /// A queue nothing sends to: the foreground `hex dictate` listener.
+    /// A queue nothing sends to: the foreground `agent-desk dictate` listener.
     pub(crate) fn disconnected() -> Self {
         Self {
             commands: Arc::new(Mutex::new(mpsc::channel().1)),
@@ -1123,7 +1123,7 @@ impl CommandQueue {
         }
     }
 
-    /// Whether this listener's `hex` commands arrive through this queue.
+    /// Whether this listener's `agent-desk` commands arrive through this queue.
     pub(crate) fn connected(&self) -> bool {
         self.connected
     }
@@ -1175,9 +1175,9 @@ impl Dispatcher {
         self.pending.extend(event);
     }
 
-    /// Feeds every queued `hex` command.
+    /// Feeds every queued `agent-desk` command.
     fn commands(&mut self) {
-        // `hex dictate` has no queue anything sends to: only shortcuts remain.
+        // `agent-desk dictate` has no queue anything sends to: only shortcuts remain.
         if !self.commands.connected() {
             return;
         }
@@ -1193,7 +1193,7 @@ impl Dispatcher {
         }
     }
 
-    /// Waits up to `timeout` for a `hex` command, so a monitor with no
+    /// Waits up to `timeout` for a `agent-desk` command, so a monitor with no
     /// shortcuts to watch sleeps until one arrives, then feeds it and any
     /// others already queued.
     fn wait_for_commands(&mut self, timeout: Duration) {
@@ -1490,7 +1490,7 @@ mod tests {
         assert_eq!(test.events, [SECOND, Finish, START, Finish, SECOND, Finish]);
     }
 
-    /// #786: only the shortcuts Hex asked for show; a key the desktop still
+    /// #786: only the shortcuts Agent-Desk asked for show; a key the desktop still
     /// keeps for the removed Cancel dictation stays out.
     /// A listener with the assistant's shortcuts registered.
     fn assistant() -> HotkeyOptions {
@@ -2095,8 +2095,8 @@ mod tests {
         assert_eq!(granted_trigger(&granted, &ids, Shortcut::PasteLast), None);
     }
 
-    /// #1376: Hyprland binds Hex's shortcuts by name in its config and
-    /// ignores the trigger, so a key recorded in Hex keeps the same name.
+    /// #1376: Hyprland binds Agent-Desk's shortcuts by name in its config and
+    /// ignores the trigger, so a key recorded in Agent-Desk keeps the same name.
     #[test]
     fn a_desktop_that_assigns_keys_keeps_one_shortcut_id() {
         let id = |shortcut: Shortcut, trigger: &str| {
@@ -2113,8 +2113,8 @@ mod tests {
         );
     }
 
-    /// A config written for 3.3 binds `anomaly.hex:dictation-ALT-space`;
-    /// Hex binds that name too, for the key it was written for.
+    /// A config written for 3.3 binds `fheuer.agentdesk:dictation-ALT-space`;
+    /// Agent-Desk binds that name too, for the key it was written for.
     #[test]
     fn hyprland_keeps_the_names_3_3_bound() {
         assert_eq!(
@@ -2526,7 +2526,7 @@ mod tests {
         assert_eq!(test.events, [START, Cancel, START, Cancel, START, Finish]);
     }
 
-    /// Hold mode has no cancel: the key is never Hex's, even while a
+    /// Hold mode has no cancel: the key is never Agent-Desk's, even while a
     /// recording runs, and a press of it ends nothing.
     #[test]
     fn cancel_is_ignored_in_hold_mode() {
@@ -2548,7 +2548,7 @@ mod tests {
         assert!(test.events.iter().all(|event| *event != Cancel));
     }
 
-    /// While nothing records, Hex doesn't take the cancel key, so it stays
+    /// While nothing records, Agent-Desk doesn't take the cancel key, so it stays
     /// with the app in front.
     #[test]
     fn cancel_is_not_taken_while_idle() {
@@ -2613,7 +2613,7 @@ mod tests {
             [HotkeyEvent::TypedText, HotkeyEvent::TypedText]
         );
         assert_eq!(test.state.capture, Capture::Idle);
-        // Recording owns the shortcut and `hex typed-text`: no job and no
+        // Recording owns the shortcut and `agent-desk typed-text`: no job and no
         // state change.
         test.press(Shortcut::Dictation);
         test.events.clear();

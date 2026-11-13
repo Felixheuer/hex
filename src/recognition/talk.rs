@@ -6,10 +6,10 @@
 //!   `assistant::subscribe`. Once it has been read aloud, or shown when
 //!   answers aren't read, a capture opens without a tone and the HUD gets
 //!   `DictationIndicatorEvent::Listening` for `conversation_seconds`.
-//! - With `barge_in` on, the capture opens as soon as Hex starts reading,
+//! - With `barge_in` on, the capture opens as soon as Agent-Desk starts reading,
 //!   unshown; a voice over it pauses the reading at once
 //!   (`speech::pause()`). Its transcript decides: the person's words drop
-//!   the answer and ask; nothing, or Hex's own voice heard back, resumes
+//!   the answer and ask; nothing, or Agent-Desk's own voice heard back, resumes
 //!   the reading from the sentence it cut, watched again
 //!   (`assistant::shortcut::barge_in`).
 //! - Speech makes the capture a question (`Started`, `Asking`, the desktop
@@ -54,7 +54,7 @@ pub(super) struct Talk {
     pending: Vec<Step>,
     /// Whether another app plays audio, which closes the hands-free window.
     other: OtherAudio,
-    /// Tells the person's voice from the echo of Hex's on the speakers.
+    /// Tells the person's voice from the echo of Agent-Desk's on the speakers.
     echo: Option<super::echo::EchoGate>,
     /// A barge-in paused the reading and its capture is being heard.
     barging: bool,
@@ -150,7 +150,7 @@ impl Talk {
             for conversation in answered() {
                 self.machine.answered(conversation, now);
             }
-            // A barge-in that was only Hex's own voice (or nothing): the
+            // A barge-in that was only Agent-Desk's own voice (or nothing): the
             // reading resumed, so its rest is watched again.
             match rearm(
                 self.barged.is_some(),
@@ -171,7 +171,7 @@ impl Talk {
         let options = Options {
             listen_for: Duration::from_secs(settings.conversation_seconds.into()),
             // Interrupting is by key only (a hold, or „Stopp“ said in one):
-            // nothing listens under an answer, so Hex never hears itself.
+            // nothing listens under an answer, so Agent-Desk never hears itself.
             barge_in: false,
             spoken: settings.speak_answers,
         };
@@ -207,7 +207,7 @@ impl Talk {
             }
             Step::Listen => {
                 // The capture that watched under the reading (barge-in)
-                // holds Hex's own voice: the follow-up starts afresh, its
+                // holds Agent-Desk's own voice: the follow-up starts afresh, its
                 // pre-roll keeping a first word said as the reading ended.
                 if self.capture.is_some() {
                     self.reopen(input)?;
@@ -225,7 +225,7 @@ impl Talk {
             Step::Heard | Step::BargeIn => {
                 if step == Step::BargeIn {
                     // Paused, not stopped: on speakers the voice may have
-                    // been Hex's own; its transcript decides
+                    // been Agent-Desk's own; its transcript decides
                     // (`assistant::shortcut::barge_in`).
                     if crate::assistant::speech::pause() {
                         tracing::info!("barge-in: paused");
@@ -342,9 +342,9 @@ impl Talk {
 
 /// Whether `event` ends conversation mode: a key going down or a modifier
 /// changing, Escape and the Action shortcut included.
-/// Judges each frame of a block that `arrived` at `rate` against what Hex
+/// Judges each frame of a block that `arrived` at `rate` against what Agent-Desk
 /// played (`audio::playback_reference`): `Some(true)` when it holds the
-/// person (or Hex played nothing lately), `Some(false)` when only Hex's
+/// person (or Agent-Desk played nothing lately), `Some(false)` when only Agent-Desk's
 /// echo, `None` while the gate is still learning the room.
 fn echo_judge(
     mut gate: Option<&mut super::echo::EchoGate>,
@@ -503,7 +503,7 @@ mod tests {
         }
     }
 
-    /// Hex listens after a Here answer, and after a question a Here task
+    /// Agent-Desk listens after a Here answer, and after a question a Here task
     /// asks; never after Background work, or a task that escalated to it.
     #[test]
     fn only_here_answers_and_questions_are_listened_after() {

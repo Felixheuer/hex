@@ -6,7 +6,7 @@ use winreg::RegKey;
 use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-const VALUE_NAME: &str = "Hex";
+const VALUE_NAME: &str = "Agent-Desk";
 
 /// Return the Windows-owned startup registration state.
 pub fn is_enabled() -> Result<bool> {
@@ -19,15 +19,19 @@ pub fn is_enabled() -> Result<bool> {
     match key.get_value::<String, _>(VALUE_NAME) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error).wrap_err("could not read the Hex startup registration"),
+        Err(error) => Err(error).wrap_err("could not read the Agent-Desk startup registration"),
     }
 }
 
 /// Register or unregister the current executable for the current Windows user.
 pub fn set_enabled(enabled: bool) -> Result<()> {
     if enabled {
-        let executable = std::env::current_exe().wrap_err("could not locate the Hex executable")?;
-        write_startup_command(&executable, "could not register Hex to launch at login")?;
+        let executable =
+            std::env::current_exe().wrap_err("could not locate the Agent-Desk executable")?;
+        write_startup_command(
+            &executable,
+            "could not register Agent-Desk to launch at login",
+        )?;
     } else {
         let current_user = RegKey::predef(HKEY_CURRENT_USER);
         let key = match current_user.open_subkey_with_flags(RUN_KEY, KEY_WRITE) {
@@ -40,7 +44,7 @@ pub fn set_enabled(enabled: bool) -> Result<()> {
         if let Err(error) = key.delete_value(VALUE_NAME)
             && error.kind() != ErrorKind::NotFound
         {
-            return Err(error).wrap_err("could not unregister Hex from Windows startup");
+            return Err(error).wrap_err("could not unregister Agent-Desk from Windows startup");
         }
     }
     Ok(())
@@ -53,13 +57,16 @@ pub fn repoint(executable: &Path) -> Result<()> {
     if !is_enabled()? {
         return Ok(());
     }
-    write_startup_command(executable, "could not repoint the Hex startup registration")
+    write_startup_command(
+        executable,
+        "could not repoint the Agent-Desk startup registration",
+    )
 }
 
-/// Points Launch at login at this Hex when it starts another version of the
+/// Points Launch at login at this Agent-Desk when it starts another version of the
 /// same managed install. Setup and install-windows.ps1 switch
 /// `current-version` without touching the Run value, which names a
-/// version's `hex.exe`, so after a manual upgrade signing in started the
+/// version's `agent-desk.exe`, so after a manual upgrade signing in started the
 /// version it replaced. Runs at every launch, before the single-instance
 /// claim, so opening the new version once fixes it even while the old one
 /// still runs. A disabled registration, a value outside the managed
@@ -75,9 +82,12 @@ pub fn follow_current_version() -> Result<()> {
     let command = match key.get_value::<String, _>(VALUE_NAME) {
         Ok(command) => command,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error).wrap_err("could not read the Hex startup registration"),
+        Err(error) => {
+            return Err(error).wrap_err("could not read the Agent-Desk startup registration");
+        }
     };
-    let executable = std::env::current_exe().wrap_err("could not locate the Hex executable")?;
+    let executable =
+        std::env::current_exe().wrap_err("could not locate the Agent-Desk executable")?;
     let support = crate::app_paths::support_dir()?;
     let current = std::fs::read_to_string(support.join("current-version")).ok();
     if !starts_another_version(&command, &executable, &support, current.as_deref()) {
@@ -85,16 +95,16 @@ pub fn follow_current_version() -> Result<()> {
     }
     write_startup_command(
         &executable,
-        "could not repoint the Hex startup registration",
+        "could not repoint the Agent-Desk startup registration",
     )?;
     tracing::info!(
         previous = %command,
-        "pointed Launch at login at this version of Hex"
+        "pointed Launch at login at this version of Agent-Desk"
     );
     Ok(())
 }
 
-/// Whether the Run value `command` starts a `hex.exe` in `support\versions`
+/// Whether the Run value `command` starts a `agent-desk.exe` in `support\versions`
 /// other than `executable`, which is that install's current version.
 fn starts_another_version(
     command: &str,
@@ -115,7 +125,7 @@ fn starts_another_version(
         return false;
     };
     let is_current = current.is_some_and(|current| {
-        version.eq_ignore_ascii_case(&format!(r"{}\hex.exe", current.trim()))
+        version.eq_ignore_ascii_case(&format!(r"{}\agent-desk.exe", current.trim()))
     });
     is_current
         && command.to_lowercase().contains(&versions)
@@ -142,8 +152,8 @@ mod tests {
     #[test]
     fn startup_command_quotes_paths_with_spaces() {
         assert_eq!(
-            startup_command(Path::new(r"C:\Program Files\Hex\hex.exe")),
-            r#""C:\Program Files\Hex\hex.exe" app --hidden"#
+            startup_command(Path::new(r"C:\Program Files\Agent-Desk\agent-desk.exe")),
+            r#""C:\Program Files\Agent-Desk\agent-desk.exe" app --hidden"#
         );
     }
 
@@ -152,8 +162,9 @@ mod tests {
     #[test]
     fn a_manual_upgrade_moves_launch_at_login_to_the_current_version() {
         let support = Path::new(r"C:\Users\Jürgen\AppData\Roaming\hex");
-        let running = support.join(r"versions\3.4.0\hex.exe");
-        let old = r#""C:\Users\Jürgen\AppData\Roaming\hex\versions\3.3.0\hex.exe" app --hidden"#;
+        let running = support.join(r"versions\3.4.0\agent-desk.exe");
+        let old =
+            r#""C:\Users\Jürgen\AppData\Roaming\hex\versions\3.3.0\agent-desk.exe" app --hidden"#;
         let moves = |command: &str, executable: &Path, current: Option<&str>| {
             starts_another_version(command, executable, support, current)
         };
@@ -168,14 +179,14 @@ mod tests {
         assert!(!moves(old, &running, None));
         // A value outside the managed layout is the user's.
         assert!(!moves(
-            r#""D:\Tools\hex.exe" app --hidden"#,
+            r#""D:\Tools\agent-desk.exe" app --hidden"#,
             &running,
             Some("3.4.0")
         ));
         // A copy running outside the layout, such as a build.
         assert!(!moves(
             old,
-            Path::new(r"C:\src\hex\target\release\hex.exe"),
+            Path::new(r"C:\src\hex\target\release\agent-desk.exe"),
             Some("3.4.0")
         ));
     }

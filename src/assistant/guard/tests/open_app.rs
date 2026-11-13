@@ -135,7 +135,7 @@ fn with_full_control_a_here_task_opens_and_switches_to_apps() {
     let scratch = Scratch::new();
     let fake = Fake::recorded();
     with_running_apps(&fake);
-    let mut guard = here(&scratch, &fake, FRONT, "Hex Test", false);
+    let mut guard = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
     guard.config.front_window = true;
     let names: Vec<Value> = guard
         .tools()
@@ -177,7 +177,7 @@ fn with_full_control_a_here_task_opens_and_switches_to_apps() {
     assert_eq!(scratch.store().holder("w-800").unwrap().task, "here-task");
     assert!(fake.last_args("desktop_launch").get("activate").is_none());
     // Without full control the Here lane still stays in its window.
-    let mut kept = here(&scratch, &fake, FRONT, "Hex Test", false);
+    let mut kept = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
     kept.config.task = "kept".into();
     let refused = kept.call("hex_open_app", args(json!({"name": "Notes"})));
     assert_eq!(error_code(&refused).as_deref(), Some("POLICY_DENIED"));
@@ -189,7 +189,7 @@ fn asked_to_stay_in_the_background_a_here_task_still_opens_apps_of_its_own() {
     let fake = Fake::recorded();
     with_running_apps(&fake);
     // "Kannst du jede beliebige App nur im Hintergrund bedienen?"
-    let mut guard = here(&scratch, &fake, FRONT, "Hex Test", false);
+    let mut guard = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
     guard.config.open_apps = true;
     let tools = guard.tools().unwrap();
     assert!(tools.iter().any(|tool| tool["name"] == "hex_open_app"));

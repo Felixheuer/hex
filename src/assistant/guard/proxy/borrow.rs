@@ -39,7 +39,7 @@ pub(super) struct Borrowed {
 pub(super) const BACKGROUND_FIRST: &str = "Background first: act in the window where it is (click, type, set_value, select, scroll \
      by ref work in a parked or covered window) instead of bringing it in front of the person. \
      If this app ignored a background action and its retry, or keys (desktop_press) must reach \
-     it, call desktop_focus_window again: Hex then brings it forward briefly and gives the \
+     it, call desktop_focus_window again: Agent-Desk then brings it forward briefly and gives the \
      person's window back right after your next steps.";
 
 impl<D: Desktop> Guard<D> {
@@ -99,7 +99,7 @@ impl<D: Desktop> Guard<D> {
             steps: 0,
         });
         self.notes.push(format!(
-            "{id} is in front briefly; do the step it needs now. Hex gives the person's window \
+            "{id} is in front briefly; do the step it needs now. Agent-Desk gives the person's window \
              back after your next {BORROW_STEPS} steps in it (or {} s){}.",
             BORROW_FOR.as_secs(),
             if parked { " and parks it again" } else { "" }
@@ -200,7 +200,7 @@ impl<D: Desktop> Guard<D> {
                 }
                 self.notes.push(format!(
                     "{} ignored this in the background twice. If a fresh snapshot shows nothing \
-                     changed, desktop_focus_window brings {id} forward briefly (Hex gives the \
+                     changed, desktop_focus_window brings {id} forward briefly (Agent-Desk gives the \
                      person's window back right after).",
                     window.app
                 ));

@@ -1,6 +1,6 @@
-//! `hex dev assistant-doctor` (debug builds): prints what the setup sheet
+//! `agent-desk dev assistant-doctor` (debug builds): prints what the setup sheet
 //! would find and runs its self-tests, from this process. Run from a
-//! terminal, macOS judges that terminal's permissions, not Hex.app's.
+//! terminal, macOS judges that terminal's permissions, not Agent-Desk.app's.
 
 use std::path::PathBuf;
 
@@ -124,7 +124,7 @@ pub fn run(doctor: Doctor) -> color_eyre::Result<()> {
         };
         checks.extend([super::Check::BrowserRoundTrip, super::Check::LightBrowser]);
         if doctor.browser {
-            // Hex's own MCP path, as the Claude API's tasks use it, then
+            // Agent-Desk's own MCP path, as the Claude API's tasks use it, then
             // each agent that is ready (a tiny prompt each).
             checks.push(super::Check::BrowserThroughAgent(api));
             checks.extend(

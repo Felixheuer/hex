@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use color_eyre::eyre::Result;
 use hound::{SampleFormat, WavSpec, WavWriter};
 
-const RETENTION_ENV: &str = "HEX_RETAIN_DICTATION_AUDIO";
+const RETENTION_ENV: &str = "AGENT_DESK_RETAIN_DICTATION_AUDIO";
 const SAMPLE_RATE: u32 = 16_000;
 
 /// Retains a transcribed clip as `dictation-<ms>.wav`.

@@ -6,10 +6,10 @@ fn main() {
     build_version();
     test_build_commit();
     // `hex_dev_onboarding`: the first run's replay strip and its swearing
-    // jokes, in debug and `HEX_TEST_BUILD=1` builds only.
+    // jokes, in debug and `AGENT_DESK_TEST_BUILD=1` builds only.
     println!("cargo::rustc-check-cfg=cfg(hex_dev_onboarding)");
     if std::env::var_os("CARGO_CFG_DEBUG_ASSERTIONS").is_some()
-        || std::env::var("HEX_TEST_BUILD").as_deref() == Ok("1")
+        || std::env::var("AGENT_DESK_TEST_BUILD").as_deref() == Ok("1")
     {
         println!("cargo::rustc-cfg=hex_dev_onboarding");
     }
@@ -34,7 +34,7 @@ fn main() {
             // transcribe-cpp's Vulkan backend links the vulkan-1 import
             // library by name without its search path. The DLL itself ships
             // with the GPU driver, so it is delay-loaded: a missing or
-            // Vulkan 1.0 loader must not stop Hex at launch (#1240;
+            // Vulkan 1.0 loader must not stop Agent-Desk at launch (#1240;
             // `windows::vulkan` keeps ggml off it then).
             println!("cargo:rerun-if-env-changed=VULKAN_SDK");
             if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64") {
@@ -65,7 +65,7 @@ fn main() {
     compile_swift_bridge("meeting_import", "HEXMeetingImportBridge", &[]);
     println!("cargo:rustc-link-lib=framework=AudioToolbox");
     // FoundationModels exists only on macOS 26 and later. Weak-link it, and
-    // drop the object's strong autolink entry, so Hex still launches on older
+    // drop the object's strong autolink entry, so Agent-Desk still launches on older
     // systems and reports Apple Intelligence as unavailable.
     compile_swift_bridge(
         "apple_intelligence",
@@ -99,7 +99,7 @@ fn main() {
     }
 }
 
-/// The version Hex reports (`HEX_BUILD_VERSION`): the crate version, which
+/// The version Agent-Desk reports (`AGENT_DESK_BUILD_VERSION`): the crate version, which
 /// the Release workflow stamps (scripts/set-crate-version.sh), else, for any
 /// other build of the unstamped `0.0.0`, `0.0.0-dev-local-<commit>` with
 /// `-dirty` for uncommitted changes (`0.0.0-dev-local` without git, as in Nix).
@@ -136,19 +136,19 @@ fn check_windows_split() {
 }
 
 fn build_version() {
-    println!("cargo:rerun-if-env-changed=HEX_VERSION");
+    println!("cargo:rerun-if-env-changed=AGENT_DESK_VERSION");
     let version = std::env::var("CARGO_PKG_VERSION").unwrap();
-    // CI builds name their version in HEX_VERSION and check `hex --version`
+    // CI builds name their version in AGENT_DESK_VERSION and check `agent-desk --version`
     // against it, test builds included (they name the crate version).
-    if let Some(named) = std::env::var("HEX_VERSION")
+    if let Some(named) = std::env::var("AGENT_DESK_VERSION")
         .ok()
         .filter(|named| !named.is_empty())
     {
-        println!("cargo:rustc-env=HEX_BUILD_VERSION={named}");
+        println!("cargo:rustc-env=AGENT_DESK_BUILD_VERSION={named}");
         return;
     }
     if version != "0.0.0" {
-        println!("cargo:rustc-env=HEX_BUILD_VERSION={version}");
+        println!("cargo:rustc-env=AGENT_DESK_BUILD_VERSION={version}");
         return;
     }
     let git = |args: &[&str]| {
@@ -181,18 +181,18 @@ fn build_version() {
             }
         }
     }
-    println!("cargo:rustc-env=HEX_BUILD_VERSION={version}");
+    println!("cargo:rustc-env=AGENT_DESK_BUILD_VERSION={version}");
 }
 
-/// A test or local build carries its commit (`HEX_COMMIT`), which the sidebar shows
+/// A test or local build carries its commit (`AGENT_DESK_COMMIT`), which the sidebar shows
 /// beside the version.
 fn test_build_commit() {
-    println!("cargo:rerun-if-env-changed=HEX_BUILD_CHANNEL");
-    println!("cargo:rerun-if-env-changed=HEX_TEST_BUILD");
-    println!("cargo:rerun-if-env-changed=HEX_DEV_BUILD");
-    println!("cargo:rerun-if-env-changed=HEX_LOCAL_BUILD");
-    if std::env::var("HEX_TEST_BUILD").as_deref() != Ok("1")
-        && std::env::var("HEX_LOCAL_BUILD").as_deref() != Ok("1")
+    println!("cargo:rerun-if-env-changed=AGENT_DESK_BUILD_CHANNEL");
+    println!("cargo:rerun-if-env-changed=AGENT_DESK_TEST_BUILD");
+    println!("cargo:rerun-if-env-changed=AGENT_DESK_DEV_BUILD");
+    println!("cargo:rerun-if-env-changed=AGENT_DESK_LOCAL_BUILD");
+    if std::env::var("AGENT_DESK_TEST_BUILD").as_deref() != Ok("1")
+        && std::env::var("AGENT_DESK_LOCAL_BUILD").as_deref() != Ok("1")
     {
         return;
     }
@@ -208,7 +208,7 @@ fn test_build_commit() {
     let Some(commit) = git(&["rev-parse", "--short=7", "HEAD"]) else {
         return;
     };
-    println!("cargo:rustc-env=HEX_COMMIT={commit}");
+    println!("cargo:rustc-env=AGENT_DESK_COMMIT={commit}");
     let reference = git(&["symbolic-ref", "-q", "HEAD"]);
     for name in ["HEAD", "packed-refs"]
         .into_iter()
@@ -222,7 +222,7 @@ fn test_build_commit() {
     }
 }
 
-/// Gives the executable its icon and the "Hex" name Explorer and Task
+/// Gives the executable its icon and the "Agent-Desk" name Explorer and Task
 /// Manager show, whatever the file is called.
 #[cfg(windows)]
 fn embed_windows_resources() {
@@ -252,12 +252,12 @@ BEGIN
   BEGIN
     BLOCK "040904B0"
     BEGIN
-      VALUE "FileDescription", "Hex"
-      VALUE "ProductName", "Hex"
+      VALUE "FileDescription", "Agent-Desk"
+      VALUE "ProductName", "Agent-Desk"
       VALUE "FileVersion", "{version}"
       VALUE "ProductVersion", "{version}"
-      VALUE "OriginalFilename", "hex.exe"
-      VALUE "InternalName", "hex"
+      VALUE "OriginalFilename", "agent-desk.exe"
+      VALUE "InternalName", "agent-desk"
     END
   END
   BLOCK "VarFileInfo"

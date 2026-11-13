@@ -1,5 +1,5 @@
 //! The guard's tests, round two: one look at the screen for close checks,
-//! a Here task's dialogs, reused pids, the clipboard, and Hex's app tools.
+//! a Here task's dialogs, reused pids, the clipboard, and Agent-Desk's app tools.
 
 use super::*;
 
@@ -103,7 +103,7 @@ fn a_here_task_holds_the_dialog_its_action_opens_but_nothing_of_other_apps() {
                 state.windows.insert(
                     0,
                     json!({
-                        "app_name": "Hex Test", "id": "w-700", "is_focused": true, "pid": 81316,
+                        "app_name": "Agent-Desk Test", "id": "w-700", "is_focused": true, "pid": 81316,
                         "title": "Save", "visible": true,
                     }),
                 );
@@ -120,7 +120,7 @@ fn a_here_task_holds_the_dialog_its_action_opens_but_nothing_of_other_apps() {
             task: "here-task".into(),
             lane: Lane::Here,
             here_window: Some(TaskWindow {
-                app: "Hex Test".into(),
+                app: "Agent-Desk Test".into(),
                 window_id: Some(FRONT.into()),
             }),
             physical_input: false,
@@ -155,7 +155,7 @@ fn a_here_task_holds_the_dialog_its_action_opens_but_nothing_of_other_apps() {
     assert_eq!(error_code(&other).as_deref(), Some("NOT_YOUR_WINDOW"));
     // A window of its app the person opens later isn't the task's.
     fake.state().windows.push(json!({
-        "app_name": "Hex Test", "id": "w-702", "is_focused": false, "pid": 81316,
+        "app_name": "Agent-Desk Test", "id": "w-702", "is_focused": false, "pid": 81316,
         "title": "Theirs", "visible": true,
     }));
     guard_with.call("desktop_snapshot", args(json!({"window_id": FRONT})));
@@ -219,7 +219,7 @@ fn the_clipboard_is_for_here_tasks_or_with_real_input() {
         error_code(&physical.call("desktop_clipboard_get", Map::new())),
         None
     );
-    let mut here_task = here(&scratch, &fake, FRONT, "Hex Test", false);
+    let mut here_task = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
     assert_eq!(
         error_code(&here_task.call("desktop_clipboard_set", args(json!({"text": "x"})))),
         None
@@ -284,10 +284,10 @@ fn installed_apps_are_listed_with_what_runs_and_what_is_blocked() {
     assert_eq!(apps[0]["name"], "Notes");
     assert!(
         fake.forwarded().is_empty(),
-        "read in Hex, not through agent-desktop"
+        "read in Agent-Desk, not through agent-desktop"
     );
     // A Here task may look, but not open.
-    let mut here_task = here(&scratch, &fake, FRONT, "Hex Test", false);
+    let mut here_task = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
     let tools = here_task.tools().unwrap();
     assert!(tools.iter().all(|tool| tool["name"] != "hex_open_app"));
     assert!(
@@ -400,7 +400,7 @@ fn a_running_apps_bundle_is_found_from_its_executable() {
 }
 
 /// Live, read-only: the installed apps and the windows on screen, read in
-/// Hex, fast. Skipped where Hex can see no window (a headless runner).
+/// Agent-Desk, fast. Skipped where Agent-Desk can see no window (a headless runner).
 #[cfg(target_os = "macos")]
 #[test]
 fn this_macs_apps_and_windows_are_read_in_milliseconds() {

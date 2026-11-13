@@ -177,15 +177,15 @@ impl WindowsHotkey {
     }
 
     /// The chord holds Alt or Windows, whose release Chrome reads as a menu
-    /// tap once Hex swallows the chord's key, so that release is masked.
+    /// tap once Agent-Desk swallows the chord's key, so that release is masked.
     fn holds_menu_modifier(&self) -> bool {
         self.alt.is_some() || self.windows.is_some()
     }
 }
 
-/// `dwExtraInfo` on every event Hex injects, so its own hook skips them: a
+/// `dwExtraInfo` on every event Agent-Desk injects, so its own hook skips them: a
 /// paste's Ctrl must never press a Ctrl-alone shortcut.
-pub(crate) const HEX_INJECTED: usize = 0x4845_5821;
+pub(crate) const AGENT_DESK_INJECTED: usize = 0x4845_5821;
 
 /// Unassigned, so pressing it between an Alt or Windows press and release
 /// keeps the menu bar and Start closed, as AutoHotkey and PowerToys do.
@@ -282,10 +282,10 @@ struct CallbackState {
     annotate_trigger_down: bool,
     /// Escape went down to stop Annotate's drawing; its release is ours too.
     drawing_escape_down: bool,
-    /// Toggle mode's cancel shortcut, Hex's only while a recording runs.
+    /// Toggle mode's cancel shortcut, Agent-Desk's only while a recording runs.
     cancel: Option<WindowsHotkey>,
     cancel_vk: Option<u32>,
-    /// The cancel key went down while Hex held it; its release is ours too.
+    /// The cancel key went down while Agent-Desk held it; its release is ours too.
     cancel_down: bool,
     /// The assistant's Action shortcut, while the assistant is on and it is
     /// bound: held to ask, a modifier alone (right Ctrl) or a key chord.
@@ -457,7 +457,7 @@ impl CaptureState {
         recording.then_some(HotkeyAction::Cancel)
     }
 
-    /// Whether Toggle's cancel shortcut is Hex's now: only while a toggled
+    /// Whether Toggle's cancel shortcut is Agent-Desk's now: only while a toggled
     /// capture records, so the key stays with every app otherwise. The
     /// Action shortcut is always held, so it never takes the cancel key.
     fn wants_cancel(&self) -> bool {
@@ -974,7 +974,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
         return unsafe { CallNextHookEx(ptr::null_mut(), code, wparam, lparam) };
     }
     let event = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
-    if event.dwExtraInfo == HEX_INJECTED {
+    if event.dwExtraInfo == AGENT_DESK_INJECTED {
         return unsafe { CallNextHookEx(ptr::null_mut(), code, wparam, lparam) };
     }
     let vk = track_numpad(event, is_down).unwrap_or(event.vkCode);
@@ -1011,7 +1011,7 @@ fn replay_masked_release(release: &KBDLLHOOKSTRUCT) -> bool {
                 wScan: scan,
                 dwFlags: flags,
                 time: 0,
-                dwExtraInfo: HEX_INJECTED,
+                dwExtraInfo: AGENT_DESK_INJECTED,
             },
         },
     };
@@ -1150,7 +1150,7 @@ impl CallbackState {
             }
             return Disposition::Suppress;
         }
-        // Toggle's cancel key discards the recording. Hex takes it only
+        // Toggle's cancel key discards the recording. Agent-Desk takes it only
         // while a toggled capture records, and keeps its repeats and
         // release, so the app in front never acts on it.
         let cancel_event = state.cancel_vk == Some(vk)
@@ -1870,7 +1870,7 @@ mod tests {
         assert!(!state.active && !state.locked);
     }
 
-    /// Toggle's cancel key is Hex's only while a toggled capture records:
+    /// Toggle's cancel key is Agent-Desk's only while a toggled capture records:
     /// held or locked, never idle, and never in Hold mode.
     #[test]
     fn cancel_is_wanted_only_while_a_toggled_capture_records() {
@@ -2230,7 +2230,7 @@ mod tests {
             key(&mut state, VK_ESCAPE, true, 2_500),
             Disposition::Suppress
         );
-        // Unclaimed meanwhile, its release is still Hex's.
+        // Unclaimed meanwhile, its release is still Agent-Desk's.
         set_assistant_claims_escape(false);
         assert_eq!(
             key(&mut state, VK_ESCAPE, false, 2_600),

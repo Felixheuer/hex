@@ -8,8 +8,8 @@
 //! `<assistant>/audit/<conversation>.jsonl`, one JSON object a line, as it
 //! happens. Secrets in the arguments (anything named like a password, token,
 //! key, or card number) are blanked, and long values cut. A job's check
-//! appears marked as such. `hex assistant audit <conversation>` prints it,
-//! and a job that ends leaves it in its folder as `Hex-Protokoll.txt`.
+//! appears marked as such. `agent-desk assistant audit <conversation>` prints it,
+//! and a job that ends leaves it in its folder as `Agent-Desk-Protokoll.txt`.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -99,7 +99,7 @@ pub fn read(conversation: &str) -> Vec<Entry> {
         .collect()
 }
 
-/// What `hex assistant audit` prints.
+/// What `agent-desk assistant audit` prints.
 pub fn report(entries: &[Entry]) -> String {
     if entries.is_empty() {
         return "Nothing recorded for this conversation.\n".into();
@@ -118,7 +118,7 @@ pub fn report(entries: &[Entry]) -> String {
 }
 
 /// The log's file in a job's folder.
-pub const IN_FOLDER: &str = "Hex-Protokoll.txt";
+pub const IN_FOLDER: &str = "Agent-Desk-Protokoll.txt";
 
 /// Writes `conversation`'s log as a timeline into its job's `folder`
 /// ([`IN_FOLDER`]), when there is one.

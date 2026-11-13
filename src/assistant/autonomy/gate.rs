@@ -1,5 +1,5 @@
 //! The one autonomy gate every consequential action passes: the desktop
-//! guard's clicks and shortcuts (`guard::proxy::consent`), Hex's own
+//! guard's clicks and shortcuts (`guard::proxy::consent`), Agent-Desk's own
 //! browser (`browser::consent`), the person's browser tab
 //! (`knowledge::tab`), and app scripts (`guard::proxy::actions`). Each
 //! works out what an action would do ([`Category`]) and on what (a
@@ -96,7 +96,7 @@ impl Refusal {
         format!(
             "This would {verb} ({}{}). The person hasn't allowed that for this task (autonomy: \
              {mode}). Don't retry it or try another way around it: ask them and wait for their \
-             yes; Hex refuses it until they confirm.",
+             yes; Agent-Desk refuses it until they confirm.",
             self.target,
             self.app
                 .as_deref()

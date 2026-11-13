@@ -11,7 +11,7 @@
 //! into the Dock.
 //!
 //! So this does what AeroSpace does for its workspaces: a parked window is
-//! moved through Accessibility (Hex's own `actions::ax`, agent-desktop's
+//! moved through Accessibility (Agent-Desk's own `actions::ax`, agent-desktop's
 //! `move-window` where that fails) so its
 //! top-left corner sits in a bottom corner of a screen, leaving a pixel or
 //! two on screen. It stays on the person's Space, in its app, and in
@@ -19,8 +19,8 @@
 //! it still shows in Mission Control and the app switcher. [`show_now`]
 //! moves it back where it was and brings it to the front. Where it was is
 //! kept in the guard's parking store (`guard::parking`), which the guard
-//! writes too, so a window goes back even after Hex quits or crashes. Whether this holds on a
-//! given Mac is what `hex dev assistant-space-probe` checks, run only when
+//! writes too, so a window goes back even after Agent-Desk quits or crashes. Whether this holds on a
+//! given Mac is what `agent-desk dev assistant-space-probe` checks, run only when
 //! the person asks.
 //!
 //! OWNER: browser (with the Space spike).
@@ -37,7 +37,7 @@ use crate::assistant::backends::{self, desktop, search};
 use crate::assistant::guard::{self, ParkedHow};
 
 /// Whether moving task windows out of the way is on and can work here
-/// (`park_windows` and the assistant are on; on macOS Hex moves windows
+/// (`park_windows` and the assistant are on; on macOS Agent-Desk moves windows
 /// itself, elsewhere agent-desktop must be installed).
 pub fn available() -> bool {
     let on = crate::app_settings::assistant_runtime()
@@ -55,7 +55,7 @@ pub struct Parked {
 }
 
 /// Parks `window` off the screen (Hand back, the probe), noting where it was
-/// in the guard's parking store first, so it goes back even if Hex ends.
+/// in the guard's parking store first, so it goes back even if Agent-Desk ends.
 pub fn park_now(window: &TaskWindow) -> Result<Parked, String> {
     let id = window.window_id.as_deref().ok_or("the window has no id")?;
     let (pid, number, frame) = native::window(id).ok_or("the window isn't listed")?;
@@ -72,15 +72,15 @@ pub fn park_now(window: &TaskWindow) -> Result<Parked, String> {
     })
 }
 
-/// Take over: brings `window` back where it was before Hex parked it (the
+/// Take over: brings `window` back where it was before Agent-Desk parked it (the
 /// parking store's frame, else onto the main display when it hangs off
 /// every screen) and to the front; where it is now.
 pub fn show_now(window: &TaskWindow) -> Result<(f64, f64), String> {
     put_back(window, true).map(Option::unwrap_or_default)
 }
 
-/// A window that left its job: back where it was before Hex parked it, or
-/// onto the main display when it hangs off every screen (parked by a Hex
+/// A window that left its job: back where it was before Agent-Desk parked it, or
+/// onto the main display when it hangs off every screen (parked by an Agent-Desk
 /// before the store); whether it moved. It doesn't come to the front.
 pub fn bring_back(window: &TaskWindow) -> Result<bool, String> {
     put_back(window, false).map(|to| to.is_some())
@@ -127,7 +127,7 @@ pub fn off_screen((x, y, width, height): (f64, f64, f64, f64), displays: &[Displ
     shown < area * 0.1
 }
 
-/// The parking store's mover in Hex: the window server for where a window
+/// The parking store's mover in Agent-Desk: the window server for where a window
 /// is, Accessibility to move it (`guard::startup`, `guard::put_back_all`).
 pub struct Native;
 
@@ -146,7 +146,7 @@ impl guard::ParkingMover for Native {
     }
 }
 
-/// Windows moved by Hex itself: the window server's list for where a
+/// Windows moved by Agent-Desk itself: the window server's list for where a
 /// window is and whose it is, Accessibility to move it (no driver needed).
 mod native {
     use super::Display;
@@ -177,10 +177,10 @@ mod native {
     }
 
     /// Moves window `number` of `pid` to `to`, restoring it if minimized.
-    /// Never one of Hex's own windows (its UI tree isn't for worker threads).
+    /// Never one of Agent-Desk's own windows (its UI tree isn't for worker threads).
     pub fn move_to(pid: i32, number: u32, to: (f64, f64)) -> Result<(), String> {
         if i64::from(pid) == i64::from(std::process::id()) {
-            return Err("that's Hex's own window".into());
+            return Err("that's Agent-Desk's own window".into());
         }
         let _ = crate::assistant::actions::ax::set_minimized(pid, number, false);
         crate::assistant::actions::ax::set_position(pid, number, to)

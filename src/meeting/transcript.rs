@@ -736,7 +736,7 @@ impl ChunkModel {
         // Quitting drops the dictation engine; a model loaded now would
         // outlast the drain.
         if crate::desktop::process_exit::quitting() {
-            return Ok(Chunked::Unavailable(eyre!("Hex is quitting")));
+            return Ok(Chunked::Unavailable(eyre!("Agent-Desk is quitting")));
         }
         if speechless(samples) {
             return Ok(Chunked::Done(Transcript::default()));
@@ -769,7 +769,7 @@ impl ChunkModel {
             )));
         }
         if crate::desktop::process_exit::quitting() {
-            return Ok(Chunked::Unavailable(eyre!("Hex is quitting")));
+            return Ok(Chunked::Unavailable(eyre!("Agent-Desk is quitting")));
         }
         let model = match load_model(&mut self.owned, &selection) {
             Ok(model) => model,
@@ -1880,7 +1880,7 @@ fn transcribe_file(
     Ok(transcript)
 }
 
-/// Debug CLI `hex meeting echo <dir>`: replays a recording's tracks and
+/// Debug CLI `agent-desk meeting echo <dir>`: replays a recording's tracks and
 /// reports how many microphone lines echo suppression keeps, before (words
 /// only, one entry per model segment) and after (signal plus words, one
 /// entry per sentence). The microphone is placed `microphone_offset_ms`
@@ -2658,7 +2658,7 @@ mod tests {
     pub(super) static MODEL_LOADS: std::sync::atomic::AtomicUsize =
         std::sync::atomic::AtomicUsize::new(0);
 
-    const QUIT_CHILD: &str = "HEX_MEETING_QUIT_CHILD";
+    const QUIT_CHILD: &str = "AGENT_DESK_MEETING_QUIT_CHILD";
 
     /// The child half of `quitting_mid_meeting_loads_no_model_and_finishes_in_time`.
     #[test]
@@ -3258,7 +3258,7 @@ mod tests {
         rolling.finish().unwrap();
     }
 
-    const COPY_QUIT_CHILD: &str = "HEX_MEETING_COPY_QUIT_CHILD";
+    const COPY_QUIT_CHILD: &str = "AGENT_DESK_MEETING_COPY_QUIT_CHILD";
 
     /// The child half of `a_copy_stops_waiting_when_hex_quits`.
     #[test]

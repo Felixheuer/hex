@@ -1,9 +1,9 @@
 //! The plain-text scene files in `scenes/` (syntax in `scenes/README.md`):
-//! one `"Without Hex"` disaster and its `"With Hex"` triumph each, parsed
+//! one `"Without Agent-Desk"` disaster and its `"With Agent-Desk"` triumph each, parsed
 //! into a [`Script`] that [`typing::Scene`](super::typing::Scene) plays.
 //!
 //! [`parse`] reports every mistake with its line number. Renders pick a
-//! scene with `HEX_ONBOARDING_SCENE` (a path) or `HEX_ONBOARDING_VARIANT`
+//! scene with `AGENT_DESK_ONBOARDING_SCENE` (a path) or `AGENT_DESK_ONBOARDING_VARIANT`
 //! (`A`, `B`, `C`, `C+`); everyone else gets `default.scene`. Test and
 //! debug builds (`hex_dev_onboarding`) also switch scenes as they run, from
 //! the first run's replay strip.
@@ -53,7 +53,7 @@ const DEFAULT_COLOURS: [&str; 4] = ["cobalt", "lilac", "amber", "mint"];
 /// How many side characters a scene can have.
 const SIDES: usize = 3;
 
-/// The most lines `"Without Hex"`'s thread holds, and `"With Hex"`'s
+/// The most lines `"Without Agent-Desk"`'s thread holds, and `"With Agent-Desk"`'s
 /// payoff.
 pub(crate) const MAX_LINES: usize = 18;
 pub(crate) const MAX_CHEERS: usize = 8;
@@ -121,7 +121,7 @@ impl Ending {
     }
 }
 
-/// A celebration over the stage in `"With Hex"`.
+/// A celebration over the stage in `"With Agent-Desk"`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Effect {
     Confetti,
@@ -131,7 +131,7 @@ pub(crate) enum Effect {
 /// Tapbacks, each at a time from now if the scene gives one.
 pub(crate) type Taps = Vec<(Glyph, Option<f64>)>;
 
-/// One step of `"Without Hex"`.
+/// One step of `"Without Agent-Desk"`.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Op<'a> {
     /// Someone's line. `hold`: how long the scene holds after it, else its
@@ -197,7 +197,7 @@ pub(crate) enum Op<'a> {
     },
 }
 
-/// One step of `"With Hex"`, after your spoken line.
+/// One step of `"With Agent-Desk"`, after your spoken line.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Cheer<'a> {
     /// Tapbacks on your spoken line.
@@ -237,7 +237,7 @@ pub(crate) struct Script<'a> {
     pub(crate) people: Vec<Person<'a>>,
     /// The red status pill under the header.
     pub(crate) pill: Option<&'a str>,
-    /// The line under `"Without Hex"`.
+    /// The line under `"Without Agent-Desk"`.
     pub(crate) lead: &'a str,
     pub(crate) ops: Vec<Op<'a>>,
     pub(crate) with: Triumph<'a>,
@@ -289,7 +289,7 @@ impl Script<'static> {
         }
         static CHOSEN: OnceLock<Script<'static>> = OnceLock::new();
         CHOSEN.get_or_init(|| {
-            if let Ok(path) = std::env::var("HEX_ONBOARDING_SCENE")
+            if let Ok(path) = std::env::var("AGENT_DESK_ONBOARDING_SCENE")
                 && !path.is_empty()
             {
                 match std::fs::read_to_string(&path) {
@@ -300,7 +300,7 @@ impl Script<'static> {
                     Err(error) => tracing::warn!(path, %error, "onboarding scene"),
                 }
             }
-            let name = match std::env::var("HEX_ONBOARDING_VARIANT").as_deref() {
+            let name = match std::env::var("AGENT_DESK_ONBOARDING_VARIANT").as_deref() {
                 Ok("A" | "a" | "incontinence") => "A-incontinence.scene",
                 Ok("B" | "b" | "dirty") => "B-dirty.scene",
                 Ok("C" | "c" | "v3") => "C-v3.scene",
@@ -435,7 +435,7 @@ struct Parser<'a> {
     /// What's in the field, to check deletes, sends and autocorrect.
     draft: String,
     labels: Vec<&'a str>,
-    /// A sketch: `"Without Hex"` alone, which ends at `end`.
+    /// A sketch: `"Without Agent-Desk"` alone, which ends at `end`.
     sketch: bool,
 }
 
@@ -514,7 +514,7 @@ impl Parser<'_> {
             };
             if line(op) && self.ops.iter().filter(|op| line(op)).count() == MAX_LINES + 1 {
                 return Err(format!(
-                    "too many lines: \"Without Hex\" holds {MAX_LINES}, counting yours and the ending"
+                    "too many lines: \"Without Agent-Desk\" holds {MAX_LINES}, counting yours and the ending"
                 ));
             }
         }
@@ -526,7 +526,7 @@ impl Parser<'_> {
                 .count();
             if lines == MAX_CHEERS + 1 {
                 return Err(format!(
-                    "too many cheers: \"With Hex\" holds {MAX_CHEERS} lines"
+                    "too many cheers: \"With Agent-Desk\" holds {MAX_CHEERS} lines"
                 ));
             }
         }
@@ -1027,10 +1027,10 @@ impl<'a> Parser<'a> {
                 needs("something after it")?;
                 match word {
                     "hex" if self.hex.is_some() => {
-                        return Err("you speak once: one `hex` line".into());
+                        return Err("you speak once: one `agent-desk` line".into());
                     }
                     "hex" if !self.cheers.is_empty() => {
-                        return Err("`hex` comes first after `with`".into());
+                        return Err("`agent-desk` comes first after `with`".into());
                     }
                     "hex" => self.hex = Some(rest),
                     "effect" => self.cheers.push(Cheer::Effect(match rest {
@@ -1143,7 +1143,7 @@ impl<'a> Parser<'a> {
                 missing("`with`");
             }
             if self.hex.is_none() {
-                missing("`hex` line");
+                missing("`agent-desk` line");
             }
             if self.score.is_none() {
                 missing("`score`");
@@ -1272,7 +1272,7 @@ mod tests {
     fn a_scene_has_to_be_whole() {
         let found = errors("title X\nboss Jo\nstart\n");
         assert!(found.iter().any(|e| e.contains("no `end`")), "{found:?}");
-        assert!(found.iter().any(|e| e.contains("no `hex` line")));
+        assert!(found.iter().any(|e| e.contains("no `agent-desk` line")));
         assert!(
             errors("title X\nstart\n")
                 .iter()

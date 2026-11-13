@@ -1,5 +1,5 @@
 schema "sigil/v1"
-// Hex's capture capsule (src/rune_ui/capture_capsule), every state as a scene.
+// Agent-Desk's capture capsule (src/rune_ui/capture_capsule), every state as a scene.
 // Kit's Scrawl capsule (sigil examples/scrawl_capsule.sigil) in the OpenCode
 // theme: no iPhone, Paste, Inspect or Write at cursor; Window shows no Record;
 // a finished capture reads "Saved" until the router answers, and "Copied"
