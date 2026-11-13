@@ -276,6 +276,52 @@ fn sentence(loaded: &mut Loaded, job: &Job) {
     }
 }
 
+/// `text` read whole with `preset` in `language`, without playing it (for
+/// a file: `hex_audio`, `hex_video_make`): the model's sample rate and its
+/// samples, sentence after sentence with a short pause between. Loads its
+/// own copy of the model, on the calling thread.
+pub fn render(
+    text: &str,
+    language: &'static str,
+    preset: &'static str,
+) -> color_eyre::Result<(u32, Vec<f32>)> {
+    let mut loaded: Loaded = None;
+    let mut rate = 44_100;
+    let mut all = Vec::new();
+    for sentence in sentences(text) {
+        for piece in pieces(&sentence) {
+            let (from, samples) = make(&mut loaded, piece, language, preset)?;
+            rate = from;
+            all.extend(samples);
+        }
+        all.extend(std::iter::repeat_n(0.0, rate as usize / 4));
+    }
+    Ok((rate, all))
+}
+
+/// `text`'s sentences: cut after `.`, `!`, `?`, `…` before a space, and at
+/// line breaks.
+pub fn sentences(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        let mut current = String::new();
+        let mut chars = line.chars().peekable();
+        while let Some(c) = chars.next() {
+            current.push(c);
+            if matches!(c, '.' | '!' | '?' | '…')
+                && chars.peek().is_some_and(|next| next.is_whitespace())
+            {
+                out.push(std::mem::take(&mut current).trim().to_owned());
+            }
+        }
+        if !current.trim().is_empty() {
+            out.push(current.trim().to_owned());
+        }
+    }
+    out.retain(|sentence| !sentence.is_empty());
+    out
+}
+
 /// Loads the model if it isn't, with `preset`'s style, and runs it once.
 fn warm(loaded: &mut Loaded, preset: &'static str) -> color_eyre::Result<()> {
     let fresh = loaded.is_none();

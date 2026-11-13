@@ -17,7 +17,10 @@ mod displays;
 pub(crate) mod front;
 mod lookup;
 mod recover;
+mod script;
 mod shared;
+mod skills;
+mod spots;
 mod tools;
 mod vision;
 
@@ -173,6 +176,15 @@ pub struct Guard<D: Desktop> {
     /// A reader beside the task's guard: read-only calls only, and none of
     /// the guard's own upkeep (`shared`).
     reader: bool,
+    /// The consequential action this call was allowed to take, if any: its
+    /// result is to be checked (`desktop_verify`).
+    consequential: Option<crate::assistant::autonomy::Category>,
+    /// A procedure being recorded as the task does it (`skills`).
+    recording: Option<skills::Recording>,
+    /// Where skills are kept: `<state>/skills`.
+    pub skills_dir: std::path::PathBuf,
+    /// The window and spot the last action landed at (`spots`).
+    pub(super) spotted: Option<(u32, (f64, f64))>,
 }
 
 /// Runs one app action and says what it printed, or why not.
@@ -206,6 +218,7 @@ impl<D: Desktop> Guard<D> {
         learned: Learned,
     ) -> Self {
         let resumed = store.resumed(&config.task);
+        let skills_dir = store.root().join("skills");
         Self {
             config,
             store,
@@ -267,6 +280,10 @@ impl<D: Desktop> Guard<D> {
                 Box::new(front::System)
             },
             reader: false,
+            consequential: None,
+            recording: None,
+            skills_dir,
+            spotted: None,
         }
     }
 

@@ -60,7 +60,7 @@ mod jobs;
 mod listening;
 pub(crate) mod live;
 pub(crate) mod live_card;
-mod look;
+pub(in crate::rune_ui) mod look;
 mod markdown;
 mod minis;
 #[cfg(test)]

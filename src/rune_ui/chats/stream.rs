@@ -182,28 +182,35 @@ fn day(p: Paint, index: usize, label: &str) -> El {
         )
 }
 
-/// How an entry stands, for its head: words and their tone.
-fn standing(ui: &Ui, p: Paint, id: &str, outcome: Option<Outcome>) -> Option<El> {
+/// How an entry stands, for its head: the overlay's state chip (glyph and
+/// word on a tint of the state's colour, `docs/ux/redesign.md` §3.2), so a
+/// job reads the same in the rail and in the stream.
+fn standing(ui: &Ui, p: Paint, id: &str, outcome: Option<Outcome>, job: bool) -> Option<El> {
+    use super::super::assistant_overlay::look::{State, chip, chip_words};
     let pane = &ui.chats;
+    let keyed = |chip: El| chip.key("state");
     if pane.running(id) {
-        return Some(match pane.task(id).and_then(|task| pane.hold(task)) {
-            Some(Hold::Asking(_)) => tone_tag(p, "state", tr("Needs your answer"), Tone::Accent),
-            Some(Hold::Paused) => tone_tag(p, "state", tr("You have it"), Tone::Warning),
-            Some(Hold::Waiting { .. }) => tone_tag(p, "state", tr("Waiting"), Tone::Neutral),
-            None => tone_tag(p, "state", tr("Running"), Tone::Accent),
-        });
+        return Some(keyed(
+            match pane.task(id).and_then(|task| pane.hold(task)) {
+                Some(Hold::Asking(_)) => chip_words(p, State::NeedsYou, tr("Needs your answer")),
+                Some(Hold::Paused) => chip_words(p, State::InFront, tr("You have it")),
+                Some(Hold::Waiting { .. }) => chip_words(p, State::Working, tr("Waiting")),
+                None => chip(p, State::Working),
+            },
+        ));
     }
     if failed(pane, id, outcome) {
-        return Some(tone_tag(p, "state", tr("Failed"), Tone::Danger));
+        return Some(keyed(chip(p, State::Failed)));
     }
     match outcome {
-        Some(Outcome::Interrupted) => Some(tone_tag(
+        Some(Outcome::Interrupted) => Some(keyed(chip_words(
             p,
-            "state",
+            State::NeedsYou,
             tr("Interrupted: Agent-Desk quit while it ran"),
-            Tone::Warning,
-        )),
+        ))),
         Some(Outcome::Cancelled) => Some(tone_tag(p, "state", tr("Stopped"), Tone::Neutral)),
+        // A finished job says so; a quick answer needs no chip.
+        _ if job => Some(keyed(chip(p, State::Done))),
         _ => None,
     }
 }
@@ -272,7 +279,7 @@ fn entry_el(ui: &Ui, p: Paint, entry: &Entry, now: u64) -> El {
 
     // One state per entry: how it stands now, nothing stacked beside it.
     let mut meta = Vec::new();
-    meta.extend(standing(ui, p, id, outcome));
+    meta.extend(standing(ui, p, id, outcome, job));
     if !running && let Some(updated) = updated {
         meta.push(ld::meta_text(p, &super::age(updated, now)).key("age"));
     }
@@ -361,15 +368,11 @@ fn entry_el(ui: &Ui, p: Paint, entry: &Entry, now: u64) -> El {
         .child(head)
         .child(body);
     if job {
-        card = card
-            .px(14.0)
-            .py(12.0)
-            .radius(p.k.radius.lg)
-            .fill(c.layer_01)
-            .border(
-                p.hair.max(1.0),
-                if targeted { p.accent() } else { c.border_weak },
-            );
+        // The overlay's card anatomy: padding 16, gap 10, the card material.
+        card = super::super::controls::material(p, card.padding(16.0));
+        if targeted {
+            card = card.border(p.hair.max(1.0), p.accent());
+        }
     } else if targeted {
         card = card.pl(10.0).border_sides([0.0, 0.0, 0.0, 2.0], p.accent());
     }

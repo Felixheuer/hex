@@ -55,6 +55,9 @@ pub(super) struct Element {
     pub secure: bool,
     /// For a field: the buttons nearest it in the snapshot, nearest first.
     pub near: Vec<String>,
+    /// Its value as the snapshot showed it (a text area's label may be its
+    /// text: `skills` won't find it by that again).
+    pub value: String,
 }
 
 impl<D: Desktop> Guard<D> {
@@ -74,13 +77,49 @@ impl<D: Desktop> Guard<D> {
             .first()
             .map(|window| window.app.clone())
             .unwrap_or_default();
-        let Some((category, target)) = self.consequence(tool, args, resolved) else {
+        let found = self.consequences(tool, args, resolved);
+        if found.is_empty() {
             return Ok(());
-        };
-        let authorized = self.store.authorized(&self.config.task);
-        autonomy::Gate::new(tool, mode, authorized)
-            .check(category, &target)
-            .map_err(|refused| needs_confirmation(&refused.in_app(&app)))
+        }
+        let gate = autonomy::Gate::new(tool, mode, self.store.authorized(&self.config.task));
+        for (category, target) in found {
+            gate.check(category, &target)
+                .map_err(|refused| needs_confirmation(&refused.in_app(&app)))?;
+            // Allowed: its result is checked before the task calls it done.
+            self.consequential = Some(category);
+        }
+        Ok(())
+    }
+
+    /// The consequential actions `tool` would take (each step of a batch's),
+    /// and what each targets.
+    fn consequences(
+        &mut self,
+        tool: &str,
+        args: &Map<String, Value>,
+        resolved: &[Resolved],
+    ) -> Vec<(Category, String)> {
+        if tool != "desktop_run_steps" {
+            return self.consequence(tool, args, resolved).into_iter().collect();
+        }
+        let steps = args
+            .get("steps")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let mut found = Vec::new();
+        for (index, step) in steps.iter().enumerate() {
+            let Some(step) = step.as_object() else {
+                continue;
+            };
+            let action = text(step, "action").unwrap_or_default();
+            if let Some((category, target)) =
+                self.consequence(&format!("desktop_{action}"), step, resolved)
+            {
+                found.push((category, format!("step {}: {target}", index + 1)));
+            }
+        }
+        found
     }
 
     /// The consequential action `tool` would take, and what it targets.
@@ -94,7 +133,36 @@ impl<D: Desktop> Guard<D> {
             .and_then(|reference| self.learned.elements.lock().get(&reference).cloned());
         match tool.strip_prefix("desktop_").unwrap_or(tool) {
             "click" | "double_click" | "triple_click" => {
-                let label = element?.label;
+                // A ref's label as its snapshot showed it, or the name a
+                // step finds its target by.
+                let label = element
+                    .map(|element| element.label)
+                    .or_else(|| text(args, "name"))?;
+                autonomy::classify(&label).map(|category| (category, format!("“{label}”")))
+            }
+            "menu" => {
+                let path: Vec<String> = args
+                    .get("path")
+                    .and_then(Value::as_array)?
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_owned))
+                    .collect();
+                let item = path.last()?.clone();
+                autonomy::classify(&item)
+                    .map(|category| (category, format!("the menu item “{}”", path.join(" › "))))
+            }
+            "browser_act" => {
+                let action = text(args, "action").unwrap_or_else(|| "click".into());
+                if action != "click" {
+                    return None;
+                }
+                let label = text(args, "ref").and_then(|reference| {
+                    self.learned
+                        .elements
+                        .lock()
+                        .get(&reference)
+                        .map(|element| element.label.clone())
+                })?;
                 autonomy::classify(&label).map(|category| (category, format!("“{label}”")))
             }
             "press" => {
@@ -216,6 +284,11 @@ impl<D: Desktop> Guard<D> {
                         role: role_of(node).to_owned(),
                         secure,
                         near: Vec::new(),
+                        value: node
+                            .get("value")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned(),
                     },
                 ));
             }

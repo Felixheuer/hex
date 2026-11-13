@@ -539,12 +539,24 @@ fn a_call_points_at_its_window_ref_app_or_point() {
         targets("desktop_press", json!({"combo": "return"})),
         Ok(vec![Target::Focused])
     );
+    // A drag stays in one window: two refs, or the window and its pixels.
+    assert_eq!(
+        targets("desktop_drag", json!({"from": "@s1:e1", "to": "@s1:e4"})),
+        Ok(vec![Target::Ref("s1".into()), Target::Ref("s1".into())])
+    );
     assert_eq!(
         targets(
             "desktop_drag",
-            json!({"from": "@s1:e1", "to_xy": "=-100,50"})
+            json!({"window_id": "w-4", "from_x": 1, "from_y": 2, "to_x": 3, "to_y": 4})
         ),
-        Ok(vec![Target::Ref("s1".into()), Target::Point(-100.0, 50.0)])
+        Ok(vec![Target::Window("w-4".into())])
+    );
+    assert!(
+        targets(
+            "desktop_drag",
+            json!({"from": "@s1:e1", "to_xy": "=-100,50"})
+        )
+        .is_err()
     );
     assert!(targets("desktop_click", json!({"ref_id": "@e5"})).is_err());
     assert!(targets("desktop_screenshot", json!({"screen": 0})).is_err());
@@ -1317,4 +1329,5 @@ mod displays;
 mod open_app;
 mod readers;
 mod round_two;
+mod steps;
 mod vision;

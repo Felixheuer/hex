@@ -56,70 +56,92 @@ const FIX_LOG: usize = 6;
 /// How often a page that waits on macOS reads the grants again.
 const RECHECK: Duration = Duration::from_millis(1500);
 
-/// The flow's pages, in order.
+/// The flow's pages, in order: one short path from what Agent-Desk does to
+/// the first real question. The optional page (the hidden browser) says so
+/// and can be skipped. How freely it acts, the blocked apps, and what it
+/// knows about you live in Assistant settings.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::rune_ui) enum Page {
+    /// What Agent-Desk does, on one screen, with what stays on the Mac.
     Welcome,
-    /// Where your words go, how freely it acts, the apps it never touches.
-    Privacy,
+    /// Every permission in one checklist with its live state: Accessibility,
+    /// Screen Recording, the Microphone, Automation, Contacts, Reminders and
+    /// the Calendar, and optional Full Disk Access.
+    Permissions,
+    /// Who answers: chosen, installed, signed in.
     Agent,
-    /// Screen Recording (and the Microphone and Accessibility, when the
-    /// voice setup didn't already grant them), and Cua Driver, the desktop
-    /// driver, acting with them.
+    /// Cua Driver, the desktop driver, and the live self-tests proving the
+    /// agent answers and can use it.
     Desktop,
-    /// agent-browser, for web tasks in hidden browsers.
+    /// Optional: agent-browser, for web tasks in hidden browsers.
     Browser,
-    Checks,
-    /// Nothing else takes the Action shortcut, and Agent-Desk receives it.
+    /// Your voice: nothing else takes the Action shortcut, and a press of
+    /// it reaches Agent-Desk.
     Shortcut,
-    /// Optional: company, website, and colleagues, remembered.
-    About,
     /// The three gestures, tried for real.
     Try,
+    /// What's ready and what's left, then Finish.
+    Done,
 }
 
 impl Page {
-    pub(in crate::rune_ui) const ALL: [Page; 9] = [
+    pub(in crate::rune_ui) const ALL: [Page; 8] = [
         Page::Welcome,
-        Page::Privacy,
+        Page::Permissions,
         Page::Agent,
         Page::Desktop,
         Page::Browser,
-        Page::Checks,
         Page::Shortcut,
-        Page::About,
         Page::Try,
+        Page::Done,
     ];
 
     /// Its stable name, as the saved progress keeps it.
     pub(in crate::rune_ui) fn name(self) -> &'static str {
         match self {
             Page::Welcome => "welcome",
-            Page::Privacy => "privacy",
-            Page::About => "about",
+            Page::Permissions => "permissions",
             Page::Agent => "agent",
             Page::Desktop => "desktop",
             Page::Browser => "browser",
-            Page::Checks => "checks",
             Page::Shortcut => "shortcut",
             Page::Try => "try",
+            Page::Done => "done",
         }
     }
 
-    /// The pages this OS shows: every one on macOS; Linux and Windows have
-    /// no shortcut page, since what takes a shortcut and the press test
-    /// read macOS's own settings and event tap (the Action shortcut's
-    /// recorder there refuses keys another shortcut holds).
+    /// Whether Finish can do without it.
+    pub(in crate::rune_ui) fn optional(self) -> bool {
+        self == Page::Browser
+    }
+
+    /// Its short name, for the progress line ("Step 2 of 8 · Permissions").
+    pub(in crate::rune_ui) fn step_name(self) -> &'static str {
+        match self {
+            Page::Welcome => tr("Welcome"),
+            Page::Permissions => tr("Permissions"),
+            Page::Agent => tr("Agent"),
+            Page::Desktop => crate::assistant::driver::NAME,
+            Page::Browser => tr("Web tasks"),
+            Page::Shortcut => tr("Voice"),
+            Page::Try => tr("Try it out"),
+            Page::Done => tr("Done"),
+        }
+    }
+
+    /// The pages this OS shows: every one on macOS; Linux and Windows ask
+    /// for no permissions here and have no shortcut page, since what takes
+    /// a shortcut and the press test read macOS's own settings and event
+    /// tap (the Action shortcut's recorder there refuses keys another
+    /// shortcut holds).
     pub(in crate::rune_ui) fn shown() -> &'static [Page] {
-        const OTHERS: [Page; 8] = [
+        const OTHERS: [Page; 6] = [
             Page::Welcome,
-            Page::Privacy,
             Page::Agent,
             Page::Desktop,
             Page::Browser,
-            Page::Checks,
-            Page::About,
             Page::Try,
+            Page::Done,
         ];
         if cfg!(target_os = "macos") {
             &Self::ALL
@@ -129,6 +151,14 @@ impl Page {
     }
 
     pub(in crate::rune_ui) fn named(name: &str) -> Option<Page> {
+        // Progress saved before the pages were merged: each old page's
+        // work lives on here now.
+        let name = match name {
+            "privacy" => "welcome",
+            "checks" => "desktop",
+            "about" => "try",
+            other => other,
+        };
         Self::shown()
             .iter()
             .copied()
@@ -285,8 +315,6 @@ pub(in crate::rune_ui) struct SetupFlow {
     pub(in crate::rune_ui) fix_command: Option<String>,
     /// Opened by a hold of the Action shortcut before setup finished.
     pub(in crate::rune_ui) from_hold: bool,
-    /// "Tell Agent-Desk about you": company, website, colleagues.
-    pub(in crate::rune_ui) about: [rune::TextEdit; 3],
     /// Set up before, and back for what's missing now: only these pages.
     pub(in crate::rune_ui) repair: Option<repair::Repair>,
 }
@@ -322,7 +350,6 @@ impl Default for SetupFlow {
             fix_log: Vec::new(),
             fix_command: None,
             from_hold: false,
-            about: Default::default(),
             repair: None,
         }
     }
@@ -415,30 +442,29 @@ fn passed(flow: &SetupFlow, check: Check) -> bool {
 
 /// Whether `page`'s checks all work now.
 pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bool {
-    let backend = ui.settings.assistant.backend;
     match page {
-        Page::Welcome | Page::Privacy | Page::About => true,
-        Page::Agent => chosen(ui).is_some_and(|found| found.ready),
-        Page::Desktop => {
+        Page::Welcome => true,
+        Page::Permissions => {
             Grant::hex()
                 .iter()
                 .all(|grant| grant_state(ui, flow, *grant) == State::Passed)
-                && flow
+                && macos_asks_answered()
+        }
+        Page::Agent => chosen(ui).is_some_and(|found| found.ready),
+        // Cua Driver is there with its grants, and every self-test passed.
+        Page::Desktop => {
+            (!cfg!(target_os = "macos")
+                || flow
                     .desktop
                     .as_ref()
-                    .is_some_and(|found| found.path.is_some())
+                    .is_some_and(|found| found.path.is_some()))
                 && Grant::desktop()
                     .iter()
                     .all(|grant| grant_state(ui, flow, *grant) == State::Passed)
-                && macos_asks_answered()
+                && checks_passed(ui, flow)
         }
         // Off in Settings, web tasks use the person's own browser.
         Page::Browser => flow.browser.done() || !ui.settings.assistant.background_browser,
-        Page::Checks => {
-            flow.checked_backend == Some(backend)
-                && !flow.checks.is_empty()
-                && flow.checks.iter().all(browser::passed_or_optional)
-        }
         // Nothing takes the Action shortcut for sure, and a press of it
         // really reached Agent-Desk.
         Page::Shortcut => {
@@ -452,7 +478,16 @@ pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bo
             )
         }
         Page::Try => flow.tutorial.done(),
+        Page::Done => can_finish(ui, flow),
     }
+}
+
+/// Every self-test against the chosen agent passed (the browser's optional
+/// ones may not).
+pub(in crate::rune_ui) fn checks_passed(ui: &Ui, flow: &SetupFlow) -> bool {
+    flow.checked_backend == Some(ui.settings.assistant.backend)
+        && !flow.checks.is_empty()
+        && flow.checks.iter().all(browser::passed_or_optional)
 }
 
 /// macOS's own prompts on the permissions page (Automation for System
@@ -543,7 +578,7 @@ pub(in crate::rune_ui) fn go(ui: &mut Ui, page: Page) {
         return;
     };
     let stale = flow.checked_backend != Some(ui.settings.assistant.backend);
-    if page == Page::Checks && (flow.checks.is_empty() || stale) {
+    if matches!(page, Page::Desktop | Page::Done) && (flow.checks.is_empty() || stale) {
         run_checks(ui);
     }
     if left == Page::Shortcut && page != Page::Shortcut {
@@ -577,9 +612,6 @@ pub(in crate::rune_ui) fn advance(ui: &mut Ui) {
     if let Some(flow) = ui.chats.setup.as_mut() {
         flow.later.retain(|later| *later != page);
     }
-    if page == Page::About {
-        remember_about(ui);
-    }
     let Some(flow) = ui.chats.setup.as_ref() else {
         return;
     };
@@ -588,32 +620,6 @@ pub(in crate::rune_ui) fn advance(ui: &mut Ui) {
         // The guide's last page: setup is whole again.
         None if flow.repair.is_some() => repair::finish(ui),
         None => {}
-    }
-}
-
-/// What "Tell Agent-Desk about you" filled in, added to what Agent-Desk knows.
-pub(in crate::rune_ui) fn remember_about(ui: &mut Ui) {
-    use super::bridge::memory;
-    let Some(flow) = ui.chats.setup.as_ref() else {
-        return;
-    };
-    let labels = ["Company", "Website", "Colleagues"];
-    let lines: Vec<String> = labels
-        .iter()
-        .zip(&flow.about)
-        .filter(|(_, field)| !field.text.trim().is_empty())
-        .map(|(label, field)| format!("- {label}: {}", field.text.trim()))
-        .collect();
-    if lines.is_empty() || !ui.chats.live() {
-        return;
-    }
-    let mut known = memory::read();
-    if !known.trim().is_empty() {
-        known.push('\n');
-    }
-    known.push_str(&lines.join("\n"));
-    if let Err(error) = memory::write(&known) {
-        tracing::warn!(error = %format!("{error:#}"), "could not remember what the person told");
     }
 }
 

@@ -796,12 +796,12 @@ pub(super) const SCENES: &[Scene] = &[
         mac_chats(ui, chats::fixture::Scene::NewSchedule)
     }),
     #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-privacy", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Privacy))
+    ("mac-assistant-setup-permissions", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Permissions))
     }),
     #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-about", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::About))
+    ("mac-assistant-setup-finish", |ui| {
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Done))
     }),
     #[cfg(target_os = "macos")]
     ("mac-chats-results", |ui| {
@@ -885,7 +885,7 @@ pub(super) const SCENES: &[Scene] = &[
     }),
     #[cfg(target_os = "macos")]
     ("mac-assistant-setup-permission-repair", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Desktop));
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Permissions));
         ui.platform.permissions.accessibility =
             crate::desktop::onboarding::PermissionState::NeedsSettings;
         ui.platform
@@ -893,16 +893,12 @@ pub(super) const SCENES: &[Scene] = &[
     }),
     #[cfg(target_os = "macos")]
     ("mac-assistant-setup-screen-restart", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Desktop));
+        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Permissions));
         ui.platform.scrawl = Some(platform::ScrawlView {
             screen_recording: false,
             screen_needs_restart: true,
             ..Default::default()
         });
-    }),
-    #[cfg(target_os = "macos")]
-    ("mac-assistant-setup-checks", |ui| {
-        mac_chats(ui, chats::fixture::Scene::Setup(chats::Page::Checks))
     }),
     #[cfg(target_os = "macos")]
     ("mac-assistant-setup-shortcut", |ui| {

@@ -181,15 +181,38 @@ pub(in crate::rune_ui) fn blocked_section(ui: &Ui, p: Paint, layer: &mut Vec<El>
         )
         .into(),
     ];
+    // One wrapping row of chips, each with its ×, rather than a row per app.
+    let mut chips = row()
+        .key("blocked-chips")
+        .role("list")
+        .label(tr("Blocked apps"))
+        .px(16.0)
+        .py(10.0)
+        .gap(6.0)
+        .flex_wrap();
     for (index, app) in blocked.iter().enumerate() {
         let remove = app.clone();
-        rows.push(
-            setting_row(
-                p,
-                &format!("blocked{index}"),
-                app,
-                None,
-                ld::ghost_icon(
+        chips = chips.child(
+            row()
+                .key(format!("blocked{index}"))
+                .role("listitem")
+                .label(app.clone())
+                .h(28.0)
+                .pl(10.0)
+                .pr(2.0)
+                .gap(2.0)
+                .center_y()
+                .radius(14.0)
+                .fill(p.k.c.surface_raised)
+                .border(p.hair, p.k.c.border_weak)
+                .child(
+                    text(app.clone())
+                        .key("name")
+                        .font(p.k.ty.small_medium)
+                        .color(p.text())
+                        .a11y_hidden(),
+                )
+                .child(ld::ghost_icon(
                     p,
                     "remove",
                     REMOVE_ICON,
@@ -200,10 +223,11 @@ pub(in crate::rune_ui) fn blocked_section(ui: &Ui, p: Paint, layer: &mut Vec<El>
                             settings.assistant.blocked_apps.retain(|app| *app != remove)
                         });
                     },
-                ),
-            )
-            .into(),
+                )),
         );
+    }
+    if !blocked.is_empty() {
+        rows.push(chips.into());
     }
     rows.push(
         row()

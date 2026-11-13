@@ -89,7 +89,7 @@ impl Paint {
             .key("header")
             .role("heading")
             .level(2)
-            .font(self.k.ty.ui_medium.lh(SECTION_LABEL_LINE))
+            .font(self.k.ty.small_medium.lh(SECTION_LABEL_LINE))
             .color(self.k.c.text_muted)
     }
     pub(super) fn text(self) -> Color {
@@ -189,7 +189,27 @@ pub(super) fn card(p: Paint, key: &str, rows: Vec<impl Into<CardRow>>) -> El {
 
 /// The card's raised surface, empty.
 pub(super) fn raised(p: Paint, key: &str) -> El {
-    let mut surface = col().key(key).fill(p.k.c.bg_base).radius(p.k.radius.lg);
+    material(p, col().key(key))
+}
+
+/// A card's corner radius in the window: the overlay's card anatomy
+/// (`docs/ux/redesign.md` §3.4), a step smaller for the window's denser
+/// rows.
+pub(super) const CARD_RADIUS: f32 = 14.0;
+
+/// The window's card material, shared by settings cards, the Assistant
+/// stream's job cards, and the setup's cards: the kit's `bg_base`, a
+/// hairline, [`CARD_RADIUS`], and the kit's raised shadow.
+pub(super) fn material(p: Paint, surface: El) -> El {
+    let c = &p.k.c;
+    let mut surface = surface.fill(c.bg_base).radius(CARD_RADIUS).border(
+        p.hair,
+        if p.k.dark {
+            c.border_base
+        } else {
+            c.border_weak
+        },
+    );
     for shadow in &p.k.elevation.raised {
         surface = surface.box_shadow(*shadow);
     }

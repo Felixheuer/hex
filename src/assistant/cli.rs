@@ -150,6 +150,16 @@ pub enum DriverCommand {
     },
     /// Goes back to the version before the current one.
     Rollback,
+    /// The person's own browser (Chrome, Edge, Brave) through Cua Driver's
+    /// browser tools: whether tasks may attach it (`--attach` allows it and
+    /// attaches a running one now, Chrome asks once; `--off` stops it).
+    /// Without it tasks use the person's tabs through hex_browser_tab.
+    Browser {
+        #[arg(long)]
+        attach: bool,
+        #[arg(long, conflicts_with = "attach")]
+        off: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -318,6 +328,26 @@ fn driver(command: Option<DriverCommand>) -> Result<bool> {
             if let Some(error) = &status.error {
                 println!("last error: {error}");
             }
+            // The tools it offers, and what is new since the version before
+            // (checked once per version).
+            if let Some(home) = super::driver::cua::standard()
+                && home.installed().is_some()
+            {
+                let used = super::guard::driver_tools_used();
+                match super::driver::capabilities::refresh(
+                    &home,
+                    &super::guard::driver_probe,
+                    crate::desktop::events::now_ms(),
+                ) {
+                    Ok(capabilities) => {
+                        for line in capabilities.lines(&used) {
+                            println!("{line}");
+                        }
+                    }
+                    Err(why) => println!("tools: not checked ({why})"),
+                }
+                println!("{}", super::driver::browser::line(&home));
+            }
             Ok(super::driver::find().is_some())
         }
         DriverCommand::Update { wait } => {
@@ -337,6 +367,25 @@ fn driver(command: Option<DriverCommand>) -> Result<bool> {
         DriverCommand::Rollback => {
             let back = update::roll_back()?;
             println!("Cua Driver {back} runs again.");
+            Ok(true)
+        }
+        DriverCommand::Browser { attach, off } => {
+            use super::driver::browser;
+            let home = super::driver::cua::standard()
+                .ok_or_else(|| color_eyre::eyre::eyre!("no application support folder"))?;
+            if off {
+                browser::allow(&home, false)?;
+            }
+            if attach {
+                match browser::attach(&home) {
+                    Ok(lines) => lines.iter().for_each(|line| println!("{line}")),
+                    Err(why) => {
+                        println!("{why}");
+                        return Ok(false);
+                    }
+                }
+            }
+            println!("{}", browser::line(&home));
             Ok(true)
         }
     }

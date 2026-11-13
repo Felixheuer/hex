@@ -75,6 +75,18 @@ pub(super) fn off_card(ui: &Ui, p: Paint) -> El {
         .gap(10.0)
         .pb(40.0)
         .child(
+            rune::el()
+                .key("mark")
+                .size(52.0, 52.0)
+                .mb(6.0)
+                .center()
+                .radius(26.0)
+                .fill(p.k.c.surface_raised)
+                .border(p.hair, p.k.c.border_weak)
+                .child(rune::icon(&super::super::icons::SPARKLES, 22.0).color(p.k.c.icon_muted))
+                .a11y_hidden(),
+        )
+        .child(
             text(tr("The assistant is off"))
                 .key("title")
                 .role("heading")

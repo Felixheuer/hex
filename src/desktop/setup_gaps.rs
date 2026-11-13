@@ -107,14 +107,13 @@ impl Gap {
     /// names the first.
     pub fn fix(&self) -> Fix {
         match self {
-            Self::CopyProblem => Fix::Page("checks"),
             Self::Microphone
             | Self::Accessibility
             | Self::ScreenRecording
             | Self::Automation
-            | Self::PersonalData
-            | Self::Driver
-            | Self::DriverUpdate => Fix::Page("desktop"),
+            | Self::PersonalData => Fix::Page("permissions"),
+            // The Cua Driver page runs the self-tests, the copy check among them.
+            Self::CopyProblem | Self::Driver | Self::DriverUpdate => Fix::Page("desktop"),
             Self::TranscriptionModel => Fix::Models,
             Self::Agent | Self::AgentSignIn => Fix::Page("agent"),
             Self::AgentBrowser => Fix::Page("browser"),
@@ -287,7 +286,14 @@ mod tests {
     }
 
     const ORDER: &[&str] = &[
-        "welcome", "privacy", "agent", "desktop", "browser", "checks", "shortcut", "about", "try",
+        "welcome",
+        "permissions",
+        "agent",
+        "desktop",
+        "browser",
+        "shortcut",
+        "try",
+        "done",
     ];
 
     #[test]
@@ -302,22 +308,22 @@ mod tests {
             (
                 |f| f.copy_problem = true,
                 Gap::CopyProblem,
-                Fix::Page("checks"),
+                Fix::Page("desktop"),
             ),
             (
                 |f| f.microphone = false,
                 Gap::Microphone,
-                Fix::Page("desktop"),
+                Fix::Page("permissions"),
             ),
             (
                 |f| f.accessibility = false,
                 Gap::Accessibility,
-                Fix::Page("desktop"),
+                Fix::Page("permissions"),
             ),
             (
                 |f| f.screen_recording = false,
                 Gap::ScreenRecording,
-                Fix::Page("desktop"),
+                Fix::Page("permissions"),
             ),
             (
                 |f| f.transcription_model = false,
@@ -387,14 +393,14 @@ mod tests {
 
     #[test]
     fn a_release_that_adds_a_step_shows_just_that_step() {
-        let added = [(2, "browser"), (3, "about"), (3, "browser")];
+        let added = [(2, "browser"), (3, "done"), (3, "browser")];
         assert!(added_since_in(&added, 3).is_empty());
-        assert_eq!(added_since_in(&added, 2), ["about", "browser"]);
-        assert_eq!(added_since_in(&added, 1), ["browser", "about"]);
+        assert_eq!(added_since_in(&added, 2), ["done", "browser"]);
+        assert_eq!(added_since_in(&added, 1), ["browser", "done"]);
         // Today nothing was added after the first version.
         assert!(added_since(SETUP_VERSION).is_empty());
-        let gaps = vec![Gap::NewSteps(vec!["about"])];
-        assert_eq!(pages_for(&gaps, ORDER), ["about"]);
+        let gaps = vec![Gap::NewSteps(vec!["done"])];
+        assert_eq!(pages_for(&gaps, ORDER), ["done"]);
     }
 
     #[test]
@@ -406,7 +412,10 @@ mod tests {
             Gap::AgentSignIn,
             Gap::HexVoice,
         ];
-        assert_eq!(pages_for(&gaps, ORDER), ["agent", "desktop", "shortcut"]);
+        assert_eq!(
+            pages_for(&gaps, ORDER),
+            ["permissions", "agent", "shortcut"]
+        );
         assert!(pages_for(&[Gap::HexVoice, Gap::TranscriptionModel], ORDER).is_empty());
     }
 
@@ -426,7 +435,7 @@ mod tests {
             ..whole()
         };
         assert_eq!(setup_gaps(&facts), [Gap::Automation]);
-        assert_eq!(Gap::Automation.fix(), Fix::Page("desktop"));
+        assert_eq!(Gap::Automation.fix(), Fix::Page("permissions"));
         assert!(!Gap::Automation.essential());
         // Without operating apps, it isn't needed.
         let facts = Facts {
@@ -446,8 +455,8 @@ mod tests {
             ..whole()
         };
         assert_eq!(setup_gaps(&facts), [Gap::PersonalData]);
-        assert_eq!(Gap::PersonalData.fix(), Fix::Page("desktop"));
+        assert_eq!(Gap::PersonalData.fix(), Fix::Page("permissions"));
         assert!(!Gap::PersonalData.essential());
-        assert_eq!(pages_for(&setup_gaps(&facts), ORDER), ["desktop"]);
+        assert_eq!(pages_for(&setup_gaps(&facts), ORDER), ["permissions"]);
     }
 }
