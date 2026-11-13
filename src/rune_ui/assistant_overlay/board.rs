@@ -134,7 +134,13 @@ pub(crate) struct Task {
     /// The job it helps (`assistant::agent::team`): its card goes under
     /// that job's.
     pub(crate) lead: Option<ConversationId>,
+    /// When it last worked on the screen (`Event::Acting`): the screen
+    /// frame shows for [`ACTING_FOR`] after.
+    pub(crate) acting_at: Option<Instant>,
 }
+
+/// How long the screen frame stays after a task last acted on the screen.
+pub(crate) const ACTING_FOR: Duration = Duration::from_secs(4);
 
 impl Task {
     fn new(id: ConversationId, origin: Origin, title: &str, colour: u8, phase: Phase) -> Self {
@@ -156,6 +162,7 @@ impl Task {
             ended: None,
             since: None,
             lead: None,
+            acting_at: None,
         }
     }
 
@@ -435,6 +442,19 @@ impl Board {
             Event::HandsOff { conversation, on } => {
                 self.live(conversation, |task| set(&mut task.hands_off, *on))
             }
+            // Working on the screen: a desktop action by any task, or a
+            // question about the screen reading a window.
+            Event::Acting {
+                conversation,
+                looking,
+            } => self.live(conversation, |task| {
+                if *looking && task.origin.lane() != crate::assistant::Lane::Here {
+                    return false;
+                }
+                let was_on = task.acting_at.is_some_and(|at| now < at + ACTING_FOR);
+                task.acting_at = Some(now);
+                !was_on
+            }),
             Event::Plan {
                 conversation,
                 steps,
@@ -524,19 +544,26 @@ impl Board {
             .find(|task| task.hands_off && task.phase.live())
     }
 
-    /// Every live task's windows, whatever started it, for their outlines.
-    /// Whether any task works now (queued, running, paused, or waiting out
-    /// a limit), as opposed to only waiting for the person's answer: the
-    /// screen frame shows meanwhile.
-    pub(crate) fn working(&self) -> bool {
-        self.tasks.iter().any(|task| {
-            matches!(
-                task.phase,
-                Phase::Queued | Phase::Running | Phase::Paused | Phase::Waiting { .. }
-            )
-        })
+    /// Until when the screen frame shows: while a live task works on the
+    /// screen (a desktop action within [`ACTING_FOR`], or real input under
+    /// "Hands off"). Background work in hidden browsers or files shows no
+    /// frame; its card at the orb is enough. `None`: no frame.
+    pub(crate) fn frame_until(&self, now: Instant) -> Option<Instant> {
+        self.tasks
+            .iter()
+            .filter(|task| task.phase.live())
+            .filter_map(|task| {
+                if task.hands_off {
+                    return Some(now + ACTING_FOR);
+                }
+                task.acting_at
+                    .map(|at| at + ACTING_FOR)
+                    .filter(|until| *until > now)
+            })
+            .max()
     }
 
+    /// Every live task's windows, whatever started it, for their outlines.
     pub(crate) fn outlined(&self) -> Vec<Outlined> {
         self.tasks
             .iter()

@@ -370,3 +370,46 @@ pub fn startup() {
         store.clear_paused();
     }
 }
+
+/// Whether a tool call named `tool` (as a backend reports it, e.g.
+/// `mcp__agent-desktop__desktop_click`) works on the screen: `Some(true)`
+/// when it acts there (clicks, types, presses, launches, opens, claims,
+/// moves a window), `Some(false)` when it only reads or screenshots a
+/// window, `None` for anything else (browsers, files, listings).
+pub fn screen_work(tool: &str) -> Option<bool> {
+    let name = tool.rsplit("__").next().unwrap_or(tool);
+    let kind = policy::kind(name, &serde_json::Map::new());
+    match kind {
+        policy::Kind::Observe => Some(false),
+        policy::Kind::Claim => Some(true),
+        kind if kind.acts() => Some(true),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod screen_work_tests {
+    #[test]
+    fn desktop_actions_act_and_reads_look_and_the_rest_is_off_screen() {
+        assert_eq!(
+            super::screen_work("mcp__agent-desktop__desktop_click"),
+            Some(true)
+        );
+        assert_eq!(super::screen_work("desktop_type"), Some(true));
+        assert_eq!(
+            super::screen_work("mcp__agent-desktop__hex_open_app"),
+            Some(true)
+        );
+        assert_eq!(super::screen_work("desktop_claim_window"), Some(true));
+        assert_eq!(
+            super::screen_work("mcp__agent-desktop__desktop_snapshot"),
+            Some(false)
+        );
+        assert_eq!(super::screen_work("desktop_list_windows"), None);
+        assert_eq!(
+            super::screen_work("mcp__agent-browser__agent_browser_open"),
+            None
+        );
+        assert_eq!(super::screen_work("Write"), None);
+    }
+}

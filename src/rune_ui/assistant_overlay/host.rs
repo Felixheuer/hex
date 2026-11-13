@@ -276,9 +276,6 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             .orb
             .update(|orb, tx| board_changed(orb, tx, Instant::now()));
     }
-    if crate::assistant::service::frame_shown() {
-        watcher::set_frame(true);
-    }
     crate::assistant::subscribe(Box::new(on_event));
     // A hovered task's browsers coming, going, or showing their first frame.
     super::live::on_change(|| {
@@ -340,13 +337,10 @@ fn on_event(event: &Event) {
         return;
     };
     match event {
-        Event::ModeChanged { on } => watcher::set_frame(*on),
-        Event::ConversationsChanged => {}
+        // The frame follows screen work on the board (`Board::frame_until`),
+        // not background work in general.
+        Event::ModeChanged { .. } | Event::ConversationsChanged => {}
         _ => {
-            if matches!(event, Event::Escalated { .. }) {
-                // Background work now: the frame fades in with it.
-                watcher::set_frame(true);
-            }
             let for_orb = event.clone();
             overlays
                 .orb
@@ -507,9 +501,9 @@ fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
         .map(|task| task.id.clone())
         .collect();
     super::live::track(&working);
-    // The frame follows the board as well as the service's `ModeChanged`:
-    // an event missed or late never leaves it off while a task works.
-    watcher::set_frame(orb.board.working() || crate::assistant::service::frame_shown());
+    // The frame shows only while a task works on the screen right now
+    // (`Board::frame_until`): background work shows its card, not a frame.
+    watcher::set_frame_until(orb.board.frame_until(now));
     watcher::publish(outlined, live);
     enlarged::follow(&orb.board);
     set_hands(hands.map(|task| task.id));

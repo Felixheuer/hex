@@ -116,6 +116,8 @@ impl ChatsPane {
                     self.hands_off = None;
                 }
             }
+            // The overlay's frame follows it; Chats has nothing to show.
+            Event::Acting { .. } => {}
             Event::ConversationsChanged => {
                 reload_list = true;
                 reload_shown = true;
