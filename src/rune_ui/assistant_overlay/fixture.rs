@@ -543,3 +543,234 @@ pub(crate) fn bubble_ended(question: &str, answer: Option<&str>, error: Option<&
     Bubble::apply(&mut bubble, &end, now);
     bubble.expect("a bubble")
 }
+
+// ---------------------------------------------------------------------------
+// A crowd of jobs with live pictures (the overview's stories and tests)
+
+const SITES: [(&str, &str); 8] = [
+    (
+        "Lieferanten – Preise",
+        "https://www.wlw.de/de/suche/verpackung",
+    ),
+    (
+        "Mercateo Angebote",
+        "https://www.mercateo.com/kategorie/karton",
+    ),
+    ("Alibaba Supplier", "https://www.alibaba.com/trade/search"),
+    ("Google Maps", "https://maps.google.com/?q=großhandel"),
+    ("Konkurrenz Preise", "https://shop.example.de/preise"),
+    (
+        "GitHub Pull Request",
+        "https://github.com/acme/web/pull/412",
+    ),
+    ("Kalender", "https://calendar.google.com/calendar/r/week"),
+    ("LinkedIn", "https://www.linkedin.com/company/acme"),
+];
+
+const JOBS: [(&str, &str); 6] = [
+    ("Recherche Lieferanten", "Vergleicht Preise auf 12 Seiten"),
+    ("Excel: Angebote eintragen", "Trägt Zeile 48 von 120 ein"),
+    ("Landingpage nachbauen", "Vergleicht mit dem Original"),
+    ("Pull Request vorbereiten", "Lässt die Tests laufen"),
+    ("Konkurrenz beobachten", "Liest die Preisseite"),
+    ("Termine abgleichen", "Prüft den Kalender"),
+];
+
+/// A made-up web page, 480 × 300: a bar in `hue`, a hero, lines of text.
+fn page(hue: usize) -> (u32, u32, Vec<u8>) {
+    let (w, h) = (480u32, 300u32);
+    let accents: [[u8; 3]; 6] = [
+        [66, 133, 244],
+        [234, 88, 12],
+        [22, 163, 74],
+        [147, 51, 234],
+        [219, 39, 119],
+        [13, 148, 136],
+    ];
+    let accent = accents[hue % accents.len()];
+    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let pixel: [u8; 3] = if y < 34 {
+                accent
+            } else if (60..150).contains(&y) && (24..220).contains(&x) {
+                [236, 238, 242]
+            } else if (60..150).contains(&y) && (240..456).contains(&x) {
+                let t = (x - 240) as f32 / 216.0;
+                [
+                    (accent[0] as f32 * (1.0 - t) + 250.0 * t) as u8,
+                    (accent[1] as f32 * (1.0 - t) + 250.0 * t) as u8,
+                    (accent[2] as f32 * (1.0 - t) + 250.0 * t) as u8,
+                ]
+            } else if y >= 172
+                && (y - 172) % 22 < 9
+                && (24..24 + 420 - ((y / 22) % 4) * 70).contains(&x)
+            {
+                [200, 204, 212]
+            } else {
+                [255, 255, 255]
+            };
+            rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+        }
+    }
+    (w, h, rgba)
+}
+
+/// A made-up spreadsheet window, 480 × 320.
+fn sheet(_: usize) -> (u32, u32, Vec<u8>) {
+    let (w, h) = (480u32, 320u32);
+    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let pixel: [u8; 3] = if y < 28 {
+                [232, 232, 236]
+            } else if y < 52 {
+                [33, 115, 70]
+            } else if x % 80 == 0 || (y - 52) % 20 == 0 {
+                [214, 218, 224]
+            } else if (y - 52) / 20 == 7 {
+                [220, 240, 228]
+            } else {
+                [255, 255, 255]
+            };
+            rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+        }
+    }
+    (w, h, rgba)
+}
+
+/// `jobs` running jobs (ids `crowd0`…), the first leading `helpers`
+/// helpers; each has one to three browsers, every third an app window,
+/// each helper a browser. Their pictures are registered as if streamed.
+pub(crate) fn crowd_board(jobs: usize, helpers: usize) -> Board {
+    let now = Instant::now();
+    let mut board = Board::default();
+    for n in 0..jobs {
+        let (title, doing) = JOBS[n % JOBS.len()];
+        let id = format!("crowd{n}");
+        let title = if n < JOBS.len() {
+            title.to_owned()
+        } else {
+            format!("{title} {}", n / JOBS.len() + 1)
+        };
+        board.apply(
+            &Event::Started {
+                conversation: id.clone(),
+                origin: Origin::Background,
+                question: title,
+            },
+            None,
+            now,
+        );
+        board.apply(
+            &Event::Step {
+                conversation: id.clone(),
+                description: doing.into(),
+            },
+            None,
+            now,
+        );
+        let browsers = n % 3 + 1 + usize::from(n == 0) * 2;
+        let pages: Vec<(String, String, &str, &str)> = (0..browsers)
+            .map(|b| {
+                let (title, url) = SITES[(n + b) % SITES.len()];
+                let session = if b == 0 {
+                    format!("hex-{id}")
+                } else {
+                    format!("hex-{id}_{b}")
+                };
+                (
+                    session,
+                    if b == 0 {
+                        String::new()
+                    } else {
+                        format!("{b}")
+                    },
+                    title,
+                    url,
+                )
+            })
+            .collect();
+        let pages: Vec<(&str, &str, &str, &str)> = pages
+            .iter()
+            .map(|(s, name, t, u)| (s.as_str(), name.as_str(), *t, *u))
+            .collect();
+        super::live::fake(&id, &pages, |b| page(n + b));
+        if n % 3 == 1 {
+            super::app_live::fake(&id, &[("Numbers", 7000 + n as u32)], sheet);
+        }
+    }
+    if let Some(lead) = board.tasks.first_mut() {
+        lead.plan = [
+            "Lieferanten finden",
+            "Preise vergleichen",
+            "Tabelle schicken",
+        ]
+        .iter()
+        .enumerate()
+        .map(|(at, title)| crate::assistant::types::PlanStep {
+            title: (*title).into(),
+            done: at == 0,
+        })
+        .collect();
+    }
+    for h in 0..helpers {
+        let id = format!("crowd-helper{h}");
+        board.apply(
+            &Event::Started {
+                conversation: id.clone(),
+                origin: Origin::Background,
+                question: format!("Lieferanten {}–{}", h * 10 + 1, h * 10 + 10),
+            },
+            None,
+            now,
+        );
+        if let Some(task) = board.tasks.iter_mut().find(|task| task.id == id) {
+            task.lead = Some("crowd0".into());
+        }
+        let (title, url) = SITES[h % SITES.len()];
+        super::live::fake(&id, &[(&format!("hex-{id}"), "", title, url)], |_| {
+            page(h + 3)
+        });
+    }
+    board.pops = Default::default();
+    board
+}
+
+/// The desk: WhatsApp and a quick turn's browser left open.
+pub(crate) fn crowd_desk() -> super::minis::Desk {
+    super::app_live::fake(super::minis::DESK, &[("WhatsApp", 901)], |_| page(2));
+    super::live::fake(
+        "crowd-turn",
+        &[(
+            "hex-crowd-turn",
+            "",
+            "Wetter Berlin",
+            "https://wetter.com/berlin",
+        )],
+        |_| page(5),
+    );
+    super::minis::Desk {
+        windows: vec![crate::assistant::TaskWindow {
+            app: "WhatsApp".into(),
+            window_id: Some("w-901".into()),
+        }],
+        browsers: vec!["crowd-turn".into()],
+    }
+}
+
+pub(crate) fn crowd_question(board: &mut Board) {
+    board.apply(
+        &Event::QuestionsChanged {
+            active: Some(crate::assistant::WaitingQuestion {
+                conversation: "crowd1".into(),
+                title: JOBS[1].0.into(),
+                question: "Soll ich die Angebote ohne Mehrwertsteuer eintragen?".into(),
+                asked_ms: 1,
+            }),
+            waiting: 1,
+        },
+        None,
+        Instant::now(),
+    );
+}

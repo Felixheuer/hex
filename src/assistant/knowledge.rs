@@ -19,7 +19,7 @@ mod exec;
 mod files;
 pub mod graph;
 mod mail;
-mod native;
+pub(crate) mod native;
 mod people;
 mod rank;
 mod tab;

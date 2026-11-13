@@ -12,6 +12,8 @@ use super::board::{Board, Bubble};
 use super::desk::{self, Desk};
 use super::hint::Hint;
 use super::listening::{self, Listening};
+use super::minis::Desk as DeskMinis;
+use super::wall::{self, Scope, Wall};
 use super::{bubble, fixture, frame, hands, orb};
 
 /// Adds the assistant's stories to `playground`.
@@ -19,6 +21,7 @@ pub(crate) fn add<S: 'static>(playground: Playground<S>) -> Playground<S> {
     playground
         .story(desktop())
         .story(orb_story())
+        .story(wall_story())
         .story(quick_answer())
         .story(hands_story())
         .story(listening_story())
@@ -76,6 +79,9 @@ struct OrbStory {
     reply: Option<Reply>,
     open_result: Option<u64>,
     note: String,
+    /// The person's desk, and the panel's height on its display.
+    desk: DeskMinis,
+    room: f32,
 }
 
 fn orb_story() -> Story<OrbStory> {
@@ -85,6 +91,24 @@ fn orb_story() -> Story<OrbStory> {
             s.open = open;
             s.reply = None;
             s.open_result = None;
+            s.desk = DeskMinis::default();
+            s.room = orb::SIZE.1;
+        }
+    };
+    // Jobs with their browsers and windows live, the desk's, and a panel
+    // `room` tall.
+    let crowded = |jobs: usize, question: bool, room: f32, open: bool| {
+        move |s: &mut OrbStory| {
+            let mut board = fixture::crowd_board(jobs, if jobs >= 3 { 5 } else { 0 });
+            if question {
+                fixture::crowd_question(&mut board);
+            }
+            s.board = board;
+            s.open = open;
+            s.reply = None;
+            s.open_result = None;
+            s.desk = fixture::crowd_desk();
+            s.room = room;
         }
     };
     Story::new(
@@ -95,9 +119,25 @@ fn orb_story() -> Story<OrbStory> {
             reply: None,
             open_result: None,
             note: String::new(),
+            desk: DeskMinis::default(),
+            room: orb::SIZE.1,
         },
         orb_view,
     )
+    .variant("live: one job", crowded(1, false, orb::SIZE.1, false))
+    .variant(
+        "live: six jobs and the desk",
+        crowded(6, false, orb::SIZE.1, false),
+    )
+    .variant(
+        "live: twelve jobs and a question",
+        crowded(12, true, orb::SIZE.1, false),
+    )
+    .variant(
+        "live: twelve jobs, short panel",
+        crowded(12, false, 600.0, false),
+    )
+    .variant("live: the full list", crowded(12, false, 600.0, true))
     .variant("bubbles", with(fixture::board, false))
     .variant("quiet", with(fixture::quiet_board, false))
     .variant("list", with(fixture::board, true))
@@ -130,7 +170,7 @@ fn orb_story() -> Story<OrbStory> {
 
 fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
     let p = Paint::new(cx.system_dark(), cx.env().scale);
-    let (w, h) = orb::SIZE;
+    let (w, h) = (orb::SIZE.0, state.room);
     let note = (!state.note.is_empty()).then(|| {
         rune::text(state.note.clone())
             .key("note")
@@ -194,6 +234,7 @@ fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
         s.open = false;
     };
     actions.jobs.wall = |s, id| s.note = format!("Would show every picture of {id}");
+    actions.jobs.all = |s| s.note = "Would show every live picture".into();
 
     rune::col().key("orb-story").gap(8.0).children(note).child(
         el().key("orb-stage")
@@ -208,11 +249,40 @@ fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
                     answer_key: fixture::ANSWER_KEY.into(),
                     reply: state.reply.clone(),
                     open_result: state.open_result,
+                    room: Some(state.room),
+                    desk: state.desk.clone(),
                     ..Default::default()
                 },
                 actions,
             )),
     )
+}
+
+/// The live wall: every live picture grouped per job and the desk ("All
+/// live" beside the orb), or one job and its helpers ("All N live" on its
+/// row); a tile's press and × say what they'd do.
+fn wall_story() -> Story<Wall> {
+    let fresh = || {
+        Wall::new(wall::Actions {
+            close: |s| s.scope = None,
+            open: |_, task, session| tracing::info!(task, session, "would open it large"),
+        })
+    };
+    let all = |jobs: usize, helpers: usize| {
+        move |s: &mut Wall| {
+            s.board = fixture::crowd_board(jobs, helpers);
+            s.desk = fixture::crowd_desk();
+            s.scope = Some(Scope::All);
+        }
+    };
+    Story::new("Prototypes/Assistant/Live wall", fresh, wall::view)
+        .variant("everything, twelve jobs", all(12, 5))
+        .variant("everything, two jobs", all(2, 0))
+        .variant("one job and its helpers", |s| {
+            s.board = fixture::crowd_board(3, 5);
+            s.desk = DeskMinis::default();
+            s.scope = Some(Scope::Job("crowd0".into()));
+        })
 }
 
 /// The bubble's states, one variant each.

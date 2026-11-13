@@ -109,8 +109,12 @@ fn the_fixture_has_a_task_in_every_state() {
 #[test]
 fn the_orb_shows_a_dot_per_live_task_and_its_bubbles() {
     let board = fixture::board();
+    // A panel as short as it gets on a small display, below the middle.
+    let size = (orb::SIZE.0, 600.0);
     for dark in [false, true] {
-        let rt = runtime(orb_state(board.clone(), false), orb::view, orb::SIZE, dark);
+        let mut state = orb_state(board.clone(), false);
+        state.room = size.1;
+        let rt = runtime(state, orb::view, size, dark);
         let core = rect(&rt, "core").expect("the orb's core");
         assert!(core[0] < 40.0 && core[1] < 40.0, "in its corner: {core:?}");
         assert_eq!(
@@ -124,7 +128,7 @@ fn the_orb_shows_a_dot_per_live_task_and_its_bubbles() {
             "the table task's plan, at its dot and row"
         );
         let asked = rect(&rt, "question-invoices").expect("its question");
-        assert!(inside(asked, orb::SIZE), "{asked:?}");
+        assert!(inside(asked, size), "{asked:?}");
         assert!(rect(&rt, "question-hint").is_some(), "Hold ⌘ to answer");
         let [_, asked_y, ..] = asked;
         let [_, paused_y, ..] = rect(&rt, "standing-mail").unwrap();
@@ -139,7 +143,7 @@ fn the_orb_shows_a_dot_per_live_task_and_its_bubbles() {
         assert_eq!(count(&rt, "pop-text"), 0, "no toasts while jobs work");
         assert!(rect(&rt, "sheet").is_none(), "the list stays folded");
         for key in ["orb", "standing-mail", "standing-news"] {
-            assert!(inside(rect(&rt, key).unwrap(), orb::SIZE), "{key} inside");
+            assert!(inside(rect(&rt, key).unwrap(), size), "{key} inside");
         }
     }
 }

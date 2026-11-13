@@ -36,13 +36,17 @@ use rune_motion::{LoopSpec, Spring};
 use super::super::controls::Paint;
 use super::ask::{self, Reply};
 use super::board::{Board, Phase, Task};
+use super::minis::{self, Desk};
 use super::pops::MAX_POPS;
 use super::results::{self, Outcome};
-use super::{frame, jobs, palette, stack, when};
+use super::{frame, jobs, palette, stack, wall, when};
 use crate::desktop::i18n::{tr, tr_fill};
 
-/// The panel: room for the list unfolded, or a few bubbles.
-pub(crate) const SIZE: (f32, f32) = (400.0, 600.0);
+/// The panel at its tallest: room for the list unfolded, or the job rows
+/// with their pictures. On a display with less room past the orb the host
+/// makes it shorter ([`super::place::fitted`]) and says how tall
+/// ([`Orb::room`]); what unfolds takes that height and scrolls inside it.
+pub(crate) const SIZE: (f32, f32) = (400.0, 860.0);
 /// Room around everything inside the panel.
 pub(crate) const INSET: f32 = 10.0;
 /// The orb's height (it's as wide as its dots need).
@@ -55,10 +59,11 @@ const DOT: f32 = 7.0;
 pub(crate) const MAX_DOTS: usize = 10;
 const GAP: f32 = 8.0;
 /// A bubble's widest.
-const BUBBLE_MAX_W: f32 = 320.0;
+const BUBBLE_MAX_W: f32 = jobs::CARD_W;
 const BUBBLE_H: f32 = 30.0;
-/// A job row's height without pictures: its head and step.
-const ROW_MIN: f32 = 54.0;
+/// A job row's height with its strip of pictures: its head, step, and
+/// the pictures with their names.
+const ROW_MIN: f32 = 140.0;
 /// A progress ring around a dot: its size and stroke.
 const RING: f32 = 13.0;
 const RING_W: f32 = 1.75;
@@ -134,7 +139,10 @@ impl<S: 'static> Actions<S> {
             },
             hover: |_, _| {},
             drag: |_, _| {},
-            jobs: jobs::LineActions { wall: |_, _| {} },
+            jobs: jobs::LineActions {
+                wall: |_, _| {},
+                all: |_| {},
+            },
         }
     }
 }
@@ -162,6 +170,10 @@ pub(crate) struct Orb {
     /// How loud an answer read aloud sounds now (0 to 1), when it can be
     /// measured: the core pulses with it.
     pub(crate) voice: Option<f32>,
+    /// The panel's height as placed on its display (at most `SIZE.1`).
+    pub(crate) room: f32,
+    /// The person's desk as last read.
+    pub(crate) desk: Desk,
     pub(crate) actions: Actions<Orb>,
 }
 
@@ -179,6 +191,8 @@ impl Orb {
             grow: Grow::default(),
             answer_key,
             voice: None,
+            room: SIZE.1,
+            desk: Desk::default(),
             actions,
         }
     }
@@ -201,6 +215,17 @@ pub(crate) struct Look {
     pub(crate) reply: Option<Reply>,
     /// The result bubble unfolded (its key).
     pub(crate) open_result: Option<u64>,
+    /// The panel's height, when it isn't `SIZE.1`.
+    pub(crate) room: Option<f32>,
+    /// The person's desk: its pictures follow the job rows.
+    pub(crate) desk: Desk,
+}
+
+impl Look {
+    /// The height everything at the orb may take, inside the panel's inset.
+    pub(crate) fn inner_h(&self) -> f32 {
+        self.room.unwrap_or(SIZE.1).min(SIZE.1) - 2.0 * INSET
+    }
 }
 
 pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
@@ -214,6 +239,8 @@ pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
         hovered: orb.hovered.clone(),
         reply: orb.reply.clone(),
         open_result: orb.open_result,
+        room: Some(orb.room),
+        desk: orb.desk.clone(),
     };
     el().key("orb-root")
         .w_full()
@@ -280,19 +307,31 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
     let done = board.results();
     let grow = look.grow;
     let mut parts: Vec<El> = Vec::new();
-    let desk = super::minis::any();
+    let desk = !look.desk.is_empty();
+    let inner_h = look.inner_h();
     if !tasks.is_empty() || !board.pops.items.is_empty() || !done.is_empty() || desk {
-        parts.push(orb(
+        // The orb, and beside it "All N live": every live picture on the
+        // wall, one press away.
+        let mut head = vec![orb(
             p,
             &tasks,
             done.len(),
             board.open_questions(),
             look,
             actions,
+        )];
+        head.extend(wall::all_live_chip(
+            p,
+            wall::count_all(board, &look.desk),
+            actions.jobs.all,
         ));
+        if !grow.right {
+            head.reverse();
+        }
+        parts.push(row().key("orb-head").gap(GAP).center_y().children(head));
     }
     if look.open && (!tasks.is_empty() || !done.is_empty()) {
-        let max_h = SIZE.1 - 2.0 * INSET - ORB_H - GAP;
+        let max_h = inner_h - ORB_H - GAP;
         parts.push(
             stack::sheet(
                 p,
@@ -382,8 +421,7 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
             } else {
                 0.0
             };
-        while results.len() > 1 && SIZE.1 - 2.0 * INSET - fixed - results_room(&results) < rows_need
-        {
+        while results.len() > 1 && inner_h - fixed - results_room(&results) < rows_need {
             // The oldest done one; a failure is the last to go.
             let at = results
                 .iter()
@@ -395,9 +433,11 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
         bubbles.extend(standing);
         let room = jobs::Room {
             down: grow.down,
-            max_h: (SIZE.1 - 2.0 * INSET - taken).max(jobs::LINE_H + 2.0 * GAP),
+            max_h: (inner_h - taken).max(jobs::LINE_H + 2.0 * GAP),
             appear: pop_in(grow),
         };
+        // The job rows and the person's desk (what quick turns opened,
+        // live, until let go) in one column that scrolls inside the panel.
         bubbles.extend(
             jobs::view(
                 p,
@@ -409,14 +449,11 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
                     .collect::<Vec<_>>(),
                 &layout,
                 room,
+                minis::view(p, &look.desk, actions.list),
                 actions.list,
                 actions.jobs,
             )
             .map(|rows| rows.transition(pop_in(grow))),
-        );
-        // The person's desk: what quick turns opened, live, until let go.
-        bubbles.extend(
-            super::minis::view(p, actions.list).map(|minis| minis.transition(pop_in(grow))),
         );
         bubbles.extend(results.iter().map(|(key, outcome)| {
             results::bubble(
@@ -434,8 +471,10 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
         parts.reverse();
     }
     let hover = actions.hover;
+    // Never taller than the panel: the job rows give way and scroll.
     let cluster = col()
         .key("cluster")
+        .max_h(inner_h)
         .gap(GAP)
         .hover_delays(
             std::time::Duration::from_millis(220),

@@ -142,10 +142,11 @@ pub struct Guard<D: Desktop> {
     /// Brings an app's window from another desktop, the Dock, or hiding
     /// (`recover`); a stand-in in tests.
     pub recover: Box<dyn Recoverer>,
-    /// Runs an app recipe (`actions`); a stand-in in tests.
-    pub run_recipe: Box<
-        dyn FnMut(&crate::assistant::actions::recipes::Command) -> Result<String, String> + Send,
-    >,
+    /// Runs an app action (`actions::app_action`); a stand-in in tests.
+    pub run_action: Box<RunAction>,
+    /// Reads what an installed app offers (`actions::capabilities`); a
+    /// stand-in in tests, which never read the person's apps.
+    pub discover: Box<dyn Fn(&super::screen::App) -> Value + Send>,
     /// Hex's own process, which holds the desk (`desk`); `None`: no desk.
     pub desk: Option<u32>,
     /// Failed actions in a row per window (background first: `borrow`).
@@ -157,6 +158,10 @@ pub struct Guard<D: Desktop> {
     /// Window pictures and element spots for the vision path (`vision`).
     vision: vision::Vision,
 }
+
+/// Runs one app action and says what it printed, or why not.
+pub type RunAction =
+    dyn FnMut(&crate::assistant::actions::app_action::Command) -> Result<String, String> + Send;
 
 impl<D: Desktop> Guard<D> {
     pub fn new(
@@ -200,11 +205,22 @@ impl<D: Desktop> Guard<D> {
             } else {
                 Box::new(System)
             },
-            run_recipe: Box::new(|command| {
+            run_action: Box::new(|command| {
                 if cfg!(test) {
                     Ok(String::new())
                 } else {
-                    crate::assistant::actions::recipes::run(command)
+                    crate::assistant::actions::app_action::run(command)
+                }
+            }),
+            discover: Box::new(|app| {
+                if cfg!(test) {
+                    serde_json::json!({"app": app.name, "bundle_id": app.bundle_id})
+                } else {
+                    crate::assistant::actions::capabilities::describe(
+                        &app.name,
+                        app.bundle_id.as_deref(),
+                        &app.path,
+                    )
                 }
             }),
             desk: None,
@@ -260,6 +276,7 @@ impl<D: Desktop> Guard<D> {
             tools.push(desk::tool());
             tools.push(actions::app_action_tool());
         }
+        tools.push(actions::capabilities_tool());
         tools.push(actions::read_window_tool());
         tools.push(vision::shot_tool());
         tools.push(vision::input_tool());
@@ -398,6 +415,7 @@ impl<D: Desktop> Guard<D> {
                 Kind::Free
                     | Kind::Observe
                     | Kind::InstalledApps
+                    | Kind::AppCapabilities
                     | Kind::Displays
                     | Kind::ReadWindow
                     | Kind::WindowShot
@@ -427,6 +445,7 @@ impl<D: Desktop> Guard<D> {
             Kind::ReadWindow => return self.read_window(tool, args),
             Kind::WindowShot => return self.window_shot(tool, args),
             Kind::WindowInput => return self.window_input(tool, args),
+            Kind::AppCapabilities => return self.app_capabilities(tool, args),
             Kind::Clipboard
                 if self.config.lane == Lane::Background && !self.config.physical_input =>
             {

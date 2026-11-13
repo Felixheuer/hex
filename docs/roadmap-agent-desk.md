@@ -27,22 +27,19 @@ the main interface.
 - **Native action service in Hex:** an `AXUIElement` server inside the process, with
   cached element trees per window and diff updates. It replaces one agent-desktop process
   per call. Target: under 50 ms per click, type or read of a known element.
-- **Deep links and app recipes:** a registry of fast paths per app:
-  - WhatsApp: `whatsapp://send?phone=…&text=…`, opens the chat.
-  - Slack: `slack://channel?team=…&id=…`.
-  - Mail: `mailto:` plus AppleScript to create a draft.
-  - Messages: AppleScript `send`.
-  - Calendar and Reminders: EventKit.
-  - Notes: AppleScript.
-  - Finder: `open -R`.
-  - System Settings: `x-apple.systempreferences:` panes.
-  - Music and Spotify: AppleScript.
-  - VS Code: `code` CLI.
-  - Ghostty or Terminal: AppleScript, then `claude`.
-  - Shortcuts: the `shortcuts run` CLI.
-
-  The recipes live as data (TOML) in the app. The agent gets the `hex_app_action` tool
-  (app, intent, parameters), and the guard checks the recipes like any other action.
+- **Every app, discovered, not listed:** no per-app recipes or app lists. The agent asks
+  any installed app what it offers with `hex_app_capabilities` (read from the app itself
+  in about 25 ms, cached per app version): its scripting dictionary (`sdef`, summarized to
+  classes, properties, elements and commands), the URL schemes and documents its
+  `Info.plist` declares, what its windows are made of (native, Electron, Catalyst, iPhone
+  or iPad), the command-line tools it ships, and the links it opens by default
+  (LaunchServices). `hex_app_action` then acts in any app by `script` (AppleScript inside
+  `tell application id …`, which reads and changes the app's data without its window, on
+  any desktop) or `open_url` (any URL the app takes). One rule for all apps, fastest
+  first: scripting, then a URL scheme, then Accessibility in its parked window, then
+  `hex_read_window`; an unreachable window means the next method, never asking the person
+  to bring it over. The guard checks both tools like any action (blocked apps, autonomy
+  for scripted sends and deletes).
 - **Background operation for every app:** windows are claimed, parked off-screen and
   driven through AX and window-specific events, without bringing the app to the front.
   Where an app refuses that, fall back to its own window on a separate Space.
@@ -176,7 +173,7 @@ note them, fix them, start your new version, and keep improving."
 
 | Agent | Scope (files) | Content |
 |---|---|---|
-| 1 Actions | `src/assistant/actions/**` (new), guard integration | A: action service, deep-link recipes, `hex_app_action`, background operation, OCR |
+| 1 Actions | `src/assistant/actions/**` (new), guard integration | A: action service, app discovery (`hex_app_capabilities`), `hex_app_action`, background operation, OCR |
 | 2 Knowledge | `src/assistant/knowledge/**` (new) | B: personal index, `hex_lookup`, own Chrome, memory graph |
 | 3 Speed | `src/assistant/agent*.rs`, `provider/**`, `service/**` | C: two models, warm session, speculative start, compact prompts |
 | 4 Benchmark | `bench/**` (new), CLI | G: tasks, measurement, comparison |

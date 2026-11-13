@@ -263,6 +263,33 @@ pub(crate) fn previews(task: &str) -> Vec<Arc<AppPreview>> {
     registry().tasks.get(task).cloned().unwrap_or_default()
 }
 
+/// The playground's stories, renders, and layout tests: `task` works in `windows` (app, number), each
+/// showing the picture `paint` draws for its index.
+pub(crate) fn fake(
+    task: &str,
+    windows: &[(&str, u32)],
+    paint: impl Fn(usize) -> (u32, u32, Vec<u8>),
+) {
+    let previews = windows
+        .iter()
+        .enumerate()
+        .map(|(index, (app, number))| {
+            let preview = AppPreview::new(
+                TaskWindow {
+                    app: (*app).into(),
+                    window_id: Some(format!("w-{number}")),
+                },
+                *number,
+            );
+            let (width, height, rgba) = paint(index);
+            preview.full.set(width, height, rgba.clone());
+            preview.pixels.set(width, height, rgba);
+            Arc::new(preview)
+        })
+        .collect();
+    registry().tasks.insert(task.into(), previews);
+}
+
 /// Window `number` of `task`, while it works.
 pub(crate) fn preview(task: &str, number: u32) -> Option<Arc<AppPreview>> {
     previews(task).into_iter().find(|p| p.number == number)

@@ -29,12 +29,12 @@ use crate::desktop::i18n::{tr, tr_fill};
 /// Job rows shown, with no question waiting; one fewer with one.
 pub(crate) const MAX_ROWS: usize = 3;
 /// Browsers shown on a row; more show as "+N".
-pub(crate) const MAX_THUMBS: usize = 4;
+pub(crate) const MAX_THUMBS: usize = 3;
 /// A row's width, as the orb's bubbles.
-pub(crate) const CARD_W: f32 = 320.0;
+pub(crate) const CARD_W: f32 = 360.0;
 /// A browser's thumbnail on a row.
-const THUMB_W: f32 = 70.0;
-const THUMB_H: f32 = 44.0;
+pub(crate) const THUMB_W: f32 = 104.0;
+pub(crate) const THUMB_H: f32 = 65.0;
 /// The "more" line's height.
 pub(crate) const LINE_H: f32 = 30.0;
 
@@ -43,6 +43,9 @@ pub(crate) struct LineActions<S> {
     /// "All N live" on a job's row: every browser and window of it and its
     /// helpers on the live wall (the job's id).
     pub(crate) wall: fn(&mut S, &str),
+    /// "All live" beside the orb: every live picture of every job and of
+    /// the desk on the wall.
+    pub(crate) all: fn(&mut S),
 }
 
 impl<S> Clone for LineActions<S> {
@@ -160,17 +163,21 @@ pub(crate) struct Room {
 /// The rows (and the "more" line) for `jobs`, as laid out: one column that
 /// takes the pointer, so the wheel and the gaps between rows answer, and
 /// scrolls should it outgrow its room. `team` is every helper on the board
-/// (any phase), for its lead's row.
+/// (any phase), for its lead's row. `desk` (the person's desk at the orb,
+/// [`super::minis`]) follows the rows in the same column, so everything
+/// with live pictures scrolls together inside the panel.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn view<S: 'static>(
     p: Paint,
     jobs: &[&Task],
     team: &[&Task],
     layout: &Layout,
     room: Room,
+    desk: Option<El>,
     actions: stack::Actions<S>,
     line_actions: LineActions<S>,
 ) -> Option<El> {
-    if layout.rows.is_empty() {
+    if layout.rows.is_empty() && desk.is_none() {
         return None;
     }
     let mut rows: Vec<El> = layout
@@ -205,6 +212,7 @@ pub(crate) fn view<S: 'static>(
             .collect();
         rows.push(line(p, &rest, layout.more, actions).transition(room.appear));
     }
+    rows.extend(desk.map(|desk| desk.transition(room.appear)));
     if !room.down {
         rows.reverse();
     }
@@ -317,35 +325,50 @@ fn card<S: 'static>(
                 .pl(STEP_INSET)
         });
     let browsers = (apps_shown + shown > 0).then(|| {
-        row()
-            .key("job-browsers")
-            .gap(6.0)
-            .pt(2.0)
-            .pl(STEP_INSET)
-            .role("list")
-            .label(tr("Live windows"))
-            .children(
-                apps[..apps_shown]
-                    .iter()
-                    .map(|preview| app_thumb(p, &task.id, preview, actions)),
-            )
-            .children(
+        let mut cells: Vec<El> = apps[..apps_shown]
+            .iter()
+            .map(|preview| app_thumb(p, &task.id, preview, actions))
+            .chain(
                 previews[..shown]
                     .iter()
                     .map(|preview| thumb(p, &task.id, preview, actions)),
             )
-            .children((more > 0).then(|| {
+            .collect();
+        // The rest as "+N" on the last picture; a press shows them all.
+        if more > 0
+            && let Some(last) = cells.pop()
+        {
+            let id = task.id.clone();
+            let badge = p.k.interactive(
                 el().key("job-more")
-                    .size(THUMB_H, THUMB_H)
-                    .radius(6.0)
-                    .fill(c.layer_02)
+                    .absolute(THUMB_W - 36.0, THUMB_H - 24.0)
+                    .h(20.0)
+                    .min_w(32.0)
+                    .px(6.0)
+                    .radius(10.0)
+                    .fill(c.bg_base.alpha(0.92))
+                    .border(p.hair, c.border_base)
                     .center()
+                    .role("button")
+                    .label(tr_fill("All {} live", &all.to_string()))
+                    .hit()
+                    .on_press(move |s: &mut S| open_wall(s, &id))
                     .child(
                         text(format!("+{more}"))
                             .font(p.k.ty.small_medium)
-                            .color(p.muted()),
-                    )
-            }))
+                            .color(p.text()),
+                    ),
+            );
+            cells.push(el().key("job-last").child(last).child(badge));
+        }
+        row()
+            .key("job-browsers")
+            .gap(6.0)
+            .pt(4.0)
+            .pl(STEP_INSET)
+            .role("list")
+            .label(tr("Live windows"))
+            .children(cells)
     });
     let team = (!helpers.is_empty()).then(|| team_row(p, helpers).pl(STEP_INSET));
     let card = col()
@@ -459,17 +482,31 @@ fn thumb<S: 'static>(p: Paint, task: &str, preview: &Preview, actions: stack::Ac
     };
     let open = actions.open_preview;
     let (task, session) = (task.to_owned(), preview.session.clone());
+    // Its site under it, so a row says where it works.
+    let name = live::host_of(&preview.page().url).unwrap_or_else(|| {
+        if preview.name.is_empty() {
+            tr("Main browser").to_owned()
+        } else {
+            preview.name.clone()
+        }
+    });
+    let captioned = col()
+        .key(format!("job-thumb-cell-{}", preview.session))
+        .w(THUMB_W)
+        .gap(2.0)
+        .child(picture)
+        .child(
+            text(name.clone())
+                .key("job-thumb-name")
+                .truncate()
+                .font(p.k.ty.small)
+                .color(p.muted())
+                .min_w(0.0),
+        );
     p.k.interactive(
-        picture
+        captioned
             .role("button")
-            .label(tr_fill(
-                "Open {} live",
-                if preview.name.is_empty() {
-                    tr("Main browser")
-                } else {
-                    &preview.name
-                },
-            ))
+            .label(tr_fill("Open {} live", &name))
             .hit()
             .on_press(move |s: &mut S| open(s, &task, &session)),
     )
@@ -664,15 +701,18 @@ mod tests {
     }
 
     #[test]
-    fn a_card_shows_four_pictures_apps_first_and_counts_the_rest() {
-        // Browsers alone, as before.
+    fn a_card_shows_three_pictures_apps_first_and_counts_the_rest() {
+        // Browsers alone.
         assert_eq!(strip(0, 0), (0, 0, 0));
         assert_eq!(strip(0, 3), (0, 3, 0));
-        assert_eq!(strip(0, 12), (0, 4, 8));
-        // App windows first, browsers in the room left, one strip of four.
+        assert_eq!(strip(0, 12), (0, 3, 9));
+        // App windows first, browsers in the room left, one strip of three.
         assert_eq!(strip(1, 2), (1, 2, 0));
-        assert_eq!(strip(2, 5), (2, 2, 3));
-        assert_eq!(strip(6, 1), (4, 0, 3));
+        assert_eq!(strip(2, 5), (2, 1, 4));
+        assert_eq!(strip(6, 1), (3, 0, 4));
+        // Three pictures fill a row's strip, set in past its dot.
+        let strip_w = MAX_THUMBS as f32 * THUMB_W + (MAX_THUMBS - 1) as f32 * 6.0;
+        assert!(strip_w <= CARD_W - 20.0 - STEP_INSET, "{strip_w}");
     }
 
     #[test]

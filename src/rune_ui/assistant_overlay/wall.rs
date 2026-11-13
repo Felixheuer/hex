@@ -1,23 +1,33 @@
-//! The live wall: every browser and app window of a job and its helpers,
-//! live at once ("Alle 20 live"). Twenty helpers each with a browser are
-//! twenty small pictures in a grid sized to fill the panel, each captioned
-//! with its helper and site; a press on one opens it large (the enlarged
-//! card, with Take over), and × or Escape closes the wall.
+//! The live wall: browsers and app windows live at once, as a grid of
+//! small pictures, each captioned with its task and site; a press on one
+//! opens it large (the enlarged card, with Take over).
 //!
-//! The pictures stream only while the wall shows: opening it puts its jobs
-//! on `live::wall` and `app_live::wall` (two frames a second, at full size
-//! so a tile stays sharp); closing it takes them off again.
+//! It shows one of two things ([`Scope`]):
 //!
-//! The rules are plain functions ([`tasks`], [`grid`]); the host
-//! adds the panel and the streams (`host::wall`).
+//! - A job and its helpers ("All 20 live" on a job's row): twenty helpers
+//!   each with a browser are twenty pictures sized to fill the panel.
+//! - Everything live ("All live" beside the orb): every running job with
+//!   its helpers, then the person's desk (the apps and browsers quick turns
+//!   left open), each under a header with its colour, title, and count.
+//!   Pictures keep a readable size and the grid scrolls when they don't
+//!   all fit.
+//!
+//! ×, Escape, or a click outside the panel closes it. The pictures stream
+//! only while the wall shows: opening it puts its tasks on `live::wall` and
+//! `app_live::wall` (two frames a second, at full size so a tile stays
+//! sharp); closing it takes them off again.
+//!
+//! The rules are plain functions ([`tasks`], [`groups`], [`grid`]); the
+//! host adds the panel and the streams (`host::wall`).
 
-use rune::{Cx, El, col, el, row, text};
+use rune::{Cx, El, Icon, col, el, icon, row, text};
 use rune_kit::{IconButton, IconButtonVariant};
 
 use super::super::controls::Paint;
 use super::app_live::{self, AppPreview};
 use super::board::{Board, Phase, Task};
 use super::live::{self, Preview};
+use super::minis::{self, Desk};
 use super::{orb, palette};
 use crate::desktop::i18n::{tr, tr_fill};
 
@@ -26,11 +36,34 @@ pub(crate) const SIZE: (f32, f32) = (1180.0, 780.0);
 /// Padding around the grid, and the header above it.
 const PAD: f32 = 20.0;
 const HEADER_H: f32 = 40.0;
+/// A group's header on the wall of everything.
+const GROUP_H: f32 = 26.0;
 /// Space between tiles, and a tile's caption under its picture.
 pub(crate) const GAP: f32 = 10.0;
 pub(crate) const CAPTION_H: f32 = 18.0;
 /// A browser page's shape (16:10), for tiles before their first frame.
 const ASPECT: f32 = 1.6;
+/// The narrowest a tile gets on the wall of everything: past that it
+/// scrolls instead of shrinking.
+pub(crate) const MIN_TILE_W: f32 = 210.0;
+/// The grid's room inside the panel.
+pub(crate) const ROOM: (f32, f32) = (SIZE.0 - PAD * 4.0, SIZE.1 - PAD * 4.0 - HEADER_H - GAP);
+
+/// Four panes: "All live" at the orb.
+pub(crate) static GRID: Icon = Icon {
+    name: "hex-wall-grid",
+    view: 16.0,
+    body: r#"<rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor"/><rect x="9" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor"/>"#,
+};
+
+/// What the wall shows.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum Scope {
+    /// A job and its helpers (the job's id).
+    Job(String),
+    /// Every live task's pictures and the desk's.
+    All,
+}
 
 /// What the wall's buttons ask of the host.
 pub(crate) struct Actions<S> {
@@ -49,18 +82,21 @@ impl<S> Copy for Actions<S> {}
 
 /// The wall's state.
 pub(crate) struct Wall {
-    /// The job whose team it shows; `None` while closed.
-    pub(crate) lead: Option<String>,
-    /// The orb's board as it last said, for the team and its titles.
+    /// What it shows; `None` while closed.
+    pub(crate) scope: Option<Scope>,
+    /// The orb's board as it last said, for the teams and their titles.
     pub(crate) board: Board,
+    /// The person's desk as last read.
+    pub(crate) desk: Desk,
     pub(crate) actions: Actions<Wall>,
 }
 
 impl Wall {
     pub(crate) fn new(actions: Actions<Wall>) -> Self {
         Self {
-            lead: None,
+            scope: None,
             board: Board::default(),
+            desk: Desk::default(),
             actions,
         }
     }
@@ -79,12 +115,52 @@ pub(crate) fn team<'a>(board: &'a Board, lead: &str) -> Vec<&'a Task> {
     team
 }
 
-/// The task ids [`team`] gives, for the streams.
-pub(crate) fn tasks(board: &Board, lead: &str) -> Vec<String> {
-    team(board, lead)
-        .into_iter()
-        .map(|task| task.id.clone())
+/// The live tasks no other task on `board` leads, newest first: a group
+/// each on the wall of everything.
+pub(crate) fn roots(board: &Board) -> Vec<&Task> {
+    let led = |task: &Task| {
+        task.lead
+            .as_ref()
+            .is_some_and(|lead| board.tasks.iter().any(|other| &other.id == lead))
+    };
+    board
+        .tasks
+        .iter()
+        .rev()
+        .filter(|task| task.phase.live() && !led(task))
         .collect()
+}
+
+/// The task ids `scope` streams: a job's team; or every root's team and
+/// the desk's windows and browsers.
+pub(crate) fn tasks(board: &Board, desk: &Desk, scope: &Scope) -> Vec<String> {
+    match scope {
+        Scope::Job(lead) => team(board, lead)
+            .into_iter()
+            .map(|task| task.id.clone())
+            .collect(),
+        Scope::All => {
+            let mut ids: Vec<String> = roots(board)
+                .into_iter()
+                .flat_map(|root| team(board, &root.id))
+                .map(|task| task.id.clone())
+                .collect();
+            if !desk.is_empty() {
+                ids.push(minis::DESK.to_owned());
+                ids.extend(desk.browsers.iter().cloned());
+            }
+            ids
+        }
+    }
+}
+
+/// How many live pictures there are of every live task and the desk: what
+/// "All live" at the orb opens.
+pub(crate) fn count_all(board: &Board, desk: &Desk) -> usize {
+    groups(board, desk, &Scope::All)
+        .iter()
+        .map(|group| group.tiles.len())
+        .sum()
 }
 
 /// A tile grid: columns, rows, and each tile's picture size.
@@ -123,14 +199,121 @@ pub(crate) fn grid(n: usize, room: (f32, f32), aspect: f32) -> Grid {
     best
 }
 
+/// The grid for the wall of everything: `n` pictures in `groups` groups
+/// (a header each) as large as they fit in `room`, but never narrower than
+/// [`MIN_TILE_W`]: then as many columns of that width as fit, and the grid
+/// scrolls.
+pub(crate) fn scrolling_grid(n: usize, groups: usize, room: (f32, f32)) -> Grid {
+    // Each group may start a row of its own: room for the headers and a
+    // short row each.
+    let rows_room = room.1 - groups.saturating_sub(1) as f32 * (GROUP_H + GAP) - GROUP_H;
+    let fit = grid(n + groups.saturating_sub(1), (room.0, rows_room), ASPECT);
+    if fit.tile.0 >= MIN_TILE_W {
+        return fit;
+    }
+    let cols = (((room.0 + GAP) / (MIN_TILE_W + GAP)).floor() as usize).max(1);
+    let w = (room.0 - GAP * (cols - 1) as f32) / cols as f32;
+    Grid {
+        cols,
+        rows: n.div_ceil(cols),
+        tile: (w, w / ASPECT),
+    }
+}
+
 /// One picture on the wall.
-enum Tile<'a> {
-    Browser(&'a Task, std::sync::Arc<Preview>),
-    App(&'a Task, std::sync::Arc<AppPreview>),
+pub(crate) enum Picture {
+    Browser(std::sync::Arc<Preview>),
+    App(std::sync::Arc<AppPreview>),
+}
+
+/// One picture and whose it is: a task on the board, or the desk's.
+pub(crate) struct Tile<'a> {
+    /// The task its stream belongs to (the desk's own id for its windows).
+    pub(crate) owner: String,
+    /// The task on the board, for its colour and title; `None` on the desk.
+    pub(crate) task: Option<&'a Task>,
+    pub(crate) picture: Picture,
+}
+
+/// A run of tiles under one header.
+pub(crate) struct Group<'a> {
+    /// The job it's of; `None` for the desk.
+    pub(crate) task: Option<&'a Task>,
+    pub(crate) tiles: Vec<Tile<'a>>,
+}
+
+fn team_tiles<'a>(board: &'a Board, lead: &str) -> Vec<Tile<'a>> {
+    let mut tiles = Vec::new();
+    for task in team(board, lead) {
+        tiles.extend(
+            app_live::previews(&task.id)
+                .into_iter()
+                .map(|preview| Tile {
+                    owner: task.id.clone(),
+                    task: Some(task),
+                    picture: Picture::App(preview),
+                }),
+        );
+        tiles.extend(live::previews(&task.id).into_iter().map(|preview| Tile {
+            owner: task.id.clone(),
+            task: Some(task),
+            picture: Picture::Browser(preview),
+        }));
+    }
+    tiles
+}
+
+fn desk_tiles(desk: &Desk) -> Vec<Tile<'static>> {
+    if desk.is_empty() {
+        return Vec::new();
+    }
+    let mut tiles: Vec<Tile> = app_live::previews(minis::DESK)
+        .into_iter()
+        .map(|preview| Tile {
+            owner: minis::DESK.to_owned(),
+            task: None,
+            picture: Picture::App(preview),
+        })
+        .collect();
+    for task in &desk.browsers {
+        tiles.extend(live::previews(task).into_iter().map(|preview| Tile {
+            owner: task.clone(),
+            task: None,
+            picture: Picture::Browser(preview),
+        }));
+    }
+    tiles
+}
+
+/// What `scope` shows, group by group; groups without a picture are left
+/// out.
+pub(crate) fn groups<'a>(board: &'a Board, desk: &Desk, scope: &Scope) -> Vec<Group<'a>> {
+    let mut groups: Vec<Group> = match scope {
+        Scope::Job(lead) => vec![Group {
+            task: board.tasks.iter().find(|task| &task.id == lead),
+            tiles: team_tiles(board, lead),
+        }],
+        Scope::All => roots(board)
+            .into_iter()
+            .map(|root| Group {
+                task: Some(root),
+                tiles: team_tiles(board, &root.id),
+            })
+            .collect(),
+    };
+    if *scope == Scope::All {
+        groups.push(Group {
+            task: None,
+            tiles: desk_tiles(desk),
+        });
+    }
+    groups.retain(|group| !group.tiles.is_empty());
+    groups
 }
 
 pub(crate) fn view(state: &Wall, cx: &mut Cx<Wall>) -> El {
     let p = Paint::new(cx.system_dark(), cx.env().scale);
+    let close = state.actions.close;
     let root = col()
         .key("wall-root")
         .w_full()
@@ -138,30 +321,32 @@ pub(crate) fn view(state: &Wall, cx: &mut Cx<Wall>) -> El {
         .padding(PAD)
         .items_center()
         .justify_start();
-    let Some(lead) = &state.lead else {
+    let Some(scope) = &state.scope else {
         return root;
     };
+    // A click beside the panel closes it, as a click outside the window
+    // does (it takes the keyboard away).
+    let root = root.hit().on_press(move |s: &mut Wall| close(s));
     let k = p.k;
     let c = &k.c;
-    let team = team(&state.board, lead);
-    let mut tiles: Vec<Tile> = Vec::new();
-    for task in &team {
-        tiles.extend(
-            app_live::previews(&task.id)
-                .into_iter()
-                .map(|preview| Tile::App(task, preview)),
-        );
-        tiles.extend(
-            live::previews(&task.id)
-                .into_iter()
-                .map(|preview| Tile::Browser(task, preview)),
-        );
-    }
-    let title = team
-        .first()
-        .map(|task| task.title.clone())
-        .unwrap_or_default();
-    let close = state.actions.close;
+    let groups = groups(&state.board, &state.desk, scope);
+    let count: usize = groups.iter().map(|group| group.tiles.len()).sum();
+    let (heading, title) = match scope {
+        Scope::Job(lead) => (
+            tr_fill("All {} live", &count.to_string()),
+            state
+                .board
+                .tasks
+                .iter()
+                .find(|task| &task.id == lead)
+                .map(|task| task.title.clone())
+                .unwrap_or_default(),
+        ),
+        Scope::All => (
+            tr_fill("All {} live", &count.to_string()),
+            tr_fill("{} jobs running", &roots(&state.board).len().to_string()),
+        ),
+    };
     let header = row()
         .key("wall-header")
         .w_full()
@@ -169,7 +354,7 @@ pub(crate) fn view(state: &Wall, cx: &mut Cx<Wall>) -> El {
         .gap(10.0)
         .center_y()
         .child(
-            text(tr_fill("All {} live", &tiles.len().to_string()))
+            text(heading)
                 .key("wall-count")
                 .role("heading")
                 .font(k.ty.ui_medium)
@@ -192,30 +377,95 @@ pub(crate) fn view(state: &Wall, cx: &mut Cx<Wall>) -> El {
                 .build(k)
                 .key("wall-close"),
         );
-    let room = (SIZE.0 - PAD * 4.0, SIZE.1 - PAD * 4.0 - HEADER_H - GAP);
-    let layout = grid(tiles.len(), room, ASPECT);
     let open = state.actions.open;
-    let mut rows: Vec<El> = Vec::new();
-    let mut tiles = tiles.into_iter().peekable();
-    let mut at = 0;
-    while tiles.peek().is_some() {
-        let cells: Vec<El> = tiles
-            .by_ref()
-            .take(layout.cols)
-            .map(|tile| cell(p, &tile, layout.tile, open))
-            .collect();
-        rows.push(row().key(format!("wall-row-{at}")).gap(GAP).children(cells));
-        at += 1;
+    let headed = *scope == Scope::All;
+    let layout = if headed {
+        scrolling_grid(count, groups.len(), ROOM)
+    } else {
+        grid(count, ROOM, ASPECT)
+    };
+    let rows_of = |at: usize, group: &Group| -> Vec<El> {
+        group
+            .tiles
+            .chunks(layout.cols)
+            .enumerate()
+            .map(|(line, tiles)| {
+                row()
+                    .key(format!("wall-row-{at}-{line}"))
+                    .gap(GAP)
+                    .children(tiles.iter().map(|tile| {
+                        cell(
+                            p,
+                            tile,
+                            layout.tile,
+                            headed.then_some(group.task).flatten(),
+                            open,
+                        )
+                    }))
+            })
+            .collect()
+    };
+    let mut sections: Vec<El> = Vec::new();
+    if headed {
+        // Each group a block under its header, as wide as its pictures;
+        // blocks share a line while they fit, so a job with one browser
+        // doesn't leave the rest of its line empty.
+        let mut line: Vec<El> = Vec::new();
+        let mut used = 0;
+        for (at, group) in groups.iter().enumerate() {
+            let slots = group.tiles.len().min(layout.cols);
+            if used > 0 && used + slots > layout.cols {
+                sections.push(
+                    row()
+                        .key(format!("wall-line-{}", sections.len()))
+                        .gap(GAP)
+                        .items_start()
+                        .children(std::mem::take(&mut line)),
+                );
+                used = 0;
+            }
+            used += slots;
+            let width = slots as f32 * layout.tile.0 + (slots - 1) as f32 * GAP;
+            line.push(
+                col()
+                    .key(format!("wall-block-{at}"))
+                    .w(width)
+                    .gap(GAP / 2.0)
+                    .child(group_header(p, group, at))
+                    .children(rows_of(at, group)),
+            );
+        }
+        if !line.is_empty() {
+            sections.push(
+                row()
+                    .key(format!("wall-line-{}", sections.len()))
+                    .gap(GAP)
+                    .items_start()
+                    .children(line),
+            );
+        }
+    } else {
+        sections.extend(groups.iter().enumerate().flat_map(|(at, g)| rows_of(at, g)));
     }
     let grid = col()
         .key("wall-grid")
+        .w(ROOM.0)
+        .min_h(0.0)
+        .shrink()
         .gap(GAP)
+        .scroll(rune::ScrollSpec {
+            stick_bottom: false,
+        })
+        .scroll_edge_fade(16.0)
+        // The wheel answers between the tiles too.
+        .hit()
         .role("list")
         .label(tr("Live windows"))
-        .children(rows);
+        .children(sections);
     root.child(
         col()
             .key("wall-panel")
+            .max_h(SIZE.1 - PAD * 2.0)
             .padding(PAD)
             .gap(GAP)
             .radius(16.0)
@@ -230,7 +480,8 @@ pub(crate) fn view(state: &Wall, cx: &mut Cx<Wall>) -> El {
                 inset: false,
             })
             // The panel takes the pointer, so × and the space between the
-            // tiles answer; without it a click fell through to the app below.
+            // tiles answer (and don't close it); without it a click fell
+            // through to the app below.
             .hit()
             .on_press(|_: &mut Wall| {})
             .child(header)
@@ -247,23 +498,69 @@ pub(crate) fn view(state: &Wall, cx: &mut Cx<Wall>) -> El {
     )
 }
 
+/// A group's header on the wall of everything: the job's dot, title, and
+/// how many pictures; or "Your desk".
+fn group_header(p: Paint, group: &Group, at: usize) -> El {
+    let k = p.k;
+    let (dot, title) = match group.task {
+        Some(task) => (
+            Some(orb::marker(
+                p,
+                task,
+                palette::task(task.colour, k.dark),
+                8.0,
+            )),
+            task.title.clone(),
+        ),
+        None => (None, tr("Your desk").to_owned()),
+    };
+    row()
+        .key(format!("wall-group-{at}"))
+        .w_full()
+        .h(GROUP_H)
+        .gap(7.0)
+        .center_y()
+        .role("heading")
+        .children(dot)
+        .child(
+            text(title)
+                .key("wall-group-title")
+                .truncate()
+                .font(k.ty.small_medium)
+                .color(p.text())
+                .min_w(0.0),
+        )
+        .child(
+            text(tr_fill("{} live", &group.tiles.len().to_string()))
+                .key("wall-group-count")
+                .font(k.ty.small)
+                .color(p.faint()),
+        )
+}
+
 /// One tile: the picture (sharp from its full frame), or for a light
 /// browser that draws no pixels its page's title and site; under it the
-/// helper's dot and title and what it shows.
-fn cell(p: Paint, tile: &Tile, size: (f32, f32), open: fn(&mut Wall, &str, &str)) -> El {
+/// task's dot and title and what it shows.
+fn cell(
+    p: Paint,
+    tile: &Tile,
+    size: (f32, f32),
+    under: Option<&Task>,
+    open: fn(&mut Wall, &str, &str),
+) -> El {
     let k = p.k;
     let c = &k.c;
-    let (task, session, what, picture) = match tile {
-        Tile::Browser(task, preview) => {
+    let base = el()
+        .size(size.0, size.1)
+        .radius(8.0)
+        .fill(c.layer_02)
+        .border(p.hair, k.alpha(c.text_base, 0.14));
+    let (session, what, picture) = match &tile.picture {
+        Picture::Browser(preview) => {
             let page = preview.page();
             let what = live::host_of(&page.url)
                 .or_else(|| (!preview.name.is_empty()).then(|| preview.name.clone()))
                 .unwrap_or_else(|| tr("Main browser").to_owned());
-            let base = el()
-                .size(size.0, size.1)
-                .radius(8.0)
-                .fill(c.layer_02)
-                .border(p.hair, k.alpha(c.text_base, 0.14));
             let picture = if preview.has_frame() {
                 base.pixels_fit(preview.large_pixels(), rune::SurfaceFit::Fill)
             } else {
@@ -289,14 +586,9 @@ fn cell(p: Paint, tile: &Tile, size: (f32, f32), open: fn(&mut Wall, &str, &str)
                         })),
                 )
             };
-            (*task, preview.session.clone(), what, picture)
+            (preview.session.clone(), what, picture)
         }
-        Tile::App(task, preview) => {
-            let base = el()
-                .size(size.0, size.1)
-                .radius(8.0)
-                .fill(c.layer_02)
-                .border(p.hair, k.alpha(c.text_base, 0.14));
+        Picture::App(preview) => {
             let picture = if preview.has_frame() {
                 base.pixels_fit(preview.large_pixels(), rune::SurfaceFit::Fit)
             } else {
@@ -307,30 +599,36 @@ fn cell(p: Paint, tile: &Tile, size: (f32, f32), open: fn(&mut Wall, &str, &str)
                         .color(p.faint()),
                 )
             };
-            (
-                *task,
-                preview.session(),
-                preview.window.app.clone(),
-                picture,
-            )
+            (preview.session(), preview.window.app.clone(), picture)
         }
     };
-    let colour = palette::task(task.colour, k.dark);
-    let ended = matches!(task.phase, Phase::Done | Phase::Failed | Phase::Stopped);
+    let (dot, words, ended) = match tile.task {
+        Some(task) => (
+            Some(orb::dot(task, palette::task(task.colour, k.dark), 6.0)),
+            // Under its own job's header the site says enough.
+            if under.is_some_and(|header| header.id == task.id) {
+                what
+            } else {
+                format!("{} · {what}", task.title)
+            },
+            matches!(task.phase, Phase::Done | Phase::Failed | Phase::Stopped),
+        ),
+        None => (None, what, false),
+    };
     let caption = row()
         .w(size.0)
         .h(CAPTION_H)
         .gap(5.0)
         .center_y()
-        .child(orb::dot(task, colour, 6.0))
+        .children(dot)
         .child(
-            text(format!("{} · {what}", task.title))
+            text(words.clone())
                 .truncate()
                 .font(k.ty.small)
                 .color(if ended { p.faint() } else { p.muted() })
                 .min_w(0.0),
         );
-    let (id, session_id) = (task.id.clone(), session.clone());
+    let (id, session_id) = (tile.owner.clone(), session.clone());
     k.interactive(
         col()
             .key(format!("wall-tile-{session}"))
@@ -338,9 +636,51 @@ fn cell(p: Paint, tile: &Tile, size: (f32, f32), open: fn(&mut Wall, &str, &str)
             .child(picture)
             .child(caption)
             .role("button")
-            .label(tr_fill("Open {} live", &format!("{} · {what}", task.title)))
+            .label(tr_fill("Open {} live", &words))
             .hit()
             .on_press(move |s: &mut Wall| open(s, &id, &session_id)),
+    )
+}
+
+/// "All N live" beside the orb: every live picture of every job and the
+/// desk, a press away; `None` while there is none.
+pub(crate) fn all_live_chip<S: 'static>(p: Paint, count: usize, open: fn(&mut S)) -> Option<El> {
+    if count == 0 {
+        return None;
+    }
+    let c = &p.k.c;
+    let label = tr_fill("All {} live", &count.to_string());
+    Some(
+        p.k.interactive(
+            row()
+                .key("orb-all-live")
+                .h(orb::ORB_H)
+                .px(11.0)
+                .gap(6.0)
+                .center_y()
+                .radius(orb::ORB_H / 2.0)
+                .fill(c.bg_base.alpha(0.94))
+                .border(p.hair, c.border_base)
+                .box_shadow(rune::Shadow {
+                    x: 0.0,
+                    y: 3.0,
+                    blur: 12.0,
+                    spread: 0.0,
+                    color: rune::Color::BLACK.alpha(if p.k.dark { 0.4 } else { 0.12 }),
+                    inset: false,
+                })
+                .role("button")
+                .label(label.clone())
+                .hit()
+                .on_press(move |s: &mut S| open(s))
+                .child(icon(&GRID, 14.0).color(p.text()).a11y_hidden())
+                .child(
+                    text(label)
+                        .key("orb-all-live-text")
+                        .font(p.k.ty.small_medium)
+                        .color(p.text()),
+                ),
+        ),
     )
 }
 
@@ -375,6 +715,19 @@ mod tests {
     }
 
     #[test]
+    fn the_wall_of_everything_keeps_pictures_readable_and_scrolls() {
+        // A few pictures in two groups: as large as they fit.
+        let few = scrolling_grid(4, 2, ROOM);
+        assert!(few.tile.0 >= MIN_TILE_W, "{few:?}");
+        // Sixty pictures in twelve groups: never smaller than readable, as
+        // many columns as fit; the rest scrolls.
+        let many = scrolling_grid(60, 12, ROOM);
+        assert!(many.tile.0 >= MIN_TILE_W, "{many:?}");
+        assert!(many.cols >= 4, "{many:?}");
+        assert!(many.tile.0 * many.cols as f32 + GAP * (many.cols - 1) as f32 <= ROOM.0 + 0.01);
+    }
+
+    #[test]
     fn the_wall_shows_a_lead_and_its_helpers_only() {
         let mut board = Board::default();
         let now = Instant::now();
@@ -394,8 +747,24 @@ mod tests {
                 task.lead = Some("lead".into());
             }
         }
-        assert_eq!(tasks(&board, "lead"), ["lead", "h1", "h2"]);
-        assert_eq!(tasks(&board, "other"), ["other"]);
-        assert!(tasks(&board, "nobody").is_empty());
+        let desk = Desk::default();
+        let job = |lead: &str| tasks(&board, &desk, &Scope::Job(lead.into()));
+        assert_eq!(job("lead"), ["lead", "h1", "h2"]);
+        assert_eq!(job("other"), ["other"]);
+        assert!(job("nobody").is_empty());
+        // Everything: each job with its helpers, newest job first, and the
+        // desk's windows and browsers.
+        assert_eq!(
+            tasks(&board, &desk, &Scope::All),
+            ["other", "lead", "h1", "h2"]
+        );
+        let desk = Desk {
+            windows: Vec::new(),
+            browsers: vec!["turn".into()],
+        };
+        assert_eq!(
+            tasks(&board, &desk, &Scope::All),
+            ["other", "lead", "h1", "h2", minis::DESK, "turn"]
+        );
     }
 }

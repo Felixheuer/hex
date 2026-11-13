@@ -210,6 +210,8 @@ pub(crate) fn sheet<S: 'static>(
             stick_bottom: !newest_first,
         })
         .scroll_edge_fade(16.0)
+        // The wheel answers anywhere over the rows, not only on a row.
+        .hit()
         .role("list")
         .label(tr("Assistant tasks"))
         .children(sections);

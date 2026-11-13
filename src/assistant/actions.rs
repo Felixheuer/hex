@@ -6,9 +6,12 @@
 //!   doing anything: shown, restored, a new window made, or (for apps with
 //!   nothing unsaved, such as messengers) quit quietly and reopened in the
 //!   background.
-//! - [`recipes`]: deep links and app recipes (`hex_app_action`): a WhatsApp
-//!   draft, a Slack channel, a note, a reminder, a Finder reveal, a Settings
-//!   pane, … as data (`recipes.toml`), checked by the guard like any action.
+//! - [`app_action`]: any installed app's action by its fastest way
+//!   (`hex_app_action`): a URL it takes (`open_url`) or AppleScript
+//!   (`script`), checked by the guard like any action.
+//! - [`capabilities`]: what any app offers, read from the app itself
+//!   (`hex_app_capabilities`): its scripting dictionary, URL schemes,
+//!   documents, and what its windows are made of. No list of apps.
 //! - [`ocr`]: a window's text without Accessibility (`hex_read_window`), from
 //!   its picture through the Vision framework, for apps such as Citrix.
 //!
@@ -17,7 +20,8 @@
 //!
 //! OWNER: actions.
 
+pub mod app_action;
 pub mod ax;
+pub mod capabilities;
 pub mod ocr;
-pub mod recipes;
 pub mod recovery;

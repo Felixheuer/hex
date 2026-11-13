@@ -245,6 +245,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
                 drag: drag_orb,
                 jobs: jobs::LineActions {
                     wall: |orb, id| wall::open(&orb.board, id),
+                    all: |orb| wall::open_all(&orb.board),
                 },
             },
         ),
@@ -674,6 +675,7 @@ fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
         .collect();
     // The desk's browsers stream too (quick turns' that stay).
     let desk = super::minis::now();
+    orb.desk = desk.clone();
     let mut working = working;
     working.extend(desk.browsers.iter().cloned());
     super::live::track(&working);

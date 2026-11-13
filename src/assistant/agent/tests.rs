@@ -534,6 +534,50 @@ fn an_unattended_job_asks_everything_up_front_and_proves_its_work() {
     assert!(APPS_RULES.contains("a QR code or login form means not"));
 }
 
+/// The real failure: "Was ist das Passwort vom IP-Zugang von
+/// Kraftstoffnotdienst? Steht in Notizen": the agent tried the Notes
+/// window through Accessibility, couldn't reach it, and gave up. Every lane
+/// that may open apps now learns, for any app, to script it first (read
+/// the note without its window), and never to give up on an unreachable
+/// window or send the person to fetch it.
+#[test]
+fn any_app_is_scripted_first_and_an_unreachable_window_means_another_way() {
+    let rule = APP_METHODS;
+    let script = rule.find("(1) its scripting").unwrap();
+    let url = rule.find("(2) a URL scheme").unwrap();
+    let ax = rule.find("(3) Accessibility").unwrap();
+    let ocr = rule.find("(4) hex_read_window").unwrap();
+    assert!(script < url && url < ax && ax < ocr, "{rule}");
+    assert!(rule.contains("hex_app_capabilities") && rule.contains("hex_app_action script"));
+    assert!(rule.contains("without its window, on any desktop"));
+    assert!(rule.contains("a note by its name or text"));
+    assert!(rule.contains("every note whose name contains"));
+    assert!(rule.contains("never ask the person to bring it over or to retry later"));
+    assert!(rule.contains("follows the autonomy rules"));
+    // No app names as logic: the same rule for every app.
+    for name in ["WhatsApp", "Slack", "Gmail", "Outlook", "Chrome", "Sheets"] {
+        assert!(!rule.contains(name), "{name}");
+        assert!(!APPS_RULES.contains(name), "{name}");
+    }
+    let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
+    desktop.guarded = true;
+    desktop.open_apps = true;
+    let asked = job(
+        "Was ist das Passwort vom IP-Zugang von Kraftstoffnotdienst? Steht in Notizen",
+        Origin::ActionShortcut,
+        Context::default(),
+    );
+    assert!(system_for(&asked, Some(&desktop), true).contains(APP_METHODS));
+    let mut background = asked.clone();
+    background.request.origin = Origin::Background;
+    desktop.open_apps = false;
+    assert!(system_for(&background, Some(&desktop), true).contains(APP_METHODS));
+    // A quick turn kept to the window in front hands app work to a job.
+    let mut front_only = Desktop::fixture(Some("S1"), "hex-7");
+    front_only.guarded = true;
+    assert!(!system_for(&asked, Some(&front_only), true).contains(APP_METHODS));
+}
+
 #[test]
 fn a_job_is_told_the_person_s_language() {
     let rule = super::language_rule(
@@ -654,9 +698,11 @@ fn the_guide_keeps_what_a_task_uses() {
 /// Characters of each lane's own rules (agent-desktop's guide aside): what
 /// every request pays for before its first word. Raise only with a reason.
 // 9_300: the knowledge tools (hex_lookup, hex_chrome_tab) add a short rule.
-const HERE_BUDGET: usize = 9_300;
-// 15_800: the knowledge tools add a short rule.
-const JOB_BUDGET: usize = 15_800;
+// 9_600: acting by a window's picture when Accessibility fails (BACKGROUND_INPUT_RULES).
+const HERE_BUDGET: usize = 9_600;
+// 15_900: the knowledge tools add a short rule; every app's ways, scripting first (APP_METHODS).
+// 16_200: acting by a window's picture (BACKGROUND_INPUT_RULES).
+const JOB_BUDGET: usize = 16_200;
 
 #[test]
 fn each_lane_s_rules_stay_within_their_budget() {

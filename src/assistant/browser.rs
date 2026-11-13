@@ -127,14 +127,12 @@ pub fn lightpanda() -> Option<PathBuf> {
     search::find("lightpanda")
 }
 
-/// The engine behind a task's clean browsers: Lightpanda when it's
-/// installed, else Chrome.
+/// The engine behind a task's browsers: Chrome, whose pages stream live
+/// pictures to the overlay (the person watches every browser as a mini);
+/// Lightpanda draws none, so it only takes the overflow past a task's
+/// share of Chrome ([`sessions::Sessions`]).
 pub fn clean_engine() -> Engine {
-    if lightpanda().is_some() {
-        Engine::Lightpanda
-    } else {
-        Engine::Chrome
-    }
+    Engine::Chrome
 }
 
 /// Installs Lightpanda with its official script (into `~/.local/bin`);
@@ -175,8 +173,8 @@ fn server(hex: PathBuf, task: &str, browser: &Path) -> McpServer {
 /// (twenty helpers' at once 0.36 s, against about 4 s cold). Only a light
 /// Lightpanda browser is started for every job, and only while memory is
 /// fine; real Chrome with the person's accounts only when `request` names a
-/// web app that needs it (Gmail, Google Sheets, …) and they signed in for
-/// Hex: the task's first `signedIn: true` browser is that one
+/// site they signed in to for Hex ([`names_signed_in_site`]): the task's
+/// first `signedIn: true` browser is that one
 /// (`Sessions::pin`). The task's end closes them like any other
 /// ([`close`]), and they close themselves when unused for half an hour.
 /// Runs on threads of its own; starting one that runs already changes
@@ -201,7 +199,7 @@ pub fn prewarm_for(task: &str, request: &str) {
     if clean_engine() == Engine::Lightpanda {
         starts.push((session(task), sessions.default_launch()));
     }
-    if wants_signed_in_chrome(request) && signed_in() {
+    if signed_in() && names_signed_in_site(request) {
         let (name, launch) = sessions.warm_chrome();
         starts.push((name, launch));
     }
@@ -235,38 +233,88 @@ pub fn prewarm_for(task: &str, request: &str) {
     }
 }
 
-/// Whether `request` names a web app that works only in real Chrome with
-/// the person's accounts, so a job is worth a warm one.
-pub fn wants_signed_in_chrome(request: &str) -> bool {
-    const APPS: &[&str] = &[
-        "gmail",
-        "google mail",
-        "google sheet",
-        "google-sheet",
-        "google tabelle",
-        "google-tabelle",
-        "google doc",
-        "google-doc",
-        "google drive",
-        "google calendar",
-        "google kalender",
-        "docs.google",
-        "sheets.google",
-        "drive.google",
-        "calendar.google",
-        "outlook",
-        "linkedin",
-        "notion",
-        "airtable",
-        "hubspot",
-        "salesforce",
-        "web.whatsapp",
-        "whatsapp web",
-        "instagram",
-        "facebook",
-    ];
+/// Whether `request` names a site the person signed in to for Hex (its
+/// address, or its name: "github" for github.com), so a job is worth a
+/// warm real Chrome with their accounts. Read from the sign-in store, never
+/// a list of sites; nothing in tests, which never read the person's.
+pub fn names_signed_in_site(request: &str) -> bool {
+    if cfg!(test) {
+        return false;
+    }
+    names_site(request, &signed_in_sites())
+}
+
+/// Whether `request` names one of `sites` (hosts such as
+/// `mail.example.com`): the host itself, or the site's own name, the label
+/// before its suffix (`example`), as a whole word of at least four letters.
+pub fn names_site(request: &str, sites: &[String]) -> bool {
     let text = request.to_lowercase();
-    APPS.iter().any(|app| text.contains(app))
+    let words: std::collections::HashSet<&str> = text
+        .split(|c: char| !c.is_alphanumeric() && c != '.' && c != '-')
+        .map(|word| word.trim_matches(|c: char| c == '.' || c == '-'))
+        .filter(|word| !word.is_empty())
+        .collect();
+    sites.iter().any(|site| {
+        let host = site.trim_start_matches('.').to_lowercase();
+        if host.is_empty() {
+            return false;
+        }
+        if words.contains(host.as_str()) {
+            return true;
+        }
+        site_name(&host).is_some_and(|name| name.chars().count() >= 4 && words.contains(name))
+    })
+}
+
+/// A host's own name: the label before its suffix (`example` in
+/// `mail.example.com` and in `shop.example.co.uk`).
+fn site_name(host: &str) -> Option<&str> {
+    let labels: Vec<&str> = host.split('.').filter(|label| !label.is_empty()).collect();
+    let n = labels.len();
+    if n < 2 {
+        return None;
+    }
+    // A two-letter country suffix under a short second level (co.uk, com.au).
+    let suffix = if n >= 3 && labels[n - 1].len() == 2 && labels[n - 2].len() <= 3 {
+        2
+    } else {
+        1
+    };
+    labels.get(n.checked_sub(suffix + 1)?).copied()
+}
+
+/// The sites in the sign-in store, read again only when a state file
+/// changed.
+fn signed_in_sites() -> Vec<String> {
+    type Stamp = Vec<(std::ffi::OsString, Option<std::time::SystemTime>, u64)>;
+    static CACHE: std::sync::Mutex<Option<(Stamp, Vec<String>)>> = std::sync::Mutex::new(None);
+    let mut stamp: Stamp = state_dir()
+        .and_then(|dir| std::fs::read_dir(dir).ok())
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| is_sign_in_state(&entry.file_name().to_string_lossy()))
+        .map(|entry| {
+            let meta = entry.metadata().ok();
+            (
+                entry.file_name(),
+                meta.as_ref().and_then(|meta| meta.modified().ok()),
+                meta.map_or(0, |meta| meta.len()),
+            )
+        })
+        .collect();
+    stamp.sort();
+    if let Ok(cache) = CACHE.lock()
+        && let Some((seen, sites)) = cache.as_ref()
+        && *seen == stamp
+    {
+        return sites.clone();
+    }
+    let sites = saved_sites();
+    if let Ok(mut cache) = CACHE.lock() {
+        *cache = Some((stamp, sites.clone()));
+    }
+    sites
 }
 
 /// The agent-browser arguments and environment that start a browser with
@@ -856,15 +904,33 @@ mod tests {
     }
 
     #[test]
-    fn only_jobs_naming_a_signed_in_web_app_warm_a_chrome() {
-        assert!(wants_signed_in_chrome(
-            "Schreib 20 Entwürfe in Gmail und trag sie in ein Google Sheet ein"
+    fn only_jobs_naming_a_site_the_person_signed_in_to_warm_a_chrome() {
+        let sites: Vec<String> = [
+            ".example-mail.com",
+            "accounts.workspace.example.org",
+            "shop.kiosk.co.uk",
+            "x.com",
+        ]
+        .iter()
+        .map(|site| (*site).to_owned())
+        .collect();
+        // The site's own name, or its address.
+        assert!(names_site("Schreib 20 Entwürfe in Example-Mail", &sites));
+        assert!(names_site("Schau in Example nach", &sites));
+        assert!(names_site("Bestell bei Kiosk", &sites));
+        assert!(names_site("open accounts.workspace.example.org", &sites));
+        // Not a site they signed in to, a part of a word, or too short a name.
+        assert!(!names_site(
+            "Recherchiere 10 Lieferanten für Keramik",
+            &sites
         ));
-        assert!(wants_signed_in_chrome("Check my LinkedIn messages"));
-        assert!(!wants_signed_in_chrome(
-            "Recherchiere 10 Lieferanten für Keramik"
-        ));
-        assert!(!wants_signed_in_chrome(""));
+        assert!(!names_site("Kiosks in Berlin", &sites));
+        assert!(!names_site("Post it on X", &sites));
+        assert!(!names_site("Schreib in Example-Mail", &[]));
+        assert!(!names_site("", &sites));
+        assert_eq!(site_name("mail.example.com"), Some("example"));
+        assert_eq!(site_name("example.co.uk"), Some("example"));
+        assert_eq!(site_name("localhost"), None);
     }
 
     #[test]

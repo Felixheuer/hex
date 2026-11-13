@@ -44,15 +44,15 @@
   <key>NSAudioCaptureUsageDescription</key>
   <string>Hex records the other participants' audio only while you record a meeting, and keeps it on this Mac.</string>
   <key>NSCalendarsFullAccessUsageDescription</key>
-  <string>Hex reads your calendar on this Mac to remind you before meetings and title their recordings. Nothing leaves your Mac.</string>
+  <string>Hex reads your calendar on this Mac to remind you before meetings, title their recordings, and answer the assistant's questions about your day. Only what a request needs goes to your assistant.</string>
   <key>NSRemindersFullAccessUsageDescription</key>
-  <string>Hex reads your reminders on this Mac when you ask the assistant about them. Nothing leaves your Mac.</string>
+  <string>Hex reads your reminders on this Mac when you ask the assistant about them. Only what a request needs goes to your assistant.</string>
   <key>NSRemindersUsageDescription</key>
-  <string>Hex reads your reminders on this Mac when you ask the assistant about them. Nothing leaves your Mac.</string>
+  <string>Hex reads your reminders on this Mac when you ask the assistant about them. Only what a request needs goes to your assistant.</string>
   <key>NSCalendarsUsageDescription</key>
-  <string>Hex reads your calendar on this Mac to remind you before meetings and title their recordings. Nothing leaves your Mac.</string>
+  <string>Hex reads your calendar on this Mac to remind you before meetings, title their recordings, and answer the assistant's questions about your day. Only what a request needs goes to your assistant.</string>
   <key>NSContactsUsageDescription</key>
-  <string>Hex looks up people in your contacts on this Mac when you ask the assistant to reach someone. Nothing leaves your Mac.</string>
+  <string>Hex looks up people in your contacts on this Mac when you ask the assistant to call, write, or invite someone. Only what a request needs goes to your assistant.</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>Hex uses your microphone for private local dictation and does not store the captured audio.</string>
   <key>SUPublicEDKey</key>

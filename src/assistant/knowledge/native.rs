@@ -1,6 +1,7 @@
 //! The Contacts and Reminders reads in `knowledge.swift`. They only read
 //! when macOS already granted access and never ask: the permission is
-//! asked for in onboarding or Settings, not by a tool call.
+//! asked for in onboarding and its repair guide (`desktop::data_access`),
+//! never by a tool call.
 
 /// macOS's answer for a kind of data, as the frameworks report it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -20,6 +21,18 @@ mod bridge {
         fn hex_knowledge_reminders_status() -> i32;
         fn hex_knowledge_reminders(query: *const c_char, limit: i32) -> *mut c_char;
         fn hex_knowledge_free(string: *mut c_char);
+        fn hex_knowledge_contacts_request() -> i32;
+        fn hex_knowledge_reminders_request() -> i32;
+    }
+
+    pub fn request_contacts() -> i32 {
+        // SAFETY: Blocks on the framework's completion; no arguments.
+        unsafe { hex_knowledge_contacts_request() }
+    }
+
+    pub fn request_reminders() -> i32 {
+        // SAFETY: Blocks on the framework's completion; no arguments.
+        unsafe { hex_knowledge_reminders_request() }
     }
 
     fn take(pointer: *mut c_char) -> Option<String> {
@@ -66,6 +79,12 @@ mod bridge {
     pub fn reminders_status() -> i32 {
         2
     }
+    pub fn request_contacts() -> i32 {
+        2
+    }
+    pub fn request_reminders() -> i32 {
+        2
+    }
     pub fn contacts(_: &str, _: i32) -> Option<String> {
         None
     }
@@ -76,16 +95,38 @@ mod bridge {
 
 /// CNAuthorizationStatus: 3 authorized, 4 limited.
 pub fn contacts_access() -> Access {
-    match bridge::contacts_status() {
+    contacts_code(bridge::contacts_status())
+}
+
+/// EKAuthorizationStatus: 3 full access.
+pub fn reminders_access() -> Access {
+    reminders_code(bridge::reminders_status())
+}
+
+/// Shows macOS's Contacts prompt if it was never answered, and returns the
+/// answer. Blocks until the person answers: onboarding only, off the main
+/// thread.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn request_contacts() -> Access {
+    contacts_code(bridge::request_contacts())
+}
+
+/// The same for Reminders (full access).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn request_reminders() -> Access {
+    reminders_code(bridge::request_reminders())
+}
+
+fn contacts_code(code: i32) -> Access {
+    match code {
         3 | 4 => Access::Granted,
         0 => Access::NotAsked,
         _ => Access::Denied,
     }
 }
 
-/// EKAuthorizationStatus: 3 full access.
-pub fn reminders_access() -> Access {
-    match bridge::reminders_status() {
+fn reminders_code(code: i32) -> Access {
+    match code {
         3 => Access::Granted,
         0 => Access::NotAsked,
         _ => Access::Denied,
