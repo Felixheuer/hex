@@ -1,6 +1,6 @@
 //! The permission rows' state: whether macOS reports each grant, whether
 //! it waits for a restart, and asking for one (System Settings with Agent-Desk's
-//! floating guide, or agent-desktop's own).
+//! floating guide). Cua Driver acts with Agent-Desk's grants.
 
 use super::*;
 
@@ -71,7 +71,7 @@ pub(in crate::rune_ui) fn needs_restart(ui: &Ui, grant: Grant) -> bool {
 }
 
 /// Asks for a permission: Agent-Desk's open their System Settings page with
-/// Agent-Desk's floating guide, agent-desktop's open its own guide. The row waits
+/// Agent-Desk's floating guide (Cua Driver's are Agent-Desk's). The row waits
 /// until macOS reports it on.
 pub(in crate::rune_ui) fn allow(ui: &mut Ui, grant: Grant) {
     if let Some(flow) = ui.chats.setup.as_mut()
@@ -124,8 +124,15 @@ pub(in crate::rune_ui) fn allow(ui: &mut Ui, grant: Grant) {
                 .jobs
                 .run(Job::Fix(Fix::OpenSettings(Permission::ScreenRecording)));
         }
-        Grant::DesktopAccessibility | Grant::DesktopScreenRecording => {
-            ui.chats.jobs.run(Job::Fix(Fix::GuidePermissions));
+        Grant::DesktopAccessibility => {
+            ui.chats
+                .jobs
+                .run(Job::Fix(Fix::OpenSettings(Permission::Accessibility)));
+        }
+        Grant::DesktopScreenRecording => {
+            ui.chats
+                .jobs
+                .run(Job::Fix(Fix::OpenSettings(Permission::ScreenRecording)));
         }
     }
     recheck(ui);

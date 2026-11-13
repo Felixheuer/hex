@@ -138,7 +138,7 @@ fn element_frame(element: &CfObject) -> Option<[f64; 4]> {
 }
 
 /// The CoreGraphics window number of the application's focused window
-/// (agent-desktop names it `w-<number>`). An app's frontmost CoreGraphics
+/// (a task names it `w-<number>`). An app's frontmost CoreGraphics
 /// window can be a strip or panel of its own; this is the window it says
 /// has focus.
 pub fn focused_window_number(pid: i32) -> Option<u32> {

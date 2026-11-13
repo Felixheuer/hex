@@ -8,7 +8,7 @@
 /// One window Accessibility lists.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct AxWindow {
-    /// Its CoreGraphics window number (agent-desktop's `w-<number>`).
+    /// Its CoreGraphics window number (the guard's `w-<number>`).
     pub number: u32,
     pub minimized: bool,
     /// In full screen: a desktop (Space) of its own.

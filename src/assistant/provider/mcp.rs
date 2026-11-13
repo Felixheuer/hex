@@ -7,7 +7,7 @@ use std::io::Write;
 use color_eyre::{Result, eyre::eyre};
 use serde_json::{Value, json};
 
-use super::{Control, Desktop, Process, Stdin};
+use super::{Control, Process, Stdin};
 use crate::assistant::backends::McpServer;
 
 /// One tool the server offers.
@@ -25,22 +25,16 @@ pub struct Called {
     pub is_error: bool,
 }
 
-/// A running `agent-desktop mcp`.
+/// A running MCP server (the guard's, a browser's).
 pub struct Client {
     process: Process,
     next_id: u64,
 }
 
 impl Client {
-    /// Starts `server` (with `desktop`'s session in its environment) and
-    /// completes the MCP handshake.
-    pub fn start(
-        server: &McpServer,
-        desktop: Option<&Desktop>,
-        workdir: &std::path::Path,
-        control: &Control,
-    ) -> Result<Self> {
-        let mut command = super::command(&server.command, workdir, desktop);
+    /// Starts `server` and completes the MCP handshake.
+    pub fn start(server: &McpServer, workdir: &std::path::Path, control: &Control) -> Result<Self> {
+        let mut command = super::command(&server.command, workdir);
         command.args(&server.args);
         let process = Process::spawn(command, Stdin::Keep, control)?;
         let mut client = Self {
@@ -103,13 +97,13 @@ impl Client {
         let stdin = self
             .process
             .stdin()
-            .ok_or_else(|| eyre!("agent-desktop's input closed"))?;
+            .ok_or_else(|| eyre!("the MCP server's input closed"))?;
         let mut line = serde_json::to_vec(message)?;
         line.push(b'\n');
         stdin
             .write_all(&line)
             .and_then(|()| stdin.flush())
-            .map_err(|error| eyre!("agent-desktop stopped: {error}"))
+            .map_err(|error| eyre!("the MCP server stopped: {error}"))
     }
 
     fn request(&mut self, method: &str, params: Value) -> Result<Value> {
@@ -128,10 +122,10 @@ impl Client {
                     .get("message")
                     .and_then(Value::as_str)
                     .unwrap_or("unknown error");
-                return Err(eyre!("agent-desktop refused {method}: {why}"));
+                return Err(eyre!("the MCP server refused {method}: {why}"));
             }
             return Ok(message.get("result").cloned().unwrap_or(Value::Null));
         }
-        Err(eyre!("agent-desktop stopped before it answered"))
+        Err(eyre!("the MCP server stopped before it answered"))
     }
 }

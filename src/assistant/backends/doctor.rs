@@ -38,16 +38,12 @@ pub fn run(doctor: Doctor) -> color_eyre::Result<()> {
             found.note.as_deref().unwrap_or_default(),
         );
     }
-    println!("agent_desktop(): {:?}", super::agent_desktop());
+    println!("driver(): {:?}", super::driver());
     for tool in super::BACKENDS
         .into_iter()
         .filter(|backend| *backend != crate::app_settings::AssistantBackend::ClaudeApi)
         .map(super::Tool::Agent)
-        .chain([
-            super::Tool::AgentDesktop,
-            super::Tool::AgentBrowser,
-            super::Tool::Lightpanda,
-        ])
+        .chain([super::Tool::AgentBrowser, super::Tool::Lightpanda])
     {
         let plan = super::plan(tool, &super::Installers::here(tool));
         println!("install plan for {}: {plan:?}", tool.name());

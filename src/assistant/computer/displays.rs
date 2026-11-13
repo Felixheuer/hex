@@ -1,6 +1,6 @@
-//! The displays, as agent-desktop names them (`list-displays`' ids are
-//! CoreGraphics display ids), in global points: top-left origin at the
-//! primary display's top-left corner, y down, so a display above or left of
+//! The displays, by their ids (CoreGraphics display ids), in global points:
+//! top-left origin at the primary display's top-left corner, y down, so a
+//! display above or left of
 //! the primary one has negative coordinates. Which one the person works on
 //! (the one holding the focused window), and which one Background tasks'
 //! windows go to (the agents' display).
@@ -15,7 +15,7 @@ pub type Frame = (f64, f64, f64, f64);
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Display {
-    /// agent-desktop's id (the CoreGraphics display id): "1", "5".
+    /// Its id (the CoreGraphics display id): "1", "5".
     pub id: String,
     /// What System Settings calls it: "Built-in Retina Display", "M27Q".
     pub name: String,

@@ -280,7 +280,7 @@ impl<D: Desktop> Guard<D> {
         let result = self
             .desktop
             .call(tool, args)
-            .map_err(|why| failure(&format!("agent-desktop: {why}")));
+            .map_err(|why| failure(&format!("Cua Driver: {why}")));
         self.forwarding += started.elapsed();
         result
     }
@@ -317,7 +317,7 @@ impl<D: Desktop> Guard<D> {
 impl<D: Desktop> Guard<D> {
     /// Names the app in `args["app"]` exactly as it runs: a name the agent
     /// typed ("WhatsApp") becomes the running app's own ("\u{200e}WhatsApp",
-    /// with its invisible mark), so agent-desktop finds it.
+    /// with its invisible mark), so the driver finds it.
     pub(super) fn running_name(&mut self, args: &mut Map<String, Value>) {
         let Some(app) = text(args, "app") else {
             return;

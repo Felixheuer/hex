@@ -1,7 +1,6 @@
 //! The assistant's task runner: takes requests, runs them (each through
 //! `agent` on its backend) in their lanes, saves conversations through
-//! `store`, owns the agent-desktop multi-agent session around Background
-//! work, and tells every subscriber what happens.
+//! `store`, and tells every subscriber what happens.
 //! Callable from any thread.
 //!
 //! - **Lanes.** At most one Here task (`Origin::ActionShortcut`) runs: a new
@@ -12,9 +11,9 @@
 //!   on in the same conversation with the new instruction.
 //! - **Context.** Every new conversation's first prompt lists the tasks
 //!   running and the conversations just finished (`context::digest`).
-//! - **Desktop session.** It runs while any Background task is queued,
-//!   running, waiting, or paused (`session::refresh_mode`). The screen frame
-//!   is the overlay's: it follows screen work (`Event::Acting`).
+//! - **Awake.** Working Background jobs keep the computer awake
+//!   (`mode::refresh_mode`). The screen frame is the overlay's: it follows
+//!   screen work (`Event::Acting`).
 //! - **Take over.** `take_over` pauses a task's desktop actions through the
 //!   guard and brings its window forward; `hand_back` resumes it.
 //! - **Durability.** A conversation is `Running` on disk while it runs; one
@@ -26,8 +25,7 @@
 //! - **Speed.** `prewarm` starts the backend while the person still speaks,
 //!   and a Here answer is read aloud sentence by sentence as it streams.
 //!
-//! Each running task has its own thread, its own agent id in the desktop
-//! session (its cursor), and its own colour (0..8). A conversation runs one
+//! Each running task has its own thread and its own colour (0..8). A conversation runs one
 //! task at a time: a follow-up waits for the answer before it.
 //!
 //! OWNER: brain. The signatures here are the contract the Action shortcut,
@@ -37,10 +35,10 @@ mod focus;
 use focus::{focus_in, focus_past, job_named};
 mod context;
 mod inbox;
+mod mode;
 mod monitor;
 pub mod remote;
 mod run;
-mod session;
 mod status;
 mod team;
 mod voice;
@@ -49,7 +47,7 @@ mod warm;
 use std::collections::VecDeque;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::app_settings::{AssistantBackend, AssistantSettings};
@@ -83,8 +81,6 @@ pub(crate) enum Said {
 /// own thread or wake your loop).
 pub type Subscriber = Box<dyn Fn(&Event) + Send + Sync>;
 
-/// How long a Background task waits for the desktop session to start.
-const SESSION_WAIT: Duration = Duration::from_secs(8);
 /// Retries after a limit that named no reset time, before giving up.
 const BLIND_RETRIES: u32 = 8;
 /// A task's last steps kept for steering.
@@ -154,7 +150,6 @@ fn runner() -> &'static Arc<Runner> {
 }
 
 type Execute = dyn Fn(&Job, &Control, &mut dyn FnMut(Event)) -> Outcome + Send + Sync;
-type StyleAgent = dyn Fn(&str, &str, u8, Option<&str>) + Send + Sync;
 type Speak = dyn Fn(&str, Option<&str>) + Send + Sync;
 type Hook<T> = Box<dyn Fn() -> T + Send + Sync>;
 /// Called with a task and its request's words.
@@ -183,12 +178,6 @@ pub(crate) struct Hooks {
     pub execute: Box<Execute>,
     /// Whether the assistant is on, and its settings, now.
     pub settings: Hook<(bool, AssistantSettings)>,
-    /// Starts an agent-desktop multi-agent cursor session; its id.
-    pub start_session: Hook<Option<String>>,
-    pub end_session: TaskHook,
-    /// Gives agent `agent_id` in `session` its colour, and a label with its
-    /// current step.
-    pub style_agent: Box<StyleAgent>,
     /// Starts reading text aloud with a voice (returns at once).
     pub speak: Box<Speak>,
     /// Whether something is being read aloud.
@@ -278,16 +267,12 @@ pub(crate) struct Hooks {
 type TeamAnswer = dyn Fn(&agent::team::Ask, Result<Vec<agent::team::Member>, String>) + Send + Sync;
 
 impl Hooks {
-    /// The real ones: the backends, the saved settings, agent-desktop, the
-    /// guard, the browser, the store, and the macOS voice.
+    /// The real ones: the backends, the saved settings, the guard, the browser, the store, and the macOS voice.
     fn system() -> Self {
         let seen = Mutex::new(std::collections::HashSet::new());
         Self {
             execute: Box::new(agent::run),
             settings: Box::new(current_settings),
-            start_session: Box::new(session::desktop_session::start),
-            end_session: Box::new(session::desktop_session::end),
-            style_agent: Box::new(session::desktop_session::style),
             speak: Box::new(speak_next),
             speaking: Box::new(super::speech::speaking),
             pick_voice: Box::new(super::speech::automatic_voice),
@@ -304,7 +289,7 @@ impl Hooks {
                 std::thread::spawn(move || super::browser::close(&task, lane));
             }),
             hands_off: Box::new(super::guard::hands_off),
-            bring_forward: Box::new(session::desktop_session::bring_forward),
+            bring_forward: Box::new(mode::bring_forward),
             settle: Box::new(|id, outcome, message| {
                 if let Ok(store) = Store::open() {
                     store.settle(id, outcome, Some(message));
@@ -429,8 +414,6 @@ fn current_settings() -> (bool, AssistantSettings) {
 pub(crate) struct Runner {
     hooks: Hooks,
     state: Mutex<State>,
-    /// Signalled when the desktop session starts (or fails to).
-    session_changed: Condvar,
     subscribers: Mutex<Vec<Arc<Subscriber>>>,
     next: AtomicU64,
     voice: voice::Voice,
@@ -439,10 +422,6 @@ pub(crate) struct Runner {
 #[derive(Default)]
 pub(crate) struct State {
     tasks: Vec<Task>,
-    /// Background work is queued, running, waiting, or paused (the desktop
-    /// session runs around it).
-    background_on: bool,
-    session: Session,
     focus: Option<ConversationId>,
     /// The last Here conversation answered, and when (runner clock).
     last_quick: Option<(ConversationId, u64)>,
@@ -463,21 +442,13 @@ pub(crate) struct State {
     told_inbox: Option<(ConversationId, usize)>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-enum Session {
-    #[default]
-    Off,
-    Starting,
-    On(String),
-}
-
 /// What `prewarm` reserved for the next request.
 #[derive(Clone, Debug)]
 struct Warm {
     lane: Lane,
     /// The conversation it continues (`None`: a new one).
     conversation: Option<ConversationId>,
-    /// The id the new conversation gets, and its task key (agent id).
+    /// The id the new conversation gets, and its task key.
     id: ConversationId,
     key: u64,
     at_ms: u64,
@@ -495,7 +466,6 @@ struct Task {
     parent: Option<ConversationId>,
     status: TaskStatus,
     control: Arc<Control>,
-    agent_id: String,
     running: bool,
     announced: bool,
     kind: JobKind,
@@ -519,9 +489,6 @@ struct Task {
     voice: bool,
     /// A job's folder, where its plan is read from.
     workspace: Option<std::path::PathBuf>,
-    /// The desktop session its cursor is in, and the cursor's label.
-    session: Option<String>,
-    label: Option<String>,
     /// A job's plan, and when its file last changed.
     plan: Vec<PlanStep>,
     plan_seen: Option<std::time::SystemTime>,
@@ -545,7 +512,6 @@ impl Runner {
         Arc::new(Self {
             hooks,
             state: Mutex::new(State::default()),
-            session_changed: Condvar::new(),
             subscribers: Mutex::new(Vec::new()),
             next: AtomicU64::new(1),
             voice: voice::Voice::default(),
@@ -576,31 +542,12 @@ impl Runner {
                 conversation,
                 description,
             } => {
-                let mut relabel = None;
                 if let Some(task) = running_task(&mut self.state(), conversation) {
                     task.status.step = Some(description.clone());
                     task.steps.push_back(description.clone());
                     while task.steps.len() > STEPS_KEPT {
                         task.steps.pop_front();
                     }
-                    let label = cursor_label(description);
-                    if let Some(session) = &task.session
-                        && task.label.as_deref() != Some(label.as_str())
-                    {
-                        task.label = Some(label.clone());
-                        relabel = Some((
-                            session.clone(),
-                            task.agent_id.clone(),
-                            task.status.colour,
-                            label,
-                        ));
-                    }
-                }
-                if let Some((session, agent, colour, label)) = relabel {
-                    let runner = Arc::clone(self);
-                    std::thread::spawn(move || {
-                        (runner.hooks.style_agent)(&session, &agent, colour, Some(&label));
-                    });
                 }
             }
             Event::Window {
@@ -897,7 +844,6 @@ impl Runner {
             },
             request,
             control: Control::new(),
-            agent_id: format!("hex-{key}"),
             running: false,
             announced: false,
             kind,
@@ -911,8 +857,6 @@ impl Runner {
             held_since: None,
             before_pause: TaskState::Running,
             workspace: None,
-            session: None,
-            label: None,
             plan: Vec::new(),
             plan_seen: None,
             question: None,
@@ -1164,14 +1108,6 @@ impl Runner {
         let now = self.now();
         focus_in(&self.state(), follow_up_seconds, now)
     }
-}
-
-/// A step as the cursor's label: at most six words.
-fn cursor_label(step: &str) -> String {
-    step.split_whitespace()
-        .take(6)
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn running_task<'a>(state: &'a mut State, conversation: &str) -> Option<&'a mut Task> {

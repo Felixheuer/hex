@@ -10,12 +10,12 @@
 //! Agent-Desk does the voice, the overlays, and the window. The thinking is done by
 //! an agent already on this computer (Claude Code, Codex, OpenCode) or the
 //! Claude API; every desktop action goes through the guard, Agent-Desk's MCP server
-//! in front of agent-desktop. `docs/features/assistant.md` and AGENTS.md's
+//! in front of Cua Driver (`driver`). `docs/features/assistant.md` and AGENTS.md's
 //! "Assistant architecture" have the whole picture.
 //!
 //! ```ts
 //! Action shortcut (assistant::shortcut) ─┐                          ┌─ backend (provider): claude -p | codex exec | opencode | API
-//!                                        ├─ service::submit ─ agent ┤     └─ guard (MCP) ─ agent-desktop; browser; tools; knowledge
+//!                                        ├─ service::submit ─ agent ┤     └─ guard (MCP) ─ Cua Driver; browser; tools; knowledge
 //! Assistant pane (rune_ui::chats) ───────┘   lanes, queue      │    └─ speech: reads quick answers aloud
 //!                                                              └─ store: conversations on disk
 //! service::subscribe ─ Event ─ Here bubble, orb and job list, screen frame, window outlines, the Assistant pane

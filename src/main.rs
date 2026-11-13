@@ -238,7 +238,7 @@ enum DevCommand {
         command: VoiceFilterCommand,
     },
     #[cfg(debug_assertions)]
-    /// The assistant: find the agents and agent-desktop, and run setup's
+    /// The assistant: find the agents and Cua Driver, and run setup's
     /// self-tests from this process.
     AssistantDoctor {
         /// Run every self-test (asks each installed agent a tiny prompt).
@@ -256,12 +256,6 @@ enum DevCommand {
         #[arg(long)]
         browser: bool,
     },
-    #[cfg(debug_assertions)]
-    /// The assistant's experimental agents' Space: opens a TextEdit
-    /// window, parks it out of the way, checks agent-desktop still reads and
-    /// sets its text, shows it again, and quits TextEdit. Moves a window on
-    /// screen: run it only on purpose.
-    AssistantSpaceProbe,
 }
 
 #[cfg(target_os = "macos")]
@@ -444,13 +438,6 @@ fn main() -> Result<()> {
             browser: *browser,
         });
     }
-    #[cfg(debug_assertions)]
-    if let Some(Command::Dev {
-        command: DevCommand::AssistantSpaceProbe,
-    }) = &cli.command
-    {
-        return assistant::space::probe::run();
-    }
     // A headless render (`agent-desk app -- --snap …`) draws fixtures: no data
     // folder, log, lock, or settings, so it never touches the user's Agent-Desk.
     if let Some(Command::App { rune_args, .. }) = &cli.command
@@ -534,7 +521,6 @@ fn main() -> Result<()> {
                         unreachable!("handled before startup")
                     }
                     DevCommand::AssistantDoctor { .. } => unreachable!("handled before startup"),
-                    DevCommand::AssistantSpaceProbe => unreachable!("handled before startup"),
                 };
                 let reply = local_api::call_developer(&command)?;
                 if let DeveloperReply::Error { code, message } = &reply {

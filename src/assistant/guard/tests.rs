@@ -1,6 +1,11 @@
 //! The guard's tests: leases across processes, refs mapped to windows, each
-//! lane's refusals, the input policy, pausing, and agent-desktop's replies
-//! passed through as they came (recorded in `tests/fixtures/assistant/guard`).
+//! lane's refusals, the input policy, pausing, and the driver's replies
+//! passed through as they came (`tests/fixtures/assistant/guard`).
+//!
+//! The desktop is a fake Cua Driver as the guard sees it: the `desktop_*`
+//! tools `cua::Cua` serves from the driver (`cua::tools()`), answering from
+//! recorded windows. `cua_behind_the_guard` runs the guard over the real
+//! adapter with a fake of Cua Driver's own tools.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -81,7 +86,7 @@ fn dead_pid() -> u32 {
     pid
 }
 
-// ── agent-desktop, faked ────────────────────────────────────────────────
+// ── Cua Driver, faked ───────────────────────────────────────────────────
 
 #[derive(Default)]
 struct FakeState {
@@ -107,7 +112,8 @@ struct FakeState {
     readings: HashMap<u32, crate::assistant::actions::ocr::Reading>,
 }
 
-/// agent-desktop answering from recorded windows; every call is kept.
+/// Cua Driver (through its adapter) answering from recorded windows; every
+/// call is kept.
 #[derive(Clone, Default)]
 struct Fake(Arc<Mutex<FakeState>>);
 
@@ -126,7 +132,7 @@ impl Fake {
         self.0.lock().unwrap()
     }
 
-    /// The tools that reached agent-desktop, less the guard's own lookups.
+    /// The tools that reached the driver, less the guard's own lookups.
     fn forwarded(&self) -> Vec<String> {
         self.state()
             .calls
@@ -154,7 +160,7 @@ impl Fake {
 }
 
 fn ok(command: &str, data: Value) -> Value {
-    let envelope = json!({"version": "2.6", "ok": true, "command": command, "data": data});
+    let envelope = json!({"version": "cua-driver", "ok": true, "command": command, "data": data});
     json!({
         "content": [{"type": "text", "text": envelope.to_string()}],
         "structuredContent": envelope,
@@ -213,8 +219,7 @@ impl Screen for Fake {
 
 impl Desktop for Fake {
     fn tools(&mut self) -> Result<Vec<Value>, String> {
-        let result = fixture("mcp-tools.json");
-        Ok(result["tools"].as_array().cloned().unwrap_or_default())
+        Ok(super::cua::tools())
     }
 
     fn call(&mut self, tool: &str, args: &Map<String, Value>) -> Result<Value, String> {
@@ -647,7 +652,7 @@ fn a_check_reads_its_windows_but_never_acts() {
     assert_eq!(
         fake.forwarded(),
         ["desktop_snapshot", "desktop_snapshot"],
-        "nothing but the reads reached agent-desktop"
+        "nothing but the reads reached the driver"
     );
 }
 
@@ -659,7 +664,7 @@ fn a_check_s_guard_is_the_task_s_reading_only() {
             "assistant".into(),
             "mcp".into(),
             "--spec".into(),
-            json!({"task": "t", "lane": "background", "agent_id": "a"}).to_string(),
+            json!({"task": "t", "lane": "background"}).to_string(),
         ],
         path_env: String::new(),
     };
@@ -973,8 +978,10 @@ fn real_input_needs_permission_and_shows_hands_off_while_it_runs() {
         Spy(fake.clone(), during, watcher),
         Box::new(fake.clone()),
     );
+    // Cua Driver offers no real-pointer tools; the guard's input policy
+    // still holds for any call that would use one.
     assert!(
-        spied
+        !spied
             .tools()
             .unwrap()
             .iter()
@@ -1056,11 +1063,11 @@ fn a_paused_task_waits_and_then_is_told_to_look_again() {
 // ── passthrough ─────────────────────────────────────────────────────────
 
 #[test]
-fn agent_desktops_replies_pass_through_as_recorded() {
+fn the_drivers_replies_pass_through_as_they_came() {
     let scratch = Scratch::new();
     let fake = Fake::recorded();
     let recorded = fixture("mcp-list-windows-result.json");
-    let refused = fixture("mcp-unknown-argument-result.json");
+    let refused = fixture("mcp-driver-failed-result.json");
     fake.state()
         .replies
         .insert("desktop_list_windows".into(), recorded.clone());
@@ -1069,7 +1076,7 @@ fn agent_desktops_replies_pass_through_as_recorded() {
         .insert("desktop_status".into(), refused.clone());
     let mut guard = here(&scratch, &fake, FRONT, "Hex Test", false);
     let mut listed = guard.call("desktop_list_windows", args(json!({"app": "Ghostty"})));
-    // Agent-Desk adds one note block; everything agent-desktop said is unchanged.
+    // Agent-Desk adds one note block; everything the driver said is unchanged.
     let added = listed["content"].as_array_mut().unwrap().pop().unwrap();
     assert!(
         added["text"]
@@ -1088,7 +1095,7 @@ fn agent_desktops_replies_pass_through_as_recorded() {
 }
 
 #[test]
-fn the_tool_list_keeps_agent_desktops_schemas_and_adds_claim() {
+fn the_tool_list_keeps_the_drivers_schemas_and_adds_claim() {
     let scratch = Scratch::new();
     let fake = Fake::recorded();
     let mut guard = background(&scratch, &fake, "bg", false);
@@ -1123,9 +1130,7 @@ fn the_tool_list_keeps_agent_desktops_schemas_and_adds_claim() {
         .iter()
         .find(|tool| tool["name"] == "desktop_snapshot")
         .unwrap();
-    let original = fixture("mcp-tools.json")["tools"]
-        .as_array()
-        .unwrap()
+    let original = super::cua::tools()
         .iter()
         .find(|tool| tool["name"] == "desktop_snapshot")
         .cloned()
@@ -1143,8 +1148,6 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
     let spec = TaskSpec {
         task: "c1".into(),
         lane: Lane::Here,
-        agent_id: "hex-1".into(),
-        session: Some("s1".into()),
         here_window: Some(TaskWindow {
             app: "Mail".into(),
             window_id: Some("w-7".into()),
@@ -1154,15 +1157,13 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
         full_control: false,
         open_apps: false,
     };
-    let desktop = McpServer {
-        command: "/opt/homebrew/bin/agent-desktop".into(),
-        args: vec!["mcp".into()],
-        path_env: "/opt/homebrew/bin:/usr/bin".into(),
-    };
+    let driver = Path::new(
+        "/Users/me/Library/Application Support/agent-desk/assistant/cua-driver/0.49.3/cua-driver-rs-0.49.3-darwin-arm64/cua-driver",
+    );
     let server = super::server_for(
         &spec,
         Path::new("/Applications/Agent-Desk.app/Contents/MacOS/agent-desk"),
-        &desktop,
+        driver,
         Path::new("/Users/me/Library/Application Support/agent-desk/assistant"),
     );
     assert_eq!(
@@ -1170,29 +1171,135 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
         Path::new("/Applications/Agent-Desk.app/Contents/MacOS/agent-desk")
     );
     assert_eq!(server.args[..3], ["assistant", "mcp", "--spec"]);
-    assert_eq!(server.path_env, desktop.path_env);
+    assert!(!server.path_env.is_empty());
     let wire = WireSpec::parse(&server.args[3]).unwrap();
     assert_eq!(
         serde_json::to_value(&wire).unwrap(),
         json!({
             // The Here window goes through the state dir, not the arguments
             // (`a_here_window_travels_through_the_state_not_the_arguments`).
-            "task": "c1", "lane": "here", "agent_id": "hex-1", "session": "s1",
+            "task": "c1", "lane": "here",
             "here_window": null,
             "physical_input": true, "blocked_apps": ["1Password"],
-            "agent_desktop": "/opt/homebrew/bin/agent-desktop",
+            "cua_driver": driver,
             "autonomy": "smart",
             "state_dir": "/Users/me/Library/Application Support/agent-desk/assistant",
             // Agent-Desk itself holds the desk.
             "desk_pid": std::process::id(),
         })
     );
-    let minimal = WireSpec::parse(r#"{"task":"t","lane":"background","agent_id":"a"}"#).unwrap();
+    let minimal = WireSpec::parse(r#"{"task":"t","lane":"background"}"#).unwrap();
     assert_eq!(minimal.lane, Lane::Background);
     assert!(!minimal.physical_input);
-    // Claude Code gets it under agent-desktop's name, so tool names stay.
+    // Claude Code gets it as the `desktop` server (`mcp__desktop__*`).
     let claude: Value = serde_json::from_str(&server.claude_config()).unwrap();
     assert_eq!(claude["mcpServers"]["desktop"]["args"][1], "mcp");
+}
+
+// ── the guard over the real adapter ─────────────────────────────────────
+
+/// Cua Driver's own tools, faked: the recorded windows in its shape, a
+/// snapshot of two elements, and every call kept.
+#[derive(Clone, Default)]
+struct RawCua(Calls);
+
+type Calls = Arc<Mutex<Vec<(String, Map<String, Value>)>>>;
+
+impl Desktop for RawCua {
+    fn tools(&mut self) -> Result<Vec<Value>, String> {
+        Ok(vec![json!({"name": "list_windows"})])
+    }
+
+    fn call(&mut self, tool: &str, args: &Map<String, Value>) -> Result<Value, String> {
+        self.0.lock().unwrap().push((tool.to_owned(), args.clone()));
+        let structured = |value: Value| json!({"content": [], "structuredContent": value});
+        Ok(match tool {
+            "list_windows" => {
+                let windows: Vec<Value> = fixture("list-windows.json")["data"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|window| {
+                        json!({
+                            "window_id": window["id"].as_str().unwrap()[2..].parse::<u64>().unwrap(),
+                            "pid": window["pid"], "app_name": window["app_name"],
+                            "title": window["title"], "bounds": window["bounds"],
+                            "is_on_screen": window["visible"], "layer": 0,
+                        })
+                    })
+                    .collect();
+                structured(json!({"windows": windows}))
+            }
+            "get_window_state" => structured(json!({
+            "app_name": "Hex Test", "snapshot_id": "s00000007",
+            "window_id": args["window_id"], "window_title": "Hex", "truncated": false,
+            "elements": [
+                {"element_index": 0, "depth": 0, "role": "AXWindow", "label": "Hex"},
+                {"element_index": 1, "depth": 1, "parent_index": 0, "role": "AXButton",
+                 "label": "OK", "actions": ["AXPress"]},
+            ]})),
+            _ => structured(json!({"effect": "confirmed"})),
+        })
+    }
+}
+
+#[test]
+fn cua_behind_the_guard() {
+    let scratch = Scratch::new();
+    let screen = Fake::recorded();
+    let raw = RawCua::default();
+    let mut guard = Guard::new(
+        Config {
+            task: "here-task".into(),
+            lane: Lane::Here,
+            here_window: Some(TaskWindow {
+                app: "Hex Test".into(),
+                window_id: Some(FRONT.into()),
+            }),
+            physical_input: false,
+            blocked_apps: vec!["1Password".into()],
+            agent_display: None,
+            autonomy: Default::default(),
+            front_window: false,
+            open_apps: false,
+            observe_only: false,
+        },
+        scratch.store(),
+        std::process::id(),
+        super::cua::Cua::new(raw.clone()),
+        Box::new(screen.clone()),
+    );
+    guard.fresh_for = Duration::ZERO;
+    guard.window_wait = Duration::from_millis(200);
+    let tools = guard.tools().unwrap();
+    assert!(tools.iter().any(|tool| tool["name"] == "desktop_snapshot"));
+    // The Here window: read and clicked through Cua's own tools.
+    let snapshot = guard.call("desktop_snapshot", args(json!({"window_id": FRONT})));
+    assert_eq!(error_code(&snapshot), None, "{snapshot}");
+    let clicked = guard.call("desktop_click", args(json!({"ref_id": "@s00000007:e1"})));
+    assert_eq!(error_code(&clicked), None, "{clicked}");
+    let calls = raw.0.lock().unwrap().clone();
+    let click = &calls
+        .iter()
+        .find(|(tool, _)| tool == "click")
+        .expect("the click reached Cua Driver")
+        .1;
+    assert_eq!(click["element_token"], "s00000007:1");
+    assert_eq!(click["pid"], 81316);
+    // Another task's kind of window: refused before it reaches the driver.
+    let pressed = guard.call(
+        "desktop_press",
+        args(json!({"combo": "cmd+w", "window_id": CITRIX})),
+    );
+    assert!(error_code(&pressed).is_some(), "{pressed}");
+    assert!(
+        !raw.0
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(tool, _)| tool == "hotkey" || tool == "press_key"),
+        "a refused call never reaches Cua Driver"
+    );
 }
 
 mod consent;

@@ -1,4 +1,4 @@
-//! Setup's one-click fixes: installing an agent, agent-desktop, or
+//! Setup's one-click fixes: installing an agent, Cua Driver, or
 //! agent-browser without a prompt, with each line of the installer's output
 //! handed to the caller as progress, and signing in through a terminal
 //! window while Agent-Desk waits for the agent to say it's signed in.
@@ -14,7 +14,7 @@
 //!   else npm, else the project's PowerShell script. Lightpanda has no
 //!   Windows build.
 //!
-//! agent-desktop and agent-browser need npm (or Homebrew on macOS); without
+//! agent-browser needs npm (or Homebrew on macOS); without
 //! it [`install_command`] gives what to paste in a terminal. Something
 //! already installed is never installed again.
 
@@ -80,7 +80,6 @@ impl Os {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Tool {
     Agent(AssistantBackend),
-    AgentDesktop,
     AgentBrowser,
     /// The light engine for clean browsers.
     Lightpanda,
@@ -90,7 +89,6 @@ impl Tool {
     pub fn name(self) -> &'static str {
         match self {
             Self::Agent(backend) => name(backend),
-            Self::AgentDesktop => "agent-desktop",
             Self::AgentBrowser => "agent-browser",
             Self::Lightpanda => "Lightpanda",
         }
@@ -100,7 +98,6 @@ impl Tool {
     fn program(self) -> Option<&'static str> {
         match self {
             Self::Agent(backend) => super::program(backend),
-            Self::AgentDesktop => Some("agent-desktop"),
             Self::AgentBrowser => Some("agent-browser"),
             Self::Lightpanda => Some("lightpanda"),
         }
@@ -113,7 +110,6 @@ impl Tool {
             Self::Agent(AssistantBackend::Codex) => &["--cask", "codex"],
             Self::Agent(AssistantBackend::OpenCode) => &["anomalyco/tap/opencode-v2"],
             Self::Agent(AssistantBackend::ClaudeApi) | Self::Lightpanda => &[],
-            Self::AgentDesktop => &["agent-desktop"],
             Self::AgentBrowser => &["agent-browser"],
         }
     }
@@ -125,7 +121,6 @@ impl Tool {
             Self::Agent(AssistantBackend::Codex) => Some("@openai/codex"),
             Self::Agent(AssistantBackend::OpenCode) => Some("@opencode/cli"),
             Self::Agent(AssistantBackend::ClaudeApi) | Self::Lightpanda => None,
-            Self::AgentDesktop => Some("agent-desktop"),
             Self::AgentBrowser => Some("agent-browser"),
         }
     }
@@ -185,7 +180,6 @@ impl Tool {
         match fix {
             Fix::Install(AssistantBackend::ClaudeApi) => None,
             Fix::Install(backend) => Some(Self::Agent(backend)),
-            Fix::InstallAgentDesktop => Some(Self::AgentDesktop),
             Fix::InstallAgentBrowser => Some(Self::AgentBrowser),
             Fix::InstallLightpanda => Some(Self::Lightpanda),
             _ => None,
@@ -613,18 +607,25 @@ pub fn apply_fix_with(fix: Fix, mut progress: impl FnMut(&str)) -> Result<()> {
             open_url("https://console.anthropic.com/settings/keys")
         }
         Fix::Install(backend) => install(Tool::Agent(backend), progress),
-        // The desktop driver: Cua Driver (pinned, checked) on macOS, with
-        // agent-desktop as the stand-in where it can't be had.
-        Fix::InstallAgentDesktop if cfg!(target_os = "macos") => {
-            match crate::assistant::driver::cua::install(progress) {
-                Ok(_) => Ok(()),
-                Err(error) => {
-                    tracing::warn!(%error, "Cua Driver didn't install; installing agent-desktop");
-                    install(Tool::AgentDesktop, progress)
+        // The desktop driver: Cua Driver, checked (`driver::cua`).
+        Fix::InstallDriver => crate::assistant::driver::install(progress).map(|_| ()),
+        // A newer Cua Driver, verified and self-tested, now; it waits a
+        // minute at most for the tasks to stop acting.
+        Fix::UpdateDriver => {
+            let status = crate::assistant::driver::update::check_now(
+                &crate::assistant::driver::update::idle_in_app,
+                Duration::from_secs(60),
+                progress,
+            )?;
+            let line = status.line();
+            progress(&line);
+            match status.outcome {
+                crate::assistant::driver::update::Outcome::Failed => {
+                    Err(eyre!("{}", status.error.unwrap_or(line)))
                 }
+                _ => Ok(()),
             }
         }
-        Fix::InstallAgentDesktop => install(Tool::AgentDesktop, progress),
         Fix::InstallAgentBrowser => install(Tool::AgentBrowser, progress),
         Fix::InstallLightpanda => install(Tool::Lightpanda, progress),
         Fix::UseApiKey(backend) => super::providers::use_api_key(backend, progress),
@@ -654,10 +655,6 @@ pub fn apply_fix_with(fix: Fix, mut progress: impl FnMut(&str)) -> Result<()> {
             }
         }
         Fix::AddApiKey | Fix::Retry => Ok(()),
-        Fix::GuidePermissions => {
-            super::guide_permissions();
-            Ok(())
-        }
         Fix::OpenSettings(permission) => {
             computer::open_settings(permission);
             Ok(())
@@ -757,8 +754,11 @@ mod tests {
     fn linux_uses_npm_into_the_home_folder_when_npm_is_the_systems() {
         let system = linux(Some("/usr/bin/npm"), false);
         assert_eq!(
-            lines_on(Os::Linux, plan_for(Os::Linux, Tool::AgentDesktop, &system)),
-            ["/usr/bin/npm install -g --prefix /home/me/.local --no-fund --no-audit agent-desktop"]
+            lines_on(Os::Linux, plan_for(Os::Linux, Tool::AgentBrowser, &system)),
+            [
+                "/usr/bin/npm install -g --prefix /home/me/.local --no-fund --no-audit agent-browser",
+                "agent-browser install"
+            ]
         );
         let own = linux(Some("/home/me/.nvm/versions/node/v22.1.0/bin/npm"), true);
         assert_eq!(
@@ -800,7 +800,7 @@ mod tests {
                 "agent-browser install"
             ]
         );
-        let Plan::Missing { why, command } = plan_for(Os::Linux, Tool::AgentDesktop, &bare) else {
+        let Plan::Missing { why, command } = plan_for(Os::Linux, Tool::AgentBrowser, &bare) else {
             panic!("expected Missing");
         };
         assert!(why.starts_with("Node.js and npm aren't installed"), "{why}");
@@ -810,7 +810,7 @@ mod tests {
         );
         assert_eq!(
             command,
-            "sudo apt install -y nodejs npm && npm install -g --prefix ~/.local agent-desktop"
+            "sudo apt install -y nodejs npm && npm install -g --prefix ~/.local agent-browser && agent-browser install"
         );
     }
 
@@ -854,7 +854,7 @@ mod tests {
             ]
         );
         let Plan::Missing { why, command } =
-            plan_for(Os::Windows, Tool::AgentDesktop, &windows(true, false))
+            plan_for(Os::Windows, Tool::AgentBrowser, &windows(true, false))
         else {
             panic!("expected Missing");
         };
@@ -868,7 +868,7 @@ mod tests {
             "{command}"
         );
         assert!(
-            command.ends_with("; npm install -g agent-desktop"),
+            command.ends_with("; npm install -g agent-browser; agent-browser install"),
             "{command}"
         );
     }
@@ -909,10 +909,6 @@ mod tests {
         assert_eq!(
             lines(plan(Tool::Agent(AssistantBackend::OpenCode), &brew)),
             ["/opt/homebrew/bin/brew install anomalyco/tap/opencode-v2"]
-        );
-        assert_eq!(
-            lines(plan(Tool::AgentDesktop, &brew)),
-            ["/opt/homebrew/bin/brew install agent-desktop"]
         );
         assert_eq!(
             lines(plan(Tool::AgentBrowser, &brew)),
@@ -991,7 +987,6 @@ mod tests {
             plan(Tool::Agent(AssistantBackend::Codex), &installed),
             Plan::Ready
         );
-        assert_eq!(plan(Tool::AgentDesktop, &installed), Plan::Ready);
         // agent-browser without its Chrome only downloads Chrome.
         assert_eq!(
             lines(plan(Tool::AgentBrowser, &installed)),

@@ -83,7 +83,7 @@ pub(in crate::rune_ui) fn pages_for(gaps: &[Gap]) -> Vec<Page> {
 }
 
 /// Reads this Mac for [`setup_gaps::setup_gaps`]. Blocks for a moment
-/// (agent detection, agent-desktop's own report); off the window's thread.
+/// (agent detection, Cua Driver's status); off the window's thread.
 pub(in crate::rune_ui) fn read_facts(settings: &AppSettings) -> Facts {
     use crate::assistant::backends;
     use crate::desktop::onboarding::{self, PermissionState};
@@ -95,7 +95,7 @@ pub(in crate::rune_ui) fn read_facts(settings: &AppSettings) -> Facts {
         .iter()
         .find(|found| found.backend == assistant.backend);
     let desktop = if assistant.control_desktop {
-        Some(backends::agent_desktop())
+        Some(backends::driver())
     } else {
         None
     };
@@ -129,10 +129,9 @@ pub(in crate::rune_ui) fn read_facts(settings: &AppSettings) -> Facts {
         }),
         agent_ready: agent.is_some_and(|agent| agent.ready),
         desktop_wanted: assistant.control_desktop,
-        agent_desktop_installed: desktop.as_ref().is_some_and(|found| found.path.is_some()),
-        agent_desktop_grants: desktop
-            .as_ref()
-            .is_some_and(|found| found.accessibility && found.screen_recording),
+        driver_installed: desktop.as_ref().is_some_and(|found| found.path.is_some()),
+        driver_update_failed: crate::assistant::driver::update::status().outcome
+            == crate::assistant::driver::update::Outcome::Failed,
         browser_wanted: assistant.background_browser,
         agent_browser_installed: browser.as_ref().is_some_and(|found| found.path.is_some()),
         shortcut_taken,

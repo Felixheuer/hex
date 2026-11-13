@@ -361,7 +361,7 @@ pub(crate) enum InPlace {
 /// What [`InPlace`] fixes `gap`, if any.
 pub(crate) fn in_place(gap: &Gap) -> Option<InPlace> {
     match gap {
-        Gap::Accessibility | Gap::AgentDesktopGrants => Some(InPlace::Accessibility),
+        Gap::Accessibility => Some(InPlace::Accessibility),
         Gap::ScreenRecording => Some(InPlace::ScreenRecording),
         Gap::Microphone => Some(InPlace::Microphone),
         Gap::Automation => Some(InPlace::Automation),

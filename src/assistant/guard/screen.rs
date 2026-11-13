@@ -1,10 +1,10 @@
 //! What the guard sees of this computer in its own process, in
-//! milliseconds rather than through agent-desktop's hundreds: on macOS the
-//! windows on screen (CoreGraphics; an agent-desktop window id `w-N` is
-//! CoreGraphics window number N), and everywhere the installed apps
+//! milliseconds rather than through the driver's hundreds: on macOS the
+//! windows on screen (CoreGraphics; a window id `w-N` is CoreGraphics
+//! window number N), and everywhere the installed apps
 //! (`application_catalog`), which of them run (libproc, `/proc`, or the
-//! windows' processes), and the displays. On Linux and Windows the windows
-//! come from agent-desktop ([`Native`]), whose window ids are its own.
+//! windows' processes), and the displays. Elsewhere the windows come from
+//! the driver ([`Native`]).
 
 use std::path::PathBuf;
 
@@ -365,7 +365,7 @@ impl Screen for CoreGraphics {
     }
 }
 
-/// Linux and Windows: the windows as agent-desktop lists them (its window
+/// Linux and Windows: the windows as the driver lists them (its window
 /// ids are its own there), everything else read in process as
 /// [`CoreGraphics`] reads it.
 pub struct Native<D: Desktop>(pub D);
@@ -396,7 +396,7 @@ impl<D: Desktop> Screen for Native<D> {
     }
 }
 
-/// agent-desktop's `list-windows`, through its own `agent-desktop mcp`.
+/// The driver's windows (`desktop_list_windows`), through its own process.
 pub struct Listed<D: Desktop>(pub D);
 
 impl<D: Desktop> Screen for Listed<D> {
@@ -413,7 +413,7 @@ impl<D: Desktop> Screen for Listed<D> {
     }
 }
 
-/// agent-desktop's `list-windows`.
+/// The windows `desktop_list_windows` lists.
 fn listed_windows(desktop: &mut impl Desktop) -> Vec<Window> {
     desktop
         .call("desktop_list_windows", &serde_json::Map::new())
@@ -423,7 +423,7 @@ fn listed_windows(desktop: &mut impl Desktop) -> Vec<Window> {
         .unwrap_or_default()
 }
 
-/// `raw` (front to back) as agent-desktop would list it: ordinary windows
+/// `raw` (front to back) as `desktop_list_windows` lists it: ordinary windows
 /// (layer 0, shown, not a sliver) are `visible`. In front is the window
 /// the focused app says has focus (`focused_window`), else that app's first
 /// ordinary window (without Accessibility to ask, the first of all).

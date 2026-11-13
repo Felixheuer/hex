@@ -646,7 +646,7 @@ and `src/rune_ui/chats/`) is one pipeline; the user-facing contract is
 request (Action shortcut | Assistant pane | iPhone | schedule)
 └── service::submit ── lanes: Here (quick turn) | Background (job), queue, steer, status
     └── agent::run ── prompt (lane rules, context, memory) ── provider: claude -p | codex exec | opencode | Claude API
-        ├── guard (agent-desk assistant mcp) ── agent-desktop: leases, input policy, blocked apps, consent
+        ├── guard (agent-desk assistant mcp) ── Cua Driver: leases, input policy, blocked apps, consent
         ├── browser (agent-browser, a hidden session per task) and actions (app actions, AX, OCR)
         └── tools (hex_remember, schedules, teams) and knowledge (hex_lookup)
 service::subscribe ── Event ── assistant_overlay (bubble, orb, job list, frame, outlines)
@@ -663,7 +663,7 @@ Who owns what:
   installing, checking, signing in the agents), `lines` (what it says back,
   in the request's language, and the names of the window's panes).
 - **Hands** (everything that touches the desktop): `guard` (the MCP server
-  every task gets instead of agent-desktop), `computer` (what Agent-Desk itself
+  every task gets instead of the desktop driver, Cua Driver: `driver`, kept current daily by `driver::update`), `computer` (what Agent-Desk itself
   reads: context, window frames), `actions` (fast app actions before a
   click), `autonomy` (what needs a yes), `space` (parking job windows).
 - **Web**: `browser` (agent-browser sessions, accounts, the live pictures).

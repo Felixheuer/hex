@@ -1,6 +1,6 @@
 //! The desktop right now, for every task's prompt: which apps run (the
 //! ones in the Dock), which of them is in front or hidden, and each one's
-//! windows with agent-desktop's ids, on this screen or not (on another
+//! windows with the guard's ids (`w-<number>`), on this screen or not (on another
 //! desktop, minimized). Read in Agent-Desk's own process from the window server
 //! and the workspace, in milliseconds, so a turn never starts from what an
 //! older turn or another task said was open.
@@ -24,7 +24,7 @@ const MAX_CHARS: usize = 3600;
 /// One window of a running app.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AppWindow {
-    /// CoreGraphics' window number: agent-desktop's `w-<number>`.
+    /// CoreGraphics' window number: the guard's `w-<number>`.
     pub number: u32,
     pub title: String,
     /// On the screen now; else on another desktop (Space) or minimized.

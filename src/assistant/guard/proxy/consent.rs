@@ -481,7 +481,7 @@ fn near_controls(data: &Value) -> HashMap<String, Vec<String>> {
     near
 }
 
-/// A password field: agent-desktop's role or states say secure.
+/// A password field: its role or states say secure.
 fn is_secure(node: &Map<String, Value>) -> bool {
     let says = |key: &str| {
         node.get(key)

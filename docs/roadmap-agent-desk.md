@@ -25,7 +25,7 @@ the main interface.
 ## A. Fast action layer ("actions")
 
 - **Native action service in Agent-Desk:** an `AXUIElement` server inside the process, with
-  cached element trees per window and diff updates. It replaces one agent-desktop process
+  cached element trees per window and diff updates. It replaces one desktop driver process
   per call. Target: under 50 ms per click, type or read of a known element.
 - **Every app, discovered, not listed:** no per-app recipes or app lists. The agent asks
   any installed app what it offers with `hex_app_capabilities` (read from the app itself

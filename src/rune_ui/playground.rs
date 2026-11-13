@@ -268,7 +268,7 @@ const PATHS: &[(&str, &str)] = &[
     ),
     (
         "assistant-setup-desktop",
-        "Window/Assistant setup (Linux)/agent-desktop",
+        "Window/Assistant setup (Linux)/Cua Driver",
     ),
     (
         "assistant-setup-try",
@@ -282,7 +282,7 @@ const PATHS: &[(&str, &str)] = &[
     ("windows-chats-settings", "Window/Chats (Windows)/Settings"),
     (
         "windows-assistant-setup-desktop",
-        "Window/Assistant setup (Windows)/agent-desktop",
+        "Window/Assistant setup (Windows)/Cua Driver",
     ),
     ("mac-chats", "Window/Chats/Conversation"),
     ("mac-chats-off", "Window/Chats/The assistant is off"),
@@ -346,7 +346,7 @@ const PATHS: &[(&str, &str)] = &[
     ),
     (
         "mac-assistant-setup-desktop",
-        "Window/Assistant setup/agent-desktop",
+        "Window/Assistant setup/Cua Driver",
     ),
     (
         "mac-assistant-setup-browser",

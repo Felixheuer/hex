@@ -1,7 +1,7 @@
-//! agent-desktop behind the guard: `agent-desktop mcp` with the task's
-//! `--session`/`--agent-id` (and `--headed` when real input is allowed),
-//! spoken to over stdio. Calls are forwarded with their arguments as given,
-//! so the tools keep agent-desktop's names and schemas exactly.
+//! The desktop driver's process behind the guard: Cua Driver's MCP server
+//! (`cua-driver mcp --direct`), spoken to over stdio, and the shapes of the
+//! guard's own tool results (`{ok, command, data | error}` envelopes, the
+//! windows `desktop_list_windows` gives), which `cua` adapts Cua's to.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -13,14 +13,15 @@ use crate::assistant::backends::run;
 
 /// What the guard forwards to; a fake in tests.
 pub trait Desktop: Send {
-    /// agent-desktop's tools as it lists them (MCP `Tool` objects).
+    /// Its tools (MCP `Tool` objects).
     fn tools(&mut self) -> Result<Vec<Value>, String>;
     /// Calls `tool`; the MCP `CallToolResult` as it came.
     fn call(&mut self, tool: &str, args: &Map<String, Value>) -> Result<Value, String>;
 }
 
-/// A running `agent-desktop mcp`, started on first use and again if it ends.
-pub struct AgentDesktop {
+/// A running MCP server over stdio (the desktop driver's), started on
+/// first use and again if it ends.
+pub struct Server {
     program: PathBuf,
     args: Vec<String>,
     /// Environment beside Agent-Desk's agent environment (Cua Driver's settings).
@@ -36,16 +37,20 @@ struct Running {
     stdout: BufReader<ChildStdout>,
 }
 
-impl AgentDesktop {
-    pub fn new(program: PathBuf, flags: Vec<String>) -> Self {
-        let mut args = vec!["mcp".to_owned()];
-        args.extend(flags);
-        Self::server(program, args, Vec::new())
+impl Server {
+    /// Cua Driver at `program`, as tasks run it (`driver::mcp_args`,
+    /// `driver::env`).
+    pub fn driver(program: PathBuf) -> Self {
+        Self::new(
+            program,
+            crate::assistant::driver::mcp_args(),
+            crate::assistant::driver::env(),
+        )
     }
 
-    /// Any desktop driver's MCP server over stdio: `program` with `args`
-    /// (its MCP subcommand included) and `env`.
-    pub fn server(program: PathBuf, args: Vec<String>, env: Vec<(String, String)>) -> Self {
+    /// An MCP server over stdio: `program` with `args` (its MCP subcommand
+    /// included) and `env`.
+    pub fn new(program: PathBuf, args: Vec<String>, env: Vec<(String, String)>) -> Self {
         Self {
             program,
             args,
@@ -69,15 +74,15 @@ impl AgentDesktop {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
-        // Its own tree, ended with it (agent-desktop's helpers too); not
+        // Its own tree, ended with it (the driver's helpers too); not
         // tied to this thread, which may hand the guard on.
         run::own_group(&mut command, false);
         let mut child = command
             .spawn()
-            .map_err(|error| format!("agent-desktop didn't start: {error}"))?;
+            .map_err(|error| format!("the desktop driver didn't start: {error}"))?;
         let tree = run::Tree::of(&child);
         let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
-            return Err("agent-desktop didn't start".into());
+            return Err("the desktop driver didn't start".into());
         };
         self.running = Some(Running {
             child,
@@ -94,7 +99,10 @@ impl AgentDesktop {
     }
 
     fn send(&mut self, message: &Value) -> Result<(), String> {
-        let running = self.running.as_mut().ok_or("agent-desktop isn't running")?;
+        let running = self
+            .running
+            .as_mut()
+            .ok_or("the desktop driver isn't running")?;
         let mut line = message.to_string().into_bytes();
         line.push(b'\n');
         let written = running
@@ -103,7 +111,7 @@ impl AgentDesktop {
             .and_then(|()| running.stdin.flush());
         written.map_err(|error| {
             self.running = None;
-            format!("agent-desktop stopped: {error}")
+            format!("the desktop driver stopped: {error}")
         })
     }
 
@@ -111,14 +119,17 @@ impl AgentDesktop {
         self.next_id += 1;
         let id = self.next_id;
         self.send(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))?;
-        let running = self.running.as_mut().ok_or("agent-desktop isn't running")?;
+        let running = self
+            .running
+            .as_mut()
+            .ok_or("the desktop driver isn't running")?;
         let mut line = String::new();
         loop {
             line.clear();
             match running.stdout.read_line(&mut line) {
                 Ok(0) | Err(_) => {
                     self.running = None;
-                    return Err("agent-desktop stopped before it answered".into());
+                    return Err("the desktop driver stopped before it answered".into());
                 }
                 Ok(_) => {}
             }
@@ -133,14 +144,14 @@ impl AgentDesktop {
                     .get("message")
                     .and_then(Value::as_str)
                     .unwrap_or("unknown error");
-                return Err(format!("agent-desktop refused {method}: {why}"));
+                return Err(format!("the desktop driver refused {method}: {why}"));
             }
             return Ok(message.get("result").cloned().unwrap_or(Value::Null));
         }
     }
 }
 
-impl Desktop for AgentDesktop {
+impl Desktop for Server {
     fn tools(&mut self) -> Result<Vec<Value>, String> {
         self.start()?;
         let listed = self.request("tools/list", json!({}))?;
@@ -157,7 +168,7 @@ impl Desktop for AgentDesktop {
     }
 }
 
-impl Drop for AgentDesktop {
+impl Drop for Server {
     fn drop(&mut self) {
         if let Some(mut running) = self.running.take() {
             running.tree.kill_with(&mut running.child);
@@ -165,7 +176,7 @@ impl Drop for AgentDesktop {
     }
 }
 
-/// The agent-desktop envelope in a tool result (`structuredContent`, else
+/// The envelope in a tool result (`structuredContent`, else
 /// the first text block that parses as one).
 pub fn envelope(result: &Value) -> Option<Value> {
     if let Some(structured) = result.get("structuredContent")

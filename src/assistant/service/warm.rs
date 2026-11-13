@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 
 use super::{
     AssistantBackend, Context, ConversationId, Job, JobKind, Lane, Origin, Request, Runner,
-    Session, TaskWindow, Warm, focus_in, store,
+    TaskWindow, Warm, focus_in, store,
 };
 
 impl Runner {
@@ -83,7 +83,7 @@ impl Runner {
             return;
         }
         let now = self.now();
-        let (conversation, id, key, session, replaced) = {
+        let (conversation, id, replaced) = {
             let mut state = self.state();
             let conversation: Option<ConversationId> = match lane {
                 Lane::Here if !new => focus_in(&state, settings.follow_up_seconds, now),
@@ -112,15 +112,6 @@ impl Runner {
                 // goes to the guard when it runs.
                 return;
             }
-            let session = match &state.session {
-                Session::On(id) => Some(id.clone()),
-                _ => None,
-            };
-            // A Background task joins a session that starts with it; its
-            // arguments can't be known ahead.
-            if lane == Lane::Background && settings.control_desktop && session.is_none() {
-                return;
-            }
             let key = self.next.fetch_add(1, Ordering::Relaxed);
             let id = conversation.clone().unwrap_or_else(store::new_id);
             // The reservation this one replaces won't be taken: its process
@@ -142,7 +133,7 @@ impl Runner {
                 })
                 .map(|old| old.id)
                 .filter(|old| *old != id);
-            (conversation, id, key, session, replaced)
+            (conversation, id, replaced)
         };
         if let Some(old) = replaced {
             (self.hooks.end_ahead)(&old);
@@ -168,8 +159,6 @@ impl Runner {
                     ..Context::default()
                 },
             },
-            agent_id: format!("hex-{key}"),
-            desktop_session: session.filter(|_| settings.control_desktop),
             settings,
             kind: JobKind::Ask,
             digest: None,

@@ -1,5 +1,5 @@
 //! `agent-desk assistant mcp --spec …`: the guard as an MCP stdio server. Tool
-//! lists and results pass through as agent-desktop wrote them; the guard
+//! lists and results pass through as the driver's adapter (`cua`) wrote them; the guard
 //! decides each call (`proxy`).
 
 use std::sync::{Arc, Mutex};
@@ -79,7 +79,7 @@ pub fn serve<D: Desktop + 'static>(mut guard: Guard<D>) -> Result<()> {
         .filter_map(|tool| serde_json::from_value::<Tool>(tool).ok())
         .collect();
     // The system prompt has the rules; the driver's own instructions would
-    // be a second, older set (agent-desktop's guide is in the prompt).
+    // be a second, older set.
     let instructions = super::proxy::RULES.to_owned();
     let seed = guard.seed();
     let server = Server {
