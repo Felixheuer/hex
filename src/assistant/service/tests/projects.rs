@@ -170,7 +170,10 @@ fn jobs_run_in_two_projects_at_once_and_a_request_can_name_its_own() {
     let scoped = "im Projekt Startup: bau die Preisseite";
     runner.submit(request(scoped, Origin::Background));
     let job = world.job_for(scoped);
-    assert_eq!(job.project.map(|project| project.name).as_deref(), Some("Startup"));
+    assert_eq!(
+        job.project.map(|project| project.name).as_deref(),
+        Some("Startup")
+    );
     assert_eq!(
         projects.active().map(|project| project.id),
         Some(shop.id.clone()),

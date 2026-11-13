@@ -1488,7 +1488,7 @@ mod tests {
         assert_eq!(exit_code(&reply), EXIT_REFUSED);
         assert!(matches!(
             &reply,
-            ControlReply::Error { code, message } if code == "outdated" && message.contains("hex restart")
+            ControlReply::Error { code, message } if code == "outdated" && message.contains("agent-desk restart")
         ));
     }
 

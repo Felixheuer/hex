@@ -946,9 +946,11 @@ fn custom_root() -> bool {
             .is_some_and(|root| !default_root(Path::new(&root), dirs::data_dir().as_deref()))
 }
 
-/// Whether `root` is the default data root under the user's data directory.
+/// Whether `root` is the default data root under the user's data directory
+/// (`app_paths::support_dir`'s folder, `agent-desk`; it was `hex` before the
+/// rename).
 fn default_root(root: &Path, data: Option<&Path>) -> bool {
-    data.is_some_and(|data| root == data.join("hex"))
+    data.is_some_and(|data| root == data.join(crate::app_paths::Variant::Live.folder()))
 }
 
 fn systemctl(arguments: &[&str]) -> Result<()> {
