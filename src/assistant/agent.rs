@@ -794,7 +794,10 @@ pub fn prepare(
         None
     };
     let lane = spec.lane;
-    let browser = (settings.background_browser && lane == Lane::Background)
+    // Both lanes: a quick "open a browser and go to …" runs in Hex's own
+    // browser (a live picture on the overlay), never in the person's Chrome.
+    let browser = (settings.background_browser
+        && (lane == Lane::Background || spec.full_control))
         .then(|| super::browser::mcp_server(&job.conversation))
         .flatten();
     let workdir = match &job.workspace {
