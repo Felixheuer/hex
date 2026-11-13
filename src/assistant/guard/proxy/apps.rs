@@ -15,6 +15,24 @@ use crate::assistant::types::Lane;
 
 /// How long `hex_open_app` waits for the app's new window, at most.
 pub(super) const WINDOW_WAIT: Duration = Duration::from_secs(3);
+/// How long a running app gets to show a window before it's asked to
+/// reopen.
+const REOPEN_AFTER: Duration = Duration::from_millis(600);
+
+/// Asks a running app to reopen (its main window comes back), without
+/// bringing it in front: `open -g` sends the reopen event in the background.
+fn reopen(app: &App) {
+    let mut open = std::process::Command::new("/usr/bin/open");
+    open.arg("-g");
+    match &app.bundle_id {
+        Some(id) => open.args(["-b", id]),
+        None => open.arg(&app.path),
+    };
+    let _ = open
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
 
 impl<D: Desktop> Guard<D> {
     pub(super) fn installed_apps(&mut self, args: &Map<String, Value>) -> Value {
@@ -99,6 +117,11 @@ impl<D: Desktop> Guard<D> {
             "app".into(),
             json!(app.bundle_id.clone().unwrap_or_else(|| app.name.clone())),
         );
+        // A second instance only of an app that isn't running: most apps
+        // (WhatsApp, Slack, Mail) refuse one with an error dialog. A running
+        // app is asked to reopen instead, in the background, which opens
+        // its main window again.
+        let new_instance = new_instance && !was_running;
         if new_instance {
             launch.insert("no_attach".into(), json!(true));
         }
@@ -115,6 +138,7 @@ impl<D: Desktop> Guard<D> {
         };
         self.watch(&app.name);
         let waited = Instant::now();
+        let mut reopened = false;
         let mine = loop {
             let _ = self.list(Look::Launched(&launched));
             let mine: Vec<Value> = self
@@ -126,6 +150,10 @@ impl<D: Desktop> Guard<D> {
             if !mine.is_empty() || waited.elapsed() >= self.window_wait {
                 break mine;
             }
+            if was_running && !reopened && waited.elapsed() >= REOPEN_AFTER {
+                reopened = true;
+                reopen(&app);
+            }
             std::thread::sleep(Duration::from_millis(100));
         };
         super::front::keep_front(before, launched.pid);
@@ -136,9 +164,9 @@ impl<D: Desktop> Guard<D> {
         let note = match (mine.is_empty(), was_running && !new_instance) {
             (false, _) => "The new window is yours: act in it by its id.",
             (true, true) => {
-                "The app was already running and opened no new window. Claim one of its free \
-                 windows with desktop_claim_window, or call hex_open_app with new_instance: \
-                 true for a fresh instance."
+                "The app was already running and opened no new window. Claim one of its \
+                 windows with desktop_claim_window (desktop_list_windows names them). Never start \
+                 a second instance of a running app."
             }
             (true, false) => {
                 "The app started but shows no window yet; wait with desktop_wait (event \
@@ -193,15 +221,15 @@ pub(super) fn tools(background: bool) -> Vec<Value> {
             "name": OPEN_APP_TOOL,
             "description": "Hex: open an installed app without bringing it in front of the \
                 person, wait for its new window, and make that window this task's. Prefer it to \
-                desktop_launch. When the app already runs and opens no window, claim a free one \
-                or ask for new_instance.",
+                desktop_launch. When the app already runs, Hex asks it to reopen its window; never \
+                start a second instance of a running app.",
             "inputSchema": {
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
                     "name": {"type": "string", "description": "The app's name, as hex_installed_apps lists it"},
                     "bundle_id": {"type": "string", "description": "Or its bundle id"},
-                    "new_instance": {"type": "boolean", "description": "Start a fresh instance even when it runs"}
+                    "new_instance": {"type": "boolean", "description": "Start a separate instance; ignored when the app already runs (most apps refuse a second one)"}
                 },
             },
         }));
