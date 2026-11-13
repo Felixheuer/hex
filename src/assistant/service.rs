@@ -687,7 +687,6 @@ impl Runner {
         let now = self.now();
         let voice = request.origin != Origin::Chat;
         let mut stop = Vec::new();
-        let mut on_it = None;
         let mut steer_note = None;
         let id = {
             let mut state = self.state();
@@ -761,22 +760,13 @@ impl Runner {
                 };
                 target.control.steer();
             }
-            // A new Background request is a job; a new Here request that is
-            // plainly one goes straight to the background (others are
-            // routed by the Here agent itself, `agent::ROUTING`).
-            if kind == JobKind::Ask && new_conversation {
-                let plainly = request.origin == Origin::ActionShortcut
-                    && context::looks_like_job(&request.text);
-                if plainly {
-                    request.origin = Origin::Background;
-                    request.context.window = None;
-                    on_it = Some(context::on_it(&request.text));
-                }
-                if request.origin == Origin::Background {
-                    kind = JobKind::Job {
-                        title: store::shorten(&request.text, 48),
-                    };
-                }
+            // A new Background request is a job; a Here request is routed by
+            // the Here agent itself, however long (`agent::ROUTING`: it
+            // hands jobs on with `hex_start_jobs`).
+            if kind == JobKind::Ask && new_conversation && request.origin == Origin::Background {
+                kind = JobKind::Job {
+                    title: store::shorten(&request.text, 48),
+                };
             }
             if request.origin.lane() == Lane::Here {
                 stop = state
@@ -826,19 +816,6 @@ impl Runner {
                 },
             );
             self.emit(&Event::ConversationsChanged);
-        }
-        if let Some(line) = on_it {
-            // Shown where it's heard (the Here bubble), then the job goes on.
-            self.emit(&Event::AnswerDelta {
-                conversation: id.clone(),
-                text: line.clone(),
-            });
-            self.emit(&Event::Escalated {
-                conversation: id.clone(),
-            });
-            if settings.speak_answers {
-                self.voice.finish(self, &id, &line);
-            }
         }
         self.refresh_mode();
         self.pump();

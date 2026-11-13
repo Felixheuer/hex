@@ -44,6 +44,7 @@ pub mod notify;
 pub mod palette;
 pub mod phone;
 pub mod provider;
+pub mod route;
 pub mod schedules;
 pub mod secrets;
 pub mod service;
@@ -118,24 +119,7 @@ pub fn trying() -> bool {
 /// request doesn't ask to stay in the background („arbeite nur im
 /// Hintergrund“, „lass meine Fenster in Ruhe“, "only in the background").
 pub fn full_control(allowed: bool, request: &str) -> bool {
-    allowed && !asks_background_only(request)
-}
-
-fn asks_background_only(request: &str) -> bool {
-    let text = request.to_lowercase();
-    [
-        "nur im hintergrund",
-        "ausschließlich im hintergrund",
-        "lass meine fenster",
-        "nicht in meinen fenstern",
-        "nicht in meinem fenster",
-        "fass meine fenster nicht",
-        "only in the background",
-        "don't touch my windows",
-        "leave my windows",
-    ]
-    .iter()
-    .any(|phrase| text.contains(phrase))
+    allowed && !route::asks_background_only(request)
 }
 
 #[cfg(test)]

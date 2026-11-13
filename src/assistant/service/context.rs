@@ -202,78 +202,6 @@ fn cue() -> &'static Regex {
     })
 }
 
-/// Whether a spoken request is plainly a job (several kinds of work, at
-/// length), so it goes to the background without a Here turn first. Kept
-/// strict: anything less clear is left to the Here agent (`agent::ROUTING`).
-pub fn looks_like_job(text: &str) -> bool {
-    const WORK: &[&str] = &[
-        "recherch",
-        "research",
-        "find",
-        "such",
-        "draft",
-        "entw",
-        "erstell",
-        "create",
-        "build",
-        "bau",
-        "schreib",
-        "write",
-        "dokument",
-        "document",
-        "teil",
-        "share",
-        "vergleich",
-        "compare",
-        "sammel",
-        "sammle",
-        "collect",
-        "sheet",
-        "tabelle",
-        "excel",
-        "spreadsheet",
-        "report",
-        "bericht",
-        "mail",
-        "liste",
-        "list",
-    ];
-    let words: Vec<String> = text
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|word| !word.is_empty())
-        .map(str::to_lowercase)
-        .collect();
-    if words.len() < 15 {
-        return false;
-    }
-    let kinds = WORK
-        .iter()
-        .filter(|stem| words.iter().any(|word| word.starts_with(**stem)))
-        .count();
-    let many = words
-        .iter()
-        .any(|word| word.parse::<u32>().is_ok_and(|n| (5..=10_000).contains(&n)));
-    kinds >= 4 || (kinds >= 3 && many)
-}
-
-/// What Hex says when it sends a plainly long request to the background,
-/// in the request's language as far as a glance tells.
-pub fn on_it(text: &str) -> String {
-    const GERMAN: &[&str] = &[
-        "und", "die", "der", "das", "ich", "mir", "mein", "meine", "für", "mit", "bitte", "eine",
-    ];
-    let german = text
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|word| GERMAN.contains(&word.to_lowercase().as_str()))
-        .count()
-        >= 2;
-    if german {
-        "Mach ich, im Hintergrund. Ich plane das und frage, was ich noch brauche.".into()
-    } else {
-        "On it, in the background. I'll plan it and ask what I need.".into()
-    }
-}
-
 /// `text`'s meaningful words, lowercased, without filler and task words.
 pub(super) fn words(text: &str) -> HashSet<String> {
     const STOP: &[&str] = &[
@@ -407,28 +335,6 @@ mod tests {
         ];
         assert_eq!(route("bei der Mail-Aufgabe warte noch", &twins), None);
         assert_eq!(route("bei der Aufgabe warte", &[]), None);
-    }
-
-    #[test]
-    fn only_a_plainly_long_request_skips_the_here_turn() {
-        let business = "I'm building my business site blabla.com. Look at it, research 50 suppliers who could list their products there, draft 50 emails in Gmail, build an Excel sheet, document everything, and share it via Google Sheets with my colleague.";
-        assert!(looks_like_job(business));
-        assert!(looks_like_job(
-            "Recherchiere bitte 20 Lieferanten für Keramik, schreib mir eine Tabelle und einen kurzen Bericht dazu, und leg alles in einen Ordner"
-        ));
-        assert!(!looks_like_job("Wie spät ist es in Tokio?"));
-        assert!(!looks_like_job("Fasse diese Mail kurz zusammen"));
-        assert!(!looks_like_job(
-            "Can you write a short friendly reply to this mail saying that I will be there on Friday at ten"
-        ));
-        assert_eq!(
-            on_it(business),
-            "On it, in the background. I'll plan it and ask what I need."
-        );
-        assert!(
-            on_it("Recherchiere die Lieferanten und schreib mir eine Liste")
-                .starts_with("Mach ich")
-        );
     }
 
     #[test]

@@ -72,7 +72,7 @@ Action shortcut (assistant::ready)
 │   DictationHotkey::follows_tap) forces a Background task: Request {
 │   conversation: None, origin: Background, context: default }
 ├── Here words opening "im Hintergrund", "in the background", "nebenbei",
-│   "parallel", or "Hintergrund:" (ask::spoken_background; whole words, any
+│   "parallel", or "Hintergrund:" (route::spoken_background; whole words, any
 │   case, punctuation around them ignored) -> Background, without them
 ├── Double tap (both presses shorter than 300 ms, the second within 300 ms
 │   of the first's release) -> HotkeyAction::DoubleTap: the second capture
@@ -161,7 +161,7 @@ real speakers.
 - **Speculative start.** The live transcript of a hold
   (`dictation::audio`, `service::speculate`) starts the reserved
   conversation's own browser once its words ask for the web
-  (`service::warm::wants_web`), before the release.
+  (`route::wants_web`), before the release.
 - Measured with `claude -p` stream-json (Claude Code 2.1.323, the Here
   system prompt, cached, no MCP servers; medians of four, seconds from the
   question to its first finished sentence): before, Haiku 5.5 with the old

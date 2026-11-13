@@ -1487,16 +1487,6 @@ fn words_that_ask_for_the_web_start_the_holds_browser_once() {
         started,
         [format!("browser ahead {id} such mal auf google nach")]
     );
-    assert!(warm::wants_web("Schau auf spiegel punkt de"));
-    assert!(warm::wants_web("Öffne github.com/anomalyco"));
-    assert!(warm::wants_web("go to https://example.org"));
-    assert!(warm::wants_web("example dot com bitte"));
-    assert!(!warm::wants_web("Was steht in dieser Mail?"));
-    // No brand words: a name alone says nothing (the sign-in store decides
-    // that, and tests never read it); "Punkt" in a sentence isn't a dot.
-    assert!(!warm::wants_web("Öffne WhatsApp"));
-    assert!(!warm::wants_web("Ein Punkt und noch einer"));
-    assert!(!warm::wants_web("Version 1.2 ist fertig, z.b. heute."));
 }
 
 #[test]
@@ -1617,20 +1607,25 @@ fn asking_how_far_a_job_is_tells_its_status_without_running_anything() {
 }
 
 #[test]
-fn a_plainly_long_spoken_request_goes_straight_to_the_background() {
+fn a_long_spoken_request_is_routed_by_the_here_agent_not_by_its_words() {
     let world = World::new(8);
     let runner = world.runner();
     let business = "I'm building my business site blabla.com. Look at it, research 50 suppliers who could list their products there, draft 50 emails in Gmail, build an Excel sheet, document everything, and share it via Google Sheets with my colleague.";
-    let id = runner.submit(request(business, Origin::ActionShortcut));
-    assert!(world.events.lock().unwrap().contains(&Event::Escalated {
+    let mut asked = request(business, Origin::ActionShortcut);
+    asked.context.window = Some(TaskWindow {
+        app: "Mail".into(),
+        window_id: Some("w-1".into()),
+    });
+    let id = runner.submit(asked);
+    world.wait_until("the turn", || world.jobs.lock().unwrap().len() == 1);
+    // A Here turn with its window: the agent hands it on (`hex_start_jobs`).
+    let job = world.jobs.lock().unwrap()[0].clone();
+    assert_eq!(job.kind, JobKind::Ask);
+    assert_eq!(job.request.origin, Origin::ActionShortcut);
+    assert!(job.request.context.window.is_some());
+    assert!(!world.events.lock().unwrap().contains(&Event::Escalated {
         conversation: id.clone()
     }));
-    world.wait_until("the job", || world.jobs.lock().unwrap().len() == 1);
-    let job = world.jobs.lock().unwrap()[0].clone();
-    assert!(matches!(job.kind, JobKind::Job { .. }));
-    assert_eq!(job.request.origin, Origin::Background);
-    world.wait_until("on it", || !world.spoken.lock().unwrap().is_empty());
-    assert!(world.spoken.lock().unwrap()[0].starts_with("On it, in the background."));
     runner.cancel(&id);
     world.wait_for("the end", ended(&id));
 }

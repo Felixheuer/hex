@@ -545,7 +545,7 @@ fn handed_on(job: &Job, text: &str, handoff: Option<handoff::Handoff>) -> Option
             first_task,
         });
     }
-    if markers::parse(text).is_none() && handoff::claims_background(text) {
+    if markers::parse(text).is_none() && crate::assistant::route::claims_background(text) {
         tracing::info!("an answer claimed the background without a job; starting one");
         return Some(Outcome::Escalate {
             title: crate::assistant::store::shorten(&job.request.text, 60),

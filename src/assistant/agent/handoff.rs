@@ -7,7 +7,7 @@
 //! the jobs in a small file per conversation; when the run ends, the runner
 //! takes them ([`take`]) and starts them. The marker stays as a fallback,
 //! and an answer that *claims* it went to the background without either
-//! still starts one ([`claims_background`]).
+//! still starts one (`route::claims_background`).
 
 use std::path::PathBuf;
 
@@ -127,51 +127,6 @@ pub fn parse(arguments: &serde_json::Value) -> Result<Handoff, String> {
     })
 }
 
-/// Phrases with which an answer says it *starts* the work in the
-/// background now (not that something already runs there).
-const CLAIMS: &[&str] = &[
-    "läuft als hintergrundauftrag",
-    "läuft als hintergrundaufgabe",
-    "als hintergrundauftrag",
-    "als hintergrundaufgabe",
-    "mach ich im hintergrund",
-    "mache ich im hintergrund",
-    "erledige ich im hintergrund",
-    "übernehme ich im hintergrund",
-    "kümmere mich im hintergrund",
-    "starte ich im hintergrund",
-    "ich starte im hintergrund",
-    "schiebe ich in den hintergrund",
-    "in den hintergrund verschoben",
-    "i'll do that in the background",
-    "i'll do it in the background",
-    "i'll handle that in the background",
-    "i'll handle it in the background",
-    "i'm doing it in the background",
-    "as a background job",
-    "as a background task",
-    "moved it to the background",
-    "running it in the background",
-];
-
-/// Phrases that say the opposite (it can't, or the person should).
-const DENIALS: &[&str] = &[
-    "kann ich nicht",
-    "nicht möglich",
-    "nicht im hintergrund",
-    "can't",
-    "cannot",
-    "not in the background",
-];
-
-/// Whether an answer claims it starts the request in the background now,
-/// though no job was started: the safety net under the tool and the marker.
-pub fn claims_background(answer: &str) -> bool {
-    let answer = answer.to_lowercase().replace('’', "'");
-    CLAIMS.iter().any(|claim| answer.contains(claim))
-        && !DENIALS.iter().any(|denial| answer.contains(denial))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,23 +154,4 @@ mod tests {
         assert!(parse(&json!({})).is_err());
     }
 
-    #[test]
-    fn an_answer_that_claims_the_background_is_caught() {
-        assert!(claims_background(
-            "Das läuft als Hintergrundauftrag, und das Video landet im Arbeitsordner."
-        ));
-        assert!(claims_background("Mach ich im Hintergrund."));
-        assert!(claims_background("I’ll do that in the background."));
-        assert!(!claims_background("Es ist 13:29 Uhr."));
-        // A status answer about a job already running starts nothing.
-        assert!(!claims_background(
-            "Der Shop-Auftrag läuft noch im Hintergrund."
-        ));
-        assert!(!claims_background(
-            "Two jobs are running in the background."
-        ));
-        assert!(!claims_background(
-            "Das kann ich nicht im Hintergrund erledigen."
-        ));
-    }
 }

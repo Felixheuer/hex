@@ -21,7 +21,7 @@
 //!   ([`set_toggle_tasks`]).
 //! - A Here question that starts with "im Hintergrund", "in the background",
 //!   "nebenbei", "parallel", or "Hintergrund:" goes to the Background lane
-//!   instead, without those words ([`spoken_background`]).
+//!   instead, without those words (`assistant::route::spoken_background`).
 //!
 //! A hold that becomes real prewarms its lane (`assistant::service::prewarm`).
 //! The release hands the clip to transcription as
@@ -43,8 +43,6 @@ use crate::app_settings::RuntimeHotkey;
 use crate::assistant::computer::ContextHandle;
 #[cfg(test)]
 use crate::assistant::shortcut::set_toggle_tasks;
-#[cfg(test)]
-use crate::assistant::shortcut::spoken_background;
 pub(crate) use crate::assistant::shortcut::{Question, set_open_setup, submit};
 use crate::assistant::shortcut::{
     held, here_tasks, open_setup, quick_question_running, toggle_tasks,
@@ -474,70 +472,6 @@ mod tests {
             .ask(|| None, submit(submitted))
             .send(PrintedTranscript::Text("   ".into()));
         assert!(asked.recv_timeout(Duration::from_millis(200)).is_err());
-    }
-
-    /// "In the background …" sends a Here question to the Background lane
-    /// without those words, in German or English, whatever the case or the
-    /// punctuation around them.
-    #[test]
-    fn spoken_openings_route_to_the_background() {
-        for (said, rest) in [
-            (
-                "Im Hintergrund räum den Downloads-Ordner auf",
-                "räum den Downloads-Ordner auf",
-            ),
-            ("im hintergrund, räum auf.", "räum auf."),
-            ("IM HINTERGRUND: Mails sortieren", "Mails sortieren"),
-            ("  „Im Hintergrund“ – buch den Flug", "buch den Flug"),
-            (
-                "In the background, file these receipts",
-                "file these receipts",
-            ),
-            ("in the Background: check my calendar", "check my calendar"),
-            (
-                "In the background... summarise the PDF",
-                "summarise the PDF",
-            ),
-            ("Nebenbei: schreib Anna zurück", "schreib Anna zurück"),
-            ("nebenbei bestell Kaffee", "bestell Kaffee"),
-            ("Parallel, update the spreadsheet", "update the spreadsheet"),
-            (
-                "parallel lad die Rechnungen herunter",
-                "lad die Rechnungen herunter",
-            ),
-            ("Hintergrund: Downloads aufräumen", "Downloads aufräumen"),
-            ("hintergrund : Downloads aufräumen", "Downloads aufräumen"),
-            ("Im Hintergrund", ""),
-            ("In the background.", ""),
-        ] {
-            assert_eq!(spoken_background(said), Some(rest), "{said:?}");
-        }
-    }
-
-    /// Only the whole words open it: a word that merely starts like one, the
-    /// words later in the sentence, or "Hintergrund" without its colon ask
-    /// about the window in front.
-    #[test]
-    fn words_that_merely_contain_an_opening_stay_here() {
-        for said in [
-            "Parallelogramm zeichnen",
-            "Parallels Desktop öffnen",
-            "Hintergrundbild ändern",
-            "Hintergrund ändern",
-            "Hintergrund-Prozesse anzeigen",
-            "Nebenbeigesagt, was steht hier?",
-            "Im Hintergrundbild ist was?",
-            "Imhintergrund aufräumen",
-            "In the backgrounds folder, what's new?",
-            "In the back, what's that?",
-            "In thebackground",
-            "What runs in the background?",
-            "Mach das parallel",
-            "",
-            "   ",
-        ] {
-            assert_eq!(spoken_background(said), None, "{said:?}");
-        }
     }
 
     /// A Here question that opens with "im Hintergrund" becomes a new
