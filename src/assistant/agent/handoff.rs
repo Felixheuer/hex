@@ -153,5 +153,4 @@ mod tests {
         assert!(parse(&json!({"jobs": []})).is_err());
         assert!(parse(&json!({})).is_err());
     }
-
 }

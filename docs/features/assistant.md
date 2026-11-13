@@ -143,6 +143,12 @@ real speakers.
   `agent::ESCALATED_NOTE`; so does one that failed (not on a usage limit,
   not when stopped). Handing work to a job (`hex_start_jobs`) puts it on the
   strong model anyway.
+- **Stuck quick turns.** A Here turn whose backend reports nothing (no
+  stream line, no tool call or result) for 45 s is ended
+  (`agent::watchdog`, `Control::stall`) instead of showing "Thinking…" up
+  to its 30-minute limit: on the fast model the strong one takes it over
+  once, in its session; if that stalls too, or there is nothing to hand
+  over, it fails with "… Try again" (`watchdog::STALLED`).
 - **One system prompt per lane and settings.** `agent::system_for` depends
   on the settings and the task only, never on the request's words: the
   person's language and what their words or a yes allowed beyond the

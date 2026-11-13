@@ -313,6 +313,10 @@ pub enum Report {
         name: String,
         input: String,
     },
+    /// The backend said something (a stream line) that shows nothing: a
+    /// sign it still works, for a quick turn's watchdog
+    /// (`agent::watchdog`).
+    Alive,
 }
 
 impl Report {
@@ -364,6 +368,8 @@ pub struct Control {
     steered: AtomicBool,
     /// Stopped by Hex for this reason (it ran too long): a failure.
     failure: Mutex<Option<String>>,
+    /// Turns ended for making no progress (`stall`).
+    stalls: std::sync::atomic::AtomicUsize,
     groups: Mutex<Vec<Tree>>,
     /// The shell commands held while the person took the task over.
     held: Mutex<Vec<u32>>,
@@ -427,6 +433,26 @@ impl Control {
     pub fn fail(&self, reason: &str) {
         *self.failure.lock().unwrap_or_else(|e| e.into_inner()) = Some(reason.to_owned());
         self.cancel();
+    }
+
+    /// Ends the current turn's processes because it made no progress for
+    /// too long (`agent::watchdog`); unlike [`cancel`](Self::cancel) the
+    /// task goes on: the strong model takes the turn over, or it fails.
+    pub fn stall(&self) {
+        self.stalls.fetch_add(1, Ordering::AcqRel);
+        let groups = self
+            .groups
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        for group in groups {
+            end_group(group);
+        }
+    }
+
+    /// How often [`stall`](Self::stall) ended a turn of this task.
+    pub fn stalls(&self) -> usize {
+        self.stalls.load(Ordering::Acquire)
     }
 
     /// Why Hex stopped the task as failed, if it did.

@@ -24,6 +24,7 @@ pub mod goal;
 pub mod handoff;
 pub mod markers;
 pub mod team;
+pub mod watchdog;
 pub mod workspace;
 
 use std::path::PathBuf;
@@ -238,11 +239,13 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
         emit(Event::Thinking {
             conversation: id.clone(),
         });
+        let stalls = control.stalls();
         let mut result = run_backend(&run, key, control, id, emit, &mut seen, store, &mut stored);
         // A saved session the backend no longer has: start a new one that is
         // told the conversation so far.
         if first
             && let Err(error) = &result
+            && control.stalls() == stalls
             && resume.is_some()
             && !seen.streamed
             && seen.actions.is_empty()
@@ -257,7 +260,8 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
             result = run_backend(&run, key, control, id, emit, &mut seen, store, &mut stored);
         }
         // Two models: a quick turn the fast model found hard (many tool
-        // calls) or failed goes on with the strong one, in its session.
+        // calls), failed, or got stuck on (`watchdog`) goes on with the
+        // strong one, in its session.
         if run.escalate_after.is_some()
             && let Err(error) = &result
             && !control.cancelled()
@@ -276,6 +280,10 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
                 store,
                 &mut stored,
             );
+        }
+        // Stuck, and not saved by the strong model: a plain Try again.
+        if result.is_err() && control.stalls() > stalls && !control.cancelled() {
+            result = Err(color_eyre::eyre::eyre!(watchdog::STALLED));
         }
         first = false;
         let actions = std::mem::take(&mut seen.actions);
@@ -631,6 +639,7 @@ fn run_backend(
     stored: &mut Stored,
 ) -> color_eyre::Result<provider::Finished> {
     let mut report = |report: Report| match report {
+        Report::Alive => {}
         Report::Thinking => emit(Event::Thinking {
             conversation: id.clone(),
         }),
@@ -692,7 +701,13 @@ fn run_backend(
             }
         }
     };
-    provider::run(run, control, &mut report)
+    // A quick turn that reports nothing for too long is ended (`watchdog`).
+    watchdog::watch(control, watchdog::limit(run), |touch| {
+        provider::run(run, control, &mut |sign: Report| {
+            touch();
+            report(sign);
+        })
+    })
 }
 
 /// Keeps what a run did before it stopped to go on later (steered, or
