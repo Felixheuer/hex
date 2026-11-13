@@ -446,6 +446,7 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
             down: grow.down,
             max_h: (inner_h - taken).max(jobs::LINE_H + 2.0 * GAP),
             appear: pop_in(grow),
+            still: look.still,
         };
         // The job rows and the person's desk (what quick turns opened,
         // live, until let go) in one column that scrolls inside the panel.
@@ -460,7 +461,7 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
                     .collect::<Vec<_>>(),
                 &layout,
                 room,
-                minis::view(p, &look.desk, actions.list),
+                minis::view(p, &look.desk, look.still, actions.list),
                 actions.list,
                 actions.jobs,
             )

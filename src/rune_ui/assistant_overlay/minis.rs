@@ -15,9 +15,9 @@ use std::time::Duration;
 use rune::{El, col, el, icon, row, text};
 
 use super::super::controls::Paint;
-use super::super::icons::GLOBE;
+use super::super::icons::{GLOBE, PANEL};
 use super::jobs::{THUMB_H, THUMB_W};
-use super::{app_live, live, stack};
+use super::{app_live, live, look, stack};
 use crate::assistant::TaskWindow;
 use crate::desktop::i18n::{tr, tr_fill};
 
@@ -82,20 +82,24 @@ pub(crate) fn watch(changed: fn()) {
 }
 
 /// The desk's row at the orb; `None` when it's empty.
-pub(crate) fn view<S: 'static>(p: Paint, desk: &Desk, actions: stack::Actions<S>) -> Option<El> {
+pub(crate) fn view<S: 'static>(
+    p: Paint,
+    desk: &Desk,
+    still: bool,
+    actions: stack::Actions<S>,
+) -> Option<El> {
     let desk = desk.clone();
     if desk.is_empty() {
         return None;
     }
-    let c = &p.k.c;
     let apps = app_live::previews(DESK);
     let mut cells: Vec<El> = apps
         .iter()
-        .map(|preview| app_cell::<S>(p, preview))
+        .map(|preview| app_cell::<S>(p, preview, still))
         .collect();
     for task in &desk.browsers {
         for preview in live::previews(task) {
-            cells.push(browser_cell(p, task, &preview, actions));
+            cells.push(browser_cell(p, task, &preview, still, actions));
         }
     }
     // Windows whose picture hasn't come yet: their name.
@@ -113,61 +117,43 @@ pub(crate) fn view<S: 'static>(p: Paint, desk: &Desk, actions: stack::Actions<S>
         return None;
     }
     Some(
-        col()
-            .key("desk-minis")
-            .w(super::jobs::CARD_W)
-            .px(10.0)
-            .py(8.0)
-            .gap(4.0)
-            .radius(14.0)
-            .fill(c.bg_base)
-            .border(p.hair, c.border_base)
-            .box_shadow(rune::Shadow {
-                x: 0.0,
-                y: 3.0,
-                blur: 12.0,
-                spread: 0.0,
-                color: rune::Color::BLACK.alpha(if p.k.dark { 0.4 } else { 0.12 }),
-                inset: false,
-            })
-            .role("group")
-            .label(tr("Your desk"))
-            .child(
-                text(tr("Your desk"))
-                    .key("desk-title")
-                    .font(p.k.ty.small_medium)
-                    .color(p.muted()),
-            )
-            .child(
-                row()
-                    .key("desk-cells")
-                    .gap(6.0)
-                    .wrap()
-                    .role("list")
-                    .children(cells),
-            ),
+        look::material(
+            p,
+            col()
+                .key("desk-minis")
+                .w(super::jobs::CARD_W)
+                .padding(11.0)
+                .gap(6.0),
+        )
+        .role("group")
+        .label(tr("Your desk"))
+        .child(
+            text(tr("Your desk"))
+                .key("desk-title")
+                .font(look::label(p))
+                .color(p.muted()),
+        )
+        .child(
+            row()
+                .key("desk-cells")
+                .gap(6.0)
+                .wrap()
+                .role("list")
+                .children(cells),
+        ),
     )
 }
 
 /// A window's live picture with its name and ×.
-fn app_cell<S: 'static>(p: Paint, preview: &app_live::AppPreview) -> El {
-    let c = &p.k.c;
-    let base = el()
-        .key(format!("desk-app-{}", preview.number))
-        .size(THUMB_W, THUMB_H)
-        .radius(6.0)
-        .fill(c.layer_02)
-        .border(p.hair, p.k.alpha(c.text_base, 0.14));
-    let picture = if preview.has_frame() {
-        base.pixels_fit(&preview.pixels, rune::SurfaceFit::Fill)
-    } else {
-        base.center().px(4.0).child(
-            text(preview.window.app.clone())
-                .truncate()
-                .font(p.k.ty.small)
-                .color(p.faint()),
-        )
-    };
+fn app_cell<S: 'static>(p: Paint, preview: &app_live::AppPreview, still: bool) -> El {
+    let picture = super::jobs::mini(
+        p,
+        format!("desk-app-{}", preview.number),
+        &preview.pixels,
+        look::liveness(preview.clock.age(preview.has_frame()), preview.failed()),
+        (&PANEL, &preview.window.app),
+        still,
+    );
     let number = preview.number;
     let name = preview.window.app.clone();
     let id = preview.window.window_id.clone().unwrap_or_default();
@@ -194,22 +180,26 @@ fn browser_cell<S: 'static>(
     p: Paint,
     task: &str,
     preview: &live::Preview,
+    still: bool,
     actions: stack::Actions<S>,
 ) -> El {
-    let c = &p.k.c;
-    let base = el()
-        .key(format!("desk-browser-{}", preview.session))
-        .size(THUMB_W, THUMB_H)
-        .radius(6.0)
-        .fill(c.layer_02)
-        .border(p.hair, p.k.alpha(c.text_base, 0.14));
-    let picture = if preview.has_frame() {
-        base.pixels_fit(&preview.pixels, rune::SurfaceFit::Fill)
-    } else {
-        base.center()
-            .child(icon(&GLOBE, 14.0).color(p.faint()).a11y_hidden())
-    };
     let page = preview.page();
+    let title = if page.title.is_empty() {
+        live::host_of(&page.url).unwrap_or_else(|| tr("Browser").to_owned())
+    } else {
+        page.title.clone()
+    };
+    let picture = super::jobs::mini(
+        p,
+        format!("desk-browser-{}", preview.session),
+        &preview.pixels,
+        look::liveness(
+            preview.clock.age(preview.has_frame()),
+            page.failed.is_some(),
+        ),
+        (&GLOBE, &title),
+        still,
+    );
     let name = live::host_of(&page.url).unwrap_or_else(|| tr("Browser").to_owned());
     let open = actions.open_preview;
     let (owner, session) = (task.to_owned(), preview.session.clone());
@@ -238,21 +228,14 @@ fn browser_cell<S: 'static>(
 /// A window on the desk whose picture hasn't come (or can't: no Screen
 /// Recording).
 fn waiting_cell<S: 'static>(p: Paint, window: &TaskWindow) -> El {
-    let c = &p.k.c;
     let id = window.window_id.clone().unwrap_or_default();
-    let picture = el()
-        .key(format!("desk-wait-{id}"))
-        .size(THUMB_W, THUMB_H)
-        .radius(6.0)
-        .fill(c.layer_02)
-        .center()
-        .px(4.0)
-        .child(
-            text(window.app.clone())
-                .truncate()
-                .font(p.k.ty.small)
-                .color(p.faint()),
-        );
+    let picture = el().key(format!("desk-wait-{id}")).child(look::no_picture(
+        p,
+        &PANEL,
+        &window.app,
+        look::Liveness::Waiting,
+        (THUMB_W, THUMB_H),
+    ));
     cell::<S>(
         p,
         format!("desk-wait-cell-{id}"),
@@ -295,7 +278,7 @@ fn cell<S: 'static>(
         .child(
             text(name.to_owned())
                 .truncate()
-                .font(p.k.ty.small)
+                .font(look::meta(p))
                 .color(p.muted())
                 .min_w(0.0),
         )

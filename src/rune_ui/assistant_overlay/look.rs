@@ -39,7 +39,9 @@ use rune_kit::{Button, ButtonVariant, ControlSize};
 use super::super::controls::Paint;
 use super::board::Phase;
 use super::palette;
-use crate::desktop::i18n::tr;
+use std::time::Duration;
+
+use crate::desktop::i18n::{tr, tr_fill};
 
 // ------------------------------------------------------------------ sizes
 
@@ -584,6 +586,145 @@ pub(crate) fn step_line(p: Paint, tag: Option<&str>, words: &str, step: Step) ->
         )
 }
 
+// ------------------------------------------------------------------ live minis
+
+/// How often the rail looks again at its minis' streams while they show.
+pub(crate) const LIVE_TICK: Duration = Duration::from_secs(1);
+/// A stream with no frame for longer than this has stalled: its mini says
+/// how long ago its last frame came instead of "Live".
+pub(crate) const STALL: Duration = Duration::from_secs(3);
+
+/// How live a mini's picture is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Liveness {
+    /// Frames keep coming: a small pulsing "Live" dot.
+    Live,
+    /// The last frame came this long ago (more than [`STALL`]).
+    Stalled(Duration),
+    /// No picture yet: the page's or window's words stand in.
+    Waiting,
+    /// No picture can come (closed, minimized, no Screen Recording, a light
+    /// browser that draws none).
+    None,
+}
+
+/// A picture's [`Liveness`] from how long ago its latest frame came
+/// (`None`: no frame yet) and whether it can't get one.
+pub(crate) fn liveness(age: Option<Duration>, failed: bool) -> Liveness {
+    match age {
+        Some(age) if age > STALL => Liveness::Stalled(age),
+        Some(_) => Liveness::Live,
+        None if failed => Liveness::None,
+        None => Liveness::Waiting,
+    }
+}
+
+/// "4 s ago", "2 min ago".
+pub(crate) fn ago(age: Duration) -> String {
+    let seconds = age.as_secs();
+    if seconds < 60 {
+        tr_fill("{} s ago", &seconds.to_string())
+    } else {
+        tr_fill("{} min ago", &(seconds / 60).to_string())
+    }
+}
+
+/// The badge in a mini's top-left corner: "● Live", the dot pulsing
+/// (still with Reduce motion), while frames come; "8 s ago" once they
+/// stall; nothing without a picture (its fallback says why). On a dark
+/// glass pill so it reads over any picture.
+pub(crate) fn live_badge(p: Paint, liveness: Liveness, still: bool) -> Option<El> {
+    let (words, live) = match liveness {
+        Liveness::Live => (tr("Live").to_owned(), true),
+        Liveness::Stalled(age) => (ago(age), false),
+        Liveness::Waiting | Liveness::None => return None,
+    };
+    let dot = dot(
+        if live {
+            palette::agent(true)
+        } else {
+            Color::WHITE.alpha(0.55)
+        },
+        6.0,
+    );
+    // While live, a soft halo breathes around the dot (still with Reduce
+    // motion); the dot and the words stay steady.
+    let halo = (live && !still).then(|| {
+        el().absolute(-2.0, -2.0)
+            .size(10.0, 10.0)
+            .radius(5.0)
+            .fill(palette::agent(true).alpha(0.45))
+            .a11y_hidden()
+            .looping(rune_motion::LoopSpec::opacity(1.2, 0.0, 0.0, 1.0))
+    });
+    let dot = el().size(6.0, 6.0).children(halo).child(dot);
+    Some(
+        row()
+            .key(if live { "mini-live" } else { "mini-stalled" })
+            .h(16.0)
+            .px(6.0)
+            .gap(4.0)
+            .center_y()
+            .radius(8.0)
+            .fill(Color::BLACK.alpha(0.55))
+            .label(words.clone())
+            .child(dot)
+            .child(
+                text(words)
+                    .font(TextStyle {
+                        size: 10.0,
+                        line_height: 12.0,
+                        ..meta(p)
+                    })
+                    .color(Color::WHITE.alpha(if live { 0.95 } else { 0.75 }))
+                    .a11y_hidden(),
+            ),
+    )
+}
+
+/// What a mini shows without a picture: its glyph, the page's title or the
+/// window's app, and why there's no picture ("Waiting for a picture…", "No
+/// live picture"), `w` × `h`.
+pub(crate) fn no_picture(
+    p: Paint,
+    glyph: &'static Icon,
+    title: &str,
+    liveness: Liveness,
+    (w, h): (f32, f32),
+) -> El {
+    let c = &p.k.c;
+    let why = if liveness == Liveness::None {
+        tr("No live picture")
+    } else {
+        tr("Waiting for a picture…")
+    };
+    col()
+        .key("mini-none")
+        .size(w, h)
+        .padding(8.0)
+        .gap(3.0)
+        .radius(8.0)
+        .fill(c.layer_02)
+        .border_dash(4.0, 3.0)
+        .border(p.hair.max(1.0), c.border_base)
+        .child(icon(glyph, 13.0).color(p.faint()).a11y_hidden())
+        .child(
+            text(title.to_owned())
+                .font(label(p))
+                .color(p.muted())
+                .wrap()
+                .max_lines(2)
+                .grow(1.0),
+        )
+        .child(
+            text(why)
+                .key("mini-why")
+                .font(meta(p))
+                .color(p.faint())
+                .truncate(),
+        )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -617,6 +758,19 @@ mod tests {
             assert!(State::of(phase).is_some(), "{phase:?}");
         }
         assert_eq!(State::of(Phase::Stopped), None);
+    }
+
+    #[test]
+    fn a_mini_says_live_then_how_long_ago_once_its_stream_stalls() {
+        use std::time::Duration;
+        assert_eq!(liveness(Some(Duration::ZERO), false), Liveness::Live);
+        assert_eq!(liveness(Some(STALL), false), Liveness::Live);
+        let stalled = Duration::from_secs(8);
+        assert_eq!(liveness(Some(stalled), false), Liveness::Stalled(stalled));
+        assert_eq!(liveness(None, false), Liveness::Waiting);
+        assert_eq!(liveness(None, true), Liveness::None);
+        assert_eq!(ago(stalled), "8 s ago");
+        assert_eq!(ago(Duration::from_secs(150)), "2 min ago");
     }
 
     #[test]

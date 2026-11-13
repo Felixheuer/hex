@@ -1470,6 +1470,10 @@ fn snapshots() {
             let (w, h) = px(bubble::SIZE);
             save(name, bubble::SIZE, backdrop(&gpu, &mut rt, w, h, dark));
         }
+        // A mini in each of its liveness states.
+        let mut rt = runtime((), minis_states, MINIS_SIZE, dark);
+        let (w, h) = px(MINIS_SIZE);
+        save("minis", MINIS_SIZE, backdrop(&gpu, &mut rt, w, h, dark));
         // A failed quick question, in English and in German (the window
         // and the question both).
         let failures = [
@@ -1507,6 +1511,89 @@ fn snapshots() {
         }
         crate::desktop::i18n::apply(Some("en"));
     }
+}
+
+const MINIS_SIZE: (f32, f32) = (380.0, 260.0);
+
+/// A picture standing in for a page, for [`minis_states`].
+fn stand_in() -> rune::Pixels {
+    let (w, h) = (300u32, 188u32);
+    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let top = y < 26;
+            let (r, g, b) = if top {
+                (230, 232, 236)
+            } else if (40..110).contains(&y) && x > 16 && x < 284 {
+                (40 + (x / 3) as u8, 140, 190)
+            } else if y > 124 && y % 18 < 6 && x > 16 && x < 200 {
+                (205, 208, 214)
+            } else {
+                (250, 250, 251)
+            };
+            rgba.extend_from_slice(&[r, g, b, 255]);
+        }
+    }
+    let pixels = rune::Pixels::new();
+    pixels.set(w, h, rgba);
+    pixels
+}
+
+/// The four looks of a mini: live, stalled, waiting for its first picture,
+/// and without one.
+fn minis_states(_: &(), cx: &mut Cx<()>) -> El {
+    use super::look::Liveness;
+    let p = super::super::controls::Paint::new(cx.system_dark(), cx.env().scale);
+    let picture = stand_in();
+    let none = rune::Pixels::new();
+    let cell = |liveness, pixels: &rune::Pixels, title: &str, name: &str| {
+        rune::col()
+            .gap(3.0)
+            .child(super::jobs::mini(
+                p,
+                format!("mini-{name}"),
+                pixels,
+                liveness,
+                (&super::super::icons::GLOBE, title),
+                true,
+            ))
+            .child(
+                rune::text(name.to_owned())
+                    .font(super::look::meta(p))
+                    .color(p.muted()),
+            )
+    };
+    super::look::material(
+        p,
+        rune::col().w(super::look::RAIL_W).padding(16.0).gap(12.0),
+    )
+    .child(
+        rune::row()
+            .gap(8.0)
+            .child(cell(Liveness::Live, &picture, "Resy", "resy.com · live"))
+            .child(cell(
+                Liveness::Stalled(std::time::Duration::from_secs(8)),
+                &picture,
+                "Resy",
+                "resy.com · stalled",
+            )),
+    )
+    .child(
+        rune::row()
+            .gap(8.0)
+            .child(cell(
+                Liveness::Waiting,
+                &none,
+                "Nopa – Book a table",
+                "nopa.com · waiting",
+            ))
+            .child(cell(
+                Liveness::None,
+                &none,
+                "Supplier list",
+                "light browser",
+            )),
+    )
 }
 
 /// `rt` drawn over a desktop grey, as the clear overlay sits on screen.

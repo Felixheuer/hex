@@ -31,7 +31,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod drive;
 mod frames;
@@ -106,12 +106,39 @@ pub(crate) struct Preview {
     /// The latest frame at full size, kept while hovered or viewed large.
     pub(crate) full: rune::Pixels,
     page: Mutex<Page>,
+    /// When its latest frame came, for how live its mini looks.
+    pub(crate) clock: FrameClock,
     writer: Mutex<Option<Writer>>,
     /// The [`Rate`] it streams at.
     rate: AtomicU8,
     /// Reconnect now (a fresh first frame), not after [`RETRY`].
     refresh: AtomicBool,
     stop: AtomicBool,
+}
+
+/// When a live picture's latest frame came: its mini says "live" while
+/// frames keep coming and how long ago the last one came once they stall
+/// (`look::live_badge`).
+#[derive(Debug, Default)]
+pub(crate) struct FrameClock(Mutex<Option<Instant>>);
+
+impl FrameClock {
+    /// A frame came now.
+    pub(crate) fn tick(&self) {
+        if let Ok(mut at) = self.0.lock() {
+            *at = Some(Instant::now());
+        }
+    }
+
+    /// How long ago the latest frame came; a picture painted without a
+    /// stream (a fixture) is always fresh, and one without a frame has none.
+    pub(crate) fn age(&self, has_frame: bool) -> Option<Duration> {
+        let at = self.0.lock().ok().and_then(|at| *at);
+        match at {
+            Some(at) => Some(at.elapsed()),
+            None => has_frame.then_some(Duration::ZERO),
+        }
+    }
 }
 
 /// The page a preview shows, as the stream last said.
@@ -134,6 +161,7 @@ impl Preview {
             pixels: rune::Pixels::new(),
             full: rune::Pixels::new(),
             page: Mutex::new(Page::default()),
+            clock: FrameClock::default(),
             writer: Mutex::new(None),
             rate: AtomicU8::new(Rate::Idle as u8),
             refresh: AtomicBool::new(false),
@@ -749,16 +777,16 @@ mod tests {
                 fixture: false,
             },
         );
-        // A card's first three browsers stream slowly; the fourth on is "+3".
+        // A card's first two browsers (its minis) stream; the third on is "+4".
         assert_eq!(
             rate_of(&registry, "carded", "hex-carded_0"),
             Rate::Background
         );
         assert_eq!(
-            rate_of(&registry, "carded", "hex-carded_2"),
+            rate_of(&registry, "carded", "hex-carded_1"),
             Rate::Background
         );
-        assert_eq!(rate_of(&registry, "carded", "hex-carded_3"), Rate::Idle);
+        assert_eq!(rate_of(&registry, "carded", "hex-carded_2"), Rate::Idle);
         // A job folded into the count line streams nothing until it shows.
         assert_eq!(rate_of(&registry, "folded", "hex-folded"), Rate::Idle);
         registry.hovered = Some("folded".into());

@@ -117,6 +117,11 @@ overlay_strings![
     ("In front", ["Na wierzchu", "在前台", "前面で操作中", "Im Vordergrund", "Al frente", "На передньому плані", "Na frente", "Au premier plan", "На переднем плане"]),
     ("Needs you", ["Potrzebuje cię", "需要你", "対応が必要", "Braucht dich", "Te necesita", "Потребує вас", "Precisa de você", "Vous attend", "Нужны вы"]),
     ("{} needs you", ["Potrzebują cię: {}", "{} 个需要你", "{} 件の対応が必要", "{} braucht dich", "{} te necesita", "Потребують вас: {}", "{} precisa de você", "{} vous attend", "Нужны вы: {}"]),
+    // A mini's liveness (`look::live_badge`, `look::no_picture`).
+    ("Live", ["Na żywo", "实时", "ライブ", "Live", "En vivo", "Наживо", "Ao vivo", "En direct", "Вживую"]),
+    ("{} s ago", ["{} s temu", "{} 秒前", "{} 秒前", "vor {} s", "hace {} s", "{} с тому", "há {} s", "il y a {} s", "{} с назад"]),
+    ("{} min ago", ["{} min temu", "{} 分钟前", "{} 分前", "vor {} min", "hace {} min", "{} хв тому", "há {} min", "il y a {} min", "{} мин назад"]),
+    ("Waiting for a picture…", ["Czekam na obraz…", "正在等待画面…", "映像を待っています…", "Warte auf ein Bild…", "Esperando la imagen…", "Чекаю на зображення…", "Aguardando a imagem…", "En attente d'une image…", "Жду изображение…"]),
     // The rail.
     ("1 job", ["1 zadanie", "1 个任务", "1 件の仕事", "1 Auftrag", "1 trabajo", "1 завдання", "1 tarefa", "1 tâche", "1 задача"]),
     ("{} jobs", ["Zadania: {}", "{} 个任务", "{} 件の仕事", "{} Aufträge", "{} trabajos", "Завдань: {}", "{} tarefas", "{} tâches", "Задач: {}"]),

@@ -345,8 +345,9 @@ pub(super) fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
     arm(orb, tx, now);
 }
 
-/// Wakes the orb when its next finished task or bubble is due to leave, or
-/// a waiting task's countdown next changes.
+/// Wakes the orb when its next finished task or bubble is due to leave, a
+/// waiting task's countdown next changes, or (while its rows show live
+/// pictures) each `look::LIVE_TICK`.
 pub(super) fn arm(orb: &mut Orb, tx: &mut Tx, now: Instant) {
     let now_ms = when::now_ms();
     let tick = orb
@@ -359,7 +360,17 @@ pub(super) fn arm(orb: &mut Orb, tx: &mut Tx, now: Instant) {
         })
         .min()
         .map(|after| now + after);
-    let next = orb.board.next_expiry().into_iter().chain(tick).min();
+    // While job rows show live pictures, look again each second, so a
+    // stalled stream's mini says how long ago its last frame came.
+    let live = super::super::jobs::watching(&orb.board, orb.expanded)
+        .then(|| now + super::super::look::LIVE_TICK);
+    let next = orb
+        .board
+        .next_expiry()
+        .into_iter()
+        .chain(tick)
+        .chain(live)
+        .min();
     if let Some(at) = next
         && next != orb.armed
     {
@@ -379,7 +390,7 @@ pub(super) fn orb_poll(orb: &mut Orb, _clock: f64, tx: &mut Tx) -> bool {
         // A countdown's minute, or woken a little early: look again.
         orb.armed = None;
         arm(orb, tx, now);
-        return orb.board.waiting();
+        return orb.board.waiting() || super::super::jobs::watching(&orb.board, orb.expanded);
     }
     false
 }

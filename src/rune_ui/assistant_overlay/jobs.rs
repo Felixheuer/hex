@@ -16,7 +16,7 @@
 
 use std::time::Instant;
 
-use rune::{El, col, el, icon, row, text};
+use rune::{El, col, el, row, text};
 
 use super::super::controls::Paint;
 use super::super::icons::{GLOBE, PANEL};
@@ -31,12 +31,12 @@ use crate::desktop::i18n::{tr, tr_fill};
 /// head, one question, three job rows, and one result).
 pub(crate) const MAX_ROWS: usize = 3;
 /// Browsers shown on a row; more show as "+N".
-pub(crate) const MAX_THUMBS: usize = 3;
+pub(crate) const MAX_THUMBS: usize = 2;
 /// A row's width: the rail's.
 pub(crate) const CARD_W: f32 = look::RAIL_W;
-/// A browser's thumbnail on a row.
-pub(crate) const THUMB_W: f32 = 96.0;
-pub(crate) const THUMB_H: f32 = 60.0;
+/// A mini on a row: two to a row, large enough for its motion to read.
+pub(crate) const THUMB_W: f32 = 150.0;
+pub(crate) const THUMB_H: f32 = 94.0;
 /// The "more" line's height.
 pub(crate) const LINE_H: f32 = 36.0;
 
@@ -161,6 +161,8 @@ pub(crate) struct Room {
     pub(crate) max_h: f32,
     /// How a row comes and goes.
     pub(crate) appear: rune::Transition,
+    /// Hold the minis' "Live" pulse still (Reduce motion, or a render).
+    pub(crate) still: bool,
 }
 
 /// The rows (and the "more" line) for `jobs`, as laid out: one column that
@@ -196,6 +198,7 @@ pub(crate) fn view<S: 'static>(
                 &helpers_of(team, &task.id),
                 actions,
                 line_actions.wall,
+                room.still,
             )
             .transition(room.appear)
         })
@@ -253,6 +256,7 @@ pub(crate) fn view<S: 'static>(
 /// choosing a time"); its browsers and windows, live; its helpers; and a
 /// thin plan bar. A press opens the task list with its plan, Take over,
 /// and Stop.
+#[allow(clippy::too_many_arguments)]
 fn card<S: 'static>(
     p: Paint,
     task: &Task,
@@ -261,6 +265,7 @@ fn card<S: 'static>(
     helpers: &[&Task],
     actions: stack::Actions<S>,
     open_wall: fn(&mut S, &str),
+    still: bool,
 ) -> El {
     let c = &p.k.c;
     let colour = palette::task(task.colour, p.k.dark);
@@ -334,11 +339,11 @@ fn card<S: 'static>(
     let browsers = (apps_shown + shown > 0).then(|| {
         let mut cells: Vec<El> = apps[..apps_shown]
             .iter()
-            .map(|preview| app_thumb(p, &task.id, preview, actions))
+            .map(|preview| app_thumb(p, &task.id, preview, still, actions))
             .chain(
                 previews[..shown]
                     .iter()
-                    .map(|preview| thumb(p, &task.id, preview, actions)),
+                    .map(|preview| thumb(p, &task.id, preview, still, actions)),
             )
             .collect();
         // The rest as "+N" on the last picture; a press shows them all.
@@ -442,8 +447,12 @@ pub(crate) fn whereabouts(task: &Task) -> Option<String> {
         Phase::Running => app.is_some().then(|| tr("in background").to_owned()),
         _ => None,
     };
-    let parts: Vec<String> = app.into_iter().chain(how).collect();
-    (!parts.is_empty()).then(|| capitalised(&parts.join(" · ")))
+    // The state alone starts the line: in capitals ("Queued"); an app or
+    // a site keeps its own spelling.
+    match app {
+        Some(app) => Some(how.map_or(app.clone(), |how| format!("{app} · {how}"))),
+        None => how.map(|how| capitalised(&how)),
+    }
 }
 
 /// What a job does now, in its plan's words (or its latest step, or
@@ -541,42 +550,86 @@ fn card_label(task: &Task) -> String {
     label
 }
 
-/// One browser on a card, sharp from its thumbnail stream; a press opens it
-/// large in the overlay.
-fn thumb<S: 'static>(p: Paint, task: &str, preview: &Preview, actions: stack::Actions<S>) -> El {
+/// A mini: its picture (or, without one, `look::no_picture`) with its
+/// liveness badge in the corner ("● Live" pulsing while frames come, "8 s
+/// ago" once they stall), in a frame `key`ed for the ring around it.
+pub(crate) fn mini(
+    p: Paint,
+    key: String,
+    pixels: &rune::Pixels,
+    liveness: look::Liveness,
+    fallback: (&'static rune::Icon, &str),
+    still: bool,
+) -> El {
     let c = &p.k.c;
-    let base = el()
-        .key(format!("job-thumb-{}", preview.session))
-        .size(THUMB_W, THUMB_H)
-        .radius(6.0)
-        .fill(c.layer_02)
-        .border(p.hair, p.k.alpha(c.text_base, 0.14));
-    let picture = if preview.has_frame() {
-        base.pixels_fit(&preview.pixels, rune::SurfaceFit::Fill)
+    let picture = if pixels.size() != (0, 0) {
+        el().key(key)
+            .size(THUMB_W, THUMB_H)
+            .radius(8.0)
+            .fill(c.layer_02)
+            .border(p.hair, p.k.alpha(c.text_base, 0.14))
+            .pixels_fit(pixels, rune::SurfaceFit::Fill)
     } else {
-        base.center()
-            .child(icon(&GLOBE, 14.0).color(p.faint()).a11y_hidden())
+        el().key(key).child(look::no_picture(
+            p,
+            fallback.0,
+            fallback.1,
+            liveness,
+            (THUMB_W, THUMB_H),
+        ))
     };
-    let open = actions.open_preview;
-    let (task, session) = (task.to_owned(), preview.session.clone());
+    el().size(THUMB_W, THUMB_H)
+        .child(picture)
+        .children(look::live_badge(p, liveness, still).map(|badge| badge.absolute(6.0, 6.0)))
+}
+
+/// One browser on a card, live from its thumbnail stream; a press opens it
+/// large in the overlay.
+fn thumb<S: 'static>(
+    p: Paint,
+    task: &str,
+    preview: &Preview,
+    still: bool,
+    actions: stack::Actions<S>,
+) -> El {
+    let page = preview.page();
+    let liveness = look::liveness(
+        preview.clock.age(preview.has_frame()),
+        page.failed.is_some(),
+    );
     // Its site under it, so a row says where it works.
-    let name = live::host_of(&preview.page().url).unwrap_or_else(|| {
+    let name = live::host_of(&page.url).unwrap_or_else(|| {
         if preview.name.is_empty() {
             tr("Main browser").to_owned()
         } else {
             preview.name.clone()
         }
     });
+    let title = if page.title.is_empty() {
+        name.clone()
+    } else {
+        page.title.clone()
+    };
+    let picture = mini(
+        p,
+        format!("job-thumb-{}", preview.session),
+        &preview.pixels,
+        liveness,
+        (&GLOBE, &title),
+        still,
+    );
+    let open = actions.open_preview;
+    let (task, session) = (task.to_owned(), preview.session.clone());
     let captioned = col()
         .key(format!("job-thumb-cell-{}", preview.session))
         .w(THUMB_W)
-        .gap(2.0)
+        .gap(3.0)
         .child(picture)
         .child(
             text(name.clone())
                 .key("job-thumb-name")
                 .truncate()
-                .font(p.k.ty.small)
+                .font(look::meta(p))
                 .color(p.muted())
                 .min_w(0.0),
         );
@@ -595,39 +648,31 @@ fn app_thumb<S: 'static>(
     p: Paint,
     task: &str,
     preview: &AppPreview,
+    still: bool,
     actions: stack::Actions<S>,
 ) -> El {
-    let c = &p.k.c;
-    let base = el()
-        .key(format!("job-app-{}", preview.number))
-        .size(THUMB_W, THUMB_H)
-        .radius(6.0)
-        .fill(c.layer_02)
-        .border(p.hair, p.k.alpha(c.text_base, 0.14));
-    let picture = if preview.has_frame() {
-        base.pixels_fit(&preview.pixels, rune::SurfaceFit::Fill)
-    } else {
-        // Its name until the first picture comes.
-        base.center().px(4.0).child(
-            text(preview.window.app.clone())
-                .truncate()
-                .font(p.k.ty.small)
-                .color(p.faint()),
-        )
-    };
+    let liveness = look::liveness(preview.clock.age(preview.has_frame()), preview.failed());
+    let name = preview.window.app.clone();
+    let picture = mini(
+        p,
+        format!("job-app-{}", preview.number),
+        &preview.pixels,
+        liveness,
+        (&PANEL, &name),
+        still,
+    );
     let open = actions.open_preview;
     let (task, session) = (task.to_owned(), preview.session());
-    let name = preview.window.app.clone();
     let captioned = col()
         .key(format!("job-app-cell-{}", preview.number))
         .w(THUMB_W)
-        .gap(2.0)
+        .gap(3.0)
         .child(picture)
         .child(
             text(name.clone())
                 .key("job-app-name")
                 .truncate()
-                .font(p.k.ty.small)
+                .font(look::meta(p))
                 .color(p.muted())
                 .min_w(0.0),
         );
@@ -640,6 +685,14 @@ fn app_thumb<S: 'static>(
     )
 }
 
+/// Whether the rail shows live pictures now (the list folded, a job row
+/// with a browser or window): it then looks again each `look::LIVE_TICK`,
+/// so a stalled stream says so.
+pub(crate) fn watching(board: &super::board::Board, open: bool) -> bool {
+    orb::carded(board, open)
+        .iter()
+        .any(|id| !live::previews(id).is_empty() || !app_live::previews(id).is_empty())
+}
 /// The jobs past the rows: one "N more" line with each one's dot; a press
 /// (or its list button) opens the task list in place, where every job is.
 fn line<S: 'static>(p: Paint, rest: &[&Task], count: usize, actions: stack::Actions<S>) -> El {
@@ -806,16 +859,18 @@ mod tests {
     }
 
     #[test]
-    fn a_card_shows_three_pictures_apps_first_and_counts_the_rest() {
+    fn a_card_shows_two_large_pictures_apps_first_and_counts_the_rest() {
         // Browsers alone.
         assert_eq!(strip(0, 0), (0, 0, 0));
-        assert_eq!(strip(0, 3), (0, 3, 0));
-        assert_eq!(strip(0, 12), (0, 3, 9));
-        // App windows first, browsers in the room left, one strip of three.
-        assert_eq!(strip(1, 2), (1, 2, 0));
-        assert_eq!(strip(2, 5), (2, 1, 4));
-        assert_eq!(strip(6, 1), (3, 0, 4));
-        // Three pictures fill a row's strip, set in past its dot.
+        assert_eq!(strip(0, 2), (0, 2, 0));
+        assert_eq!(strip(0, 12), (0, 2, 10));
+        // App windows first, browsers in the room left, one strip of two.
+        assert_eq!(strip(1, 2), (1, 1, 1));
+        assert_eq!(strip(2, 5), (2, 0, 5));
+        assert_eq!(strip(6, 1), (2, 0, 5));
+        // Two pictures fill a row's strip, set in past its dot, each large
+        // enough for its motion to read.
+        const { assert!(THUMB_W >= 140.0 && THUMB_H >= 85.0) };
         let strip_w = MAX_THUMBS as f32 * THUMB_W + (MAX_THUMBS - 1) as f32 * THUMB_GAP;
         assert!(strip_w <= CARD_W - 2.0 * CARD_PAD - STEP_INSET, "{strip_w}");
     }
