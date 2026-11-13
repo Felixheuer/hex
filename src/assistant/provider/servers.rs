@@ -108,11 +108,11 @@ mod tests {
         run.browser = Some(browser());
 
         let claude: Value = serde_json::from_str(&claude_config(&run).unwrap()).unwrap();
-        assert_eq!(claude["mcpServers"]["agent-desktop"]["args"][2], "s1");
+        assert_eq!(claude["mcpServers"]["desktop"]["args"][2], "s1");
         assert_eq!(claude["mcpServers"]["agent-browser"]["args"][2], "t1");
         let (allowed, withheld) = claude_tools(&run);
-        assert_eq!(allowed, ["mcp__agent-desktop", "mcp__agent-browser"]);
-        assert!(withheld.contains(&"mcp__agent-desktop__desktop_session_end".to_owned()));
+        assert_eq!(allowed, ["mcp__desktop", "mcp__agent-browser"]);
+        assert!(withheld.contains(&"mcp__desktop__desktop_session_end".to_owned()));
 
         let codex = codex_args(&run);
         assert!(
@@ -120,7 +120,7 @@ mod tests {
                 .contains(&r#"mcp_servers.agent-browser.args=["mcp","--session","t1"]"#.to_owned())
         );
         assert!(codex.iter().any(
-            |arg| arg.starts_with("mcp_servers.agent-desktop.enabled_tools=")
+            |arg| arg.starts_with("mcp_servers.desktop.enabled_tools=")
                 && arg.contains("desktop_claim_window")
                 && arg.contains("hex_installed_apps")
                 && arg.contains("hex_open_app")
@@ -136,6 +136,6 @@ mod tests {
             opencode["agent-browser"]["command"],
             serde_json::json!(["/opt/homebrew/bin/agent-browser", "mcp", "--session", "t1"])
         );
-        assert_eq!(opencode["agent-desktop"]["type"], "local");
+        assert_eq!(opencode["desktop"]["type"], "local");
     }
 }

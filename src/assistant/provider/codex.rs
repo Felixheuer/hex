@@ -1,7 +1,7 @@
 //! Codex: `codex exec --json`, signed in with the person's ChatGPT account.
 //!
 //! The prompt goes in on stdin, Hex's instructions as `developer_instructions`,
-//! and agent-desktop as an MCP server through `-c mcp_servers.agent-desktop.*`
+//! and agent-desktop as an MCP server through `-c mcp_servers.desktop.*`
 //! with its tools approved up front (`default_tools_approval_mode`), because
 //! `exec` never asks. Shell commands run in the read-only sandbox. A
 //! conversation continues with `codex exec resume <thread id>`.
@@ -245,14 +245,14 @@ mod tests {
         );
         assert_eq!(args.last().unwrap(), "-");
         assert!(args.contains(&r#"developer_instructions="Line one\n\"quoted\"""#.to_owned()));
-        assert!(args.contains(&r#"mcp_servers.agent-desktop.args=["mcp"]"#.to_owned()));
+        assert!(args.contains(&r#"mcp_servers.desktop.args=["mcp"]"#.to_owned()));
         assert!(args.iter().any(
-            |arg| arg.starts_with("mcp_servers.agent-desktop.enabled_tools=")
+            |arg| arg.starts_with("mcp_servers.desktop.enabled_tools=")
                 && arg.contains("desktop_click")
                 && !arg.contains("desktop_session_end")
         ));
         assert!(args.contains(
-            &r#"mcp_servers.agent-desktop.default_tools_approval_mode="approve""#.to_owned()
+            &r#"mcp_servers.desktop.default_tools_approval_mode="approve""#.to_owned()
         ));
     }
 

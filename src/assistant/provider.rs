@@ -50,8 +50,10 @@ pub struct Desktop {
     /// The guard's MCP server for this task, or `agent-desktop mcp` with
     /// this task's flags when there is no guard.
     pub server: McpServer,
-    /// agent-desktop itself (for its guide).
+    /// The desktop driver's executable (agent-desktop's for its guide).
     pub agent_desktop: PathBuf,
+    /// Which desktop driver runs behind the guard (`assistant::driver`).
+    pub driver: crate::assistant::driver::Driver,
     /// The guard stands between the task and agent-desktop.
     pub guarded: bool,
     /// The multi-agent session, when one is running.
@@ -81,6 +83,7 @@ impl Desktop {
                 path_env: "/usr/bin:/bin".into(),
             },
             agent_desktop: "/opt/homebrew/bin/agent-desktop".into(),
+            driver: crate::assistant::driver::Driver::AgentDesktop,
             guarded: false,
             session: session.map(str::to_owned),
             agent_id: agent_id.to_owned(),
@@ -99,8 +102,16 @@ impl Desktop {
         agent_id: String,
         headed: bool,
     ) -> Option<Self> {
-        let agent_desktop = agent_desktop()?;
+        let found = crate::assistant::driver::active()?;
         let guarded = guard.is_some();
+        let (agent_desktop, driver) = match (&guard, found.driver) {
+            // Without the guard only agent-desktop serves the tools.
+            (None, crate::assistant::driver::Driver::Cua) => (
+                crate::assistant::driver::Driver::AgentDesktop.backend().find()?,
+                crate::assistant::driver::Driver::AgentDesktop,
+            ),
+            _ => (found.path, found.driver),
+        };
         let server = match guard {
             Some(server) => server,
             None => {
@@ -112,6 +123,7 @@ impl Desktop {
         Some(Self {
             server,
             agent_desktop,
+            driver,
             guarded,
             session,
             agent_id,
@@ -529,9 +541,12 @@ pub fn executable(backend: AssistantBackend) -> Result<PathBuf> {
     })
 }
 
-/// agent-desktop's executable, if installed.
+/// agent-desktop's executable when it is the desktop driver that runs (its
+/// sessions, cursors, and guide); `None` with Cua Driver.
 pub fn agent_desktop() -> Option<PathBuf> {
-    crate::assistant::backends::mcp_server(&[]).map(|server| server.command)
+    crate::assistant::driver::active()
+        .filter(|found| found.driver == crate::assistant::driver::Driver::AgentDesktop)
+        .map(|found| found.path)
 }
 
 /// A command for `executable` in `workdir`, with the environment Hex gives

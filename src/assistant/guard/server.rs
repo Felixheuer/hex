@@ -25,7 +25,7 @@ impl<D: Desktop + 'static> ServerHandler for Server<D> {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(
-                Implementation::new("agent-desktop", crate::VERSION)
+                Implementation::new(crate::assistant::backends::MCP_NAME, crate::VERSION)
                     .with_title("Hex desktop guard"),
             )
             .with_instructions(self.instructions.clone())
@@ -65,7 +65,7 @@ impl<D: Desktop + 'static> ServerHandler for Server<D> {
 pub fn serve<D: Desktop + 'static>(mut guard: Guard<D>) -> Result<()> {
     let tools = guard
         .tools()
-        .map_err(|why| eyre!("agent-desktop didn't list its tools: {why}"))?
+        .map_err(|why| eyre!("the desktop driver didn't list its tools: {why}"))?
         .into_iter()
         .filter_map(|tool| serde_json::from_value::<Tool>(tool).ok())
         .collect();

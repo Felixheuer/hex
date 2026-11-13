@@ -36,6 +36,7 @@ pub mod capacity;
 pub mod cli;
 pub mod computer;
 pub mod credentials;
+pub mod driver;
 pub mod guard;
 pub mod input;
 pub mod interaction;
