@@ -876,6 +876,18 @@ deletes, pays, shares or publishes need the same yes as such a button, and
 a tab asked for by name that isn't there is an error, never the tab in
 front.
 
+Agent-Desk's own file tools (`hex_document_*`, `hex_image`, `hex_audio`,
+`hex_video_make`, `hex_compare_images`'s diff) run as the person, outside
+any job's sandbox, so `media::out` holds their paths: they write anywhere
+in Agent-Desk's own folders (the task's folder, Documents › Agent-Desk,
+`media-out`, the temp folder), only new files in the person's Desktop,
+Documents, Downloads, Pictures, Movies and Music, never through a link or
+`..`; and they read nothing in a hidden folder or `~/Library` (iCloud
+Drive and cloud storage aside), where the browsers' logins and the agents'
+tokens live. A Remotion project a job made renders in the job's own
+shell, not through `hex_video_make`; an iWork document's Office twin and
+an RTF's source get names of their own.
+
 ## Agents on Linux and Windows
 
 The agent backends (Claude Code, Codex, OpenCode, agent-browser) run the

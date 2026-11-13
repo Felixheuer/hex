@@ -27,7 +27,7 @@ mod fetch;
 mod frames;
 mod image;
 mod make;
-mod out;
+pub(in crate::assistant) mod out;
 mod probe;
 mod sound;
 mod tools;

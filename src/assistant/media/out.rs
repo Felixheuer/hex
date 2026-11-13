@@ -52,6 +52,159 @@ pub fn resolve(path: &str, base: &Path) -> PathBuf {
     }
 }
 
+/// Whom this process's media tools serve: a job or helper reads pages the
+/// person never saw, so its paths are held tighter (`set_job`; the tools
+/// server sets it once, per task).
+static JOB: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// Called once by the tools server with its role.
+pub fn set_job(job: bool) {
+    let _ = JOB.set(job);
+}
+
+pub fn serves_a_job() -> bool {
+    // Unset (another caller): held as tight as a job.
+    JOB.get().copied().unwrap_or(true)
+}
+
+/// Agent-Desk's own folders, where a tool may write and overwrite: the
+/// task's folder (`base`), Agent-Desk's folder in Documents (every job and
+/// project), and the temp folder.
+fn own_folders(base: &Path) -> Vec<PathBuf> {
+    let mut folders = vec![base.to_path_buf(), std::env::temp_dir()];
+    folders.extend(crate::assistant::agent::workspace::root());
+    folders.extend(
+        crate::assistant::store::assistant_dir()
+            .ok()
+            .map(|dir| dir.join("media-out")),
+    );
+    folders.into_iter().map(|folder| real(&folder)).collect()
+}
+
+/// The person's own folders, where a tool may add a new file but never
+/// replace one.
+fn person_folders() -> Vec<PathBuf> {
+    let Some(home) = crate::app_paths::home_dir() else {
+        return Vec::new();
+    };
+    [
+        "Desktop",
+        "Documents",
+        "Downloads",
+        "Pictures",
+        "Movies",
+        "Music",
+    ]
+    .iter()
+    .map(|name| real(&home.join(name)))
+    .collect()
+}
+
+/// `path` with its links followed as far as it exists: the nearest
+/// existing folder made real, the rest joined on.
+fn real(path: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut at = path.to_path_buf();
+    loop {
+        if let Ok(found) = at.canonicalize() {
+            let mut real = found;
+            for part in rest.iter().rev() {
+                real.push(part);
+            }
+            return real;
+        }
+        match (at.file_name().map(|name| name.to_owned()), at.parent()) {
+            (Some(name), Some(parent)) => {
+                rest.push(name);
+                at = parent.to_path_buf();
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
+}
+
+/// Whether `path` (made real) is where secrets live: a dot-folder or
+/// dot-file in the home folder (`.ssh`, `.config`, `.agent-browser`, the
+/// agents' tokens) or its `Library` (apps' data, cookies, keychains), but
+/// iCloud Drive and cloud storage folders there.
+fn private(path: &Path) -> bool {
+    crate::app_paths::home_dir().is_some_and(|home| private_in(path, &real(&home)))
+}
+
+fn private_in(path: &Path, home: &Path) -> bool {
+    let Ok(inside) = path.strip_prefix(home) else {
+        return false;
+    };
+    let parts: Vec<String> = inside
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    if parts.iter().any(|part| part.starts_with('.')) {
+        return true;
+    }
+    parts.first().is_some_and(|first| first == "Library")
+        && !matches!(
+            parts.get(1).map(String::as_str),
+            Some("Mobile Documents" | "CloudStorage")
+        )
+}
+
+/// Why a tool may not read `path`, if it may not.
+pub fn may_read(path: &Path, base: &Path) -> Result<(), String> {
+    let real = real(path);
+    if own_folders(base).iter().any(|own| real.starts_with(own)) || !private(&real) {
+        return Ok(());
+    }
+    Err(format!(
+        "“{}” is private (a hidden folder or Library): Agent-Desk's tools don't read there.",
+        path.display()
+    ))
+}
+
+/// Why a tool may not write `path`, if it may not: anywhere in Agent-Desk's
+/// own folders, a new file in the person's own folders (not for a job:
+/// it reads pages the person never saw, so it adds there only when the
+/// file is new too), never through a link, and nowhere else.
+pub fn may_write(path: &Path, base: &Path) -> Result<(), String> {
+    let refused = |why: &str| {
+        Err(format!(
+            "Agent-Desk's tools don't write “{}”: {why}. Save it in the task's folder, or under a new name in Documents, Desktop or Downloads.",
+            path.display()
+        ))
+    };
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return refused("the path leaves its folder");
+    }
+    if path
+        .symlink_metadata()
+        .is_ok_and(|metadata| metadata.file_type().is_symlink())
+    {
+        return refused("it is a link");
+    }
+    let real = real(path);
+    if own_folders(base).iter().any(|own| real.starts_with(own)) {
+        return Ok(());
+    }
+    if private(&real) {
+        return refused("it is private (a hidden folder or Library)");
+    }
+    if person_folders()
+        .iter()
+        .any(|folder| real.starts_with(folder))
+    {
+        return if path.exists() {
+            refused("a file of the person's is there already")
+        } else {
+            Ok(())
+        };
+    }
+    refused("it is outside the task's folder and the person's own folders")
+}
+
 /// An existing file the agent named (argument `key`).
 pub fn input(arguments: &Value, key: &str, base: &Path, tool: &str) -> Result<PathBuf, String> {
     let named = arguments
@@ -61,11 +214,11 @@ pub fn input(arguments: &Value, key: &str, base: &Path, tool: &str) -> Result<Pa
         .filter(|path| !path.is_empty())
         .ok_or_else(|| format!("{tool} needs “{key}”: a file's path"))?;
     let path = resolve(named, base);
-    if path.is_file() {
-        Ok(path)
-    } else {
-        Err(format!("There is no file “{named}”."))
+    if !path.is_file() {
+        return Err(format!("There is no file “{named}”."));
     }
+    may_read(&path, base)?;
+    Ok(path)
 }
 
 /// Where a result goes: argument `key` (absolute, or relative to `base`),
@@ -80,6 +233,7 @@ pub fn output(arguments: &Value, key: &str, base: &Path, default: &str) -> Resul
         Some(named) => resolve(named, base),
         None => base.join(default),
     };
+    may_write(&path, base)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|error| format!("Couldn't make {}: {error}", parent.display()))?;
@@ -211,6 +365,63 @@ mod tests {
         assert_eq!(seconds(&json!("1:20")), Some(80.0));
         assert_eq!(seconds(&json!(" 2.5s")), Some(2.5));
         assert_eq!(seconds(&json!(-1)), None);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    #[test]
+    fn hidden_folders_and_library_are_private_but_icloud_is_not() {
+        let home = Path::new("/Users/felix");
+        for path in [
+            "/Users/felix/.ssh/id_ed25519",
+            "/Users/felix/.agent-browser/namespaces/hex/state/sessions/hex-sign-in.json",
+            "/Users/felix/.local/share/opencode/auth.json",
+            "/Users/felix/Library/Application Support/Google/Chrome/Default/Cookies",
+            "/Users/felix/Library/Keychains/login.keychain-db",
+            "/Users/felix/dev/app/.env",
+        ] {
+            assert!(private_in(Path::new(path), home), "{path}");
+        }
+        for path in [
+            "/Users/felix/Documents/Vertrag.pdf",
+            "/Users/felix/Library/Mobile Documents/com~apple~CloudDocs/Notes.pdf",
+            "/Users/felix/Library/CloudStorage/Dropbox/Plan.xlsx",
+            "/Volumes/Stick/photo.jpg",
+        ] {
+            assert!(!private_in(Path::new(path), home), "{path}");
+        }
+    }
+
+    #[test]
+    fn tools_write_in_their_own_folders_and_only_new_files_elsewhere() {
+        let base = std::env::temp_dir().join(format!("hex-out-policy-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        // The task's own folder (inside the temp folder here): anything,
+        // overwriting too.
+        let own = base.join("result.png");
+        std::fs::write(&own, b"old").unwrap();
+        assert!(may_write(&own, &base).is_ok());
+        assert!(may_write(&base.join("new/sub/video.mp4"), &base).is_ok());
+        // Leaving it by `..`, or relative: never.
+        assert!(may_write(&base.join("../x.png"), &base).is_err());
+        assert!(may_write(Path::new("x.png"), &base).is_err());
+        #[cfg(unix)]
+        {
+            // A link inside that points to a file elsewhere: never.
+            let elsewhere =
+                std::env::temp_dir().join(format!("hex-out-target-{}", std::process::id()));
+            std::fs::write(&elsewhere, b"precious").unwrap();
+            let link = base.join("cookie.png");
+            std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+            assert!(may_write(&link, &base).is_err());
+            let _ = std::fs::remove_file(&elsewhere);
+        }
+        // Nowhere outside the task's, Agent-Desk's and the person's folders.
+        assert!(may_write(Path::new("/etc/hosts.png"), &base).is_err());
         let _ = std::fs::remove_dir_all(&base);
     }
 }
