@@ -110,6 +110,9 @@ struct Registry {
     cards: Vec<String>,
     /// The jobs the live wall shows: their windows are captured too.
     wall: Vec<String>,
+    /// The running jobs the Assistant window shows: their windows are
+    /// captured while it's in front, so its job cards show them live.
+    window: Vec<String>,
     /// The window shown large: (task, number).
     viewing: Option<(String, u32)>,
 }
@@ -208,6 +211,17 @@ pub(crate) fn cards(tasks: &[String]) {
     apply(&registry);
 }
 
+/// The running jobs the Assistant window shows (empty: it's hidden or on
+/// another pane): their windows are captured for its job cards.
+pub(crate) fn window(tasks: &[String]) {
+    let mut registry = registry();
+    if registry.window == tasks {
+        return;
+    }
+    registry.window = tasks.to_vec();
+    apply(&registry);
+}
+
 /// The jobs the live wall shows (empty: it's closed): their windows are
 /// captured while it shows.
 pub(crate) fn wall(tasks: &[String]) {
@@ -287,7 +301,9 @@ fn spawn(name: &str, work: impl FnOnce() + Send + 'static) {
 /// Which windows each capture thread takes, from what shows.
 fn apply(registry: &Registry) {
     for (task, previews) in &registry.tasks {
-        let carded = registry.cards.contains(task) || registry.wall.contains(task);
+        let carded = registry.cards.contains(task)
+            || registry.wall.contains(task)
+            || registry.window.contains(task);
         for preview in previews {
             let large = registry
                 .viewing

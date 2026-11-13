@@ -229,6 +229,10 @@ pub(crate) fn view(state: &Wall, cx: &mut Cx<Wall>) -> El {
                 color: rune::Color::BLACK.alpha(if k.dark { 0.45 } else { 0.18 }),
                 inset: false,
             })
+            // The panel takes the pointer, so × and the space between the
+            // tiles answer; without it a click fell through to the app below.
+            .hit()
+            .on_press(|_: &mut Wall| {})
             .child(header)
             .child(grid)
             .on_key(move |s: &mut Wall, key: &rune::KeyEvent, _| {

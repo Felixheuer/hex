@@ -229,6 +229,10 @@ struct Registry {
     hovered: Option<String>,
     /// The jobs whose cards show at the orb: their first browsers stream.
     cards: Vec<String>,
+    /// The running jobs the Assistant window shows: every browser of
+    /// theirs streams slowly while it's in front, so its job cards show
+    /// them live whether or not the orb's cards are open.
+    window: Vec<String>,
     /// The tasks on the live wall (a job and its helpers): every browser
     /// of theirs streams at [`Rate::Wall`] while it shows.
     wall: Vec<String>,
@@ -316,6 +320,20 @@ pub(crate) fn wall(tasks: &[String]) {
     sync(&mut registry);
 }
 
+/// The running jobs the Assistant window shows (empty: it's hidden or on
+/// another pane): all their browsers stream slowly for its job cards.
+pub(crate) fn window(tasks: &[String]) {
+    let mut registry = registry();
+    let mut tasks = tasks.to_vec();
+    tasks.sort();
+    tasks.dedup();
+    if registry.window == tasks {
+        return;
+    }
+    registry.window = tasks;
+    sync(&mut registry);
+}
+
 /// The pointer rests on `task` in the orb's list (`None`: on none).
 pub(crate) fn hover(task: Option<&str>) {
     let mut registry = registry();
@@ -385,6 +403,7 @@ fn wanted(registry: &Registry) -> Vec<String> {
     for task in viewed
         .into_iter()
         .chain(&registry.wall)
+        .chain(&registry.window)
         .chain(&registry.tracked)
     {
         if !tasks.contains(task) {
@@ -413,7 +432,7 @@ fn rate_of(registry: &Registry, task: &str, session: &str) -> Rate {
         Rate::Small
     } else if registry.wall.iter().any(|walled| walled == task) {
         Rate::Wall
-    } else if on_card() {
+    } else if on_card() || registry.window.iter().any(|shown| shown == task) {
         Rate::Background
     } else {
         Rate::Idle
@@ -924,6 +943,21 @@ mod tests {
         assert_eq!(rate_of(&registry, "a", "hex-a_b"), Rate::Large);
         assert!(Rate::Large.fps() > Rate::Small.fps());
         assert!(Rate::Small.fps() > Rate::Background.fps());
+    }
+
+    #[test]
+    fn the_assistant_window_streams_its_running_jobs_without_the_orb_s_cards() {
+        let mut registry = Registry {
+            tracked: vec!["job".into(), "other".into()],
+            ..Registry::default()
+        };
+        // No card at the orb and the window hidden: nothing streams.
+        assert_eq!(rate_of(&registry, "job", "hex-job"), Rate::Idle);
+        registry.window = vec!["job".into()];
+        assert_eq!(rate_of(&registry, "job", "hex-job"), Rate::Background);
+        assert_eq!(rate_of(&registry, "job", "hex-job_content"), Rate::Background);
+        assert_eq!(rate_of(&registry, "other", "hex-other"), Rate::Idle);
+        assert!(wanted(&registry).contains(&"job".to_owned()));
     }
 
     #[test]

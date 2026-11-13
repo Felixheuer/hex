@@ -401,36 +401,54 @@ fn actions(pane: &ChatsPane, p: Paint, id: &str, selected: bool) -> Vec<El> {
     )]
 }
 
-/// A running job's browsers, as the orb's cards stream them: a click opens
-/// one large.
+/// A running job's browsers and app windows, live: a click opens one large
+/// (a browser in the live sheet, a window in the overlay's card).
 fn browsers(p: Paint, id: &str) -> Option<El> {
+    use super::super::assistant_overlay::app_live;
+    let apps = app_live::previews(id);
     let previews = super::super::assistant_overlay::live::previews(id);
-    let shown: Vec<_> = previews
+    let c = &p.k.c;
+    let tile = |key: String, pixels: &rune::Pixels| {
+        el().key(key)
+            .size(THUMB_W, THUMB_H)
+            .radius(6.0)
+            .fill(c.layer_02)
+            .border(p.hair, p.k.alpha(c.text_base, 0.14))
+            .pixels_fit(pixels, rune::SurfaceFit::Fill)
+            .role("button")
+            .label(tr("Open live"))
+    };
+    let mut tiles: Vec<El> = apps
         .iter()
         .filter(|preview| preview.has_frame())
-        .take(3)
+        .take(LIVE_TILES)
+        .map(|preview| {
+            let (task, number) = (id.to_owned(), preview.number);
+            tile(format!("app-{number}"), &preview.pixels).on_press(move |_: &mut Ui| {
+                app_live::show(&task, number);
+            })
+        })
         .collect();
-    if shown.is_empty() {
+    let room = LIVE_TILES.saturating_sub(tiles.len());
+    tiles.extend(
+        previews
+            .iter()
+            .filter(|preview| preview.has_frame())
+            .take(room)
+            .map(|preview| {
+                let (task, session) = (id.to_owned(), preview.session.clone());
+                tile(format!("browser-{}", preview.session), &preview.pixels).on_press(
+                    move |ui: &mut Ui| {
+                        super::live_view::open(ui, task.clone(), session.clone());
+                    },
+                )
+            }),
+    );
+    if tiles.is_empty() {
         return None;
     }
-    let c = &p.k.c;
-    Some(
-        row()
-            .key("browsers")
-            .gap(8.0)
-            .children(shown.into_iter().map(|preview| {
-                let (task, session) = (id.to_owned(), preview.session.clone());
-                el().key(format!("browser-{}", preview.session))
-                    .size(THUMB_W, THUMB_H)
-                    .radius(6.0)
-                    .fill(c.layer_02)
-                    .border(p.hair, p.k.alpha(c.text_base, 0.14))
-                    .pixels_fit(&preview.pixels, rune::SurfaceFit::Fill)
-                    .role("button")
-                    .label(tr("Open live"))
-                    .on_press(move |ui: &mut Ui| {
-                        super::live_view::open(ui, task.clone(), session.clone());
-                    })
-            })),
-    )
+    Some(row().key("browsers").gap(8.0).wrap().children(tiles))
 }
+
+/// How many live pictures a running job's card shows.
+const LIVE_TILES: usize = 6;

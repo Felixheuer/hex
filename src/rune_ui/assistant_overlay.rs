@@ -31,7 +31,7 @@
 
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
-mod app_live;
+pub(crate) mod app_live;
 mod board;
 mod bubble;
 #[cfg(target_os = "macos")]
