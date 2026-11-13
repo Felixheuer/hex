@@ -660,7 +660,9 @@ Who owns what:
   lanes, queue, steering, spoken status, the warm process, the monitor),
   `agent` (one task's prompt, tools, goal check, teams), `provider` (each
   backend's process or API, usage limits, orphans), `backends` (finding,
-  installing, checking, signing in the agents), `lines` (what it says back,
+  installing, checking, signing in the agents; `backends::opencode` builds
+  the arguments and config of OpenCode 1.x and 2, `backends::providers` the
+  own-key providers such as DeepSeek), `lines` (what it says back,
   in the request's language, and the names of the window's panes).
 - **Hands** (everything that touches the desktop): `guard` (the MCP server
   every task gets instead of the desktop driver, Cua Driver: `driver`, kept current daily by `driver::update`), `computer` (what Agent-Desk itself
