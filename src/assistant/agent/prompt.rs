@@ -43,6 +43,11 @@ pub fn system_for(job: &Job, desktop: Option<&Desktop>, browser: bool) -> String
         )),
         None => {}
     }
+    // A quick turn says first what it understood: the island's first
+    // reasoning line (`markers`).
+    if origin.lane() == Lane::Here && job.workspace.is_none() {
+        system.push_str(super::markers::UNDERSTOOD_RULE);
+    }
     if let Some(lead) = &job.helps {
         system.push_str(&team::helper_rules(lead));
     }

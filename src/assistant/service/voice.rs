@@ -56,6 +56,23 @@ const COLLAPSE_OVER: usize = 2;
 /// How often the waiting lines check whether they may be read.
 const PUMP_EVERY: Duration = Duration::from_millis(200);
 
+/// A quick turn asked by voice that is still silent this long says one
+/// short line ("On it.", „Mach ich.“), so the person knows it heard them;
+/// one that answers sooner says nothing extra (`docs/ux/redesign.md` §2).
+pub(super) const THINKING_LINE_AFTER: Duration = Duration::from_secs(2);
+
+/// The thinking line, in the language of what was said.
+pub(super) fn thinking_line(said: &str) -> &'static str {
+    lines::tr("On it.", said)
+}
+
+/// Whether the thinking line is due: [`THINKING_LINE_AFTER`] passed since
+/// `since_ms`, the turn still runs without a word of its answer, and nothing
+/// else is read or said.
+pub(super) fn thinking_line_due(since_ms: u64, now_ms: u64, heard: bool, busy: bool) -> bool {
+    !heard && !busy && now_ms.saturating_sub(since_ms) >= THINKING_LINE_AFTER.as_millis() as u64
+}
+
 /// How long a hold counts as one at most, should its end never arrive.
 const LISTENING_AT_MOST_MS: u64 = 30_000;
 
@@ -569,6 +586,27 @@ mod tests {
         assert_eq!(
             next_announcement(&mut three).unwrap().text,
             "3 jobs are done: Laptops, Weather and Mail."
+        );
+    }
+
+    #[test]
+    fn the_thinking_line_comes_only_after_two_silent_seconds() {
+        let start = 10_000;
+        let after = THINKING_LINE_AFTER.as_millis() as u64;
+        assert!(!thinking_line_due(start, start + after - 1, false, false));
+        assert!(thinking_line_due(start, start + after, false, false));
+        assert!(
+            !thinking_line_due(start, start + after, true, false),
+            "its answer already streams"
+        );
+        assert!(
+            !thinking_line_due(start, start + after, false, true),
+            "never over another line"
+        );
+        assert_eq!(thinking_line("What's on my calendar today?"), "On it.");
+        assert_eq!(
+            thinking_line("Bitte nimm die blaue Farbe und nicht die rote"),
+            "Mach ich."
         );
     }
 

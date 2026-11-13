@@ -187,6 +187,9 @@ pub struct Task {
     pub asked: u64,
     /// Its plan, once it made one.
     pub plan: Vec<PlanStep>,
+    /// What it understood the request as (`Event::Understood`), the
+    /// first of its reasoning lines; a follow-up's replaces it.
+    pub understood: Option<String>,
     /// A quick turn that moved to the background (`Event::Escalated`).
     pub escalated: bool,
     /// When it finished, for how long it lingers.
@@ -222,6 +225,7 @@ impl Task {
             question: None,
             asked: 0,
             plan: Vec::new(),
+            understood: None,
             escalated: false,
             ended: None,
             since: None,

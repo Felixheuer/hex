@@ -300,7 +300,7 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
             return Outcome::Cancelled;
         }
         let result = result
-            .map(|finished| finished.text)
+            .map(|finished| markers::strip_understood(&finished.text))
             .map_err(|error| format!("{error:#}"));
         if let Err(message) = &result
             && let Some(limit) = limit::detect(message)
@@ -657,7 +657,15 @@ fn run_backend(
         }),
         Report::Delta(text) => {
             seen.streamed = true;
-            if let Some(text) = seen.gate.pass(&text)
+            let shown = seen.gate.pass(&text);
+            // What it understood, before anything it does (`markers`).
+            if let Some(text) = seen.gate.take_understood() {
+                emit(Event::Understood {
+                    conversation: id.clone(),
+                    text,
+                });
+            }
+            if let Some(text) = shown
                 && !seen.quiet
             {
                 emit(Event::AnswerDelta {

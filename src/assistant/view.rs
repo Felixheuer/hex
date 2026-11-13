@@ -124,6 +124,7 @@ impl Stream {
                         // flight starts afresh.
                         task.answer.clear();
                         task.log.clear();
+                        task.understood = None;
                     }
                     if task.since.is_none() || restarted {
                         task.since = Some(now);
@@ -262,7 +263,9 @@ impl Stream {
                 }),
             ),
             Event::ConversationsChanged => false,
-            Event::Understood { .. } => false,
+            Event::Understood { conversation, text } => self.live(conversation, |task| {
+                set(&mut task.understood, Some(text.trim().to_owned()))
+            }),
         }
     }
 
