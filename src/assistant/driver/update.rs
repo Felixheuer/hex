@@ -401,17 +401,25 @@ pub fn check_now(
     if home.installed().is_none() {
         cua::install_pinned(&home, &cua::System, progress)?;
     }
-    Ok(run(
+    let now_ms = crate::desktop::events::now_ms();
+    let status = run(
         &Update {
             home: &home,
             checks: &cua::System,
             self_test: &crate::assistant::guard::driver_self_test,
             idle,
             idle_wait,
-            now_ms: crate::desktop::events::now_ms(),
+            now_ms,
         },
         progress,
-    ))
+    );
+    // What the version tasks run now offers, new tools logged.
+    if let Err(why) =
+        super::capabilities::refresh(&home, &crate::assistant::guard::driver_probe, now_ms)
+    {
+        tracing::warn!(why, "couldn't check Cua Driver's tools");
+    }
+    Ok(status)
 }
 
 /// One update at a time, across Agent-Desk and its CLI: `<home>/.updating`

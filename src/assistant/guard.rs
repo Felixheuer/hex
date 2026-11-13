@@ -59,6 +59,93 @@ pub use desk::{
 };
 pub use parking::{How as ParkedHow, Mover as ParkingMover, ParkedWindow, Rect, back_to};
 pub use policy::{CLAIM_TOOL, OPEN_APP_TOOL, app_key};
+/// The names of the Cua Driver tools the guard serves (`driver::capabilities`
+/// tells which new ones it doesn't yet).
+pub fn driver_tools_used() -> Vec<&'static str> {
+    let mut used = vec![
+        "list_windows",
+        "list_apps",
+        "get_window_state",
+        "click",
+        "double_click",
+        "right_click",
+        "type_text",
+        "press_key",
+        "hotkey",
+        "set_value",
+        "scroll",
+        "launch_app",
+        "bring_to_front",
+        "get_browser_state",
+        "browser_prepare",
+        "browser_click",
+        "browser_type",
+        "browser_select",
+        "browser_navigate",
+        "browser_pointer",
+        "browser_dialog",
+    ];
+    used.extend_from_slice(cua::USES);
+    used
+}
+
+/// Cua Driver as tasks start it, spoken to in its own terms: setup's
+/// browser attach (`driver::browser`), never a task.
+pub struct Driver(child::Server);
+
+impl Driver {
+    pub fn start(path: PathBuf) -> std::result::Result<Self, String> {
+        use child::Desktop;
+        let mut server = child::Server::driver(path);
+        server.tools()?;
+        Ok(Self(server))
+    }
+
+    pub fn call(
+        &mut self,
+        tool: &str,
+        args: serde_json::Value,
+    ) -> std::result::Result<serde_json::Value, String> {
+        use child::Desktop;
+        self.0
+            .call(tool, &args.as_object().cloned().unwrap_or_default())
+    }
+}
+
+/// What the Cua Driver at `path` offers, started as tasks start it: its
+/// tools (MCP `tools/list`) and whether its agent cursor can show, for the
+/// capability check after an update. Reads only.
+pub fn driver_probe(
+    path: &Path,
+) -> std::result::Result<crate::assistant::driver::capabilities::Probe, String> {
+    use child::Desktop;
+    let mut driver = child::Server::driver(path.to_path_buf());
+    let tools: Vec<String> = driver
+        .tools()?
+        .iter()
+        .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+        .collect();
+    let mut cursor = None;
+    if tools.iter().any(|tool| tool == "get_agent_cursor_state") {
+        let session = |name: &str| {
+            let mut args = serde_json::Map::new();
+            args.insert("session".into(), name.into());
+            args
+        };
+        let probe = "agent-desk-capabilities";
+        let _ = driver.call("start_session", &session(probe));
+        if let Ok(state) = driver.call("get_agent_cursor_state", &session(probe)) {
+            let refusal = state["structuredContent"]["refusal"]["code"].as_str();
+            cursor = match (state["isError"] == true, refusal) {
+                (false, _) => Some(true),
+                (true, Some("facility_unavailable")) => Some(false),
+                _ => None,
+            };
+        }
+        let _ = driver.call("end_session", &session(probe));
+    }
+    Ok(crate::assistant::driver::capabilities::Probe { tools, cursor })
+}
 
 /// What the guard needs to know about one task; passed to its MCP server.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -650,7 +737,10 @@ pub fn screen_work(tool: &str) -> Option<bool> {
     let name = tool.rsplit("__").next().unwrap_or(tool);
     let kind = policy::kind(name, &serde_json::Map::new());
     match kind {
-        policy::Kind::Observe | policy::Kind::ReadWindow | policy::Kind::WindowShot => Some(false),
+        policy::Kind::Observe
+        | policy::Kind::ReadWindow
+        | policy::Kind::WindowShot
+        | policy::Kind::Screen => Some(false),
         policy::Kind::Claim => Some(true),
         kind if kind.acts() => Some(true),
         _ => None,

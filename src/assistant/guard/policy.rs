@@ -47,6 +47,21 @@ pub enum Kind {
     /// Agent-Desk's own `hex_window_input`: a click, scroll, or keys at a spot of a
     /// window's picture, sent to its app in the background.
     WindowInput,
+    /// Several actions in one window in one call (`desktop_run_steps`):
+    /// each step is checked like its own call before any runs.
+    Batch,
+    /// A script whose every desktop call passes the guard on its own
+    /// (`desktop_run_script`, `proxy::script`).
+    Script,
+    /// The whole screen's picture (`desktop_screen`): full control only.
+    Screen,
+    /// Agent-Desk's own `hex_skills`: the procedures recorded on this Mac.
+    Skills,
+    /// Agent-Desk's own `hex_skill_record`: records a procedure as it is done.
+    SkillRecord,
+    /// Agent-Desk's own `hex_skill_replay`: runs a recorded procedure again,
+    /// through `desktop_run_steps`, and checks its result.
+    SkillReplay,
     /// Never forwarded; the text says why.
     Refused(&'static str),
 }
@@ -62,6 +77,8 @@ impl Kind {
                 | Self::AppCapabilities
                 | Self::Displays
                 | Self::Release
+                | Self::Skills
+                | Self::SkillRecord
                 | Self::Refused(_)
         )
     }
@@ -80,6 +97,9 @@ impl Kind {
                 | Self::CloseApp
                 | Self::AppAction
                 | Self::WindowInput
+                | Self::Batch
+                | Self::Script
+                | Self::SkillReplay
         )
     }
 
@@ -131,6 +151,15 @@ pub const WINDOW_SHOT_TOOL: &str = "hex_window_shot";
 
 /// Agent-Desk's background input at a spot of a window's picture.
 pub const WINDOW_INPUT_TOOL: &str = "hex_window_input";
+
+/// The procedures recorded on this Mac (`proxy::skills`).
+pub const SKILLS_TOOL: &str = "hex_skills";
+
+/// Records a procedure as the task does it.
+pub const SKILL_RECORD_TOOL: &str = "hex_skill_record";
+
+/// Runs a recorded procedure again and checks its result.
+pub const SKILL_REPLAY_TOOL: &str = "hex_skill_replay";
 
 const MANAGED: &str = "Agent-Desk manages the desktop driver's sessions, cursors, traces, and permissions; \
 this tool isn't available to tasks.";
@@ -186,6 +215,14 @@ const WINDOW_ACTIONS: &[&str] = &[
 /// Tools that take `window_id`, so the guard can name the window it checked.
 pub const TAKES_WINDOW_ID: &[&str] = &[
     "desktop_snapshot",
+    "desktop_menu",
+    "desktop_drag",
+    "desktop_run_steps",
+    "desktop_verify",
+    "desktop_zoom",
+    "desktop_find_visual",
+    "desktop_browser",
+    "desktop_browser_act",
     "desktop_find",
     "desktop_screenshot",
     "desktop_press",
@@ -209,6 +246,9 @@ pub fn kind(tool: &str, args: &Map<String, Value>) -> Kind {
         READ_WINDOW_TOOL => return Kind::ReadWindow,
         WINDOW_SHOT_TOOL => return Kind::WindowShot,
         WINDOW_INPUT_TOOL => return Kind::WindowInput,
+        SKILLS_TOOL => return Kind::Skills,
+        SKILL_RECORD_TOOL => return Kind::SkillRecord,
+        SKILL_REPLAY_TOOL => return Kind::SkillReplay,
         _ => {}
     }
     let Some(name) = tool.strip_prefix("desktop_") else {
@@ -227,8 +267,14 @@ pub fn kind(tool: &str, args: &Map<String, Value>) -> Kind {
                 });
             if bound { Kind::Observe } else { Kind::Free }
         }
-        "snapshot" | "find" | "screenshot" | "get" | "is" | "list_surfaces" => Kind::Observe,
-        "double_click" | "triple_click" | "hover" | "drag" | "mouse_move" | "mouse_click"
+        "snapshot" | "find" | "screenshot" | "get" | "is" | "list_surfaces" | "verify" | "zoom"
+        | "find_visual" | "browser" => Kind::Observe,
+        // Cua Driver's drag is posted to the window; the pointer stays.
+        "drag" | "menu" | "browser_act" => Kind::Act,
+        "run_steps" => Kind::Batch,
+        "run_script" => Kind::Script,
+        "screen" => Kind::Screen,
+        "double_click" | "triple_click" | "hover" | "mouse_move" | "mouse_click"
         | "mouse_wheel" => Kind::Physical,
         "press" => Kind::Press,
         "focus_window" => Kind::FocusWindow,
@@ -244,6 +290,7 @@ pub fn kind(tool: &str, args: &Map<String, Value>) -> Kind {
         name if name.starts_with("session_")
             || name.starts_with("cursor_overlay_")
             || name.starts_with("trace_")
+            || name.starts_with("record_")
             || name == "permissions" =>
         {
             Kind::Refused(MANAGED)
@@ -306,7 +353,8 @@ pub fn targets(tool: &str, args: &Map<String, Value>) -> Result<Vec<Target>, Str
             }
             one(window_or_app())
         }
-        "press" | "focus_window" | "list_surfaces" | "close_app" => one(window_or_app()),
+        "press" | "focus_window" | "list_surfaces" | "close_app" | "menu" | "run_steps"
+        | "verify" | "zoom" | "find_visual" | "browser" | "browser_act" => one(window_or_app()),
         name if WINDOW_ACTIONS.contains(&name) => one(window_or_app()),
         "wait" => match reference("element")? {
             Some(snapshot) => one(Target::Ref(snapshot)),
@@ -320,14 +368,18 @@ pub fn targets(tool: &str, args: &Map<String, Value>) -> Result<Vec<Target>, Str
             (None, Some(xy)) => one(point(xy)?),
             (None, None) => Err("hover needs ref_id or xy.".into()),
         },
-        "drag" => {
-            let end = |key: &str, xy_key: &str| match (reference(key)?, text(xy_key)) {
-                (Some(snapshot), _) => Ok(Target::Ref(snapshot)),
-                (None, Some(xy)) => point(xy),
-                (None, None) => Err(format!("drag needs {key} or {xy_key}.")),
-            };
-            Ok(vec![end("from", "from_xy")?, end("to", "to_xy")?])
-        }
+        // In one window: its id (points in its picture), or two refs of it.
+        "drag" => match (reference("from")?, reference("to")?) {
+            (Some(from), Some(to)) => Ok(vec![Target::Ref(from), Target::Ref(to)]),
+            (None, None) if text("window_id").is_some() || text("app").is_some() => {
+                one(window_or_app())
+            }
+            _ => Err(
+                "drag needs window_id with from_x, from_y, to_x, to_y (pixels of the \
+                      window's picture), or two refs of one snapshot, from and to."
+                    .into(),
+            ),
+        },
         "mouse_move" | "mouse_click" => match text("xy") {
             Some(xy) => one(point(xy)?),
             None => Err(format!("{name} needs xy.")),

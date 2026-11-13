@@ -43,7 +43,7 @@ impl Server {
     pub fn driver(program: PathBuf) -> Self {
         Self::new(
             program,
-            crate::assistant::driver::mcp_args(),
+            crate::assistant::driver::task_args(),
             crate::assistant::driver::env(),
         )
     }

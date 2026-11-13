@@ -31,7 +31,15 @@ pub fn offered(config: &Config, mut tools: Vec<Value>) -> Vec<Value> {
             // Background first: a Background task brings a window forward
             // (briefly) only with full control.
             Kind::FocusWindow => !background || config.front_window,
-            Kind::Free | Kind::Observe | Kind::Act | Kind::Press | Kind::CloseApp => true,
+            // The whole screen shows the person's windows: full control.
+            Kind::Screen => config.front_window,
+            Kind::Free
+            | Kind::Observe
+            | Kind::Act
+            | Kind::Press
+            | Kind::CloseApp
+            | Kind::Batch
+            | Kind::Script => true,
             // Agent-Desk's `hex_open_app` opens apps; the rest are refused or Agent-Desk's.
             _ => false,
         }
@@ -55,6 +63,7 @@ pub fn offered(config: &Config, mut tools: Vec<Value>) -> Vec<Value> {
     tools.push(super::actions::read_window_tool());
     tools.push(super::vision::shot_tool());
     tools.push(super::vision::input_tool());
+    tools.extend(super::skills::tools());
     tools
 }
 

@@ -79,12 +79,25 @@ def call(name, args):
                 {"actions": ["AXPress"], "depth": 1, "element_index": 1, "parent_index": 0,
                  "element_token": sid + ":1", "label": "OK", "role": "AXButton"},
             ]})
+    if name == "run_steps":
+        steps = args.get("steps", [])
+        return structured({
+            "ok": True, "executed": len(steps), "total": len(steps), "failed_step": None,
+            "steps": [{"index": index, "tool": step.get("tool"), "ok": True, "message": "ok"}
+                      for index, step in enumerate(steps)]})
+    if name == "verify_state":
+        return structured({
+            "status": "satisfied", "elapsed_ms": 1, "samples": 2,
+            "predicates": [{"index": index, "status": "satisfied", "unknown_reason": None,
+                            "observed_json": "{}"}
+                           for index, _ in enumerate(args.get("expect", []))]})
     return structured({"effect": "confirmed", "route": "accessibility"})
 
 
 TOOLS = ["list_windows", "list_apps", "get_window_state", "click", "double_click",
          "right_click", "type_text", "press_key", "hotkey", "set_value", "scroll",
-         "launch_app", "bring_to_front", "set_window_frame"]
+         "launch_app", "bring_to_front", "set_window_frame", "run_steps", "verify_state",
+         "invoke_menu", "drag", "zoom", "start_recording", "stop_recording"]
 
 if os.environ.get("FAKE_CUA_DRIVER_BROKEN"):
     sys.exit(3)
