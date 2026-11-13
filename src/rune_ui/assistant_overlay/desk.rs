@@ -209,6 +209,7 @@ impl Desk {
             desk.expanded = false;
         };
         actions.jobs.wall = |desk, id| desk.note = format!("Would show every picture of {id}");
+        actions.jobs.all = |desk| desk.note = "Would show every live picture".into();
         actions
     }
 }

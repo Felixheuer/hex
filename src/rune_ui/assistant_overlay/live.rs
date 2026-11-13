@@ -378,6 +378,39 @@ pub(crate) fn previews(task: &str) -> Vec<Arc<Preview>> {
         .unwrap_or_default()
 }
 
+/// The playground's stories, renders, and layout tests: `task`'s browsers are `pages` (session, name,
+/// title, url), each showing the picture `paint` draws for its index.
+pub(crate) fn fake(
+    task: &str,
+    pages: &[(&str, &str, &str, &str)],
+    paint: impl Fn(usize) -> (u32, u32, Vec<u8>),
+) {
+    let previews = pages
+        .iter()
+        .enumerate()
+        .map(|(index, (session, name, title, url))| {
+            let preview = Preview::new((*session).into(), (*name).into());
+            let (width, height, rgba) = paint(index);
+            preview.full.set(width, height, rgba.clone());
+            preview.pixels.set(width, height, rgba);
+            if let Ok(mut page) = preview.page.lock() {
+                page.title = (*title).into();
+                page.url = (*url).into();
+                page.viewport = (width as f32, height as f32);
+                page.frames = 1;
+            }
+            Arc::new(preview)
+        })
+        .collect();
+    registry().tasks.insert(
+        task.into(),
+        Watch {
+            previews,
+            stop: Arc::new(AtomicBool::new(true)),
+        },
+    );
+}
+
 /// One of `task`'s browsers, while it's watched.
 pub(crate) fn preview(task: &str, session: &str) -> Option<Arc<Preview>> {
     previews(task)
@@ -903,16 +936,16 @@ mod tests {
                 stop: Arc::new(AtomicBool::new(false)),
             },
         );
-        // A card's first four browsers stream slowly; the fifth on is "+2".
+        // A card's first three browsers stream slowly; the fourth on is "+3".
         assert_eq!(
             rate_of(&registry, "carded", "hex-carded_0"),
             Rate::Background
         );
         assert_eq!(
-            rate_of(&registry, "carded", "hex-carded_3"),
+            rate_of(&registry, "carded", "hex-carded_2"),
             Rate::Background
         );
-        assert_eq!(rate_of(&registry, "carded", "hex-carded_4"), Rate::Idle);
+        assert_eq!(rate_of(&registry, "carded", "hex-carded_3"), Rate::Idle);
         // A job folded into the count line streams nothing until it shows.
         assert_eq!(rate_of(&registry, "folded", "hex-folded"), Rate::Idle);
         registry.hovered = Some("folded".into());

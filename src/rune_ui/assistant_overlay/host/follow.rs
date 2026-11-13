@@ -192,7 +192,11 @@ pub(super) fn place_orb(handle: &OverlayHandle<Orb>, orb: &mut Orb) {
     let anchor = place::anchor(&screen.key, screen.visible, Some((x, below)));
     orb.grow = place::grow(anchor, screen.visible);
     *ORB_AT.lock().unwrap_or_else(|error| error.into_inner()) = Some(anchor);
-    let rect = screens::snap(place::rect(anchor, orb.grow).map(f64::from), screen.scale);
+    let rect = screens::snap(
+        place::fitted(anchor, orb.grow, screen.visible).map(f64::from),
+        screen.scale,
+    );
+    orb.room = rect[3] as f32;
     set_rect(handle, rect.map(|v| v as f32));
     note_placed(screen.id);
 }
@@ -243,7 +247,11 @@ pub(super) fn drag_orb(orb: &mut Orb, drag: &rune::Drag) {
                 )
             };
             orb.grow = place::grow(dropped, screen.visible);
-            let rect = screens::snap(place::rect(dropped, orb.grow).map(f64::from), screen.scale);
+            let rect = screens::snap(
+                place::fitted(dropped, orb.grow, screen.visible).map(f64::from),
+                screen.scale,
+            );
+            orb.room = rect[3] as f32;
             set_rect(&overlays.orb, rect.map(|v| v as f32));
             if !drag.cancelled() {
                 place::remember(&screen.key, screen.visible, dropped);
