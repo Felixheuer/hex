@@ -91,8 +91,12 @@ impl Runner {
             task.workspace = workspace.clone();
             task.session = desktop_session.clone();
         }
+        // A job gets the stream without the turn's tools for it (`tools::Role`).
+        let turn = matches!(kind, JobKind::Ask)
+            && request.origin != crate::assistant::Origin::Background
+            && workspace.is_none();
         let digest = (new_conversation && matches!(kind, JobKind::Ask | JobKind::Job { .. }))
-            .then(|| self.digest(&conversation))
+            .then(|| self.digest(&conversation, turn))
             .flatten();
         // What the person's own words allow (never what a task reads, nor
         // a task an agent wrote: `Said`).
@@ -511,7 +515,7 @@ impl Runner {
     }
 
     /// What else is going on, for a new conversation's first prompt.
-    pub(super) fn digest(&self, conversation: &str) -> Option<String> {
+    pub(super) fn digest(&self, conversation: &str, turn: bool) -> Option<String> {
         let running: Vec<TaskStatus> = self
             .state()
             .tasks
@@ -523,7 +527,7 @@ impl Runner {
             .into_iter()
             .filter(|summary| summary.id != conversation)
             .collect();
-        context::digest(&running, &recent, self.now())
+        context::digest(&running, &recent, self.now(), turn)
     }
 }
 

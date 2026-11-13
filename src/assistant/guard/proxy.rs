@@ -16,11 +16,13 @@ mod displays;
 mod front;
 mod lookup;
 mod recover;
+mod tools;
 mod shared;
 mod vision;
 
 pub(super) use desk::DESK_NOTE;
 pub use recover::{Inert, Recoverer, System};
+pub use tools::{RULES, offered_names};
 pub use shared::Seed;
 use shared::{Learned, Shared};
 
@@ -264,102 +266,9 @@ impl<D: Desktop> Guard<D> {
         self.config.open_apps || self.config.front_window
     }
 
-    /// The tools this task gets: agent-desktop's, less those it may never
-    /// use, plus `desktop_claim_window` for a Background task.
+    /// The tools this task gets (`tools::offered`).
     pub fn tools(&mut self) -> Result<Vec<Value>, String> {
-        let mut tools = self.desktop.tools()?;
-        let background = self.config.lane == Lane::Background;
-        let physical = self.config.physical_input;
-        tools.retain(|tool| {
-            let name = tool.get("name").and_then(Value::as_str).unwrap_or_default();
-            match policy::kind(name, &Map::new()) {
-                Kind::Refused(_)
-                | Kind::Claim
-                | Kind::InstalledApps
-                | Kind::OpenApp
-                | Kind::Displays => false,
-                Kind::Physical => physical,
-                Kind::Clipboard => !background || physical,
-                Kind::Launch => background,
-                // Background first: a Background task brings a window
-                // forward (briefly) only with full control.
-                Kind::FocusWindow => !background || self.config.front_window,
-                _ => true,
-            }
-        });
-        // Full control reaches every app from the Here lane too: claim a
-        // window, open or switch to an app.
-        let reach = background || self.opens_apps();
-        if reach {
-            tools.push(claim_tool());
-        }
-        tools.extend(apps::tools(reach));
-        tools.push(displays::tool());
-        if reach {
-            tools.push(desk::tool());
-            tools.push(actions::app_action_tool());
-        }
-        tools.push(actions::capabilities_tool());
-        tools.push(actions::read_window_tool());
-        tools.push(vision::shot_tool());
-        tools.push(vision::input_tool());
-        Ok(tools)
-    }
-
-    /// The lane's rules, for the server's instructions.
-    pub fn rules(&self) -> String {
-        let input = if self.config.physical_input {
-            "Real pointer and keyboard input is allowed."
-        } else {
-            "Real pointer and keyboard input (hover, drag, mouse_*, double_click) is not allowed; \
-             act through refs."
-        };
-        match self.config.lane {
-            Lane::Here if self.config.front_window => format!(
-                "Hex guards these tools. The person gave this task full control: it may read and \
-                 act in any window no other task holds, the one in front ({}) included; it claims \
-                 one with desktop_claim_window, and opens or switches to an app with hex_open_app \
-                 (never a second instance of a running app). Blocked apps are refused. {input}",
-                self.config
-                    .here_window
-                    .as_ref()
-                    .map_or("unknown".into(), describe_task_window)
-            ),
-            Lane::Here if self.config.open_apps => format!(
-                "Hex guards these tools. This task stays out of the person's windows: it may act \
-                 in the window that was in front ({}) only, and in apps it opens or switches to \
-                 with hex_open_app (their windows become its own, out of the person's way; never \
-                 a second instance), or free windows it claims that aren't in front. Blocked apps \
-                 are refused. {input}",
-                self.config
-                    .here_window
-                    .as_ref()
-                    .map_or("unknown".into(), describe_task_window)
-            ),
-            Lane::Here => format!(
-                "Hex guards these tools. This task was asked about the window in front ({}); it \
-                 may read and act only in that window, and in new windows of that app its own \
-                 actions open (a dialog, a panel). Other windows, launching apps, and blocked \
-                 apps are refused. {input}",
-                self.config
-                    .here_window
-                    .as_ref()
-                    .map_or("unknown".into(), describe_task_window)
-            ),
-            Lane::Background => format!(
-                "Hex guards these tools. This task runs in the background beside the person: it \
-                 may read and act only in windows it holds, which are windows it opened with \
-                 desktop_launch (and new windows its own actions open) and free windows it took \
-                 with desktop_claim_window. {front} \
-                 desktop_list_windows and desktop_list_apps see everything. Pass window_id when \
-                 an app has several windows. {input}",
-                front = if self.config.front_window {
-                    "The person allowed it the window in front too: claim it by its window_id."
-                } else {
-                    "Never the window in front of the person."
-                }
-            ),
-        }
+        Ok(tools::offered(&self.config, self.desktop.tools()?))
     }
 
     /// Checks and forwards one call; the MCP `CallToolResult` to return.
@@ -921,7 +830,7 @@ impl<D: Desktop> Guard<D> {
                 tool,
                 "NOT_YOUR_WINDOW",
                 "That's the window in front of the person: it's theirs. Claim another, or open \
-                 your own with desktop_launch.",
+                 your own with hex_open_app.",
             ));
         }
         let now = crate::desktop::events::now_ms();
@@ -935,7 +844,7 @@ impl<D: Desktop> Guard<D> {
                         tool,
                         "NOT_YOUR_WINDOW",
                         "That window belongs to another task. Open your own window with \
-                         desktop_launch, or claim a free one.",
+                         hex_open_app, or claim a free one.",
                     )
                 }))
             }
@@ -1039,7 +948,7 @@ impl<D: Desktop> Guard<D> {
                 }
             ),
             Lane::Background if mine.is_empty() => {
-                "no window is yours yet: open one with desktop_launch or claim a free one with \
+                "no window is yours yet: open one with hex_open_app or claim a free one with \
                  desktop_claim_window. The focused window is the person's."
                     .into()
             }
@@ -1170,21 +1079,4 @@ fn resumed_refusal(tool: &str) -> Value {
 
 fn failure(message: &str) -> Value {
     json!({"content": [{"type": "text", "text": message}], "isError": true})
-}
-
-fn claim_tool() -> Value {
-    json!({
-        "name": policy::CLAIM_TOOL,
-        "description": "Hex: take a window that's on screen and free (no other task holds it, \
-            and it isn't the window in front of the person) so this task may read and operate \
-            it. Windows this task opens with desktop_launch are its own already.",
-        "inputSchema": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "window_id": {"type": "string", "description": "The window's id from desktop_list_windows (w-1234)"}
-            },
-            "required": ["window_id"],
-        },
-    })
 }

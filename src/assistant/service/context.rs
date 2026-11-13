@@ -36,11 +36,13 @@ fn state(state: crate::assistant::TaskState) -> &'static str {
 }
 
 /// What else is going on, for a new conversation's first prompt; `None`
-/// when nothing is.
+/// when nothing is. A person's own `turn` also learns the tools that read
+/// and steer the tasks (a job has none of them: `tools::Role`).
 pub fn digest(
     running: &[TaskStatus],
     recent: &[ConversationSummary],
     now_ms: u64,
+    turn: bool,
 ) -> Option<String> {
     let mut lines = Vec::new();
     if !running.is_empty() {
@@ -100,8 +102,13 @@ pub fn digest(
         return None;
     }
     let mut text = String::from(
-        "Everything you did for the person lately, across tasks: one assistant, one stream. The person may refer to any of it (\u{201c}the Tokio one\u{201d}, \u{201c}that task\u{201d}, \u{201c}what did it find?\u{201d}). Answer from here, read a task's full result with hex_job_result([id]), and change a running job with hex_tell_job([id], text); start new work with hex_start_jobs.\n",
+        "Everything you did for the person lately, across tasks: one assistant, one stream. The person may refer to any of it (\u{201c}the Tokio one\u{201d}, \u{201c}that task\u{201d}, \u{201c}what did it find?\u{201d}).",
     );
+    text.push_str(if turn {
+        " Answer from here, read a task's full result with hex_job_result([id]), and change a running job with hex_tell_job([id], text); start new work with hex_start_jobs.\n"
+    } else {
+        " Use what is here for your job.\n"
+    });
     for line in lines {
         if text.chars().count() + line.chars().count() + 1 > MAX_CHARS {
             break;
@@ -356,7 +363,10 @@ mod tests {
                 now - 2 * 60 * 60_000,
             ),
         ];
-        let digest = digest(&running, &recent, now).unwrap();
+        let digest = digest(&running, &recent, now, true).unwrap();
+        // A job has none of the tools that read or steer tasks.
+        let job = super::digest(&running, &recent, now, false).unwrap();
+        assert!(!job.contains("hex_"), "{job}");
         assert_eq!(
             digest,
             "Everything you did for the person lately, across tasks: one assistant, one stream. The person may refer to any of it (\u{201c}the Tokio one\u{201d}, \u{201c}that task\u{201d}, \u{201c}what did it find?\u{201d}). Answer from here, read a task's full result with hex_job_result([id]), and change a running job with hex_tell_job([id], text); start new work with hex_start_jobs.\n\
@@ -366,7 +376,7 @@ mod tests {
              1. [q1] “Wie spät ist es in Tokio?” — answered 5 min ago: Wie spät ist es in Tokio? done\n\
              2. [q2] “Rechnung suchen” — failed 2 h ago: Rechnung suchen done"
         );
-        assert_eq!(super::digest(&[], &[], now), None);
+        assert_eq!(super::digest(&[], &[], now, true), None);
         let many: Vec<_> = (0..40)
             .map(|i| {
                 summary(
@@ -377,7 +387,7 @@ mod tests {
                 )
             })
             .collect();
-        let long = super::digest(&[], &many, now).unwrap();
+        let long = super::digest(&[], &many, now, true).unwrap();
         assert!(long.chars().count() <= MAX_CHARS);
         assert_eq!(long.matches(" — answered").count(), RECENT);
     }

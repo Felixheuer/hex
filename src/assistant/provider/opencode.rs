@@ -17,7 +17,7 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use super::desktop::Describer;
-use super::{Control, Finished, Process, Report, Run, Stdin, WITHHELD_TOOLS};
+use super::{Control, Finished, Process, Report, Run, Stdin};
 use crate::app_settings::AssistantBackend;
 
 const AGENT: &str = "hex";
@@ -120,10 +120,6 @@ fn is_batch_file(program: &std::path::Path) -> bool {
 
 /// What `OPENCODE_CONFIG_CONTENT` adds to the person's configuration.
 fn config(run: &Run) -> Value {
-    let mut tools = Map::new();
-    for tool in WITHHELD_TOOLS {
-        tools.insert(format!("agent-desktop_{tool}"), Value::Bool(false));
-    }
     // A job may edit and run commands in its workspace (the working
     // folder); nothing outside it.
     let permission = match run.workspace {
@@ -139,7 +135,6 @@ fn config(run: &Run) -> Value {
         "description": "Hex's assistant",
         "prompt": run.system,
         "permission": permission,
-        "tools": tools,
     }}});
     if let Some(mcp) = super::servers::opencode_config(run) {
         config["mcp"] = mcp;

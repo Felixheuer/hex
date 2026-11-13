@@ -13,20 +13,36 @@ use super::*;
 /// or kept for the follow-up has exactly it, and the model's prompt cache
 /// keeps it from one request to the next. What only the request decides
 /// goes with its message ([`request_rules`]).
+///
+/// Every tool it names is one the run has, on every backend
+/// (`toolset`): the guard's for the lane (`guard::proxy::tools`), Hex's for
+/// the role (`tools::Role`), the browser's, and the backend's built-ins.
 pub fn system_for(job: &Job, desktop: Option<&Desktop>, browser: bool) -> String {
     let settings = &job.settings;
     let origin = job.request.origin;
+    let role = tool_role(job);
+    let turn = role == crate::assistant::tools::Role::Turn;
     let mut system = system_prompt(origin, desktop, browser);
     match &job.workspace {
         Some(workspace) => {
             system.push_str(&job_rules(
                 workspace,
-                browser,
+                JobTools {
+                    backend: settings.backend,
+                    desktop: desktop.is_some(),
+                    browser,
+                    team: role == crate::assistant::tools::Role::Job,
+                },
                 settings.autonomy == crate::assistant::autonomy::Autonomy::Yolo,
             ));
             system.push_str(&project_rules(&settings.projects_folder));
         }
-        None if origin != Origin::Background => system.push_str(ROUTING),
+        // A chat runs in the Background lane: it reaches every app.
+        None if origin != Origin::Background => system.push_str(&routing(
+            desktop.is_some(),
+            origin.lane() == Lane::Background || desktop.is_some_and(Desktop::reaches_apps),
+            browser,
+        )),
         None => {}
     }
     if let Some(lead) = &job.helps {
@@ -38,16 +54,23 @@ pub fn system_for(job: &Job, desktop: Option<&Desktop>, browser: bool) -> String
         settings.autonomy,
         &crate::assistant::autonomy::Authorized::default(),
     ));
-    let job_role = job_role(job);
-    // A job can't make schedules or remember (`tools::Role::Job`); it still
+    system.push_str(&speed_rules(
+        settings.backend,
+        desktop.is_some(),
+        browser,
+        !turn,
+    ));
+    // A job can't make schedules or remember (`tools::Role`); it still
     // reads the memory note.
-    if !job_role {
-        system.push_str(TOOLS_RULES);
+    if turn {
+        system.push_str(SCHEDULE_RULES);
     }
     system.push_str(crate::assistant::knowledge::RULES);
-    system.push_str(super::rules::BACKGROUND_INPUT_RULES);
+    if desktop.is_some() {
+        system.push_str(super::rules::BACKGROUND_INPUT_RULES);
+    }
     if settings.memory {
-        system.push_str(&memory_rules(job.memory.as_deref(), !job_role));
+        system.push_str(&memory_rules(job.memory.as_deref(), turn));
     }
     system
 }
@@ -291,8 +314,9 @@ pub(super) fn language_rule(request: &str) -> String {
 /// The language rule when the request's language can't be named.
 const LANGUAGE_OF_THEIR_WORDS: &str = "\nWrite every answer, question, and report to the person in the language of their words, even when pages, tools, and Hex's notes are in English (messages to others in the language the request says).\n";
 
-/// The browser rules of a quick (Here) turn.
-pub const HERE_BROWSER: &str = "You have your own hidden browser (the browser tools) for a quick look on the web or a page the person asks to open; prefer it over their browser windows. Omit `session`; it starts with the person's accounts when there are any, and `signedIn: true` opens real Chrome for heavy web apps or logins the light one can't handle. Never solve or get around a captcha or a check that you are human: ask the person with a reply starting `HEX_QUESTION:` to solve it in the live picture of that browser on your card.\n";
+/// The browser rules of a quick (Here) turn; when it is for (a quick look,
+/// never research) is the routing's (`routing`).
+pub const HERE_BROWSER: &str = "You have your own hidden browser (the browser tools); prefer it over the person's browser windows. Omit `session`; it starts with the person's accounts when there are any, and `signedIn: true` opens real Chrome for heavy web apps or logins the light one can't handle. Never solve or get around a captcha or a check that you are human: ask the person with a reply starting `HEX_QUESTION:` to solve it in the live picture of that browser on your card.\n";
 
 /// Who the assistant is, how it answers, and its lane's rules for the
 /// desktop and the browser.
@@ -312,8 +336,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
             "This is a typed chat; it may run beside other tasks. Markdown is fine; be as brief as the question allows.\n"
         }
     });
-    // A quick turn's browser is for a quick look or a page the person asks
-    // to open (research is a job's, `ROUTING`): the short form.
+    // A quick turn's browser: the short form (what it is for: `routing`).
     if browser && origin.lane() == Lane::Here {
         prompt.push_str(HERE_BROWSER);
     } else if browser {
@@ -335,14 +358,12 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
             .driver
             .backend()
             .intro()
-            .replace("{computer}", &computer_name()),
+            .replace("{computer}", computer_name()),
     );
-    if desktop.guarded {
-        prompt.push_str("Use hex_installed_apps to see what's installed before choosing an app.\n");
-        prompt.push_str(
-            "Every desktop action passes Hex's guard, which lets you act only in windows that are yours. A refusal comes back as a tool error with a code: NOT_YOUR_WINDOW (another task's window, or one you haven't launched or claimed), PERSON_IN_WINDOW (the person is working there), TAKEN_OVER (the person took this task over; look again before acting), POLICY_DENIED (a blocked app, or an action tasks may not do). Don't try to get around a refusal: choose another way, or say what you couldn't do.\n",
-        );
-    }
+    prompt.push_str("Use hex_installed_apps to see what's installed before choosing an app.\n");
+    prompt.push_str(
+        "Every desktop action passes Hex's guard, which lets you act only in windows that are yours. A refusal comes back as a tool error with a code: NOT_YOUR_WINDOW (another task's window, or one you haven't opened or claimed), PERSON_IN_WINDOW (the person is working there), TAKEN_OVER (the person took this task over; look again before acting), POLICY_DENIED (a blocked app, or an action tasks may not do). Don't try to get around a refusal: choose another way, or say what you couldn't do.\n",
+    );
     if desktop.driver == crate::assistant::driver::Driver::Cua {
         prompt.push_str("There are no real-pointer tools: act through refs, or by a window's picture with hex_window_shot and hex_window_input.\n");
     } else if desktop.headed {
@@ -358,9 +379,8 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
          - Read before acting: one snapshot of the window (interactive refs), act on a ref, then check only what matters.\n",
     );
     // Hex's app tools reach every app wherever the task may open apps.
-    if desktop.guarded
-        && (origin.lane() == Lane::Background || desktop.open_apps || desktop.front_window)
-    {
+    let reach = origin.lane() == Lane::Background || desktop.reaches_apps();
+    if reach {
         prompt.push_str(APP_METHODS);
     }
     match origin.lane() {
@@ -371,10 +391,10 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
             "- The person wants their own windows left alone: act in the window in front only if asked about it, and never in other windows they use. But open or switch to any app with hex_open_app: its window becomes yours, parked out of their way and live on your card, and you act there right away (a running app is never started twice). Never say you can't open or use an app, and never offer a background job for something you can do now. Asked only to open an app, open it, say so in one short sentence, and ask what to do in it.\n",
         ),
         Lane::Here => prompt.push_str(
-            "- You may LOOK at any window to answer: list them with desktop_list_windows and read or screenshot the one the person means by its window_id (\"what am I doing in Citrix?\" means the Citrix window, even if it isn't in front). ACT only in the window in front, named in the message, and only if asked; don't bring another window forward.\n- If the request needs to act anywhere beyond that window (take over or operate another window such as Citrix, open an app or a browser, the web, files), never say you can't and never tell the person to do it themselves: hand it off at once with `HEX_JOB:` with the hex_start_jobs tool (see below), however small it is; a background job may open apps and browsers and take over the person's other windows.\n",
+            "- You may LOOK at any window to answer: list them with desktop_list_windows and read or screenshot the one the person means by its window_id (\"what am I doing in Citrix?\" means the Citrix window, even if it isn't in front; hex_read_window reads one that has no Accessibility tree). ACT only in the window in front, named in the message, and only if asked; don't bring another window forward.\n- If the request needs to act anywhere beyond that window (take over or operate another window such as Citrix, open an app or a browser, the web, files), never say you can't and never tell the person to do it themselves: hand it off at once with hex_start_jobs (see below), however small it is; a background job may open apps and browsers and take over the person's other windows.\n",
         ),
         Lane::Background => prompt.push_str(&format!(
-            "- You run beside the person and other agents, each with its own cursor; yours is agent “{}”. Work only in your own windows: to use any app, even one that already runs, call hex_open_app first; it takes the app's window into this task (never a second instance), parks it out of the person's way, and shows it live on your card. Never only check that an app runs and report that. Or claim a free window that is already open with desktop_claim_window (its window_id from desktop_list_windows). {}Never another task's windows: don't move, close, or type into them. The clipboard is Here-only: don't use it. Once you know a window's id, always pass it (--window-id / window_id), and don't bring windows to the front.\n\
+            "- You run beside the person and other agents, each with its own cursor; yours is agent “{}”. Work only in your own windows: to use any app, even one that already runs, call hex_open_app first; it takes the app's window into this task (never a second instance), parks it out of the person's way, and shows it live on your card. Never only check that an app runs and report that. Or claim a free window that is already open with desktop_claim_window (its window_id from desktop_list_windows). {}Never another task's windows: don't move, close, or type into them. Once you know a window's id, always pass it (--window-id / window_id), and don't bring windows to the front.\n\
              - {}\n",
             desktop.agent_id,
             if desktop.front_window {
@@ -389,7 +409,12 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
             }
         )),
     }
-    if desktop.open_apps || desktop.front_window {
+    if origin.lane() == Lane::Here && reach {
+        prompt.push_str(
+            "- Done with an app you opened (\u{201c}close WhatsApp\u{201d}): let go of its window with hex_release_window; quit it (desktop_close_app) only when asked to.\n",
+        );
+    }
+    if desktop.reaches_apps() {
         prompt.push_str(
             "- Background first: act in windows where they are, parked or behind others; never bring one to the front just to act in it. Only an app that doesn't react in the background after one retry gets its window forward for the shortest time (the person sees the frame); check the result, then give the front back to the window the person was in.\n",
         );

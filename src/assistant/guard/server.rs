@@ -78,11 +78,9 @@ pub fn serve<D: Desktop + 'static>(mut guard: Guard<D>) -> Result<()> {
         .into_iter()
         .filter_map(|tool| serde_json::from_value::<Tool>(tool).ok())
         .collect();
-    let mut instructions = guard.desktop().instructions().unwrap_or_default();
-    if !instructions.is_empty() {
-        instructions.push_str("\n\n");
-    }
-    instructions.push_str(&guard.rules());
+    // The system prompt has the rules; the driver's own instructions would
+    // be a second, older set (agent-desktop's guide is in the prompt).
+    let instructions = super::proxy::RULES.to_owned();
     let seed = guard.seed();
     let server = Server {
         seed,

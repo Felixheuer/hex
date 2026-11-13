@@ -717,7 +717,7 @@ shows each helper under its lead. `hex_team_tell` passes a change the
 person made on to one helper or all (each is steered at once). A helper's
 prompt names its lead and its part (`team::helper_rules`), and helpers stop
 when their lead ends. A quick question keeps a request whose parts build
-on each other in one job (`agent::ROUTING`), which then leads the team.
+on each other in one job (`agent::routing`), which then leads the team.
 A job's tools can't remember, schedule,
 unschedule, or hand off (`tools::Role::Job`), since it reads pages and files
 the person never saw.

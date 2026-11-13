@@ -35,6 +35,8 @@ use rank::Hit;
 
 pub const LOOKUP: &str = "hex_lookup";
 pub const BROWSER_TAB: &str = tab::NAME;
+/// The tools, in order: every role has both.
+pub const NAMES: [&str; 2] = [LOOKUP, BROWSER_TAB];
 
 /// How long an `all` lookup waits for its slowest source.
 const ALL_DEADLINE: Duration = Duration::from_millis(3000);
@@ -42,7 +44,7 @@ const DEFAULT_LIMIT: usize = 8;
 const MAX_LIMIT: usize = 25;
 
 /// A line for the system prompt: when to reach for these tools.
-pub const RULES: &str = "\nThe person's own things: hex_lookup finds their files, contacts (numbers in international form), calendar, reminders, mail (subjects and senders), the tabs open in their browser and their browsing history, apps, and what you know about people, companies, and projects (scope memory), in milliseconds. Use it first, before opening an app or searching the web for something of theirs. When the person means a tab they have open in their browser (\u{201c}my open tab\u{201d}, \u{201c}the page I'm on\u{201d}), use hex_browser_tab on that tab, never a fresh browser.\n";
+pub const RULES: &str = "\nThe person's own things: hex_lookup finds their files, contacts (numbers in international form), calendar, reminders, mail (subjects and senders), the tabs open in their browser and their browsing history, and what you know about people, companies, and projects (scope memory), in milliseconds. Use it first, before opening an app or searching the web for something of theirs. When the person means a tab they have open in their browser (\u{201c}my open tab\u{201d}, \u{201c}the page I'm on\u{201d}), use hex_browser_tab on that tab, never a fresh browser.\n";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Scope {
@@ -54,13 +56,12 @@ pub enum Scope {
     Mail,
     BrowserTabs,
     BrowserHistory,
-    Apps,
     Memory,
     All,
 }
 
 impl Scope {
-    pub const NAMES: [(&'static str, Scope); 11] = [
+    pub const NAMES: [(&'static str, Scope); 10] = [
         ("files", Self::Files),
         ("recent_files", Self::RecentFiles),
         ("contacts", Self::Contacts),
@@ -69,7 +70,6 @@ impl Scope {
         ("mail", Self::Mail),
         ("browser_tabs", Self::BrowserTabs),
         ("browser_history", Self::BrowserHistory),
-        ("apps", Self::Apps),
         ("memory", Self::Memory),
         ("all", Self::All),
     ];
@@ -108,7 +108,7 @@ impl Scope {
     }
 
     /// The scopes an `all` lookup asks, and how many results each gives.
-    const ALL: [Scope; 9] = [
+    const ALL: [Scope; 8] = [
         Self::Memory,
         Self::Contacts,
         Self::Files,
@@ -117,7 +117,6 @@ impl Scope {
         Self::Mail,
         Self::BrowserTabs,
         Self::BrowserHistory,
-        Self::Apps,
     ];
 }
 
@@ -126,7 +125,7 @@ pub fn definitions() -> Vec<Value> {
     vec![
         json!({
             "name": LOOKUP,
-            "description": "Find the person's own things on this Mac in milliseconds, locally and read-only: files (Spotlight: names, else contents), recent_files (used in the last two weeks), contacts (names, company, phone numbers in international form, emails), calendar (events 30 days back to 90 ahead), reminders (open ones), mail (subject, sender, date, mailbox; never bodies), browser_tabs (the tabs open in their default browser, with tab ids for hex_browser_tab), browser_history (titles, URLs, last visits, from every browser), apps (installed), memory (people, companies, projects and how they connect), or all of them at once. Results are ranked best first. Use it before opening an app or searching the web for something of theirs.",
+            "description": "Find the person's own things on this Mac in milliseconds, locally and read-only: files (Spotlight: names, else contents), recent_files (used in the last two weeks), contacts (names, company, phone numbers in international form, emails), calendar (events 30 days back to 90 ahead), reminders (open ones), mail (subject, sender, date, mailbox; never bodies), browser_tabs (the tabs open in their default browser, with tab ids for hex_browser_tab), browser_history (titles, URLs, last visits, from every browser), memory (people, companies, projects and how they connect), or all of them at once. Results are ranked best first. Use it before opening an app or searching the web for something of theirs.",
             "inputSchema": {"type": "object", "properties": {
                 "query": {"type": "string", "description": "Words to find (a name, a subject, part of a number or an address). May be empty for recent_files, calendar (what comes next), reminders, browser_tabs, or mail (the newest)."},
                 "scope": {"type": "string", "enum": scopes, "description": "Where to look (default all)."},
@@ -158,7 +157,7 @@ pub fn call(
             let scope = match arguments.get("scope").and_then(Value::as_str) {
                 None | Some("") => Scope::All,
                 Some(name) => Scope::parse(name).ok_or_else(|| {
-                    format!("hex_lookup has no scope “{name}”; use one of files, recent_files, contacts, calendar, reminders, mail, browser_tabs, browser_history, apps, memory, all")
+                    format!("hex_lookup has no scope “{name}”; use one of files, recent_files, contacts, calendar, reminders, mail, browser_tabs, browser_history, memory, all")
                 })?,
             };
             let limit = arguments
@@ -170,7 +169,6 @@ pub fn call(
                     scope,
                     Scope::Files
                         | Scope::Contacts
-                        | Scope::Apps
                         | Scope::Memory
                         | Scope::BrowserHistory
                         | Scope::All
@@ -201,7 +199,6 @@ fn search(scope: Scope, query: &str, limit: usize) -> Result<Vec<Hit>, String> {
         Scope::Mail => mail::mail(query, limit, now),
         Scope::BrowserTabs => browser::tabs(&tokens, limit),
         Scope::BrowserHistory => history::history(query, limit, now),
-        Scope::Apps => Ok(files::apps(&tokens, limit)),
         Scope::Memory => memory(query, limit),
         Scope::All => Err("not a single source".into()),
     }
@@ -422,7 +419,9 @@ mod tests {
             .iter()
             .filter_map(|tool| tool["name"].as_str())
             .collect();
-        assert_eq!(names, ["hex_lookup", "hex_browser_tab"]);
+        assert_eq!(names, NAMES);
+        // Installed apps are the guard's hex_installed_apps: one tool per job.
+        assert_eq!(Scope::parse("apps"), None);
     }
 
     #[test]
@@ -440,14 +439,11 @@ mod tests {
             ),
             (Scope::Files, Ok(vec![])),
             (Scope::Mail, Err("needs Full Disk Access".into())),
-            (
-                Scope::Apps,
-                Ok(vec![hit("Mail", "/System/Applications/Mail.app", None)]),
-            ),
+            (Scope::Calendar, Ok(vec![hit("Standup", "Team", None)])),
         ]);
         assert_eq!(
             text,
-            "contacts:\n- Michael Schwarz — mobile +491621234567\n\napps:\n- Mail — /System/Applications/Mail.app\n\nNot searched: mail: needs Full Disk Access"
+            "contacts:\n- Michael Schwarz — mobile +491621234567\n\ncalendar:\n- Standup — Team\n\nNot searched: mail: needs Full Disk Access"
         );
         assert_eq!(merge(vec![(Scope::Files, Ok(vec![]))]), "Nothing found.");
         let dated = format_hits(Scope::Mail, &[hit("Rechnung", "from x", Some(0))]);

@@ -25,6 +25,16 @@ fn job(text: &str, origin: Origin, context: Context) -> Job {
     }
 }
 
+/// A job's tools on Claude Code with the desktop and the browser.
+fn all_tools() -> JobTools {
+    JobTools {
+        backend: AssistantBackend::ClaudeCode,
+        desktop: true,
+        browser: true,
+        team: true,
+    }
+}
+
 fn mail() -> TaskWindow {
     TaskWindow {
         app: "Mail".into(),
@@ -142,10 +152,11 @@ fn a_running_job_is_told_the_persons_own_words() {
 
 #[test]
 fn small_things_and_capability_questions_never_become_jobs() {
-    assert!(ROUTING.contains("Never a job: opening, switching to, or using one app"));
-    assert!(ROUTING.contains("can you …?"));
-    assert!(ROUTING.contains("pass it to that job with hex_tell_job instead of starting another"));
-    let rules = job_rules(std::path::Path::new("/tmp/job"), true, true);
+    let routing = routing(true, true, true);
+    assert!(routing.contains("Never a job: opening, switching to, or using one app"));
+    assert!(routing.contains("can you …?"));
+    assert!(routing.contains("pass it to that job with hex_tell_job instead of starting another"));
+    let rules = job_rules(std::path::Path::new("/tmp/job"), all_tools(), true);
     assert!(rules.contains("skips the paperwork"), "{rules}");
     assert!(rules.contains("Only when the job sent, posted, published"));
     let background = system_prompt(
@@ -175,8 +186,13 @@ fn with_full_control_a_quick_turn_opens_apps_itself() {
     assert!(here.contains("trust it over anything said earlier"));
     assert!(!here.contains("ACT only in the window in front"));
     // Routing no longer sends every other app to the background.
-    assert!(!ROUTING.contains("other apps,"));
-    assert!(ROUTING.contains("open or switch to it"));
+    let routing = routing(true, true, false);
+    assert!(!routing.contains("other apps,"));
+    assert!(routing.contains("open or switch to it with hex_open_app"));
+    // Kept to the window in front, apps are a job, and no hex_open_app.
+    let kept = super::routing(true, false, false);
+    assert!(kept.contains("other apps,"), "{kept}");
+    assert!(!kept.contains("hex_open_app"), "{kept}");
 }
 
 #[test]
@@ -302,7 +318,10 @@ fn each_lane_gets_its_own_rules() {
     let background = system_prompt(Origin::Background, Some(&desktop), true);
     assert!(background.contains("to use any app, even one that already runs, call hex_open_app"));
     assert!(background.contains("desktop_claim_window"));
-    assert!(background.contains("The clipboard is Here-only"));
+    assert!(
+        !background.contains("The clipboard is Here-only"),
+        "the guard offers it where allowed"
+    );
     assert!(background.contains("Never the person's window"));
     assert!(background.contains("Use the browser tools for anything on the web"));
     assert!(background.contains("agent “hex-7”"));
@@ -333,13 +352,13 @@ fn the_prompt_explains_the_autonomy_mode_and_memory() {
         "{yolo}"
     );
     let workspace = std::path::Path::new("/tmp/job");
-    let free = job_rules(workspace, true, true);
+    let free = job_rules(workspace, all_tools(), true);
     assert!(
         free.contains("without a sandbox") && free.contains("## Done when"),
         "{free}"
     );
     assert!(free.contains("open -na Ghostty"));
-    let kept = job_rules(workspace, true, false);
+    let kept = job_rules(workspace, all_tools(), false);
     assert!(
         kept.contains("Shell commands run sandboxed") && kept.contains("save emails as drafts")
     );
@@ -518,11 +537,18 @@ fn a_hand_off_starts_its_jobs_and_a_mere_claim_starts_one() {
 
 #[test]
 fn the_routing_rule_hands_jobs_on_with_the_tool() {
-    assert!(ROUTING.contains("hex_start_jobs"));
-    assert!(
-        ROUTING.contains("is ONE job"),
-        "dependent parts stay one job"
-    );
+    for (desktop, reach, browser) in [
+        (true, true, true),
+        (true, false, false),
+        (false, false, true),
+    ] {
+        let routing = routing(desktop, reach, browser);
+        assert!(routing.contains("call the hex_start_jobs tool"));
+        assert!(
+            routing.contains("is ONE job"),
+            "dependent parts stay one job"
+        );
+    }
     let here = system_prompt(
         Origin::ActionShortcut,
         Some(&Desktop::fixture(None, "hex-1")),
@@ -533,7 +559,7 @@ fn the_routing_rule_hands_jobs_on_with_the_tool() {
 
 #[test]
 fn an_unattended_job_asks_everything_up_front_and_proves_its_work() {
-    let rules = job_rules(std::path::Path::new("/tmp/job"), true, true);
+    let rules = job_rules(std::path::Path::new("/tmp/job"), all_tools(), true);
     assert!(rules.contains("ask ALL of it in ONE message"), "{rules}");
     assert!(rules.contains("never ask for something you could have asked now"));
     assert!(rules.contains("Nachweis.md"), "the evidence file is named");
@@ -546,9 +572,13 @@ fn an_unattended_job_asks_everything_up_front_and_proves_its_work() {
     assert!(projects.contains("--private") && projects.contains("unless the person said public"));
     assert!(projects.contains("Visual Studio Code"));
     assert!(projects.contains("placeholder images"));
-    assert!(APPS_RULES.contains("screenshot the sent message"));
-    assert!(APPS_RULES.contains("1440×900") && APPS_RULES.contains("390×844"));
-    assert!(APPS_RULES.contains("a QR code or login form means not"));
+    let apps = apps_rules(true, true);
+    assert!(apps.contains("screenshot the sent message"));
+    assert!(apps.contains("1440×900") && apps.contains("390×844"));
+    assert!(apps.contains("a QR code or login form means not"));
+    // Without the desktop, no desktop tools and no desktop errors.
+    let web_only = apps_rules(false, true);
+    assert!(!web_only.contains("hex_installed_apps") && !web_only.contains("SCREEN_LOCKED"));
 }
 
 /// The real failure: "Was ist das Passwort vom IP-Zugang von
@@ -574,10 +604,9 @@ fn any_app_is_scripted_first_and_an_unreachable_window_means_another_way() {
     // No app names as logic: the same rule for every app.
     for name in ["WhatsApp", "Slack", "Gmail", "Outlook", "Chrome", "Sheets"] {
         assert!(!rule.contains(name), "{name}");
-        assert!(!APPS_RULES.contains(name), "{name}");
+        assert!(!apps_rules(true, true).contains(name), "{name}");
     }
     let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
-    desktop.guarded = true;
     desktop.open_apps = true;
     let asked = job(
         "Was ist das Passwort vom IP-Zugang von Kraftstoffnotdienst? Steht in Notizen",
@@ -590,8 +619,7 @@ fn any_app_is_scripted_first_and_an_unreachable_window_means_another_way() {
     desktop.open_apps = false;
     assert!(system_for(&background, Some(&desktop), true).contains(APP_METHODS));
     // A quick turn kept to the window in front hands app work to a job.
-    let mut front_only = Desktop::fixture(Some("S1"), "hex-7");
-    front_only.guarded = true;
+    let front_only = Desktop::fixture(Some("S1"), "hex-7");
     assert!(!system_for(&asked, Some(&front_only), true).contains(APP_METHODS));
 }
 
@@ -734,15 +762,16 @@ fn the_guide_keeps_what_a_task_uses() {
 /// every request pays for before its first word. Raise only with a reason.
 // 9_300: the knowledge tools (hex_lookup, hex_chrome_tab) add a short rule.
 // 9_600: acting by a window's picture when Accessibility fails (BACKGROUND_INPUT_RULES).
-const HERE_BUDGET: usize = 9_600;
+// 9_700: one routing rule per lane (the web, hex_job_result) and letting go of desk windows.
+const HERE_BUDGET: usize = 9_700;
 // 15_900: the knowledge tools add a short rule; every app's ways, scripting first (APP_METHODS).
 // 16_200: acting by a window's picture (BACKGROUND_INPUT_RULES).
-const JOB_BUDGET: usize = 16_200;
+// 16_500: the work-fast rules reach jobs too (speed_rules).
+const JOB_BUDGET: usize = 16_500;
 
 #[test]
 fn each_lane_s_rules_stay_within_their_budget() {
     let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
-    desktop.guarded = true;
     desktop.front_window = true;
     desktop.open_apps = true;
     // The guide is agent-desktop's: measured apart, where it is installed.
@@ -779,7 +808,6 @@ fn each_lane_s_rules_stay_within_their_budget() {
 #[ignore = "prints the prompt sizes per lane; run with --ignored --nocapture"]
 fn print_prompt_sizes() {
     let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
-    desktop.guarded = true;
     desktop.front_window = true;
     desktop.open_apps = true;
     let here = job(

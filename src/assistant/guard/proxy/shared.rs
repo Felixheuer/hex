@@ -51,9 +51,6 @@ impl<D: Desktop> Desktop for Shared<D> {
         self.lock().call(tool, args)
     }
 
-    fn instructions(&mut self) -> Option<String> {
-        self.lock().instructions()
-    }
 }
 
 /// The screen, one look at a time ([`Screen`]'s, locked per call).

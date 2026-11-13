@@ -786,7 +786,7 @@ impl Runner {
                 target.control.steer();
             }
             // A new Background request is a job; a Here request is routed by
-            // the Here agent itself, however long (`agent::ROUTING`: it
+            // the Here agent itself, however long (`agent::routing`: it
             // hands jobs on with `hex_start_jobs`).
             if kind == JobKind::Ask && new_conversation && request.origin == Origin::Background {
                 kind = JobKind::Job {

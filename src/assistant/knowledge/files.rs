@@ -1,6 +1,6 @@
 //! Files through Spotlight (`mdfind` in the home folder): by name, by
-//! content when names find too little, and recently used ones; and the
-//! installed apps by name.
+//! content when names find too little, and recently used ones. (Installed
+//! apps are the guard's `hex_installed_apps`.)
 
 use std::path::Path;
 use std::process::Command;
@@ -196,35 +196,6 @@ pub fn recent(tokens: &[String], limit: usize) -> Result<Vec<Hit>, String> {
         .take(limit)
         .collect();
     Ok(hits)
-}
-
-/// Installed apps whose names match.
-pub fn apps(tokens: &[String], limit: usize) -> Vec<Hit> {
-    let home = crate::app_paths::home_dir().unwrap_or_default();
-    let folders = [
-        Path::new("/Applications").to_path_buf(),
-        Path::new("/Applications/Utilities").to_path_buf(),
-        Path::new("/System/Applications").to_path_buf(),
-        Path::new("/System/Applications/Utilities").to_path_buf(),
-        home.join("Applications"),
-    ];
-    let hits = folders
-        .iter()
-        .filter_map(|folder| std::fs::read_dir(folder).ok())
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let app = name.strip_suffix(".app")?.to_owned();
-            Some(Hit {
-                score: rank::score(&app, tokens),
-                title: app,
-                detail: entry.path().display().to_string(),
-                when_ms: None,
-            })
-        })
-        .collect();
-    rank::top(hits, limit)
 }
 
 #[cfg(test)]

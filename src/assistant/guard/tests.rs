@@ -746,7 +746,7 @@ fn a_background_task_never_acts_in_the_window_in_front() {
     assert_eq!(error_code(&unnamed).as_deref(), Some("NOT_YOUR_WINDOW"));
     let snapshot = guard.call("desktop_snapshot", args(json!({"window_id": FRONT})));
     assert_eq!(error_code(&snapshot).as_deref(), Some("NOT_YOUR_WINDOW"));
-    assert!(message(&snapshot).contains("desktop_launch"));
+    assert!(message(&snapshot).contains("hex_open_app"));
     // A window it holds that the person brings to front is theirs for now.
     assert_eq!(
         error_code(&guard.call("desktop_claim_window", args(json!({"window_id": SETTINGS})))),
@@ -1066,12 +1066,16 @@ fn the_tool_list_keeps_agent_desktops_schemas_and_adds_claim() {
     for kept in [
         "desktop_snapshot",
         "desktop_click",
-        "desktop_launch",
+        "hex_open_app",
         "desktop_list_windows",
     ] {
         assert!(names.contains(&kept), "{kept}");
     }
     for gone in [
+        // Apps open with hex_open_app only; the desk is the Here lane's.
+        "desktop_launch",
+        "hex_release_window",
+        "hex_displays",
         "desktop_batch",
         "desktop_session_start",
         "desktop_mouse_click",
