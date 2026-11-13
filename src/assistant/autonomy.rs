@@ -206,6 +206,9 @@ pub fn classify(label: &str) -> Option<Category> {
     if trimmed.ends_with('…') || trimmed.ends_with("...") {
         return None;
     }
+    if is_price(trimmed) {
+        return Some(Category::Pay);
+    }
     let flat = normalize(trimmed);
     if NOT_CONSEQUENTIAL
         .iter()
@@ -228,6 +231,31 @@ pub fn classify(label: &str) -> Option<Category> {
     .into_iter()
     .find(|(_, phrases)| phrases.iter().any(|phrase| has(&words, phrase)))
     .map(|(category, _)| category)
+}
+
+/// A control that is only a price ("4,99 €", "$0.99"): pressing it buys,
+/// in any store.
+fn is_price(label: &str) -> bool {
+    label.chars().any(|c| c.is_ascii_digit())
+        && label.chars().any(|c| {
+            matches!(
+                c,
+                '€' | '$'
+                    | '£'
+                    | '¥'
+                    | '₣'
+                    | '₹'
+                    | '₩'
+                    | '₽'
+                    | '₺'
+                    | '₴'
+                    | '₪'
+                    | '₫'
+                    | '฿'
+                    | '¢'
+            )
+        })
+        && !label.chars().any(char::is_alphabetic)
 }
 
 /// Undoing, cancelling, closing, or throwing away a draft.
@@ -694,6 +722,8 @@ mod tests {
             ("Acheter", Category::Pay),
             ("Comprar ahora", Category::Pay),
             ("Send money", Category::Pay),
+            ("4,99 €", Category::Pay),
+            ("$0.99", Category::Pay),
             ("Share", Category::Share),
             ("Freigeben", Category::Share),
             ("Teilen", Category::Share),
@@ -713,6 +743,8 @@ mod tests {
             "Proceed to checkout",
             "Posts",
             "Shared with me",
+            "Total 4,99 €",
+            "2026",
         ] {
             assert_eq!(classify(label), None, "{label}");
         }
