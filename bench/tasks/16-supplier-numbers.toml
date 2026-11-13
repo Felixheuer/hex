@@ -1,0 +1,16 @@
+id = "supplier-numbers"
+title = "A supplier list as a Numbers document"
+covers = "G. Build a supplier list as Numbers"
+lane = "job"
+timeout_s = 900
+
+[text]
+de = "Erstelle eine Lieferantenliste für Büromöbel in Deutschland mit fünf Firmen als Numbers-Tabelle und speichere sie im Ordner {temp_dir}."
+en = "Build a supplier list of five office furniture suppliers in Germany as a Numbers spreadsheet and save it in the folder {temp_dir}."
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "file"
+glob = "*.numbers"

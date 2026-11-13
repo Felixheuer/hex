@@ -139,6 +139,7 @@ pub(crate) fn symbolic_hotkeys(domain: &Value) -> HashMap<u32, Entry> {
 }
 
 /// The saved symbolic hot keys, read now.
+#[allow(dead_code, reason = "read by the retired Screenshots shortcut check")]
 pub(crate) fn read_symbolic_hotkeys() -> HashMap<u32, Entry> {
     symbolic_hotkeys(&plist::domain("com.apple.symbolichotkeys"))
 }

@@ -1,8 +1,10 @@
-//! The General pane: one card of the basics (shortcut, speech model,
-//! language, microphone, launch at login), each row led by an icon, and
-//! every other setting behind the pane's Advanced fold. Also the pieces the
-//! other panes' rows share: the fold, the quiet select, and the shortcut's
-//! keys.
+//! The Dictation pane: one card of the basics (shortcut, speech model,
+//! language, vocabulary, microphone), each row led by an icon, then what
+//! happens to the text, and every other dictation setting behind the pane's
+//! Advanced fold. The General pane: the app itself (appearance, language,
+//! launch at login, the menu bar and Dock, sounds, updates). Also the pieces
+//! the other panes' rows share: the fold, the quiet select, and the
+//! shortcut's keys.
 
 use std::path::Path;
 use std::time::Duration;
@@ -20,13 +22,15 @@ use super::lists::{PermissionControl, permission_control, slider};
 use super::platform::PlatformRequest;
 use super::settings::{self as s, Capture, Face};
 use super::{Menu, Pane, Request, ShortcutTarget, Ui};
-use crate::app_settings::{IndicatorPosition, RecordingAudioBehavior, UpdateChannel};
+use crate::app_settings::{IndicatorPosition, RecordingAudioBehavior};
 use crate::desktop::host::DesktopAction;
 use crate::desktop::i18n::{tr, tr_fill, tr_named};
 use crate::desktop::login_item::LoginItemStatus;
 use crate::desktop::onboarding::PermissionKind;
 use crate::transcription::models as transcription_models;
 
+mod app;
+mod preferences;
 mod search;
 mod shortcuts;
 
@@ -35,11 +39,14 @@ mod shortcuts;
 #[cfg(target_os = "macos")]
 mod conflicts;
 
-/// Labs › More dictation shortcuts (macOS): General's extra shortcut rows.
+/// More dictation shortcuts (macOS): the extra shortcut rows.
 #[cfg(target_os = "macos")]
 mod extra_shortcuts;
 
-pub(super) use self::search::{focus_search_key, pane};
+pub(super) use self::app::app_pane;
+pub(super) use self::preferences::text_rows;
+use self::preferences::{caps_lock_row, keep_microphone_open_row, unload_model_row};
+pub(super) use self::search::pane;
 pub(super) use self::shortcuts::shortcut_rows;
 
 // ---------------------------------------------------------------------------
@@ -67,9 +74,10 @@ pub(super) fn basics(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Opt
             let (description, cancel) = search::cancel_rows(ui, p);
             rows.extend_described(tr("Cancel"), Some(description), cancel);
         }
-        // Labs › Second dictation shortcut: another key that dictates like
-        // the one above, such as on an external keyboard.
-        if crate::labs::Feature::SecondDictationShortcut.on(&ui.settings) {
+        // A second key that dictates like the one above, such as on an
+        // external keyboard (Linux and Windows; macOS has the extra
+        // shortcuts below).
+        if ui.platform.caps.os != super::platform::Os::Macos {
             rows.extend_described(
                 tr("Second dictation shortcut"),
                 Some(tr("Dictates like the shortcut above")),
@@ -84,52 +92,17 @@ pub(super) fn basics(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Opt
                 ),
             );
         }
-        // The assistant: the Action shortcut (hold and say anything, the
-        // assistant decides; double-tap for the task list), and Stop all
-        // tasks under it.
-        if crate::assistant::enabled(&ui.settings) {
-            let purpose = tr("Hold and say anything; Hex decides");
-            rows.extend_described(
-                tr("Action shortcut"),
-                Some(purpose),
-                shortcut_rows(
-                    ui,
-                    p,
-                    "action-shortcut",
-                    &KEYBOARD,
-                    tr("Action shortcut"),
-                    ShortcutTarget::Action,
-                    Some(purpose),
-                ),
-            );
-            let stop = tr("Stops every assistant task and its speech");
-            rows.extend_described(
-                tr("Stop all tasks"),
-                Some(stop),
-                shortcut_rows(
-                    ui,
-                    p,
-                    "stop-all-shortcut",
-                    &KEYBOARD,
-                    tr("Stop all tasks"),
-                    ShortcutTarget::StopAll,
-                    Some(stop),
-                ),
-            );
-        }
-        // Labs › More dictation shortcuts (macOS): up to four more keys that
-        // each dictate like the one above, each with its own shortcut mode.
+        // More dictation shortcuts (macOS): up to four more keys that each
+        // dictate like the one above, each with its own shortcut mode.
         #[cfg(target_os = "macos")]
-        if crate::labs::Feature::MoreDictationShortcuts.on(&ui.settings) {
-            rows.extend(
-                tr("Extra dictation shortcut"),
-                extra_shortcuts::rows(ui, p, layer),
-            );
-        }
-        // Labs › Terminal paste shortcut (Windows, Linux): another key that
+        rows.extend(
+            tr("Extra dictation shortcut"),
+            extra_shortcuts::rows(ui, p, layer),
+        );
+        // Terminal paste shortcut (Windows, Linux): another key that
         // dictates like the one above and always pastes with Ctrl+Shift+V.
         #[cfg(any(target_os = "windows", target_os = "linux"))]
-        if crate::labs::Feature::TerminalPasteShortcut.on(&ui.settings) {
+        {
             rows.extend_described(
                 tr("Terminal paste shortcut"),
                 Some(tr("Dictates like the shortcut above")),
@@ -270,7 +243,6 @@ pub(super) fn basics(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Opt
         Some(description),
         row,
     );
-    rows.extend(tr("Launch at login"), launch_at_login_rows(ui, p));
     (!rows.is_empty()).then(|| card(p, "basics", rows.into_rows()))
 }
 
@@ -348,12 +320,27 @@ fn microphone_release_row(ui: &Ui, p: Paint) -> (&'static str, CardRow) {
     )
 }
 
-/// Labs › Also pause the browser's permission, under Pause media on macOS:
+/// Also pause the browser's permission, under Pause media on macOS:
 /// Hex hears the browser through System Audio Recording, asked for here,
 /// never while you dictate.
 fn pause_browser_rows(ui: &Ui, p: Paint) -> Vec<El> {
     let on = ui.settings.pause_browser_media;
-    let mut rows = Vec::new();
+    let mut rows = vec![icon_toggle_row(
+        p,
+        "pause-browser",
+        &PLAY,
+        tr("Also pause the browser"),
+        tr("Pauses a playing tab too"),
+        on,
+        |ui: &mut Ui| {
+            let on = !ui.settings.pause_browser_media;
+            ui.update(|settings| settings.pause_browser_media = on);
+            // Hex hears the browser through System Audio Recording.
+            if on && !ui.platform.system_audio {
+                ui.ask(PlatformRequest::SystemAudio);
+            }
+        },
+    )];
     if on {
         let control = if ui.platform.system_audio {
             PermissionControl::Allowed
@@ -705,13 +692,13 @@ impl MicLevel {
     }
 }
 
-/// Follows the microphone's level while General shows in a visible window
+/// Follows the microphone's level while Dictation shows in a visible window
 /// (a scene's recording also plays headless), waking at a UI rate only while
 /// the bars show a level; the window's own tick notices audio rising again. It only reads the level the audio owner stores, so it
 /// never opens a microphone, including one released while idle. True when
 /// the row changed.
 pub(super) fn poll_level(ui: &mut Ui, clock: f64, tx: &mut Tx) -> bool {
-    if ui.pane != Pane::General || ui.labs_open || ui.tour.is_some() {
+    if ui.pane != Pane::Dictation || ui.tour.is_some() {
         return false;
     }
     let visible = ui.window.as_ref().is_none_or(rune::AppHandle::is_visible);
@@ -813,8 +800,24 @@ pub(super) fn dictation(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> 
             ),
         );
     }
-    // Labs › Switch model with keyboard language: its mappings, while on.
+    // Switch model with keyboard language: the switch, then its mappings
+    // while on.
     if ui.platform.caps.keyboard_model_switching {
+        rows.push(
+            tr("Switch model with keyboard language"),
+            icon_toggle_row(
+                p,
+                "keyboard-model-switching",
+                &LANGUAGES,
+                tr("Switch model with keyboard language"),
+                None,
+                settings.keyboard_model_switching.enabled,
+                |ui: &mut Ui| {
+                    ui.update(|settings| settings.keyboard_model_switching.enabled ^= true);
+                    ui.open = None;
+                },
+            ),
+        );
         rows.push(
             tr("Switch model with keyboard language"),
             folding(
@@ -853,6 +856,21 @@ pub(super) fn dictation(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> 
             },
         ),
     );
+    // Only while the mic turns off between dictations: how long it stays
+    // open after one, so the next starts at once.
+    if settings.release_microphone_while_idle {
+        rows.push(
+            tr("Keep the mic open after dictating"),
+            keep_microphone_open_row(ui, p, layer),
+        );
+    }
+    rows.push(
+        tr("Unload the speech model"),
+        unload_model_row(ui, p, layer),
+    );
+    if ui.platform.caps.os == super::platform::Os::Macos {
+        rows.push(tr("Caps Lock"), caps_lock_row(ui, p, layer));
+    }
     // macOS runs its models on Metal or Apple's speech engine.
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     if ui.platform.caps.os != super::platform::Os::Macos {
@@ -937,6 +955,22 @@ pub(super) fn output(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Vec
             ),
         );
     }
+    if settings.recording_audio_behavior != RecordingAudioBehavior::DoNothing {
+        rows.push(
+            tr("Only on speakers"),
+            icon_toggle_row(
+                p,
+                "speakers-only",
+                &SPEAKER,
+                tr("Only on speakers"),
+                tr("Leaves headphones alone"),
+                settings.preferences.speakers_only,
+                |ui: &mut Ui| {
+                    ui.update(|settings| settings.preferences.speakers_only ^= true);
+                },
+            ),
+        );
+    }
     if ui.platform.caps.os == super::platform::Os::Macos
         && settings.recording_audio_behavior == RecordingAudioBehavior::PauseMedia
     {
@@ -973,7 +1007,8 @@ pub(super) fn output(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Vec
             layer,
         ),
     );
-    if ui.platform.caps.terminal_paste {
+    let windows = ui.platform.caps.os == super::platform::Os::Windows;
+    if ui.platform.caps.terminal_paste || windows {
         rows.push_described(
             tr("Terminal paste"),
             Some(tr("Paste with Ctrl+Shift+V so terminals accept it")),
@@ -991,173 +1026,21 @@ pub(super) fn output(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Vec
             ),
         );
     }
-    if clipboard_note_shown(ui) {
-        let copy = tr(
-            "This desktop doesn't let Hex put your clipboard back after a paste. Turn on Labs › Restore clipboard on GNOME to try it.",
-        );
-        rows.push_described(
-            tr("Restore clipboard on GNOME"),
-            Some(copy),
-            note("clipboard-restore-note", copy, p.muted()),
-        );
-    }
-    rows.into_rows()
-}
-
-/// Output's note on a Wayland desktop without data-control (GNOME) while
-/// Labs › Restore clipboard on GNOME is off.
-fn clipboard_note_shown(ui: &Ui) -> bool {
-    ui.platform.clipboard_unrestorable
-        && !crate::labs::Feature::GnomeClipboardRestore.on(&ui.settings)
-}
-
-/// Enable on launch (Linux and Windows), the Dock icon, sounds, the
-/// interface language, and the update channel.
-pub(super) fn application(ui: &Ui, p: Paint, layer: &mut Vec<El>, query: &str) -> Vec<CardRow> {
-    let settings = &ui.settings;
-    let mut rows = search::Rows::new(query);
-    if ui.platform.caps.listener_control {
+    // Windows: other apps may see the dictation shortcut too, so a
+    // push-to-talk key can drive both.
+    if windows {
         rows.push(
-            tr("Enable on launch"),
+            tr("Share the shortcut with other apps"),
             icon_toggle_row(
                 p,
-                "enable-on-launch",
-                &PLAY,
-                tr("Enable on launch"),
-                None,
-                settings.enable_on_launch,
+                "share-shortcut",
+                &KEYBOARD,
+                tr("Share the shortcut with other apps"),
+                tr("Other apps see the dictation shortcut's key presses too"),
+                settings.share_dictation_shortcut,
                 |ui: &mut Ui| {
-                    let enabled = !ui.settings.enable_on_launch;
-                    ui.update(|settings| settings.enable_on_launch = enabled);
+                    ui.update(|settings| settings.share_dictation_shortcut ^= true);
                 },
-            ),
-        );
-    }
-    if ui.platform.caps.dock_icon {
-        rows.push(
-            tr("Show Dock icon"),
-            icon_toggle_row(
-                p,
-                "dock-icon",
-                &DOCK,
-                tr("Show Dock icon"),
-                None,
-                settings.show_dock_icon,
-                |ui: &mut Ui| {
-                    let show = !ui.settings.show_dock_icon;
-                    ui.update(|settings| settings.show_dock_icon = show);
-                },
-            ),
-        );
-    }
-    rows.push(
-        tr("Sound volume"),
-        pick_row(
-            ui,
-            p,
-            "sound-volume",
-            &VOLUME,
-            tr("Sound volume"),
-            s::SOUND_VOLUME_STEPS
-                .iter()
-                .map(|(label, _)| tr(label))
-                .collect(),
-            s::sound_volume_index(settings),
-            |ui, index| {
-                let volume = s::SOUND_VOLUME_STEPS[index].1;
-                let saved = ui.update(|settings| {
-                    settings.sound_effects = volume > 0.0;
-                    if volume > 0.0 {
-                        settings.sound_effect_volume = volume;
-                    }
-                });
-                if saved && volume > 0.0 && ui.live() {
-                    crate::feedback::play(crate::feedback::Tone::DictationStart);
-                }
-            },
-            layer,
-        ),
-    );
-    rows.push(
-        tr("Sounds"),
-        icon_row(
-            p,
-            "sound-set",
-            &MUSIC,
-            tr("Sounds"),
-            None,
-            value_button(
-                p,
-                "sound-set-control",
-                tr("Sounds"),
-                tr(settings.sound_theme.name()),
-                &rune_theme_opencode::icons::CHEVRON_RIGHT,
-                super::sound_sets::open,
-            ),
-        ),
-    );
-    let languages = crate::desktop::i18n::LANGUAGE_CHOICES;
-    rows.push(
-        tr("Interface language"),
-        pick_row(
-            ui,
-            p,
-            "interface-language",
-            &GLOBE,
-            tr("Interface language"),
-            languages.iter().map(|(_, name)| tr(name)).collect(),
-            languages
-                .iter()
-                .position(|(code, _)| *code == settings.ui_language.as_deref())
-                .unwrap_or(0),
-            |ui, index| {
-                let code = crate::desktop::i18n::LANGUAGE_CHOICES[index]
-                    .0
-                    .map(str::to_string);
-                if ui.update(|settings| settings.ui_language = code.clone()) {
-                    crate::desktop::i18n::apply(code.as_deref());
-                }
-            },
-            layer,
-        ),
-    );
-    if s::updates_itself(ui) {
-        let shown = settings
-            .updates
-            .channel
-            .unwrap_or_else(crate::updater::build_channel);
-        rows.push(
-            tr("Update channel"),
-            pick_row(
-                ui,
-                p,
-                "update-channel",
-                &REFRESH,
-                tr("Update channel"),
-                UpdateChannel::ALL
-                    .iter()
-                    .map(|channel| tr(channel.label()))
-                    .collect(),
-                UpdateChannel::ALL
-                    .iter()
-                    .position(|item| *item == shown)
-                    .unwrap_or(0),
-                |ui, index| {
-                    // Choosing the channel already in effect saves nothing, so an
-                    // unset channel keeps following the build.
-                    let channel = UpdateChannel::ALL[index];
-                    let shown = ui
-                        .settings
-                        .updates
-                        .channel
-                        .unwrap_or_else(crate::updater::build_channel);
-                    if channel != shown
-                        && ui.update(|settings| settings.updates.channel = Some(channel))
-                    {
-                        ui.send(Request::Desktop(DesktopAction::CheckForUpdates));
-                    }
-                },
-                layer,
             ),
         );
     }

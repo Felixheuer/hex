@@ -1,0 +1,16 @@
+id = "open-app-parked"
+title = "Open an app without taking the front"
+covers = "G. Open an app; A. background first"
+lane = "any"
+timeout_s = 120
+
+[text]
+de = "Öffne TextEdit für dich im Hintergrund, ich arbeite weiter."
+en = "Open TextEdit for yourself in the background, I keep working."
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "app_running"
+app = "TextEdit"

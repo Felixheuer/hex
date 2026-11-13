@@ -51,14 +51,14 @@ struct Job {
     audio_ms: u64,
     /// The language the model was asked for at submission.
     language: String,
-    /// The clip, kept for History while Labs › Keep recordings is on.
+    /// The clip, kept for History while Keep recordings is on.
     recording: Option<crate::history::Recording>,
     /// `hex dictation stop --print`: the text goes here, never pasted.
     print: Option<PrintReply>,
     /// The shortcut that started this capture: dictation, Dictate without
-    /// processing, or Labs › Terminal paste.
+    /// processing, or Terminal paste.
     flavour: crate::dictation::DictationFlavour,
-    /// Labs › Live typing: the capture's input-method session, so its final
+    /// Live typing: the capture's input-method session, so its final
     /// text is committed instead of pasted. Dropping an unfinished job
     /// cancels it.
     typing: Option<crate::linux::live_typing::Session>,
@@ -69,7 +69,7 @@ enum OutputJob {
     /// Pastes the newest completed dictation again.
     PasteLast,
     /// Runs the focused field's text through its Output steps and replaces
-    /// it (Labs › Transform typed text).
+    /// it (Transform typed text).
     TypedText,
 }
 
@@ -195,7 +195,7 @@ fn readiness_message(
 
 /// Runs hotkey dictation until `shutdown`. A prepared transcriber skips the
 /// model load; otherwise the supplied transcription selection is loaded here,
-/// or parked until the first dictation with Labs › Unload model when idle.
+/// or parked until the first dictation with Unload model when idle.
 /// `updates` change settings, the model, and shortcut registration in place.
 /// `dictations` records a local API client's dictation beside the shortcut:
 /// one capture at a time, and neither ends the other.
@@ -213,13 +213,13 @@ pub(crate) fn run(
     updates: mpsc::Receiver<ListenerUpdate>,
 ) -> Result<()> {
     let mut settings = settings.clone();
-    // Labs › Unload model when idle: a launch with no model Settings prepared
+    // Unload model when idle: a launch with no model Settings prepared
     // for this listener starts parked, as after an idle unload, until the
     // first dictation. A prepared model starts loaded; the idle timer unloads
     // it.
     let transcriber = match transcriber {
         Some(transcriber) => Some(transcriber),
-        None if crate::labs::unload_idle().is_some() => None,
+        None if crate::features::unload_idle().is_some() => None,
         None => Some(LocalTranscriber::load(
             &crate::transcription::custom_models::runnable(&settings.transcription),
         )?),
@@ -245,7 +245,7 @@ pub(crate) fn run(
     // microphone opens only while a dictation records.
     let mut input = microphone_input(&settings, device);
     let mut release_while_idle = settings.release_microphone_while_idle;
-    // Labs › Keep mic open after dictating: a finished capture's
+    // Keep mic open after dictating: a finished capture's
     // microphone stays open for its window before release.
     let mut linger = MicrophoneLinger::default();
     let (binding, options) = shortcuts(&settings);
@@ -409,7 +409,7 @@ pub(crate) fn run(
     } else {
         released_label(&settings)
     };
-    // Labs › Live typing: one owner, started at the first hotkey capture on
+    // Live typing: one owner, started at the first hotkey capture on
     // Wayland, and one session per capture.
     let wayland = crate::linux::session::LinuxSession::detect().is_wayland();
     let mut live_typing: Option<Arc<crate::linux::live_typing::LiveTyping>> = None;
@@ -433,7 +433,7 @@ pub(crate) fn run(
     let mut restart_capture: Option<u32> = None;
     let mut finishing: Option<Finishing> = None;
     // The flavour of the shortcut that started the recording (Dictate
-    // without processing, or Labs › Terminal paste).
+    // without processing, or Terminal paste).
     let mut recording_flavour = crate::dictation::DictationFlavour::Normal;
     // The assistant's Action shortcut: the question its press settled, for
     // the capture it records; and a press while the assistant isn't set up,
@@ -459,7 +459,7 @@ pub(crate) fn run(
         )
     );
 
-    // Labs › Keep mic open after dictating: the one release check the pass and
+    // Keep mic open after dictating: the one release check the pass and
     // its event sites share, so a press handled in the same pass still sees a
     // closed microphone at once when the lab is off.
     macro_rules! release_microphone {
@@ -1922,17 +1922,10 @@ mod tests {
             modifiers: HotkeyModifiers::default(),
             key: Some(HotkeyKey::named("f8")),
         };
-        let mut settings = AppSettings {
+        let settings = AppSettings {
             typed_text_hotkey: Some(binding.clone()),
             ..AppSettings::default()
         };
-        let (_, options) = shortcuts(&settings);
-        assert!(
-            options.typed_text.is_none(),
-            "the lab off registers nothing"
-        );
-
-        settings.labs.typed_text = true;
         assert_eq!(
             shortcuts(&settings).1.typed_text,
             Some(LinuxHotkey::from(&binding))
@@ -1983,13 +1976,6 @@ mod tests {
             second_dictation_hotkey: Some(binding.clone()),
             ..AppSettings::default()
         };
-        let (_, options) = shortcuts(&settings);
-        assert!(
-            options.second_dictation.is_none(),
-            "the lab off registers nothing"
-        );
-
-        settings.labs.second_dictation_shortcut = true;
         assert_eq!(
             shortcuts(&settings).1.second_dictation,
             Some(LinuxHotkey::from(&binding))

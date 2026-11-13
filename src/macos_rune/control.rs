@@ -166,6 +166,10 @@ impl Pump {
                 "unsupported",
                 "this build has no capture engine: it is a build option (`--features capture`), off in public builds",
             )),
+            ControlCommand::AssistantSubmit { text, conversation } => {
+                background(reply, move || assistant_submit(text, conversation));
+                None
+            }
             ControlCommand::Dictation { .. } | ControlCommand::PasteLast => {
                 unreachable!("listener_command answers it")
             }
@@ -519,6 +523,31 @@ impl Pump {
     }
 }
 
+/// `hex bench`: asks the assistant as a hold would, with no window in
+/// front (an empty context), so the person's front window stays theirs.
+fn assistant_submit(
+    text: String,
+    conversation: Option<String>,
+) -> Result<ControlReply, ControlError> {
+    use crate::assistant::types::{Context, Origin, Request};
+    if !crate::assistant::enabled(&load()?) {
+        return Err(ControlError::new(
+            "feature-off",
+            "the assistant is off (Settings › Assistant)",
+        ));
+    }
+    if text.trim().is_empty() {
+        return Err(ControlError::new("invalid", "nothing to ask"));
+    }
+    let id = crate::assistant::service::submit(Request {
+        conversation,
+        text,
+        origin: Origin::ActionShortcut,
+        context: Context::default(),
+    });
+    Ok(ControlReply::done(id))
+}
+
 fn reply_with(result: Result<ControlReply, ControlError>) -> ControlReply {
     result.unwrap_or_else(ControlReply::from)
 }
@@ -565,7 +594,7 @@ fn listener_command(
         } => background(reply, move || {
             let action = control::check_flags(action, true, raw)?;
             let printing_start = action == control::CaptureAction::Start;
-            if printing_start && !crate::labs::print_start() {
+            if printing_start && !crate::features::print_start() {
                 return Err(control::ControlError::new(
                     "disabled",
                     "Labs › Print-only CLI dictation is off; turn it on with \
@@ -618,10 +647,10 @@ fn listener_command(
 fn screenshot(pick: bool, reply: &SyncSender<ControlResponse>) -> Option<ControlReply> {
     #[cfg(hex_capture)]
     {
-        if !crate::labs::screenshots() {
+        if !crate::features::screenshots() {
             return Some(ControlReply::error(
                 "disabled",
-                "Labs › Screenshots is off; turn it on with `hex settings set labs.screenshots on`",
+                "Screenshots are no longer part of Hex",
             ));
         }
         if pick {
@@ -971,7 +1000,6 @@ fn status(
             pane: open.then(|| current_pane(window)).flatten(),
         },
         update: control::update_label(&published.update_status).into(),
-        labs: crate::labs::active_names(settings),
         capabilities: crate::rune_ui::capabilities(),
     })))
 }

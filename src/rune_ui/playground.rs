@@ -1,4 +1,4 @@
-//! The playground (Labs › Playground): Rune's playground in Hex's window,
+//! The playground (dev builds): Rune's playground in Hex's window,
 //! opened from its sidebar item or ⇧⌘D (Ctrl+Shift+D off macOS). It swaps
 //! the window for a folded list of
 //! prototypes (the onboarding options, live meeting notes, and on macOS
@@ -113,7 +113,7 @@ const PATHS: &[(&str, &str)] = &[
     ),
     (
         "picker-parakeet-ultra",
-        "Window/Transcription model/Parakeet Ultra details (Labs)",
+        "Window/Transcription model/Parakeet Ultra details",
     ),
     (
         "picker-custom-models",
@@ -198,10 +198,6 @@ const PATHS: &[(&str, &str)] = &[
     ),
     ("history-empty", "Window/History/Empty"),
     #[cfg(hex_capture)]
-    ("captures", "Window/Captures/Captures"),
-    #[cfg(hex_capture)]
-    ("captures-empty", "Window/Captures/Empty"),
-    #[cfg(hex_capture)]
     ("mac-scrawl", "Window/Annotate/On"),
     #[cfg(hex_capture)]
     ("mac-scrawl-off", "Window/Annotate/Off"),
@@ -224,13 +220,8 @@ const PATHS: &[(&str, &str)] = &[
         "Window/Voice Filter/Driver missing",
     ),
     ("mac-hud-lab", "Window/HUD Lab/HUD Lab"),
-    ("mac-labs", "Window/General/Labs"),
-    ("mac-labs-link", "Window/General/Labs link"),
-    ("mac-labs-on", "Window/General/Labs turned on"),
-    ("mac-labs-screenshots", "Window/General/Labs screenshots"),
-    ("mac-labs-category", "Window/General/Labs category"),
-    ("mac-labs-search", "Window/General/Labs search"),
-    ("mac-labs-settings", "Window/General/Labs settings"),
+    ("mac-general", "Window/General/App"),
+    ("mac-dictation-advanced", "Window/Dictation/Advanced"),
     ("mac-production", "Window/General/Production build"),
     ("mac-activity", "Window/Activity/Activity"),
     ("mac-onboarding", "Window/Onboarding/Setting up Hex"),
@@ -384,8 +375,8 @@ const PATHS: &[(&str, &str)] = &[
     ("commands", "Linux & Windows/Settings · hex commands"),
     ("portal-mouse", "Linux & Windows/Settings · mouse button"),
     ("windows-settings", "Linux & Windows/Settings · Windows"),
-    ("windows-labs", "Linux & Windows/Labs · Windows"),
-    ("linux-labs", "Linux & Windows/Labs · Linux"),
+    ("windows-general", "Linux & Windows/General · Windows"),
+    ("linux-general", "Linux & Windows/General · Linux"),
     ("disabled", "Linux & Windows/Disabled"),
     ("capturing", "Linux & Windows/Recording a shortcut"),
     ("menus", "Linux & Windows/Microphone menu"),
@@ -441,9 +432,9 @@ const PATHS: &[(&str, &str)] = &[
     ),
 ];
 
-/// Labs › Playground is on.
+/// The playground exists: dev builds only (`crate::features::playground`).
 pub(crate) fn enabled() -> bool {
-    crate::labs::playground()
+    crate::features::playground()
 }
 
 /// `spec` with the playground's scenes: every fixture scene but `live`, at
@@ -462,7 +453,7 @@ pub(super) fn attach(app: App<Ui>) -> App<Ui> {
     app.playground(playground())
 }
 
-/// The window's playground: always attached, so Labs › Playground applies at
+/// The window's playground: always attached, so the dev-build gate applies at
 /// once. Rune's own ⇧⌘D is off; the window's `on_key`, its sidebar item, and
 /// the macOS View menu open it only while the toggle is on.
 pub(super) fn attach_gated(app: App<Ui>) -> App<Ui> {
@@ -632,8 +623,8 @@ mod tests {
         rt.frame(0.0);
         rt.open_playground("Window/General/Settings", None);
         let stage = rt.playground_state::<Ui>().expect("the scene's state");
-        assert_eq!(stage.pane, Pane::General);
-        let second = *super::super::labs::order(stage)
+        assert_eq!(stage.pane, Pane::Dictation);
+        let second = *super::super::sidebar::order(stage)
             .get(1)
             .expect("a second pane");
         rt.key(rune::KeyEvent {
@@ -645,7 +636,7 @@ mod tests {
         });
         rt.frame(1.0 / 60.0);
         assert_eq!(rt.playground_state::<Ui>().map(|ui| ui.pane), Some(second));
-        assert_eq!(rt.state.pane, Pane::General);
+        assert_eq!(rt.state.pane, Pane::Dictation);
     }
 
     /// The playground's own keys still win while a story that takes keys

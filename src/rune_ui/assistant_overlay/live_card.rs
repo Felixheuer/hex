@@ -319,7 +319,9 @@ fn app_card<S: 'static>(
         Driver::Agent => {
             let (id, take_over) = (task.to_owned(), actions.take_over);
             (
-                tr("The assistant works in this window off your screen. Take over to bring it to you."),
+                tr(
+                    "The assistant works in this window off your screen. Take over to bring it to you.",
+                ),
                 Some(
                     Button::new(tr("Take over"))
                         .variant(ButtonVariant::Outline)
@@ -367,7 +369,12 @@ fn app_card<S: 'static>(
         .hit()
         .on_press(|_: &mut S| {})
         .child(header)
-        .child(el().key("live-picture-row").w_full().center().child(picture))
+        .child(
+            el().key("live-picture-row")
+                .w_full()
+                .center()
+                .child(picture),
+        )
         .child(bar)
 }
 

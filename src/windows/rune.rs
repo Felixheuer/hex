@@ -91,10 +91,10 @@ pub(crate) enum ShortcutTarget {
     Capture,
     /// Dictate without processing.
     RawDictation,
-    /// Labs › Terminal paste shortcut: dictates like dictation and always
+    /// Terminal paste shortcut: dictates like dictation and always
     /// pastes with Ctrl+Shift+V.
     TerminalPaste,
-    /// Labs › Second dictation shortcut: another key that dictates exactly
+    /// Second dictation shortcut: another key that dictates exactly
     /// like the dictation shortcut.
     SecondDictation,
     /// Toggle mode's cancel shortcut.
@@ -179,7 +179,7 @@ pub fn open(event_path: PathBuf, shutdown: &'static AtomicBool, start_hidden: bo
         return Ok(());
     };
     name_ui_thread();
-    crate::labs::log_launch();
+    crate::features::log_launch();
     shutdown.store(false, Ordering::Relaxed);
     let launch = AppSettings::load_for_launch();
     let settings_error = launch

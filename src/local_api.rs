@@ -26,7 +26,7 @@ mod transcriptions;
 #[cfg_attr(not(target_os = "macos"), allow(unused_imports))]
 pub use discovery::call_developer;
 use discovery::*;
-pub use discovery::{call_control, running_pid};
+pub use discovery::{call_control, call_control_in, running_pid};
 pub(crate) use discovery::{error_code, post_wav};
 use http::*;
 pub use processing::Processing;
@@ -124,7 +124,7 @@ struct CapabilitiesResponse {
     /// `/streams` (`docs/streams.md`).
     streams: bool,
     /// `process=global` on `/transcriptions` and `/streams/{id}/finish`
-    /// (Labs › Process API transcripts).
+    /// (Process API transcripts).
     output_processing: bool,
     developer_control: bool,
     control: bool,
@@ -143,7 +143,7 @@ pub struct LocalApiOptions {
     /// Uninstalled, `/transcriptions` and `/streams/{id}/finish` answer
     /// `409 processing-unavailable` when asked to process.
     pub processing: Processing,
-    /// Native timings on `/transcriptions` (Labs › Timestamps in API
+    /// Native timings on `/transcriptions` (Timestamps in API
     /// transcripts). Off, a timed request answers
     /// `403 timestamps-disabled`.
     pub timestamps: Timestamps,

@@ -1,0 +1,25 @@
+id = "park-app"
+title = "Park an app out of the way"
+covers = "G. Park an app"
+lane = "any"
+timeout_s = 90
+after = "switch-to-app"
+
+[safety]
+front = "may_change"
+
+[text]
+de = "Park TextEdit wieder aus dem Weg."
+en = "Park TextEdit out of the way again."
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "app_running"
+app = "TextEdit"
+
+[[check]]
+kind = "front_app"
+app = "TextEdit"
+is = false

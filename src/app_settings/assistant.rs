@@ -50,6 +50,20 @@ pub struct AssistantSettings {
     /// spoken answers; `None` uses the model above. Codex and OpenCode keep
     /// their own model.
     pub here_model: Option<String>,
+    /// How hard a Here turn on Claude Code thinks (`--effort`: low, medium,
+    /// high, xhigh, max); `None` is the model's own default. A job keeps
+    /// its model's default.
+    pub here_effort: Option<String>,
+    /// A Here turn on the fast model (`here_model`) that has made this many
+    /// tool calls without finishing goes on with the agent's own model
+    /// (`claude_code_model`) in the same session, as does one that failed;
+    /// 0 never hands over. Claude Code only.
+    pub escalate_after_tools: u32,
+    /// Claude Code is kept started and ready for the next hold this many
+    /// minutes after the last Here answer (its process waits idle and costs
+    /// no tokens until the next question); 0 keeps it only for the
+    /// follow-up window.
+    pub warm_minutes: u32,
     /// Answers to a quick question are read aloud.
     pub speak_answers: bool,
     /// The macOS voice name; `None` is the system voice.
@@ -154,7 +168,12 @@ impl Default for AssistantSettings {
             opencode_model: None,
             opencode_provider: None,
             claude_api_model: "claude-sonnet-5-5".into(),
-            here_model: Some("claude-haiku-5-5".into()),
+            // Measured faster to its first spoken sentence than Haiku 5.5,
+            // which thinks before it writes (docs/features/assistant.md).
+            here_model: Some("claude-sonnet-5-5".into()),
+            here_effort: Some("low".into()),
+            escalate_after_tools: 8,
+            warm_minutes: 15,
             speak_answers: true,
             voice: None,
             control_desktop: true,

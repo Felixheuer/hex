@@ -1,0 +1,23 @@
+id = "summarize-file"
+title = "Read a file and summarize it"
+covers = "B. Knowing everything: files"
+lane = "any"
+timeout_s = 120
+
+[[seed]]
+name = "bericht.txt"
+content = "Quartalsbericht: Der Umsatz mit Wärmepumpen stieg um 12 Prozent. Hauptgrund war die Nachfrage aus Bayern. Das Lager in Kassel wird im Mai erweitert."
+
+[text]
+de = "Fass die Datei bericht.txt im Ordner {temp_dir} in einem Satz zusammen."
+en = "Summarize the file bericht.txt in the folder {temp_dir} in one sentence."
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "answer_matches"
+pattern = "(?i)(wärmepumpe|heat pump|12)"
+
+[[check]]
+kind = "answer_language"

@@ -1,5 +1,5 @@
 //! Native timings on transcription responses: the `timestamps` query on
-//! `POST /transcriptions` (Labs › Timestamps in API transcripts). The models
+//! `POST /transcriptions` (Timestamps in API transcripts). The models
 //! produce the times; this module owns the query, the lab gate, and the
 //! response fields, and never estimates, interpolates, or downgrades one.
 //!
@@ -19,7 +19,7 @@ pub struct Timestamps {
 impl Default for Timestamps {
     fn default() -> Self {
         Self {
-            enabled: crate::labs::api_timestamps,
+            enabled: crate::features::api_timestamps,
         }
     }
 }

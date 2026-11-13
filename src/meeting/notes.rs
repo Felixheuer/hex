@@ -285,7 +285,7 @@ fn calendar_preamble(calendar: Option<&super::MeetingCalendar>) -> String {
     preamble
 }
 
-/// [`summarize_entries`] with the vocabulary's `terms` (Labs › Vocabulary
+/// [`summarize_entries`] with the vocabulary's `terms` (Vocabulary
 /// in meeting notes; empty leaves them out) and the calendar event as
 /// context. Both count against the excerpt budget.
 pub(super) fn summarize_with_calendar(
@@ -736,7 +736,7 @@ pub(super) fn retitle_markdown_file(
 }
 
 /// Applies the notes to the exported file in place; the caller renames it
-/// to the new title when Labs › Descriptive meeting file names is on.
+/// to the new title when Descriptive meeting file names is on.
 fn update_markdown_file(
     path: &Path,
     written: &mut Option<String>,
@@ -749,10 +749,10 @@ fn update_markdown_file(
     })
 }
 
-/// Applies the notes to the exported file and, with Labs › Descriptive
+/// Applies the notes to the exported file and, with Descriptive
 /// meeting file names on, renames it to the new title. A missing file is
 /// left to the manifest alone. A separate notes file is written beside it
-/// while Labs › Separate notes file is on.
+/// while Separate notes file is on.
 fn apply_notes_to_export(
     manifest: &mut MeetingManifest,
     previous_title: &str,
@@ -890,11 +890,11 @@ fn summarize_claimed(id: &str, _claim: InProgress) -> Result<MeetingManifest> {
     }
     let entries = super::read_ndjson(&directory.join("transcript.ndjson"))?;
     let never = AtomicBool::new(false);
-    if crate::labs::live_chapters() {
+    if crate::features::live_chapters() {
         super::chapters::refine_meeting(&directory, &entries, &never);
     }
     // Read at each generation, so Regenerate summary uses the current list.
-    let terms = if crate::labs::meeting_notes_vocabulary() {
+    let terms = if crate::features::meeting_notes_vocabulary() {
         crate::dictation::vocabulary::terms()
     } else {
         Vec::new()
@@ -931,8 +931,8 @@ fn summarize_claimed(id: &str, _claim: InProgress) -> Result<MeetingManifest> {
                 &mut manifest,
                 &previous_title,
                 &title,
-                crate::labs::meeting_descriptive_filenames(),
-                crate::labs::meeting_notes_file(),
+                crate::features::meeting_descriptive_filenames(),
+                crate::features::meeting_notes_file(),
             ) {
                 tracing::warn!(%error, meeting = id, "could not add notes to meeting Markdown");
                 manifest.notes_error = Some(format!("Notes not added to Markdown: {error}"));

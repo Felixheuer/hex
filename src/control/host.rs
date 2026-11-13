@@ -46,7 +46,7 @@ pub(crate) trait Host {
     ) -> Result<(), ControlError>;
     fn paste_last(&self) -> Result<(), ControlError>;
     /// Runs the focused field's text through its Output steps and replaces
-    /// it, where this OS has Labs › Transform typed text.
+    /// it, where this OS has Transform typed text.
     fn typed_text(&self) -> Result<(), ControlError> {
         Err(ControlError::new(
             "unsupported",
@@ -264,6 +264,10 @@ fn command(host: &dyn Host, command: ControlCommand) -> ControlReply {
         | ControlCommand::ScrawlCaptureSend { .. }
         | ControlCommand::ScrawlCaptureUndo
         | ControlCommand::ScrawlCaptureRoute { .. }) => host.annotate(command),
+        ControlCommand::AssistantSubmit { .. } => reply(Err(ControlError::new(
+            "unsupported",
+            "`hex bench` asks the assistant on macOS only",
+        ))),
     }
 }
 
@@ -624,7 +628,6 @@ fn status(host: &dyn Host) -> Result<ControlReply, ControlError> {
             pane: None,
         },
         update: super::update_label(&state.update).into(),
-        labs: crate::labs::active_names(settings),
         capabilities: crate::rune_ui::capabilities(),
     })))
 }

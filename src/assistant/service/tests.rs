@@ -88,6 +88,8 @@ impl World {
             ..AssistantSettings::default()
         };
         settings.task_timeout_minutes = 0;
+        // No backend kept ready after answers unless a test asks for it.
+        settings.warm_minutes = 0;
         Arc::new(Self {
             released: Mutex::default(),
             scripts: Mutex::default(),
@@ -253,6 +255,7 @@ impl World {
             world(self),
         );
         let notes = world(self);
+        let browser = world(self);
         let pressure = world(self);
         let (team_asks, team_answer) = (world(self), world(self));
         let (recent, interrupted, prewarm, requests, workspaces) = (
@@ -308,6 +311,15 @@ impl World {
                     "prewarm {} {} {:?}",
                     job.conversation, job.agent_id, job.request.origin
                 ));
+            }),
+            browser_ahead: Box::new(move |task, words| {
+                browser.log(format!("browser ahead {task} {words}"));
+            }),
+            front_window: Box::new(|| {
+                Some(TaskWindow {
+                    app: "Notes".into(),
+                    window_id: Some("w-1".into()),
+                })
             }),
             requests: Box::new(move || std::mem::take(&mut *requests.requests.lock().unwrap())),
             make_workspace: Box::new(move |inside, title| {
@@ -1335,6 +1347,90 @@ fn prewarm_reserves_the_next_requests_conversation_and_agent() {
     world.settings.lock().unwrap().backend = AssistantBackend::Codex;
     runner.prewarm(Lane::Here, None);
     assert!(runner.state().warm.is_none());
+}
+
+#[test]
+fn after_a_quick_answer_the_next_new_conversation_is_kept_ready() {
+    let world = World::new(8);
+    {
+        let mut settings = world.settings.lock().unwrap();
+        settings.backend = AssistantBackend::ClaudeCode;
+        settings.warm_minutes = 15;
+    }
+    let runner = world.runner();
+    let first = runner.submit(request("q", Origin::ActionShortcut));
+    world.release("q");
+    world.wait_for("the answer", ended(&first));
+    world.wait_until("the stand-by", || {
+        world
+            .log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|line| line.starts_with("prewarm") && !line.contains(&first))
+    });
+    let reserved = runner.state().warm.clone().unwrap();
+    assert_eq!(reserved.conversation, None, "for a new conversation");
+    assert_eq!(reserved.for_ms, 15 * 60_000);
+    // Past the follow-up window, ten minutes on, a hold in the same window
+    // takes it.
+    world.advance(10 * 60_000);
+    let mut next = request("q2", Origin::ActionShortcut);
+    next.context.window = Some(TaskWindow {
+        app: "Notes".into(),
+        window_id: Some("w-1".into()),
+    });
+    assert_eq!(runner.submit(next), reserved.id);
+    world.release("q2");
+    world.wait_for("the second answer", ended(&reserved.id));
+    let count = |world: &World| {
+        world
+            .log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|line| line.starts_with("prewarm"))
+            .count()
+    };
+    world.wait_until("the next stand-by", || count(&world) == 2);
+    // Turned off, nothing is kept.
+    world.settings.lock().unwrap().warm_minutes = 0;
+    let before = count(&world);
+    let third = runner.submit(request("q3", Origin::ActionShortcut));
+    world.release("q3");
+    world.wait_for("the third answer", ended(&third));
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(count(&world), before);
+}
+
+#[test]
+fn words_that_ask_for_the_web_start_the_holds_browser_once() {
+    let world = World::new(8);
+    world.settings.lock().unwrap().backend = AssistantBackend::ClaudeCode;
+    let runner = world.runner();
+    // Nothing reserved yet: nothing to start.
+    runner.speculate("such mal auf google nach");
+    runner.prewarm(Lane::Here, None);
+    let id = runner.state().warm.as_ref().unwrap().id.clone();
+    runner.speculate("öffne Notizen und");
+    assert!(!world.logged(&format!("browser ahead {id}")));
+    runner.speculate("such mal auf google nach");
+    runner.speculate("such mal auf google nach dem Wetter");
+    let started = world
+        .log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|line| line.starts_with("browser ahead"))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(
+        started,
+        [format!("browser ahead {id} such mal auf google nach")]
+    );
+    assert!(warm::wants_web("Schau auf spiegel punkt de"));
+    assert!(warm::wants_web("open my Gmail"));
+    assert!(!warm::wants_web("Was steht in dieser Mail?"));
 }
 
 #[test]

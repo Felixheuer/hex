@@ -1,0 +1,21 @@
+id = "supplier-csv"
+title = "A supplier list as CSV"
+covers = "G. Build a supplier list"
+lane = "job"
+timeout_s = 900
+
+[text]
+de = "Erstelle eine Lieferantenliste für Verpackungsmaterial in Deutschland mit mindestens fünf Firmen, mit Name, Ort und Website, als CSV-Datei im Ordner {temp_dir}."
+en = "Build a supplier list of at least five packaging suppliers in Germany with name, city and website, as a CSV file in the folder {temp_dir}."
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "file"
+glob = "*.csv"
+contains = "(?i)https?://|www\\."
+
+[[check]]
+kind = "plan"
+min_steps = 2

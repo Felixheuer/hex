@@ -21,10 +21,10 @@ mod capture;
 mod dictation_processing;
 mod extra_shortcuts;
 mod hotkeys;
-mod labs;
 mod meeting_folder;
 mod meetings;
 mod persistence;
+mod preferences;
 mod screenshots;
 #[cfg(target_os = "linux")]
 pub(crate) use persistence::LaunchLoad;
@@ -39,9 +39,9 @@ pub use dictation_processing::{
 };
 pub use extra_shortcuts::*;
 pub use hotkeys::*;
-pub use labs::*;
 pub use meeting_folder::default_meeting_output_folder;
 pub use meetings::*;
+pub use preferences::*;
 #[cfg_attr(not(target_os = "macos"), allow(unused_imports))]
 pub use screenshots::{
     ScreenshotSettings, screenshot_hotkey, screenshot_record_hotkey, screenshot_settings,
@@ -50,8 +50,7 @@ pub use screenshots::{
 static RECORDING_DUCK_VOLUME: AtomicU32 = AtomicU32::new(0.2_f32.to_bits());
 // Until settings load, "While dictating" is its default, not Mute: the
 // hotkey pre-roll depends on it.
-static RECORDING_AUDIO_BEHAVIOR: AtomicU8 =
-    AtomicU8::new(RecordingAudioBehavior::Duck.encoded());
+static RECORDING_AUDIO_BEHAVIOR: AtomicU8 = AtomicU8::new(RecordingAudioBehavior::Duck.encoded());
 static DOUBLE_TAP_LOCK: AtomicBool = AtomicBool::new(true);
 static DOUBLE_TAP_ONLY: AtomicBool = AtomicBool::new(false);
 static SHORTCUT_TOGGLE: AtomicBool = AtomicBool::new(false);
@@ -123,7 +122,7 @@ impl Default for ExperimentalSettings {
 }
 
 /// Whether the Voice Filter runs: the listener streams the Hex Microphone
-/// and Hex watches its driver. Its Labs toggle (`experimental.hex_microphone`,
+/// and Hex watches its driver. Its developer switch (`experimental.hex_microphone`,
 /// or `HEX_EXPERIMENTAL_MIC`) or an installed driver turns it on, so a driver
 /// apps already use keeps receiving audio.
 pub fn voice_filter_enabled(setting: bool, driver_installed: bool) -> bool {
@@ -281,23 +280,21 @@ pub struct AppSettings {
     /// Dictate without processing: records like the dictation shortcut and
     /// pastes the transcript as heard. Unbound by default.
     pub raw_dictation_hotkey: Option<HotkeyBinding>,
-    /// Labs › Transform typed text (Linux): runs the focused app's Output
-    /// steps on the text already typed in the focused field and replaces it.
-    /// Unbound by default and ignored while its Labs toggle is off.
+    /// Transform typed text (Linux): runs the focused app's Output steps on
+    /// the text already typed in the focused field and replaces it. Unbound
+    /// by default.
     pub typed_text_hotkey: Option<HotkeyBinding>,
-    /// Labs › Second dictation shortcut: another shortcut that dictates
-    /// exactly as `dictation_hotkey` does. Unbound by default and ignored
-    /// while its Labs toggle is off.
+    /// Another shortcut that dictates exactly as `dictation_hotkey` does
+    /// (Linux and Windows; macOS folds it into `extra_dictation_hotkeys`).
+    /// Unbound by default.
     pub second_dictation_hotkey: Option<HotkeyBinding>,
-    /// Labs › More dictation shortcuts (macOS): up to
+    /// More dictation shortcuts (macOS): up to
     /// [`MAX_EXTRA_DICTATION_SHORTCUTS`] more, each with its own binding and
-    /// activation mode. Saved rows stay while the Lab is off but never
-    /// register or match.
+    /// activation mode.
     #[serde(default)]
     pub extra_dictation_hotkeys: Vec<ExtraDictationHotkey>,
-    /// Labs › Terminal paste shortcut: another shortcut that dictates like
-    /// `dictation_hotkey` and always pastes with Ctrl+Shift+V (Windows,
-    /// Linux). Unbound by default and ignored while its Labs toggle is off.
+    /// Another shortcut that dictates like `dictation_hotkey` and always
+    /// pastes with Ctrl+Shift+V (Windows, Linux). Unbound by default.
     pub terminal_paste_hotkey: Option<HotkeyBinding>,
     pub show_dock_icon: bool,
     pub transcription: TranscriptionSelection,
@@ -324,9 +321,14 @@ pub struct AppSettings {
     pub capture_from_other_build: Option<serde_json::Value>,
     #[serde(default)]
     pub experimental: ExperimentalSettings,
-    /// The Labs features' own switches (`crate::labs`).
-    pub labs: LabsSettings,
-    /// Labs › Screenshots' shortcut and folder (macOS).
+    /// The former Labs features that became ordinary settings
+    /// (`crate::features`).
+    pub preferences: Preferences,
+    /// A settings file's retired `labs` object, carried into `preferences`
+    /// once as it loads and never written back.
+    #[serde(rename = "labs", skip_serializing)]
+    pub retired_labs: Option<RetiredLabs>,
+    /// The screenshot shortcut and folder, kept from a retired feature.
     pub screenshots: ScreenshotSettings,
     /// The assistant's shortcut, model, and voice (macOS).
     pub assistant: AssistantSettings,
@@ -341,10 +343,6 @@ pub struct AppSettings {
     /// Let other apps see the dictation shortcut's key presses too
     /// (Windows), so a push-to-talk key can drive both.
     pub share_dictation_shortcut: bool,
-    /// A mouse-button shortcut went back to its default because Labs ›
-    /// Mouse shortcuts is off; the window says so once, then clears it.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub mouse_shortcut_notice: bool,
     /// The interface language code; `None` follows the system language.
     pub ui_language: Option<String>,
     pub indicator_position: IndicatorPosition,
@@ -458,14 +456,14 @@ impl Default for AppSettings {
             #[cfg(not(hex_capture))]
             capture_from_other_build: None,
             experimental: ExperimentalSettings::default(),
-            labs: LabsSettings::default(),
+            preferences: Preferences::default(),
+            retired_labs: None,
             screenshots: ScreenshotSettings::default(),
             assistant: AssistantSettings::default(),
             enable_on_launch: true,
             paste_with_shift: false,
             gnome_keyboard_shortcuts: false,
             share_dictation_shortcut: false,
-            mouse_shortcut_notice: false,
             ui_language: None,
             indicator_position: IndicatorPosition::default(),
             updates: UpdateSettings::default(),
@@ -695,22 +693,6 @@ impl AppSettings {
         }
     }
 
-    /// The saved `labs` switches, read without loading, normalizing, or
-    /// writing anything else.
-    pub fn saved_labs() -> LabsSettings {
-        #[derive(Deserialize)]
-        struct File {
-            #[serde(default)]
-            labs: LabsSettings,
-        }
-        path()
-            .ok()
-            .and_then(|path| fs::read(path).ok())
-            .and_then(|data| serde_json::from_slice::<File>(&data).ok())
-            .map(|file| file.labs)
-            .unwrap_or_default()
-    }
-
     /// The saved `updates.channel`, read without loading, normalizing, or
     /// writing anything else, so the updater thread never races a save.
     pub fn saved_update_channel() -> Option<UpdateChannel> {
@@ -786,11 +768,8 @@ impl AppSettings {
             self.shortcut_mode == crate::dictation::ShortcutMode::Toggle,
             Ordering::Relaxed,
         );
-        MEETINGS_ENABLED.store(
-            self.meetings.available() && crate::labs::Feature::Meetings.shipped(),
-            Ordering::Release,
-        );
-        crate::labs::apply(&self.labs);
+        MEETINGS_ENABLED.store(self.meetings.available(), Ordering::Release);
+        crate::features::apply(&self.preferences);
         screenshots::apply_screenshots(self);
         assistant::apply_assistant(self);
         #[cfg(hex_capture)]
@@ -1061,15 +1040,13 @@ impl AppSettings {
             .then_some(&self.cancel_hotkey)
     }
 
-    /// Labs › Second dictation shortcut's binding while it takes effect:
-    /// its toggle on, bound, sharing no key with another active shortcut,
-    /// and, on Linux and Windows, naming a key (both register a key). On
-    /// macOS a shortcut without a key can still run. Otherwise Hex matches,
-    /// suppresses, registers, and checks nothing for it.
+    /// The second dictation shortcut's binding while it takes effect:
+    /// bound, sharing no key with another active shortcut, and, on Linux and
+    /// Windows, naming a key (both register a key). On macOS a shortcut
+    /// without a key can still run (a loaded file folds it into the extra
+    /// dictation shortcuts). Otherwise Hex matches, suppresses, registers,
+    /// and checks nothing for it.
     pub fn active_second_dictation_hotkey(&self) -> Option<&HotkeyBinding> {
-        if !self.labs.second_dictation_shortcut {
-            return None;
-        }
         self.second_dictation_hotkey
             .as_ref()
             .filter(|binding| cfg!(target_os = "macos") || binding.key.is_some())
@@ -1089,11 +1066,11 @@ impl AppSettings {
             .filter(|binding| !self.hotkey_in_use(HotkeySlot::Action, binding))
     }
 
-    /// Labs › Transform typed text's binding while it takes effect: Linux,
-    /// its toggle on, bound, and sharing no key with another active
-    /// shortcut. Otherwise the listener registers nothing for it.
+    /// Transform typed text's binding while it takes effect: Linux, bound,
+    /// and sharing no key with another active shortcut. Otherwise the
+    /// listener registers nothing for it.
     pub fn active_typed_text_hotkey(&self) -> Option<&HotkeyBinding> {
-        if !cfg!(target_os = "linux") || !self.labs.typed_text {
+        if !cfg!(target_os = "linux") {
             return None;
         }
         self.typed_text_hotkey
@@ -1101,15 +1078,12 @@ impl AppSettings {
             .filter(|binding| !self.hotkey_in_use(HotkeySlot::TypedText, binding))
     }
 
-    /// Labs › Terminal paste shortcut's binding while it takes effect:
-    /// Windows or Linux, its toggle on, bound, and sharing no key with
-    /// another active shortcut. Otherwise Hex registers, matches, and
-    /// checks nothing for it.
+    /// The terminal paste shortcut's binding while it takes effect:
+    /// Windows or Linux, bound, and sharing no key with another active
+    /// shortcut. Otherwise Hex registers, matches, and checks nothing for it.
     #[cfg_attr(not(any(target_os = "windows", target_os = "linux")), allow(dead_code))]
     pub fn active_terminal_paste_hotkey(&self) -> Option<&HotkeyBinding> {
-        if !cfg!(any(target_os = "windows", target_os = "linux"))
-            || !self.labs.terminal_paste_shortcut
-        {
+        if !cfg!(any(target_os = "windows", target_os = "linux")) {
             return None;
         }
         self.terminal_paste_hotkey
@@ -1123,16 +1097,11 @@ impl AppSettings {
         self.capture.enabled
     }
 
-    /// Labs › Annotate 15 s replay's shortcut while it takes effect: macOS 27+,
-    /// Annotate and the Lab on, bound, and sharing no key with another active
-    /// shortcut.
+    /// Annotate's 15 s replay shortcut while it takes effect: never, since
+    /// the replay buffer left with Labs (`crate::features::annotate_replay`).
     #[cfg(hex_capture)]
     pub fn active_capture_replay_hotkey(&self) -> Option<&HotkeyBinding> {
-        if !cfg!(target_os = "macos")
-            || !self.capture_on()
-            || !self.labs.annotate_replay
-            || !crate::labs::Feature::AnnotateReplay.on_this_os()
-        {
+        if !cfg!(target_os = "macos") || !self.capture_on() || !crate::features::annotate_replay() {
             return None;
         }
         self.capture
@@ -1227,28 +1196,28 @@ pub enum HotkeySlot {
     Dictation,
     PasteLast,
     RawDictation,
-    /// Labs › Transform typed text's shortcut (Linux).
+    /// Transform typed text's shortcut (Linux).
     TypedText,
     #[cfg(hex_capture)]
     Capture,
-    /// Labs › Annotate 15 s replay shortcut (macOS 27+).
+    /// Annotate 15 s replay shortcut (macOS 27+).
     #[cfg(hex_capture)]
     CaptureReplay,
-    /// Labs › Second dictation shortcut.
+    /// Second dictation shortcut.
     SecondDictation,
-    /// Labs › More dictation shortcuts (macOS): row `index`'s binding.
+    /// More dictation shortcuts (macOS): row `index`'s binding.
     ExtraDictation(usize),
     /// The assistant's Action shortcut (macOS).
     Action,
     /// The assistant's Stop all tasks shortcut (macOS).
     StopAll,
-    /// Labs › Terminal paste shortcut (Windows, Linux).
+    /// Terminal paste shortcut (Windows, Linux).
     TerminalPaste,
     /// Toggle mode's cancel shortcut.
     Cancel,
-    /// Labs › Screenshots (macOS).
+    /// Screenshots (macOS).
     Screenshot,
-    /// Labs › Screenshots' record shortcut (macOS, with Annotate).
+    /// Screenshots' record shortcut (macOS, with Annotate).
     ScreenshotRecord,
 }
 
@@ -1347,8 +1316,7 @@ pub fn shortcut_toggle() -> bool {
 
 /// [`voice_filter_enabled`] for the running listener.
 pub fn hex_microphone_enabled() -> bool {
-    crate::labs::Feature::VoiceFilter.shipped()
-        && crate::labs::Feature::VoiceFilter.managed().is_none()
+    crate::features::voice_filter()
         && voice_filter_enabled(
             HEX_MICROPHONE_ENABLED.load(Ordering::Acquire),
             crate::audio::hex_microphone::driver_bundle_installed(),
@@ -1454,7 +1422,7 @@ pub fn set_hotkey_capture_active(active: bool) {
 }
 
 /// Whether shortcut matching is suspended: a new shortcut binding is being
-/// recorded, or Labs › Pause from menu bar paused Hex. Every capture
+/// recorded, or Pause from menu bar paused Hex. Every capture
 /// shortcut reads this instead of `hotkey_capture_active` alone.
 pub fn shortcuts_suspended() -> bool {
     hotkey_capture_active() || crate::shortcut_pause::suspended()
@@ -1658,20 +1626,17 @@ mod tests {
     }
 
     #[test]
-    fn app_model_switching_is_opt_in_and_mode_speech_choices_round_trip() {
+    fn mode_speech_choices_round_trip() {
         let mut settings: AppSettings = serde_json::from_str("{}").unwrap();
-        assert!(!settings.labs.app_model_switching);
         assert!(settings.dictation_processing.default_mode.speech.is_none());
         let speech = KeyboardModelChoice {
             model: TranscriptionModelId::ParakeetV3,
             language: "es".into(),
         };
-        settings.labs.app_model_switching = true;
         settings.dictation_processing.default_mode.speech = Some(speech.clone());
         let saved = serde_json::to_value(&settings).unwrap();
-        assert_eq!(saved["labs"]["app_model_switching"], true);
+        assert!(saved.get("labs").is_none(), "Labs is never written");
         let restored: AppSettings = serde_json::from_value(saved).unwrap();
-        assert!(restored.labs.app_model_switching);
         assert_eq!(
             restored.dictation_processing.default_mode.speech,
             Some(speech)
@@ -1755,7 +1720,7 @@ mod tests {
         );
     }
 
-    /// Labs › Second dictation shortcut (issue 627): its binding takes
+    /// Second dictation shortcut (issue 627): its binding takes
     /// effect on every OS with its toggle on, never sharing a key with
     /// another shortcut, and the other shortcuts' checks count it. Linux and
     /// Windows register a key, so a shortcut without one never runs there.
@@ -1772,11 +1737,6 @@ mod tests {
             second_dictation_hotkey: Some(function.clone()),
             ..AppSettings::default()
         };
-        assert!(!settings.labs.second_dictation_shortcut);
-        assert_eq!(settings.runtime_hotkeys().second_dictation, None);
-        assert!(!settings.hotkey_in_use(HotkeySlot::RawDictation, &function));
-
-        settings.labs.second_dictation_shortcut = true;
         let active = settings.runtime_hotkeys().second_dictation;
         if cfg!(target_os = "macos") {
             assert_eq!(active, Some(function.runtime()));
@@ -1981,13 +1941,10 @@ mod tests {
             assert!(settings.hotkey_in_use(HotkeySlot::ScreenshotRecord, &replay));
             // Another shortcut only sees the record key while a recording
             // is available: the Lab and Annotate on.
-            assert!(!settings.hotkey_in_use(HotkeySlot::RawDictation, &record));
-            settings.labs.screenshots = true;
+            // Screenshots left with Labs, so no recording is ever available.
             assert!(!settings.hotkey_in_use(HotkeySlot::RawDictation, &record));
             settings.capture.enabled = true;
-            assert!(settings.hotkey_in_use(HotkeySlot::RawDictation, &record));
-            // Annotate's check still counts the record key with the Lab off.
-            settings.labs.screenshots = false;
+            assert!(!settings.hotkey_in_use(HotkeySlot::RawDictation, &record));
             assert!(settings.hotkey_in_use(HotkeySlot::Capture, &record));
         } else {
             assert!(!settings.hotkey_in_use(HotkeySlot::Capture, &record));
@@ -2007,7 +1964,6 @@ mod tests {
         let dir = TestSettingsDir::new("record-shortcut-overlap");
         let load = |record: HotkeyBinding, replay: Option<HotkeyBinding>| {
             let mut settings = AppSettings::default();
-            settings.labs.annotate_replay = true;
             settings.capture.replay_hotkey = replay;
             settings.screenshots.record_hotkey = Some(record);
             fs::write(&dir.path, serde_json::to_vec(&settings).unwrap()).unwrap();
@@ -2046,38 +2002,13 @@ mod tests {
         // Any other chord stays saved.
         let (_, loaded) = load(replay.clone(), None);
         assert_eq!(loaded.screenshots.record_hotkey, Some(replay));
-
-        // macOS puts Annotate's mouse-button shortcut back on its default
-        // with Labs › Mouse shortcuts off, so a record shortcut saved on that
-        // default is cleared after the reset, not before it.
-        #[cfg(target_os = "macos")]
-        {
-            let mut settings = AppSettings::default();
-            settings.labs.mouse_shortcuts = false;
-            settings.capture.hotkey = HotkeyBinding {
-                modifiers: HotkeyModifiers::default(),
-                key: HotkeyKey::mouse(3),
-            };
-            settings.screenshots.record_hotkey = Some(HotkeyBinding::capture_default());
-            fs::write(&dir.path, serde_json::to_vec(&settings).unwrap()).unwrap();
-            assert!(
-                !settings.hotkey_in_use(
-                    HotkeySlot::ScreenshotRecord,
-                    &HotkeyBinding::capture_default()
-                ),
-                "the reset, not the saved shortcut, makes the two share a key"
-            );
-            let loaded = AppSettings::load_from(&dir.path).unwrap();
-            assert_eq!(loaded.capture.hotkey, HotkeyBinding::capture_default());
-            assert_eq!(loaded.screenshots.record_hotkey, None);
-        }
     }
 
-    /// Labs › Transform typed text: its binding takes effect only on Linux
-    /// with its toggle on, never sharing a key with another shortcut, and
-    /// the other shortcuts' checks count it while it is active.
+    /// Transform typed text: its binding takes effect only on Linux, never
+    /// sharing a key with another shortcut, and the other shortcuts' checks
+    /// count it while it is active.
     #[test]
-    fn the_typed_text_shortcut_needs_its_lab_and_its_own_keys() {
+    fn the_typed_text_shortcut_needs_linux_and_its_own_keys() {
         let function = HotkeyBinding {
             modifiers: HotkeyModifiers {
                 function: true,
@@ -2089,11 +2020,6 @@ mod tests {
             typed_text_hotkey: Some(function.clone()),
             ..AppSettings::default()
         };
-        assert!(!settings.labs.typed_text);
-        assert_eq!(settings.runtime_hotkeys().typed_text, None);
-        assert!(!settings.hotkey_in_use(HotkeySlot::RawDictation, &function));
-
-        settings.labs.typed_text = true;
         let active = settings.runtime_hotkeys().typed_text;
         if cfg!(target_os = "linux") {
             assert_eq!(active, Some(function.runtime()));
@@ -2111,11 +2037,10 @@ mod tests {
         assert_eq!(settings.runtime_hotkeys().typed_text, None);
     }
 
-    /// Labs › Terminal paste shortcut: its binding takes effect only on
-    /// Windows and Linux with its toggle on, never sharing a key with
-    /// another shortcut, and off it stays saved but inactive.
+    /// The terminal paste shortcut: its binding takes effect only on
+    /// Windows and Linux, never sharing a key with another shortcut.
     #[test]
-    fn the_terminal_paste_shortcut_needs_its_lab_and_its_own_keys() {
+    fn the_terminal_paste_shortcut_needs_its_os_and_its_own_keys() {
         let binding = HotkeyBinding {
             modifiers: HotkeyModifiers {
                 control: Some(crate::app_settings::ModifierSide::Either),
@@ -2128,11 +2053,6 @@ mod tests {
             terminal_paste_hotkey: Some(binding.clone()),
             ..AppSettings::default()
         };
-        assert!(!settings.labs.terminal_paste_shortcut);
-        assert_eq!(settings.active_terminal_paste_hotkey(), None);
-        assert!(!settings.hotkey_in_use(HotkeySlot::RawDictation, &binding));
-
-        settings.labs.terminal_paste_shortcut = true;
         let active = settings.active_terminal_paste_hotkey();
         if cfg!(any(target_os = "windows", target_os = "linux")) {
             assert_eq!(active, Some(&binding));
@@ -2149,13 +2069,11 @@ mod tests {
         settings.terminal_paste_hotkey = Some(dictation);
         assert_eq!(settings.active_terminal_paste_hotkey(), None);
 
-        // The binding survives a save and load while the lab is off.
-        settings.labs.terminal_paste_shortcut = false;
+        // The binding survives a save and load.
         settings.terminal_paste_hotkey = Some(binding.clone());
         let decoded: AppSettings =
             serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
         assert_eq!(decoded.terminal_paste_hotkey, Some(binding));
-        assert_eq!(decoded.active_terminal_paste_hotkey(), None);
     }
 
     #[test]
@@ -2227,19 +2145,17 @@ mod tests {
         let loaded = AppSettings::load_from(&dir.path).unwrap();
         assert_eq!(loaded.dictation_hotkey, HotkeyBinding::default());
 
-        let mut settings = AppSettings {
+        let settings = AppSettings {
             dictation_hotkey: back_button.clone(),
             ..AppSettings::default()
         };
-        // macOS keeps a mouse shortcut only with Labs › Mouse shortcuts on.
-        settings.labs.mouse_shortcuts = true;
         fs::write(&dir.path, serde_json::to_vec(&settings).unwrap()).unwrap();
         let loaded = AppSettings::load_from(&dir.path).unwrap();
         assert_eq!(loaded.dictation_hotkey, back_button);
     }
 
     #[test]
-    fn the_setting_or_an_installed_driver_turns_the_voice_filter_on_and_labs_never_does() {
+    fn the_setting_or_an_installed_driver_turns_the_voice_filter_on() {
         if env_hex_experimental_mic() {
             return;
         }
@@ -2248,24 +2164,53 @@ mod tests {
         assert!(voice_filter_enabled(false, true));
     }
 
+    /// Labs is gone: an old file's `labs` object carries into `preferences`
+    /// once, a shortcut whose lab was off is unbound (it would take effect
+    /// now), and the file is written back without `labs`.
     #[test]
-    fn mouse_shortcuts_go_back_to_their_default_while_their_labs_toggle_is_off() {
-        let mouse = HotkeyBinding {
-            modifiers: HotkeyModifiers::default(),
-            key: HotkeyKey::mouse(3),
+    fn a_labs_file_migrates_into_preferences() {
+        let dir = TestSettingsDir::new("retired-labs");
+        let typed = HotkeyBinding {
+            modifiers: HotkeyModifiers::control_option(),
+            key: Some(HotkeyKey::named("t")),
         };
-        let mut settings = AppSettings {
-            dictation_hotkey: mouse.clone(),
-            ..Default::default()
-        };
-        settings.labs.mouse_shortcuts = true;
-        settings.repair_mouse_shortcuts();
-        assert_eq!(settings.dictation_hotkey, mouse);
-        assert!(!settings.mouse_shortcut_notice);
-        settings.labs.mouse_shortcuts = false;
-        settings.repair_mouse_shortcuts();
-        assert_eq!(settings.dictation_hotkey, HotkeyBinding::default());
-        assert!(settings.mouse_shortcut_notice);
+        let mut old = serde_json::to_value(AppSettings {
+            typed_text_hotkey: Some(typed),
+            ..AppSettings::default()
+        })
+        .unwrap();
+        let object = old.as_object_mut().unwrap();
+        object.remove("preferences");
+        object.insert(
+            "labs".into(),
+            serde_json::json!({
+                "live_text": true,
+                "pause_menu": true,
+                "keep_on_clipboard": true,
+                "filler_words": false,
+                "appearance": true,
+                "appearance_theme": "dark",
+                "typed_text": false,
+                "groups": {"models": true}
+            }),
+        );
+        fs::write(&dir.path, serde_json::to_vec(&old).unwrap()).unwrap();
+        let loaded = AppSettings::load_from(&dir.path).unwrap();
+        assert!(loaded.preferences.live_text);
+        assert_eq!(
+            loaded.preferences.after_dictation,
+            AfterDictation::PasteAndKeep
+        );
+        assert!(!loaded.preferences.remove_filler_words);
+        assert_eq!(loaded.preferences.appearance, AppearanceTheme::Dark);
+        assert_eq!(loaded.typed_text_hotkey, None);
+        let written: serde_json::Value =
+            serde_json::from_slice(&fs::read(&dir.path).unwrap()).unwrap();
+        assert!(written.get("labs").is_none());
+        assert_eq!(written["preferences"]["live_text"], true);
+        // A second load keeps what the first carried.
+        let again = AppSettings::load_from(&dir.path).unwrap();
+        assert_eq!(again.preferences, loaded.preferences);
     }
 
     #[test]

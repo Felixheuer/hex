@@ -1,4 +1,4 @@
-//! Labs › Keep recordings: hearing a saved dictation through the default
+//! Keep recordings: hearing a saved dictation through the default
 //! output device.
 //!
 //! Playback runs on a worker thread, because decoding a WAV and opening an

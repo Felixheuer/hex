@@ -1,4 +1,4 @@
-//! Labs › Keep mic open after dictating: with Release microphone
+//! Keep mic open after dictating: with Release microphone
 //! while idle on, the microphone a capture opens stays open for the lab's
 //! window after the capture ends, so the next dictation starts at once. One
 //! type decides it for every OS's listener.
@@ -6,9 +6,9 @@
 use std::time::{Duration, Instant};
 
 /// The window a capture's microphone keeps after it ends, from
-/// [`crate::labs::microphone_linger`].
+/// [`crate::features::microphone_linger`].
 pub(crate) fn window() -> Option<Duration> {
-    crate::labs::microphone_linger()
+    crate::features::microphone_linger()
 }
 
 /// A released microphone's post-capture window: armed when a capture ends,

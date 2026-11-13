@@ -866,7 +866,7 @@ fn take_keys(s: &mut CapsuleState) {
 }
 
 /// Linux: lets the capsule's next show float on XWayland where Wayland has
-/// no layer-shell, only by Labs › Annotate on GNOME. Off, Rune can't open it
+/// no layer-shell, only by Annotate on GNOME. Off, Rune can't open it
 /// there and a capture records with no capsule.
 fn float_on_xwayland(overlay: &OverlayHandle<CapsuleState>) {
     #[cfg(target_os = "linux")]

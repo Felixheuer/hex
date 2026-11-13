@@ -1,0 +1,24 @@
+id = "chrome-tab"
+title = "Read a tab of the person's own Chrome"
+covers = "G. Read a tab of the person's own Chrome"
+lane = "any"
+timeout_s = 120
+
+[[precondition]]
+kind = "app_running"
+app = "Google Chrome"
+
+[text]
+de = "Worum geht es in meinem Chrome-Tab {chrome_hint}?"
+en = "What is my Chrome tab {chrome_hint} about?"
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "answer_matches"
+pattern = "{chrome_marker_re}"
+
+[[check]]
+kind = "tool_not_used"
+pattern = "(?i)(desktop_click|desktop_type|press_key|key_combo|close_app|quit_app)"

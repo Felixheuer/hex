@@ -992,7 +992,7 @@ impl PickerOverlay {
             return;
         }
         // On Wayland without layer-shell (GNOME) the picker takes clicks, so
-        // it floats on XWayland only by Labs › Annotate on GNOME, decided at
+        // it floats on XWayland only by Annotate on GNOME, decided at
         // each show like the capsule's.
         #[cfg(target_os = "linux")]
         if mode.is_some() {

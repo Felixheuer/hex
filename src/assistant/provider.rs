@@ -220,6 +220,13 @@ pub struct Run {
     pub backend: AssistantBackend,
     /// The backend's model; `None` is its own default.
     pub model: Option<String>,
+    /// How hard the model thinks (Claude Code's `--effort`); `None` is its
+    /// default.
+    pub effort: Option<String>,
+    /// Claude Code stops the turn with [`Escalate`] once this many tool
+    /// calls have answered and none is still running, so the strong model
+    /// goes on in the same session (`agent`). `None` never stops it.
+    pub escalate_after: Option<usize>,
     pub system: String,
     /// The message to send: the question, with a quick question's context.
     pub prompt: String,
@@ -263,6 +270,8 @@ impl Run {
         Self {
             backend,
             model: None,
+            effort: None,
+            escalate_after: None,
             system: "You are Hex.".into(),
             prompt: "hi".into(),
             image: None,
@@ -320,6 +329,31 @@ impl Report {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Finished {
     pub text: String,
+}
+
+/// A fast model's turn stopped after [`Run::escalate_after`] tool calls:
+/// the strong model goes on in its session. The error a run returns then.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Escalate {
+    /// The tool calls it made.
+    pub tools: usize,
+}
+
+impl std::fmt::Display for Escalate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the fast model handed over after {} tool calls",
+            self.tools
+        )
+    }
+}
+
+impl std::error::Error for Escalate {}
+
+/// Whether `error` is a fast model's hand-over ([`Escalate`]).
+pub fn escalated(error: &color_eyre::Report) -> Option<Escalate> {
+    error.downcast_ref::<Escalate>().copied()
 }
 
 /// A task's stop switch and the process groups it started.
@@ -424,10 +458,11 @@ impl Control {
 }
 
 /// Starts `run`'s backend ahead of its question (Claude Code), so the
-/// process and its MCP servers are up when the question comes.
-pub fn prewarm(run: &Run) {
+/// process and its MCP servers are up when the question comes. It waits at
+/// most `ttl`.
+pub fn prewarm(run: &Run, ttl: Duration) {
     if run.backend == AssistantBackend::ClaudeCode {
-        claude_code::prewarm(run);
+        claude_code::prewarm(run, ttl);
     }
 }
 

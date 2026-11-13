@@ -128,7 +128,7 @@ pub fn international(digits: &str, region: &str) -> String {
 }
 
 /// This Mac's country, from its preferred language („de-DE“ → „DE“).
-fn region() -> String {
+pub(crate) fn region() -> String {
     let locale = crate::assistant::speech::system_locale();
     locale
         .rsplit(['-', '_'])

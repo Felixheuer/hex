@@ -24,9 +24,6 @@ use super::desktop::Describer;
 use super::{Control, Finished, Process, Report, Run, Stdin, warm};
 use crate::app_settings::AssistantBackend;
 
-/// How long a process started ahead waits for its question.
-const PREWARM_TTL: Duration = Duration::from_secs(90);
-
 pub(super) fn run(
     run: &Run,
     control: &Control,
@@ -47,14 +44,15 @@ pub(super) fn run(
         .unwrap_or_else(|| Err(eyre!("Claude Code stopped before it answered")))
 }
 
-/// Starts Claude Code for `run` and leaves it waiting for its question.
-pub(super) fn prewarm(run: &Run) {
+/// Starts Claude Code for `run` and leaves it waiting for its question, at
+/// most `ttl`.
+pub(super) fn prewarm(run: &Run, ttl: Duration) {
     let key = warm_key(run);
     if warm::has(&key, run.resume.as_deref()) {
         return;
     }
     match spawn(run, &Control::default()) {
-        Ok(process) => warm::put(key, run.resume.clone(), process, PREWARM_TTL),
+        Ok(process) => warm::put(key, run.resume.clone(), process, ttl),
         Err(error) => tracing::warn!(%error, "couldn't start Claude Code ahead"),
     }
 }
@@ -94,6 +92,7 @@ fn turn(
         .is_some_and(|pipe| pipe.write_all(input).and_then(|()| pipe.flush()).is_ok());
     let mut stream = Stream::default();
     let mut lines = 0;
+    let mut escalate = None;
     if wrote {
         while let Some(line) = process.next_line() {
             lines += 1;
@@ -101,11 +100,28 @@ fn turn(
             if stream.outcome.is_some() {
                 break;
             }
+            if stream.hands_over(run.escalate_after) {
+                escalate = Some(super::Escalate {
+                    tools: stream.answered,
+                });
+                break;
+            }
         }
     }
     if reused && lines == 0 && !control.cancelled() {
         let _ = process.finish(control);
         return None;
+    }
+    // Between two steps, with no tool running: the session on disk ends
+    // with the last tool's result, and the strong model goes on from there.
+    if let Some(escalate) = escalate {
+        tracing::info!(
+            tools = escalate.tools,
+            "the fast model hands the turn to the strong one"
+        );
+        super::end_group(process.tree.clone());
+        let _ = process.finish(control);
+        return Some(Err(escalate.into()));
     }
     let answered = matches!(stream.outcome, Some(Ok(_)));
     if answered
@@ -295,6 +311,13 @@ fn arguments_with(run: &Run, sandboxed: bool) -> Vec<String> {
     {
         args.extend(["--model".into(), model.trim().to_owned()]);
     }
+    if let Some(effort) = run
+        .effort
+        .as_deref()
+        .filter(|effort| !effort.trim().is_empty())
+    {
+        args.extend(["--effort".into(), effort.trim().to_owned()]);
+    }
     if let Some(session) = &run.resume {
         args.extend(["--resume".into(), session.clone()]);
     }
@@ -332,6 +355,10 @@ pub(super) struct Stream {
     describer: Describer,
     /// Tool use id to tool name, to read each result.
     tools: HashMap<String, String>,
+    /// Tool calls made and not yet answered.
+    running: std::collections::HashSet<String>,
+    /// Tool calls answered.
+    answered: usize,
     /// Text has streamed, and a tool ran after it: the next text starts a
     /// new paragraph.
     wrote: bool,
@@ -383,6 +410,7 @@ impl Stream {
                         .unwrap_or_default();
                     if let Some(id) = block.get("id").and_then(Value::as_str) {
                         self.tools.insert(id.to_owned(), name.to_owned());
+                        self.running.insert(id.to_owned());
                     }
                     let input = block.get("input").cloned().unwrap_or(Value::Null);
                     report(Report::tool(name, &input));
@@ -399,12 +427,13 @@ impl Stream {
                     if block.get("type").and_then(Value::as_str) != Some("tool_result") {
                         continue;
                     }
-                    let Some(name) = block
-                        .get("tool_use_id")
-                        .and_then(Value::as_str)
-                        .and_then(|id| self.tools.get(id))
-                        .cloned()
-                    else {
+                    let id = block.get("tool_use_id").and_then(Value::as_str);
+                    if let Some(id) = id
+                        && self.running.remove(id)
+                    {
+                        self.answered += 1;
+                    }
+                    let Some(name) = id.and_then(|id| self.tools.get(id)).cloned() else {
                         continue;
                     };
                     let output = match block.get("content") {
@@ -452,6 +481,13 @@ impl Stream {
             }
             _ => {}
         }
+    }
+
+    /// Whether a fast model's turn stops here for the strong one: `after`
+    /// tool calls have answered and none is running, so nothing is cut off
+    /// mid-action.
+    pub(super) fn hands_over(&self, after: Option<usize>) -> bool {
+        after.is_some_and(|after| self.answered >= after && self.running.is_empty())
     }
 
     /// The answer or error, when the stream ended with a result.
@@ -693,6 +729,38 @@ mod tests {
         assert_eq!(warm_key(&run), key);
         run.desktop = Some(Desktop::fixture(Some("s1"), "hex-3"));
         assert_ne!(warm_key(&run), key);
+    }
+
+    #[test]
+    fn a_fast_turn_hands_over_only_between_steps() {
+        let fixture = include_str!("../../../tests/fixtures/assistant/claude-code-click.jsonl");
+        let mut stream = Stream::default();
+        let mut handed = Vec::new();
+        for line in fixture.lines() {
+            stream.line(line, &mut |_| {});
+            handed.push((stream.answered, stream.hands_over(Some(2))));
+        }
+        // After the first tool's result: one answered, not yet.
+        assert!(handed.contains(&(1, false)));
+        // Before the second tool's result it never hands over.
+        assert!(!handed.iter().any(|(answered, over)| *answered < 2 && *over));
+        // Answered twice with nothing running: it hands over.
+        assert!(handed.contains(&(2, true)));
+        assert!(!stream.hands_over(None), "never without a limit");
+    }
+
+    #[test]
+    fn a_quick_turn_names_its_effort() {
+        let mut run = Run {
+            model: Some("claude-sonnet-5-5".into()),
+            effort: Some("low".into()),
+            quick: true,
+            ..Run::fixture(AssistantBackend::ClaudeCode)
+        };
+        let args = arguments(&run);
+        assert!(args.windows(2).any(|pair| pair == ["--effort", "low"]));
+        run.effort = Some(" ".into());
+        assert!(!arguments(&run).iter().any(|arg| arg == "--effort"));
     }
 
     #[test]

@@ -368,7 +368,7 @@ pub(super) fn skip_long_pauses(clip: &[f32]) -> Option<(Vec<f32>, usize)> {
     (dropped > 0).then_some((kept.0, dropped))
 }
 
-/// The clip a whole-clip dictation run transcribes: with Labs › Skip long
+/// The clip a whole-clip dictation run transcribes: with Skip long
 /// pauses (`skip_pauses`), its long pauses cut; otherwise exactly `clip`.
 /// Job deadlines, History, and the silence gate keep the full clip.
 #[cfg_attr(target_os = "macos", allow(dead_code))]

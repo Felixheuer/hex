@@ -1,0 +1,20 @@
+id = "web-quick-answer"
+title = "A quick answer that needs the web"
+covers = "Quick turns browse in Hex's own browser"
+lane = "any"
+timeout_s = 120
+
+[text]
+de = "Wie wird das Wetter morgen in Berlin?"
+en = "What will the weather be like in Berlin tomorrow?"
+
+[[check]]
+kind = "answered"
+
+[[check]]
+kind = "answer_matches"
+pattern = "(?i)(°|grad|degree|regen|rain|sonn|sun|wolk|cloud)"
+
+[[check]]
+kind = "answer_within_ms"
+ms = 45000

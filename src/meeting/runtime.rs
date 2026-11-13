@@ -98,7 +98,7 @@ impl Meetings {
 
 /// Asks the controller to start, stop, or summarize a meeting.
 pub(crate) fn request(request: MeetingRequest) -> Result<(), String> {
-    if let Some(lock) = crate::labs::Feature::Meetings.managed() {
+    if let Some(lock) = crate::policy::Policy::meetings_lock() {
         return Err(lock.refusal().into());
     }
     REQUESTS
@@ -144,14 +144,9 @@ pub(crate) fn copy_last_transcript() -> Result<(), String> {
 #[cfg(target_os = "linux")]
 fn offer_unshown(window: &rune::AppHandle<Ui>, reason: String) {
     tracing::warn!(%reason, "meeting recording offer could not show; opening the Meetings pane");
-    let mut message = format!(
+    let message = format!(
         "Hex detected a call but couldn't show its recording offer on this desktop ({reason}). Record it from here."
     );
-    if !crate::labs::gnome_meeting_capsules() {
-        message.push_str(
-            " On GNOME, Labs › Floating meeting capsules on GNOME can show it over your call.",
-        );
-    }
     window.update(move |ui, tx| {
         crate::rune_ui::meeting_failed(ui, message);
         crate::rune_ui::show(ui, Destination::Meetings(None), tx);

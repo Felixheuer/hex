@@ -106,12 +106,6 @@ impl crate::control::host::Host for LinuxControl {
 
     fn typed_text(&self) -> std::result::Result<(), ControlError> {
         let settings = self.state()?.settings;
-        if !settings.labs.typed_text {
-            return Err(ControlError::new(
-                "disabled",
-                "Labs › Transform typed text is off; turn it on with `hex labs on typed-text`",
-            ));
-        }
         if settings.paste_with_shift {
             return Err(ControlError::new(
                 "disabled",

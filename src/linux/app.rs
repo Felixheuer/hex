@@ -58,12 +58,12 @@ pub(crate) enum ShortcutTarget {
     PasteLast,
     Capture,
     RawDictation,
-    /// Labs › Transform typed text.
+    /// Transform typed text.
     TypedText,
-    /// Labs › Terminal paste shortcut: dictates like the dictation shortcut
+    /// Terminal paste shortcut: dictates like the dictation shortcut
     /// and always pastes with Ctrl+Shift+V.
     TerminalPaste,
-    /// Labs › Second dictation shortcut: another key that dictates exactly
+    /// Second dictation shortcut: another key that dictates exactly
     /// like the dictation shortcut.
     SecondDictation,
     /// Toggle mode's cancel shortcut.
@@ -403,7 +403,6 @@ impl HostHandle {
         }
         Status {
             desktop,
-            labs: crate::labs::active_names(&snapshot.settings),
             settings: snapshot.settings,
             editing: snapshot.editing,
             hud_limitation,
@@ -440,7 +439,7 @@ pub(crate) fn run(
     let _ = std::thread::Builder::new()
         .name("hex-background-portal".into())
         .spawn(crate::linux::login_item::announce_background);
-    crate::labs::log_launch();
+    crate::features::log_launch();
     // Once, at startup: a Wayland session without wl-copy can record but
     // never copy or paste, and Settings and `hex status` repeat this warning.
     crate::linux::paste::missing_wayland_helper().inspect(|warning| tracing::warn!("{warning}"));
@@ -1591,11 +1590,7 @@ mod tests {
             typed_text_hotkey: Some(binding.clone()),
             ..AppSettings::default()
         };
-        let lab_off = gnome_shortcuts_key(&settings, true);
-
-        settings.labs.typed_text = true;
         let bound = gnome_shortcuts_key(&settings, true);
-        assert_ne!(lab_off, bound, "turning the lab on adds an entry");
 
         settings.typed_text_hotkey = Some(HotkeyBinding {
             modifiers: HotkeyModifiers::control(),
@@ -1607,17 +1602,6 @@ mod tests {
         settings.typed_text_hotkey = None;
         let unbound = gnome_shortcuts_key(&settings, true);
         assert_ne!(rebound, unbound, "unbinding removes it");
-        assert_eq!(
-            lab_off, unbound,
-            "no bound typed-text shortcut means no entry either way"
-        );
-
-        settings.labs.typed_text = false;
-        assert_eq!(
-            gnome_shortcuts_key(&settings, true),
-            lab_off,
-            "turning the lab off returns to the lab-off key"
-        );
     }
 
     #[test]

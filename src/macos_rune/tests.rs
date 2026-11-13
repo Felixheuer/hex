@@ -106,7 +106,7 @@ impl Fixture {
                     Some("ABC".into()),
                 ),
                 app_switcher: crate::transcription::app_model_switching::Switcher::new(
-                    settings.labs.app_model_switching,
+                    crate::features::app_model_switching(),
                     None,
                 ),
                 settings,
@@ -259,7 +259,6 @@ fn a_mapping_to_the_current_model_in_another_language_switches_the_language() {
 #[test]
 fn a_modes_speech_choice_switches_when_its_app_comes_to_the_front() {
     let mut settings = AppSettings::default();
-    settings.labs.app_model_switching = true;
     settings.dictation_processing.modes = vec![DictationMode {
         name: "Spanish".into(),
         applications: vec!["Notes".into()],
@@ -287,7 +286,6 @@ fn a_modes_speech_choice_switches_when_its_app_comes_to_the_front() {
 #[test]
 fn hexs_own_window_applies_nothing_and_an_edit_waits_for_another_app() {
     let mut settings = AppSettings::default();
-    settings.labs.app_model_switching = true;
     settings.dictation_processing.default_mode.speech = Some(KeyboardModelChoice {
         model: TranscriptionModelId::ParakeetV3,
         language: "es".into(),

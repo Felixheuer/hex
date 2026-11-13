@@ -62,17 +62,13 @@ pub(in crate::rune_ui) fn shortcut_rows(
             },
         ));
     }
-    // Labs › Restore shortcut default: Paste last dictation's default,
-    // offered while the shortcut is something else or off. Cancel's
+    // Paste last dictation's default, offered while the shortcut is
+    // something else or off. Cancel's
     // default, Escape, can't be recorded (Escape ends the recorder), so its
     // restore is always offered.
     let mut default_note = None;
     let default = match target {
-        ShortcutTarget::PasteLast
-            if crate::labs::Feature::RestoreShortcutDefault.on(&ui.settings) =>
-        {
-            Some(crate::app_settings::HotkeyBinding::paste_last_default())
-        }
+        ShortcutTarget::PasteLast => Some(crate::app_settings::HotkeyBinding::paste_last_default()),
         ShortcutTarget::Cancel => Some(crate::app_settings::HotkeyBinding::cancel_default()),
         // The Action shortcut's default, right Command, offered once it is
         // something else or off.

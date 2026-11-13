@@ -1,4 +1,4 @@
-//! The macOS side of Labs › Caps Lock dictation: the keyboard LED output
+//! The macOS side of Caps Lock dictation: the keyboard LED output
 //! elements, the `IOHIDSystem` Caps Lock lock state, and the one worker
 //! thread that owns both. Detection arrives from the event tap and the raw
 //! HID tracker; no IOKit call runs on either callback thread or the audio
@@ -489,7 +489,7 @@ impl CapsLockDictation {
     }
 
     /// Starts or stops the worker at once. Called on every listener pass, so
-    /// the Labs toggle applies without a restart.
+    /// the setting applies without a restart.
     pub(crate) fn set_enabled(&self, on: bool) {
         let mut inner = self.lock();
         if on == inner.enabled {
@@ -589,7 +589,7 @@ impl CapsLockDictation {
     /// Mirrors one HUD event into the light model and publishes the pattern
     /// the worker should show.
     pub(crate) fn observe(&self, event: DictationIndicatorEvent) {
-        let slow_blink = crate::labs::caps_lock_slow_blink();
+        let slow_blink = crate::features::caps_lock_slow_blink();
         let mut inner = self.lock();
         if !inner.enabled {
             return;
