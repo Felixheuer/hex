@@ -70,6 +70,7 @@ mod outline;
 #[cfg(test)]
 mod overview_tests;
 mod palette;
+mod peek;
 pub(crate) mod pictures;
 mod place;
 mod pops;
@@ -77,6 +78,8 @@ mod project;
 mod quick;
 mod results;
 mod screens;
+#[cfg(test)]
+mod scroll_tests;
 mod stack;
 mod stage;
 #[cfg(target_os = "macos")]
@@ -84,6 +87,7 @@ pub(crate) mod stories;
 #[cfg(test)]
 mod tests;
 mod wall;
+mod wheel;
 mod when;
 
 #[cfg(test)]

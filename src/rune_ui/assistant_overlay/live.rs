@@ -273,6 +273,13 @@ struct Registry {
     /// The tasks on the live wall (a job and its helpers): every browser
     /// of theirs streams at [`Rate::Wall`] while it shows.
     wall: Vec<String>,
+    /// The pictures in view in the rail (a row's filmstrip scrolled, the
+    /// live overview): (task, session), each streaming at
+    /// [`Rate::Background`].
+    seen: Vec<(String, String)>,
+    /// The wall's pictures in view; `None` until it says, while all of its
+    /// tasks' stream.
+    wall_seen: Option<Vec<(String, String)>>,
     /// What each viewer shows large: (task, session).
     viewing: HashMap<Viewer, (String, String)>,
     /// A preview pressed in the orb's list, for Chats to open.
@@ -354,6 +361,39 @@ pub(crate) fn wall(tasks: &[String]) {
         return;
     }
     registry.wall = tasks.to_vec();
+    sync(&mut registry);
+}
+
+/// The pictures in view in the rail now (task, session): a row's
+/// filmstrip scrolled to them, or the live overview showing them. Each
+/// streams six frames a second; one scrolled away rests again.
+pub(crate) fn seen(pictures: &[(String, String)]) {
+    let mut registry = registry();
+    let mut pictures = pictures.to_vec();
+    pictures.sort();
+    pictures.dedup();
+    if registry.seen == pictures {
+        return;
+    }
+    registry.seen = pictures;
+    sync(&mut registry);
+}
+
+/// The wall's pictures in view (`None`: it hasn't said, or it closed):
+/// only those stream, so sixty tiles on a scrolling wall cost the dozen on
+/// the screen.
+pub(crate) fn wall_seen(pictures: Option<&[(String, String)]>) {
+    let mut registry = registry();
+    let pictures = pictures.map(|pictures| {
+        let mut pictures = pictures.to_vec();
+        pictures.sort();
+        pictures.dedup();
+        pictures
+    });
+    if registry.wall_seen == pictures {
+        return;
+    }
+    registry.wall_seen = pictures;
     sync(&mut registry);
 }
 
@@ -495,9 +535,17 @@ fn rate_of(registry: &Registry, task: &str, session: &str) -> Rate {
         Rate::Large
     } else if registry.hovered.as_deref() == Some(task) {
         Rate::Small
-    } else if registry.wall.iter().any(|walled| walled == task) {
+    } else if registry.wall.iter().any(|walled| walled == task)
+        && registry
+            .wall_seen
+            .as_ref()
+            .is_none_or(|seen| seen.iter().any(|(t, s)| t == task && s == session))
+    {
         Rate::Wall
-    } else if on_card() || registry.window.iter().any(|shown| shown == task) {
+    } else if on_card()
+        || registry.window.iter().any(|shown| shown == task)
+        || registry.seen.iter().any(|(t, s)| t == task && s == session)
+    {
         Rate::Background
     } else {
         Rate::Idle
@@ -708,6 +756,65 @@ mod tests {
         registry.hovered = None;
         registry.viewing.clear();
         assert!(wanted(&registry).is_empty());
+    }
+
+    #[test]
+    fn only_the_pictures_in_view_stream() {
+        let mut registry = Registry {
+            cards: vec!["t".into()],
+            ..Registry::default()
+        };
+        let pages: Vec<(String, String)> = (0..9)
+            .map(|n| ("t".to_owned(), format!("hex-t_{n}")))
+            .collect();
+        registry.tasks.insert(
+            "t".into(),
+            Watch {
+                previews: pages
+                    .iter()
+                    .map(|(_, session)| Arc::new(Preview::new(session.clone(), String::new())))
+                    .collect(),
+                stop: Arc::new(AtomicBool::new(true)),
+                fixture: true,
+            },
+        );
+        let rates = |registry: &Registry| -> Vec<Rate> {
+            pages
+                .iter()
+                .map(|(task, session)| rate_of(registry, task, session))
+                .collect()
+        };
+        // A row shows its first two; the other seven rest.
+        let rest = rates(&registry);
+        assert_eq!(
+            rest.iter()
+                .filter(|rate| **rate == Rate::Background)
+                .count(),
+            2
+        );
+        assert_eq!(rest.iter().filter(|rate| **rate == Rate::Idle).count(), 7);
+        // Scrolled (or the overview open) on the last four: six now stream,
+        // six frames a second each.
+        registry.seen = pages[5..].to_vec();
+        let shown = rates(&registry);
+        assert_eq!(
+            shown
+                .iter()
+                .filter(|rate| **rate == Rate::Background)
+                .count(),
+            6
+        );
+        assert!(
+            shown
+                .iter()
+                .all(|rate| rate.fps() == 6 || *rate == Rate::Idle)
+        );
+        // The wall streams what it shows, and everything until it says.
+        registry.wall = vec!["t".into()];
+        assert!(rates(&registry).iter().all(|rate| *rate == Rate::Wall));
+        registry.wall_seen = Some(pages[..3].to_vec());
+        let walled = rates(&registry);
+        assert_eq!(walled.iter().filter(|rate| **rate == Rate::Wall).count(), 3);
     }
 
     #[test]

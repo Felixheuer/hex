@@ -316,16 +316,22 @@ pub(crate) fn bubble<S: 'static>(
     let mut body: Vec<El> = Vec::new();
     if open && !outcome.failed {
         body.push(
-            el().key("result-answer")
-                .w_full()
-                .max_h(ANSWER_MAX_H)
-                .min_h(0.0)
-                .shrink()
-                .scroll(ScrollSpec {
-                    stick_bottom: false,
-                })
-                .scroll_edge_fade(12.0)
-                .child(super::markdown::view(p, outcome.text.trim())),
+            super::wheel::scroller::<S>(
+                el(),
+                super::wheel::Surface::Orb,
+                "result-answer",
+                super::wheel::Axis::Y,
+            )
+            .key("result-answer")
+            .w_full()
+            .max_h(ANSWER_MAX_H)
+            .min_h(0.0)
+            .shrink()
+            .scroll(ScrollSpec {
+                stick_bottom: false,
+            })
+            .scroll_edge_fade(12.0)
+            .child(super::markdown::view(p, outcome.text.trim())),
         );
         // Every target as a row with its verb.
         body.extend(

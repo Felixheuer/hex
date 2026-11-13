@@ -234,7 +234,7 @@ fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
         s.open_result = s.board.recall(id, std::time::Instant::now());
         s.open = false;
     };
-    actions.jobs.wall = |s, id| s.note = format!("Would show every picture of {id}");
+    actions.jobs.open = |s, scope, _| s.note = format!("Would show every picture of {scope:?}");
     actions.jobs.all = |s| s.note = "Would show every live picture".into();
 
     rune::col().key("orb-story").gap(8.0).children(note).child(
@@ -267,6 +267,7 @@ fn wall_story() -> Story<Wall> {
         Wall::new(wall::Actions {
             close: |s| s.scope = None,
             open: |_, task, session| tracing::info!(task, session, "would open it large"),
+            seen: |_, _, _, _| {},
         })
     };
     let all = |jobs: usize, helpers: usize| {

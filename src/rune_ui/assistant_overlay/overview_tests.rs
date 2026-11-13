@@ -234,6 +234,7 @@ fn wall_of(scope: Scope, board: Board, desk: Desk) -> Wall {
                 .unwrap()
                 .push((task.to_owned(), session.to_owned()));
         },
+        seen: |_, _, _, _| {},
     });
     state.scope = Some(scope);
     state.board = board;

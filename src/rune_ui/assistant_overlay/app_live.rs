@@ -374,6 +374,14 @@ fn apply(registry: &Registry) {
     }
 }
 
+/// Makes a captured picture opaque: what the window left see-through
+/// shows as dark, never as whatever is behind the overlay.
+pub(crate) fn opaque(rgba: &mut [u8]) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
+        pixel[3] = 255;
+    }
+}
+
 /// A window's picture and its capture thread.
 fn start(window: TaskWindow, number: u32) -> Arc<AppPreview> {
     let preview = Arc::new(AppPreview::new(window, number));
@@ -393,6 +401,10 @@ fn run(preview: &AppPreview) {
         let edge = if large { LARGE_EDGE } else { CARD_EDGE };
         match scrawl_capture::capture::capture_window(preview.number, edge) {
             Some((width, height, mut rgba)) => {
+                // A window with a see-through background (a terminal's
+                // opacity, its rounded corners) would let the desktop show
+                // through the mini: its picture is drawn opaque.
+                opaque(&mut rgba);
                 // Where the agent just acted in it, as a ring.
                 crate::assistant::input::pointer::stamp_recent(
                     preview.number,
