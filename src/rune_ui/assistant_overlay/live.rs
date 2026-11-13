@@ -33,7 +33,13 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+mod drive;
+mod frames;
+
 use crate::assistant::browser::stream::{self, Input, Message, Writer};
+pub(crate) use drive::{key_input, to_page};
+pub(super) use frames::fit_width;
+use frames::run;
 
 /// A thumbnail's width in pixels: the list draws it 148 points wide, so
 /// this covers a Retina (2×) display with room, filtered down from the
@@ -628,168 +634,6 @@ fn name_of(task: &str, session: &str) -> String {
         .unwrap_or_else(|| session.to_owned())
 }
 
-/// Streams `preview` until it's halted, reconnecting after a failure.
-fn run(preview: &Preview, path: &std::path::Path) {
-    while !preview.stop.load(Ordering::Acquire) {
-        if preview.rate() == Rate::Idle {
-            std::thread::sleep(IDLE_POLL);
-            continue;
-        }
-        if let Err(why) = stream_once(preview, path) {
-            // Closed on purpose for a fresh frame, or because nothing draws
-            // it any more: reconnect at once, or wait while idle.
-            if preview.refresh.swap(false, Ordering::AcqRel) || preview.rate() == Rate::Idle {
-                continue;
-            }
-            set_page(preview, |page| page.failed = Some(why.clone()));
-            tracing::debug!(session = %preview.session, %why, "browser preview stream ended");
-            std::thread::sleep(RETRY);
-        }
-    }
-}
-
-fn stream_once(preview: &Preview, path: &std::path::Path) -> Result<(), String> {
-    let result = stream_connected(preview, path);
-    // The stream is over: nothing writes to it any more.
-    if let Ok(mut slot) = preview.writer.lock() {
-        *slot = None;
-    }
-    result
-}
-
-fn stream_connected(preview: &Preview, path: &std::path::Path) -> Result<(), String> {
-    if preview.rate() == Rate::Idle {
-        return Err("idle".into());
-    }
-    let port = stream::enable(path, &preview.session)?;
-    let fps = preview.rate().fps().max(1);
-    let (mut reader, writer) = stream::connect(port, &format!("pacing=ack&maxFps={fps}"))
-        .map_err(|error| error.to_string())?;
-    if let Ok(mut slot) = preview.writer.lock() {
-        *slot = Some(writer.clone());
-    }
-    // Gone idle while it connected (its close went to no writer): drop it.
-    if preview.rate() == Rate::Idle {
-        writer.close();
-        return Err("idle".into());
-    }
-    set_page(preview, |page| page.failed = None);
-    let seen = AtomicU64::new(0);
-    while !preview.stop.load(Ordering::Acquire) {
-        let Some(text) = reader.next().map_err(|error| error.to_string())? else {
-            return Err("the stream closed".into());
-        };
-        match stream::parse(&text) {
-            Some(Message::Frame {
-                seq,
-                jpeg,
-                viewport,
-            }) => {
-                if let Some((width, height, rgba)) = decode(&jpeg) {
-                    let (tw, th, thumb) = fit_width(&rgba, width, height, THUMB_WIDTH);
-                    preview.pixels.set(tw as u32, th as u32, thumb);
-                    // The full frame only while someone looks closely.
-                    if preview.rate() >= Rate::Wall {
-                        preview.full.set(width as u32, height as u32, rgba);
-                    }
-                }
-                let _ = writer.send(&stream::ack(seq));
-                let first = seen.fetch_add(1, Ordering::AcqRel) == 0;
-                set_page(preview, |page| {
-                    page.viewport = viewport;
-                    page.frames += 1;
-                });
-                if first {
-                    changed();
-                }
-            }
-            Some(Message::Url(url)) => {
-                if set_page(preview, |page| page.url = url) {
-                    changed();
-                }
-            }
-            Some(Message::Tabs { title, url }) => {
-                if set_page(preview, |page| {
-                    page.title = title;
-                    if !url.is_empty() {
-                        page.url = url;
-                    }
-                }) {
-                    changed();
-                }
-            }
-            Some(Message::Other) | None => {}
-        }
-    }
-    Ok(())
-}
-
-/// Changes `preview`'s page; whether its words changed.
-fn set_page(preview: &Preview, change: impl FnOnce(&mut Page)) -> bool {
-    let Ok(mut page) = preview.page.lock() else {
-        return false;
-    };
-    let before = (page.title.clone(), page.url.clone(), page.failed.clone());
-    change(&mut page);
-    before != (page.title.clone(), page.url.clone(), page.failed.clone())
-}
-
-/// A JPEG frame as RGBA at its own size.
-fn decode(jpeg: &[u8]) -> Option<(usize, usize, Vec<u8>)> {
-    use zune_core::colorspace::ColorSpace;
-    use zune_core::options::DecoderOptions;
-    let options = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGBA);
-    let mut decoder = zune_jpeg::JpegDecoder::new_with_options(std::io::Cursor::new(jpeg), options);
-    let rgba = decoder.decode().ok()?;
-    let (width, height) = decoder.dimensions()?;
-    (width > 0 && height > 0 && rgba.len() == width * height * 4).then_some((width, height, rgba))
-}
-
-/// `rgba` scaled to `max_width` wide (kept when it's no wider), each output
-/// pixel the average of the source area it covers: a box filter at the
-/// exact size, so text stays legible instead of aliasing (the GPU samples
-/// a streamed frame without mipmaps).
-pub(super) fn fit_width(
-    rgba: &[u8],
-    width: usize,
-    height: usize,
-    max_width: usize,
-) -> (usize, usize, Vec<u8>) {
-    if width <= max_width || max_width == 0 {
-        return (width, height, rgba.to_vec());
-    }
-    let w = max_width;
-    let h = ((height * w) as f64 / width as f64).round().max(1.0) as usize;
-    let span = |out: usize, size: usize, from: usize| {
-        let start = out * from / size;
-        let end = ((out + 1) * from / size).max(start + 1).min(from);
-        start..end
-    };
-    let mut result = vec![0u8; w * h * 4];
-    for y in 0..h {
-        let ys = span(y, h, height);
-        for x in 0..w {
-            let xs = span(x, w, width);
-            let mut sum = [0u32; 4];
-            for sy in ys.clone() {
-                let row = sy * width;
-                for sx in xs.clone() {
-                    let at = (row + sx) * 4;
-                    for (channel, total) in sum.iter_mut().enumerate() {
-                        *total += u32::from(rgba[at + channel]);
-                    }
-                }
-            }
-            let count = (ys.len() * xs.len()) as u32;
-            let at = (y * w + x) * 4;
-            for (channel, total) in sum.iter().enumerate() {
-                result[at + channel] = ((total + count / 2) / count) as u8;
-            }
-        }
-    }
-    (w, h, result)
-}
-
 /// The host of `url` without `www.` ("example.com"), for a caption.
 pub(crate) fn host_of(url: &str) -> Option<String> {
     let parsed = url::Url::parse(url).ok()?;
@@ -797,51 +641,9 @@ pub(crate) fn host_of(url: &str) -> Option<String> {
     Some(host.strip_prefix("www.").unwrap_or(host).to_owned())
 }
 
-/// The page's key for a key the person pressed on the large view, while
-/// they drive it; `None` for what the window keeps (⌘ shortcuts, Escape).
-pub(crate) fn key_input(key: &rune::Key, mods: rune::Mods) -> Option<Input> {
-    use rune::Key;
-    if mods.cmd {
-        return None;
-    }
-    let named = |name: &str, text: Option<&str>| {
-        Some(Input::Key {
-            key: name.to_owned(),
-            text: text.map(str::to_owned),
-        })
-    };
-    match key {
-        Key::Text(text) if !text.is_empty() => named(text, Some(text)),
-        Key::Enter => named("Enter", Some("\r")),
-        Key::Backspace => named("Backspace", None),
-        Key::Delete => named("Delete", None),
-        Key::Tab => named("Tab", None),
-        Key::Left => named("ArrowLeft", None),
-        Key::Right => named("ArrowRight", None),
-        Key::Up => named("ArrowUp", None),
-        Key::Down => named("ArrowDown", None),
-        Key::Home => named("Home", None),
-        Key::End => named("End", None),
-        Key::PageUp => named("PageUp", None),
-        Key::PageDown => named("PageDown", None),
-        _ => None,
-    }
-}
-
-/// Where a point on a preview drawn `drawn` big lands on the page, in its
-/// CSS pixels.
-pub(crate) fn to_page(point: (f32, f32), drawn: (f32, f32), viewport: (f32, f32)) -> (f32, f32) {
-    if drawn.0 <= 0.0 || drawn.1 <= 0.0 {
-        return (0.0, 0.0);
-    }
-    (
-        (point.0 / drawn.0 * viewport.0).clamp(0.0, viewport.0),
-        (point.1 / drawn.1 * viewport.1).clamp(0.0, viewport.1),
-    )
-}
-
 #[cfg(test)]
 mod tests {
+    use super::frames::decode;
     use super::*;
 
     #[test]

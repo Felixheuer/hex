@@ -2,12 +2,15 @@
 //! until the window connects (scenes, tests), and the scenes' fake
 //! conversations, tasks, and setup results.
 
+mod in_flight;
+
 use std::collections::HashMap;
 
 use crate::assistant::{
     Conversation, ConversationId, ConversationSummary, Message, Origin, Outcome, Part, Request,
     Role, TaskState, TaskStatus,
 };
+use in_flight::{RUNNING_STEPS, in_flight, running, running_turn};
 
 /// Conversations, tasks, and what the pane asked of them.
 #[derive(Default)]
@@ -479,68 +482,6 @@ fn agent_page(ui: &mut super::Ui, state: AgentPage) {
         }
         AgentPage::Ready | AgentPage::Nothing => {}
     }
-}
-
-/// The running task's turn, as the person asked it.
-fn running_turn() -> super::Turn {
-    super::Turn {
-        started_ms: crate::history::now_ms() - 3 * MINUTE,
-        ..super::Turn::new(
-            "Reply to Maya's last email and say Thursday at 3 works for me".into(),
-            Origin::Background,
-        )
-    }
-}
-
-/// The running task's steps so far, as its events left them.
-const RUNNING_STEPS: [&str; 4] = [
-    "Opened Mail",
-    "Found Maya's email “Thursday?”",
-    "Clicked Reply",
-    "Typing the reply in Mail",
-];
-
-/// Puts `turn` in flight as `id`, the shared view's task doing `activity`
-/// with `steps` and `answer` so far (listed tasks are in it already).
-fn in_flight(
-    pane: &mut super::ChatsPane,
-    id: &str,
-    turn: super::Turn,
-    activity: crate::assistant::view::Activity,
-    steps: &[&str],
-    answer: &str,
-) {
-    use crate::assistant::view::{Logged, Phase, Task};
-    if pane.view.task(id).is_none() {
-        pane.view.tasks.push(Task::new(
-            id.into(),
-            turn.origin,
-            &turn.question,
-            0,
-            Phase::Running,
-        ));
-    }
-    if let Some(task) = pane.view.task_mut(id) {
-        task.activity = activity;
-        task.log = steps
-            .iter()
-            .map(|step| Logged::Step((*step).into()))
-            .collect();
-        task.answer = answer.into();
-    }
-    pane.turns.insert(id.into(), turn);
-}
-
-/// The running task in flight, working.
-fn running(pane: &mut super::ChatsPane) {
-    in_flight(
-        pane,
-        "reply-to-maya",
-        running_turn(),
-        crate::assistant::view::Activity::Working,
-        &RUNNING_STEPS,
-        "",
-    );
 }
 
 /// The agent page's states, for scenes.
