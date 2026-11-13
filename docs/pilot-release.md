@@ -239,3 +239,14 @@ Signaturprüfung der App selbst.
   Links folgen nur `stable`); keine Dev-Notes (`dev-notes.json`).
 - Die alten Sparkle-/2.3.1-Feeds von upstream werden hier nicht bedient: es
   gibt keine alten Pilot-Installationen, die sie bräuchten.
+
+## Versions only go up
+
+The release key signs a target's SHA-256, not its version, so a client
+takes an `update` or `required` release only when its version is a later
+SemVer than its own (`updater::version_is_newer`: `3.4.0-pilot.66` after
+`3.4.0-pilot.65`). An old signed build offered again, by a mistake or by
+whoever controls the server's files, is ignored. To undo a bad release,
+publish the previous code under a new, higher version. Only a channel
+switch the person confirmed may go down. Download links (a DMG, release
+notes) open only on the update service's own host.
