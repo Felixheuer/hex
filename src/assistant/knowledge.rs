@@ -1,0 +1,484 @@
+//! What Hex knows about the person's Mac, read locally and read-only:
+//! `hex_lookup` finds their files (Spotlight), contacts, calendar,
+//! reminders, mail (envelopes only), Chrome tabs and history, apps, and the
+//! memory graph in one call, ranked, in milliseconds; `hex_chrome_tab`
+//! reads and acts in the tab the person means in their own Chrome; and the
+//! memory graph ([`graph`]) links the people, companies, and projects the
+//! person told Hex about, for every turn's context.
+//!
+//! Never message bodies, passwords, cookies, or form data; every answer is
+//! bounded. Contacts and Reminders read only with the permission macOS
+//! already gave (`knowledge.swift`); Mail, Chrome's history, and the
+//! address book's fallback are read from copies with Full Disk Access.
+//!
+//! OWNER: knowledge.
+
+mod agenda;
+mod chrome;
+mod exec;
+mod files;
+pub mod graph;
+mod mail;
+mod native;
+mod people;
+mod rank;
+mod tab;
+
+use std::time::{Duration, Instant};
+
+use serde_json::{Value, json};
+
+use rank::Hit;
+
+pub const LOOKUP: &str = "hex_lookup";
+pub const CHROME_TAB: &str = "hex_chrome_tab";
+
+/// How long an `all` lookup waits for its slowest source.
+const ALL_DEADLINE: Duration = Duration::from_millis(3000);
+const DEFAULT_LIMIT: usize = 8;
+const MAX_LIMIT: usize = 25;
+
+/// A line for the system prompt: when to reach for these tools.
+pub const RULES: &str = "\nThe person's own things: hex_lookup finds their files, contacts (numbers in international form), calendar, reminders, mail (subjects and senders), open Chrome tabs and Chrome history, apps, and what you know about people, companies, and projects (scope memory), in milliseconds. Use it first, before opening an app or searching the web for something of theirs. When the person means a tab they have open in Chrome (\u{201c}my open tab\u{201d}, \u{201c}the page I'm on\u{201d}), use hex_chrome_tab on that tab, never a fresh browser.\n";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Scope {
+    Files,
+    RecentFiles,
+    Contacts,
+    Calendar,
+    Reminders,
+    Mail,
+    ChromeTabs,
+    ChromeHistory,
+    Apps,
+    Memory,
+    All,
+}
+
+impl Scope {
+    pub const NAMES: [(&'static str, Scope); 11] = [
+        ("files", Self::Files),
+        ("recent_files", Self::RecentFiles),
+        ("contacts", Self::Contacts),
+        ("calendar", Self::Calendar),
+        ("reminders", Self::Reminders),
+        ("mail", Self::Mail),
+        ("chrome_tabs", Self::ChromeTabs),
+        ("chrome_history", Self::ChromeHistory),
+        ("apps", Self::Apps),
+        ("memory", Self::Memory),
+        ("all", Self::All),
+    ];
+
+    pub fn parse(name: &str) -> Option<Self> {
+        let name = name.trim().to_lowercase().replace([' ', '-'], "_");
+        Self::NAMES
+            .iter()
+            .find(|(known, _)| *known == name)
+            .map(|(_, scope)| *scope)
+    }
+
+    pub fn name(self) -> &'static str {
+        Self::NAMES
+            .iter()
+            .find(|(_, scope)| *scope == self)
+            .map_or("all", |(name, _)| name)
+    }
+
+    /// What a result's time means.
+    fn when_word(self) -> &'static str {
+        match self {
+            Self::Files | Self::RecentFiles => "used",
+            Self::Mail => "received",
+            Self::ChromeHistory => "visited",
+            Self::Reminders => "due",
+            _ => "",
+        }
+    }
+
+    /// The scopes an `all` lookup asks, and how many results each gives.
+    const ALL: [Scope; 9] = [
+        Self::Memory,
+        Self::Contacts,
+        Self::Files,
+        Self::Calendar,
+        Self::Reminders,
+        Self::Mail,
+        Self::ChromeTabs,
+        Self::ChromeHistory,
+        Self::Apps,
+    ];
+}
+
+pub fn definitions() -> Vec<Value> {
+    let scopes: Vec<&str> = Scope::NAMES.iter().map(|(name, _)| *name).collect();
+    vec![
+        json!({
+            "name": LOOKUP,
+            "description": "Find the person's own things on this Mac in milliseconds, locally and read-only: files (Spotlight: names, else contents), recent_files (used in the last two weeks), contacts (names, company, phone numbers in international form, emails), calendar (events 30 days back to 90 ahead), reminders (open ones), mail (subject, sender, date, mailbox; never bodies), chrome_tabs (the tabs open in their Chrome, with tab ids for hex_chrome_tab), chrome_history (titles, URLs, last visits), apps (installed), memory (people, companies, projects and how they connect), or all of them at once. Results are ranked best first. Use it before opening an app or searching the web for something of theirs.",
+            "inputSchema": {"type": "object", "properties": {
+                "query": {"type": "string", "description": "Words to find (a name, a subject, part of a number or an address). May be empty for recent_files, calendar (what comes next), reminders, chrome_tabs, or mail (the newest)."},
+                "scope": {"type": "string", "enum": scopes, "description": "Where to look (default all)."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT, "description": "Most results per source (default 8)."}
+            }},
+        }),
+        tab::definition(),
+    ]
+}
+
+pub fn handles(name: &str) -> bool {
+    name == LOOKUP || name == CHROME_TAB
+}
+
+/// Runs one of the knowledge tools for the task `task` (`--task`).
+pub fn call(name: &str, arguments: &Value, task: Option<&str>) -> Result<String, String> {
+    match name {
+        LOOKUP => {
+            let query = arguments
+                .get("query")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let scope = match arguments.get("scope").and_then(Value::as_str) {
+                None | Some("") => Scope::All,
+                Some(name) => Scope::parse(name).ok_or_else(|| {
+                    format!("hex_lookup has no scope “{name}”; use one of files, recent_files, contacts, calendar, reminders, mail, chrome_tabs, chrome_history, apps, memory, all")
+                })?,
+            };
+            let limit = arguments
+                .get("limit")
+                .and_then(Value::as_u64)
+                .map_or(DEFAULT_LIMIT, |limit| (limit as usize).clamp(1, MAX_LIMIT));
+            if query.trim().is_empty()
+                && matches!(
+                    scope,
+                    Scope::Files
+                        | Scope::Contacts
+                        | Scope::Apps
+                        | Scope::Memory
+                        | Scope::ChromeHistory
+                        | Scope::All
+                )
+            {
+                return Err(format!(
+                    "hex_lookup needs a “query” for scope {}",
+                    scope.name()
+                ));
+            }
+            Ok(lookup(query, scope, limit))
+        }
+        CHROME_TAB => tab::call(arguments, task),
+        other => Err(format!("There is no tool “{other}”.")),
+    }
+}
+
+/// One source's results, or why it gave none.
+fn search(scope: Scope, query: &str, limit: usize) -> Result<Vec<Hit>, String> {
+    let tokens = rank::tokens(query);
+    let now = crate::assistant::store::now_ms() as i64;
+    match scope {
+        Scope::Files => files::files(&tokens, limit, now),
+        Scope::RecentFiles => files::recent(&tokens, limit),
+        Scope::Contacts => people::contacts(query, &tokens, limit),
+        Scope::Calendar => agenda::calendar(&tokens, limit, now),
+        Scope::Reminders => agenda::reminders(query, &tokens, limit),
+        Scope::Mail => mail::mail(query, limit, now),
+        Scope::ChromeTabs => chrome::tabs(&tokens, limit),
+        Scope::ChromeHistory => chrome::history(query, limit, now),
+        Scope::Apps => Ok(files::apps(&tokens, limit)),
+        Scope::Memory => memory(query, limit),
+        Scope::All => Err("not a single source".into()),
+    }
+}
+
+fn memory(query: &str, limit: usize) -> Result<Vec<Hit>, String> {
+    if !memory_on() {
+        return Err("the person turned memory off".into());
+    }
+    let (_, graph) = graph::load().ok_or("Hex has no memory folder")?;
+    Ok(graph
+        .search(query, limit)
+        .into_iter()
+        .map(|(score, line)| Hit {
+            title: line,
+            detail: String::new(),
+            when_ms: None,
+            score,
+        })
+        .collect())
+}
+
+fn memory_on() -> bool {
+    crate::app_settings::assistant_runtime()
+        .map(|(_, settings)| settings.memory)
+        .or_else(|| {
+            crate::app_settings::AppSettings::read()
+                .ok()
+                .map(|settings| settings.assistant.memory)
+        })
+        .unwrap_or(true)
+}
+
+/// A source's results as lines.
+pub fn format_hits(scope: Scope, hits: &[Hit]) -> String {
+    hits.iter()
+        .map(|hit| {
+            let mut line = format!("- {}", hit.title);
+            if !hit.detail.is_empty() {
+                line.push_str(" — ");
+                line.push_str(&hit.detail);
+            }
+            if let Some(when) = hit.when_ms {
+                let word = scope.when_word();
+                line.push_str(" — ");
+                if !word.is_empty() {
+                    line.push_str(word);
+                    line.push(' ');
+                }
+                line.push_str(&rank::local_time(when));
+            }
+            line
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Every source's section, in `Scope::ALL` order; sources that found
+/// nothing are left out, sources that failed are named at the end.
+pub fn merge(results: Vec<(Scope, Result<Vec<Hit>, String>)>) -> String {
+    let mut sections = Vec::new();
+    let mut failed = Vec::new();
+    for (scope, result) in results {
+        match result {
+            Ok(hits) if hits.is_empty() => {}
+            Ok(hits) => sections.push(format!("{}:\n{}", scope.name(), format_hits(scope, &hits))),
+            Err(error) => failed.push(format!("{}: {error}", scope.name())),
+        }
+    }
+    let mut text = if sections.is_empty() {
+        "Nothing found.".to_owned()
+    } else {
+        sections.join("\n\n")
+    };
+    if !failed.is_empty() {
+        text.push_str("\n\nNot searched: ");
+        text.push_str(&failed.join("; "));
+    }
+    text
+}
+
+/// The lookup's answer for the agent.
+pub fn lookup(query: &str, scope: Scope, limit: usize) -> String {
+    if scope != Scope::All {
+        return match search(scope, query, limit) {
+            Ok(hits) if hits.is_empty() => format!("Nothing found in {}.", scope.name()),
+            Ok(hits) => format_hits(scope, &hits),
+            Err(error) => format!("{} couldn't be searched: {error}", scope.name()),
+        };
+    }
+    merge(search_all(query, limit.min(5)))
+}
+
+/// Every source at once, each in its own thread; one still running at the
+/// deadline is reported as too slow.
+fn search_all(query: &str, limit: usize) -> Vec<(Scope, Result<Vec<Hit>, String>)> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    for scope in Scope::ALL {
+        let sender = sender.clone();
+        let query = query.to_owned();
+        std::thread::spawn(move || {
+            let _ = sender.send((scope, search(scope, &query, limit)));
+        });
+    }
+    drop(sender);
+    let deadline = Instant::now() + ALL_DEADLINE;
+    let mut results: Vec<(Scope, Result<Vec<Hit>, String>)> = Vec::new();
+    while results.len() < Scope::ALL.len() {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match receiver.recv_timeout(left) {
+            Ok(result) => results.push(result),
+            Err(_) => break,
+        }
+    }
+    for scope in Scope::ALL {
+        if !results.iter().any(|(done, _)| *done == scope) {
+            results.push((scope, Err("too slow this time".into())));
+        }
+    }
+    results.sort_by_key(|(scope, _)| Scope::ALL.iter().position(|known| known == scope));
+    results
+}
+
+/// The memory note for a prompt with the part of the memory graph that
+/// `request` mentions after it (one hook in `service::run`).
+pub fn with_graph(note: Option<String>, request: &str, memory: bool) -> Option<String> {
+    if !memory || cfg!(test) {
+        return note;
+    }
+    let Some(context) = graph::load().and_then(|(_, graph)| graph.context(request)) else {
+        return note;
+    };
+    Some(match note {
+        Some(note) => format!("{note}\n\n{context}"),
+        None => context,
+    })
+}
+
+/// Adds a remembered fact to the graph (`hex_remember`), `about` naming
+/// whom or what it is about when the agent said so.
+pub fn learn_fact(fact: &str, about: Option<&str>) {
+    if cfg!(test) {
+        return;
+    }
+    let Some((path, mut graph)) = graph::load() else {
+        return;
+    };
+    let region = crate::assistant::phone::incoming::region();
+    let fact = graph::extract(fact, about, &region);
+    if graph.learn(&fact, "remember", crate::assistant::store::now_ms())
+        && let Err(error) = graph::save_to(&path, &graph)
+    {
+        tracing::warn!(%error, "couldn't save the memory graph");
+    }
+}
+
+/// Learns from a finished task's answer, off the caller's thread (one
+/// hook in `service::run`).
+pub fn learn_from_task(conversation: &str, request: &str, answer: &str, memory: bool) {
+    if !memory || cfg!(test) {
+        return;
+    }
+    let (conversation, request, answer) = (
+        conversation.to_owned(),
+        request.to_owned(),
+        answer.to_owned(),
+    );
+    std::thread::spawn(move || {
+        let Some((path, mut graph)) = graph::load() else {
+            return;
+        };
+        let now = crate::assistant::store::now_ms();
+        if graph.learn_from_task(&conversation, &request, &answer, now)
+            && let Err(error) = graph::save_to(&path, &graph)
+        {
+            tracing::warn!(%error, "couldn't save the memory graph");
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scopes_parse_and_bad_calls_say_why() {
+        assert_eq!(Scope::parse("Chrome tabs"), Some(Scope::ChromeTabs));
+        assert_eq!(Scope::parse("recent-files"), Some(Scope::RecentFiles));
+        assert_eq!(Scope::parse("x"), None);
+        for (name, scope) in Scope::NAMES {
+            assert_eq!(scope.name(), name);
+        }
+        assert!(
+            call(LOOKUP, &json!({"query": "x", "scope": "web"}), None)
+                .unwrap_err()
+                .contains("no scope")
+        );
+        assert!(
+            call(LOOKUP, &json!({"scope": "files"}), None)
+                .unwrap_err()
+                .contains("needs a “query”")
+        );
+        assert!(handles("hex_lookup") && handles("hex_chrome_tab") && !handles("hex_remember"));
+        let tools = definitions();
+        let names: Vec<&str> = tools
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect();
+        assert_eq!(names, ["hex_lookup", "hex_chrome_tab"]);
+    }
+
+    #[test]
+    fn results_read_as_compact_sections() {
+        let hit = |title: &str, detail: &str, when| Hit {
+            title: title.into(),
+            detail: detail.into(),
+            when_ms: when,
+            score: 1.0,
+        };
+        let text = merge(vec![
+            (
+                Scope::Contacts,
+                Ok(vec![hit("Michael Schwarz", "mobile +491621234567", None)]),
+            ),
+            (Scope::Files, Ok(vec![])),
+            (Scope::Mail, Err("needs Full Disk Access".into())),
+            (
+                Scope::Apps,
+                Ok(vec![hit("Mail", "/System/Applications/Mail.app", None)]),
+            ),
+        ]);
+        assert_eq!(
+            text,
+            "contacts:\n- Michael Schwarz — mobile +491621234567\n\napps:\n- Mail — /System/Applications/Mail.app\n\nNot searched: mail: needs Full Disk Access"
+        );
+        assert_eq!(merge(vec![(Scope::Files, Ok(vec![]))]), "Nothing found.");
+        let dated = format_hits(Scope::Mail, &[hit("Rechnung", "from x", Some(0))]);
+        assert!(
+            dated.starts_with("- Rechnung — from x — received 19"),
+            "{dated}"
+        );
+    }
+
+    #[test]
+    fn the_prompt_keeps_the_note_in_tests() {
+        assert_eq!(
+            with_graph(Some("- a".into()), "Michael", true).as_deref(),
+            Some("- a")
+        );
+        assert_eq!(with_graph(None, "Michael", false), None);
+    }
+
+    /// Measures each source on this Mac (read-only):
+    /// `cargo test --bin hex knowledge::tests::measure -- --ignored --nocapture`.
+    /// Chrome's tabs only with HEX_MEASURE_CHROME_TABS=1 (it may ask for
+    /// Automation permission).
+    #[test]
+    #[ignore = "reads this Mac's own data"]
+    fn measure() {
+        let query = std::env::var("HEX_MEASURE_QUERY").unwrap_or_else(|_| "rechnung".into());
+        for scope in Scope::ALL.into_iter().chain([Scope::RecentFiles]) {
+            if scope == Scope::ChromeTabs && std::env::var("HEX_MEASURE_CHROME_TABS").is_err() {
+                continue;
+            }
+            let query = if scope == Scope::RecentFiles {
+                ""
+            } else {
+                query.as_str()
+            };
+            let start = Instant::now();
+            let result = search(scope, query, 8);
+            let took = start.elapsed();
+            match result {
+                Ok(hits) => println!(
+                    "{:>15}: {:>5} ms, {} results",
+                    scope.name(),
+                    took.as_millis(),
+                    hits.len()
+                ),
+                Err(error) => println!(
+                    "{:>15}: {:>5} ms, error: {error}",
+                    scope.name(),
+                    took.as_millis()
+                ),
+            }
+        }
+        let start = Instant::now();
+        let all = search_all(&query, 5);
+        println!(
+            "{:>15}: {:>5} ms, {} sources",
+            "all",
+            start.elapsed().as_millis(),
+            all.len()
+        );
+    }
+}

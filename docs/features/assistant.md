@@ -504,6 +504,20 @@ agent-browser) run the same way on every OS; what differs:
   ("Wie weit ist der Shop?", "status"), Hex tells each job's plan progress,
   time, and last check (`service::status`) without running an agent.
   `hex_compare_images` gives jobs a screenshot similarity score.
+- **Knowing the person's things** (`assistant::knowledge`): `hex_lookup`
+  (query + scope: files, recent_files, contacts, calendar, reminders, mail,
+  chrome_tabs, chrome_history, apps, memory, all) answers from Spotlight,
+  Contacts (`knowledge.swift`, else the address book's database), EventKit,
+  Mail's Envelope Index and Chrome's History (both read from a clone, Full
+  Disk Access), and Chrome's tabs (JXA, never launching Chrome), ranked and
+  bounded; never message bodies, cookies, or passwords. `hex_chrome_tab`
+  reads and acts in the tab the person means in their own Chrome
+  (JavaScript from Apple Events; a read falls back to fetching the URL);
+  its clicks go through `autonomy::classify`/`allowed` like the guard's.
+  The memory graph (`knowledge::graph`, `memory-graph.json`) links people,
+  companies, projects and their numbers, sites, repositories, and folders
+  from `hex_remember` (optional `about`) and finished tasks; the part a
+  request mentions goes into its prompt after the memory note.
 - **Liveness and time**: process start times come from `/proc` on Linux and
   `GetProcessTimes` on Windows; liveness from `OpenProcess` +
   `GetExitCodeProcess` on Windows, so conversations no longer look
