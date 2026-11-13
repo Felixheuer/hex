@@ -240,13 +240,12 @@ Signaturprüfung der App selbst.
 - Die alten Sparkle-/2.3.1-Feeds von upstream werden hier nicht bedient: es
   gibt keine alten Pilot-Installationen, die sie bräuchten.
 
-## Versions only go up
 
-The release key signs a target's SHA-256, not its version, so a client
-takes an `update` or `required` release only when its version is a later
-SemVer than its own (`updater::version_is_newer`: `3.4.0-pilot.66` after
-`3.4.0-pilot.65`). An old signed build offered again, by a mistake or by
-whoever controls the server's files, is ignored. To undo a bad release,
-publish the previous code under a new, higher version. Only a channel
-switch the person confirmed may go down. Download links (a DMG, release
-notes) open only on the update service's own host.
+## Was der Client prüft
+
+Signiert ist der SHA-256 jeder Datei, nicht ihre Version: Ein Client nimmt
+jede Version, die das Manifest nennt, auch eine ältere – so funktioniert
+`rollback`. Wer die Dateien unter `/srv/pilot` ändern kann, kann damit einen
+alten, echt signierten Build zurückspielen; da der Schlüssel auf demselben
+Server liegt, schützt dagegen nur der Server selbst. Download-Links (DMG,
+Release-Notes) öffnet die App nur auf dem eigenen Update-Host.

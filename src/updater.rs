@@ -703,18 +703,8 @@ fn check(
             })
         }
         Decision::Install {
-            version,
-            target,
-            reason,
+            version, target, ..
         } => {
-            // A release older than this build is no update: the signature
-            // names the file, not its version, so an old signed build
-            // offered again would otherwise go back to its bugs. Only a
-            // channel switch the person confirmed may go down.
-            if reason != protocol::Reason::Switch && !version_is_newer(&version, crate::VERSION) {
-                tracing::warn!(%version, running = crate::VERSION, "refusing an update older than this build");
-                return Ok(State::Current);
-            }
             if *method == Method::DownloadOnly {
                 let url = protocol::parse_manifest(&manifest)
                     .and_then(|manifest| {
@@ -834,48 +824,6 @@ fn download_console(
     transport::download(&url, user_agent, target, updates).map(Some)
 }
 
-/// Whether `candidate` is a later SemVer than `running` (`3.4.0-pilot.66`
-/// after `3.4.0-pilot.65`, `3.4.0` after `3.4.0-pilot.66`). An unreadable
-/// version is never newer.
-fn version_is_newer(candidate: &str, running: &str) -> bool {
-    use std::cmp::Ordering;
-    fn parse(version: &str) -> Option<([u64; 3], Vec<&str>)> {
-        let (core, pre) = match version.split_once('-') {
-            Some((core, pre)) => (core, pre.split('.').collect()),
-            None => (version, Vec::new()),
-        };
-        let mut parts = core.split('.').map(|part| part.parse::<u64>().ok());
-        let core = [parts.next()??, parts.next()??, parts.next()??];
-        parts.next().is_none().then_some((core, pre))
-    }
-    fn identifier(a: &str, b: &str) -> Ordering {
-        match (a.parse::<u64>(), b.parse::<u64>()) {
-            (Ok(a), Ok(b)) => a.cmp(&b),
-            (Ok(_), Err(_)) => Ordering::Less,
-            (Err(_), Ok(_)) => Ordering::Greater,
-            (Err(_), Err(_)) => a.cmp(b),
-        }
-    }
-    let (Some((core, pre)), Some((running_core, running_pre))) = (parse(candidate), parse(running))
-    else {
-        return false;
-    };
-    let order =
-        core.cmp(&running_core)
-            .then_with(|| match (pre.is_empty(), running_pre.is_empty()) {
-                (true, true) => Ordering::Equal,
-                (true, false) => Ordering::Greater,
-                (false, true) => Ordering::Less,
-                (false, false) => pre
-                    .iter()
-                    .zip(&running_pre)
-                    .map(|(a, b)| identifier(a, b))
-                    .find(|order| *order != Ordering::Equal)
-                    .unwrap_or_else(|| pre.len().cmp(&running_pre.len())),
-            });
-    order == Ordering::Greater
-}
-
 /// Whether `decision` replaces the staged update: only a different release
 /// this install takes by itself does. A rollout that has not reached this
 /// install, an unconfirmed channel switch, or the same release keeps it.
@@ -971,35 +919,6 @@ fn receipt_channel(root: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn only_a_later_version_is_an_update() {
-        for (candidate, running) in [
-            ("3.4.0-pilot.66", "3.4.0-pilot.65"),
-            ("3.4.0-pilot.100", "3.4.0-pilot.99"),
-            ("3.4.0", "3.4.0-pilot.66"),
-            ("3.5.0-pilot.1", "3.4.0"),
-            ("10.0.0", "9.9.9"),
-        ] {
-            assert!(
-                version_is_newer(candidate, running),
-                "{candidate} > {running}"
-            );
-        }
-        for (candidate, running) in [
-            ("3.4.0-pilot.64", "3.4.0-pilot.65"),
-            ("3.4.0-pilot.65", "3.4.0-pilot.65"),
-            ("3.4.0-pilot.66", "3.4.0"),
-            ("3.3.9", "3.4.0-pilot.1"),
-            ("garbage", "3.4.0"),
-            ("3.4", "3.3.0"),
-        ] {
-            assert!(
-                !version_is_newer(candidate, running),
-                "{candidate} !> {running}"
-            );
-        }
-    }
 
     fn temporary(name: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!("hex-updater-{name}-{}", std::process::id()));
