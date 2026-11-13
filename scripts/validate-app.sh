@@ -25,13 +25,13 @@ plist_value() {
 [ -d "$bundle" ] || fail "$bundle does not exist"
 [ "$(basename "$bundle")" = "$expected_name" ] || fail "expected $expected_name, found $(basename "$bundle")"
 [ "$(plist_value CFBundleIdentifier)" = fheuer.agentdesk ] || fail "wrong bundle identifier"
-[ "$(plist_value CFBundleExecutable)" = hex ] || fail "wrong executable name"
+[ "$(plist_value CFBundleExecutable)" = agent-desk ] || fail "wrong executable name"
 [ "$(plist_value CFBundleDisplayName)" = Agent-Desk ] || fail "wrong display name"
 [ "$(plist_value CFBundleName)" = Agent-Desk ] || fail "wrong bundle name"
 [ "$(plist_value CFBundleShortVersionString)" = "$version" ] || fail "wrong version"
 [ "$(plist_value CFBundleVersion)" = "$build_number" ] || fail "wrong build number"
 [ "$(plist_value LSMinimumSystemVersion)" = 15.0 ] || fail "wrong minimum macOS"
-[ "$(plist_value CFBundleURLTypes:0:CFBundleURLSchemes:0)" = hex ] || fail "wrong URL scheme"
+[ "$(plist_value CFBundleURLTypes:0:CFBundleURLSchemes:0)" = agent-desk ] || fail "wrong URL scheme"
 # Agent-Desk updates itself through the Anomaly release service; Sparkle is gone.
 ! plist_value SUFeedURL >/dev/null 2>&1 || fail "a Sparkle feed is still configured"
 # 2.3.1 and Swift Agent-Desk's Sparkle installs this app only if it keeps their update key.
