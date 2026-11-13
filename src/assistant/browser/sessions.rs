@@ -89,6 +89,10 @@ pub fn belongs(task: &str, session: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('_'))
 }
 
+fn critically_tight() -> bool {
+    crate::assistant::capacity::pressure() == crate::assistant::capacity::Pressure::Critical
+}
+
 /// A task's browsers as its MCP server has them.
 #[derive(Clone, Debug)]
 pub struct Sessions {
@@ -97,6 +101,9 @@ pub struct Sessions {
     /// A browser that asks for nothing starts with the person's accounts.
     accounts: bool,
     open: BTreeMap<String, Kind>,
+    /// Whether memory is critically tight now: no browser beyond the first
+    /// opens (`capacity::pressure`).
+    tight: fn() -> bool,
 }
 
 impl Sessions {
@@ -106,7 +113,15 @@ impl Sessions {
             clean,
             accounts: false,
             open: BTreeMap::new(),
+            tight: critically_tight,
         }
+    }
+
+    /// How it tells memory is critically tight (tests).
+    #[cfg(test)]
+    pub fn with_tight(mut self, tight: fn() -> bool) -> Self {
+        self.tight = tight;
+        self
     }
 
     /// Browsers that ask for nothing start with the person's accounts.
@@ -153,6 +168,20 @@ impl Sessions {
                     return Err(format!(
                         "This task already has {MAX_SESSIONS} browsers ({}). Close one \
                          (agent_browser_close with its session) before opening another",
+                        self.open
+                            .keys()
+                            .map(|name| shown(name))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
+                // Fifty jobs' browsers can run a computer out of memory:
+                // while it's critically tight, a task works with what it has.
+                if !self.open.is_empty() && (self.tight)() {
+                    return Err(format!(
+                        "Memory on this computer is critically tight, so no more browsers open \
+                         now. Go on with the ones you have ({}), close one you're done with \
+                         (agent_browser_close), or wait a minute and try again",
                         self.open
                             .keys()
                             .map(|name| shown(name))
@@ -299,6 +328,32 @@ pub fn describe_tools(result: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn critically_tight_memory_opens_no_browser_beyond_the_first() {
+        let mut sessions = Sessions::new("t1", Engine::Chrome).with_tight(|| true);
+        let args = |session: &str| {
+            let mut map = Map::new();
+            map.insert("session".into(), session.into());
+            map
+        };
+        assert!(
+            sessions
+                .pin("agent_browser_open", &mut args("main"))
+                .is_ok(),
+            "one always"
+        );
+        assert!(
+            sessions
+                .pin("agent_browser_snapshot", &mut args("main"))
+                .is_ok(),
+            "used again"
+        );
+        let refused = sessions
+            .pin("agent_browser_open", &mut args("b"))
+            .unwrap_err();
+        assert!(refused.contains("critically tight"), "{refused}");
+    }
 
     fn args(value: Value) -> Map<String, Value> {
         value.as_object().cloned().unwrap()

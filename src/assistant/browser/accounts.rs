@@ -321,7 +321,7 @@ fn cookie(row: &Row, key: &[u8; 16], now: f64) -> Option<Value> {
 }
 
 fn hex_bytes(hex: &str) -> Option<Vec<u8>> {
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return None;
     }
     (0..hex.len())

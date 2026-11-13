@@ -265,7 +265,8 @@ mod tests {
 
     #[test]
     fn each_missing_thing_is_one_gap_on_its_page() {
-        let cases: Vec<(fn(&mut Facts), Gap, Fix)> = vec![
+        type Case = (fn(&mut Facts), Gap, Fix);
+        let cases: Vec<Case> = vec![
             (
                 |f| f.copy_problem = true,
                 Gap::CopyProblem,

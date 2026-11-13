@@ -149,6 +149,30 @@ pub(crate) struct Question {
     context: Option<ContextHandle>,
     /// The hold became real.
     real: bool,
+    /// The question a job waited on when the key went down: a hold answers
+    /// it only if the person could have heard or seen it by then.
+    asked_at_press: Option<ConversationId>,
+    /// A press of the Action shortcut on Linux or Windows ([`press`]): once
+    /// real it quiets Hex and holds announcements back until it's let go
+    /// (macOS's listener does both itself; conversation mode's captures
+    /// never do).
+    hold: bool,
+    /// The hold's listening, while it's real; ends when dropped.
+    holding: Option<Holding>,
+    /// Hex was reading aloud as the capture opened (conversation mode's
+    /// watch under an answer, a hold over it): its transcript may begin
+    /// with Hex's own voice.
+    overheard: bool,
+}
+
+/// A hold's listening state (`interaction::hold_listening`): on while this
+/// lives.
+struct Holding;
+
+impl Drop for Holding {
+    fn drop(&mut self) {
+        crate::assistant::interaction::hold_listening(false);
+    }
 }
 
 impl Question {
@@ -166,6 +190,12 @@ impl Question {
             read,
             context: None,
             real: false,
+            asked_at_press: crate::assistant::inbox()
+                .active
+                .map(|asked| asked.conversation),
+            hold: false,
+            holding: None,
+            overheard: crate::assistant::speech::speaking() || crate::assistant::reading_aloud(),
         }
     }
 
@@ -184,6 +214,13 @@ impl Question {
     pub(crate) fn intend(&mut self) -> bool {
         if let Some(read) = self.read.take() {
             self.context = Some(read());
+        }
+        if self.hold && self.holding.is_none() {
+            crate::assistant::interaction::hold_listening(true);
+            if crate::assistant::speech::speaking() || crate::assistant::reading_aloud() {
+                crate::assistant::interaction::hush();
+            }
+            self.holding = Some(Holding);
         }
         !std::mem::replace(&mut self.real, true)
     }
@@ -226,8 +263,23 @@ impl Question {
             .context
             .map(|context| context.wait(CONTEXT_WAIT))
             .unwrap_or_default();
+        // A job's question that came up while the person held the key
+        // (announcements wait meanwhile) wasn't heard: the hold goes where
+        // it would have gone without it.
+        let focused = focus();
+        let conversation = match (&focused, crate::assistant::inbox().active) {
+            (Some(focused), Some(active))
+                if *focused == active.conversation
+                    && self.asked_at_press.as_ref() != Some(focused) =>
+            {
+                crate::assistant::service::focus_past_inbox(
+                    crate::app_settings::applied_assistant().follow_up_seconds,
+                )
+            }
+            _ => focused,
+        };
         Some(Request {
-            conversation: focus(),
+            conversation,
             text: text.into(),
             origin: Origin::ActionShortcut,
             context,
@@ -239,10 +291,13 @@ impl Question {
     /// a dropped reply (a discard, a cancel, a failure) or no words asks
     /// nothing.
     pub(crate) fn ask(
-        self,
+        mut self,
         focus: impl FnOnce() -> Option<ConversationId> + Send + 'static,
         submit: impl FnOnce(Request) + Send + 'static,
     ) -> PrintReply {
+        // Released: the hold no longer listens.
+        drop(self.holding.take());
+        let overheard = self.overheard;
         let (reply, transcript) = PrintReply::channel();
         let spawned = std::thread::Builder::new()
             .name("hex-assistant-question".into())
@@ -257,6 +312,14 @@ impl Question {
                     }
                     return;
                 };
+                // A capture that listened under the reading (a barge-in,
+                // conversation mode's window) heard Hex's voice before the
+                // person's: only what follows it is theirs.
+                let text = if overheard || barged {
+                    crate::assistant::speech::own_echo::without_own_words(&text)
+                } else {
+                    text
+                };
                 if barged {
                     let after = barge_in::after_barge_in(
                         Some(&text),
@@ -270,11 +333,26 @@ impl Question {
                 // "Stopp" ends the speech (and the Here task), asking
                 // nothing; "Stopp alle Aufgaben" stops every task.
                 // Hex's own reading, heard back through the speakers.
-                if crate::assistant::speech::own_echo::heard_back(&text) {
+                if !text.chars().any(char::is_alphanumeric)
+                    || crate::assistant::speech::own_echo::heard_back(&text)
+                {
                     tracing::info!("dropped a question that was Hex's own voice");
                     return;
                 }
+                // „Brich die Shop-Aufgabe ab“: that one task stops.
+                if let Some(names) = spoken_stop::named_stop(&text) {
+                    let tasks = crate::assistant::tasks();
+                    if let Some(task) = spoken_stop::task_named(&names, &tasks) {
+                        tracing::info!(task = task.conversation, "stopped by name");
+                        crate::assistant::cancel(&task.conversation);
+                        crate::feedback::play(crate::feedback::Tone::Cancel);
+                        return;
+                    }
+                }
                 match spoken_stop::spoken_stop(&text) {
+                    // A job asks ("abschicken oder abbrechen?") and nothing
+                    // else is going on: „Abbrechen“ answers it.
+                    Some(spoken_stop::SpokenStop::Quiet) if answers_a_question() => {}
                     Some(spoken_stop::SpokenStop::Quiet) => return escape(),
                     Some(spoken_stop::SpokenStop::All) => return stop_all(),
                     None => {}
@@ -329,6 +407,21 @@ pub(crate) fn escape() {
         crate::assistant::cancel(&conversation);
     }
     crate::assistant::interaction::hush();
+    // „Sei still“ means it: jobs' summaries and questions wait a minute
+    // instead of starting 200 ms later (their bubbles still show).
+    crate::assistant::service::quiet_announcements(QUIET_AFTER_STOP);
+}
+
+/// How long announcements wait after Escape or a spoken stop.
+const QUIET_AFTER_STOP: Duration = Duration::from_secs(60);
+
+/// Whether a spoken stop word answers a job's question rather than
+/// stopping: one waits, nothing is read aloud, and no quick question runs.
+fn answers_a_question() -> bool {
+    crate::assistant::inbox().active.is_some()
+        && !crate::assistant::speech::speaking()
+        && !crate::assistant::reading_aloud()
+        && !quick_question_running()
 }
 
 /// The Stop all tasks shortcut: every task and the speech stop.
@@ -358,9 +451,11 @@ pub(crate) fn press(after_tap: bool) -> Question {
     let include_screenshot = crate::app_settings::assistant_runtime()
         .map(|(_, settings)| settings.include_screenshot)
         .unwrap_or(true);
-    Question::press(after_tap, move || {
+    let mut question = Question::press(after_tap, move || {
         crate::assistant::computer::context_async(include_screenshot)
-    })
+    });
+    question.hold = true;
+    question
 }
 
 /// The reply a released question's transcription answers: its words go to

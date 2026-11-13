@@ -39,6 +39,7 @@ pub mod remote;
 mod run;
 mod session;
 mod status;
+mod team;
 mod voice;
 mod warm;
 
@@ -60,6 +61,20 @@ use super::types::{
     Context, Conversation, ConversationId, ConversationSummary, Event, Lane, Origin,
     Outcome as Ended, PlanStep, Request, TaskState, TaskStatus, TaskWindow,
 };
+
+/// Whose words a task's authorization (`autonomy::from_request`) may come
+/// from: only the person's own, never text an agent wrote (a hand-off's
+/// task, a team member's, a schedule an agent made), which a page or an
+/// email it read could have steered.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Said {
+    /// The request's text is the person's own words.
+    Request,
+    /// The person's words that led to this (agent-written) task.
+    Words(String),
+    /// Nothing the person said now: only what was authorized before.
+    Nobody,
+}
 
 /// Called on a worker thread for every event; keep it quick (post to your
 /// own thread or wake your loop).
@@ -302,6 +317,20 @@ pub fn focus(follow_up_seconds: u32) -> Option<ConversationId> {
     runner().focus(follow_up_seconds)
 }
 
+/// `focus` without the inbox's active question: for a hold during which
+/// that question came up, unheard.
+pub fn focus_past_inbox(follow_up_seconds: u32) -> Option<ConversationId> {
+    let runner = runner();
+    let now = runner.now();
+    focus_past(&runner.state(), follow_up_seconds, now)
+}
+
+/// Jobs' summaries and questions aren't read aloud for `quiet` (the person
+/// said „Stopp“ or pressed Escape); what they ask for still is.
+pub fn quiet_announcements(quiet: std::time::Duration) {
+    voice::quiet_for(quiet, store::now_ms());
+}
+
 /// Starts the scheduler (once): every half minute it starts the scheduled
 /// jobs that are due, as Background jobs; a run missed while the Mac slept
 /// or Hex was closed starts once. The app calls it at launch (the runner
@@ -365,10 +394,30 @@ fn runner() -> &'static Arc<Runner> {
                 });
             }
             let app = !WITHOUT_LAB.load(Ordering::Acquire) && current_settings().0;
+            // Agents an earlier Hex left running (a crash, a force quit)
+            // end before their jobs resume beside them.
+            if app {
+                let ended = super::provider::orphans::sweep();
+                if ended > 0 {
+                    tracing::info!(ended, "ended agents an earlier Hex left running");
+                }
+            }
             if let Ok(store) = Store::open() {
                 let recovered = store.recover_interrupted();
                 if !recovered.is_empty() {
                     tracing::info!(count = recovered.len(), "assistant tasks were interrupted");
+                }
+                // Their browsers go too, all at once and before any job
+                // resumes (it opens fresh ones under the same names).
+                if app {
+                    let closing: Vec<_> = recovered
+                        .iter()
+                        .cloned()
+                        .map(|id| std::thread::spawn(move || super::browser::close(&id)))
+                        .collect();
+                    for closed in closing {
+                        let _ = closed.join();
+                    }
                 }
                 // Jobs go on by themselves: a restart, a crash, or an
                 // update doesn't end days of work.
@@ -391,6 +440,10 @@ type Speak = dyn Fn(&str, Option<&str>) + Send + Sync;
 type Hook<T> = Box<dyn Fn() -> T + Send + Sync>;
 type OnTask<R = ()> = Box<dyn Fn(&str) -> R + Send + Sync>;
 type TaskHook = OnTask;
+/// Makes a job's workspace for its title, inside a folder (a helper's, in
+/// its lead's) or in the jobs' own root.
+type MakeWorkspace =
+    dyn Fn(Option<&std::path::Path>, &str) -> Option<std::path::PathBuf> + Send + Sync;
 type Pause = dyn Fn(&str, bool) + Send + Sync;
 type BringForward = dyn Fn(&str, &[TaskWindow]) + Send + Sync;
 type Settle = dyn Fn(&str, Ended, &str) + Send + Sync;
@@ -442,7 +495,7 @@ pub(crate) struct Hooks {
     /// Requests from other Hex processes (`remote`).
     pub requests: Hook<Vec<(String, remote::Verb)>>,
     /// Makes a new job's workspace for its title.
-    pub make_workspace: OnTask<Option<std::path::PathBuf>>,
+    pub make_workspace: Box<MakeWorkspace>,
     /// A conversation's workspace, if it is a job.
     pub workspace_of: OnTask<Option<std::path::PathBuf>>,
     /// Writes a message into a conversation beside the task that may be
@@ -460,7 +513,20 @@ pub(crate) struct Hooks {
     pub due_schedules: Box<DueSchedules>,
     /// Settles an utterance the inbox's router can't place (`inbox`).
     pub classify_reply: Box<ClassifyReply>,
+    /// How tight memory is now: queued Background tasks wait while it is
+    /// (`capacity::background_room`).
+    pub pressure: Hook<super::capacity::Pressure>,
+    /// Jobs' requests to start helpers (`agent::team`), taken once.
+    pub team_asks: Hook<Vec<agent::team::Ask>>,
+    /// Answers a request: the helpers started, or why not.
+    pub team_answer: Box<TeamAnswer>,
+    /// Every event, for the helpers' records.
+    pub team_event: Box<dyn Fn(&Event) + Send + Sync>,
+    /// The lead a conversation helps, if it's a helper (after a restart).
+    pub lead_of: OnTask<Option<ConversationId>>,
 }
+
+type TeamAnswer = dyn Fn(&agent::team::Ask, Result<Vec<agent::team::Member>, String>) + Send + Sync;
 
 impl Hooks {
     /// The real ones: the backends, the saved settings, agent-desktop, the
@@ -507,8 +573,11 @@ impl Hooks {
             requests: Box::new(move || {
                 remote::take_new(&mut seen.lock().unwrap_or_else(|error| error.into_inner()))
             }),
-            make_workspace: Box::new(|title| {
-                let root = agent::workspace::root()?;
+            make_workspace: Box::new(|inside, title| {
+                let root = match inside {
+                    Some(folder) => folder.to_path_buf(),
+                    None => agent::workspace::root()?,
+                };
                 agent::workspace::create(&root, title, store::now_ms())
                     .inspect_err(|error| tracing::warn!(%error, "no workspace for the job"))
                     .ok()
@@ -528,6 +597,23 @@ impl Hooks {
             memory: Box::new(super::memory::read),
             notify: Box::new(super::notify::show),
             due_schedules: Box::new(super::schedules::take_due),
+            pressure: Box::new(super::capacity::pressure),
+            team_asks: Box::new(|| {
+                agent::team::root()
+                    .map(|root| agent::team::pending(&root))
+                    .unwrap_or_default()
+            }),
+            team_answer: Box::new(|ask, result| {
+                if let Some(root) = agent::team::root() {
+                    agent::team::answer(&root, ask, result);
+                }
+            }),
+            team_event: Box::new(|event| {
+                if let Some(root) = agent::team::root() {
+                    agent::team::on_event(&root, event);
+                }
+            }),
+            lead_of: Box::new(agent::team::lead_of),
             classify_reply: Box::new(|question, title, said| {
                 let (_, settings) = current_settings();
                 (settings.backend == AssistantBackend::ClaudeApi).then_some(())?;
@@ -643,6 +729,11 @@ struct Warm {
 struct Task {
     key: u64,
     request: Request,
+    /// The person's own words this task may be authorized from (`Said`).
+    said: Option<String>,
+    /// The job it helps (`agent::team`): it works in a folder inside that
+    /// job's, stays quiet (the lead answers), and stops with it.
+    parent: Option<ConversationId>,
     status: TaskStatus,
     control: Arc<Control>,
     agent_id: String,
@@ -720,6 +811,7 @@ impl Runner {
     /// Tells every subscriber, after noting a step or window on its task and
     /// reading a Here answer aloud as it streams.
     fn emit(self: &Arc<Self>, event: &Event) {
+        (self.hooks.team_event)(event);
         match event {
             Event::Step {
                 conversation,
@@ -782,10 +874,15 @@ impl Runner {
     }
 
     pub(crate) fn submit(self: &Arc<Self>, request: Request) -> ConversationId {
-        self.submit_as(request, JobKind::Ask)
+        self.submit_as(request, JobKind::Ask, Said::Request)
     }
 
-    fn submit_as(self: &Arc<Self>, mut request: Request, mut kind: JobKind) -> ConversationId {
+    fn submit_as(
+        self: &Arc<Self>,
+        mut request: Request,
+        mut kind: JobKind,
+        said: Said,
+    ) -> ConversationId {
         let (enabled, settings) = (self.hooks.settings)();
         let refuse = |message: &str| {
             let id = request.conversation.clone().unwrap_or_else(store::new_id);
@@ -856,6 +953,8 @@ impl Runner {
             let new_conversation = request.conversation.is_none();
             let mut id = request.conversation.clone().unwrap_or_else(store::new_id);
             let mut key = None;
+            let mut steered_parent: Option<ConversationId> = None;
+            let mut steered_title: Option<String> = None;
             if let Some(warm) = state.warm.take()
                 && kind == JobKind::Ask
                 && warm.lane == request.origin.lane()
@@ -877,6 +976,12 @@ impl Runner {
                     doing: target.status.step.clone(),
                     steps: target.steps.iter().cloned().collect(),
                 };
+                // A helper steered stays its lead's, and a job keeps its
+                // title (the new words are an instruction, not a name).
+                steered_parent = target.parent.clone();
+                if target.workspace.is_some() || matches!(target.kind, JobKind::Job { .. }) {
+                    steered_title = Some(target.status.title.clone());
+                }
                 // A job's transcript gets the words where they were said,
                 // with a short "noted"; its steered run doesn't add them again.
                 if target.workspace.is_some() || matches!(target.kind, JobKind::Job { .. }) {
@@ -915,7 +1020,28 @@ impl Runner {
                     .collect();
             }
             request.conversation = Some(id.clone());
-            self.push_task(&mut state, request, kind, key, new_conversation, voice);
+            let said = match said {
+                Said::Request => Some(request.text.clone()),
+                Said::Words(words) => Some(words),
+                Said::Nobody => None,
+            };
+            self.push_task(
+                &mut state,
+                request,
+                kind,
+                key,
+                new_conversation,
+                voice,
+                said,
+            );
+            if let Some(task) = state.tasks.last_mut() {
+                if steered_parent.is_some() {
+                    task.parent = steered_parent;
+                }
+                if let Some(title) = steered_title {
+                    task.status.title = title;
+                }
+            }
             id
         };
         for key in stop {
@@ -953,6 +1079,7 @@ impl Runner {
     }
 
     /// Adds a task for `request` (whose conversation is set) to the queue.
+    #[allow(clippy::too_many_arguments)]
     fn push_task(
         &self,
         state: &mut State,
@@ -961,8 +1088,10 @@ impl Runner {
         key: Option<u64>,
         new_conversation: bool,
         voice: bool,
+        said: Option<String>,
     ) {
         let id = request.conversation.clone().unwrap_or_default();
+        let id_for_parent = id.clone();
         let key = key.unwrap_or_else(|| self.next.fetch_add(1, Ordering::Relaxed));
         let used: Vec<u8> = state.tasks.iter().map(|task| task.status.colour).collect();
         let colour = (0..8u8)
@@ -1004,6 +1133,8 @@ impl Runner {
             asked_ms: None,
             reply: None,
             authorized_line: None,
+            said,
+            parent: (self.hooks.lead_of)(&id_for_parent),
         });
     }
 
@@ -1012,16 +1143,26 @@ impl Runner {
     fn pump(self: &Arc<Self>) {
         let (_, settings) = (self.hooks.settings)();
         let limit = settings.max_parallel.max(1) as usize;
+        let pressure = (self.hooks.pressure)();
         let mut start = Vec::new();
         let mut queued = Vec::new();
         let mut monitor = false;
         {
             let mut state = self.state();
+            // A job whose helpers are queued or working mostly waits for
+            // them: it holds no slot, or leads holding every slot would
+            // wait for helpers that never start (`agent::team`).
+            let leading: Vec<ConversationId> = state
+                .tasks
+                .iter()
+                .filter_map(|task| task.parent.clone())
+                .collect();
             let running = |lane: Lane, state: &State| {
                 state
                     .tasks
                     .iter()
                     .filter(|task| task.running && task.lane() == lane)
+                    .filter(|task| !leading.contains(&task.status.conversation))
                     .count()
             };
             let mut background = running(Lane::Background, &state);
@@ -1038,7 +1179,9 @@ impl Runner {
                 }
                 let free = match task.lane() {
                     Lane::Here => here == 0,
-                    Lane::Background => background < limit,
+                    Lane::Background => {
+                        super::capacity::background_room(limit, background, pressure)
+                    }
                 };
                 if free && !busy.contains(&task.status.conversation) {
                     task.running = true;
@@ -1099,15 +1242,20 @@ impl Runner {
                 context: Context::default(),
             },
             JobKind::Resume,
+            Said::Nobody,
         ))
     }
 
     pub(crate) fn cancel(self: &Arc<Self>, conversation: &str) {
+        // Its helpers stop with it.
         let keys: Vec<u64> = self
             .state()
             .tasks
             .iter()
-            .filter(|task| task.status.conversation == conversation)
+            .filter(|task| {
+                task.status.conversation == conversation
+                    || task.parent.as_deref() == Some(conversation)
+            })
             .map(|task| task.key)
             .collect();
         for key in keys {
@@ -1175,12 +1323,23 @@ impl Runner {
             .into_iter()
             .map(|schedule| {
                 tracing::info!(id = schedule.id, "a scheduled job is due");
-                self.submit(Request {
-                    conversation: None,
-                    text: schedule.task,
-                    origin: Origin::Background,
-                    context: Context::default(),
-                })
+                // Only a schedule the person made authorizes from its words;
+                // one an agent made confirms what it would send or delete.
+                let said = if schedule.by_person {
+                    Said::Request
+                } else {
+                    Said::Nobody
+                };
+                self.submit_as(
+                    Request {
+                        conversation: None,
+                        text: schedule.task,
+                        origin: Origin::Background,
+                        context: Context::default(),
+                    },
+                    JobKind::Ask,
+                    said,
+                )
             })
             .collect()
     }
@@ -1226,6 +1385,12 @@ fn focus_in(state: &State, follow_up_seconds: u32, now: u64) -> Option<Conversat
     if let Some(active) = inbox::of(state).active {
         return Some(active.conversation);
     }
+    focus_past(state, follow_up_seconds, now)
+}
+
+/// `focus_in` past the inbox: a running Here task, Chats' conversation, or
+/// the last Here answer within `follow_up_seconds`.
+fn focus_past(state: &State, follow_up_seconds: u32, now: u64) -> Option<ConversationId> {
     if let Some(task) = state
         .tasks
         .iter()

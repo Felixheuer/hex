@@ -17,6 +17,19 @@ use crate::app_settings::AssistantBackend;
 
 #[derive(Subcommand, Debug)]
 pub enum AssistantCommand {
+    /// Show how much voice a barge-in needs on this Mac, as learnt from the
+    /// last barge-ins, and how they turned out.
+    BargeIn {
+        /// Forget what was learnt: back to the defaults.
+        #[arg(long)]
+        reset: bool,
+    },
+    /// Every tool call a conversation's agent made (shell commands, files,
+    /// clicks, pages, messages), as a timeline.
+    Audit {
+        /// The conversation's id (`hex assistant conversations`).
+        id: String,
+    },
     /// Ask one question and print what happens until it's answered.
     Ask {
         text: String,
@@ -86,6 +99,10 @@ pub enum AssistantCommand {
     ToolsMcp {
         #[arg(long)]
         task: String,
+        /// `job` for a background job (team tools; no memory, schedules,
+        /// or hand-off), `turn` (the default) for a question or a chat.
+        #[arg(long, default_value = "turn")]
+        role: String,
     },
     /// The guard's MCP server for one task (Hex gives it to each task's
     /// agent in place of agent-desktop): `--spec` is the task's JSON spec or
@@ -101,6 +118,9 @@ pub enum AssistantCommand {
     BrowserMcp {
         #[arg(long)]
         task: String,
+        /// A job's check: no consequential action, whatever the mode.
+        #[arg(long)]
+        observe: bool,
     },
     /// Closes every hidden browser a task opened.
     #[command(hide = true)]
@@ -214,10 +234,31 @@ pub fn run(command: AssistantCommand) -> u8 {
         }),
         AssistantCommand::Resume { id } => resume(&id),
         AssistantCommand::StopAll => send(remote::ALL, remote::Verb::Stop),
+        AssistantCommand::Audit { id } => {
+            print!("{}", super::audit::report(&super::audit::read(&id)));
+            Ok(true)
+        }
+        AssistantCommand::BargeIn { reset } => {
+            if reset {
+                super::interaction::tuning::reset();
+            }
+            print!("{}", super::interaction::tuning::report());
+            if reset {
+                println!("Hex picks the defaults up the next time it starts.");
+            }
+            Ok(true)
+        }
         AssistantCommand::TakeOver { id } => send(&id, remote::Verb::TakeOver),
         AssistantCommand::HandBack { id } => send(&id, remote::Verb::HandBack),
         AssistantCommand::Schedules { command } => schedules(command),
-        AssistantCommand::ToolsMcp { task } => super::tools::serve(&task).map(|()| true),
+        AssistantCommand::ToolsMcp { task, role } => {
+            let role = if role == "job" {
+                super::tools::Role::Job
+            } else {
+                super::tools::Role::Turn
+            };
+            super::tools::serve(&task, role).map(|()| true)
+        }
         AssistantCommand::Conversations => {
             list();
             Ok(true)
@@ -225,7 +266,9 @@ pub fn run(command: AssistantCommand) -> u8 {
         AssistantCommand::Show { id } => show(&id).map(|()| true),
         AssistantCommand::Key => key().map(|()| true),
         AssistantCommand::Mcp { spec } => super::guard::serve(&spec).map(|()| true),
-        AssistantCommand::BrowserMcp { task } => super::browser::serve(&task).map(|()| true),
+        AssistantCommand::BrowserMcp { task, observe } => {
+            super::browser::serve(&task, observe).map(|()| true)
+        }
         AssistantCommand::BrowserClose { task } => {
             super::browser::close(&task);
             Ok(true)

@@ -57,6 +57,21 @@ impl Runner {
         }
         self.check_hands_off(&here);
         self.check_plans();
+        // Jobs asking for helpers (`agent::team`).
+        for ask in (self.hooks.team_asks)() {
+            let ours = self
+                .state()
+                .tasks
+                .iter()
+                .any(|task| task.status.conversation == ask.lead);
+            if ours {
+                self.start_team(&ask);
+            }
+        }
+        // Queued tasks held back by tight memory start once it eases.
+        if self.state().tasks.iter().any(|task| !task.running) {
+            self.pump();
+        }
         for (target, verb) in (self.hooks.requests)() {
             let ours = target == remote::ALL
                 || self
@@ -112,11 +127,12 @@ impl Runner {
                     && task.authorized_line.as_deref() != Some(line.as_str())
                 {
                     task.authorized_line = Some(line.clone());
-                    authorize.push((
-                        task.status.conversation.clone(),
-                        line,
-                        task.request.text.clone(),
-                    ));
+                    // Backed only by the person's own words: a task an
+                    // agent wrote (a hand-off, a team member, an agent's
+                    // schedule) backs nothing by itself (`Said`).
+                    if let Some(said) = task.said.clone() {
+                        authorize.push((task.status.conversation.clone(), line, said));
+                    }
                 }
                 (task.plan != steps).then(|| {
                     task.plan = steps.clone();

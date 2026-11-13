@@ -130,7 +130,11 @@ fn the_list_groups_conversations_and_the_transcript_renders_them() {
         texts(&rt)
     );
     // The running task: in the strip, with Stop.
-    assert!(rt.find("task0").is_some());
+    assert!(
+        rt.elements()
+            .iter()
+            .any(|e| e.key.as_deref().is_some_and(|key| key.starts_with("task-")))
+    );
 }
 
 #[test]

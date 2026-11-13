@@ -81,6 +81,7 @@ impl Runner {
             workspace: None,
             authorized: Default::default(),
             memory: None,
+            helps: None,
         };
         let runner = Arc::clone(self);
         std::thread::Builder::new()

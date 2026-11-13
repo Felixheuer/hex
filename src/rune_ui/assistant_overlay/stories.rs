@@ -120,6 +120,7 @@ fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
                     answer_key: fixture::ANSWER_KEY.into(),
                     voice: None,
                     hovered: None,
+                    jobs_open: false,
                 },
                 orb::Actions {
                     list: stack::Actions {
@@ -165,6 +166,10 @@ fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
                     },
                     hover: |_, _| {},
                     drag: |_, _| {},
+                    jobs: super::jobs::LineActions {
+                        hover: |_, _| {},
+                        pin: |_| {},
+                    },
                 },
             )),
     )

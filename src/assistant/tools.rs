@@ -1,10 +1,17 @@
 //! Hex's own small MCP server for a task's agent (`hex assistant tools-mcp
-//! --task <id>`): `hex_remember` adds a fact to the person's memory note,
-//! `hex_schedule`, `hex_schedules`, `hex_unschedule` manage scheduled
-//! jobs, `hex_compare_images` tells how alike two screenshots look (a
-//! job's own check, `agent::goal`), and `hex_start_jobs` hands a request
+//! --task <id> [--role job]`): `hex_remember` adds a fact to the person's
+//! memory note, `hex_schedule`, `hex_schedules`, `hex_unschedule` manage
+//! scheduled jobs, `hex_compare_images` tells how alike two screenshots look
+//! (a job's own check, `agent::goal`), and `hex_start_jobs` hands a request
 //! that is a job to the background (`agent::handoff`). Newline-delimited
 //! JSON-RPC on stdio, like the other servers.
+//!
+//! Two roles. A quick question or a chat (the person's own turn) has all of
+//! the above. A background job (`--role job`) reads web pages and files the
+//! person never saw, so it may not change what outlives it: no memory, no
+//! schedules made or removed, no hand-off (a job's `hex_start_jobs` was lost
+//! silently); it leads a team instead (`hex_team_start`, `hex_team_status`,
+//! `agent::team`).
 //!
 //! OWNER: brain.
 
@@ -23,13 +30,109 @@ pub const NAME: &str = "hex";
 
 /// The conversation this server serves (`--task`), for `hex_start_jobs`.
 static TASK: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+/// Whether it serves a background job (`--role job`).
+static JOB: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
-/// The tool definitions.
+/// Who the tools serve.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Role {
+    /// A quick question or a chat: the person's own turn.
+    Turn,
+    /// A background job.
+    Job,
+}
+
+impl Role {
+    /// The `--role` argument's value.
+    pub fn arg(self) -> &'static str {
+        match self {
+            Self::Turn => "turn",
+            Self::Job => "job",
+        }
+    }
+}
+
+fn role() -> Role {
+    if JOB.get().copied().unwrap_or(false) {
+        Role::Job
+    } else {
+        Role::Turn
+    }
+}
+
+/// Tools a background job may not use, and why.
+const NOT_FOR_JOBS: [(&str, &str); 4] = [
+    (
+        "hex_start_jobs",
+        "You are already a background job: start helpers with hex_team_start instead, or do it yourself.",
+    ),
+    (
+        "hex_remember",
+        "A background job can't change the person's memory (it may have read something untrusted). Put what's worth remembering in your final answer; the person decides.",
+    ),
+    (
+        "hex_schedule",
+        "A background job can't make schedules (it may have read something untrusted). Suggest the schedule in your final answer; the person sets it up.",
+    ),
+    (
+        "hex_unschedule",
+        "A background job can't remove the person's schedules. Say in your final answer which one should go.",
+    ),
+];
+
+/// The tools for `role`.
+pub fn definitions_for(role: Role) -> Vec<Value> {
+    let all = definitions();
+    match role {
+        Role::Turn => all,
+        Role::Job => all
+            .into_iter()
+            .filter(|tool| {
+                let name = tool["name"].as_str().unwrap_or("");
+                !NOT_FOR_JOBS.iter().any(|(refused, _)| *refused == name)
+            })
+            .chain(team_definitions())
+            .collect(),
+    }
+}
+
+/// A job's team tools (`agent::team`).
+fn team_definitions() -> Vec<Value> {
+    vec![
+        json!({
+            "name": "hex_team_start",
+            "description": "Start helpers: background jobs that work beside you on parts of this job, each with its own browsers, apps, and a folder inside yours that you can read. Use it for parts that can run in parallel (many sites to research, several deliverables); at most 12 at once. Returns their ids. Follow them with hex_team_status.",
+            "inputSchema": {"type": "object", "properties": {
+                "jobs": {"type": "array", "items": {"type": "object", "properties": {
+                    "title": {"type": "string", "description": "A short title, at most six words."},
+                    "task": {"type": "string", "description": "The helper's whole task, self-contained: every detail it needs and which files to write in its folder."}
+                }, "required": ["task"]}}
+            }, "required": ["jobs"]},
+        }),
+        json!({
+            "name": "hex_team_tell",
+            "description": "Give your helpers a new instruction while they work (the person changed what they want, or a helper should change course): it reaches the helper at once, as the person's words would. `to` is a helper's id from hex_team_start, or \"all\".",
+            "inputSchema": {"type": "object", "properties": {
+                "to": {"type": "string"},
+                "text": {"type": "string", "description": "The instruction, self-contained."}
+            }, "required": ["to", "text"]},
+        }),
+        json!({
+            "name": "hex_team_status",
+            "description": "Your helpers: each one's state, current step, and once it ended its final answer. With wait_seconds (up to 240) it waits until the next helper finishes or asks the person something, so you can wait without polling.",
+            "inputSchema": {"type": "object", "properties": {
+                "wait_seconds": {"type": "integer", "minimum": 0, "maximum": 240}
+            }},
+        }),
+    ]
+}
+
+/// The tool definitions for a quick question or a chat.
 pub fn definitions() -> Vec<Value> {
     vec![
         json!({
             "name": "hex_start_jobs",
-            "description": "Hand the request to the background as one or more jobs, when it is a job rather than a quick question or a small action in the window in front (several steps, many items, other apps or websites, research, documents, files, or more than a minute or two). Hex starts each job with every tool it needs (its own browsers, apps, files) and the job asks the person what it needs. Call it once with all jobs; several independent parts become several jobs that run in parallel. Then end your reply with one or two short, speakable sentences saying you're on it. Never say something runs in the background without calling this.",
+            "description": "Hand the request to the background as one or more jobs, when it is a job rather than a quick question or a small action in the window in front (several steps, many items, other apps or websites, research, documents, files, or more than a minute or two). Hex starts each job with every tool it needs (its own browsers, apps, files) and the job asks the person what it needs. Call it once with all jobs: unrelated requests become separate jobs that run in parallel; parts that build on each other (research, then a sheet, then a message) stay one job, which leads helpers itself. Then end your reply with one or two short, speakable sentences saying you're on it. Never say something runs in the background without calling this.",
             "inputSchema": {"type": "object", "properties": {
                 "jobs": {"type": "array", "items": {"type": "object", "properties": {
                     "title": {"type": "string", "description": "A short title, at most six words."},
@@ -86,7 +189,70 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             .map(str::to_owned)
             .ok_or_else(|| format!("{name} needs “{key}”"))
     };
+    if role() == Role::Job
+        && let Some((_, why)) = NOT_FOR_JOBS.iter().find(|(refused, _)| *refused == name)
+    {
+        return Err((*why).to_owned());
+    }
     match name {
+        "hex_team_start" | "hex_team_status" | "hex_team_tell" if role() != Role::Job => {
+            Err("Only a background job leads a team; hand the work on with hex_start_jobs.".into())
+        }
+        "hex_team_start" => {
+            let lead = TASK
+                .get()
+                .ok_or("hex_team_start needs the task this server serves")?;
+            let root =
+                crate::assistant::agent::team::root().ok_or("Hex has no folder for teams")?;
+            let jobs = crate::assistant::agent::handoff::parse(arguments)?.jobs;
+            let members = crate::assistant::agent::team::start(&root, lead, jobs)?;
+            let lines: Vec<String> = members
+                .iter()
+                .map(|member| format!("- {} (id {})", member.title, member.id))
+                .collect();
+            Ok(format!(
+                "Started {} helper(s):\n{}\nFollow them with hex_team_status (wait_seconds waits for the next to finish).",
+                members.len(),
+                lines.join("\n")
+            ))
+        }
+        "hex_team_tell" => {
+            let lead = TASK
+                .get()
+                .ok_or("hex_team_tell needs the task this server serves")?;
+            let root =
+                crate::assistant::agent::team::root().ok_or("Hex has no folder for teams")?;
+            let told = crate::assistant::agent::team::tell(
+                &root,
+                lead,
+                vec![crate::assistant::agent::team::Tell {
+                    to: text("to")?,
+                    text: text("text")?,
+                }],
+            )?;
+            if told.is_empty() {
+                return Err("No helper was told: none of yours has that id, or it waits for the person's answer to its question (only they answer it; hex_team_status shows each one).".into());
+            }
+            let names: Vec<&str> = told.iter().map(|member| member.title.as_str()).collect();
+            Ok(format!("Told {}: {}.", told.len(), names.join(", ")))
+        }
+        "hex_team_status" => {
+            let lead = TASK
+                .get()
+                .ok_or("hex_team_status needs the task this server serves")?;
+            let root =
+                crate::assistant::agent::team::root().ok_or("Hex has no folder for teams")?;
+            let wait = arguments
+                .get("wait_seconds")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            let members = crate::assistant::agent::team::wait_for_change(
+                &root,
+                lead,
+                std::time::Duration::from_secs(wait),
+            );
+            Ok(crate::assistant::agent::team::report(&members))
+        }
         "hex_start_jobs" => {
             let task = TASK
                 .get()
@@ -113,7 +279,7 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
                 Some("here") => Lane::Here,
                 _ => Lane::Background,
             };
-            let schedule = schedules::add(&text("when")?, &text("task")?, lane)
+            let schedule = schedules::add_by_agent(&text("when")?, &text("task")?, lane)
                 .map_err(|error| format!("{error:#}"))?;
             let next = schedules::next_runs(&schedule.when, 3)
                 .unwrap_or_default()
@@ -172,8 +338,9 @@ fn memory_on() -> bool {
 }
 
 /// Serves the tools on stdio until the agent disconnects.
-pub fn serve(task: &str) -> Result<()> {
+pub fn serve(task: &str, role: Role) -> Result<()> {
     let _ = TASK.set(task.to_owned());
+    let _ = JOB.set(role == Role::Job);
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -205,7 +372,7 @@ pub fn answer(message: &Value) -> Option<Value> {
             "capabilities": {"tools": {}},
             "serverInfo": {"name": "hex", "version": crate::VERSION},
         }),
-        "tools/list" => json!({"tools": definitions()}),
+        "tools/list" => json!({"tools": definitions_for(role())}),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
@@ -262,5 +429,30 @@ mod tests {
         let bad = call("hex_schedule", &json!({"when": "whenever", "task": "x"})).unwrap_err();
         assert!(bad.contains("isn't a schedule"), "{bad}");
         assert!(call("hex_nothing", &json!({})).is_err());
+        assert!(
+            call("hex_team_status", &json!({}))
+                .unwrap_err()
+                .contains("Only a background job")
+        );
+    }
+
+    #[test]
+    fn a_job_leads_a_team_and_can_t_change_what_outlives_it() {
+        let names: Vec<String> = definitions_for(Role::Job)
+            .iter()
+            .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "hex_schedules",
+                "hex_compare_images",
+                "hex_team_start",
+                "hex_team_tell",
+                "hex_team_status"
+            ]
+        );
+        assert_eq!(definitions_for(Role::Turn), definitions());
+        assert_eq!(Role::Job.arg(), "job");
     }
 }

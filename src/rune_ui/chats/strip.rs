@@ -70,6 +70,9 @@ pub(super) fn task_strip(ui: &Ui, p: Paint) -> Option<El> {
     if tasks.is_empty() {
         return None;
     }
+    let shown = strip_order(tasks, |task| ui.chats.hold(task).is_some());
+    let more = tasks.len().saturating_sub(shown.len());
+    let c = &p.k.c;
     Some(
         row()
             .key("chats-tasks")
@@ -81,13 +84,50 @@ pub(super) fn task_strip(ui: &Ui, p: Paint) -> Option<El> {
             .flex_wrap()
             .center_y()
             .children(
-                tasks
-                    .iter()
+                shown
+                    .into_iter()
                     .enumerate()
                     .map(|(index, task)| chip(ui, p, index, task)),
-            ),
+            )
+            // Fifty jobs don't push the conversations off the window: the
+            // rest are a press away in the orb's list.
+            .children((more > 0).then(|| {
+                row()
+                    .key("tasks-more")
+                    .role("button")
+                    .label(tr_fill("{} more tasks", &more.to_string()))
+                    .h(30.0)
+                    .px(10.0)
+                    .center_y()
+                    .radius(p.k.radius.md)
+                    .fill(c.layer_01)
+                    .border(p.hair, c.border_weak)
+                    .hover(c.hover)
+                    .on_press(|_: &mut Ui| crate::rune_ui::assistant_overlay::toggle_tasks())
+                    .child(
+                        text(format!("+{more}"))
+                            .font(p.k.ty.small_medium)
+                            .color(p.muted()),
+                    )
+            })),
     )
 }
+
+/// The chips the strip shows: what waits on the person first, then the
+/// rest in order, at most [`STRIP_MAX`].
+fn strip_order(tasks: &[TaskStatus], held: impl Fn(&TaskStatus) -> bool) -> Vec<&TaskStatus> {
+    let mut ordered: Vec<&TaskStatus> = tasks.iter().filter(|task| held(task)).collect();
+    ordered.extend(tasks.iter().filter(|task| !held(task)));
+    // A steer queues the conversation's next run beside the one it stops:
+    // one chip each.
+    let mut seen = std::collections::HashSet::new();
+    ordered.retain(|task| seen.insert(task.conversation.clone()));
+    ordered.truncate(STRIP_MAX);
+    ordered
+}
+
+/// The most task chips the strip shows (about two rows).
+const STRIP_MAX: usize = 8;
 
 /// What a task is doing, for its chip and its list row: the words, and
 /// their ink when it's a state rather than a step.
@@ -145,7 +185,7 @@ pub(super) fn mark(ui: &Ui, p: Paint, task: &TaskStatus) -> El {
 
 /// One task: its mark, question, and what it's doing, with Take over or
 /// Hand back, and Stop.
-fn chip(ui: &Ui, p: Paint, index: usize, task: &TaskStatus) -> El {
+fn chip(ui: &Ui, p: Paint, _index: usize, task: &TaskStatus) -> El {
     let c = &p.k.c;
     let (detail, ink) = doing(ui, p, task);
     let hold = ui.chats.hold(task);
@@ -170,7 +210,9 @@ fn chip(ui: &Ui, p: Paint, index: usize, task: &TaskStatus) -> El {
     };
     let selected = ui.chats.selected.as_ref() == Some(&task.conversation);
     row()
-        .key(format!("task{index}"))
+        // Keyed by its conversation, so a chip's hover and motion stay
+        // its own when another task ends.
+        .key(format!("task-{}", task.conversation))
         .role("listitem")
         .label(task.title.clone())
         .description(detail.clone())
@@ -231,5 +273,36 @@ mod tests {
         assert_eq!(super::countdown(192_000, 0), "3:12");
         assert_eq!(super::countdown(500, 0), "0:01");
         assert_eq!(super::countdown(0, 10), "0:00");
+    }
+}
+
+#[cfg(test)]
+mod strip_tests {
+    use super::*;
+    use crate::assistant::Origin;
+
+    fn task(id: &str) -> TaskStatus {
+        TaskStatus {
+            conversation: id.into(),
+            origin: Origin::Background,
+            title: id.into(),
+            state: TaskState::Running,
+            step: None,
+            windows: Vec::new(),
+            colour: 0,
+        }
+    }
+
+    #[test]
+    fn fifty_tasks_show_eight_chips_what_waits_first() {
+        let tasks: Vec<TaskStatus> = (0..50).map(|n| task(&format!("t{n}"))).collect();
+        let shown = strip_order(&tasks, |task| task.conversation == "t42");
+        assert_eq!(shown.len(), STRIP_MAX);
+        assert_eq!(
+            shown[0].conversation, "t42",
+            "the one waiting on the person"
+        );
+        assert_eq!(shown[1].conversation, "t0");
+        assert_eq!(strip_order(&tasks[..3], |_| false).len(), 3);
     }
 }

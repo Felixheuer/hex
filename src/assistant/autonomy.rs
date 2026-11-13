@@ -154,9 +154,36 @@ pub struct Authorized {
     /// Free-text limits the person gave ("only to max@example.com").
     pub notes: Vec<String>,
     /// Kinds of action the person said yes to when asked (`NEEDS_CONFIRMATION`
-    /// turned into a question): allowed in Ask mode too.
+    /// turned into a question): allowed in Ask mode too, for
+    /// [`CONFIRMED_FOR_MS`] after the yes (`confirmed_at`).
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub confirmed: BTreeSet<Category>,
+    /// When each yes was given (Unix ms). A yes without a time (saved before
+    /// it was kept) counts as expired.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub confirmed_at: std::collections::BTreeMap<Category, u64>,
+}
+
+/// How long a yes to one question covers that kind of action: the batch it
+/// asked about ("Shall I send the 3 emails?"), not the rest of a job that
+/// may run for days. A further send later asks again.
+pub const CONFIRMED_FOR_MS: u64 = 15 * 60_000;
+
+impl Authorized {
+    /// The person said yes to `category` at `now_ms`.
+    pub fn confirm(&mut self, category: Category, now_ms: u64) {
+        self.confirmed.insert(category);
+        self.confirmed_at.insert(category, now_ms);
+    }
+
+    /// Whether a yes to `category` still covers it at `now_ms`.
+    pub fn confirmed_now(&self, category: Category, now_ms: u64) -> bool {
+        self.confirmed.contains(&category)
+            && self
+                .confirmed_at
+                .get(&category)
+                .is_some_and(|at| now_ms.saturating_sub(*at) < CONFIRMED_FOR_MS)
+    }
 }
 
 /// The kind of consequential action a control's label means, if any:
@@ -385,12 +412,28 @@ const NOT_CONSEQUENTIAL: &[&str] = &[
 /// Whether an action of `category` may run now for this task. A kind of
 /// action the person said yes to (`confirmed`) runs in every mode.
 pub fn allowed(mode: Autonomy, category: Category, authorized: &Authorized) -> bool {
+    allowed_at(
+        mode,
+        category,
+        authorized,
+        crate::assistant::store::now_ms(),
+    )
+}
+
+/// [`allowed`] at `now_ms`: a yes covers its kind of action for
+/// [`CONFIRMED_FOR_MS`].
+pub fn allowed_at(
+    mode: Autonomy,
+    category: Category,
+    authorized: &Authorized,
+    now_ms: u64,
+) -> bool {
     match mode {
         Autonomy::Yolo => true,
         Autonomy::Smart => {
-            authorized.categories.contains(&category) || authorized.confirmed.contains(&category)
+            authorized.categories.contains(&category) || authorized.confirmed_now(category, now_ms)
         }
-        Autonomy::Ask => authorized.confirmed.contains(&category),
+        Autonomy::Ask => authorized.confirmed_now(category, now_ms),
     }
 }
 
@@ -562,6 +605,10 @@ pub fn validate(line: &str, request: &str) -> Authorized {
 pub fn merge(authorized: &mut Authorized, other: Authorized) {
     authorized.categories.extend(other.categories);
     authorized.confirmed.extend(other.confirmed);
+    for (category, at) in other.confirmed_at {
+        let kept = authorized.confirmed_at.entry(category).or_insert(at);
+        *kept = (*kept).max(at);
+    }
     for note in other.notes {
         if !authorized.notes.contains(&note) {
             authorized.notes.push(note);
@@ -809,10 +856,8 @@ mod brain_tests {
 
     #[test]
     fn ask_mode_allows_only_what_was_confirmed() {
-        let confirmed = Authorized {
-            confirmed: BTreeSet::from([Category::Send]),
-            ..Authorized::default()
-        };
+        let mut confirmed = Authorized::default();
+        confirmed.confirm(Category::Send, crate::assistant::store::now_ms());
         assert!(allowed(Autonomy::Ask, Category::Send, &confirmed));
         assert!(!allowed(Autonomy::Ask, Category::Pay, &confirmed));
         assert!(!allowed(Autonomy::Smart, Category::Pay, &confirmed));
@@ -821,5 +866,44 @@ mod brain_tests {
             Category::Pay,
             &Authorized::default()
         ));
+    }
+
+    #[test]
+    fn a_yes_covers_its_batch_not_the_rest_of_a_long_job() {
+        let mut authorized = Authorized::default();
+        authorized.confirm(Category::Send, 1_000);
+        for mode in [Autonomy::Ask, Autonomy::Smart] {
+            assert!(allowed_at(
+                mode,
+                Category::Send,
+                &authorized,
+                1_000 + 60_000
+            ));
+            assert!(
+                !allowed_at(mode, Category::Send, &authorized, 1_000 + CONFIRMED_FOR_MS),
+                "a later send asks again"
+            );
+        }
+        // The person's own words still cover the whole job.
+        authorized.categories.insert(Category::Send);
+        assert!(allowed_at(
+            Autonomy::Smart,
+            Category::Send,
+            &authorized,
+            u64::MAX
+        ));
+        // A yes saved before its time was kept counts as expired.
+        let old = Authorized {
+            confirmed: BTreeSet::from([Category::Delete]),
+            ..Authorized::default()
+        };
+        assert!(!allowed_at(Autonomy::Ask, Category::Delete, &old, 2_000));
+        // Merging keeps the newer yes.
+        let mut merged = Authorized::default();
+        merged.confirm(Category::Pay, 10);
+        let mut newer = Authorized::default();
+        newer.confirm(Category::Pay, 20);
+        merge(&mut merged, newer);
+        assert_eq!(merged.confirmed_at.get(&Category::Pay), Some(&20));
     }
 }

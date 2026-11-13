@@ -182,6 +182,7 @@ pub(crate) fn view(state: &TwoDisplays, cx: &mut Cx<TwoDisplays>) -> El {
                     answer_key: fixture::ANSWER_KEY.into(),
                     voice: None,
                     hovered: None,
+                    jobs_open: false,
                 },
                 orb::Actions {
                     list: super::stack::Actions {
@@ -198,6 +199,10 @@ pub(crate) fn view(state: &TwoDisplays, cx: &mut Cx<TwoDisplays>) -> El {
                     },
                     hover: |_, _| {},
                     drag: |_, _| {},
+                    jobs: super::jobs::LineActions {
+                        hover: |_, _| {},
+                        pin: |_| {},
+                    },
                 },
             )),
     );

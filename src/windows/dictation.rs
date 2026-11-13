@@ -636,7 +636,7 @@ pub fn run(
         // printing stop's reply rides with the capture it finishes.
         let mut print = None;
         while finishing.is_none()
-            && let Some((action, occurred_at, deliberate, flavour, after_tap)) = next_action(
+            && let Some((action, occurred_at, deliberate, flavour, _after_tap)) = next_action(
                 &hotkey,
                 &mut held_event,
                 commands.as_ref(),

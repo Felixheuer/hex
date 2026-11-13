@@ -46,7 +46,7 @@ use super::hint::{self, Hint};
 use super::listening::{self, Listening};
 use super::orb::{self, Orb};
 use super::outline::{self, Outline};
-use super::{stack, when};
+use super::{jobs, stack, when};
 use crate::assistant::{ConversationId, Event, TaskWindow};
 pub(crate) use answer::setup_needed;
 use answer::{bubble_event, bubble_poll, dismiss_bubble, place_bubble, want_escape};
@@ -166,6 +166,8 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             expanded: false,
             peek: false,
             hovered: None,
+            jobs_hovered: false,
+            jobs_pinned: false,
             grow: orb::Grow::default(),
             answer_key: answer_key(),
             voice: None,
@@ -187,12 +189,30 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
                     defer: |_, id| crate::assistant::defer_question(id),
                 },
                 hover: |orb, inside| {
-                    orb.peek = inside && !orb.board.stack().is_empty();
+                    // Resting on the jobs' cards shows the cards, not the
+                    // list over them.
+                    orb.peek = inside && !orb.jobs_hovered && !orb.board.stack().is_empty();
                     if !inside {
+                        orb.jobs_hovered = false;
                         hover_task(orb, "", false);
                     }
+                    show_cards(orb);
                 },
                 drag: drag_orb,
+                jobs: jobs::LineActions {
+                    hover: |orb, inside| {
+                        orb.jobs_hovered = inside;
+                        if inside {
+                            orb.peek = false;
+                        }
+                        show_cards(orb);
+                    },
+                    pin: |orb| {
+                        orb.jobs_pinned = !orb.jobs_pinned;
+                        orb.peek = false;
+                        show_cards(orb);
+                    },
+                },
             },
         },
     );
@@ -364,6 +384,17 @@ fn toggle(orb: &mut Orb) {
     if !orb.expanded {
         hover_task(orb, "", false);
     }
+    show_cards(orb);
+}
+
+/// Tells the previews which jobs' cards show now, so only their browsers
+/// stream (`live::cards`).
+fn show_cards(orb: &Orb) {
+    super::live::cards(&orb::carded(
+        &orb.board,
+        orb.expanded || orb.peek,
+        orb.jobs_hovered || orb.jobs_pinned,
+    ));
 }
 
 /// The pointer came onto task `id`'s row in the list, or left it: its
@@ -489,6 +520,11 @@ fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
         orb.expanded = false;
         orb.peek = false;
     }
+    if super::jobs::running(&orb.board.tasks).is_empty() {
+        orb.jobs_hovered = false;
+        orb.jobs_pinned = false;
+    }
+    show_cards(orb);
     let visible = orb.board.orb_shows();
     if visible && !orb.shown {
         place_orb(&overlays.orb, orb);

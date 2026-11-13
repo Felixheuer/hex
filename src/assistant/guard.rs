@@ -100,6 +100,10 @@ pub struct WireSpec {
     /// the window in front of the person too.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub front_window: bool,
+    /// Reads only: every action is refused (a job's check, which must
+    /// change nothing).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub observe_only: bool,
 }
 
 /// Where the guard reads the windows on screen.
@@ -146,6 +150,7 @@ impl WireSpec {
             agent_display: None,
             autonomy: crate::assistant::autonomy::Autonomy::default(),
             front_window: false,
+            observe_only: false,
         }
     }
 
@@ -175,9 +180,36 @@ pub fn mcp_server(spec: &TaskSpec) -> Option<McpServer> {
     Some(server_for(spec, &hex, &desktop, store.root()))
 }
 
+/// `server` (the guard's, from [`mcp_server`]) reading only: a job's check
+/// sees the windows but every action is refused. Unchanged when it isn't
+/// the guard's.
+pub fn observe_only(server: &McpServer) -> McpServer {
+    let mut server = server.clone();
+    if server.args.get(..3) == Some(&["assistant".into(), "mcp".into(), "--spec".into()])
+        && let Some(spec) = server.args.get_mut(3)
+        && let Ok(mut wire) = WireSpec::parse(spec)
+    {
+        wire.observe_only = true;
+        *spec = serde_json::to_string(&wire).unwrap_or_default();
+    }
+    server
+}
+
 /// Whether process `pid` is running (for the store's conversations).
 pub fn process_alive(pid: u32) -> bool {
     state::alive(pid)
+}
+
+/// When process `pid` started (µs since the epoch), to tell it from a later
+/// process given the same pid.
+pub fn process_started_us(pid: u32) -> Option<u64> {
+    state::started_us(pid)
+}
+
+/// Whether process `pid` still runs and is the one that started at
+/// `started` (any process with that pid when `None`).
+pub fn process_running(pid: u32, started: Option<u64>) -> bool {
+    state::running(pid, started)
 }
 
 fn server_for(spec: &TaskSpec, hex: &Path, desktop: &McpServer, state_dir: &Path) -> McpServer {
@@ -260,6 +292,7 @@ fn config(wire: &WireSpec) -> proxy::Config {
         agent_display: wire.agent_display.clone(),
         autonomy: wire.autonomy,
         front_window: wire.front_window,
+        observe_only: wire.observe_only,
     }
 }
 

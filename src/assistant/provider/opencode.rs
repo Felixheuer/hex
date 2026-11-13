@@ -197,6 +197,7 @@ impl Stream {
                     self.tool_after_text = true;
                 }
                 for (tool, args) in calls(part) {
+                    report(Report::tool(&tool, &args));
                     for item in self.describer.call(&tool, &args) {
                         report(item);
                     }

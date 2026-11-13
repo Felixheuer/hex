@@ -131,6 +131,9 @@ pub(crate) struct Task {
     /// When it started (or a follow-up started it again), as far as the
     /// overlays saw it: a job's card says how long it runs.
     pub(crate) since: Option<Instant>,
+    /// The job it helps (`assistant::agent::team`): its card goes under
+    /// that job's.
+    pub(crate) lead: Option<ConversationId>,
 }
 
 impl Task {
@@ -152,6 +155,7 @@ impl Task {
             plan: Vec::new(),
             ended: None,
             since: None,
+            lead: None,
         }
     }
 
@@ -364,6 +368,7 @@ impl Board {
                 let colour = colour.map_or_else(|| self.free_colour(), |c| c % COLOURS);
                 let mut task = Task::new(conversation.clone(), *origin, question, colour, phase);
                 task.since = Some(now);
+                task.lead = crate::assistant::agent::team::lead_of(conversation);
                 self.tasks.push(task);
                 true
             }
@@ -488,6 +493,8 @@ impl Board {
     pub(crate) fn stack(&self) -> Vec<Task> {
         self.tasks
             .iter()
+            // Jobs: a Chats request that became one was escalated, which
+            // made it Background here; a plain Chats reply isn't one.
             .filter(|task| task.origin == Origin::Background)
             .cloned()
             .collect()
@@ -920,7 +927,7 @@ mod tests {
     }
 
     #[test]
-    fn the_stack_lists_background_tasks_and_outlines_cover_every_live_one() {
+    fn the_stack_lists_jobs_and_outlines_cover_every_live_one() {
         let t0 = Instant::now();
         let mut board = Board::default();
         board.apply(&started(1, Origin::Background, "a"), None, t0);
@@ -937,6 +944,9 @@ mod tests {
             );
         }
         let stack: Vec<_> = board.stack().into_iter().map(|t| t.id).collect();
+        // Jobs only: a plain Chats reply (`Chat`) and a quick question
+        // aren't; a Chats request that became a job was escalated to
+        // Background.
         assert_eq!(stack, [id(1)]);
         assert_eq!(board.outlined().len(), 3);
     }

@@ -194,15 +194,17 @@ impl Asker {
             // and the task list shows or hides.
             HotkeyAction::DoubleTap => {
                 self.question = None;
-                crate::assistant::set_listening(false);
+                crate::assistant::interaction::hold_listening(false);
                 handle(action, context, events)?;
                 toggle_tasks();
                 feedback::play(Tone::OnboardingSuccess);
                 Ok(true)
             }
             _ => {
+                // Discarded (a ⌘C chord, a short tap) or cancelled: the
+                // hold ends here, or the listening state would stay on.
                 self.question = None;
-                crate::assistant::set_listening(false);
+                crate::assistant::interaction::hold_listening(false);
                 handle(action, context, events)
             }
         }

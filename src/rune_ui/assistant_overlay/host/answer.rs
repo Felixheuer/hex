@@ -228,7 +228,7 @@ mod layout_tests {
         assert!(card_bottom <= glow_top, "{card_bottom} before {glow_top}");
         // The Hands off pill pushes it further.
         assert!(bubble_top(y, true, height, inset, 30.0) > bubble_top(y, true, height, inset, 0.0));
-        assert!(LISTEN_SLOT > 0.0);
+        const { assert!(LISTEN_SLOT > 0.0) };
     }
 }
 

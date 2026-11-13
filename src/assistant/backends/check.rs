@@ -307,7 +307,7 @@ fn hex_permissions(check: Check) -> CheckResult {
         return CheckResult::failed(check, message(&finding), fix);
     }
     let permissions = computer::permissions_now();
-    #[cfg(hex_capture)]
+    #[cfg(target_os = "macos")]
     if permissions.accessibility
         && !permissions.screen_recording
         && crate::capture_host::screen_access_now()

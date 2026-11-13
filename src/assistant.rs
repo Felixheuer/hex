@@ -27,6 +27,7 @@
 #![allow(unused_imports)]
 
 pub mod agent;
+pub mod audit;
 pub mod autonomy;
 pub mod backends;
 pub mod browser;
@@ -75,9 +76,6 @@ pub const fn available() -> bool {
     ))
 }
 
-/// Whether the assistant may answer: enabled, and its setup finished (or
-/// its last page, where the gestures are tried, showing). Until then a hold
-
 /// What essential piece of setup is missing now, as `desktop::setup_gaps`
 /// says it (English); `None` when nothing is. The window's launch check sets
 /// it; a hold of the Action shortcut then says it and opens the guide
@@ -92,6 +90,8 @@ pub fn setup_gap() -> Option<&'static str> {
     *SETUP_GAP.lock().unwrap_or_else(|error| error.into_inner())
 }
 
+/// Whether the assistant may answer: enabled, and its setup finished (or
+/// its last page, where the gestures are tried, showing). Until then a hold
 /// of the Action shortcut opens the setup instead of asking.
 pub fn ready(settings: &AppSettings) -> bool {
     enabled(settings) && (settings.assistant.setup_done || trying())

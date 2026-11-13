@@ -374,6 +374,71 @@ pub(crate) fn escalated_board() -> Board {
     board
 }
 
+/// `count` Background jobs at work, each with a step, as many as fold into
+/// the orb's count line: research, spreadsheets, messages, and code.
+pub(crate) fn many_jobs_board(count: usize) -> Board {
+    const JOBS: [(&str, &str); 8] = [
+        ("Recherche Lieferanten", "Vergleicht Preise auf 12 Seiten"),
+        ("Excel: Angebote eintragen", "Trägt Zeile 48 von 120 ein"),
+        ("WhatsApp an das Team", "Wartet auf die fertige Tabelle"),
+        ("Landingpage nachbauen", "Vergleicht mit dem Original"),
+        ("Pull Request vorbereiten", "Lässt die Tests laufen"),
+        ("Konkurrenz beobachten", "Liest die Preisseite"),
+        ("Rechnungen sortieren", "Ordnet 214 PDFs"),
+        ("Termine abgleichen", "Prüft den Kalender"),
+    ];
+    let now = Instant::now();
+    let mut board = Board::default();
+    for n in 0..count {
+        let (title, doing) = JOBS[n % JOBS.len()];
+        let id = format!("job{n}");
+        let title = if n < JOBS.len() {
+            title.to_owned()
+        } else {
+            format!("{title} {}", n / JOBS.len() + 1)
+        };
+        board.apply(&started(&id, Origin::Background, &title), None, now);
+        board.apply(&step(&id, doing), None, now);
+    }
+    board.pops = Default::default();
+    board
+}
+
+/// One job leading `helpers` helpers (`assistant::agent::team`), each at a
+/// supplier.
+pub(crate) fn team_board(helpers: usize) -> Board {
+    let now = Instant::now();
+    let mut board = Board::default();
+    board.apply(
+        &started(
+            "lead",
+            Origin::Background,
+            "50 Lieferanten vergleichen und Team informieren",
+        ),
+        None,
+        now,
+    );
+    board.apply(&step("lead", "Wartet auf 5 Helfer"), None, now);
+    for n in 0..helpers {
+        let id = format!("helper{n}");
+        board.apply(
+            &started(
+                &id,
+                Origin::Background,
+                &format!("Lieferanten {}–{}", n * 10 + 1, n * 10 + 10),
+            ),
+            None,
+            now,
+        );
+        board.apply(&step(&id, "Liest die Preisliste"), None, now);
+        if let Some(task) = board.tasks.iter_mut().find(|task| task.id == id) {
+            task.lead = Some("lead".into());
+        }
+    }
+    board.pops = Default::default();
+    board
+}
+
 /// The Here question in [`escalated_board`].
 pub(crate) const ESCALATED: &str = "downloads";
 pub(crate) const ESCALATED_QUESTION: &str = "Sort my Downloads folder into folders by type";

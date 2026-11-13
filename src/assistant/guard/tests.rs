@@ -285,6 +285,7 @@ fn here(scratch: &Scratch, fake: &Fake, window: &str, app: &str, physical: bool)
             agent_display: None,
             autonomy: Default::default(),
             front_window: false,
+            observe_only: false,
         },
         scratch.store(),
         std::process::id(),
@@ -307,6 +308,7 @@ fn background(scratch: &Scratch, fake: &Fake, task: &str, physical: bool) -> Gua
             agent_display: None,
             autonomy: Default::default(),
             front_window: false,
+            observe_only: false,
         },
         scratch.store(),
         std::process::id(),
@@ -529,6 +531,103 @@ fn refs_map_to_the_window_their_snapshot_was_taken_of() {
     assert_eq!(error_code(&stranger).as_deref(), Some("UNKNOWN_REF"));
 }
 
+#[test]
+fn one_task_at_a_time_holds_the_real_mouse_and_keyboard() {
+    let scratch = Scratch::new();
+    let store = scratch.store();
+    let me = std::process::id();
+    let held = store
+        .take_hands("first", me, Duration::from_millis(10))
+        .unwrap();
+    assert_eq!(store.hands_off().as_deref(), Some("first"));
+    // A second task waits, then is told who holds them.
+    let busy = store
+        .take_hands("second", me, Duration::from_millis(100))
+        .err();
+    assert_eq!(busy.as_deref(), Some("first"));
+    // An action inside the holder's own action goes on.
+    assert!(store.take_hands("first", me, Duration::ZERO).is_ok());
+    // Given back: the next one gets them at once.
+    drop(held);
+    let next = store.take_hands("second", me, Duration::ZERO);
+    assert!(next.is_ok());
+    drop(next);
+    // A holder that ended (a crash) left its files but no lock: they don't
+    // keep the input.
+    let dir = scratch.0.join("guard").join("hands-off");
+    std::fs::write(dir.join("held.lock"), "").unwrap();
+    std::fs::write(
+        dir.join("held.json"),
+        r#"{"task":"gone","pid":4294967,"started":1}"#,
+    )
+    .unwrap();
+    let third = store.take_hands("third", me, Duration::ZERO);
+    assert!(third.is_ok());
+    // A nested hold leaves the outer one's marker.
+    let nested = store.take_hands("third", me, Duration::ZERO).unwrap();
+    drop(nested);
+    assert_eq!(store.hands_off().as_deref(), Some("third"));
+}
+
+#[test]
+fn a_check_reads_its_windows_but_never_acts() {
+    let scratch = Scratch::new();
+    let fake = Fake::recorded();
+    let mut guard = background(&scratch, &fake, "bg", false);
+    guard.call("desktop_claim_window", args(json!({"window_id": SETTINGS})));
+    let snapshot = guard.call("desktop_snapshot", args(json!({"window_id": SETTINGS})));
+    let reference = child::data(&snapshot).unwrap()["tree"]["children"][0]["ref_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // The same task's check: the guard reads only.
+    let mut check = background(&scratch, &fake, "bg", false);
+    check.config.observe_only = true;
+    let read = check.call("desktop_snapshot", args(json!({"window_id": SETTINGS})));
+    assert_eq!(error_code(&read), None);
+    for (tool, arguments) in [
+        ("desktop_click", json!({"ref_id": reference})),
+        ("desktop_type", json!({"ref_id": reference, "text": "x"})),
+        ("desktop_launch", json!({"app": "Mail"})),
+        (
+            "desktop_press",
+            json!({"combo": "cmd+enter", "app": "Mail"}),
+        ),
+        ("desktop_close_app", json!({"app": "Mail"})),
+    ] {
+        let refused = check.call(tool, args(arguments));
+        assert_eq!(
+            error_code(&refused).as_deref(),
+            Some("POLICY_DENIED"),
+            "{tool}"
+        );
+    }
+    assert_eq!(
+        fake.forwarded(),
+        ["desktop_snapshot", "desktop_snapshot"],
+        "nothing but the reads reached agent-desktop"
+    );
+}
+
+#[test]
+fn a_check_s_guard_is_the_task_s_reading_only() {
+    let server = crate::assistant::backends::McpServer {
+        command: "/Applications/Hex.app/Contents/MacOS/hex".into(),
+        args: vec![
+            "assistant".into(),
+            "mcp".into(),
+            "--spec".into(),
+            json!({"task": "t", "lane": "background", "agent_id": "a"}).to_string(),
+        ],
+        path_env: String::new(),
+    };
+    let check = super::observe_only(&server);
+    let wire = WireSpec::parse(&check.args[3]).unwrap();
+    assert!(wire.observe_only);
+    assert_eq!(wire.task, "t");
+    assert!(!WireSpec::parse(&server.args[3]).unwrap().observe_only);
+}
+
 // ── lanes ───────────────────────────────────────────────────────────────
 
 #[test]
@@ -628,6 +727,7 @@ fn with_the_persons_leave_a_background_task_uses_the_window_in_front() {
             agent_display: None,
             autonomy: Default::default(),
             front_window: true,
+            observe_only: false,
         },
         scratch.store(),
         std::process::id(),
@@ -789,6 +889,7 @@ fn real_input_needs_permission_and_shows_hands_off_while_it_runs() {
             agent_display: None,
             autonomy: Default::default(),
             front_window: false,
+            observe_only: false,
         },
         store.clone(),
         std::process::id(),

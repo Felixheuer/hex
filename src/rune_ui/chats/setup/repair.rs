@@ -311,9 +311,15 @@ mod tests {
     #[test]
     fn the_guide_starts_at_the_first_page_that_fixes_a_gap() {
         let repair = Repair::new(vec![Gap::Shortcut, Gap::AgentSignIn, Gap::ScreenRecording]);
-        assert_eq!(repair.pages, [Page::Agent, Page::Desktop, Page::Shortcut]);
+        // The shortcut's own page is macOS's; elsewhere its gap has none.
+        if cfg!(target_os = "macos") {
+            assert_eq!(repair.pages, [Page::Agent, Page::Desktop, Page::Shortcut]);
+            assert_eq!(repair.next(Page::Shortcut), None);
+        } else {
+            assert_eq!(repair.pages, [Page::Agent, Page::Desktop]);
+            assert_eq!(repair.next(Page::Desktop), None);
+        }
         assert_eq!(repair.next(Page::Agent), Some(Page::Desktop));
-        assert_eq!(repair.next(Page::Shortcut), None);
         assert_eq!(repair.previous(Page::Desktop), Some(Page::Agent));
         assert_eq!(repair.previous(Page::Agent), None);
     }

@@ -170,6 +170,10 @@ impl Desk {
             },
             hover: |_, _| {},
             drag: |_, _| {},
+            jobs: super::jobs::LineActions {
+                hover: |_, _| {},
+                pin: |_| {},
+            },
         }
     }
 }
@@ -329,6 +333,7 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
                     answer_key: fixture::ANSWER_KEY.into(),
                     voice: None,
                     hovered: None,
+                    jobs_open: false,
                 },
                 Desk::actions(),
             )),

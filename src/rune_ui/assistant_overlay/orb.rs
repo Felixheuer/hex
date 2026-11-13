@@ -41,12 +41,17 @@ pub(crate) const ORB_H: f32 = 30.0;
 const CORE: f32 = 14.0;
 /// A task's dot.
 const DOT: f32 = 7.0;
+/// The most dots the orb wears; more live tasks show as "+N".
+pub(crate) const MAX_DOTS: usize = 10;
 const GAP: f32 = 8.0;
 /// A bubble's widest.
 const BUBBLE_MAX_W: f32 = 320.0;
 const BUBBLE_H: f32 = 30.0;
 /// A question's most lines.
 const QUESTION_LINES: usize = 3;
+/// The room a question's bubble takes at most (who asks, three lines, how
+/// to answer).
+const QUESTION_ROOM: f32 = 118.0;
 /// A progress ring around a dot: its size and stroke.
 const RING: f32 = 13.0;
 const RING_W: f32 = 1.75;
@@ -77,6 +82,9 @@ pub(crate) struct Actions<S> {
     pub(crate) hover: fn(&mut S, bool),
     /// The orb is dragged somewhere else.
     pub(crate) drag: fn(&mut S, &rune::Drag),
+    /// The jobs' count line: resting on it or pressing it unfolds every
+    /// card.
+    pub(crate) jobs: jobs::LineActions<S>,
 }
 
 impl<S> Clone for Actions<S> {
@@ -102,6 +110,10 @@ pub(crate) struct Orb {
     pub(crate) peek: bool,
     /// The task whose row the pointer rests on: its browsers stream live.
     pub(crate) hovered: Option<String>,
+    /// The pointer rests on the jobs' count line or their unfolded cards.
+    pub(crate) jobs_hovered: bool,
+    /// A press on the count line keeps every card unfolded.
+    pub(crate) jobs_pinned: bool,
     pub(crate) grow: Grow,
     /// The Action shortcut's keys, for "Hold ⌘ to answer".
     pub(crate) answer_key: String,
@@ -124,6 +136,8 @@ pub(crate) struct Look {
     pub(crate) voice: Option<f32>,
     /// The task whose row the pointer rests on.
     pub(crate) hovered: Option<String>,
+    /// Every job's card unfolds past the count line.
+    pub(crate) jobs_open: bool,
 }
 
 pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
@@ -135,6 +149,7 @@ pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
         answer_key: orb.answer_key.clone(),
         voice: orb.voice,
         hovered: orb.hovered.clone(),
+        jobs_open: orb.jobs_hovered || orb.jobs_pinned,
     };
     el().key("orb-root")
         .w_full()
@@ -142,6 +157,19 @@ pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
         .padding(INSET)
         .hover_motion_within(rune::Anim::INSTANT, rune::Anim::INSTANT)
         .child(content(p, &orb.board, &look, orb.actions))
+}
+
+/// The jobs whose cards show at the orb with the list folded (`open`
+/// false) and the count line unfolded or not: their browsers stream.
+pub(crate) fn carded(board: &Board, open: bool, jobs_open: bool) -> Vec<String> {
+    if open && !board.stack().is_empty() {
+        return Vec::new();
+    }
+    let running = jobs::running(&board.tasks);
+    match jobs::layout(&running, board.active_question().is_some(), jobs_open) {
+        jobs::Layout::Cards(ids) | jobs::Layout::All(ids) => ids,
+        jobs::Layout::None | jobs::Layout::Line(_) => Vec::new(),
+    }
 }
 
 /// The orb and what unfolds from it, filling its parent from the orb's
@@ -177,28 +205,79 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
             })
             .into_iter()
             .collect();
-        bubbles.extend(
-            tasks
-                .iter()
-                .filter_map(|task| standing(p, task, grow, actions.list)),
-        );
+        // Each task the person holds keeps its bubble (with Hand back);
+        // several waiting out a usage limit share one, so a limit that
+        // stops every job at once doesn't run past the panel.
+        let waiting: Vec<&Task> = tasks
+            .iter()
+            .filter(|task| matches!(task.phase, Phase::Waiting { .. }))
+            .collect();
+        if waiting.len() > 1 {
+            bubbles.extend(
+                tasks
+                    .iter()
+                    .filter(|task| !matches!(task.phase, Phase::Waiting { .. }))
+                    .filter_map(|task| standing(p, task, grow, actions.list)),
+            );
+            bubbles.push(all_waiting(p, &waiting).transition(pop_in(grow)));
+        } else {
+            bubbles.extend(
+                tasks
+                    .iter()
+                    .filter_map(|task| standing(p, task, grow, actions.list)),
+            );
+        }
         let running = jobs::running(&board.tasks);
-        let layout = jobs::layout(&running, asking.is_some());
+        let layout = jobs::layout(&running, asking.is_some(), look.jobs_open);
         let carded: Vec<&str> = match &layout {
-            jobs::Layout::Cards(ids) => ids.iter().map(String::as_str).collect(),
+            jobs::Layout::Cards(ids) | jobs::Layout::All(ids) => {
+                ids.iter().map(String::as_str).collect()
+            }
             _ => Vec::new(),
         };
+        let unfolded = matches!(layout, jobs::Layout::All(_));
+        // What sits nearer the orb than the jobs, so the unfolded cards
+        // take the rest of the panel and scroll past it.
+        let above = ORB_H
+            + GAP
+            + jobs::LINE_H
+            + GAP
+            + if asking.is_some() {
+                QUESTION_ROOM + GAP
+            } else {
+                0.0
+            }
+            + (bubbles.len() - usize::from(asking.is_some())) as f32 * (BUBBLE_H + GAP);
+        let room = jobs::Room {
+            down: grow.down,
+            max_h: (SIZE.1 - 2.0 * INSET - above).max(jobs::LINE_H * 4.0),
+            appear: pop_in(grow),
+        };
         bubbles.extend(
-            jobs::view(p, &running, &layout, actions.list)
-                .into_iter()
-                .map(|card| card.transition(pop_in(grow))),
+            jobs::view(
+                p,
+                &running,
+                &board
+                    .tasks
+                    .iter()
+                    .filter(|task| task.lead.is_some())
+                    .collect::<Vec<_>>(),
+                &layout,
+                room,
+                actions.list,
+                actions.jobs,
+            )
+            .into_iter()
+            .map(|card| card.transition(pop_in(grow))),
         );
+        // Unfolded, the cards take every bit of room; the pops wait.
         bubbles.extend(
             board
                 .pops
                 .items
                 .iter()
                 .rev()
+                .filter(|_| !unfolded)
                 // A job with a card shows its start and steps there.
                 .filter(|item| {
                     !(matches!(item.kind, PopKind::New | PopKind::Step)
@@ -271,13 +350,23 @@ fn orb<S: 'static>(
         None if look.still => core,
         None => core.looping(LoopSpec::opacity(frame::BREATH, 0.0, 0.62, 1.0)),
     };
-    let dots = tasks.iter().filter(|task| task.phase.live()).map(|task| {
+    let live_tasks: Vec<&Task> = tasks.iter().filter(|task| task.phase.live()).collect();
+    // The newest few as dots; the rest as a count, so fifty jobs keep the
+    // orb small.
+    let hidden = live_tasks.len().saturating_sub(MAX_DOTS);
+    let dots = live_tasks[hidden..].iter().map(|task| {
         let colour = palette::task(task.colour, p.k.dark);
         marker(p, task, colour, DOT)
             .key(format!("orb-dot-{}", task.id))
             .transition(fly_in(look.grow))
     });
     let mut items: Vec<El> = vec![core];
+    items.extend((hidden > 0).then(|| {
+        text(format!("+{hidden}"))
+            .key("orb-more")
+            .font(p.k.ty.small)
+            .color(p.faint())
+    }));
     items.extend(dots);
     items.extend((questions > 0).then(|| badge(p, questions, look.grow)));
     if !look.grow.right {
@@ -579,6 +668,42 @@ fn standing<S: 'static>(
         }
         .transition(pop_in(grow)),
     )
+}
+
+/// Several tasks waiting out a usage limit, as one bubble: how many, and
+/// when the first resumes.
+fn all_waiting(p: Paint, waiting: &[&Task]) -> El {
+    let first = waiting
+        .iter()
+        .filter_map(|task| match task.phase {
+            Phase::Waiting { until_ms } => Some(until_ms),
+            _ => None,
+        })
+        .min()
+        .unwrap_or_default();
+    let words = format!(
+        "{} · {}",
+        tr_fill("{} jobs wait for the limit", &waiting.len().to_string()),
+        tr_fill("resumes {}", &when::clock(first))
+    );
+    shell(p, "standing-waiting".into())
+        .pr(12.0)
+        .children(
+            waiting
+                .iter()
+                .take(6)
+                .map(|task| dot(task, palette::task(task.colour, p.k.dark), 8.0)),
+        )
+        .child(
+            text(words)
+                .key("standing-text")
+                .truncate()
+                .font(p.k.ty.small_medium)
+                .color(p.muted())
+                .min_w(0.0)
+                .shrink(),
+        )
+        .opacity(0.75)
 }
 
 /// A bubble popped about a task: what it says, with a press opening it in

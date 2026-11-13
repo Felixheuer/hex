@@ -48,6 +48,8 @@ pub fn update(keep_awake: bool, keep_display_awake: bool, jobs: usize) {
     update_in(&HELD, keep_awake, keep_display_awake, jobs);
 }
 
+// Off macOS the platform's handle is `()`.
+#[cfg_attr(not(target_os = "macos"), allow(clippy::unit_arg))]
 fn update_in(state: &Mutex<Option<Held>>, keep_awake: bool, keep_display_awake: bool, jobs: usize) {
     let next = want(keep_awake, keep_display_awake, jobs);
     let mut held = state.lock().unwrap_or_else(|error| error.into_inner());

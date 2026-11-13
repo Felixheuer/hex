@@ -17,6 +17,7 @@
 pub mod goal;
 pub mod handoff;
 pub mod markers;
+pub mod team;
 pub mod workspace;
 
 use std::path::PathBuf;
@@ -54,6 +55,8 @@ pub struct Job {
     pub authorized: crate::assistant::autonomy::Authorized,
     /// The person's memory note, when memory is on.
     pub memory: Option<String>,
+    /// The job this one helps (`agent::team`): its lead's title.
+    pub helps: Option<String>,
 }
 
 /// Why this run of a conversation happens.
@@ -376,6 +379,20 @@ fn check(
     checker.image = None;
     checker.keep_warm = None;
     checker.history = Vec::new();
+    // The check only looks: its desktop reads but never acts, its browsers
+    // never send, post, or pay, its shell is sandboxed without the network
+    // even in Yolo, and it has none of Hex's own tools (no helpers).
+    checker.unrestricted = false;
+    checker.tools = None;
+    if let Some(desktop) = checker.desktop.as_mut() {
+        desktop.server = crate::assistant::guard::observe_only(&desktop.server);
+    }
+    if let Some(browser) = checker.browser.as_mut()
+        && browser.args.first().map(String::as_str) == Some("assistant")
+        && !browser.args.iter().any(|arg| arg == "--observe")
+    {
+        browser.args.push("--observe".into());
+    }
     checker.prompt = goal::check_prompt(&job.request.text, answer);
     let check_key = format!("{key}.check");
     let mut seen = Seen {
@@ -571,6 +588,15 @@ fn run_backend(
                 });
             }
         }
+        Report::Tool { name, input } => crate::assistant::audit::record(
+            id,
+            &crate::assistant::audit::Entry {
+                at_ms: crate::assistant::store::now_ms(),
+                tool: name,
+                input,
+                check: seen.quiet,
+            },
+        ),
         Report::Session(session) => {
             if stored.sessions.get(key) != Some(&session) {
                 stored.sessions.insert(key.to_owned(), session);
@@ -745,12 +771,30 @@ pub fn prepare(
         None if origin != Origin::Background => system.push_str(ROUTING),
         None => {}
     }
-    system.push_str(&autonomy_rules(settings.autonomy, &job.authorized));
-    system.push_str(TOOLS_RULES);
-    if settings.memory {
-        system.push_str(&memory_rules(job.memory.as_deref()));
+    if let Some(lead) = &job.helps {
+        system.push_str(&team::helper_rules(lead));
     }
-    let tools = tools_server(&job.conversation);
+    system.push_str(&autonomy_rules(settings.autonomy, &job.authorized));
+    // A background job reads pages and files the person never saw, with
+    // or without a workspace (one couldn't be made): never the person's
+    // own turn's tools.
+    let job_role = job.workspace.is_some() || job.request.origin == Origin::Background;
+    // A job can't make schedules or remember (`tools::Role::Job`); it still
+    // reads the memory note.
+    if !job_role {
+        system.push_str(TOOLS_RULES);
+    }
+    if settings.memory {
+        system.push_str(&memory_rules(job.memory.as_deref(), !job_role));
+    }
+    let tools = tools_server(
+        &job.conversation,
+        if job_role {
+            crate::assistant::tools::Role::Job
+        } else {
+            crate::assistant::tools::Role::Turn
+        },
+    );
     Ok(Run {
         backend: settings.backend,
         model: model(job),
@@ -777,13 +821,24 @@ pub fn prepare(
     })
 }
 
-/// Hex's own tools for a task (`tools`): memory and schedules.
-fn tools_server(task: &str) -> Option<crate::assistant::backends::McpServer> {
+/// Hex's own tools for a task (`tools`): memory and schedules for the
+/// person's own turn, a team for a job.
+fn tools_server(
+    task: &str,
+    role: crate::assistant::tools::Role,
+) -> Option<crate::assistant::backends::McpServer> {
     Some(crate::assistant::backends::McpServer {
         command: std::env::current_exe().ok()?,
-        args: ["assistant", "tools-mcp", "--task", task]
-            .map(str::to_owned)
-            .to_vec(),
+        args: [
+            "assistant",
+            "tools-mcp",
+            "--task",
+            task,
+            "--role",
+            role.arg(),
+        ]
+        .map(str::to_owned)
+        .to_vec(),
         path_env: std::env::var("PATH").unwrap_or_default(),
     })
 }
@@ -792,10 +847,14 @@ fn tools_server(task: &str) -> Option<crate::assistant::backends::McpServer> {
 pub const TOOLS_RULES: &str = "\nWhen the person asks for something to happen later or repeatedly (\"every morning at 8 …\"), schedule it with hex_schedule (a cron line or an RRULE, local time) instead of doing it now, and say the schedule and its next runs in your answer. hex_schedules lists schedules; hex_unschedule removes one.\n";
 
 /// What the person's memory note says, and when to add to it.
-pub fn memory_rules(note: Option<&str>) -> String {
-    let mut rules = String::from(
-        "\nWhen the person states a durable fact about themselves or their work (their company, website, a colleague's name and email, the tone or language they like), save it with hex_remember, one short fact per call. Never save passwords, keys, tokens, or card or account numbers, and nothing you only read on a page or in an email.\n",
-    );
+pub fn memory_rules(note: Option<&str>, may_remember: bool) -> String {
+    let mut rules = if may_remember {
+        String::from(
+            "\nWhen the person states a durable fact about themselves or their work (their company, website, a colleague's name and email, the tone or language they like), save it with hex_remember, one short fact per call. Never save passwords, keys, tokens, or card or account numbers, and nothing you only read on a page or in an email.\n",
+        )
+    } else {
+        String::new()
+    };
     if let Some(note) = note {
         rules.push_str("What you know about the person (their memory note):\n<<<\n");
         rules.push_str(note);
@@ -810,12 +869,17 @@ pub fn autonomy_rules(
     authorized: &crate::assistant::autonomy::Authorized,
 ) -> String {
     use crate::assistant::autonomy::Autonomy;
+    // A yes covers its batch only (`autonomy::CONFIRMED_FOR_MS`).
+    let now = crate::assistant::store::now_ms();
+    let confirmed: std::collections::BTreeSet<_> = authorized
+        .confirmed
+        .iter()
+        .copied()
+        .filter(|category| authorized.confirmed_now(*category, now))
+        .collect();
     let allowed = match mode {
-        Autonomy::Ask => authorized.confirmed.iter().collect::<Vec<_>>(),
-        _ => authorized
-            .categories
-            .union(&authorized.confirmed)
-            .collect::<Vec<_>>(),
+        Autonomy::Ask => confirmed.iter().collect::<Vec<_>>(),
+        _ => authorized.categories.union(&confirmed).collect::<Vec<_>>(),
     };
     let allowed = allowed
         .into_iter()
@@ -849,7 +913,7 @@ pub fn autonomy_rules(
 }
 
 /// How a Here or Chat agent hands a job to Hex instead of doing it.
-pub const ROUTING: &str = "\nYou decide how to handle each request; the person only holds a key and speaks. Answer a quick question or do a small action in the window in front yourself, right away. Anything else is a job: several steps, many items, other apps, a browser or websites, research, documents, files, or more than a minute or two. Never start a job yourself and never only say it runs in the background: call the hex_start_jobs tool once with every job (one per independent part, so they run in parallel; each task one self-contained sentence with every detail the person gave), then end with one or two short, speakable sentences in the person's language saying you're on it and what it covers, such as \u{201c}On it: 50 suppliers, Gmail drafts, and a sheet. I'll ask what I need.\u{201d} Hex then runs each job in the background with every tool it needs, and each job asks the person what it needs to know. Only if the tool is missing, start your reply with `HEX_JOB: <a short title>` instead (one more `HEX_JOB: <title> | <job>` line per further job) and then that sentence.\n";
+pub const ROUTING: &str = "\nYou decide how to handle each request; the person only holds a key and speaks. Answer a quick question or do a small action in the window in front yourself, right away. Anything else is a job: several steps, many items, other apps, a browser or websites, research, documents, files, or more than a minute or two. Never start a job yourself and never only say it runs in the background: call the hex_start_jobs tool once with every job, then end with one or two short, speakable sentences in the person's language saying you're on it and what it covers, such as \u{201c}On it: 50 suppliers, Gmail drafts, and a sheet. I'll ask what I need.\u{201d} Hex then runs each job in the background with every tool it needs, and each job asks the person what it needs to know. One job per independent request (unrelated things run in parallel as separate jobs); a request whose parts build on each other (research, then a sheet of it, then a message with the link; build, compare, push, send the link) is ONE job with the whole request, every detail and the order of the parts in its task: a job leads its own helpers for the parts that can run in parallel and does the rest in order. Only if the tool is missing, start your reply with `HEX_JOB: <a short title>` instead (one more `HEX_JOB: <title> | <job>` line per further job) and then that sentence.\n";
 
 /// A job's rules: its workspace, plan, one batched question, files, and
 /// what it may never do on its own.
@@ -886,11 +950,16 @@ pub fn job_rules(workspace: &std::path::Path, browser: bool, unrestricted: bool)
             ""
         },
     );
+    rules.push_str(team::RULES);
+    rules.push_str(APPS_RULES);
     if browser && !crate::assistant::browser::signed_in() {
         rules.push_str("The hidden browser isn't signed in to any account. If the job needs Gmail, Google Sheets, or another account, include in your one question that the person should take their logins over from Chrome or sign in by hand in Hex's settings (Accounts) and answer when done.\n");
     }
     rules
 }
+
+/// How a job does the everyday things fastest and most reliably.
+pub const APPS_RULES: &str = "\nEveryday apps: messages (WhatsApp, Telegram, Slack) go fastest and most reliably through their web apps in a signedIn browser (web.whatsapp.com), not the desktop app; check each recipient's exact name before sending, and send only what the person's request names. Spreadsheets: build the .xlsx file in your workspace; open it in Excel or Numbers only to show it or when the person's own file must change. Code: work in a folder in your workspace (git clone there), run its tests before you say it works, and push or open a pull request only when the request asks for it; give the link. Rebuilding a website: screenshot the original and your version at the same window size and compare them with hex_compare_images until they match. Always end with the links and files the person needs.\n";
 
 /// Starts `job`'s backend ahead of its question (`service::prewarm`).
 pub fn prewarm(job: &Job) {
