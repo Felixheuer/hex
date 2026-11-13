@@ -233,6 +233,11 @@ pub fn url_risk(url: &str) -> Option<String> {
     if lower.starts_with("https://") || lower.starts_with("http://") {
         return None;
     }
+    // The person's Shortcuts run whatever they hold (messages, payments,
+    // shell commands).
+    if lower.starts_with("shortcuts:") {
+        return Some("runs one of the person's Shortcuts".into());
+    }
     let path = if let Some(rest) = lower.strip_prefix("file:") {
         let rest = &url[url.len() - rest.len()..];
         let rest = rest.trim_start_matches('/');
@@ -252,6 +257,98 @@ pub fn url_risk(url: &str) -> Option<String> {
         return Some(format!("opens a program or script ({path})"));
     }
     None
+}
+
+/// What opening `url` does that needs a yes: a call (`tel:`, `facetime:`)
+/// reaches someone, as a message does.
+pub fn url_consequence(url: &str) -> Option<crate::assistant::autonomy::Category> {
+    let lower = url.trim().to_ascii_lowercase();
+    [
+        "tel:",
+        "telprompt:",
+        "facetime:",
+        "facetime-audio:",
+        "sms:",
+        "imessage:",
+    ]
+    .iter()
+    .any(|scheme| lower.starts_with(scheme))
+    .then_some(crate::assistant::autonomy::Category::Send)
+}
+
+/// What an AppleScript's own commands do that needs a yes, wherever they
+/// stand (in parentheses, after a comment, joined by `\r`): `send`,
+/// `delete`, moving to the trash, emptying it. Strings and comments are
+/// left out, so a message's words don't count.
+pub fn script_consequence(script: &str) -> Option<crate::assistant::autonomy::Category> {
+    use crate::assistant::autonomy::Category;
+    let code = code_only(script).to_lowercase();
+    let words: Vec<&str> = code
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|word| !word.is_empty())
+        .collect();
+    let has = |word: &str| words.contains(&word);
+    if has("delete") || (has("empty") && has("trash")) || (has("move") && has("trash")) {
+        return Some(Category::Delete);
+    }
+    if has("send") {
+        return Some(Category::Send);
+    }
+    None
+}
+
+/// `script` without its string literals and comments (`-- …`, `# …`,
+/// `(* … *)`).
+fn code_only(script: &str) -> String {
+    let chars: Vec<char> = script.chars().collect();
+    let mut code = String::new();
+    let mut at = 0;
+    let mut depth = 0_u32;
+    while at < chars.len() {
+        let c = chars[at];
+        let next = chars.get(at + 1).copied();
+        if depth > 0 {
+            if c == '*' && next == Some(')') {
+                depth -= 1;
+                at += 2;
+            } else if c == '(' && next == Some('*') {
+                depth += 1;
+                at += 2;
+            } else {
+                at += 1;
+            }
+            continue;
+        }
+        match (c, next) {
+            ('(', Some('*')) => {
+                depth = 1;
+                at += 2;
+                code.push(' ');
+            }
+            ('-', Some('-')) | ('#', _) => {
+                while at < chars.len() && chars[at] != '\n' && chars[at] != '\r' {
+                    at += 1;
+                }
+                code.push(' ');
+            }
+            ('"', _) => {
+                at += 1;
+                while at < chars.len() && chars[at] != '"' {
+                    if chars[at] == '\\' {
+                        at += 1;
+                    }
+                    at += 1;
+                }
+                at += 1;
+                code.push(' ');
+            }
+            _ => {
+                code.push(c);
+                at += 1;
+            }
+        }
+    }
+    code
 }
 
 /// Whether an app's `Info.plist` (as JSON) says it opens executables or
@@ -395,6 +492,44 @@ fn percent_decode(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_scripts_own_commands_decide_not_its_words() {
+        use crate::assistant::autonomy::Category;
+        for (script, category) in [
+            ("set r to (send m)", Some(Category::Send)),
+            ("send m -- then close", Some(Category::Send)),
+            (
+                "tell (make new outgoing message with properties {subject:\"Cancel order\"}) to send",
+                Some(Category::Send),
+            ),
+            ("set x to 1\rsend theMessage", Some(Category::Send)),
+            (
+                "delete (every note whose name is \"x\")",
+                Some(Category::Delete),
+            ),
+            ("move theFile to trash", Some(Category::Delete)),
+            (
+                "tell application \"Finder\" to empty trash",
+                Some(Category::Delete),
+            ),
+            ("set subject of m to \"Please send the report\"", None),
+            ("-- send later\nget name of every note", None),
+            ("(* delete *) get count of messages", None),
+        ] {
+            assert_eq!(script_consequence(script), category, "{script}");
+        }
+    }
+
+    #[test]
+    fn shortcuts_and_calls_need_a_yes() {
+        assert!(url_risk("shortcuts://run-shortcut?name=Pay").is_some());
+        assert_eq!(
+            url_consequence("tel:+491701234567"),
+            Some(crate::assistant::autonomy::Category::Send)
+        );
+        assert_eq!(url_consequence("notes://showNote?id=1"), None);
+    }
     use serde_json::json;
 
     #[test]

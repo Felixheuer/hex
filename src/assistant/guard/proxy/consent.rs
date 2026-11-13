@@ -132,7 +132,10 @@ impl<D: Desktop> Guard<D> {
         let element = text(args, "ref_id")
             .and_then(|reference| self.learned.elements.lock().get(&reference).cloned());
         match tool.strip_prefix("desktop_").unwrap_or(tool) {
-            "click" | "double_click" | "triple_click" => {
+            // Every ref action that presses the element (toggle, check,
+            // expand: Cua's click, an AXPress) is judged as the click it is.
+            "click" | "double_click" | "triple_click" | "toggle" | "check" | "uncheck"
+            | "expand" | "collapse" => {
                 // A ref's label as its snapshot showed it, or the name a
                 // step finds its target by.
                 let label = element
@@ -141,15 +144,28 @@ impl<D: Desktop> Guard<D> {
                 autonomy::classify(&label).map(|category| (category, format!("“{label}”")))
             }
             "menu" => {
+                // As the driver gets it: trimmed, empty items dropped. Any
+                // item counts, not only the last.
                 let path: Vec<String> = args
                     .get("path")
                     .and_then(Value::as_array)?
                     .iter()
-                    .filter_map(|item| item.as_str().map(str::to_owned))
+                    .filter_map(|item| item.as_str().map(str::trim))
+                    .filter(|item| !item.is_empty())
+                    .map(str::to_owned)
                     .collect();
-                let item = path.last()?.clone();
-                autonomy::classify(&item)
+                path.iter()
+                    .rev()
+                    .find_map(|item| autonomy::classify(item))
                     .map(|category| (category, format!("the menu item “{}”", path.join(" › "))))
+            }
+            // Dropping something onto a target that deletes, sends, or
+            // shares (Trash, a Send area) does what pressing it would.
+            "drag" => {
+                let target = text(args, "to")
+                    .and_then(|reference| self.learned.elements.lock().get(&reference).cloned())?;
+                autonomy::classify(&target.label)
+                    .map(|category| (category, format!("dragging onto “{}”", target.label)))
             }
             // The person's own, signed-in browser: a click by its label, text
             // that ends in Return (it submits there, as in a chat or a
@@ -208,6 +224,16 @@ impl<D: Desktop> Guard<D> {
             }
             "press" => {
                 let combo = text(args, "combo")?;
+                // Space or Return on a button's ref presses that button.
+                let (modifiers, key) = combo_parts(&combo);
+                if modifiers.is_empty()
+                    && matches!(key.as_str(), "space" | "return" | "enter")
+                    && let Some(element) = &element
+                    && !ReturnTarget::of_role(&element.role).editable
+                    && let Some(category) = autonomy::classify(&element.label)
+                {
+                    return Some((category, format!("{combo} on “{}”", element.label)));
+                }
                 self.shortcut(&combo, resolved)
             }
             "type" | "set_value" => {

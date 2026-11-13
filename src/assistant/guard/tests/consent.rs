@@ -362,3 +362,55 @@ fn acting_in_the_persons_browser_asks_before_it_submits_or_opens_a_delete_link()
         Some("NEEDS_CONFIRMATION")
     );
 }
+
+/// Other ways to press Send than a click: a toggle or check on its ref,
+/// Space or Return on it, a menu path with a blank last item, and dragging
+/// onto the Trash.
+#[test]
+fn pressing_a_send_or_delete_control_any_way_needs_the_persons_yes() {
+    let scratch = Scratch::new();
+    let fake = Fake::recorded();
+    compose(&fake, SETTINGS, "Mail");
+    let mut guard = guard_with(&scratch, &fake, Autonomy::Smart);
+    guard.call("desktop_claim_window", args(json!({"window_id": SETTINGS})));
+    guard.call("desktop_snapshot", args(json!({"window_id": SETTINGS})));
+    let asks = |guard: &mut Guard<Fake>, tool: &str, call: Value| {
+        error_code(&guard.call(tool, args(call))).as_deref() == Some("NEEDS_CONFIRMATION")
+    };
+    for tool in ["desktop_toggle", "desktop_check", "desktop_expand"] {
+        assert!(
+            asks(
+                &mut guard,
+                tool,
+                json!({"window_id": SETTINGS, "ref_id": "@sform:e1"})
+            ),
+            "{tool}"
+        );
+    }
+    for combo in ["space", "return"] {
+        assert!(
+            asks(
+                &mut guard,
+                "desktop_press",
+                json!({"window_id": SETTINGS, "ref_id": "@sform:e1", "combo": combo})
+            ),
+            "{combo}"
+        );
+    }
+    assert!(asks(
+        &mut guard,
+        "desktop_menu",
+        json!({"window_id": SETTINGS, "path": ["Message", "Send", ""]})
+    ));
+    assert!(asks(
+        &mut guard,
+        "desktop_drag",
+        json!({"window_id": SETTINGS, "from": "@sform:e7", "to": "@sform:e2"})
+    ));
+    // An ordinary button by Space goes through.
+    assert!(!asks(
+        &mut guard,
+        "desktop_press",
+        json!({"window_id": SETTINGS, "ref_id": "@sform:e4", "combo": "space"})
+    ));
+}

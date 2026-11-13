@@ -217,7 +217,9 @@ pub fn classify(label: &str) -> Option<Category> {
         return None;
     }
     let words = words(label);
-    if words.is_empty() || SAFE.iter().any(|phrase| has(&words, phrase)) {
+    // A safe word only counts as the label's first: "Cancel" and "Discard
+    // draft" are none, "Send and close" still sends.
+    if words.is_empty() || SAFE.iter().any(|phrase| begins(&words, phrase)) {
         return None;
     }
     // Most specific first: "Send money" pays, "Submit order" pays.
@@ -286,6 +288,9 @@ const PAY: &[&str] = &[
     "pay now",
     "place order",
     "place your order",
+    "order now",
+    "confirm order",
+    "complete order",
     "submit order",
     "complete purchase",
     "confirm purchase",
@@ -305,12 +310,17 @@ const PAY: &[&str] = &[
     "acheter",
     "payer",
     "commander",
+    "valider la commande",
+    "confirmer la commande",
     "s'abonner",
     "abonner",
     "virement",
     "comprar",
     "pagar",
     "realizar pedido",
+    "finalizar compra",
+    "confirmar compra",
+    "confirmar pedido",
     "suscribirse",
     "suscribir",
     "transferir",
@@ -330,15 +340,18 @@ const DELETE: &[&str] = &[
     "löschen",
     "endgültig löschen",
     "entfernen",
+    "papierkorb",
     "papierkorb leeren",
     "papierkorb entleeren",
     "in den papierkorb",
     "supprimer",
     "supprimer définitivement",
+    "corbeille",
     "vider la corbeille",
     "mettre à la corbeille",
     "eliminar",
     "borrar",
+    "papelera",
     "vaciar papelera",
     "mover a la papelera",
 ];
@@ -364,6 +377,8 @@ const SEND: &[&str] = &[
     "senden",
     "sende",
     "absenden",
+    "abschicken",
+    "schicken",
     "verschicken",
     "versenden",
     "envoyer",
@@ -403,6 +418,12 @@ fn words(label: &str) -> Vec<String> {
 }
 
 /// Whether `phrase`'s words appear in `words`, in order and together.
+/// Whether `words` start with `phrase`.
+fn begins(words: &[String], phrase: &str) -> bool {
+    let phrase: Vec<&str> = phrase.split(' ').collect();
+    words.len() >= phrase.len() && words.iter().zip(&phrase).all(|(word, part)| word == part)
+}
+
 fn has(words: &[String], phrase: &str) -> bool {
     let phrase: Vec<&str> = phrase.split(' ').collect();
     words
@@ -674,6 +695,26 @@ pub fn is_yes(answer: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_safe_word_counts_only_first_and_more_shop_and_send_words_are_known() {
+        for (label, category) in [
+            ("Send and close", Some(Category::Send)),
+            ("Senden und schließen", Some(Category::Send)),
+            ("Submit & close", Some(Category::Publish)),
+            ("Cancel", None),
+            ("Discard draft", None),
+            ("Order now", Some(Category::Pay)),
+            ("Confirm order", Some(Category::Pay)),
+            ("Valider la commande", Some(Category::Pay)),
+            ("Finalizar compra", Some(Category::Pay)),
+            ("Abschicken", Some(Category::Send)),
+            ("Papierkorb", Some(Category::Delete)),
+            ("Trash", Some(Category::Delete)),
+        ] {
+            assert_eq!(classify(label), category, "{label}");
+        }
+    }
 
     #[test]
     fn mail_labels_are_classified_in_four_languages() {
