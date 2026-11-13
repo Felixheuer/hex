@@ -47,7 +47,8 @@ fn settle(rt: &mut Runtime<Ui>) {
     rt.frame(0.0);
 }
 
-/// Scrolls the stream until `key` shows, as a person would with the wheel.
+/// Scrolls the stream (or the setup's page) until `key` shows, as a
+/// person would with the wheel.
 fn reveal(rt: &mut Runtime<Ui>, key: &str) {
     for _ in 0..300 {
         let elements = rt.elements();
@@ -57,11 +58,10 @@ fn reveal(rt: &mut Runtime<Ui>, key: &str) {
         else {
             return;
         };
-        let inside = format!("/{}/", super::follow::SCROLL);
-        let Some(view) = elements
-            .iter()
-            .find(|e| e.key.as_deref() == Some(super::follow::SCROLL))
-            .filter(|_| target.path.contains(&inside))
+        let Some(view) = [super::follow::SCROLL, "assistant-setup-scroll"]
+            .into_iter()
+            .filter(|scroll| target.path.contains(&format!("/{scroll}/")))
+            .find_map(|scroll| elements.iter().find(|e| e.key.as_deref() == Some(scroll)))
         else {
             return;
         };
@@ -512,7 +512,7 @@ fn a_here_question_that_becomes_a_job_shows_one_state() {
         Origin::Background
     );
     // One state per entry: it runs; no second chip says it moved.
-    assert!(shows(&rt, "Running"));
+    assert!(shows(&rt, "Working"));
     assert!(!shows(&rt, "Moved to the background"));
 }
 
@@ -697,8 +697,9 @@ fn page(rt: &Runtime<Ui>) -> Page {
 fn continue_waits_for_each_page_and_later_marks_it_unfinished() {
     let mut rt = onboarding();
     tap(&mut rt, "continue");
-    assert_eq!(page(&rt), Page::Privacy);
-    tap(&mut rt, "continue");
+    assert_eq!(page(&rt), Page::Permissions);
+    // Nothing read yet: Later moves on and remembers.
+    tap(&mut rt, "later");
     assert_eq!(page(&rt), Page::Agent);
     // Nothing found yet: Continue stays put.
     tap(&mut rt, "continue");
@@ -711,7 +712,7 @@ fn continue_waits_for_each_page_and_later_marks_it_unfinished() {
     tap(&mut rt, "later");
     let flow = rt.state.chats.setup.as_ref().unwrap();
     assert_eq!(flow.page, Page::Browser);
-    assert_eq!(flow.later, vec![Page::Desktop]);
+    assert_eq!(flow.later, vec![Page::Permissions, Page::Desktop]);
 }
 
 #[test]
@@ -721,7 +722,7 @@ fn a_permission_waits_after_allow_until_macos_reports_it() {
     rt.state.platform.permissions.microphone = crate::desktop::onboarding::PermissionState::Ready;
     rt.state.platform.permissions.accessibility =
         crate::desktop::onboarding::PermissionState::Ready;
-    rt.update(|ui, _| super::setup::go(ui, Page::Desktop));
+    rt.update(|ui, _| super::setup::go(ui, Page::Permissions));
     answer(
         &mut rt,
         Done::Permissions(Permissions {
@@ -754,8 +755,8 @@ fn a_permission_waits_after_allow_until_macos_reports_it() {
         }),
     );
     assert_eq!(state(&rt), State::Passed);
-    // The voice setup's grants show only while missing.
-    assert!(rt.find("grant-microphone").is_none());
+    // Every permission shows in the one checklist, with its state.
+    assert!(rt.find("grant-microphone").is_some());
     assert!(rt.find("grant-screen-recording").is_some());
 }
 
@@ -777,7 +778,7 @@ fn a_grant_that_needs_a_restart_relaunches_hex_in_one_click() {
 
 #[test]
 fn a_failed_check_shows_its_fix_while_later_checks_still_run() {
-    let rt = scene("mac-assistant-setup-checks");
+    let rt = scene("mac-assistant-setup-desktop");
     let flow = rt.state.chats.setup.as_ref().unwrap();
     assert!(flow.checks_running);
     assert!(
@@ -914,24 +915,12 @@ fn the_display_row_shows_only_with_two_displays() {
 }
 
 #[test]
-fn the_privacy_page_sets_autonomy_and_blocked_apps() {
-    let mut rt = scene("mac-assistant-setup-privacy");
+fn the_welcome_page_says_what_stays_and_settings_keep_the_rules() {
+    let rt = scene("mac-assistant-setup");
     assert!(shows(&rt, "Dictation stays on your Mac."));
-    assert_eq!(
-        rt.state.settings.assistant.autonomy,
-        crate::assistant::autonomy::Autonomy::Smart
-    );
-    rt.state.chats.settings.blocked = TextEdit::new("Banking");
-    rt.invalidate();
-    settle(&mut rt);
-    tap(&mut rt, "add-blocked-app");
-    assert!(
-        rt.state
-            .settings
-            .assistant
-            .blocked_apps
-            .contains(&"Banking".to_owned())
-    );
+    // How freely it acts and the blocked apps moved to Assistant settings.
+    let rt = scene("mac-chats-settings");
+    assert!(shows(&rt, "Blocked apps"));
 }
 
 #[test]
@@ -965,7 +954,11 @@ fn page_names_round_trip_for_the_saved_progress() {
     for page in Page::shown().iter().copied() {
         assert_eq!(Page::named(page.name()), Some(page));
     }
-    assert_eq!(Page::named("permissions"), None);
+    // Progress saved before the pages were merged lands on their new home.
+    assert_eq!(Page::named("privacy"), Some(Page::Welcome));
+    assert_eq!(Page::named("checks"), Some(Page::Desktop));
+    assert_eq!(Page::named("about"), Some(Page::Try));
+    assert_eq!(Page::named("nope"), None);
 }
 
 #[test]
@@ -984,7 +977,7 @@ fn the_merged_flow_says_it_continues_and_new_in_hex_says_so() {
 #[test]
 fn checks_run_on_arrival_and_finish_waits_for_answers_and_the_desktop_tools() {
     let mut rt = onboarding();
-    rt.update(|ui, _| super::setup::go(ui, Page::Checks));
+    rt.update(|ui, _| super::setup::go(ui, Page::Desktop));
     settle(&mut rt);
     assert!(
         rt.state
@@ -1022,6 +1015,8 @@ fn checks_run_on_arrival_and_finish_waits_for_answers_and_the_desktop_tools() {
         super::setup::gestures_work(&rt.state),
         "the gestures the Try page asks for answer before Finish"
     );
+    rt.update(|ui, _| super::setup::go(ui, Page::Done));
+    settle(&mut rt);
     tap(&mut rt, "finish");
     assert!(rt.state.settings.assistant.setup_done);
     assert!(rt.state.chats.setup.is_none());
@@ -1158,7 +1153,7 @@ fn onboarding_polish_sign_in_chooses_a_site_before_opening_a_browser() {
 
 #[test]
 fn onboarding_polish_screen_recording_restart_is_offered() {
-    let mut rt = scene("mac-assistant-setup-desktop");
+    let mut rt = scene("mac-assistant-setup-permissions");
     rt.state.platform.scrawl = Some(super::super::platform::ScrawlView {
         screen_needs_restart: true,
         ..Default::default()
@@ -1173,7 +1168,7 @@ fn onboarding_polish_screen_recording_restart_is_offered() {
 
 #[test]
 fn onboarding_polish_refreshes_failed_checks_when_permissions_change() {
-    let mut rt = scene("mac-assistant-setup-checks");
+    let mut rt = scene("mac-assistant-setup-desktop");
     {
         let flow = rt.state.chats.setup.as_mut().unwrap();
         flow.checks_running = false;
@@ -1276,7 +1271,7 @@ mod repair {
         assert!(rt.state.chats.setup.is_none());
         // Fix all… on the stage's card opens it.
         fix_all(&mut rt);
-        assert_eq!(page(&rt), Page::Desktop);
+        assert_eq!(page(&rt), Page::Permissions);
         // Later on the card puts it off until Agent-Desk starts again.
         let mut rt = chats();
         gaps(&mut rt, vec![Gap::ScreenRecording]);
@@ -1309,10 +1304,10 @@ mod repair {
         fix_all(&mut rt);
         assert_eq!(
             page(&rt),
-            Page::Desktop,
+            Page::Permissions,
             "starts at the first page that fixes one"
         );
-        assert_eq!(repair_pages(&rt), [Page::Desktop, Page::Shortcut]);
+        assert_eq!(repair_pages(&rt), [Page::Permissions, Page::Shortcut]);
         assert!(shows(&rt, "Agent-Desk needs your help for a moment"));
         assert!(shows(
             &rt,
@@ -1339,7 +1334,7 @@ mod repair {
         // A hold of the Action shortcut brings it back.
         rt.update(|ui, tx| super::super::open_setup_from_hold(ui, tx));
         settle(&mut rt);
-        assert_eq!(page(&rt), Page::Desktop);
+        assert_eq!(page(&rt), Page::Permissions);
     }
 
     #[test]

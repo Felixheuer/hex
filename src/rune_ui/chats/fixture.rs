@@ -729,7 +729,7 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
     ui.chats = pane;
     match scene {
         Scene::Setup(page) => super::setup::fixture(ui, page, false),
-        Scene::SetupDone => super::setup::fixture(ui, super::setup::Page::Try, true),
+        Scene::SetupDone => super::setup::fixture(ui, super::setup::Page::Done, true),
         Scene::NewInHex | Scene::Merged => {
             super::setup::fixture(ui, super::setup::Page::Welcome, false);
             if let Some(flow) = ui.chats.setup.as_mut() {
@@ -738,7 +738,7 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
             }
         }
         Scene::Resumed => {
-            super::setup::fixture(ui, super::setup::Page::Desktop, false);
+            super::setup::fixture(ui, super::setup::Page::Permissions, false);
             if let Some(flow) = ui.chats.setup.as_mut() {
                 flow.resumed = true;
                 flow.asked.clear();
@@ -751,7 +751,7 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
             }
         }
         Scene::Repair => {
-            super::setup::fixture(ui, super::setup::Page::Desktop, false);
+            super::setup::fixture(ui, super::setup::Page::Permissions, false);
             ui.settings.assistant.setup_done = true;
             if let Some(flow) = ui.chats.setup.as_mut() {
                 flow.permissions = Some(crate::assistant::computer::Permissions {
@@ -766,7 +766,7 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
         }
         Scene::Agent(state) => agent_page(ui, state),
         Scene::Restart => {
-            super::setup::fixture(ui, super::setup::Page::Desktop, false);
+            super::setup::fixture(ui, super::setup::Page::Permissions, false);
             ui.platform.permissions.accessibility =
                 crate::desktop::onboarding::PermissionState::NeedsRestart;
             if let Some(flow) = ui.chats.setup.as_mut() {
