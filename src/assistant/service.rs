@@ -196,6 +196,12 @@ pub(crate) struct Hooks {
     /// The voice for an answer, from its first sentence, when none is set.
     pub pick_voice: OnTask<Option<String>>,
     pub stop_speaking: Hook<()>,
+    /// The person holds the Action shortcut or dictates now: an answer
+    /// waits before it is read (`voice::person_talks`).
+    pub person_talks: Hook<bool>,
+    /// Jobs' questions and summaries wait now: the person speaks or asked
+    /// for quiet (`voice::announcements_wait`).
+    pub announcements_wait: Hook<bool>,
     /// Unix ms now, and a pause: the runner's clock.
     pub now_ms: Hook<u64>,
     pub sleep: Box<dyn Fn(Duration) + Send + Sync>,
@@ -286,6 +292,8 @@ impl Hooks {
             speaking: Box::new(super::speech::speaking),
             pick_voice: Box::new(super::speech::automatic_voice),
             stop_speaking: Box::new(super::speech::stop),
+            person_talks: Box::new(voice::person_talks),
+            announcements_wait: Box::new(voice::announcements_wait),
             now_ms: Box::new(store::now_ms),
             sleep: Box::new(std::thread::sleep),
             pause: Box::new(super::guard::set_paused),

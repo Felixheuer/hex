@@ -290,6 +290,10 @@ impl World {
             speaking: Box::new(|| false),
             pick_voice: Box::new(|_| None),
             stop_speaking: Box::new(|| {}),
+            // Never the process's own hold or dictation, which other
+            // tests change.
+            person_talks: Box::new(|| false),
+            announcements_wait: Box::new(|| false),
             now_ms: Box::new(move || clock.clock.load(Ordering::SeqCst)),
             sleep: Box::new(|_| std::thread::sleep(Duration::from_millis(1))),
             pause: Box::new(move |task, paused| pause.log(format!("pause {task} {paused}"))),
@@ -856,6 +860,10 @@ fn a_new_here_request_stops_the_last_one_but_not_background_tasks() {
 
     world.release("second");
     world.wait_for("the second answer", ended(&second));
+    // Read aloud on the voice's own thread, after the answer is shown.
+    world.wait_until("the answer read aloud", || {
+        !world.spoken.lock().unwrap().is_empty()
+    });
     assert_eq!(*world.spoken.lock().unwrap(), ["answer to second"]);
     assert_eq!(runner.tasks().len(), 1);
     assert_eq!(runner.tasks()[0].conversation, background);
@@ -1663,6 +1671,9 @@ fn a_here_request_that_is_a_job_continues_as_a_background_job() {
     assert!(workspace.is_dir());
     // "On it" is said, the Here run says nothing final, and it works as
     // Background work.
+    world.wait_until("\"On it\" read aloud", || {
+        !world.spoken.lock().unwrap().is_empty()
+    });
     assert_eq!(
         *world.spoken.lock().unwrap(),
         ["On it: 50 suppliers and a sheet."]
