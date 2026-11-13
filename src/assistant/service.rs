@@ -103,7 +103,7 @@ fn runner() -> &'static Arc<Runner> {
         // assistant` command must not clear the app's pauses, or run its
         // schedules).
         std::thread::spawn(|| {
-            if !WITHOUT_LAB.load(Ordering::Acquire) && current_settings().0 {
+            if !FROM_CLI.load(Ordering::Acquire) && current_settings().0 {
                 super::guard::startup();
                 start_scheduler();
                 // The Chrome logins Hex's browsers use, taken again daily.
@@ -112,7 +112,7 @@ fn runner() -> &'static Arc<Runner> {
                     super::browser::accounts::refresh_if_stale(profile.as_deref());
                 });
             }
-            let app = !WITHOUT_LAB.load(Ordering::Acquire) && current_settings().0;
+            let app = !FROM_CLI.load(Ordering::Acquire) && current_settings().0;
             // Agents an earlier Hex left running (a crash, a force quit)
             // end before their jobs resume beside them.
             if app {
@@ -398,11 +398,11 @@ fn current_settings() -> (bool, AssistantSettings) {
     {
         adjust(&mut settings);
     }
-    let without_lab = WITHOUT_LAB.load(Ordering::Acquire);
-    if without_lab {
+    let from_cli = FROM_CLI.load(Ordering::Acquire);
+    if from_cli {
         settings.setup_done = true;
     }
-    (on || without_lab, settings)
+    (on || from_cli, settings)
 }
 
 /// The task runner.
@@ -654,8 +654,14 @@ impl Runner {
         // „Ich gehe jetzt zum Friseur …“: from now on the phone hears it.
         crate::assistant::phone::note_request(&request.text);
         let (enabled, settings) = (self.hooks.settings)();
+        // Started first, so the Here bubble has the question to say why on.
         let refuse = |message: &str| {
             let id = request.conversation.clone().unwrap_or_else(store::new_id);
+            self.emit(&Event::Started {
+                conversation: id.clone(),
+                origin: request.origin,
+                question: request.text.clone(),
+            });
             self.emit(&Event::Failed {
                 conversation: id.clone(),
                 message: message.into(),
@@ -666,7 +672,10 @@ impl Runner {
             return refuse("Turn on the assistant first.");
         }
         if !settings.setup_done && !super::trying() {
-            return refuse("Finish setting up the assistant first (Settings › Assistant).");
+            return refuse(&format!(
+                "Finish setting up the assistant first ({}).",
+                super::lines::ASSISTANT_SETTINGS
+            ));
         }
         // "Wie weit ist der Shop?": told from the jobs' plans, never asked
         // of an agent; jobs don't announce their steps on their own.
@@ -826,11 +835,7 @@ impl Runner {
             self.note(
                 &conversation,
                 super::types::Role::Assistant,
-                if status::said_in_german(&said) {
-                    "Okay, ich berücksichtige das beim nächsten Schritt."
-                } else {
-                    "Okay, I'll take that into account at the next step."
-                },
+                super::lines::tr("Okay, I'll take that into account at the next step.", &said),
             );
             self.emit(&Event::ConversationsChanged);
         }

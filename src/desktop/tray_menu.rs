@@ -66,7 +66,7 @@ mod tray {
         /// Stop & transcribe the recording meeting.
         StopMeeting,
         CopyLastMeeting,
-        /// Chats…: the window on the assistant's Chats.
+        /// Assistant…: the window on the Assistant pane.
         OpenChats,
         /// Stop all tasks: every assistant task and its speech stop.
         StopAllTasks,
@@ -206,7 +206,7 @@ mod tray {
                 } else {
                     TrayItem::action("assistant-idle", tr("Stop all tasks")).enabled(false)
                 });
-                menu.push(TrayItem::action("chats", tr("Chats…")));
+                menu.push(TrayItem::action("chats", tr("Assistant…")));
             }
             if !self.models.is_empty() {
                 menu.push(TrayItem::Separator);
@@ -386,7 +386,7 @@ mod tests {
         for disabled in [MeetingTray::Starting, MeetingTray::Transcribing] {
             assert!(!enabled.contains(&meeting_id(disabled)));
         }
-        // The assistant on adds Stop all tasks and Chats… before the models;
+        // The assistant on adds Stop all tasks and Assistant… before the models;
         // Stop all tasks is disabled under an id of its own while nothing
         // runs (#1287).
         let ids_of = |view: &TrayView| -> Vec<String> {

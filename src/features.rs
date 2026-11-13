@@ -307,12 +307,6 @@ pub fn pause_menu() -> bool {
     cfg!(target_os = "macos")
 }
 
-/// `hex dictation start --print` (macOS).
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub fn print_start() -> bool {
-    cfg!(target_os = "macos")
-}
-
 /// An OpenCode service in WSL is used when no Windows one answers (Windows).
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub fn opencode_in_wsl() -> bool {

@@ -1142,7 +1142,7 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
     assert!(!minimal.physical_input);
     // Claude Code gets it under agent-desktop's name, so tool names stay.
     let claude: Value = serde_json::from_str(&server.claude_config()).unwrap();
-    assert_eq!(claude["mcpServers"]["agent-desktop"]["args"][1], "mcp");
+    assert_eq!(claude["mcpServers"]["desktop"]["args"][1], "mcp");
 }
 
 mod consent;
@@ -1150,3 +1150,4 @@ mod desk;
 mod displays;
 mod open_app;
 mod round_two;
+mod vision;

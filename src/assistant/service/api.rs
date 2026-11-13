@@ -269,11 +269,11 @@ pub fn run_due_schedules() -> Vec<ConversationId> {
 
 /// Lets tasks run while the assistant is off or not set up, for `hex
 /// assistant`, which a person runs on purpose.
-pub fn allow_without_lab() {
-    WITHOUT_LAB.store(true, Ordering::Release);
+pub fn run_from_cli() {
+    FROM_CLI.store(true, Ordering::Release);
 }
 
-pub(super) static WITHOUT_LAB: AtomicBool = AtomicBool::new(false);
+pub(super) static FROM_CLI: AtomicBool = AtomicBool::new(false);
 
 /// Changes the settings every later task reads, in this process only (for
 /// `hex assistant ask --backend …`).

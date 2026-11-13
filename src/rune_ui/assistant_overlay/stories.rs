@@ -361,6 +361,8 @@ fn bubble_view(state: &BubbleStory, cx: &mut Cx<BubbleStory>) -> El {
         dismiss: |_: &mut BubbleStory| {},
         open: |_: &mut BubbleStory, _| {},
         setup: |_: &mut BubbleStory| {},
+        settings: |_: &mut BubbleStory| {},
+        retry: |_: &mut BubbleStory, _, _| {},
     };
     let card = if state.setup {
         bubble::setup_card(p, actions)

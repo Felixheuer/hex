@@ -43,7 +43,6 @@ static TOGGLE_TASKS: Mutex<Option<Hook>> = Mutex::new(None);
 /// to your own and return at once. A later call replaces an earlier one;
 /// until the first, a double tap only plays its tone.
 // Called by the overlays (`rune_ui::assistant_overlay`) as they install.
-#[allow(dead_code)]
 pub(crate) fn set_toggle_tasks(toggle: impl Fn() + Send + Sync + 'static) {
     *TOGGLE_TASKS
         .lock()
@@ -70,8 +69,7 @@ static OPEN_SETUP: Mutex<Option<Hook>> = Mutex::new(None);
 /// say "Finish setting up the assistant first". Nothing is recorded or
 /// asked. It is called on the listener's thread, so post to your own and
 /// return at once; until it is set, such a hold does nothing.
-// Called by the app (`macos_rune`) as it starts.
-#[allow(dead_code)]
+// Called by the app (`rune_ui::window_link`) as it starts.
 pub(crate) fn set_open_setup(open: impl Fn() + Send + Sync + 'static) {
     *OPEN_SETUP.lock().unwrap_or_else(|error| error.into_inner()) = Some(Box::new(open));
 }

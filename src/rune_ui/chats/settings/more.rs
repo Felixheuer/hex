@@ -1,4 +1,4 @@
-//! Chats › Settings, round three: how freely the assistant acts (Ask,
+//! Assistant settings, round three: how freely the assistant acts (Ask,
 //! Smart, YOLO), what it remembers about you, its voice with quality and a
 //! better one a click away, listening after an answer and interrupting it
 //! by speaking, and notifications.

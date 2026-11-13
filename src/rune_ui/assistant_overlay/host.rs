@@ -80,16 +80,17 @@ struct Overlays {
 
 static OVERLAYS: OnceLock<Overlays> = OnceLock::new();
 
-/// Opens a conversation in Chats; set by the Chats pane ([`set_open_chats`]).
+/// Opens a conversation in the Assistant pane ([`set_open_chats`]).
 type OpenChats = Box<dyn Fn(&str) + Send + Sync>;
 static OPEN_CHATS: OnceLock<OpenChats> = OnceLock::new();
 /// Opens the assistant's setup; set by whoever owns it ([`set_open_setup`]).
 type OpenSetup = Box<dyn Fn() + Send + Sync>;
 static OPEN_SETUP: OnceLock<OpenSetup> = OnceLock::new();
 
-/// Lets the Chats pane open a conversation when a row, a bubble, or the
-/// Here bubble's "Open in Chats" is pressed. Called on the main thread with
-/// the conversation's id. Until it's set, a press brings the window forward.
+/// Lets the Assistant pane open a conversation when a row, a bubble, or the
+/// Here bubble's "Show in Assistant" is pressed. Called on the main thread
+/// with the conversation's id. Until it's set, a press brings the window
+/// forward.
 pub(crate) fn set_open_chats(open: impl Fn(&str) + Send + Sync + 'static) {
     let _ = OPEN_CHATS.set(Box::new(open));
 }
@@ -104,13 +105,7 @@ pub(crate) fn set_open_setup(open: impl Fn() + Send + Sync + 'static) {
 fn open_chats(id: &str) {
     match OPEN_CHATS.get() {
         Some(open) => open(id),
-        None => {
-            tracing::info!(
-                conversation = id,
-                "assistant: Chats isn't wired yet; showing the window"
-            );
-            crate::rune_ui::window_link::bring_forward();
-        }
+        None => crate::rune_ui::window_link::bring_forward(),
     }
 }
 
@@ -276,6 +271,14 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
                 },
                 setup: |state| {
                     open_setup();
+                    dismiss_bubble(state);
+                },
+                settings: |state| {
+                    crate::rune_ui::window_link::open_assistant_settings();
+                    dismiss_bubble(state);
+                },
+                retry: |state, id, asked| {
+                    ask_again(id, asked);
                     dismiss_bubble(state);
                 },
             },
@@ -533,6 +536,17 @@ fn retry(id: &str) {
         text: crate::desktop::i18n::tr("That didn't work. Please try again.").to_owned(),
         // A job again, even once its task left the orb.
         origin: crate::assistant::Origin::Background,
+        context: crate::assistant::Context::default(),
+    });
+}
+
+/// Try again on a failed quick question: the same words once more, in its
+/// conversation, as a hold of the Action shortcut asks.
+fn ask_again(id: &str, asked: &str) {
+    crate::assistant::submit(crate::assistant::Request {
+        conversation: Some(id.to_owned()),
+        text: asked.to_owned(),
+        origin: crate::assistant::Origin::ActionShortcut,
         context: crate::assistant::Context::default(),
     });
 }

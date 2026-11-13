@@ -1,5 +1,5 @@
 //! The assistant's own switch (`assistant.enabled`, on by default): its row
-//! at the top of Chats › Settings, and the calm card Chats shows while it's
+//! at the top of Assistant settings, and the calm card Chats shows while it's
 //! off. Off, the Action shortcut, the overlays, the scheduler, and the menu
 //! bar items are inert (`assistant::enabled`); the pane stays in the
 //! sidebar so it can be turned back on.

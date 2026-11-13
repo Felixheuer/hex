@@ -36,7 +36,7 @@ pub enum StatusItemAction {
     CopyChapter(usize),
     /// The recording row: the Meetings pane.
     OpenMeetings,
-    /// Chats…: the window on Chats.
+    /// Assistant…: the window on the Assistant pane.
     OpenChats,
     /// Stop all tasks, while any runs.
     StopAllTasks,
@@ -256,7 +256,7 @@ impl Row {
             Row::CopySection => "Copy Section",
             Row::RecordMeeting => "Record Meeting",
             Row::StopAllTasks => "Stop All Tasks",
-            Row::Chats => "Chats…",
+            Row::Chats => "Assistant…",
             Row::PauseHex => pause_title(false),
             Row::PasteLast => "Paste Last Dictation",
             Row::CopyRecentDictation => "Copy Recent Dictation",
@@ -389,7 +389,7 @@ struct StatusItemController {
     pause_title: RefCell<String>,
     recent: Retained<NSMenuItem>,
     recent_menu: Retained<NSMenu>,
-    /// The assistant's rows: Stop All Tasks, Chats…, and their separator.
+    /// The assistant's rows: Stop All Tasks, Assistant…, and their separator.
     assistant: [Retained<NSMenuItem>; 3],
     restore_capture: Retained<NSMenuItem>,
     update: Option<Retained<NSMenuItem>>,
@@ -816,7 +816,7 @@ fn refresh_restore_capture() {
 /// The assistant's rows show while it's on; off, the menu is as it was.
 static ASSISTANT_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Shows Stop All Tasks and Chats… while the assistant is on (`on`), and
+/// Shows Stop All Tasks and Assistant… while the assistant is on (`on`), and
 /// hides them while it's off.
 pub fn update_assistant(on: bool) {
     let was = ASSISTANT_SHOWN.swap(on, std::sync::atomic::Ordering::Relaxed);
@@ -1076,7 +1076,7 @@ mod tests {
                 "Record Meeting".into(),
                 "—".into(),
                 "Stop All Tasks".into(),
-                "Chats…".into(),
+                "Assistant…".into(),
                 "—".into(),
                 "Pause Hex".into(),
                 "Paste Last Dictation".into(),

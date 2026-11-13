@@ -9,7 +9,9 @@ use std::sync::Arc;
 
 use super::{JobKind, Origin, Request, Runner, TaskState};
 use crate::assistant::agent::goal;
+use crate::assistant::lines::tr_named_in;
 use crate::assistant::types::{ConversationId, Event};
+use crate::desktop::i18n::tr_in;
 
 /// One job, as the status tells it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -128,8 +130,10 @@ fn names_one(lower: &str, titles: &[String]) -> Option<usize> {
     })
 }
 
-/// The spoken status of `jobs`, or of the one `asked` names.
-pub fn line(jobs: &[Job], asked: &str, german: bool) -> String {
+/// The spoken status of `jobs`, or of the one `asked` names, in
+/// `language` (`lines::language` of what was asked; `None` is the
+/// interface's).
+pub fn line(jobs: &[Job], asked: &str, language: Option<&str>) -> String {
     let titles: Vec<String> = jobs.iter().map(|job| job.title.clone()).collect();
     let lower = asked.to_lowercase();
     let picked: Vec<&Job> = match names_one(&lower, &titles) {
@@ -137,84 +141,72 @@ pub fn line(jobs: &[Job], asked: &str, german: bool) -> String {
         None => jobs.iter().collect(),
     };
     if picked.is_empty() {
-        return if german {
-            "Gerade läuft keine Aufgabe.".into()
-        } else {
-            "No task is running.".into()
-        };
+        return tr_in(language, "No task is running.").into();
     }
     picked
         .iter()
-        .map(|job| one(job, german))
+        .map(|job| one(job, language))
         .collect::<Vec<_>>()
         .join(" ")
 }
 
-fn one(job: &Job, german: bool) -> String {
-    let elapsed = duration(job.elapsed_ms, german);
-    let mut line = match (job.state, german) {
-        (TaskState::NeedsInput, true) => format!("{}: wartet auf deine Antwort", job.title),
-        (TaskState::NeedsInput, false) => format!("{}: waiting for your answer", job.title),
-        (TaskState::Waiting { .. }, true) => {
-            format!(
-                "{}: wartet auf das Nutzungslimit, läuft seit {elapsed}",
-                job.title
-            )
-        }
-        (TaskState::Waiting { .. }, false) => {
-            format!(
-                "{}: waiting out a usage limit, running for {elapsed}",
-                job.title
-            )
-        }
-        (TaskState::Paused, true) => format!("{}: pausiert, du hast übernommen", job.title),
-        (TaskState::Paused, false) => format!("{}: paused, you took over", job.title),
-        (TaskState::Queued, true) => format!("{}: wartet auf einen freien Platz", job.title),
-        (TaskState::Queued, false) => format!("{}: waiting for a free slot", job.title),
-        (TaskState::Running, true) => format!("{}: läuft seit {elapsed}", job.title),
-        (TaskState::Running, false) => format!("{}: running for {elapsed}", job.title),
+fn one(job: &Job, language: Option<&str>) -> String {
+    let elapsed = duration(job.elapsed_ms, language);
+    let template = match job.state {
+        TaskState::NeedsInput => "{title}: waiting for your answer",
+        TaskState::Waiting { .. } => "{title}: waiting out a usage limit, running for {elapsed}",
+        TaskState::Paused => "{title}: paused, you took over",
+        TaskState::Queued => "{title}: waiting for a free slot",
+        TaskState::Running => "{title}: running for {elapsed}",
     };
+    let mut line = tr_named_in(
+        language,
+        template,
+        &[("title", &job.title), ("elapsed", &elapsed)],
+    );
     if job.steps > 0 {
-        line.push_str(&if german {
-            format!(", {} von {} Schritten erledigt", job.done, job.steps)
-        } else {
-            format!(", {} of {} steps done", job.done, job.steps)
-        });
+        line.push_str(&tr_named_in(
+            language,
+            ", {done} of {steps} steps done",
+            &[
+                ("done", &job.done.to_string()),
+                ("steps", &job.steps.to_string()),
+            ],
+        ));
     }
     if let Some((ended, all)) = job.helpers {
-        line.push_str(&if german {
-            format!(", {ended} von {all} Helfern fertig")
-        } else {
-            format!(", {ended} of {all} helpers done")
-        });
+        line.push_str(&tr_named_in(
+            language,
+            ", {ended} of {all} helpers done",
+            &[("ended", &ended.to_string()), ("all", &all.to_string())],
+        ));
     }
     if let Some(gaps) = job.gaps.as_deref().and_then(|gaps| gaps.lines().next()) {
         let gaps = gaps.trim().trim_start_matches(['-', '*', ' ']);
-        line.push_str(&if german {
-            format!(". Noch offen: {gaps}")
-        } else {
-            format!(". Still open: {gaps}")
-        });
+        line.push_str(&tr_named_in(
+            language,
+            ". Still open: {gaps}",
+            &[("gaps", gaps)],
+        ));
     }
     line.push('.');
     line
 }
 
 /// "3 Stunden", "2 days", "12 minutes".
-fn duration(ms: u64, german: bool) -> String {
+fn duration(ms: u64, language: Option<&str>) -> String {
     let minutes = ms / 60_000;
     let (n, unit) = if minutes >= 2 * 24 * 60 {
-        (minutes / (24 * 60), if german { "Tagen" } else { "days" })
+        (minutes / (24 * 60), "{n} days")
     } else if minutes >= 120 {
-        (minutes / 60, if german { "Stunden" } else { "hours" })
+        (minutes / 60, "{n} hours")
     } else {
-        (minutes.max(1), if german { "Minuten" } else { "minutes" })
+        (minutes.max(1), "{n} minutes")
     };
-    match (n, german) {
-        (1, true) => "einer Minute".into(),
-        (1, false) => "a minute".into(),
-        _ => format!("{n} {unit}"),
+    if n == 1 {
+        return tr_in(language, "a minute").into();
     }
+    tr_named_in(language, unit, &[("n", &n.to_string())])
 }
 
 /// What was said in a job's conversation while the job is there.
@@ -223,13 +215,6 @@ enum InJob {
     Status(Job, Option<std::path::PathBuf>),
     /// Said while the job waits for its turn: added to its request.
     Added,
-}
-
-/// Whether `text` is German, or tells nothing on a German Mac.
-pub(super) fn said_in_german(text: &str) -> bool {
-    let language = crate::assistant::speech::language_of(text);
-    language == Some("de")
-        || language.is_none() && crate::assistant::speech::system_language() == "de"
 }
 
 impl Runner {
@@ -275,7 +260,7 @@ impl Runner {
                 return None;
             }
         };
-        let german = said_in_german(&request.text);
+        let language = crate::assistant::lines::language(&request.text);
         self.note(
             &conversation,
             crate::assistant::types::Role::User,
@@ -289,14 +274,9 @@ impl Runner {
                     })
                     .filter(|check| check.trim() != "verified");
                 job.helpers = helpers_of(&conversation);
-                line(std::slice::from_ref(&job), &request.text, german)
+                line(std::slice::from_ref(&job), &request.text, language)
             }
-            InJob::Added => if german {
-                "Notiert, das nehme ich mit dazu, sobald ich anfange."
-            } else {
-                "Noted, I'll take that in when I start."
-            }
-            .to_owned(),
+            InJob::Added => tr_in(language, "Noted, I'll take that in when I start.").to_owned(),
         };
         self.note(
             &conversation,
@@ -373,8 +353,8 @@ impl Runner {
                 .filter(|check| check.trim() != "verified");
             job.helpers = helpers_of(conversation);
         }
-        let german = said_in_german(&request.text);
-        let text = line(&jobs, &request.text, german);
+        let language = crate::assistant::lines::language(&request.text);
+        let text = line(&jobs, &request.text, language);
         let conversation = crate::assistant::store::new_id();
         self.emit(&Event::Started {
             conversation: conversation.clone(),
@@ -457,28 +437,31 @@ mod tests {
             job("Einstein recherchieren", 3, 3, None),
         ];
         assert_eq!(
-            line(&jobs, "Wie weit ist der Shop?", true),
+            line(&jobs, "Wie weit ist der Shop?", Some("de")),
             "Online-Shop wie Nike bauen: läuft seit 3 Stunden, 4 von 9 Schritten erledigt. Noch offen: Seite läuft noch nicht online."
         );
-        let all = line(&jobs, "status", false);
+        let all = line(&jobs, "status", Some("en"));
         assert!(
             all.contains("Einstein recherchieren: running for 3 hours, 3 of 3 steps done."),
             "{all}"
         );
-        assert_eq!(line(&[], "status", true), "Gerade läuft keine Aufgabe.");
+        assert_eq!(
+            line(&[], "status", Some("de")),
+            "Gerade läuft kein Auftrag."
+        );
         let mut waiting = job("Bericht", 0, 0, None);
         waiting.state = TaskState::NeedsInput;
         assert_eq!(
-            line(&[waiting], "status", true),
+            line(&[waiting], "status", Some("de")),
             "Bericht: wartet auf deine Antwort."
         );
         let mut team = job("50 Lieferanten vergleichen", 1, 4, None);
         team.helpers = Some((3, 5));
         assert_eq!(
-            line(&[team], "status", true),
+            line(&[team], "status", Some("de")),
             "50 Lieferanten vergleichen: läuft seit 3 Stunden, 1 von 4 Schritten erledigt, 3 von 5 Helfern fertig."
         );
-        assert_eq!(duration(3 * 24 * 60 * 60_000, true), "3 Tagen");
-        assert_eq!(duration(30_000, false), "a minute");
+        assert_eq!(duration(3 * 24 * 60 * 60_000, Some("de")), "3 Tagen");
+        assert_eq!(duration(30_000, Some("en")), "a minute");
     }
 }

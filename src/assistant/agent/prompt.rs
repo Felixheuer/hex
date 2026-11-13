@@ -45,6 +45,7 @@ pub fn system_for(job: &Job, desktop: Option<&Desktop>, browser: bool) -> String
         system.push_str(TOOLS_RULES);
     }
     system.push_str(crate::assistant::knowledge::RULES);
+    system.push_str(super::rules::BACKGROUND_INPUT_RULES);
     if settings.memory {
         system.push_str(&memory_rules(job.memory.as_deref(), !job_role));
     }
@@ -327,17 +328,24 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
         );
         return prompt;
     };
-    prompt.push_str(&format!(
-        "\nYou can see and use the {}'s apps through agent-desktop's tools (desktop_snapshot, desktop_click, desktop_list_apps, …). The guide below shows them as shell commands: each command is the tool of the same name (`agent-desktop list-apps` is desktop_list_apps) and its flags are the tool's arguments. Always call the tools; never run agent-desktop in a shell. Your session and agent id are already set.\n",
-        computer_name()
-    ));
+    // What the desktop tools are, from the driver behind them.
+    prompt.push('\n');
+    prompt.push_str(
+        &desktop
+            .driver
+            .backend()
+            .intro()
+            .replace("{computer}", &computer_name()),
+    );
     if desktop.guarded {
         prompt.push_str("Use hex_installed_apps to see what's installed before choosing an app.\n");
         prompt.push_str(
             "Every desktop action passes Hex's guard, which lets you act only in windows that are yours. A refusal comes back as a tool error with a code: NOT_YOUR_WINDOW (another task's window, or one you haven't launched or claimed), PERSON_IN_WINDOW (the person is working there), TAKEN_OVER (the person took this task over; look again before acting), POLICY_DENIED (a blocked app, or an action tasks may not do). Don't try to get around a refusal: choose another way, or say what you couldn't do.\n",
         );
     }
-    if desktop.headed {
+    if desktop.driver == crate::assistant::driver::Driver::Cua {
+        prompt.push_str("There are no real-pointer tools: act through refs, or by a window's picture with hex_window_shot and hex_window_input.\n");
+    } else if desktop.headed {
         prompt.push_str("Physical input (--headed) is allowed, but prefer headless actions; use physical input only when no semantic action exists.\n");
     } else {
         prompt.push_str("Use headless actions only: physical input is turned off, so actions that need --headed (hover, drag, mouse clicks at a point, double-click) are refused. Never try to switch to physical input.\n");
@@ -386,7 +394,9 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
             "- Background first: act in windows where they are, parked or behind others; never bring one to the front just to act in it. Only an app that doesn't react in the background after one retry gets its window forward for the shortest time (the person sees the frame); check the result, then give the front back to the window the person was in.\n",
         );
     }
-    if let Some(guide) = guide(desktop.executable()) {
+    if desktop.driver == crate::assistant::driver::Driver::AgentDesktop
+        && let Some(guide) = guide(desktop.executable())
+    {
         prompt.push_str("\nagent-desktop's guide:\n\n");
         prompt.push_str(guide);
     }

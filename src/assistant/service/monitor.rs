@@ -52,7 +52,8 @@ impl Runner {
         for (control, minutes) in expired {
             let limit = super::run::limit_words(minutes);
             control.fail(&format!(
-                "Stopped after {limit}: it may run at most {limit} (Settings › Assistant)."
+                "Stopped after {limit}: it may run at most {limit} ({}).",
+                crate::assistant::lines::ASSISTANT_SETTINGS
             ));
         }
         self.check_hands_off(&here);

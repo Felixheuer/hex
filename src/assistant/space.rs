@@ -11,7 +11,8 @@
 //! into the Dock.
 //!
 //! So this does what AeroSpace does for its workspaces: a parked window is
-//! moved through Accessibility (agent-desktop's `move-window`) so its
+//! moved through Accessibility (Hex's own `actions::ax`, agent-desktop's
+//! `move-window` where that fails) so its
 //! top-left corner sits in a bottom corner of a screen, leaving a pixel or
 //! two on screen. It stays on the person's Space, in its app, and in
 //! Accessibility's tree, so agent-desktop reads and operates it as before;
@@ -38,11 +39,12 @@ use crate::assistant::backends::{self, desktop, search};
 static PARKED: Mutex<Option<HashMap<String, (f64, f64)>>> = Mutex::new(None);
 
 /// Whether moving task windows out of the way is on and can work here
-/// (`agent_space` and the assistant are on, and agent-desktop is installed).
+/// (`agent_space` and the assistant are on; on macOS Hex moves windows
+/// itself, elsewhere agent-desktop must be installed).
 pub fn available() -> bool {
     let on = crate::app_settings::assistant_runtime()
         .is_some_and(|(lab, settings)| lab && settings.agent_space);
-    on && search::find("agent-desktop").is_some()
+    on && (cfg!(target_os = "macos") || search::find("agent-desktop").is_some())
 }
 
 /// Moves `window` out of the person's way; false when it couldn't (or
@@ -74,6 +76,9 @@ pub struct Parked {
 
 /// Parks `window` whatever the setting says (the probe's way in).
 pub fn park_now(window: &TaskWindow) -> Result<Parked, String> {
+    if let Some(parked) = native::park(window) {
+        return Ok(parked);
+    }
     let tool = agent_desktop()?;
     let id = window
         .window_id
@@ -100,6 +105,12 @@ pub fn park_now(window: &TaskWindow) -> Result<Parked, String> {
 /// Brings `window` back on the main display when it hangs off every screen
 /// (parked by a job that no longer has it); whether it moved.
 pub fn bring_back(window: &TaskWindow) -> Result<bool, String> {
+    if let Some((_, _, bounds)) = window.window_id.as_deref().and_then(native::window) {
+        if !off_screen(bounds, &native::displays()) {
+            return Ok(false);
+        }
+        return show_now(window).map(|_| true);
+    }
     let tool = agent_desktop()?;
     let id = window
         .window_id
@@ -135,7 +146,6 @@ pub fn off_screen((x, y, width, height): (f64, f64, f64, f64), displays: &[Displ
 
 /// Shows `window` whatever the setting says; where it was parked from.
 pub fn show_now(window: &TaskWindow) -> Result<(f64, f64), String> {
-    let tool = agent_desktop()?;
     let id = window
         .window_id
         .as_deref()
@@ -145,6 +155,10 @@ pub fn show_now(window: &TaskWindow) -> Result<(f64, f64), String> {
         .unwrap_or_else(|error| error.into_inner())
         .as_mut()
         .and_then(|parked| parked.remove(id));
+    if let Some(shown) = native::show(id, remembered) {
+        return Ok(shown);
+    }
+    let tool = agent_desktop()?;
     let to = match remembered {
         Some(spot) => spot,
         // Parked by another process: somewhere on the main display.
@@ -166,6 +180,100 @@ pub fn show_now(window: &TaskWindow) -> Result<(f64, f64), String> {
         tracing::debug!(error, "the shown window didn't come to the front");
     }
     Ok(to)
+}
+
+/// Windows moved by Hex itself: the window server's list for where a
+/// window is and whose it is, Accessibility to move it (no driver needed).
+mod native {
+    use super::{Display, PARKED, Parked, parking_spot};
+    use crate::assistant::TaskWindow;
+
+    /// A frame: x, y, width, height in points.
+    type Rect = (f64, f64, f64, f64);
+
+    /// Window `id`'s process, number, and frame.
+    pub fn window(id: &str) -> Option<(i32, u32, Rect)> {
+        if cfg!(test) || !cfg!(target_os = "macos") {
+            return None;
+        }
+        let number = crate::assistant::computer::window_number(id)?;
+        crate::assistant::computer::now::all_windows()
+            .into_iter()
+            .find(|window| window.number == number)
+            .map(|window| {
+                let [x, y, width, height] = window.bounds;
+                (window.pid, number, (x, y, width, height))
+            })
+    }
+
+    pub fn displays() -> Vec<Display> {
+        crate::assistant::computer::displays()
+            .into_iter()
+            .map(|display| Display {
+                id: display.id,
+                x: display.frame.0,
+                y: display.frame.1,
+                width: display.frame.2,
+                height: display.frame.3,
+                primary: display.is_primary,
+            })
+            .collect()
+    }
+
+    pub fn park(window: &TaskWindow) -> Option<Parked> {
+        let id = window.window_id.as_deref()?;
+        let (pid, number, (x, y, _, _)) = self::window(id)?;
+        let agents = crate::assistant::computer::displays();
+        let setting = crate::assistant::computer::agent_display_setting();
+        let preferred = crate::assistant::computer::agents_display(&agents, setting.as_deref())
+            .map(|display| display.id.clone());
+        let to = parking_spot(&displays(), preferred.as_deref())?;
+        crate::assistant::actions::ax::set_position(pid, number, to).ok()?;
+        PARKED
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get_or_insert_with(std::collections::HashMap::new)
+            .insert(id.to_owned(), (x, y));
+        Some(Parked { from: (x, y), to })
+    }
+
+    /// Moves window `id` back (to `remembered`, else onto the main display)
+    /// and brings its app to the front: the person asked for it.
+    pub fn show(id: &str, remembered: Option<(f64, f64)>) -> Option<(f64, f64)> {
+        let (pid, number, _) = self::window(id)?;
+        let to = match remembered {
+            Some(spot) => spot,
+            None => {
+                let displays = displays();
+                let main = displays
+                    .iter()
+                    .find(|display| display.primary)
+                    .or(displays.first())?;
+                (main.x + 80.0, main.y + 80.0)
+            }
+        };
+        let _ = crate::assistant::actions::ax::set_minimized(pid, number, false);
+        crate::assistant::actions::ax::set_position(pid, number, to).ok()?;
+        activate(pid);
+        Some(to)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn activate(pid: i32) {
+        use objc2::rc::autoreleasepool;
+        use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
+        if let Some(app) =
+            autoreleasepool(|_| NSRunningApplication::runningApplicationWithProcessIdentifier(pid))
+        {
+            #[allow(deprecated)]
+            let _ = autoreleasepool(|_| {
+                app.activateWithOptions(NSApplicationActivationOptions::ActivateIgnoringOtherApps)
+            });
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn activate(_pid: i32) {}
 }
 
 fn agent_desktop() -> Result<PathBuf, String> {

@@ -1,5 +1,5 @@
-//! Opens Hex's window from any thread, on every OS: Chats on a
-//! conversation (the HUD's task stack and "Open in Chats", a notification's
+//! Opens Hex's window from any thread, on every OS: the Assistant pane on
+//! a conversation (the HUD's task stack and "Show in Assistant", a notification's
 //! click, the tray), the assistant's setup (a hold of the Action shortcut
 //! before it's done), or just the window. macOS goes through `macos_rune`,
 //! which also brings the app forward; Linux and Windows through the
@@ -46,6 +46,18 @@ pub(crate) fn open_assistant_setup() {
     }
 }
 
+/// Opens the window on Assistant settings: Fix on a quick turn that
+/// failed because the assistant is off.
+pub(crate) fn open_assistant_settings() {
+    #[cfg(target_os = "macos")]
+    crate::macos_rune::open_assistant_settings();
+    #[cfg(not(target_os = "macos"))]
+    if let Some(window) = WINDOW.get() {
+        window.open();
+        window.update(|ui, tx| super::show(ui, Destination::AssistantSettings, tx));
+    }
+}
+
 /// Opens the window in front.
 pub(crate) fn bring_forward() {
     #[cfg(target_os = "macos")]
@@ -56,8 +68,8 @@ pub(crate) fn bring_forward() {
     }
 }
 
-/// Wires every way the assistant opens the window: the overlays' "Open in
-/// Chats" and "Continue setup", a hold of the Action shortcut before setup,
+/// Wires every way the assistant opens the window: the overlays' "Show in
+/// Assistant" and "Continue setup", a hold of the Action shortcut before setup,
 /// and a notification's click. Linux and Windows; macOS wires its own in
 /// `macos_rune`.
 #[cfg(not(target_os = "macos"))]

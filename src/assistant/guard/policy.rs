@@ -42,6 +42,11 @@ pub enum Kind {
     AppCapabilities,
     /// Hex's own `hex_read_window`: a window's text from its picture.
     ReadWindow,
+    /// Hex's own `hex_window_shot`: a window's picture (`assistant::input`).
+    WindowShot,
+    /// Hex's own `hex_window_input`: a click, scroll, or keys at a spot of a
+    /// window's picture, sent to its app in the background.
+    WindowInput,
     /// Never forwarded; the text says why.
     Refused(&'static str),
 }
@@ -74,6 +79,7 @@ impl Kind {
                 | Self::OpenApp
                 | Self::CloseApp
                 | Self::AppAction
+                | Self::WindowInput
         )
     }
 }
@@ -105,6 +111,12 @@ pub const APP_CAPABILITIES_TOOL: &str = "hex_app_capabilities";
 
 /// Hex's screen text for a window without Accessibility (`actions::ocr`).
 pub const READ_WINDOW_TOOL: &str = "hex_read_window";
+
+/// Hex's window picture for the vision path (`assistant::input`).
+pub const WINDOW_SHOT_TOOL: &str = "hex_window_shot";
+
+/// Hex's background input at a spot of a window's picture.
+pub const WINDOW_INPUT_TOOL: &str = "hex_window_input";
 
 const MANAGED: &str = "Hex manages agent-desktop's sessions, cursors, traces, and permissions; \
 this tool isn't available to tasks.";
@@ -181,6 +193,8 @@ pub fn kind(tool: &str, args: &Map<String, Value>) -> Kind {
         APP_ACTION_TOOL => return Kind::AppAction,
         APP_CAPABILITIES_TOOL => return Kind::AppCapabilities,
         READ_WINDOW_TOOL => return Kind::ReadWindow,
+        WINDOW_SHOT_TOOL => return Kind::WindowShot,
+        WINDOW_INPUT_TOOL => return Kind::WindowInput,
         _ => {}
     }
     let Some(name) = tool.strip_prefix("desktop_") else {

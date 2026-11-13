@@ -814,7 +814,7 @@ pub fn prepare(
     let desktop = if settings.control_desktop {
         let guard = super::guard::mcp_server(&spec);
         if guard.is_none() {
-            log_once("the guard has no MCP server yet; tasks use agent-desktop directly");
+            log_once("the guard has no MCP server yet; tasks use the desktop driver directly");
         }
         Some(
             Desktop::new(
@@ -824,7 +824,7 @@ pub fn prepare(
                 spec.physical_input,
             )
             .ok_or(
-                "agent-desktop isn't installed, so the assistant can't use apps. Install it in Chats › Settings, or turn off “Use apps”.",
+                "No desktop driver (Cua Driver or agent-desktop) is installed, so the assistant can't use apps. Install it in Assistant settings, or turn off “Use apps”.",
             )
             .map(|mut desktop| {
                 desktop.front_window = spec.full_control;

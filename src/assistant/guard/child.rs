@@ -27,6 +27,8 @@ pub trait Desktop: Send {
 pub struct AgentDesktop {
     program: PathBuf,
     args: Vec<String>,
+    /// Environment beside Hex's agent environment (Cua Driver's settings).
+    env: Vec<(String, String)>,
     running: Option<Running>,
     instructions: Option<String>,
     next_id: u64,
@@ -43,9 +45,16 @@ impl AgentDesktop {
     pub fn new(program: PathBuf, flags: Vec<String>) -> Self {
         let mut args = vec!["mcp".to_owned()];
         args.extend(flags);
+        Self::server(program, args, Vec::new())
+    }
+
+    /// Any desktop driver's MCP server over stdio: `program` with `args`
+    /// (its MCP subcommand included) and `env`.
+    pub fn server(program: PathBuf, args: Vec<String>, env: Vec<(String, String)>) -> Self {
         Self {
             program,
             args,
+            env,
             running: None,
             instructions: None,
             next_id: 0,
@@ -62,6 +71,7 @@ impl AgentDesktop {
         let mut command = crate::assistant::backends::search::command(&self.program);
         command
             .args(&self.args)
+            .envs(self.env.iter().cloned())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());

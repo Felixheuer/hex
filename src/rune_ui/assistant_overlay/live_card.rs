@@ -1,6 +1,6 @@
 //! One of a task's browsers, live and large: the card both the overlay
 //! (beside the orb) and Chats show. Above the picture, the page's title and
-//! address with Open in Chats (in the overlay) and ×; below it, what the
+//! address with Show in Assistant (in the overlay) and ×; below it, what the
 //! task is doing and Take over / Hand back. While the person drives, the
 //! picture takes their pointer, wheel, and keys to the page.
 
@@ -33,7 +33,7 @@ pub(crate) struct Actions<S> {
     pub(crate) close: fn(&mut S),
     pub(crate) take_over: fn(&mut S, &str),
     pub(crate) hand_back: fn(&mut S, &str),
-    /// "Open in Chats" (task, session); `None` hides it (in Chats itself).
+    /// "Show in Assistant" (task, session); `None` hides it (in the Assistant pane itself).
     pub(crate) open_chats: Option<fn(&mut S, &str, &str)>,
 }
 
@@ -95,7 +95,7 @@ pub(in crate::rune_ui) fn card<S: 'static>(
     let close = actions.close;
     let open_chats = actions.open_chats.map(|open| {
         let (task, session) = (task.to_owned(), session.to_owned());
-        Button::new(tr("Open in Chats"))
+        Button::new(tr("Show in Assistant"))
             .variant(ButtonVariant::Ghost)
             .on_press(move |s: &mut S| open(s, &task, &session))
             .build_small_push(k)

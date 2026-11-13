@@ -636,6 +636,66 @@ substitute for source inspection or a second roadmap.
 Keep modules deep. Callers should not coordinate
 CoreAudio formats, AppleScript details, or event serialization.
 
+### Assistant architecture
+
+The assistant (`src/assistant/`, its UI in `src/rune_ui/assistant_overlay/`
+and `src/rune_ui/chats/`) is one pipeline; the user-facing contract is
+[`docs/features/assistant.md`](docs/features/assistant.md).
+
+```ts
+request (Action shortcut | Assistant pane | iPhone | schedule)
+└── service::submit ── lanes: Here (quick turn) | Background (job), queue, steer, status
+    └── agent::run ── prompt (lane rules, context, memory) ── provider: claude -p | codex exec | opencode | Claude API
+        ├── guard (hex assistant mcp) ── agent-desktop: leases, input policy, blocked apps, consent
+        ├── browser (agent-browser, a hidden session per task) and actions (app actions, AX, OCR)
+        └── tools (hex_remember, schedules, teams) and knowledge (hex_lookup)
+service::subscribe ── Event ── assistant_overlay (bubble, orb, job list, frame, outlines)
+                            ├── rune_ui::chats (the Assistant pane and Assistant settings)
+                            └── speech, notify, phone, store (conversations on disk)
+```
+
+Who owns what:
+
+- **Brain** (what runs, when, and what it is told): `service` (the runner:
+  lanes, queue, steering, spoken status, the warm process, the monitor),
+  `agent` (one task's prompt, tools, goal check, teams), `provider` (each
+  backend's process or API, usage limits, orphans), `backends` (finding,
+  installing, checking, signing in the agents), `lines` (what it says back,
+  in the request's language, and the names of the window's panes).
+- **Hands** (everything that touches the desktop): `guard` (the MCP server
+  every task gets instead of agent-desktop), `computer` (what Hex itself
+  reads: context, window frames), `actions` (fast app actions before a
+  click), `autonomy` (what needs a yes), `space` (parking job windows).
+- **Web**: `browser` (agent-browser sessions, accounts, the live pictures).
+- **Knowledge**: `knowledge` (`hex_lookup`: files, contacts, calendar, mail,
+  Chrome; the memory graph), `memory` (the note every task reads), `tools`
+  (Hex's own MCP tools).
+- **Voice**: `shortcut` (the Action shortcut's gestures, shared by every OS's
+  listener), `speech` (reading aloud), `interaction` (what wins when they
+  overlap).
+- **Surfaces**: `rune_ui::assistant_overlay` (`board`/`quick` turn events into
+  plain state, unit-tested; `host` makes Rune panels of them; `failure`
+  classifies a failed quick turn), `rune_ui::chats` (the Assistant pane and
+  Assistant settings; the module keeps its old name), `notify`, `phone`.
+- **Contract**: `types` (requests, events, lanes, conversations), `store`.
+
+Vocabulary, kept the same in code, copy, and docs:
+
+- **quick turn**: a request in the Here lane (`Lane::Here`,
+  `Origin::ActionShortcut`); German **Frage**.
+- **job**: a request in the Background lane (`Lane::Background`,
+  `JobKind::Job`); German **Auftrag**, never „Aufgabe“.
+- **task**: any running request, either kind (`TaskStatus`; `agent::Job` is
+  any run despite its name).
+- **Assistant** / **Assistant settings**: the two panes (`Pane::Chats`,
+  `Pane::Assistant`); every message, menu, and button names them through
+  `assistant::lines::{ASSISTANT, ASSISTANT_SETTINGS}`.
+- Overloaded names to read carefully: `guard::desk` (the person's parked
+  windows) vs `assistant_overlay::desk` (a pretend desktop for stories);
+  `space` (corner parking, not macOS Spaces); `chats::jobs` (a UI worker
+  thread) vs `assistant_overlay::jobs` (job rows); `agent::Outcome` vs
+  `types::Outcome`.
+
 ## Invariants
 
 - Settings errors never prevent launch. `app_settings/persistence` defaults

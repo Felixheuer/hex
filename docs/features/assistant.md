@@ -1,41 +1,124 @@
 # Assistant
 
-The assistant (macOS) is a normal Hex feature, **on by default** in this
-fork: it left Labs, where it was `labs.assistant` (off). Its switch is
-`assistant.enabled` (`AppSettings.assistant.enabled`, default `true`): the
-row at the top of Chats › Settings, the off card's Turn on, or `hex settings
-set assistant.enabled false`. `crate::assistant::enabled` is
-`cfg!(target_os = "macos") && settings.assistant.enabled`, and
+Hold one key and say anything: Hex decides whether it is a **quick turn**
+(answered beside the HUD and read aloud, about the window in front) or a
+**job** (worked on in the background, in its own windows and hidden
+browsers, beside other jobs). Everything works without opening Hex's window:
+the Here bubble, the orb and its job list, and spoken answers are the
+product; the window's **Assistant** pane is one stream of every quick turn
+and job, and **Assistant settings** hold the rest.
+
+The assistant is on by default in this fork (`assistant.enabled`, default
+`true`; it left Labs, which is gone). Turn it off with the switch at the top
+of Assistant settings, the off card's Turn on, or `hex settings set
+assistant.enabled false`. `crate::assistant::enabled` is
+`assistant::available()` (macOS, Linux, Windows) and the switch;
 `assistant::ready` adds `assistant.setup_done`. While it's off, the Action
 shortcut, Stop all tasks, the overlays, the scheduler, the menu bar items,
-and the onboarding's assistant pages are inert; Chats stays in the sidebar
-and offers to turn it back on. Turning it on while setup isn't done opens
-the assistant's onboarding (`chats::open_setup`), and an Action shortcut
-another shortcut took meanwhile is unbound (`repair_action_shortcut`). An
-older `settings.json` with `labs.assistant` still loads; the key is ignored
-like other retired Labs switches. `hex labs on assistant` says it graduated
-and how to turn it off.
+and the onboarding's assistant pages are inert; the Assistant pane stays in
+the sidebar and offers to turn it back on. Turning it on before setup is
+done opens the assistant's onboarding (`chats::open_setup`), and an Action
+shortcut another shortcut took meanwhile is unbound
+(`repair_action_shortcut`).
 
 ```ts
-Assistant           Toggle (settings.json, hex settings)     On: what it does
-└── Assistant       assistant.enabled (default on) + assistant.action_hotkey (macOS)
-                                         hold the Action shortcut (right ⌘ alone by default) and say anything;
-                                         Hex decides to answer, act, or start a background job; double-tap for the task list;
-                                         after an answer Hex listens for a follow-up (conversation_seconds), and speaking over
-                                         an answer interrupts it on headphones (barge_in);
-                                         Escape stops Here tasks and speech; ⌃⌥Esc (assistant.stop_all_hotkey) stops every task;
-                                         General shows both recorders while on; Chats is in the sidebar either way
+Assistant           Setting (settings.json, hex settings)    What it does
+└── Assistant       assistant.enabled (default on) + assistant.action_hotkey
+                    hold the Action shortcut (right ⌘ alone on macOS) and say anything: Hex answers
+                    (quick turn), acts in the window in front, or starts a job; double-tap for the job list;
+                    after an answer Hex listens for a follow-up (conversation_seconds), and speaking over
+                    an answer interrupts it on headphones (barge_in); Escape stops quick turns and speech;
+                    ⌃⌥Esc (assistant.stop_all_hotkey) stops everything. Both recorders are in Assistant
+                    settings › Shortcuts; the Assistant pane is in the sidebar either way
 ```
+
+## How it fits together
+
+```ts
+Action shortcut (assistant::shortcut, per-OS listeners) ─┐
+Assistant pane composer (rune_ui::chats) ─────────────────┼─ service::submit ── lanes ── agent::run ── provider (backend)
+iPhone replies (assistant::phone), schedules ────────────┘   Here | Background        claude -p | codex exec | opencode | Claude API
+                                                                                            │
+                     every desktop action ── guard (hex assistant mcp) ── agent-desktop     │
+                     web ── browser (agent-browser, one hidden session per task)  ──────────┤
+                     Hex's own tools (tools: remember, schedule, team) and knowledge ───────┘
+service::subscribe ── Event ── overlays (rune_ui::assistant_overlay): Here bubble, orb, job list, frame, outlines
+                           └── the Assistant pane, notifications, the iPhone, speech
+```
+
+1. **Lanes** (`types::Lane`, `service`). A request from the Action shortcut
+   starts in the **Here** lane: only the window that was in front, on the
+   fast model (`here_model`), answered in the bubble. The brain may hand it
+   to the **Background** lane (`Event::Escalated`): a job with its own
+   windows and browsers, its plan, its goal check (`agent::goal`), up to
+   `max_parallel` at once (`capacity`). A tap-then-hold or "im Hintergrund"
+   starts a job directly.
+2. **Guard** (`assistant::guard`). Every task's agent gets Hex's MCP server
+   instead of agent-desktop: window leases (Here holds the front window,
+   Background only windows it opened or claimed), real input only when
+   allowed, blocked apps, take over, and consent before consequential
+   actions (`autonomy`). Prompts are never the only safeguard.
+3. **Backends** (`provider`, `backends`). Claude Code, Codex, OpenCode, or
+   the Claude API runs the task, each with the guard, the browser, Hex's
+   tools, and `knowledge` (`hex_lookup`). `backends` finds, installs,
+   checks, and signs them in.
+4. **Overlay** (`rune_ui::assistant_overlay`). `board` turns events into what
+   shows: the Here bubble past the HUD, the orb with one dot per job, the job
+   list, result bubbles with what to open or Try again, the screen frame,
+   window outlines, live browser pictures. `host` makes them Rune panels.
+   The Assistant pane (`rune_ui::chats`) shows the same events as one stream.
+
+## Words
+
+| Word | Means | In code | German |
+|---|---|---|---|
+| quick turn | a request answered in the Here lane, beside the HUD | `Lane::Here`, `Origin::ActionShortcut` | **Frage** |
+| job | work in the Background lane, with its own windows, plan, and result | `Lane::Background`, `JobKind::Job` | **Auftrag** (plural Aufträge) |
+| task | any running request, quick turn or job | `TaskStatus`, `agent::Job` | Auftrag (for jobs), Frage (for quick turns) |
+| Assistant | the window's pane with the stream | `Pane::Chats`, `assistant::lines::ASSISTANT` | Assistent |
+| Assistant settings | its settings pane | `Pane::Assistant`, `assistant::lines::ASSISTANT_SETTINGS` | Assistent-Einstellungen |
+| orb | the jobs' presence beside the HUD | `assistant_overlay::orb` | – |
+| guard | Hex's MCP server between every task and the desktop | `assistant::guard` | – |
+
+German copy never says „Aufgabe“ for a job: a job is an „Auftrag“, a quick
+turn a „Frage“ („Neuer Auftrag im Hintergrund“, „3 Aufträge laufen“). What
+the assistant says or shows back to a request (a steer note, "On it", a
+job's status, a failure) goes through the interface's translations in the
+language of what was said (`assistant::lines`, `desktop::i18n::tr_in`),
+never a word list of its own. Every message, menu, and button that sends
+people to the window names the sidebar's panes from one constant each
+(`lines::ASSISTANT`, `lines::ASSISTANT_SETTINGS`): "Show in Assistant",
+"Assistant…" in the menu bar and tray, "… in Assistant settings".
+
+## When a quick turn fails
+
+A refused request (assistant off, setup unfinished) emits `Started` before
+its `Failed`, so the Here bubble has its question. The bubble reads the
+brain's message (`assistant_overlay::failure::Failure::of`) into one of:
+off, setup unfinished, not signed in, not installed, missing permission,
+usage limit, or anything else. It shows a short line in the language the
+question was asked in, the brain's own words small beneath it when they say
+more, and one action: **Fix** (Assistant settings for "off"; the setup's
+repair pages, `chats::setup::repair`, for the rest it can fix) or **Try
+again** (the same words, in full, in the same conversation). When answers
+are read aloud, Hex also says the line. The bubble stays 12 s. Checks:
+`the_brains_messages_have_their_failure_and_remedy`,
+`every_line_and_label_has_german` (failure.rs), and
+`a_failed_quick_question_says_why_and_offers_one_action`
+(assistant_overlay/tests.rs); renders: `bubble-failed-*` in the
+`snapshots` test.
 
 ## The Action shortcut and Stop all tasks
 
-While the assistant is on, General shows an "Action shortcut" recorder under
-Shortcut (`assistant.action_hotkey`, right Command alone by default,
-clearable, with Restore default; also `hex settings set
+While the assistant is on, Assistant settings › Shortcuts shows an "Action
+shortcut" recorder (`assistant.action_hotkey`, right Command alone by
+default on macOS, clearable, with Restore default; also `hex settings set
 assistant.action_hotkey right-command`) and a "Stop all tasks" recorder
 under it (`assistant.stop_all_hotkey`, ⌃⌥Esc by default, clearable, with
 Restore default since Escape ends the recorder; also `hex settings set
-assistant.stop_all_hotkey control+option+escape`). The gates are
+assistant.stop_all_hotkey control+option+escape`). They are the same
+recorder rows General uses (`general::shortcut_rows`), with their conflicts.
+The gates are
 `AppSettings::active_action_hotkey` and `active_stop_all_hotkey`: the
 assistant enabled (`assistant::enabled`), bound, and sharing no key with
 another active shortcut (Stop all also never ⌘⌥Esc, Force Quit, and always
@@ -206,8 +289,8 @@ conflicts(slot, settings) -> Vec<Conflict { source, certainty, name, description
 ```
 
 `shortcut_conflicts::cached` reads again at most every 3 s, for Settings.
-While the assistant is on, General shows each conflict under the dictation and
-Action shortcut rows (red when taken, muted when possible) with where it is
+While the assistant is on, the dictation shortcut's row in General and the
+Action shortcut's in Assistant settings show each conflict under them (red when taken, muted when possible) with where it is
 fixed (Keyboard settings, Siri settings, or the app) and "Choose another
 shortcut"; no conflict, or the assistant off, draws nothing new. The screenshot
 Lab's check (`screenshots::system_shortcut`) reads the same symbolic hot
@@ -233,7 +316,7 @@ Escape belongs to the assistant only while a Here task
 (`Origin::ActionShortcut`) runs or waits, or an answer is read aloud
 (`speech::speaking()`), and nothing records: the tap then keeps it from the
 app (`guards::assistant_claims_escape`), and it runs `assistant::cancel` for
-each Here task and `speech::stop()`. Background and Chats tasks keep running
+each Here task and `speech::stop()`. Jobs and typed requests keep running
 (each has its own stop, and Stop all tasks stops them all). Checks:
 `a_hold_asks_here`, `a_tap_then_a_hold_asks_in_the_background`,
 `a_double_tap_is_a_gesture`, `a_tap_alone_asks_nothing`,
@@ -340,7 +423,7 @@ Stop all tasks -> its key swallowed (repeats and release too), once per press;
 Escape -> taken (down, repeats, up) only while shortcut::claims_escape(bound,
     nothing records), refreshed every loop turn; shortcut::escape()
 Tray (shared tray_menu, Windows) -> while assistant::enabled: Stop all tasks
-    (disabled under its own id while nothing runs) and Chats…
+    (disabled under its own id while nothing runs) and Assistant…
 ```
 
 Checks: `an_action_hold_asks_here`,
@@ -353,44 +436,43 @@ Checks: `an_action_hold_asks_here`,
 [windows/input.rs](../../src/windows/input.rs) (compile-checked from Linux,
 not run); `tray_menu_ids_round_trip_and_show_the_state` in
 [desktop/tray_menu.rs](../../src/desktop/tray_menu.rs). Not yet observed: any
-of it on Windows. Chats… opens the window (`rune_ui::show` with
-`Destination::Chats`), but the Chats pane is still macOS-only
-(`chats::available`), so it lands on the current pane there.
+of it on Windows. Assistant… opens the window on the Assistant pane
+(`rune_ui::show` with `Destination::Chats`).
 
-## Chats
+## The Assistant pane and Assistant settings
 
-The assistant's window (`rune_ui/chats`, macOS): Chats is in the sidebar
-after History on macOS (`Pane::Chats`, `chats::available`), whether or not
-the assistant is on. While it's off, Conversations shows a calm "The
-assistant is off" card with Turn on (`chats/switch.rs`), the header drops
-New chat and Run setup…, and a running onboarding closes. Its header switches
-Conversations and Settings, and shows the agent's name and New chat.
-Conversations is a list and
-detail: the conversations grouped Today, Yesterday, Previous 7 days, and
-Older, searchable, each with how it was asked (microphone, Agent mode,
-keyboard) or, while it runs, a dot in its task's colour
-(`assistant_overlay::task_colour`) and its latest step; running and queued
-tasks sit in a strip above with Stop each and Stop all. The transcript
-shows questions as bubbles, answers as Markdown (`rune-kit`'s `markdown`
-feature; streaming while `AnswerDelta`s arrive), what the assistant did as
-muted steps (a run longer than four folds to its last step), screenshots as
-thumbnails that open the file, and errors; Delete chat… asks first. The
-composer sends `Request { origin: Chat, conversation: <shown> }` on Return
-(Shift-Return starts a line), and its button stops the shown request while
-it runs. The conversation showing is named with `assistant::set_focus`, and
-cleared when the pane, view, or window goes. Every `assistant::subscribe`
-event wakes the window. `hex://chats?id=<conversation>`,
-`hex://settings/chats`, the menu bar, and the HUD's task stack and "Open in
-Chats" (`assistant_overlay::set_open_chats` → `macos_rune::open_chat`) open
-it. Settings: the Assistant switch first (`assistant.enabled`, "Hold right ⌘ to
-ask, double-tap for your tasks"), then the agent (and whether each is ready), its model, the Claude
-API key (Keychain only), Read answers aloud with its voice and Test voice,
-Operate apps, the real pointer and keyboard (with its warning), Send a
-screenshot, the follow-up window, Tasks at once (1 to 64), and Run setup….
+The window's **Assistant** pane (`Pane::Chats`, `rune_ui/chats`; the module
+keeps its old name) is in the sidebar on every desktop
+(`chats::available`), whether or not the assistant is on. While it's off it
+shows a calm "The assistant is off" card with Turn on (`chats/switch.rs`)
+and a running onboarding closes. It is one stream (`chats::stream`): every
+quick turn, answer, and job in one timeline, oldest at the top; jobs as live
+cards with their plan, question, and results (folder, files, sheet); the
+running tasks in a strip with Take over, Hand back, Stop, and Stop all. One
+composer asks anything new (the assistant knows the whole stream and
+routes it), or, after a click on an entry, replies to it or steers it
+(`Request { origin: Chat, conversation }`; Return sends, Shift-Return starts
+a line). Answers render as Markdown, streaming while `AnswerDelta`s arrive.
+The entry showing is named with `assistant::set_focus` and cleared when the
+pane or window goes. `hex://chats?id=<conversation>`, the menu bar's and
+tray's "Assistant…", a notification's click, and "Show in Assistant" on the
+overlays (`assistant_overlay::set_open_chats` → `window_link::open_chat`)
+open it.
+
+**Assistant settings** (`Pane::Assistant`, `chats::settings`; also
+`hex://settings/assistant`): the switch first ("Hold right ⌘ to ask,
+double-tap for your tasks") and Run setup…; Shortcuts (the Action and Stop
+all recorders); Agent & model (the agent picker, its model, the quick
+turns' model); How it works (autonomy, how long a job may run, waiting out
+usage limits, Tasks at once, the follow-up window, keeping the Mac awake);
+Apps & windows (operating apps, real pointer and keyboard, full control of
+the window in front, the screenshot with a quick turn, displays, parking
+job windows); blocked apps; web (the hidden browser and the sites jobs may
+use signed in); Voice; Notifications; On my iPhone; and Memory.
 
 ## On my iPhone (away mode)
 
-Settings › On my iPhone (`assistant.phone_enabled`, off by default) sends a
+Assistant settings › On my iPhone (`assistant.phone_enabled`, off by default) sends a
 task's questions and approvals, its failures, and Background jobs' results as
 an iMessage to the person's own number or Apple ID (`assistant.phone_handle`)
 while they're away: the "I'm away now" switch, the screen locked, no input for
@@ -403,7 +485,7 @@ Access; the row offers System Settings) every 4 s while away: only incoming
 rows from that handle, only after away mode began. „stopp alle“ stops every
 task, „stopp“ the one whose question waits, „status“ sends the tasks' state
 back, anything else answers the waiting question or starts a request as if
-typed in Chats. Message text is never logged. Code: `src/assistant/phone/`.
+typed in the Assistant pane. Message text is never logged. Code: `src/assistant/phone/`.
 
 ## Onboarding
 
@@ -411,8 +493,7 @@ The assistant's onboarding (`chats/setup.rs`, drawn by `chats/sheet.rs` in
 the first run's type, card, and motion over the whole window) opens when
 the assistant is turned on (Settings' switch or the off card's Turn on)
 while `assistant.setup_done` is false, after the voice first run on a fresh
-install, and from Run setup…
-or Chats' notice. Pages: Meet your assistant; Choose who answers (the
+install, and from Run setup… or the Assistant pane's notice. Pages: Meet your assistant; Choose who answers (the
 agents `backends::detect` found, Claude Code by default, each with its fix:
 install, sign in, start OpenCode, or the API key); Hex's Microphone,
 Accessibility, and Screen Recording, each Allow opening its System Settings
@@ -432,12 +513,12 @@ it's fixed and, for the Action shortcut, Choose another…) and a live press
 test of each (`recognition::shortcut_probe`; ✓ only when the press and its
 release reached Hex, and a swallowed press names the app that took it), the
 page waiting for a free Action shortcut that works (`chats/shortcut.rs`
-adapts both); then the try-it: hold the Action shortcut and ask, with the
-double-tap Agent mode hint, waiting for one real spoken question, answered. A row shows ✓ only after its check saw
+adapts both); then the try-it: hold the Action shortcut and ask, waiting
+for one real spoken question, answered. A row shows ✓ only after its check saw
 it work. Continue waits for its page; Later moves on and marks it unfinished
 (amber in the progress marks). Finish waits until the chosen agent answers
-and can use agent-desktop, then sets `assistant.setup_done`. Menu bar: Agent
-Mode (checked while on) and Chats… show only while the assistant is on. Checks:
+and can use agent-desktop, then sets `assistant.setup_done`. Menu bar: Stop
+All Tasks and Assistant… show only while the assistant is on. Checks:
 the tests in [rune_ui/chats/tests.rs](../../src/rune_ui/chats/tests.rs),
 `reads_chats_links` in [deep_link.rs](../../src/rune_ui/deep_link.rs), and
 `the_assistant_rows_start_hidden_and_do_something` in
@@ -565,14 +646,39 @@ agent-browser) run the same way on every OS; what differs:
   `hex_compare_images` gives jobs a screenshot similarity score.
 - **Knowing the person's things** (`assistant::knowledge`): `hex_lookup`
   (query + scope: files, recent_files, contacts, calendar, reminders, mail,
-  chrome_tabs, chrome_history, apps, memory, all) answers from Spotlight,
+  browser_tabs, browser_history, apps, memory, all; `chrome_tabs` and
+  `chrome_history` still parse, for one release) answers from Spotlight,
   Contacts (`knowledge.swift`, else the address book's database), EventKit,
-  Mail's Envelope Index and Chrome's History (both read from a clone, Full
-  Disk Access), and Chrome's tabs (JXA, never launching Chrome), ranked and
-  bounded; never message bodies, cookies, or passwords. `hex_chrome_tab`
-  reads and acts in the tab the person means in their own Chrome
-  (JavaScript from Apple Events; a read falls back to fetching the URL);
-  its clicks go through `autonomy::classify`/`allowed` like the guard's.
+  Mail's Envelope Index and the browsers' history (every Chromium-based
+  browser's profiles, found by their `Local State` + `<profile>/History`
+  layout, and Safari's `History.db`; read from a clone, Full Disk Access),
+  and the tabs of the person's default browser (LaunchServices' `https`
+  handler; JXA, never launching it), ranked and bounded; never message
+  bodies, cookies, or passwords. `hex_browser_tab` (`hex_chrome_tab` still
+  answers, for one release) reads and acts in the tab the person means in
+  that browser, scripted by the family its own dictionary speaks: Chromium
+  (`execute … javascript`) or Safari (`do JavaScript`); no list of brands.
+  A read falls back to fetching the URL. Its clicks, fills, and navigations
+  go through the one autonomy gate (`autonomy::Gate`); `run` only reads the
+  page (`knowledge::script::read_only`: an allowlist of names, no
+  assignment, no computed members) unless YOLO on the person's own turn; a
+  background job only reads there unless YOLO.
+- **One autonomy gate** (`autonomy::Gate::check(category, target)`): the
+  guard's clicks and shortcuts, Hex's browser, the person's browser tab, and
+  app scripts all ask it, and every refusal has one `NEEDS_CONFIRMATION`
+  shape (`autonomy::Refusal`: code, message, details {category, target,
+  tool, mode, app}).
+- **App actions run no code outside YOLO** (`actions::app_action::vet`):
+  every app a script addresses (`tell application …` after an `end tell`,
+  `application id`, a path, `«class capp»`, JXA `Application(…)`) is checked
+  against the blocked apps and the gate; outside YOLO a script that runs
+  shell commands (`do shell script`, `do script`), other scripts (`run
+  script`, `load script`), raw `«event …»`, the Objective-C bridge,
+  JavaScript in a browser, direct file writes, or keystrokes, that names an
+  executable, or that addresses an app by a computed name is refused
+  (`RUNS_CODE`), as is any action for an app whose `Info.plist` says it
+  opens shell scripts (a terminal) and an `open_url` of a local program,
+  script, or link file. YOLO runs everything but blocked apps.
   The memory graph (`knowledge::graph`, `memory-graph.json`) links people,
   companies, projects and their numbers, sites, repositories, and folders
   from `hex_remember` (optional `about`) and finished tasks; the part a
