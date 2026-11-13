@@ -93,7 +93,9 @@ impl ChatsPane {
             | Event::Acting { .. }
             | Event::Plan { .. }
             | Event::QuestionsChanged { .. }
-            | Event::Understood { .. } => {}
+            | Event::Understood { .. }
+            | Event::Borrowed { .. }
+            | Event::Returned { .. } => {}
         }
         if matches!(
             event,

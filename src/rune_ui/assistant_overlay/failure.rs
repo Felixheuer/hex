@@ -154,7 +154,7 @@ mod tests {
                 Remedy::Repair,
             ),
             (
-                "agent-desktop isn't installed, so the assistant can't use apps.",
+                "Cua Driver, the desktop driver, isn't installed, so the assistant can't use apps. Install it in Assistant settings, or turn off “Use apps”.",
                 Failure::Install,
                 Remedy::Repair,
             ),

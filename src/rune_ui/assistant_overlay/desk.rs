@@ -264,6 +264,8 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
             label,
             look: item.look,
             progress: item.progress,
+            step: item.step.clone(),
+            here: item.here,
             origin: (0.0, 0.0),
         };
         root = root.child(
@@ -405,7 +407,7 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
             el().key("frame-layer")
                 .absolute(0.0, 0.0)
                 .size(SIZE.0, SIZE.1)
-                .child(frame::glow(p.k.dark, !still)),
+                .child(frame::glow(p.k.dark)),
         );
     }
     root = root.child(island_el);

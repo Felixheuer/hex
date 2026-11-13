@@ -14,6 +14,7 @@
 use rune::{Color, oklch};
 
 /// How many task colours there are; `TaskStatus.colour` wraps at this.
+#[cfg_attr(not(test), allow(dead_code))] // The palette tests walk every colour.
 pub(crate) const COLOURS: u8 = crate::assistant::palette::COLOURS.len() as u8;
 
 /// How strongly a chip is tinted with its colour, over the card's

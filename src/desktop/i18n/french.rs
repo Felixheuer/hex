@@ -17,6 +17,7 @@ pub(super) fn table() -> &'static HashMap<&'static str, &'static str> {
             .chain(super::assistant_overlay::FRENCH)
             .chain(super::stage::FRENCH)
             .chain(super::island::FRENCH)
+            .chain(super::frames::FRENCH)
             .chain(super::window::FRENCH)
             .copied()
             .collect()

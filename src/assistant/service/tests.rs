@@ -50,6 +50,9 @@ struct World {
     settings: Mutex<AssistantSettings>,
     clock: AtomicU64,
     hands_off: Mutex<Option<String>>,
+    borrowed: Mutex<Vec<crate::assistant::guard::Borrow>>,
+    /// The person touched the mouse or keys (`touched_since`).
+    touched: std::sync::atomic::AtomicBool,
     recent: Mutex<Vec<ConversationSummary>>,
     interrupted: Mutex<Vec<(String, Origin, String)>>,
     requests: Mutex<Vec<(String, remote::Verb)>>,
@@ -104,6 +107,8 @@ impl World {
             settings: Mutex::new(settings),
             clock: AtomicU64::new(START),
             hands_off: Mutex::default(),
+            borrowed: Mutex::default(),
+            touched: std::sync::atomic::AtomicBool::new(false),
             recent: Mutex::default(),
             interrupted: Mutex::default(),
             requests: Mutex::default(),
@@ -251,6 +256,7 @@ impl World {
             world(self),
         );
         let notes = world(self);
+        let (borrowed, touched) = (world(self), world(self));
         let ended_ahead = world(self);
         let browser = world(self);
         let learned = world(self);
@@ -287,6 +293,8 @@ impl World {
                 release.log(format!("release {task} {lane:?}"));
             }),
             hands_off: Box::new(move || hands.hands_off.lock().unwrap().clone()),
+            borrowed: Box::new(move || borrowed.borrowed.lock().unwrap().clone()),
+            touched_since: Box::new(move |_| touched.touched.load(Ordering::SeqCst)),
             bring_forward: Box::new(move |task, windows| {
                 forward.log(format!("forward {task} {}", windows.len()));
             }),
@@ -1086,6 +1094,80 @@ fn hands_off_follows_the_guard_while_a_here_task_runs() {
             on: false,
         })
     });
+}
+
+fn borrow_of(task: &str) -> crate::assistant::guard::Borrow {
+    crate::assistant::guard::Borrow {
+        task: task.to_owned(),
+        window: TaskWindow {
+            app: "Numbers".into(),
+            window_id: Some("w-7".into()),
+        },
+        why: crate::assistant::guard::BORROW_KEYS.into(),
+        at_ms: 1_000,
+        until_ms: 21_000,
+        before: Some("Mail".into()),
+    }
+}
+
+#[test]
+fn a_borrow_is_told_while_it_lasts_and_the_front_going_back_after() {
+    let world = World::new(8);
+    let runner = world.runner();
+    let id = runner.submit(request("export it", Origin::Background));
+    world.wait_for("the task", started(&id));
+    *world.borrowed.lock().unwrap() = vec![borrow_of(&id)];
+    world.wait_for("borrowed", |events| {
+        events.contains(&Event::Borrowed {
+            conversation: id.clone(),
+            window: borrow_of(&id).window,
+            why: crate::assistant::guard::BORROW_KEYS.into(),
+            until_ms: 21_000,
+        })
+    });
+    world.borrowed.lock().unwrap().clear();
+    world.wait_for("returned", |events| {
+        events.contains(&Event::Returned {
+            conversation: id.clone(),
+            to: Some("Mail".into()),
+        })
+    });
+    assert!(
+        !world.logged(&format!("pause {id} true")),
+        "nobody touched it"
+    );
+    runner.cancel(&id);
+    world.wait_for("the end", ended(&id));
+}
+
+#[test]
+fn touching_anything_during_a_borrow_takes_the_task_over() {
+    let world = World::new(8);
+    let runner = world.runner();
+    let id = runner.submit(request("export it", Origin::Background));
+    world.wait_for("the task", started(&id));
+    *world.borrowed.lock().unwrap() = vec![borrow_of(&id)];
+    world.wait_for("borrowed", |events| {
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Borrowed { .. }))
+    });
+    world.touched.store(true, Ordering::SeqCst);
+    world.wait_for("taken over", |events| {
+        events.contains(&Event::Paused {
+            conversation: id.clone(),
+        })
+    });
+    // The window is the person's now: nothing went back.
+    world.wait_for("returned to nobody", |events| {
+        events.contains(&Event::Returned {
+            conversation: id.clone(),
+            to: None,
+        })
+    });
+    assert!(world.logged(&format!("pause {id} true")));
+    runner.cancel(&id);
+    world.wait_for("the end", ended(&id));
 }
 
 #[test]

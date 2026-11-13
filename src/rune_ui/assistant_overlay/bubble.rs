@@ -98,6 +98,9 @@ pub(crate) struct BubbleOverlay {
     pub(crate) answer_key: String,
     /// The shortcut is held: the live words show instead of the bubble.
     pub(crate) held: Option<Held>,
+    /// A task's window in front for a moment, or the front just given
+    /// back: the island says it (`island::line_with`).
+    pub(crate) front: Option<super::frame::Tab>,
     pub(crate) actions: Actions<BubbleOverlay>,
 }
 
@@ -136,7 +139,7 @@ pub(crate) fn view(state: &BubbleOverlay, cx: &mut Cx<BubbleOverlay>) -> El {
     // The island's line once the HUD has gone (while held, the HUD is the
     // island); hanging from the top only, as the island does.
     let line = (state.shown && state.below && state.held.is_none() && state.setup.is_none())
-        .then(|| island::line(None, state.bubble.as_ref()))
+        .then(|| island::line_with(None, state.front.as_ref(), state.bubble.as_ref()))
         .flatten();
     let island = line.map(|line| {
         island::capsule(p, &line, island::width(&line), 0.0)

@@ -339,11 +339,11 @@ fn card<S: 'static>(
     let browsers = (apps_shown + shown > 0).then(|| {
         let mut cells: Vec<El> = apps[..apps_shown]
             .iter()
-            .map(|preview| app_thumb(p, &task.id, preview, still, actions))
+            .map(|preview| app_thumb(p, task, preview, still, actions))
             .chain(
                 previews[..shown]
                     .iter()
-                    .map(|preview| thumb(p, &task.id, preview, still, actions)),
+                    .map(|preview| thumb(p, task, preview, still, actions)),
             )
             .collect();
         // The rest as "+N" on the last picture; a press shows them all.
@@ -587,7 +587,7 @@ pub(crate) fn mini(
 /// large in the overlay.
 fn thumb<S: 'static>(
     p: Paint,
-    task: &str,
+    task: &Task,
     preview: &Preview,
     still: bool,
     actions: stack::Actions<S>,
@@ -610,23 +610,31 @@ fn thumb<S: 'static>(
     } else {
         page.title.clone()
     };
-    let picture = mini(
+    let ring = super::pictures::Ring::of(task, Instant::now());
+    let picture = super::pictures::ring(
         p,
-        format!("job-thumb-{}", preview.session),
-        &preview.pixels,
-        liveness,
-        (&GLOBE, &title),
-        still,
+        ring,
+        palette::task(task.colour, p.k.dark),
+        mini(
+            p,
+            format!("job-thumb-{}", preview.session),
+            &preview.pixels,
+            liveness,
+            (&GLOBE, &title),
+            still,
+        ),
+        (THUMB_W, THUMB_H),
     );
     let open = actions.open_preview;
-    let (task, session) = (task.to_owned(), preview.session.clone());
+    let spoken = super::pictures::spoken(&name, &task.title, ring);
+    let (task, session) = (task.id.clone(), preview.session.clone());
     let captioned = col()
         .key(format!("job-thumb-cell-{}", preview.session))
         .w(THUMB_W)
-        .gap(3.0)
+        .gap(5.0)
         .child(picture)
         .child(
-            text(name.clone())
+            text(super::pictures::caption(&name, ring))
                 .key("job-thumb-name")
                 .truncate()
                 .font(look::meta(p))
@@ -636,7 +644,7 @@ fn thumb<S: 'static>(
     p.k.interactive(
         captioned
             .role("button")
-            .label(tr_fill("Open {} live", &name))
+            .label(format!("{}: {spoken}", tr_fill("Open {} live", &name)))
             .hit()
             .on_press(move |s: &mut S| open(s, &task, &session)),
     )
@@ -646,30 +654,38 @@ fn thumb<S: 'static>(
 /// the screen), with the app's name; a press opens it large in the overlay.
 fn app_thumb<S: 'static>(
     p: Paint,
-    task: &str,
+    task: &Task,
     preview: &AppPreview,
     still: bool,
     actions: stack::Actions<S>,
 ) -> El {
     let liveness = look::liveness(preview.clock.age(preview.has_frame()), preview.failed());
     let name = preview.window.app.clone();
-    let picture = mini(
+    let ring = super::pictures::Ring::of(task, Instant::now());
+    let picture = super::pictures::ring(
         p,
-        format!("job-app-{}", preview.number),
-        &preview.pixels,
-        liveness,
-        (&PANEL, &name),
-        still,
+        ring,
+        palette::task(task.colour, p.k.dark),
+        mini(
+            p,
+            format!("job-app-{}", preview.number),
+            &preview.pixels,
+            liveness,
+            (&PANEL, &name),
+            still,
+        ),
+        (THUMB_W, THUMB_H),
     );
     let open = actions.open_preview;
-    let (task, session) = (task.to_owned(), preview.session());
+    let spoken = super::pictures::spoken(&name, &task.title, ring);
+    let (task, session) = (task.id.clone(), preview.session());
     let captioned = col()
         .key(format!("job-app-cell-{}", preview.number))
         .w(THUMB_W)
-        .gap(3.0)
+        .gap(5.0)
         .child(picture)
         .child(
-            text(name.clone())
+            text(super::pictures::caption(&name, ring))
                 .key("job-app-name")
                 .truncate()
                 .font(look::meta(p))
@@ -679,7 +695,7 @@ fn app_thumb<S: 'static>(
     p.k.interactive(
         captioned
             .role("button")
-            .label(tr_fill("Open {} live", &name))
+            .label(format!("{}: {spoken}", tr_fill("Open {} live", &name)))
             .hit()
             .on_press(move |s: &mut S| open(s, &task, &session)),
     )

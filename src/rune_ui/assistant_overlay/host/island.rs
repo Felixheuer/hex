@@ -10,6 +10,7 @@ use std::time::Instant;
 use rune::Tx;
 
 use super::super::bubble::BubbleOverlay;
+use super::super::frame::Tab;
 use super::super::quick::Held;
 use super::answer::{hide_bubble, show_bubble};
 use super::{OVERLAYS, answer_key};
@@ -71,6 +72,56 @@ pub(super) fn release() {
         }
         true
     });
+}
+
+/// The front's moment as the board says it now (`frame::Tab::of`): a
+/// window brought in front, or the front just given back. The island says
+/// it, showing its panel for it if nothing else does; real input stays the
+/// frame tab's alone. Main thread.
+pub(super) fn front(tab: Option<Tab>) {
+    let tab = tab.filter(|tab| !matches!(tab, Tab::Hands { .. }));
+    let Some(overlays) = OVERLAYS.get() else {
+        return;
+    };
+    overlays.bubble.update_if(move |state, tx| {
+        if state.front == tab {
+            return false;
+        }
+        state.front = tab;
+        settle_front(state, tx, Instant::now());
+        true
+    });
+}
+
+/// Shows the panel while the island has the front's moment to say, wakes
+/// it when "Back to you" is due to go, and hides a panel that has nothing
+/// else; whether it changed.
+pub(super) fn settle_front(state: &mut BubbleOverlay, tx: &mut Tx, now: Instant) -> bool {
+    let mut changed = false;
+    if let Some(tab) = &state.front {
+        if tab.shows(now) {
+            if let Tab::Back { until, .. } = tab {
+                tx.wake_after(until.saturating_duration_since(now));
+            }
+        } else {
+            state.front = None;
+            changed = true;
+        }
+    }
+    let alone = state.bubble.is_none() && state.held.is_none() && state.setup.is_none();
+    match (&state.front, state.shown) {
+        (Some(_), false) => {
+            if let Some(overlays) = OVERLAYS.get() {
+                show_bubble(state, &overlays.bubble);
+            }
+            true
+        }
+        (None, true) if alone => {
+            hide_bubble(state);
+            true
+        }
+        _ => changed,
+    }
 }
 
 /// Folds the bubble's reasoning when its time comes, and wakes the panel

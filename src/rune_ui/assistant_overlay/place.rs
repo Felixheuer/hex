@@ -89,11 +89,10 @@ pub(crate) fn clear_of(
     if covers(mirrored) { anchor } else { mirrored }
 }
 
-/// [`anchor`] with the flip rule: where the person dragged it on the
-/// display keyed `key` stays theirs; the default top right flips left when
-/// an outlined window is under it. The host passes the watcher's outline
-/// rects and the rail's height (its panel's room).
-#[allow(dead_code)] // `host/follow.rs` (frames agent) wires it with the watcher's outlines.
+/// The rail's anchor on the display keyed `key`, with the flip rule: where
+/// the person dragged it there stays theirs; the default top right flips
+/// left when an outlined window is under it. The host passes the watcher's
+/// outline rects and about how tall the rail stands (`host::follow`).
 pub(crate) fn anchor_clear(
     key: &str,
     visible: Area,
@@ -170,13 +169,6 @@ type Dragged = HashMap<String, (f64, f64)>;
 fn with_dragged<T>(f: impl FnOnce(&mut Dragged) -> T) -> T {
     let mut dragged = DRAGGED.lock().unwrap_or_else(|error| error.into_inner());
     f(dragged.get_or_insert_with(load))
-}
-
-/// The orb's centre on the display keyed `key`: where it was dragged
-/// there, else top right ([`default_anchor`]).
-pub(crate) fn anchor(key: &str, visible: Area, hud: Option<(f64, bool)>) -> (f64, f64) {
-    let dragged = with_dragged(|dragged| dragged.get(key).copied());
-    placed(dragged, visible, hud)
 }
 
 /// The orb's centre from where it was dragged on a display (`dragged`, from

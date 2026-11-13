@@ -132,7 +132,7 @@ fn registry() -> std::sync::MutexGuard<'static, Registry> {
         .unwrap_or_else(|error| error.into_inner())
 }
 
-/// The windows worth a picture among `windows`: those agent-desktop named
+/// The windows worth a picture among `windows`: those the driver named
 /// (a window number), each once, in order.
 pub(crate) fn pictured(windows: &[TaskWindow]) -> Vec<(TaskWindow, u32)> {
     let mut seen = Vec::new();

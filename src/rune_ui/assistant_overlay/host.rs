@@ -353,6 +353,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             setup: None,
             answer_key: answer_key(),
             held: None,
+            front: None,
             level: None,
             actions: bubble::Actions {
                 dismiss: dismiss_bubble,

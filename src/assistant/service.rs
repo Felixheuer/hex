@@ -201,6 +201,12 @@ pub(crate) struct Hooks {
     pub release: Box<Release>,
     /// The task moving the real pointer now (`guard::hands_off`).
     pub hands_off: Hook<Option<ConversationId>>,
+    /// The windows the guards brought in front of the person for a moment
+    /// (`guard::borrowed`).
+    pub borrowed: Hook<Vec<super::guard::Borrow>>,
+    /// Whether the person touched the mouse or keys since a time (Unix ms;
+    /// `guard::touched_since`): during a borrow, a touch takes over.
+    pub touched_since: Box<dyn Fn(u64) -> bool + Send + Sync>,
     /// Brings a task's window forward (taken over).
     pub bring_forward: Box<BringForward>,
     /// Records how a conversation's request ended when its run didn't.
@@ -289,6 +295,8 @@ impl Hooks {
                 std::thread::spawn(move || super::browser::close(&task, lane));
             }),
             hands_off: Box::new(super::guard::hands_off),
+            borrowed: Box::new(super::guard::borrowed),
+            touched_since: Box::new(super::guard::touched_since),
             bring_forward: Box::new(mode::bring_forward),
             settle: Box::new(|id, outcome, message| {
                 if let Ok(store) = Store::open() {
@@ -429,6 +437,9 @@ pub(crate) struct State {
     monitor: bool,
     /// The task the HUD shows "Hands off" for.
     hands_off: Option<ConversationId>,
+    /// The windows brought in front for a moment, as last told
+    /// (`Event::Borrowed`).
+    borrowed: Vec<super::guard::Borrow>,
     /// A backend started ahead, waiting for its request.
     warm: Option<Warm>,
     /// The reserved conversation whose browser a hold's words already

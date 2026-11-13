@@ -26,6 +26,7 @@ const NOTCH: (f32, f32) = (180.0, MENU_BAR);
 struct Scene {
     held: Option<Held>,
     bubble: Option<Bubble>,
+    front: Option<super::super::frame::Tab>,
 }
 
 fn scene_view(scene: &Scene, cx: &mut Cx<Scene>) -> El {
@@ -50,7 +51,11 @@ fn scene_view(scene: &Scene, cx: &mut Cx<Scene>) -> El {
                         .map(|word| text(word).font(p.k.ty.small_medium).color(p.muted())),
                 ),
         );
-    let shown = line(scene.held.as_ref(), scene.bubble.as_ref());
+    let shown = line_with(
+        scene.held.as_ref(),
+        scene.front.as_ref(),
+        scene.bubble.as_ref(),
+    );
     let bottom = match &shown {
         Some(shown) => {
             let width = width(shown);
@@ -68,6 +73,20 @@ fn scene_view(scene: &Scene, cx: &mut Cx<Scene>) -> El {
             NOTCH.1
         }
     };
+    // The frame's tab under the island while a window is in front: why,
+    // Esc, and the countdown (the island says the rest).
+    let tab = scene
+        .front
+        .as_ref()
+        .filter(|tab| tab.in_front())
+        .map(|tab| {
+            row()
+                .absolute(0.0, bottom + 8.0)
+                .w(SCENE.0)
+                .justify_center()
+                .child(super::super::frame::tab_view(p, tab, Some(2)))
+        });
+    root = root.children(tab);
     let actions = bubble::Actions::<Scene> {
         dismiss: |_| {},
         open: |_, _| {},
@@ -190,7 +209,11 @@ fn scenes() -> Vec<(&'static str, Scene)> {
         Some("8:00 is gone. Take 8:15 or 8:45? It charges your saved card 20 € to hold it.".into());
     let mut folded = quick(vec![understood(), plan(2), step("Found Nopa tonight")]).unwrap();
     folded.fold(Instant::now() + super::super::quick::REASONING_FOLDS);
-    let none = |bubble| Scene { held: None, bubble };
+    let none = |bubble| Scene {
+        held: None,
+        bubble,
+        front: None,
+    };
     vec![
         ("idle", none(None)),
         (
@@ -198,6 +221,7 @@ fn scenes() -> Vec<(&'static str, Scene)> {
             Scene {
                 held: Some(held),
                 bubble: None,
+                front: None,
             },
         ),
         (
@@ -205,6 +229,7 @@ fn scenes() -> Vec<(&'static str, Scene)> {
             Scene {
                 held: Some(Held::new(Some("Mail".into()))),
                 bubble: None,
+                front: None,
             },
         ),
         ("thinking", none(quick(vec![understood(), plan(0)]))),
@@ -222,6 +247,33 @@ fn scenes() -> Vec<(&'static str, Scene)> {
             ])),
         ),
         ("asking", none(Some(asking))),
+        (
+            "borrowed",
+            Scene {
+                held: None,
+                bubble: None,
+                front: Some(super::super::frame::Tab::InFront {
+                    app: "Numbers".into(),
+                    window: crate::assistant::TaskWindow {
+                        app: "Numbers".into(),
+                        window_id: Some("w-7".into()),
+                    },
+                    why: crate::assistant::guard::BORROW_IGNORED.into(),
+                    until_ms: 0,
+                }),
+            },
+        ),
+        (
+            "back",
+            Scene {
+                held: None,
+                bubble: None,
+                front: Some(super::super::frame::Tab::Back {
+                    app: "Mail".into(),
+                    until: Instant::now(),
+                }),
+            },
+        ),
         (
             "done",
             none(quick(vec![
@@ -278,6 +330,7 @@ fn live_words_show_under_the_island_while_held() {
         Scene {
             held: Some(held),
             bubble: None,
+            front: None,
         },
         scene_view,
         SCENE,
@@ -301,6 +354,7 @@ fn the_reasoning_card_shows_understood_before_its_steps() {
         Scene {
             held: None,
             bubble: quick(vec![understood(), plan(1), step("Opened Resy")]),
+            front: None,
         },
         scene_view,
         SCENE,
@@ -331,6 +385,7 @@ fn the_bubble_panel_carries_the_island_line_above_its_card() {
         answer_key: fixture::ANSWER_KEY.into(),
         level: None,
         held,
+        front: None,
         actions: bubble::Actions {
             dismiss: |_| {},
             open: |_, _| {},

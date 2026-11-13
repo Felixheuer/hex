@@ -9,12 +9,20 @@
 //!
 //! A focus asked before any background action failed in that window is
 //! refused once with how to work without it; asked again, it goes ahead.
+//!
+//! While a window is borrowed the guard says so in the store
+//! (`guard/borrowed/<task>.json`: the window, why, until when, and the
+//! person's app that gets the front back), so Agent-Desk shows the desk
+//! frame with its tab and "Back to you" after (`Event::Borrowed`,
+//! `Event::Returned`). When the person takes the task over meanwhile (any
+//! touch does), the window is theirs: it stays where it is, in front.
 
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value};
 
 use super::super::child::{Desktop, Window};
+use super::super::state::BorrowFile;
 use super::{Guard, Resolved, refusal};
 
 /// How long a borrowed front lasts at most.
@@ -66,10 +74,8 @@ impl<D: Desktop> Guard<D> {
         }
         // An earlier borrow ends first.
         self.restore_borrowed();
-        let listed = self
-            .list(super::Look::Check)
-            .ok()
-            .and_then(|windows| windows.into_iter().find(|window| window.id == id));
+        let windows = self.list(super::Look::Check).unwrap_or_default();
+        let listed = windows.iter().find(|window| window.id == id).cloned();
         let window = listed.unwrap_or(Window {
             id: id.clone(),
             app: target.app.clone(),
@@ -90,6 +96,12 @@ impl<D: Desktop> Guard<D> {
             self.move_window(&window, spot);
         }
         let before = super::front::frontmost();
+        let before_app = before.and_then(|pid| {
+            windows
+                .iter()
+                .find(|window| window.pid == Some(i64::from(pid)))
+                .map(|window| window.app.clone())
+        });
         let result = self.forward(tool, args)?;
         self.borrowed = Some(Borrowed {
             before,
@@ -98,6 +110,21 @@ impl<D: Desktop> Guard<D> {
             at: Instant::now(),
             steps: 0,
         });
+        let at_ms = crate::desktop::events::now_ms();
+        self.store.set_borrowed(
+            &self.config.task,
+            Some(&BorrowFile {
+                task: self.config.task.clone(),
+                pid: self.pid,
+                started: super::super::state::started_us(self.pid),
+                window_id: window.id.clone(),
+                app: window.app.clone(),
+                why: reason(failed).to_owned(),
+                at_ms,
+                until_ms: at_ms + BORROW_FOR.as_millis() as u64,
+                before: before_app,
+            }),
+        );
         self.notes.push(format!(
             "{id} is in front briefly; do the step it needs now. Agent-Desk gives the person's window \
              back after your next {BORROW_STEPS} steps in it (or {} s){}.",
@@ -107,8 +134,13 @@ impl<D: Desktop> Guard<D> {
         Ok(result)
     }
 
-    /// Before a call: a borrow that ran out of time ends.
+    /// Before a call: a borrow the person took over is theirs; one that
+    /// ran out of time ends.
     pub(super) fn borrow_expired(&mut self) {
+        if self.borrowed.is_some() && self.store.paused(&self.config.task) {
+            self.hand_over_borrowed();
+            return;
+        }
         if self
             .borrowed
             .as_ref()
@@ -145,12 +177,27 @@ impl<D: Desktop> Guard<D> {
         }
     }
 
+    /// The person took the task over while its window was in front: the
+    /// window is theirs now, left where it is (never parked away from
+    /// under their hands), and the borrow is over.
+    pub(super) fn hand_over_borrowed(&mut self) {
+        if self.borrowed.take().is_some() {
+            self.store.set_borrowed(&self.config.task, None);
+            tracing::info!("a borrowed window went to the person, who took it over");
+        }
+    }
+
     /// Gives the front back to the person's app (unless they moved on) and
     /// parks the window again if it was parked.
     pub(super) fn restore_borrowed(&mut self) {
+        if self.borrowed.is_some() && self.store.paused(&self.config.task) {
+            self.hand_over_borrowed();
+            return;
+        }
         let Some(borrowed) = self.borrowed.take() else {
             return;
         };
+        self.store.set_borrowed(&self.config.task, None);
         if let Some(pid) = super::front::give_back_to(
             borrowed.before,
             super::front::frontmost(),
@@ -206,6 +253,16 @@ impl<D: Desktop> Guard<D> {
                 ));
             }
         }
+    }
+}
+
+/// Why a window comes forward: its app ignored background actions
+/// (`failed`), or keys must reach it.
+fn reason(failed: bool) -> &'static str {
+    if failed {
+        crate::assistant::guard::BORROW_IGNORED
+    } else {
+        crate::assistant::guard::BORROW_KEYS
     }
 }
 

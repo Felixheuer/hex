@@ -18,6 +18,7 @@ use rune::{Color, El, LiveRegion, el, icon, row, text};
 
 use super::super::controls::Paint;
 use super::failure::Failure;
+use super::frame::Tab;
 use super::look::{self, Card, State};
 use super::quick::{Bubble, BubblePhase, Held, Tag};
 use crate::desktop::i18n::{tr, tr_fill, tr_in};
@@ -48,12 +49,28 @@ pub(crate) struct Line {
 /// which app is in front); else what the Here question does now. `None`:
 /// the island is the notch alone.
 pub(crate) fn line(held: Option<&Held>, bubble: Option<&Bubble>) -> Option<Line> {
+    line_with(held, None, bubble)
+}
+
+/// [`line`] with the front's moment (`frame::Tab`): a task's window brought
+/// in front ("Agent-Desk is using Numbers for a moment") and the front
+/// given back ("Back to you · Mail") are the island's to say, before the
+/// quick turn's own line; the frame's tab under it keeps only why, Esc,
+/// and the countdown. A hold still comes first: the person is talking.
+pub(crate) fn line_with(
+    held: Option<&Held>,
+    front: Option<&Tab>,
+    bubble: Option<&Bubble>,
+) -> Option<Line> {
     if let Some(held) = held {
         return Some(Line {
             state: State::Listening,
             words: tr("Listening…").to_owned(),
             trail: held.app.as_deref().map(|app| tr_fill("{} in front", app)),
         });
+    }
+    if let Some(front) = front.and_then(front_line) {
+        return Some(front);
     }
     let bubble = bubble?;
     if bubble.asks.is_some() {
@@ -120,6 +137,23 @@ pub(crate) fn line(held: Option<&Held>, bubble: Option<&Bubble>) -> Option<Line>
         words: cut(&line.words, LINE_CHARS),
         ..line
     })
+}
+
+/// The island's line for the front's moment; `None` for real input
+/// (`Tab::Hands`), which the frame's tab says alone.
+pub(crate) fn front_line(tab: &Tab) -> Option<Line> {
+    match tab {
+        Tab::InFront { .. } | Tab::Back { .. } => Some(Line {
+            state: if tab.in_front() {
+                State::InFront
+            } else {
+                State::Done
+            },
+            words: cut(&tab.line(), LINE_CHARS),
+            trail: None,
+        }),
+        Tab::Hands { .. } => None,
+    }
 }
 
 /// An answer's first sentence (or line), plain, as the island's phrase.
@@ -396,6 +430,51 @@ mod tests {
         for each in [listening, thinking, thought, acting, asks, done, failed] {
             assert!(each.words.chars().count() <= LINE_CHARS, "{each:?}");
         }
+    }
+
+    #[test]
+    fn the_island_says_the_fronts_moment_before_the_quick_turn() {
+        crate::desktop::i18n::apply(Some("en"));
+        let window = crate::assistant::TaskWindow {
+            app: "Numbers".into(),
+            window_id: Some("w-7".into()),
+        };
+        let in_front = Tab::InFront {
+            app: "Numbers".into(),
+            window,
+            why: String::new(),
+            until_ms: 0,
+        };
+        let thinking = bubble(&[]);
+        let line = line_with(None, Some(&in_front), thinking.as_ref()).unwrap();
+        assert_eq!(line.state, State::InFront);
+        assert_eq!(line.words, "Agent-Desk is using Numbers for a moment");
+        let back = Tab::Back {
+            app: "Mail".into(),
+            until: Instant::now(),
+        };
+        let line = line_with(None, Some(&back), None).unwrap();
+        assert_eq!(
+            (line.state, line.words.as_str()),
+            (State::Done, "Back to you · Mail")
+        );
+        let hands = Tab::Hands {
+            app: None,
+            window: None,
+        };
+        assert_eq!(
+            line_with(None, Some(&hands), thinking.as_ref())
+                .unwrap()
+                .state,
+            State::Thinking,
+            "real input is the frame tab's alone"
+        );
+        let held = Held::new(None);
+        assert_eq!(
+            line_with(Some(&held), Some(&in_front), None).unwrap().state,
+            State::Listening,
+            "the person talking comes first"
+        );
     }
 
     #[test]
