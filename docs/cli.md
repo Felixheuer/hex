@@ -34,12 +34,12 @@ hex
 ├── quit [--force]                 refused while a meeting or dictation is active, or unconfirmed
 ├── restart [--force]              quit and reopen (opens Hex when it isn't running)
 ├── dictation start|stop|toggle
-│   ├── start --print              (Labs, macOS) answer with the transcript when the recording ends
+│   ├── start --print              (macOS) answer with the transcript when the recording ends
 │   ├── stop --print               print the transcript instead of pasting it (below)
 │   └── start|toggle --raw         paste the transcript as heard, skipping the Output steps
 ├── paste-last                     paste the last dictation (Option-Shift-V); refused while recording
-├── typed-text                     Labs › Transform typed text (Linux): replace the focused field's text
-├── transcribe <file> [--model <id>] [--language L]  Labs › Transcribe files: print a WAV file's transcript
+├── typed-text                     Transform typed text (Linux): replace the focused field's text
+├── transcribe <file> [--model <id>] [--language L]  print a WAV file's transcript
 ├── meetings
 │   ├── record [--title T]         as the menu bar's Record Meeting; needs meetings.enabled
 │   ├── stop                       Stop & Transcribe
@@ -54,10 +54,10 @@ hex
 │   ├── use <id> [--language L]    installed models only; never downloads or repairs
 │   ├── install [id] [--language L] download, then switch to it (default: the selected model)
 │   ├── cancel                     stop a download or load in progress
-│   ├── import <path> [--name N]   Labs: check and copy in a GGUF; prints its custom-… id
-│   ├── rename <id> <name>         Labs: an import's picker name
-│   ├── repair <id>                Labs: rehash Hex's copy; ready again if it still matches
-│   ├── remove <id>                Labs: Hex's copy of an import (not the selected model)
+│   ├── import <path> [--name N]   check and copy in a GGUF; prints its custom-… id
+│   ├── rename <id> <name>         an import's picker name
+│   ├── repair <id>                rehash Hex's copy; ready again if it still matches
+│   ├── remove <id>                Hex's copy of an import (not the selected model)
 │   └── status|devices|check|transcribe <wav>  Linux and Windows, run in this process
 ├── commands
 │   ├── init                       create ~/.config/hex (local, no running Hex needed)
@@ -65,7 +65,7 @@ hex
 ├── window
 │   ├── show [settings|models|modes|history|meetings]
 │   ├── hide                       close the window; Hex stays in the menu bar
-│   └── story <story> [--variant V] [--play]  the playground (Labs): open a story
+│   └── story <story> [--variant V] [--play]  the playground (dev builds): open a story
 ├── onboarding reset (alias restart)  replay the first run now; every OS (below)
 ├── history clear --yes            delete every retained dictation
 ├── vocabulary                     the shared vocabulary (features/vocabulary.md)
@@ -78,9 +78,6 @@ hex
 │   ├── show <capture>             one capture's words, files, and where it went
 │   ├── send <capture> [--to <session>] [--always]  send it to an OpenCode session
 │   └── route <capture> [--ask-jev]  what routing sees and decides; sends nothing
-├── screenshot [--pick]           Labs (macOS): shoot the display under the pointer and print the PNG's path; --pick opens the ⌘⇧4 picker
-├── labs [on|off <feature>]       list Labs features or turn one on/off; edits settings.json (features/labs.md)
-│   └── link <feature>             macOS: print hex://labs/<feature>, the link that opens Hex's Labs page on that lab's group
 ├── check-for-updates              check for an update now
 ├── launch-at-login [on|off]       report or change Launch at Login (macOS: installed Hex.app only; Windows Run key; Linux XDG autostart)
 └── logs [--process] [-n N] [-f]   tail live.ndjson (or process.log); no running Hex needed
@@ -110,8 +107,7 @@ falls back to pasting. `--print` with `toggle` or `cancel` is a usage error
 and `hex paste-last` reach the listener's own queue as its shortcut would;
 Linux's `hex typed-text` does too.
 
-`dictation start --print` (Labs › Print-only CLI dictation, off by default,
-macOS) records a dictation that belongs to the command instead of the person's
+`dictation start --print` (macOS) records a dictation that belongs to the command instead of the person's
 focused app: the command blocks and answers only when the recording ends,
 however it ends, with the transcript (`transcript`, exit 0) instead of pasting
 or copying it. It starts exactly as `start` does and locks the recording; the
@@ -153,24 +149,23 @@ first-run onboarding at once, as on a new install, for trying it again, on
 macOS, Linux, and Windows. It removes only the onboarding markers (`onboarding-complete`, `onboarding-step`,
 `onboarding-relaunch`) from the data folder. Settings, history, models, and
 permissions are untouched, so the run finds them ready: the download passes at
-once and the permission step is skipped. Labs' Run setup again row does the
+once and the permission step is skipped. General › Run setup again does the
 same.
 
 `paste-last` needs a listening Hex (`not-ready` during setup) and is refused
 with `busy` while anything records or a shortcut gesture is in progress. The
 menu bar's Paste Last Dictation does nothing in that case.
 
-`typed-text` (Linux) runs the same job as Labs › Transform typed text's
-shortcut, for desktops without the shortcuts portal. It needs a listening Hex
-and the lab on (`disabled` when it is off), and refuses while Terminal paste
+`typed-text` (Linux) runs the same job as Transform typed text's
+shortcut, for desktops without the shortcuts portal. It needs a listening Hex,
+and refuses while Terminal paste
 shortcut is on (`disabled`), because its Ctrl+V would become Ctrl+Shift+V. It
 sends Ctrl+A and Ctrl+C, so it is not meant for terminals. While a capture
 records or finishes, it answers done but the listener drops the job.
 
-`transcribe <file>` (Labs › Transcribe files, off by default) prints a saved
+`transcribe <file>` prints a saved
 WAV recording's transcript to stdout with the selected dictation model, or
-the one `--model` names; `--language` picks a language the model supports.
-It is refused with `disabled` while the lab is off. The file is read here and
+the one `--model` names; `--language` picks a language the model supports. The file is read here and
 capped at 64 MiB, and Hex's own WAV decoder checks it first, so a file that
 isn't WAV is refused with `unsupported` (convert it first, for example with
 ffmpeg) before anything else runs. With Hex running, the file goes to its
@@ -181,10 +176,7 @@ Linux and Windows load the model in this process, as `hex model transcribe`
 does; macOS answers `not-running`. An empty transcript answers `no-speech`
 (exit 4). It never pastes, records History, or runs mode processing. With
 `--json` the reply is the same `transcript` status `dictation stop --print`
-uses. The lab
-is read from `settings.json` (`AppSettings::read`), as `hex labs` reads it,
-whether or not Hex is running; a running Hex saves its Labs toggle there at
-once.
+uses.
 
 `model import`, `rename`, `repair`, and `remove` run in this process on every
 OS; `hex models` is an alias for `hex model`. An import's id is `custom-` and
@@ -396,8 +388,7 @@ recording", "The window isn't open"). Setting `kind` is one of `bool`,
   "permissions": {"ready": true, "microphone": "ready", "accessibility": "ready",
                   "transcription_model": true},
   "window": {"open": false, "pane": null},
-  "update": "current",
-  "labs": ["live-text"]
+  "update": "current"
 }
 ```
 
@@ -414,7 +405,7 @@ update              current | checking | available | unavailable
 ```
 
 `memory_footprint_bytes` is the physical footprint Activity Monitor shows.
-`labs` lists the [Labs](features/labs.md) features turned on; older Hex omits it.
+Older Hex also reported `labs`, the Labs features turned on; Labs is gone ([features/labs.md](features/labs.md)).
 
 ### Error codes
 
@@ -430,11 +421,11 @@ confirmation-required  clears history; pass --yes
 shortcut-in-use        another Hex shortcut already uses that binding
 not-found              no such capture, or it has no scrawl.json yet
 unknown-model          no such model id (`hex model list`)
-model-unavailable      an imported model that is missing, changed, or behind its Labs toggle,
+model-unavailable      an imported model that is missing or changed,
                        or one `hex transcribe` named that the running Hex can't use
 not-installed          `model use` on a model that isn't downloaded (`hex model install`)
 feature-off            the command needs an opt-in that is off (Meetings)
-disabled               a Labs toggle the command needs is off (the message names it)
+disabled               a setting the command needs is off (the message names it)
 not-ready              Hex is waiting for setup (permissions or the dictation model)
 meeting-active         quit/restart while a meeting records (pass --force)
 busy                   something is in progress (recording, transcribing, a full queue),
@@ -470,8 +461,8 @@ mapping applies it; launching Hex does not reapply it. Wayland has no general
 protocol for the active layout, so there Hex keeps the settings but does not
 observe input-source changes or show these controls.
 
-On macOS and Windows, `labs.app_model_switching` opts into switching the
-shared speech-model picker per dictation mode. Each mode, Global included, may
+On macOS and Windows, the shared speech-model picker can switch per
+dictation mode. Each mode, Global included, may
 carry `speech`, a model and a language it supports, for example
 `{"model":"parakeet_v3","language":"es"}` in
 `dictation_processing.default_mode` or `dictation_processing.modes[]`; omit it
@@ -482,11 +473,11 @@ recording holds a due switch until it is idle. Matching is by application on
 both macOS and Windows, and a mode's website rules are ignored, so a mode
 chosen only by website never switches. Hex's own window, and a moment with no
 app in front, are ignored: they neither schedule nor cancel a switch, so
-enabling the lab while Hex is in front applies nothing until you next focus
+Hex in front applies nothing until you next focus
 another app. Editing a mode's choice applies when you next focus an app whose
 mode carries it. With keyboard switching also on, the switch that is due
 later wins, and an app switch wins a tie in the same tick. Linux does not
-support this lab.
+support this.
 
 - Booleans take `on`/`off`, `true`/`false`, `yes`/`no`, or `1`/`0`.
 - Optional settings take `none` to clear them.
@@ -506,27 +497,23 @@ support this lab.
   layout, the OS's rules for Settings' recorder apply, and a binding another
   Hex shortcut uses is refused with `shortcut-in-use`. `double_tap_only`
   needs a key chord, as in Settings.
-- On Linux with `labs.standalone_special_keys` on (`hex labs on
-  special-keys`, off by default), a shortcut may use `menu`, `pause`, or
-  `scrolllock`, alone or with modifiers, for example
+- On Linux and Windows a shortcut may use `menu`, `pause`, or `scrolllock`
+  alone or with modifiers, for example
   `hex settings set dictation_hotkey menu` after remapping Caps Lock to Menu.
-  Off, they are refused with `invalid-value`, and turning the toggle off puts
-  a shortcut on one back to its default. Elsewhere one alone still needs a
-  modifier.
+  Elsewhere one alone still needs a modifier.
 - `second_dictation_hotkey` (unbound by default; `none` clears it) is a
   second shortcut that dictates exactly as `dictation_hotkey` does, such as a
-  key on an external keyboard. It acts only while
-  `labs.second_dictation_shortcut` is on (`hex labs on
-  second-dictation-shortcut`) and shares no key with another shortcut. Linux
-  and Windows need a key in it, as every shortcut there does.
+  key on an external keyboard, on Linux and Windows (a key is needed, as
+  every shortcut there does). It shares no key with another shortcut. On
+  macOS a saved one becomes the first of `extra_dictation_hotkeys` as the
+  file loads.
 - `extra_dictation_hotkeys` (macOS, an empty array by default) holds up to
   four more dictation shortcuts, each `{"binding": ..., "mode": ...}`. A row
-  acts only while `labs.more_dictation_shortcuts` is on (`hex labs on
-  more-dictation-shortcuts`) and shares no key with another active shortcut.
+  shares no key with another active shortcut.
   `mode` is `hold_or_double_tap` (the default), `hold`, `tap`, or `double_tap`;
   `double_tap` needs a binding with a key and otherwise reads as
-  `hold_or_double_tap`, except that Labs › Double-tap on a lone modifier also
-  allows a binding without one. Turning the Lab off keeps the rows saved.
+  `hold_or_double_tap`, except that macOS also allows a binding without a
+  key (modifiers alone).
 - `json` settings (modes, extra dictation shortcuts, meeting providers,
   excluded calendars) take the JSON value the file stores.
 - `ui_language` takes `en`, `pl`, `zh` (Simplified Chinese), `zh-Hant`
@@ -556,10 +543,9 @@ support this lab.
   ago than that to the Trash at launch and hourly, Meetings on or off, and
   `hex meetings` and `hex mcp` no longer list them.
 - `meetings.audio_retention` is `day`, `week`, `month`, `forever`, or `none`
-  (the default). With Labs › Expire meeting audio separately on, a finished
-  meeting's WAVs move to the Trash on that window while its transcript,
-  notes, summary, and Markdown stay; `none` follows `meetings.retention`.
-  With the lab off it does nothing.
+  (the default). A finished meeting's WAVs move to the Trash on that window
+  while its transcript, notes, summary, and Markdown stay; `none` follows
+  `meetings.retention`.
 - `transcription.model` and `transcription.language` are read-only here: use
   `hex model use`. `transcription_recents` and `meetings.calendar.connected`
   are read-only (connecting a calendar asks macOS for access from Settings).
@@ -573,9 +559,12 @@ Writable keys: `release_microphone_while_idle`,
 `sound_effects`, `sound_effect_volume`, `sound_theme`, `microphone`,
 `avoid_bluetooth_microphone`, `recording_audio_behavior`, `recording_duck_volume`, `double_tap_lock`, `double_tap_only`,
 `shortcut_mode`, `dictation_hotkey`, `paste_last_hotkey`, `raw_dictation_hotkey`,
-`second_dictation_hotkey`, `extra_dictation_hotkeys`, `labs.second_dictation_shortcut`,
-`labs.more_dictation_shortcuts`, `labs.standalone_special_keys`, `labs.app_model_switching`, `show_dock_icon`, `vocabulary_boost`,
-`labs.keep_microphone_open`, `labs.keep_microphone_open_seconds`,
+`second_dictation_hotkey`, `extra_dictation_hotkeys`, `show_dock_icon`, `vocabulary_boost`,
+`preferences.live_text`, `preferences.live_typing`, `preferences.after_dictation`,
+`preferences.spoken_formatting`, `preferences.remove_filler_words`,
+`preferences.unload_model_after_minutes`, `preferences.keep_microphone_open_seconds`,
+`preferences.caps_lock`, `preferences.appearance`, `preferences.hide_menu_bar_icon`,
+`preferences.quit_closes_window`, `preferences.speakers_only`, `preferences.keep_recordings`,
 `dictation_processing.default_mode`, `dictation_processing.modes`,
 `history_retention`, `meetings.enabled`,
 `meetings.output_folder`, `meetings.summaries`, `meetings.opencode_model`,

@@ -96,7 +96,7 @@ impl TranscriptionModelId {
         matches!(self, Self::Custom(_))
     }
 
-    /// A model behind its own Labs toggle: an import, or Parakeet Ultra. A
+    /// A model behind its own setting: an import, or Parakeet Ultra. A
     /// saved choice of one stays saved while it can't run, and the listener
     /// runs a fallback (`custom_models::runnable`).
     pub const fn is_labs_gated(self) -> bool {
@@ -215,7 +215,7 @@ pub struct ModelDefinition {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VocabularyUse {
     /// Parakeet's transducer heads bias their decode toward the terms
-    /// (Labs › Vocabulary biasing).
+    /// (Vocabulary biasing).
     Bias,
     /// Whisper and Qwen3-ASR read the terms as their context prompt.
     Prompt,
@@ -256,7 +256,7 @@ impl ModelDefinition {
                 super::custom_models::usable(id)
             }
             (ModelRuntime::Gguf(_), TranscriptionModelId::ParakeetUltra) => {
-                crate::labs::parakeet_ultra()
+                crate::features::parakeet_ultra()
             }
             (ModelRuntime::Gguf(_), _) => true,
         }
@@ -660,7 +660,7 @@ pub fn definition(id: TranscriptionModelId) -> &'static ModelDefinition {
         .expect("every transcription model id has a definition")
 }
 
-/// Every catalog model, then the imports while their Labs toggle is on.
+/// Every catalog model, then the imports while their setting is on.
 pub fn all_models() -> Vec<&'static ModelDefinition> {
     MODELS
         .iter()
@@ -1465,7 +1465,7 @@ mod tests {
     #[test]
     fn parakeet_ultra_is_offered_only_with_its_lab_and_a_saved_choice_survives() {
         let ultra = definition(TranscriptionModelId::ParakeetUltra);
-        assert_eq!(ultra.available(), crate::labs::parakeet_ultra());
+        assert_eq!(ultra.available(), crate::features::parakeet_ultra());
         assert!(!ultra.streams && !ultra.accepts_language_hint);
         assert_eq!(ultra.languages, PARAKEET_V3_LANGUAGES);
         for language in [AUTO_LANGUAGE, "en", "de"] {
@@ -1481,30 +1481,13 @@ mod tests {
             language: "de".into(),
         };
         assert!(validate_saved(&saved).is_ok());
-        if !crate::labs::parakeet_ultra() {
+        if !crate::features::parakeet_ultra() {
             assert!(validate(&saved).is_err());
             assert_eq!(
                 super::super::custom_models::runnable(&saved),
                 super::super::custom_models::fallback()
             );
         }
-        let mut settings = crate::app_settings::AppSettings::default();
-        assert!(
-            crate::labs::Feature::ParakeetUltra
-                .off_refusal(&settings)
-                .is_none()
-        );
-        settings.transcription = saved;
-        assert!(
-            crate::labs::Feature::ParakeetUltra
-                .off_refusal(&settings)
-                .is_some()
-        );
-        assert!(
-            crate::labs::Feature::BenchmarkDetails
-                .off_refusal(&settings)
-                .is_none()
-        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! `hex transcribe <file>` (Labs › Transcribe files): a saved WAV through
+//! `hex transcribe <file>` (Transcribe files): a saved WAV through
 //! the running Hex's local API, or in this process on Linux and Windows when
 //! Hex is stopped. Nothing is pasted, saved to History, or processed.
 
@@ -10,7 +10,6 @@ use serde::Deserialize;
 
 use super::{Output, print};
 use crate::control::{ControlReply, model_selection};
-use crate::labs::Feature;
 use crate::transcription::models::TranscriptionSelection;
 use crate::transcription::service::{AudioClip, AudioError};
 
@@ -52,23 +51,13 @@ pub(super) fn run(
     print(reply, output)
 }
 
-/// The lab's gate, the file, and the model, all checked before Hex is asked.
+/// The file and the model, both checked before Hex is asked.
 fn prepare(
     settings: &crate::app_settings::AppSettings,
     file: &Path,
     model: Option<String>,
     language: Option<String>,
 ) -> std::result::Result<Job, ControlReply> {
-    if !Feature::TranscribeFiles.on(settings) {
-        let message = match Feature::TranscribeFiles.managed() {
-            Some(lock) => lock.refusal().to_owned(),
-            None => {
-                "Labs › Transcribe files is off; turn it on with `hex labs on transcribe-files`"
-                    .to_owned()
-            }
-        };
-        return Err(ControlReply::error("disabled", message));
-    }
     let wav = read_wav(file)?;
     let model = model.unwrap_or_else(|| settings.transcription.model.as_str().to_owned());
     let selection = model_selection(settings, &model, language.as_deref())?;
@@ -282,25 +271,8 @@ mod tests {
     }
 
     #[test]
-    fn the_lab_off_refuses_and_names_its_toggle() {
-        let reply = prepare(
-            &AppSettings::default(),
-            Path::new("recording.wav"),
-            None,
-            None,
-        )
-        .unwrap_err();
-        assert!(
-            matches!(reply, ControlReply::Error { ref code, ref message }
-                if code == "disabled" && message.contains("hex labs on transcribe-files")),
-            "{reply:?}"
-        );
-    }
-
-    #[test]
     fn a_file_that_is_not_wav_is_refused_before_any_transcription() {
-        let mut settings = AppSettings::default();
-        settings.labs.transcribe_files = true;
+        let settings = AppSettings::default();
         let path = not_a_wav();
         let reply = prepare(&settings, &path, None, None).unwrap_err();
         let _ = std::fs::remove_file(&path);
@@ -312,8 +284,7 @@ mod tests {
 
     #[test]
     fn a_wav_uses_the_selected_model_and_language() {
-        let mut settings = AppSettings::default();
-        settings.labs.transcribe_files = true;
+        let settings = AppSettings::default();
         let path =
             std::env::temp_dir().join(format!("hex-transcribe-wav-{}.wav", std::process::id()));
         std::fs::write(&path, wav()).unwrap();

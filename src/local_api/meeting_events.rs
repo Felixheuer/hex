@@ -1,4 +1,4 @@
-//! `GET /meetings/events` (Labs › Meeting finished event): one subscriber
+//! `GET /meetings/events` (Meeting finished event): one subscriber
 //! at a time receives `data: {"type":"meeting.finished","id":"<id>"}` once
 //! per meeting whose final transcript is written, and a comment keepalive
 //! between. Only the id is sent; clients read the rest with
@@ -30,7 +30,7 @@ impl Default for Source {
     fn default() -> Self {
         Self {
             hub: crate::meeting::finished_events::global(),
-            enabled: crate::labs::meeting_finished_event,
+            enabled: crate::features::meeting_finished_event,
         }
     }
 }

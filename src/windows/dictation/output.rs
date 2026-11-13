@@ -64,9 +64,9 @@ pub(super) fn process_dictation_job(
         // is a question, whatever became of its reply.
         if !printed && !asks {
             let paster = paster.as_mut().map_err(|error| format!("{error:#}"))?;
-            // Labs › Copy dictation only, read as the output commits:
+            // Copy dictation only, read as the output commits:
             // dictations go to the clipboard unpasted; Paste Last still pastes.
-            if crate::labs::copy_only() {
+            if crate::features::copy_only() {
                 paster
                     .copy_only(&text)
                     .map_err(|error| format!("{error:#}"))?;

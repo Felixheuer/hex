@@ -1,4 +1,4 @@
-//! Labs › Meeting finished event: tells one local API subscriber
+//! Meeting finished event: tells one local API subscriber
 //! (`GET /meetings/events`) a meeting's id once its final transcript and
 //! Markdown are written. Only the id leaves this module: no title, path,
 //! transcript text, or audio. With the toggle off, or with nobody
@@ -23,9 +23,9 @@ pub(crate) fn global() -> &'static Hub {
     &HUB
 }
 
-/// Publishes a finished meeting while Labs › Meeting finished event is on.
+/// Publishes a finished meeting while Meeting finished event is on.
 pub(crate) fn publish(id: &str) {
-    HUB.publish(crate::labs::meeting_finished_event(), id);
+    HUB.publish(crate::features::meeting_finished_event(), id);
 }
 
 impl Hub {

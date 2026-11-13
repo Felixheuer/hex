@@ -1,4 +1,4 @@
-//! Import a local audio file as a meeting (macOS; Labs › Import audio).
+//! Import a local audio file as a meeting (macOS; Import audio).
 //!
 //! The native bridge decodes the file to 16 kHz mono float WAV in bounded
 //! blocks, then the meeting is written exactly as a recording's would be:
@@ -38,8 +38,8 @@ unsafe extern "C" {
 /// Imports `source` as a finished meeting. Runs on its own worker thread;
 /// the folder lock is held until its transcript is published.
 pub(crate) fn import(source: &Path) -> Result<MeetingManifest> {
-    if !crate::labs::meeting_import() {
-        return Err(eyre!("Labs › Import audio is off"));
+    if !crate::features::meeting_import() {
+        return Err(eyre!("Only macOS imports audio as a meeting"));
     }
     if !is_supported(source) {
         return Err(eyre!(

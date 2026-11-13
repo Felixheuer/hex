@@ -154,19 +154,22 @@ impl AppSettings {
             repaired = true;
         }
         settings.dictation_processing.default_mode.name = "Global".into();
+        // Labs is gone: a file from before carries its `labs` switches into
+        // `preferences` once (a file that has `preferences` already ignores
+        // a stale `labs`).
+        if let Some(labs) = settings.retired_labs.take()
+            && !has_preferences(&data)
+        {
+            settings.migrate_retired_labs(&labs);
+        }
+        settings.fold_second_dictation_shortcut();
         settings.repair_bare_primary_clicks();
-        #[cfg(target_os = "macos")]
-        settings.repair_mouse_shortcuts();
-        #[cfg(target_os = "linux")]
-        settings.repair_special_keys();
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        settings.repair_section_key();
         settings.normalize_double_tap_settings();
         settings.repair_extra_dictation_shortcuts();
         settings.repair_action_shortcut();
         // After every repair that can put Annotate back on its default
-        // shortcut, which a saved record shortcut may now share: a mouse
-        // button with Labs › Mouse shortcuts off, or a bare left click.
+        // shortcut, which a saved record shortcut may now share: a bare left
+        // click.
         #[cfg(hex_capture)]
         settings.clear_record_shortcut_sharing_capture();
         settings.migrate_legacy_replacements();
@@ -376,6 +379,14 @@ fn settings_object(data: &[u8]) -> Result<Value, Unparseable> {
 
 /// Recognition hints saved before they merged into the vocabulary: the
 /// selected model's, then the recent models' from newest.
+/// Whether a settings file already has a `preferences` object.
+fn has_preferences(data: &[u8]) -> bool {
+    matches!(
+        settings_object(data),
+        Ok(Value::Object(object)) if object.contains_key("preferences")
+    )
+}
+
 fn legacy_recognition_hints(data: &[u8]) -> Vec<String> {
     #[derive(Default, Deserialize)]
     #[serde(default)]

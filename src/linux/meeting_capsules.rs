@@ -1,4 +1,4 @@
-//! Labs › Floating meeting capsules on GNOME (#1274). A Wayland compositor
+//! Floating meeting capsules on GNOME (#1274). A Wayland compositor
 //! without layer-shell (GNOME) has no surface for an overlay that takes
 //! clicks, so the recording offer and recording capsule can't float there and
 //! Hex opens the Meetings pane instead (#1271). With this explicit opt-in, Rune
@@ -9,7 +9,7 @@
 /// Whether the meeting capsules may float on XWayland, read as each capsule
 /// shows.
 pub(crate) fn on_xwayland() -> bool {
-    on_xwayland_for(crate::labs::gnome_meeting_capsules())
+    on_xwayland_for(crate::features::gnome_meeting_capsules())
 }
 
 /// Whether a Labs overlay this user opted into may float on XWayland: only on

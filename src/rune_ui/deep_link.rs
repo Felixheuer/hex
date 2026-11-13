@@ -1,52 +1,25 @@
-//! Links that open the window on a page: `hex://labs`,
-//! `hex://labs/<feature>` (`hex labs link <feature>` prints it),
-//! `hex://settings/<pane>`, and `hex://chats?id=<conversation>` (Labs ›
-//! Assistant's Chats; `hex-test://` in a test build). A Labs link
-//! opens the store, on Turned on with `?tab=on`, on a chip with
-//! `?category=<id>`, searching with `?search=<words>`, and on a lab's group
-//! chip when it names one; it never turns a lab on. Story links live
-//! in `story_link`.
+//! Links that open the window on a page: `hex://settings/<pane>` and
+//! `hex://chats?id=<conversation>` (`hex-test://` in a test build). Labs is
+//! gone; an old `hex://labs` link opens the Dictation pane, where most of
+//! its features now live. Story links live in `story_link`.
 
 use rune::Tx;
 
-use super::labs::LabsLink;
 use super::story_link::{MAX_LINK, percent_decode};
 use super::{Pane, Ui};
 
 /// Where a link opens the window.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Target {
-    /// The Labs store. Names are checked when the link opens, so an
-    /// unknown lab or category still opens Labs.
-    Labs(LabsLink),
     /// A main pane, by its link name.
     Settings(String),
     /// Chats, on a conversation (`?id=`) or a new chat.
     Chats(Option<String>),
 }
 
-impl LabsLink {
-    fn read(name: String, url: &url::Url) -> Self {
-        let mut link = Self {
-            lab: (!name.is_empty()).then_some(name),
-            ..Self::default()
-        };
-        for (key, value) in url.query_pairs() {
-            match &*key {
-                "tab" => link.turned_on = value.eq_ignore_ascii_case("on"),
-                "category" if !value.is_empty() => {
-                    link.category = Some(value.to_ascii_lowercase());
-                }
-                "search" if !value.trim().is_empty() => link.search = Some(value.into_owned()),
-                _ => {}
-            }
-        }
-        link
-    }
-}
-
 /// The main panes a `hex://settings/<pane>` link names.
-const PANES: [(&str, Pane); 7] = [
+const PANES: [(&str, Pane); 8] = [
+    ("dictation", Pane::Dictation),
     ("general", Pane::General),
     ("output", Pane::Output),
     ("history", Pane::History),
@@ -56,7 +29,8 @@ const PANES: [(&str, Pane); 7] = [
     ("voice-filter", Pane::VoiceFilter),
 ];
 
-/// Reads `scheme://labs[/<feature>][?…]` and `scheme://settings/<pane>`. `None`
+/// Reads `scheme://settings/<pane>`, a retired `scheme://labs[…]`, and
+/// `scheme://chats`. `None`
 /// means it is not one of these (a story link, or not ours), for the caller
 /// to read another way.
 pub(crate) fn parse(link: &str, scheme: &str) -> Option<Result<Target, String>> {
@@ -90,21 +64,15 @@ pub(crate) fn parse(link: &str, scheme: &str) -> Option<Result<Target, String>> 
     };
     let name = segments.join("/").to_ascii_lowercase();
     Some(match (host, name.is_empty()) {
-        ("labs", _) => Ok(Target::Labs(LabsLink::read(name, &url))),
+        ("labs", _) => Ok(Target::Settings("dictation".into())),
         (_, true) => Err("the link names no settings pane".into()),
         (_, false) => Ok(Target::Settings(name)),
     })
 }
 
-/// The link that opens Labs on `feature`'s group.
-pub(crate) fn labs_link(scheme: &str, feature: crate::labs::Feature) -> String {
-    format!("{scheme}://labs/{}", feature.name())
-}
-
 /// Opens the window's page for `target`; the caller brings the window forward.
 pub(crate) fn open(ui: &mut Ui, target: Target, tx: &mut Tx) {
     match target {
-        Target::Labs(link) => super::labs::reveal(ui, &link, tx),
         Target::Chats(conversation) => {
             super::show(ui, super::Destination::Chats(conversation), tx);
         }
@@ -130,70 +98,19 @@ pub(crate) fn open(ui: &mut Ui, target: Target, tx: &mut Tx) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::labs::Feature;
 
     fn read(link: &str) -> Option<Result<Target, String>> {
         parse(link, "hex")
     }
 
-    fn lab(id: &str) -> Target {
-        Target::Labs(LabsLink {
-            lab: Some(id.into()),
-            ..LabsLink::default()
-        })
-    }
-
     #[test]
-    fn reads_labs_links() {
-        let store = Target::Labs(LabsLink::default());
-        assert_eq!(read("hex://labs"), Some(Ok(store.clone())));
-        assert_eq!(read("hex://labs/"), Some(Ok(store)));
-        assert_eq!(read("hex://labs/live-text"), Some(Ok(lab("live-text"))));
-        assert_eq!(read("hex://labs/Live-Text/"), Some(Ok(lab("live-text"))));
+    fn a_retired_labs_link_opens_dictation() {
+        let dictation = Some(Ok(Target::Settings("dictation".into())));
+        assert_eq!(read("hex://labs"), dictation);
+        assert_eq!(read("hex://labs/live-text?tab=on"), dictation);
         assert_eq!(
             parse("hex-test://labs/meetings", "hex-test"),
-            Some(Ok(lab("meetings")))
-        );
-    }
-
-    #[test]
-    fn reads_the_labs_stores_tab_chip_and_search() {
-        let labs = |link: LabsLink| Some(Ok(Target::Labs(link)));
-        assert_eq!(
-            read("hex://labs?tab=on"),
-            labs(LabsLink {
-                turned_on: true,
-                ..LabsLink::default()
-            })
-        );
-        assert_eq!(read("hex://labs?tab=discover"), labs(LabsLink::default()));
-        assert_eq!(
-            read("hex://labs?category=Meetings"),
-            labs(LabsLink {
-                category: Some("meetings".into()),
-                ..LabsLink::default()
-            })
-        );
-        assert_eq!(
-            read("hex://labs?search=paste%20last&tab=on"),
-            labs(LabsLink {
-                turned_on: true,
-                search: Some("paste last".into()),
-                ..LabsLink::default()
-            })
-        );
-        assert_eq!(
-            read("hex://labs/live-text?category=dictation&search=live+text"),
-            labs(LabsLink {
-                lab: Some("live-text".into()),
-                category: Some("dictation".into()),
-                search: Some("live text".into()),
-                ..LabsLink::default()
-            })
-        );
-        assert_eq!(
-            read("hex://labs?search=&category=&other=1"),
-            labs(LabsLink::default())
+            Some(Ok(Target::Settings("dictation".into())))
         );
     }
 
@@ -235,14 +152,6 @@ mod tests {
         }
         let long = format!("hex://labs/{}", "a".repeat(MAX_LINK));
         assert_eq!(read(&long), None);
-    }
-
-    #[test]
-    fn every_feature_has_a_link_that_reads_back() {
-        for feature in Feature::ALL {
-            let link = labs_link("hex", feature);
-            assert_eq!(read(&link), Some(Ok(lab(feature.name()))), "{link}");
-        }
     }
 
     #[test]

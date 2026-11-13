@@ -174,7 +174,7 @@ pub(crate) struct Onboard {
     /// A dictation's text landed since the plate last stepped.
     pub(crate) hud_landed: bool,
     pub(crate) sfx: SfxTrack,
-    /// Set when this is Hex's real first run (Labs):
+    /// Set when this is Hex's real first run:
     /// what the window's tour reports, in place of the fixtures.
     pub(crate) live: Option<Live>,
     /// `"Hex is ready"`'s Launch at login ask.

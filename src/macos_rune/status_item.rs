@@ -24,15 +24,15 @@ pub enum StatusItemAction {
     SelectModel(TranscriptionModelId),
     CancelModelPreparation,
     PasteLast,
-    /// Copy History entry `id` (Labs › Copy recent dictations).
+    /// Copy History entry `id` (Copy recent dictations).
     CopyRecentDictation(u64),
     StartMeeting,
     StopMeeting,
     CopyLastMeetingTranscript,
-    /// Pause Hex, or Resume Hex while shortcuts are suspended (Labs › Pause
+    /// Pause Hex, or Resume Hex while shortcuts are suspended (Pause
     /// from menu bar).
     TogglePause,
-    /// Copy chapter `n` of the recording meeting (Labs).
+    /// Copy chapter `n` of the recording meeting.
     CopyChapter(usize),
     /// The recording row: the Meetings pane.
     OpenMeetings,
@@ -96,7 +96,7 @@ objc2::define_class!(
             }
         }
 
-        /// Labs › Screenshots: the capture card closed last, back in the
+        /// Screenshots: the capture card closed last, back in the
         /// corner, at once (it's safe from any thread).
         #[unsafe(method(restoreCapture:))]
         fn restore_capture(&self, _sender: &AnyObject) {
@@ -145,7 +145,7 @@ objc2::define_class!(
                 .try_send(StatusItemAction::CopyLastMeetingTranscript);
         }
 
-        /// Labs › Pause from menu bar: every capture shortcut goes inert, or
+        /// Pause from menu bar: every capture shortcut goes inert, or
         /// comes back once the keyboard is neutral.
         #[unsafe(method(togglePause:))]
         fn toggle_pause(&self, _sender: &AnyObject) {
@@ -210,13 +210,13 @@ enum Row {
     StopAllTasks,
     Chats,
     AssistantSeparator,
-    /// Labs › Pause from menu bar: hidden until the menu opens with it on.
+    /// Pause from menu bar: hidden until the menu opens with it on.
     PauseHex,
     PasteLast,
-    /// Labs › Copy recent dictations: hidden until the menu opens with it on.
+    /// Copy recent dictations: hidden until the menu opens with it on.
     CopyRecentDictation,
     CopyLastMeetingTranscript,
-    /// Labs › Screenshots: hidden until the menu opens with it on.
+    /// Screenshots: hidden until the menu opens with it on.
     RestoreCapture,
     SpeechModel,
     Separator,
@@ -519,8 +519,8 @@ pub fn install() -> Result<Receiver<StatusItemAction>> {
         let _: () = msg_send![&*menu, setDelegate: &*target];
     }
     item.setMenu(Some(&menu));
-    // Labs › Hide menu bar icon: the item stays installed, only hidden.
-    item.setVisible(icon_shown(crate::labs::hide_menu_bar_icon(), false));
+    // Hide menu bar icon: the item stays installed, only hidden.
+    item.setVisible(icon_shown(crate::features::hide_menu_bar_icon(), false));
 
     STATUS_ITEM.with(|status_item| {
         *status_item.borrow_mut() = Some(StatusItemController {
@@ -730,13 +730,13 @@ fn meeting_menu(state: &crate::meeting::watcher::MeetingMenuState, enabled: bool
     }
 }
 
-/// Whether the menu-bar icon shows: always, unless Labs › Hide menu bar
+/// Whether the menu-bar icon shows: always, unless Hide menu bar
 /// icon is on and no meeting is under way.
 fn icon_shown(hide: bool, meeting_active: bool) -> bool {
     !hide || meeting_active
 }
 
-/// Labs › Pause from menu bar's row: Pause Hex while shortcuts run, Resume
+/// Pause from menu bar's row: Pause Hex while shortcuts run, Resume
 /// Hex while they are paused or a resume waits for a neutral keyboard.
 fn pause_title(suspended: bool) -> &'static str {
     if suspended { "Resume Hex" } else { "Pause Hex" }
@@ -763,13 +763,13 @@ fn recent_title(text: &str) -> String {
 }
 
 /// Rebuilds Copy Recent Dictation as the menu opens. History is read only
-/// while Labs › Copy recent dictations is on; the item stays hidden while
+/// while Copy recent dictations is on; the item stays hidden while
 /// it is off, History is off, or nothing is listed.
 fn refresh_recent_dictations() {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
-    let entries = if crate::labs::recent_dictations() {
+    let entries = if crate::features::recent_dictations() {
         crate::macos_rune::runtime()
             .and_then(|runtime| runtime.history())
             .map(|history| history.recent(RECENT_DICTATIONS))
@@ -802,10 +802,10 @@ fn refresh_recent_dictations() {
     });
 }
 
-/// Shows Restore Last Capture while Labs › Screenshots is on, as the menu
+/// Shows Restore Last Capture while Screenshots is on, as the menu
 /// opens.
 fn refresh_restore_capture() {
-    let shown = crate::labs::screenshots();
+    let shown = crate::features::screenshots();
     STATUS_ITEM.with(|controller| {
         if let Some(controller) = controller.borrow().as_ref() {
             controller.restore_capture.setHidden(!shown);
@@ -832,12 +832,12 @@ pub fn update_assistant(on: bool) {
     });
 }
 
-/// Shows Pause Hex while Labs › Pause from menu bar is on, reads Resume Hex
+/// Shows Pause Hex while Pause from menu bar is on, reads Resume Hex
 /// while shortcuts are suspended, and resumes at once if the lab turned off
 /// under a pause. The title follows the pause state itself, so it reads
 /// Resume Hex while a resume waits for a neutral keyboard too.
 pub fn update_pause() {
-    let on = crate::labs::pause_menu();
+    let on = crate::features::pause_menu();
     crate::shortcut_pause::reconcile(on);
     let title = pause_title(crate::shortcut_pause::suspended());
     STATUS_ITEM.with(|controller| {
@@ -933,7 +933,7 @@ pub fn update_meeting(state: &crate::meeting::watcher::MeetingMenuState, enabled
         let menu = meeting_menu(state, enabled);
         // A meeting starting, recording, or transcribing keeps the icon shown
         // so it stays visible and stoppable.
-        let shown = icon_shown(crate::labs::hide_menu_bar_icon(), menu.status.is_some());
+        let shown = icon_shown(crate::features::hide_menu_bar_icon(), menu.status.is_some());
         if controller.item.isVisible() != shown {
             controller.item.setVisible(shown);
         }

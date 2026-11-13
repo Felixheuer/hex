@@ -411,7 +411,9 @@ fn an_unattended_job_asks_everything_up_front_and_proves_its_work() {
 
 #[test]
 fn a_job_is_told_the_person_s_language() {
-    let rule = super::language_rule("Antworte Michael Schwarz auf WhatsApp und schreib ihm, dass er das rausnehmen soll");
+    let rule = super::language_rule(
+        "Antworte Michael Schwarz auf WhatsApp und schreib ihm, dass er das rausnehmen soll",
+    );
     assert!(rule.contains("speaks German"), "{rule}");
     let rule = super::language_rule("Find ten suppliers and put them in a sheet for me");
     assert!(rule.contains("speaks English"), "{rule}");

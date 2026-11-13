@@ -523,7 +523,7 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     #[cfg(hex_capture)]
     let capture_overlays =
         Some(crate::rune_ui::capture_capsule::feed::CaptureOverlays::install(&mut app));
-    // Labs › Screenshots: its own picker and the thumbnail.
+    // Screenshots: its own picker and the thumbnail.
     #[cfg(hex_capture)]
     crate::screenshots::install(&mut app);
     // `hex dictation` and `hex paste-last` go straight to the listener; the
@@ -938,9 +938,9 @@ impl Pump {
                     .runtime
                     .recognition(RecognitionControl::PasteLast { reply: None });
             }
-            // Labs › Copy recent dictations: copied, never pasted.
+            // Copy recent dictations: copied, never pasted.
             StatusItemAction::CopyRecentDictation(id) => {
-                if !crate::labs::recent_dictations() {
+                if !crate::features::recent_dictations() {
                     return;
                 }
                 let copied = self
@@ -1005,7 +1005,7 @@ impl Pump {
             // The assistant: Chats, and Stop all tasks.
             StatusItemAction::OpenChats => show(&self.window, Destination::Chats(None)),
             StatusItemAction::StopAllTasks => crate::assistant::service::stop_all(),
-            // Labs › Pause from menu bar: only keyboard shortcuts stop; the
+            // Pause from menu bar: only keyboard shortcuts stop; the
             // menu's own actions keep working. The row says Resume Hex while
             // a resume waits, and choosing it again leaves it waiting.
             StatusItemAction::TogglePause => {
@@ -1171,9 +1171,9 @@ objc2::define_class!(
 
         #[unsafe(method(quitHex:))]
         fn quit_hex(&self, _sender: Option<&AnyObject>) {
-            // Labs › ⌘Q closes Settings: the window hides and Hex keeps
+            // ⌘Q closes Settings: the window hides and Hex keeps
             // dictating; the status item's Quit Hex still quits.
-            if crate::labs::quit_closes_window() {
+            if crate::features::quit_closes_window() {
                 with_window(|window| window.close());
             } else {
                 with_window(|window| window.quit());

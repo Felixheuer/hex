@@ -1198,7 +1198,9 @@ fn language_rule(request: &str) -> String {
         "ru" => "Russian",
         "ja" => "Japanese",
         "zh" => "Chinese",
-        _ => return "\nWrite every answer, question, and report in the person's language.\n".into(),
+        _ => {
+            return "\nWrite every answer, question, and report in the person's language.\n".into();
+        }
     };
     format!(
         "\nThe person speaks {name}: write every answer, question, and report to them in {name}, even when pages, tools, and Hex's notes are in English (messages to others in the language the request says).\n"

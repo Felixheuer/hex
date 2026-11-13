@@ -52,7 +52,7 @@ pub enum NeedState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AskedBy {
     Capture,
-    /// Labs › Screenshots, which reopens to shoot, or to record when
+    /// Screenshots, which reopens to shoot, or to record when
     /// `record` is set.
     Screenshots {
         record: bool,

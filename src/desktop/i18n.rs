@@ -13,13 +13,14 @@ mod assistant;
 mod assistant_overlay;
 mod failures;
 mod french;
-mod labs;
 mod meetings;
 mod onboarding;
 mod portuguese;
+mod preferences;
 mod russian;
 mod text_language;
 mod traditional_chinese;
+mod window;
 
 /// A persisted interface-language code (`None` follows the system) and its
 /// native name.
@@ -342,18 +343,19 @@ fn tables() -> &'static [HashMap<&'static str, &'static str>; 6] {
     })
 }
 
-/// Every translated string: the main, Meetings, Labs, failure, and first-run
+/// Every translated string: the main, Meetings, preferences, failure, and first-run
 /// rows.
 pub(super) fn all_translations() -> impl Iterator<Item = &'static (&'static str, [&'static str; 6])>
 {
     TRANSLATIONS
         .iter()
         .chain(meetings::TRANSLATIONS)
-        .chain(labs::TRANSLATIONS)
+        .chain(preferences::TRANSLATIONS)
         .chain(failures::TRANSLATIONS)
         .chain(onboarding::TRANSLATIONS)
         .chain(assistant::TRANSLATIONS)
         .chain(assistant_overlay::TRANSLATIONS)
+        .chain(window::TRANSLATIONS)
 }
 
 /// Columns: Polish, Chinese (Simplified), Japanese, German, Spanish, Ukrainian.
@@ -429,7 +431,6 @@ const TRANSLATIONS: &[(&str, [&str; 6])] = &[
     ("Show the recording offer and recording indicator floating over your call, through XWayland. Works only while XWayland is already running", ["Pokazuje propozycję nagrania i wskaźnik nagrywania nad rozmową, przez XWayland. Działa tylko, gdy XWayland już działa", "通过 XWayland 在通话上方悬浮显示录制提示和录制指示器。仅在 XWayland 已运行时有效", "録音の提案と録音インジケーターを XWayland 経由で通話の上に表示します。XWayland がすでに動作しているときだけ使えます", "Zeigt das Aufnahmeangebot und die Aufnahmeanzeige schwebend über dem Anruf, über XWayland. Funktioniert nur, wenn XWayland bereits läuft", "Muestra la oferta de grabación y el indicador de grabación flotando sobre tu llamada, a través de XWayland. Solo funciona si XWayland ya se está ejecutando", "Показує пропозицію запису та індикатор запису поверх дзвінка через XWayland. Працює, лише коли XWayland уже запущено"]),
     ("Restore clipboard on GNOME", ["Przywracanie schowka w GNOME", "在 GNOME 上恢复剪贴板", "GNOME でクリップボードを復元", "Zwischenablage unter GNOME wiederherstellen", "Restaurar el portapapeles en GNOME", "Відновлення буфера обміну в GNOME"]),
     ("Put back what you copied before a dictation, through XWayland. Works only while XWayland is already running", ["Przywraca przez XWayland to, co było skopiowane przed dyktowaniem. Działa tylko, gdy XWayland już działa", "通过 XWayland 恢复听写前复制的内容。仅在 XWayland 已运行时有效", "ディクテーション前にコピーしていた内容を XWayland 経由で戻します。XWayland がすでに動作しているときだけ使えます", "Stellt über XWayland wieder her, was vor dem Diktat kopiert war. Funktioniert nur, wenn XWayland bereits läuft", "Devuelve lo que copiaste antes de dictar, a través de XWayland. Solo funciona si XWayland ya se está ejecutando", "Повертає через XWayland те, що було скопійовано перед диктуванням. Працює, лише коли XWayland уже запущено"]),
-    ("This desktop doesn't let Hex put your clipboard back after a paste. Turn on Labs › Restore clipboard on GNOME to try it.", ["To środowisko nie pozwala Hex przywrócić schowka po wklejeniu. Aby spróbować, włącz Laboratorium › Przywracanie schowka w GNOME.", "此桌面不允许 Hex 在粘贴后恢复剪贴板。要试用，请打开实验室 › 在 GNOME 上恢复剪贴板。", "このデスクトップでは、Hex は貼り付け後にクリップボードを元に戻せません。試すには ラボ › GNOME でクリップボードを復元 をオンにしてください。", "Auf diesem Desktop kann Hex die Zwischenablage nach dem Einfügen nicht wiederherstellen. Zum Ausprobieren Labs › Zwischenablage unter GNOME wiederherstellen einschalten.", "Este escritorio no deja que Hex restaure tu portapapeles después de pegar. Para probarlo, activa Labs › Restaurar el portapapeles en GNOME.", "Це середовище не дає Hex відновити буфер обміну після вставлення. Щоб спробувати, увімкніть Лабораторію › Відновлення буфера обміну в GNOME."]),
     ("Downloaded models only", ["Tylko pobrane modele", "仅显示已下载的模型", "ダウンロード済みのモデルのみ", "Nur heruntergeladene Modelle", "Solo modelos descargados", "Лише завантажені моделі"]),
     ("Show only downloaded speech models in the picker, with the space they take", ["Pokazuje w wyborze tylko pobrane modele mowy oraz zajmowane przez nie miejsce", "在选择器中只显示已下载的语音模型及其占用的空间", "選択画面にダウンロード済みの音声モデルだけを、使用している容量とともに表示します", "Zeigt in der Auswahl nur heruntergeladene Sprachmodelle und den Speicherplatz, den sie belegen", "Muestra en el selector solo los modelos de voz descargados y el espacio que ocupan", "Показує у виборі лише завантажені мовні моделі та місце, яке вони займають"]),
     ("Only downloaded models", ["Tylko pobrane modele", "仅已下载的模型", "ダウンロード済みのみ", "Nur heruntergeladene", "Solo descargados", "Лише завантажені"]),
@@ -445,7 +446,6 @@ const TRANSLATIONS: &[(&str, [&str; 6])] = &[
     ("Your desktop assigns this key itself, so Hex can't confirm it", ["Twój pulpit sam przypisuje ten klawisz, więc Hex nie może tego potwierdzić", "你的桌面自行分配此按键，因此 Hex 无法确认", "デスクトップがこのキーを独自に割り当てるため、Hex では確認できません", "Dein Desktop weist diese Taste selbst zu, daher kann Hex sie nicht bestätigen", "Tu escritorio asigna esta tecla por su cuenta, así que Hex no puede confirmarla", "Ваша стільниця сама призначає цю клавішу, тож Hex не може це підтвердити"]),
     ("Not installed", ["Nie zainstalowano", "未安装", "未インストール", "Nicht installiert", "No instalado", "Не встановлено"]),
     ("Shortcut side", ["Strona skrótu", "快捷键侧", "ショートカットの左右", "Seite des Kürzels", "Lado del atajo", "Бік комбінації клавіш"]),
-    ("Labs", ["Laboratorium", "实验室", "ラボ", "Labs", "Labs", "Лабораторія"]),
     ("Tap or hold", ["Stuknij lub przytrzymaj", "轻点或按住", "タップまたは長押し", "Tippen oder halten", "Toca o mantén", "Торкніться або утримуйте"]),
     ("In Toggle mode, hold the shortcut to dictate until you let go; a short tap still starts and stops", ["W trybie przełączania przytrzymaj skrót, aby dyktować do puszczenia; krótkie stuknięcie nadal uruchamia i zatrzymuje", "在切换模式下，按住快捷键即可听写，松开即结束；轻点仍可开始和停止", "切り替えモードでショートカットを長押しすると、離すまで音声入力します。短いタップでは従来どおり開始と停止をします", "Im Umschaltmodus diktierst du, solange du das Kürzel hältst; kurzes Tippen startet und stoppt weiterhin", "En el modo alternar, mantén el atajo para dictar hasta soltarlo; un toque corto sigue iniciando y deteniendo", "У режимі перемикання утримуйте комбінацію, щоб диктувати, доки не відпустите; коротке торкання й далі запускає та зупиняє"]),
     ("Copy recent dictations", ["Kopiowanie ostatnich dyktowań", "复制最近的听写", "最近の音声入力をコピー", "Letzte Diktate kopieren", "Copiar dictados recientes", "Копіювання останніх диктувань"]),
@@ -462,12 +462,10 @@ const TRANSLATIONS: &[(&str, [&str; 6])] = &[
     ("On while the Hex Microphone driver is installed. Uninstall the driver in Voice Filter to turn it off.", ["Włączony, dopóki zainstalowany jest sterownik Hex Microphone. Odinstaluj sterownik w Filtrze głosu, aby go wyłączyć.", "安装 Hex Microphone 驱动期间保持开启。在声音滤镜中卸载驱动即可关闭。", "Hex Microphone ドライバーがインストールされている間はオンです。オフにするにはボイスフィルターでドライバーをアンインストールしてください。", "Eingeschaltet, solange der Hex-Microphone-Treiber installiert ist. Deinstalliere den Treiber im Stimmfilter, um ihn auszuschalten.", "Activado mientras el controlador Hex Microphone esté instalado. Desinstala el controlador en Filtro de voz para desactivarlo.", "Увімкнено, доки встановлено драйвер Hex Microphone. Видаліть драйвер у Голосовому фільтрі, щоб вимкнути."]),
     ("Vocabulary biasing", ["Wzmacnianie słownictwa", "词汇偏置", "語彙バイアス", "Vokabular-Gewichtung", "Sesgo de vocabulario", "Підсилення словника"]),
     ("Bias Parakeet transcription toward your vocabulary; rewriting and search use it either way", ["Nakierowuje transkrypcję Parakeet na Twoje słownictwo; przepisywanie i wyszukiwanie korzystają z niego zawsze", "让 Parakeet 转录偏向你的词汇；改写和搜索始终会使用它", "Parakeet の文字起こしをあなたの語彙に寄せます。書き換えと検索では常に使われます", "Gewichtet die Parakeet-Transkription zu deinem Vokabular; Umschreiben und Suche nutzen es ohnehin", "Orienta la transcripción de Parakeet hacia tu vocabulario; la reescritura y la búsqueda lo usan igualmente", "Спрямовує транскрипцію Parakeet до вашого словника; переписування й пошук використовують його завжди"]),
-    ("Transcription uses these only with Labs › Vocabulary biasing on; rewriting and search always do", ["Transkrypcja używa ich tylko z włączonym Laboratorium › Wzmacnianie słownictwa; przepisywanie i wyszukiwanie zawsze", "仅在开启实验室 › 词汇偏置时转录才会使用它们；改写和搜索始终会使用", "文字起こしでは ラボ › 語彙バイアス がオンのときだけ使われます。書き換えと検索では常に使われます", "Die Transkription nutzt sie nur mit Labs › Vokabular-Gewichtung; Umschreiben und Suche immer", "La transcripción solo los usa con Labs › Sesgo de vocabulario activado; la reescritura y la búsqueda siempre", "Транскрипція використовує їх лише з увімкненим Лабораторія › Підсилення словника; переписування й пошук — завжди"]),
     ("This model reads the first {read} of {total} terms", ["Ten model czyta pierwsze {read} z {total} terminów", "此模型读取 {total} 个词语中的前 {read} 个", "このモデルは {total} 件の用語のうち最初の {read} 件を読み取ります", "Dieses Modell liest die ersten {read} von {total} Begriffen", "Este modelo lee los primeros {read} de {total} términos", "Ця модель читає перші {read} з {total} термінів"]),
     ("Mouse shortcuts", ["Skróty myszy", "鼠标快捷键", "マウスショートカット", "Maus-Kürzel", "Atajos de ratón", "Комбінації з мишею"]),
     ("Record mouse buttons as shortcuts", ["Nagrywaj przyciski myszy jako skróty", "将鼠标按键录制为快捷键", "マウスボタンをショートカットとして記録します", "Maustasten als Kürzel aufnehmen", "Graba botones del ratón como atajos", "Записувати кнопки миші як комбінації"]),
     ("While dictating with Pause media: YouTube and other tabs, resumed only if Hex paused them", ["Podczas dyktowania z Wstrzymaj multimedia: YouTube i inne karty, wznawiane tylko, jeśli wstrzymał je Hex", "听写时搭配“暂停媒体”：YouTube 等标签页，仅在由 Hex 暂停时才会恢复", "「メディアを一時停止」での音声入力中：YouTube などのタブ。Hex が止めた場合だけ再開します", "Beim Diktieren mit „Medien pausieren“: YouTube und andere Tabs, nur fortgesetzt, wenn Hex sie pausiert hat", "Al dictar con Pausar multimedia: YouTube y otras pestañas, reanudadas solo si Hex las pausó", "Під час диктування з «Призупиняти медіа»: YouTube та інші вкладки, відновлюються, лише якщо їх призупинив Hex"]),
-    ("Mouse shortcuts are in Labs now, so your mouse-button shortcut went back to the default. Turn on Labs › Mouse shortcuts to use one again.", ["Skróty myszy są teraz w Laboratorium, więc skrót przycisku myszy wrócił do domyślnego. Włącz Laboratorium › Skróty myszy, aby znów go używać.", "鼠标快捷键已移至实验室，因此你的鼠标按键快捷键已恢复为默认值。开启实验室 › 鼠标快捷键即可再次使用。", "マウスショートカットはラボに移ったため、マウスボタンのショートカットは既定に戻りました。再び使うにはラボ › マウスショートカットをオンにしてください。", "Maus-Kürzel sind jetzt in Labs, daher wurde dein Maustasten-Kürzel auf den Standard zurückgesetzt. Schalte Labs › Maus-Kürzel ein, um wieder eines zu nutzen.", "Los atajos de ratón están ahora en Labs, así que tu atajo con botón del ratón volvió al predeterminado. Activa Labs › Atajos de ratón para volver a usar uno.", "Комбінації з мишею тепер у Лабораторії, тож вашу комбінацію з кнопкою миші повернуто до типової. Увімкніть Лабораторія › Комбінації з мишею, щоб знову її використати."]),
     ("Unload model when idle", ["Zwalniaj model, gdy nieużywany", "空闲时卸载模型", "アイドル時にモデルを解放", "Modell im Leerlauf entladen", "Descargar el modelo en reposo", "Вивантажувати модель під час простою"]),
     ("Frees the speech model's memory after a while unused; the next dictation reloads it", ["Zwalnia pamięć modelu mowy po pewnym czasie bez użycia; następne dyktowanie wczyta go ponownie", "一段时间未使用后释放语音模型的内存；下次听写时会重新加载", "しばらく使わないと音声モデルのメモリを解放し、次の音声入力で再び読み込みます", "Gibt den Speicher des Sprachmodells nach einer Weile ohne Nutzung frei; das nächste Diktat lädt es neu", "Libera la memoria del modelo de voz tras un rato sin usarlo; el siguiente dictado lo vuelve a cargar", "Звільняє пам'ять мовної моделі після простою; наступне диктування завантажить її знову"]),
     ("Restore shortcut default", ["Przywracanie domyślnego skrótu", "恢复默认快捷键", "ショートカットを既定に戻す", "Standardkürzel wiederherstellen", "Restaurar atajo predeterminado", "Відновлення типової комбінації"]),
@@ -546,7 +544,6 @@ const TRANSLATIONS: &[(&str, [&str; 6])] = &[
     ("Source", ["Źródło", "来源", "出典", "Quelle", "Fuente", "Джерело"]),
     ("License", ["Licencja", "许可证", "ライセンス", "Lizenz", "Licencia", "Ліцензія"]),
     ("Published conversion benchmarks; not measured in Hex", ["Opublikowane testy konwersji; niezmierzone w Hex", "已发布的转换基准测试；未在 Hex 中测量", "公開された変換ベンチマーク。Hex では未測定", "Veröffentlichte Konvertierungs-Benchmarks; nicht in Hex gemessen", "Pruebas de conversión publicadas; no medidas en Hex", "Опубліковані тести конвертації; не виміряно в Hex"]),
-    ("{model} needs Labs › Parakeet Ultra, so Hex uses {fallback} until you turn it on or choose another model", ["{model} wymaga Laboratorium › Parakeet Ultra, więc Hex używa {fallback}, dopóki go nie włączysz albo nie wybierzesz innego modelu", "{model} 需要开启实验室 › Parakeet Ultra，因此在你开启它或选择其他模型之前，Hex 将使用 {fallback}", "{model} にはラボ › Parakeet Ultra が必要なため、オンにするか別のモデルを選ぶまで Hex は {fallback} を使います", "{model} braucht Labs › Parakeet Ultra, daher verwendet Hex {fallback}, bis du es aktivierst oder ein anderes Modell wählst", "{model} necesita Labs › Parakeet Ultra, así que Hex usa {fallback} hasta que lo actives o elijas otro modelo", "{model} потребує Лабораторія › Parakeet Ultra, тож Hex використовує {fallback}, доки ви її не увімкнете або не виберете іншу модель"]),
     ("Benchmark details", ["Szczegóły testów porównawczych", "基准测试详情", "ベンチマークの詳細", "Benchmark-Details", "Detalles de las pruebas", "Деталі тестів"]),
     ("Show each model's raw error rate, benchmark, and source in the Local transcription picker", ["Pokazuje surowy współczynnik błędów, test i źródło każdego modelu na liście lokalnej transkrypcji", "在本地转录模型列表中显示每个模型的原始错误率、基准测试和来源", "ローカル文字起こしの一覧に、各モデルの生のエラー率、ベンチマーク、出典を表示します", "Zeigt in der Liste der lokalen Transkription die rohe Fehlerrate, den Benchmark und die Quelle jedes Modells", "Muestra la tasa de error sin procesar, la prueba y la fuente de cada modelo en la lista de transcripción local", "Показує сирий рівень помилок, тест і джерело кожної моделі у списку локальної транскрипції"]),
     ("{rate} · lower is better", ["{rate} · im niżej, tym lepiej", "{rate} · 越低越好", "{rate} · 低いほど良い", "{rate} · niedriger ist besser", "{rate} · cuanto menor, mejor", "{rate} · що менше, то краще"]),
@@ -764,7 +761,6 @@ const TRANSLATIONS: &[(&str, [&str; 6])] = &[
     ("Kept {}", ["Przechowywane {}", "保留 {}", "{}保持", "{} behalten", "Se conserva {}", "Зберігається {}"]),
     ("Keeps no new dictations", ["Nie zachowuje nowych dyktowań", "不保留新的听写", "新しい音声入力を保持しません", "Behält keine neuen Diktate", "No conserva dictados nuevos", "Не зберігає нових диктувань"]),
     ("Keep audio too", ["Zachowuj też dźwięk", "同时保留音频", "音声も保存", "Auch Audio behalten", "Conservar también el audio", "Зберігати й аудіо"]),
-    ("Lab", ["Lab", "实验", "ラボ", "Lab", "Lab", "Лаб"]),
     ("Lets you transcribe a dictation again", ["Pozwala ponownie przetranskrybować dyktowanie", "可重新转写听写", "音声入力をもう一度文字起こしできます", "Damit lässt sich ein Diktat erneut transkribieren", "Permite volver a transcribir un dictado", "Дає змогу знову транскрибувати диктування"]),
     ("Clear all history…", ["Wyczyść całą historię…", "清除全部历史记录…", "履歴をすべて消去…", "Gesamten Verlauf löschen…", "Borrar todo el historial…", "Очистити всю історію…"]),
     ("Clear all history", ["Wyczyść całą historię", "清除全部历史记录", "履歴をすべて消去", "Gesamten Verlauf löschen", "Borrar todo el historial", "Очистити всю історію"]),
@@ -1430,13 +1426,10 @@ const TRANSLATIONS: &[(&str, [&str; 6])] = &[
     ("Open it again from your app launcher", ["Otworzysz go ponownie z programu uruchamiającego", "可从应用启动器中再次打开", "アプリランチャーからいつでも開けます", "Öffne es jederzeit wieder über deinen App-Starter", "Ábrelo de nuevo desde tu lanzador de apps", "Відкрийте його знову з панелі запуску програм"]),
     ("Discover", ["Odkrywaj", "发现", "見つける", "Entdecken", "Descubrir", "Огляд"]),
     ("Turned on · {}", ["Włączone · {}", "已开启 · {}", "オン · {}", "Aktiviert · {}", "Activados · {}", "Увімкнені · {}"]),
-    ("Search {} labs", ["Szukaj wśród {} eksperymentów", "搜索 {} 项实验功能", "{} 件のラボを検索", "{} Labs durchsuchen", "Buscar en {} labs", "Пошук серед {} експериментів"]),
     ("All", ["Wszystkie", "全部", "すべて", "Alle", "Todos", "Усі"]),
     ("Models", ["Modele", "模型", "モデル", "Modelle", "Modelos", "Моделі"]),
-    ("New in Labs", ["Nowości w Laboratorium", "实验室新功能", "ラボの新機能", "Neu in Labs", "Novedades en Labs", "Нове в Лабораторії"]),
     ("New", ["Nowe", "新", "新着", "Neu", "Nuevo", "Нове"]),
     ("Unfinished features. They may change or break.", ["Niedokończone funkcje. Mogą się zmienić lub zepsuć.", "未完成的功能，可能会变化或出错。", "未完成の機能です。変更されたり動かなくなったりすることがあります。", "Unfertige Funktionen. Sie können sich ändern oder kaputtgehen.", "Funciones sin terminar. Pueden cambiar o fallar.", "Незавершені функції. Вони можуть змінитися або зламатися."]),
-    ("No labs match", ["Brak pasujących eksperymentów", "没有匹配的实验功能", "一致するラボはありません", "Keine passenden Labs", "Ningún lab coincide", "Немає відповідних експериментів"]),
     ("Settings search", ["Wyszukiwanie w ustawieniach", "设置搜索", "設定の検索", "Suche in den Einstellungen", "Búsqueda en Ajustes", "Пошук у налаштуваннях"]),
     ("Find any setting in General with a search field", ["Znajdź dowolne ustawienie w sekcji Ogólne za pomocą pola wyszukiwania", "使用搜索框查找“通用”中的任何设置", "検索欄で一般設定の項目を探します", "Finde jede Einstellung unter Allgemein über ein Suchfeld", "Encuentra cualquier ajuste en General con un campo de búsqueda", "Знаходьте будь-яке налаштування в розділі Загальні за допомогою поля пошуку"]),
     ("Search settings", ["Szukaj w ustawieniach", "搜索设置", "設定を検索", "Einstellungen durchsuchen", "Buscar en Ajustes", "Пошук налаштувань"]),
@@ -1598,7 +1591,6 @@ mod tests {
     #[test]
     fn portuguese_translates_with_its_column() {
         super::set_current(super::PORTUGUESE_COLUMN);
-        assert_eq!(super::tr("Labs"), "Labs");
         assert_eq!(super::tr("Don't switch"), "Não trocar");
         assert_eq!(super::tr_fill("Remove {}?", "x"), "Remover x?");
         super::set_current(super::ENGLISH);
@@ -1651,14 +1643,12 @@ mod tests {
         include_str!("../rune_ui/general.rs"),
         include_str!("../rune_ui/general/conflicts.rs"),
         include_str!("../rune_ui/general/extra_shortcuts.rs"),
+        include_str!("../rune_ui/general/app.rs"),
+        include_str!("../rune_ui/general/preferences.rs"),
         include_str!("../rune_ui/general/search.rs"),
         include_str!("../rune_ui/history.rs"),
         include_str!("../rune_ui/history/selection.rs"),
         include_str!("../rune_ui/hud_lab.rs"),
-        include_str!("../rune_ui/labs.rs"),
-        include_str!("../rune_ui/labs/group.rs"),
-        include_str!("../rune_ui/labs/screenshots.rs"),
-        include_str!("../rune_ui/labs/store.rs"),
         include_str!("../rune_ui/linux_host.rs"),
         include_str!("../rune_ui/list_detail.rs"),
         include_str!("../rune_ui/lists.rs"),
@@ -1682,11 +1672,11 @@ mod tests {
         include_str!("../rune_ui/onboarding_kit/stories.rs"),
         include_str!("../rune_ui/onboarding_kit/versus.rs"),
         include_str!("../rune_ui/output.rs"),
+        include_str!("../rune_ui/sidebar.rs"),
         include_str!("../rune_ui/screenshot_thumbnail.rs"),
         #[cfg(hex_capture)]
         include_str!("../rune_ui/screenshot_thumbnail/card.rs"),
         #[cfg(hex_capture)]
-        include_str!("../rune_ui/captures.rs"),
         include_str!("../rune_ui/chats.rs"),
         include_str!("../rune_ui/chats/agent_picker.rs"),
         include_str!("../rune_ui/chats/agents.rs"),
@@ -1842,13 +1832,25 @@ mod tests {
         }
     }
 
-    /// The Appearance lab's theme picker translates each choice's name, which
-    /// is not a literal at the call.
+    /// The preferences' pickers (Appearance, After dictating, Caps Lock)
+    /// translate each choice's name, which is not a literal at the call.
     #[test]
-    fn every_appearance_theme_string_has_every_language() {
-        use crate::app_settings::AppearanceTheme;
+    fn every_preference_choice_has_every_language() {
+        use crate::app_settings::{AfterDictation, AppearanceTheme, CapsLockMode};
         let table: std::collections::HashMap<_, _> = all_translations().copied().collect();
-        for english in AppearanceTheme::ALL.into_iter().map(AppearanceTheme::name) {
+        let names = AppearanceTheme::ALL
+            .into_iter()
+            .map(AppearanceTheme::name)
+            .chain(AfterDictation::ALL.into_iter().map(AfterDictation::name))
+            .chain(CapsLockMode::ALL.into_iter().map(CapsLockMode::name));
+        for english in names {
+            for table in [
+                super::french::table(),
+                super::portuguese::table(),
+                super::russian::table(),
+            ] {
+                assert!(table.contains_key(english), "{english:?} lacks fr/pt/ru");
+            }
             let translations = table
                 .get(english)
                 .unwrap_or_else(|| panic!("{english:?} has no translations"));

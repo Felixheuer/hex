@@ -1,4 +1,4 @@
-//! Annotate 15 s rolling screen replay (`Labs › Annotate replay`, macOS 27+).
+//! Annotate 15 s rolling screen replay (`Annotate replay`, macOS 27+).
 //!
 //! While `labs.annotate_replay` and `capture.enabled` are both on (and
 //! `SCClipBufferingOutput` exists on the running macOS), a single background
@@ -173,7 +173,7 @@ impl Controller {
         #[cfg(target_os = "macos")]
         {
             let want = available()
-                && crate::labs::annotate_replay()
+                && crate::features::annotate_replay()
                 && crate::app_settings::capture_on()
                 && !crate::app_settings::scrawl_app_running();
             match (self.worker.is_some(), want) {
@@ -275,10 +275,10 @@ impl Controller {
                     "Annotate replay requires macOS 27 or later",
                 ));
             }
-            if !crate::labs::annotate_replay() {
+            if !crate::features::annotate_replay() {
                 return Err(ControlReply::error(
                     "feature-off",
-                    "Annotate replay is off; turn it on with: hex labs on annotate-replay",
+                    "Annotate replay was removed",
                 ));
             }
             if active_recording || self.narrating.is_some() {
@@ -417,7 +417,7 @@ impl Controller {
         quiet: Option<super::Quiet>,
         outcomes: &SharedOutcomes,
     ) {
-        if !available() || !crate::labs::annotate_replay() {
+        if !available() || !crate::features::annotate_replay() {
             return;
         }
         if active_recording || self.narrating.is_some() || refusal.is_some() {

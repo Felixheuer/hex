@@ -162,7 +162,7 @@ fn exclamation(p: vec2f) -> f32 {
     return min(segment(p, vec2f(0.0, -3.3), vec2f(0.0, 0.8), 0.9), length(p - vec2f(0.0, 3.1)) - 1.0);
 }
 
-// Labs' notch indicator, in the Dynamic Island's compact style: the notch
+// the notch indicator, in the Dynamic Island's compact style: the notch
 // widened sideways at its own height, one glyph either side of the camera.
 // Recording: an orange mic (the colour macOS and iOS use for a microphone
 // in use) and capsule level bars that move with the voice. Working: the

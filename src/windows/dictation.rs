@@ -61,7 +61,7 @@ struct Job {
     audio_ms: u64,
     /// The language the model was asked for at submission.
     language: String,
-    /// The clip, kept for History while Labs › Keep recordings is on.
+    /// The clip, kept for History while Keep recordings is on.
     recording: Option<crate::history::Recording>,
     /// The shortcut that started this capture (dictation, raw, terminal
     /// paste, or second dictation).
@@ -102,9 +102,9 @@ pub struct WindowsDictationConfig {
     pub paste_last_hotkey: Option<WindowsHotkey>,
     /// Dictate without processing, while it is bound.
     pub raw_dictation_hotkey: Option<WindowsHotkey>,
-    /// Labs › Terminal paste shortcut, while the lab is on and it is bound.
+    /// Terminal paste shortcut, while the lab is on and it is bound.
     pub terminal_paste_hotkey: Option<WindowsHotkey>,
-    /// Labs › Second dictation shortcut, while the lab is on and it is bound.
+    /// Second dictation shortcut, while the lab is on and it is bound.
     pub second_dictation_hotkey: Option<WindowsHotkey>,
     /// The Annotate key, while Annotate is on.
     pub annotate_hotkey: Option<WindowsHotkey>,
@@ -215,9 +215,9 @@ pub fn run(
     updates: mpsc::Receiver<Box<crate::app_settings::AppSettings>>,
     shutdown: &AtomicBool,
 ) -> Result<()> {
-    // Labs › Unload model when idle: a launch stays parked until the first
+    // Unload model when idle: a launch stays parked until the first
     // dictation, as after an idle unload.
-    let transcriber = if crate::labs::unload_idle().is_some() {
+    let transcriber = if crate::features::unload_idle().is_some() {
         None
     } else {
         Some(LocalTranscriber::load(selection)?)
@@ -257,7 +257,7 @@ pub fn run(
         tracing::warn!(%error, "Windows recording feedback is unavailable");
     }
     let mut release_while_idle = release_microphone_while_idle;
-    // Labs › Keep mic open after dictating: a finished capture's
+    // Keep mic open after dictating: a finished capture's
     // microphone stays open for its window before release.
     let mut linger = MicrophoneLinger::default();
     let mut device = device;
@@ -370,7 +370,7 @@ pub fn run(
         device_label, hotkey_label
     );
 
-    // Labs › Keep mic open after dictating: the one release check the pass and
+    // Keep mic open after dictating: the one release check the pass and
     // its event sites share, so a press handled in the same pass still sees a
     // closed microphone at once when the lab is off.
     macro_rules! release_microphone {

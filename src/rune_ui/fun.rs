@@ -1,4 +1,4 @@
-//! The Voice Filter pane (macOS and Linux, in Labs, or while the Hex
+//! The Voice Filter pane (macOS and Linux, or while the Hex
 //! Microphone driver is installed): the virtual microphone (macOS's driver,
 //! or Linux's PipeWire source), the filter mode and its key sliders, comfort
 //! noise, and "Try it": record five seconds or use the example clip, then
@@ -288,14 +288,14 @@ fn tunable(ui: &Ui, p: Paint, which: Tunable, label: &str) -> El {
 /// found its driver installed); in a stable build, only while the driver is
 /// installed, so it can be uninstalled.
 pub(super) fn running(ui: &Ui) -> bool {
-    (crate::labs::Feature::VoiceFilter.shipped() && ui.settings.experimental.hex_microphone)
+    (crate::features::voice_filter() && ui.settings.experimental.hex_microphone)
         || driver_installed(ui)
 }
 
 /// A stable build has no Voice Filter: its pane offers only the installed
 /// driver's Uninstall.
 fn uninstall_only() -> bool {
-    !crate::labs::Feature::VoiceFilter.shipped()
+    !crate::features::voice_filter()
 }
 
 /// The Hex Microphone driver is installed: apps may use it, so the Voice

@@ -754,7 +754,7 @@ impl HotkeyBinding {
         binding
     }
 
-    /// Command-Shift-4, macOS's own area screenshot (Labs › Screenshots):
+    /// Command-Shift-4, macOS's own area screenshot (Screenshots):
     /// the "4" key's ANSI position, as macOS binds it on every layout.
     pub fn screenshot_default() -> Self {
         #[cfg(target_os = "macos")]
@@ -1242,7 +1242,7 @@ pub fn hotkey_conflicts(
 
 impl AppSettings {
     /// Whether `binding` overlaps a shortcut `slot` must not share: the other
-    /// active shortcuts (each active Labs › More dictation shortcuts row
+    /// active shortcuts (each active More dictation shortcuts row
     /// included) and, where meetings exist (macOS), meeting paste. The two
     /// capture shortcuts never share a key, on or off, since turning captures
     /// on can't pull them apart. A saved Screenshots record shortcut and
@@ -1265,7 +1265,6 @@ impl AppSettings {
         }
         if slot != HotkeySlot::TypedText
             && cfg!(target_os = "linux")
-            && self.labs.typed_text
             && let Some(typed) = &self.typed_text_hotkey
         {
             others.push(typed.clone());
@@ -1274,7 +1273,6 @@ impl AppSettings {
             others.push(self.cancel_hotkey.clone());
         }
         if slot != HotkeySlot::SecondDictation
-            && self.labs.second_dictation_shortcut
             && let Some(second) = &self.second_dictation_hotkey
             // Linux and Windows register a key, so a keyless binding never
             // runs there and takes no key from another shortcut.
@@ -1300,7 +1298,7 @@ impl AppSettings {
         if slot == HotkeySlot::StopAll {
             others.push(HotkeyBinding::force_quit());
         }
-        if cfg!(target_os = "macos") && self.labs.more_dictation_shortcuts {
+        if cfg!(target_os = "macos") {
             for (index, row) in self.extra_dictation_hotkeys.iter().enumerate() {
                 if slot != HotkeySlot::ExtraDictation(index)
                     && let Some(extra) = &row.binding
@@ -1311,7 +1309,6 @@ impl AppSettings {
         }
         if slot != HotkeySlot::TerminalPaste
             && cfg!(any(target_os = "windows", target_os = "linux"))
-            && self.labs.terminal_paste_shortcut
             && let Some(terminal) = &self.terminal_paste_hotkey
         {
             others.push(terminal.clone());
@@ -1327,12 +1324,15 @@ impl AppSettings {
         if slot != HotkeySlot::CaptureReplay
             && cfg!(target_os = "macos")
             && self.capture_on()
-            && self.labs.annotate_replay
+            && crate::features::annotate_replay()
             && let Some(replay) = &self.capture.replay_hotkey
         {
             others.push(replay.clone());
         }
-        if slot != HotkeySlot::Screenshot && cfg!(target_os = "macos") && self.labs.screenshots {
+        if slot != HotkeySlot::Screenshot
+            && cfg!(target_os = "macos")
+            && crate::features::screenshots()
+        {
             others.push(self.screenshots.hotkey.clone());
         }
         // A saved record shortcut and Annotate's own capture shortcuts never
@@ -1350,15 +1350,15 @@ pub struct RuntimeHotkeys {
     pub paste_meeting: Option<RuntimeHotkey>,
     /// The capture shortcut, while captures are on (`cfg(hex_capture)`).
     pub capture: Option<RuntimeHotkey>,
-    /// Labs › Annotate 15 s replay shortcut (macOS 27+), while on and bound.
+    /// Annotate 15 s replay shortcut (macOS 27+), while on and bound.
     pub capture_replay: Option<RuntimeHotkey>,
     /// Dictate without processing, while it is bound.
     pub raw_dictation: Option<RuntimeHotkey>,
-    /// Labs › Transform typed text (Linux), while it is on and bound.
+    /// Transform typed text (Linux), while it is on and bound.
     pub typed_text: Option<RuntimeHotkey>,
-    /// Labs › Second dictation shortcut, while it is on and bound.
+    /// Second dictation shortcut, while it is on and bound.
     pub second_dictation: Option<RuntimeHotkey>,
-    /// Labs › More dictation shortcuts (macOS), while the Lab is on and each
+    /// More dictation shortcuts (macOS), while the Lab is on and each
     /// row is bound and shares no key.
     pub extra_dictation: [Option<RuntimeHotkey>; MAX_EXTRA_DICTATION_SHORTCUTS],
     /// Each extra row's activation mode, folded to one its binding can

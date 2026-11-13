@@ -52,7 +52,7 @@ pub struct ActiveMicrophoneApplication {
 
 impl ActiveMicrophoneApplication {
     /// Whether this is a call app detection may offer. `more_call_apps` is
-    /// Labs › More call apps; off, the apps it adds are not meeting apps.
+    /// More call apps; off, the apps it adds are not meeting apps.
     pub fn is_supported_meeting_app(&self, more_call_apps: bool) -> bool {
         self.canonical_bundle_id()
             .is_some_and(|canonical| more_call_apps || !is_more_call_app(canonical))
@@ -100,7 +100,7 @@ fn is_browser_id(canonical_bundle_id: Option<&str>) -> bool {
     )
 }
 
-/// The call apps Labs › More call apps adds. With that off they are not
+/// The call apps More call apps adds. With that off they are not
 /// meeting apps, so detection behaves exactly as before.
 fn is_more_call_app(canonical_bundle_id: &str) -> bool {
     matches!(
@@ -342,7 +342,7 @@ const EXECUTABLES: [(&str, &str); 43] = [
     // WhatsApp for Windows, before and after its WinUI rewrite.
     ("whatsapp", "net.whatsapp.WhatsApp"),
     ("whatsapp.root", "net.whatsapp.WhatsApp"),
-    // The apps Labs › More call apps adds.
+    // The apps More call apps adds.
     ("signal", "org.whispersystems.signal-desktop"),
     ("signal-desktop", "org.whispersystems.signal-desktop"),
     ("telegram", "ru.keepcoder.Telegram"),
@@ -414,7 +414,7 @@ fn canonical_bundle_id_for(bundle_id: &str, name: Option<&str>) -> Option<&'stat
         ("com.hnc.discord", "com.hnc.Discord"),
         ("com.hnc.discordcanary", "com.hnc.Discord"),
         ("com.hnc.discordptb", "com.hnc.Discord"),
-        // The apps Labs › More call apps adds, their Electron helpers and
+        // The apps More call apps adds, their Electron helpers and
         // alternative bundle IDs included.
         (
             "org.whispersystems.signal-desktop",

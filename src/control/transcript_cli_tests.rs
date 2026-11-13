@@ -109,7 +109,7 @@ fn history_filters_and_order_apply_before_the_limit() {
 }
 
 #[test]
-fn history_stats_parse_sum_retained_entries_and_need_the_labs_toggle() {
+fn history_stats_parse_and_sum_retained_entries() {
     let query = args(&["stats", "--since", "3d", "--json"]);
     assert!(matches!(
         query.action,
@@ -159,8 +159,6 @@ fn history_stats_parse_sum_retained_entries_and_need_the_labs_toggle() {
     );
     assert!(today.unwrap().stats.dictations <= 1);
     assert!(stats_text(&HistoryStats::default()).starts_with("No retained"));
-    assert!(require_history_stats(false).is_err());
-    assert!(require_history_stats(true).is_ok());
 }
 
 #[test]
@@ -298,9 +296,9 @@ fn history_json_contract_snapshot() {
 #[test]
 fn keep_recordings_follows_the_saved_switch_not_the_process() {
     let mut settings = AppSettings::default();
-    settings.labs.keep_recordings = false;
+    settings.preferences.keep_recordings = false;
     let off = keep_recordings(&settings);
-    settings.labs.keep_recordings = true;
+    settings.preferences.keep_recordings = true;
     let on = keep_recordings(&settings);
     assert!(!off, "off by default");
     assert!(on, "a saved on switch while this build has the feature");
@@ -664,7 +662,7 @@ fn subtitles_render_speaker_turns_as_srt_and_vtt_cues() {
 }
 
 #[test]
-fn subtitles_follow_the_range_and_need_the_labs_toggle() {
+fn subtitles_follow_the_range() {
     let library =
         Library::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/meetings"));
     let meeting = library.meeting("1790000500000-1002").unwrap();
@@ -676,13 +674,6 @@ fn subtitles_follow_the_range_and_need_the_labs_toggle() {
     assert!(srt.contains("Them: Agreed."), "{srt}");
     assert!(!srt.contains("\n3\n"), "{srt}");
 
-    assert!(require_subtitle_export(true).is_ok());
-    assert!(
-        require_subtitle_export(false)
-            .unwrap_err()
-            .to_string()
-            .contains("hex labs on subtitle-export")
-    );
     assert_eq!(SubtitleFormat::from_flags(false, false), None);
     assert_eq!(
         SubtitleFormat::from_flags(false, true),

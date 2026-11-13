@@ -183,7 +183,7 @@ pub(super) fn place_bubble(handle: &OverlayHandle<BubbleOverlay>) -> bool {
         0.0
     };
     let (x, y, below) = follow::hud_spot(&screen, &all);
-    let past = if crate::labs::live_text() {
+    let past = if crate::features::live_text() {
         f64::from(crate::rune_ui::live_text::SIZE.1)
     } else {
         0.0

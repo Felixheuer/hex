@@ -33,6 +33,7 @@ mod dev_build;
 #[cfg_attr(any(target_os = "linux", target_os = "windows"), allow(dead_code))]
 mod dictation;
 mod durable;
+mod features;
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 mod feedback;
 mod history;
@@ -42,7 +43,6 @@ mod keyboard;
 #[cfg_attr(target_os = "windows", path = "keyboard_input_sources/windows.rs")]
 #[cfg_attr(target_os = "linux", path = "keyboard_input_sources/x11.rs")]
 mod keyboard_input_sources;
-mod labs;
 #[cfg(target_os = "linux")]
 mod linux;
 mod local_api;
@@ -473,7 +473,7 @@ fn main() -> Result<()> {
         Command::App { hidden, device, .. } => open_app(event_path, device, hidden),
         Command::Listen { device } => {
             let _instance = desktop::instance::acquire("listener")?;
-            labs::log_launch();
+            features::log_launch();
             let settings = app_settings::AppSettings::load()?;
             audio::hex_microphone::host_service();
             let events = desktop::events::EventLog::create(&event_path)?;
@@ -516,7 +516,7 @@ fn main() -> Result<()> {
                     DevCommand::Show { pane } => DeveloperCommand::ShowPane { pane },
                     #[cfg(all(debug_assertions, hex_capture))]
                     DevCommand::CaptureReplay { wavs } => {
-                        labs::log_launch();
+                        features::log_launch();
                         app_settings::AppSettings::load()?;
                         let bundle = capture_host::replay(&wavs)?;
                         println!("{}", bundle.display());
@@ -675,7 +675,7 @@ fn main() -> Result<()> {
 #[cfg(target_os = "macos")]
 fn open_app(event_path: PathBuf, device: Option<String>, hidden: bool) -> Result<()> {
     let _instance = desktop::instance::acquire("listener")?;
-    labs::log_launch();
+    features::log_launch();
     audio::hex_microphone::host_service();
     macos_rune::run(
         &SHUTDOWN,
@@ -887,32 +887,17 @@ mod tests {
     }
 
     #[test]
-    fn labs_parse_as_a_read_command() {
-        use super::labs::LabsCommand;
-
-        assert!(matches!(
-            Cli::try_parse_from(["hex", "labs", "on", "live-text"]).map(|cli| cli.command),
-            Ok(Some(Command::Control(ControlCli::Labs {
-                command: Some(LabsCommand::On { feature })
-            }))) if feature == "live-text"
-        ));
-        assert!(matches!(
-            Cli::try_parse_from(["hex", "labs"]).map(|cli| cli.command),
-            Ok(Some(Command::Control(ControlCli::Labs { command: None })))
-        ));
-        assert!(Cli::try_parse_from(["hex", "labs", "off"]).is_err());
-        #[cfg(target_os = "macos")]
-        assert!(matches!(
-            Cli::try_parse_from(["hex", "labs", "link", "live-text"]).map(|cli| cli.command),
-            Ok(Some(Command::Control(ControlCli::Labs {
-                command: Some(LabsCommand::Link { feature })
-            }))) if feature == "live-text"
-        ));
-        assert!(matches!(
-            Cli::try_parse_from(["hex", "experiments", "enable", "live-text"])
-                .map(|cli| cli.command),
-            Ok(Some(Command::Control(ControlCli::Experiments { .. })))
-        ));
+    fn retired_labs_commands_still_parse() {
+        for args in [
+            &["hex", "labs"][..],
+            &["hex", "labs", "on", "live-text"],
+            &["hex", "experiments", "enable", "live-text"],
+        ] {
+            assert!(matches!(
+                Cli::try_parse_from(args).map(|cli| cli.command),
+                Ok(Some(Command::Control(ControlCli::Labs { .. })))
+            ));
+        }
     }
 
     #[test]

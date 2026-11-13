@@ -1,4 +1,4 @@
-//! Labs › Keep recordings: a dictation saved to History keeps its 16 kHz
+//! Keep recordings: a dictation saved to History keeps its 16 kHz
 //! mono audio as an owner-only 16-bit WAV in `history-audio/<id>.wav`
 //! beside the store, so History can transcribe it again with another model.
 //!
@@ -33,10 +33,10 @@ const RETRANSCRIBE_DEADLINE: Duration = Duration::from_secs(10 * 60);
 pub struct Recording(Vec<f32>);
 
 impl Recording {
-    /// A copy of `samples` while Labs › Keep recordings is on; nothing
+    /// A copy of `samples` while Keep recordings is on; nothing
     /// otherwise, so dictation audio is never kept by default.
     pub fn keep(samples: &[f32]) -> Option<Self> {
-        (crate::labs::keep_recordings() && !samples.is_empty()).then(|| Self(samples.to_vec()))
+        (crate::features::keep_recordings() && !samples.is_empty()).then(|| Self(samples.to_vec()))
     }
 
     #[cfg(test)]
@@ -55,7 +55,7 @@ pub(super) fn path(directory: &Path, id: u64) -> PathBuf {
 }
 
 /// Entry `entry`'s recording in `directory` ([`directory`]), when it kept one
-/// and the file is still there. Labs › Keep recordings is the caller's gate.
+/// and the file is still there. Keep recordings is the caller's gate.
 pub fn saved(directory: &Path, entry: &HistoryEntry) -> Option<PathBuf> {
     if !entry.has_recording() {
         return None;

@@ -1,6 +1,6 @@
-//! The dictation shortcut machines: dictation, Labs › Second dictation
+//! The dictation shortcut machines: dictation, Second dictation
 //! shortcut while it is on and bound, Dictate without processing while it is
-//! bound, Labs › Caps Lock dictation's hands-free toggle, Labs › More
+//! bound, Caps Lock dictation's hands-free toggle, More
 //! dictation shortcuts' rows while that Lab is on, and the assistant's
 //! Action shortcut while the assistant is on and it is bound.
 
@@ -13,14 +13,14 @@ use crate::suppression::{DictationHotkey, HotkeyAction, InputEvent};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Shortcut {
     Dictation,
-    /// Labs › Second dictation shortcut: dictates as the dictation shortcut
+    /// Second dictation shortcut: dictates as the dictation shortcut
     /// does.
     Second,
     /// Dictate without processing.
     Raw,
-    /// Labs › Caps Lock dictation: a press toggles a hands-free capture.
+    /// Caps Lock dictation: a press toggles a hands-free capture.
     CapsLock,
-    /// Labs › More dictation shortcuts, by row.
+    /// More dictation shortcuts, by row.
     Extra(usize),
     /// The assistant's Action shortcut: records as dictation does, but
     /// its transcript asks the assistant; a tap then a hold starts a
@@ -46,19 +46,19 @@ impl Shortcut {
     }
 }
 
-/// The dictation shortcut machines: dictation, Labs › Second dictation
+/// The dictation shortcut machines: dictation, Second dictation
 /// shortcut while it is on and bound, Dictate without processing while it is
-/// bound, Labs › More dictation shortcuts' rows, and Labs › Caps Lock
+/// bound, More dictation shortcuts' rows, and Caps Lock
 /// dictation's machine. One records at a time, and the one that started a
 /// capture finishes or cancels it.
 pub(super) struct Hotkeys {
     pub(super) dictation: DictationHotkey,
     pub(super) second: Option<DictationHotkey>,
     pub(super) raw: Option<DictationHotkey>,
-    /// Labs › More dictation shortcuts: each bound row's own machine, with
+    /// More dictation shortcuts: each bound row's own machine, with
     /// its own activation mode.
     pub(super) extra: [Option<DictationHotkey>; MAX_EXTRA_DICTATION_SHORTCUTS],
-    /// Labs › Caps Lock dictation's hands-free toggle. Its binding is empty:
+    /// Caps Lock dictation's hands-free toggle. Its binding is empty:
     /// presses arrive from the caps-lock worker, not the shortcut matcher.
     pub(super) caps_lock: DictationHotkey,
     /// The assistant's Action shortcut: Hold, with a double tap as a
@@ -178,7 +178,7 @@ impl Hotkeys {
         }
     }
 
-    /// Whether one of the Labs › More dictation shortcuts records.
+    /// Whether one of the More dictation shortcuts records.
     pub(super) fn extra_recording(&self) -> bool {
         self.extra
             .iter()
@@ -242,7 +242,7 @@ impl Hotkeys {
     }
 
     /// Applies the saved shortcut options. Unbinding the raw or second
-    /// shortcut (or turning the second's Labs toggle off) while it records
+    /// shortcut (or turning the second's setting off) while it records
     /// reports true: the caller cancels that recording. The same goes for an
     /// extra shortcut whose row disappears.
     pub(super) fn configure(&mut self, now: CaptureInstant) -> bool {

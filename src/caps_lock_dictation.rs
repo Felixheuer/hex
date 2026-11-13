@@ -1,4 +1,4 @@
-//! Labs › Caps Lock dictation (macOS): a Caps Lock press starts a
+//! Caps Lock dictation (macOS): a Caps Lock press starts a
 //! hands-free dictation, the next press finishes it, and the key's light
 //! shows Hex's state. The platform-independent decisions (press → start or
 //! finish, dictation events → light pattern, the HID/AlphaShift press gate)
@@ -261,7 +261,7 @@ impl PressGate {
     }
 }
 
-/// Whether the lab is on, mirroring [`crate::labs::caps_lock_dictation`] for
+/// Whether the lab is on, mirroring [`crate::features::caps_lock_dictation`] for
 /// the event tap and HID threads, which cannot read settings.
 #[cfg(target_os = "macos")]
 pub(crate) static ENABLED: AtomicBool = AtomicBool::new(false);

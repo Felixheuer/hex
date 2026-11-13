@@ -31,7 +31,7 @@ pub struct Paster {
 pub enum PasteMode {
     Continue,
     Standalone,
-    /// Labs › Copy dictation only: the text goes to the clipboard as an
+    /// Copy dictation only: the text goes to the clipboard as an
     /// ordinary entry and nothing is pasted, typed, or restored.
     CopyOnly,
 }
@@ -69,7 +69,7 @@ impl ClipboardRestore {
         self.generation
     }
 
-    /// Labs › Keep dictation on clipboard: the paste stays on the clipboard,
+    /// Keep dictation on clipboard: the paste stays on the clipboard,
     /// so no earlier snapshot may come back and any pending restore stands
     /// down.
     fn keep(&mut self) {
@@ -243,7 +243,7 @@ impl Paster {
         let text = match continuation {
             Some(continuation) => join(&continuation.inserted, text),
             // Read as the paste commits, so the toggle applies at once.
-            None if crate::labs::smart_spacing() => with_smart_spacing(text),
+            None if crate::features::smart_spacing() => with_smart_spacing(text),
             None => text.to_string(),
         };
         if crate::dictation::context::frontmost_bundle_path()
@@ -258,7 +258,7 @@ impl Paster {
                     }
                     tracing::debug!("typing instead of pasting into Chromium 155 or 156");
                     keyboard::type_text(&text)?;
-                    if crate::labs::keep_on_clipboard() {
+                    if crate::features::keep_on_clipboard() {
                         self.clipboard_restore
                             .lock()
                             .unwrap_or_else(|error| error.into_inner())
@@ -341,7 +341,7 @@ impl Paster {
                     self.continuation = None;
                 }
                 // Read as the paste commits, so the toggle applies at once.
-                let keep = crate::labs::keep_on_clipboard();
+                let keep = crate::features::keep_on_clipboard();
                 if let Err(error) = write_clipboard_text(&self.clipboard, text, !keep) {
                     if let Err(restore_error) = restore_clipboard(&self.clipboard, &previous) {
                         tracing::error!(%restore_error, "could not recover the clipboard after a failed write");
@@ -563,7 +563,7 @@ fn should_preserve_flavor(flags: u32, has_authoritative_flavor: bool) -> bool {
 
 /// nspasteboard.org markers asking clipboard managers not to record a write.
 /// The transcript is only on the clipboard for the duration of the paste,
-/// unless Labs › Keep dictation on clipboard leaves it there (`transient`
+/// unless Keep dictation on clipboard leaves it there (`transient`
 /// false), when it is an ordinary clipboard entry.
 const CLIPBOARD_MANAGER_MARKERS: [&str; 2] = [
     "org.nspasteboard.TransientType",
@@ -726,7 +726,7 @@ fn join(previous: &str, next: &str) -> String {
     next
 }
 
-/// Labs › Smart spacing: one leading space when the character before the
+/// Smart spacing: one leading space when the character before the
 /// focused app's cursor asks for it. A selection, or a cursor the app
 /// doesn't expose through Accessibility, leaves the text unchanged.
 fn with_smart_spacing(text: &str) -> String {

@@ -44,8 +44,7 @@ impl<D: Desktop> Guard<D> {
         // A display for the agents only when the person picked one; else
         // a job's windows park off the screen and show as live pictures on
         // its card (as Codex does), never on another monitor of theirs.
-        let Some(agents) = picked_display(&displays, self.config.agent_display.as_deref())
-        else {
+        let Some(agents) = picked_display(&displays, self.config.agent_display.as_deref()) else {
             if park_allowed() {
                 for window in &arrived {
                     if let Some(spot) = park_spot(&displays) {
@@ -206,4 +205,3 @@ pub(super) fn park_spot(displays: &[crate::assistant::computer::Display]) -> Opt
         .collect();
     crate::assistant::space::parking_spot(&spaced, None)
 }
-

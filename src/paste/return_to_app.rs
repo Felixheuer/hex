@@ -1,4 +1,4 @@
-//! Labs › Return to app: a dictation pastes into the app its capture started
+//! Return to app: a dictation pastes into the app its capture started
 //! in. Another app can come to the front while the person is still talking (a
 //! window pops up, a notification opens); this brings the starting app back
 //! before the paste. When that can't be confirmed in time, nothing is pasted
@@ -31,9 +31,9 @@ pub(crate) enum Decision {
 }
 
 /// The app in front when a capture starts, which its paste returns to.
-/// `None` unless Labs › Return to app is on, and never Hex itself.
+/// `None` unless Return to app is on, and never Hex itself.
 pub(crate) fn capture_start() -> Option<i32> {
-    if !crate::labs::return_to_app() {
+    if !crate::features::return_to_app() {
         return None;
     }
     frontmost_pid().filter(|pid| *pid > 0 && *pid != our_pid())
@@ -57,7 +57,7 @@ fn arrived(target: i32, frontmost: Option<i32>) -> bool {
 /// `Err` means nothing may be pasted: the app is gone or focus couldn't be
 /// confirmed in time.
 pub(crate) fn bring_to_front(return_to: Option<i32>) -> Result<()> {
-    if !crate::labs::return_to_app() {
+    if !crate::features::return_to_app() {
         return Ok(());
     }
     let Decision::ReturnTo(pid) = decision(return_to, frontmost_pid(), our_pid()) else {

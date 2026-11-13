@@ -121,7 +121,7 @@ fn typing_demanded() -> bool {
     false
 }
 
-/// Whether the HUD's live text plate wants the published text (Labs › Live
+/// Whether the HUD's live text plate wants the published text (Live
 /// text, or the first run's practice field).
 pub(crate) fn board_demanded() -> bool {
     DEMANDS.load(Ordering::Acquire) > 0
