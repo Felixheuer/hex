@@ -244,18 +244,7 @@ pub fn jxa(
         2 * 1024 * 1024,
     )
     .map(|text| text.trim_end_matches('\n').to_owned())
-    .map_err(|error| {
-        if error.contains("-1743") || error.contains("Not authorized") {
-            format!(
-                "Hex may not control {} yet (System Settings › Privacy & Security › Automation › Hex › {})",
-                browser.name, browser.name
-            )
-        } else if error.contains("-600") || error.contains("Application can't be found") {
-            format!("{} isn't installed or didn't answer", browser.name)
-        } else {
-            error
-        }
-    })
+    .map_err(|error| super::apple_events::explain(&error, browser))
 }
 
 /// The listing as tabs, incognito windows left out.
@@ -295,12 +284,20 @@ fn parse_listing(text: &str) -> Result<Option<Vec<Tab>>, String> {
 
 /// The open tabs of `browser`; `None` when it isn't running.
 pub fn open_tabs(browser: &Browser) -> Result<Option<Vec<Tab>>, String> {
-    parse_listing(&jxa(
+    // A browser with many tabs, or one waking up, takes seconds to list them.
+    let text = jxa(
         browser,
         browser.family.list_script(),
         &[],
-        Duration::from_secs(3),
-    )?)
+        Duration::from_secs(8),
+    )?;
+    parse_listing(&text).map_err(|error| {
+        format!(
+            "{} answered something that isn't its tab list ({error}): “{}”",
+            browser.name,
+            crate::assistant::store::shorten(text.trim(), 200)
+        )
+    })
 }
 
 /// `url` without a query that carries a secret (a token, key, code, or

@@ -66,6 +66,7 @@ fn hex_step(tool: &str, args: &Value) -> Option<Report> {
             "Removed a schedule".to_owned(),
         ),
         "schedules" => ("Checking the schedules".to_owned(), String::new()),
+        "watch_video" => crate::assistant::media::step(args),
         _ => return None,
     };
     Some(Report::Step { doing, done })
@@ -170,7 +171,14 @@ impl Describer {
                 .collect();
         }
         let Some(command) = command(tool) else {
-            return Vec::new();
+            // A tool that failed for a reason the person fixes says so.
+            return crate::assistant::knowledge::person_fix(output)
+                .map(|line| Report::Step {
+                    doing: line.clone(),
+                    done: line,
+                })
+                .into_iter()
+                .collect();
         };
         let Some(envelope) = envelope(output) else {
             return Vec::new();
