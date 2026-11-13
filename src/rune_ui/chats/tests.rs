@@ -47,7 +47,42 @@ fn settle(rt: &mut Runtime<Ui>) {
     rt.frame(0.0);
 }
 
+/// Scrolls the stream until `key` shows, as a person would with the wheel.
+fn reveal(rt: &mut Runtime<Ui>, key: &str) {
+    for _ in 0..300 {
+        let elements = rt.elements();
+        let Some(target) = elements
+            .iter()
+            .find(|e| e.key.as_deref() == Some(key) && !e.exiting)
+        else {
+            return;
+        };
+        let inside = format!("/{}/", super::follow::SCROLL);
+        let Some(view) = elements
+            .iter()
+            .find(|e| e.key.as_deref() == Some(super::follow::SCROLL))
+            .filter(|_| target.path.contains(&inside))
+        else {
+            return;
+        };
+        let middle = target.rect[1] + target.rect[3] / 2.0;
+        let (top, bottom) = (view.rect[1] + 8.0, view.rect[1] + view.rect[3] - 8.0);
+        if middle > top && middle < bottom {
+            return;
+        }
+        // Positive moves the content down, to what is above.
+        let dy = if middle >= bottom { -40.0 } else { 40.0 };
+        rt.wheel(
+            view.rect[0] + view.rect[2] / 2.0,
+            view.rect[1] + view.rect[3] / 2.0,
+            dy,
+        );
+        rt.frame(1.0 / 60.0);
+    }
+}
+
 fn tap(rt: &mut Runtime<Ui>, key: &str) {
+    reveal(rt, key);
     let (x, y) = rt.find(key).unwrap_or_else(|| panic!("no element {key}"));
     rt.pointer_down(x, y);
     rt.pointer_up(x, y);
@@ -172,11 +207,10 @@ fn the_composer_sends_with_return_and_continues_the_shown_chat() {
 }
 
 #[test]
-fn shift_return_keeps_typing_and_new_chat_starts_a_conversation() {
+fn shift_return_keeps_typing_and_a_message_is_a_request_of_its_own() {
     let mut rt = chats();
-    tap(&mut rt, "new-chat");
-    assert_eq!(rt.state.chats.selected, None);
-    assert!(shows(&rt, "What can I help with?"));
+    assert!(rt.find("new-chat").is_none(), "one stream: no New chat");
+    assert_eq!(rt.state.chats.target, None);
     rt.state.chats.composer = TextEdit::new("Hello");
     rt.invalidate();
     settle(&mut rt);
@@ -201,7 +235,6 @@ fn shift_return_keeps_typing_and_new_chat_starts_a_conversation() {
 #[test]
 fn an_answer_streams_in_and_lands_in_the_stored_conversation() {
     let mut rt = chats();
-    tap(&mut rt, "new-chat");
     rt.state.chats.composer = TextEdit::new("What's 2 + 2?");
     rt.invalidate();
     settle(&mut rt);
@@ -228,6 +261,12 @@ fn an_answer_streams_in_and_lands_in_the_stored_conversation() {
     settle(&mut rt);
     assert!(shows(&rt, "Opened Calculator"));
     assert!(shows(&rt, "Writing…"));
+    assert!(
+        rt.find("composer-stop").is_none(),
+        "the composer asks anew until an entry is clicked"
+    );
+    tap(&mut rt, "chat-chat-1");
+    assert_eq!(rt.state.chats.target.as_deref(), Some("chat-1"));
     assert!(
         rt.find("composer-stop").is_some(),
         "Stop replaces Send while it runs"
@@ -371,7 +410,6 @@ fn the_composer_sends_auto_by_default_with_here_and_background_overrides() {
         (SendMode::Here, "What's this error?"),
         (SendMode::Background, "Sort my Downloads"),
     ] {
-        tap(&mut rt, "new-chat");
         rt.state.chats.lane = mode;
         rt.state.chats.composer = TextEdit::new(words);
         rt.invalidate();
@@ -584,7 +622,8 @@ fn chats_follows_new_activity_until_a_pick_then_offers_jump_to_current() {
 fn chats_shows_a_finish_setup_card_until_ready() {
     let mut rt = chats();
     rt.state.settings.assistant.setup_done = false;
-    tap(&mut rt, "new-chat");
+    rt.invalidate();
+    settle(&mut rt);
     assert!(shows(&rt, "Finish setting up the assistant"));
     assert!(
         rt.find("composer-input").is_none(),
@@ -1298,4 +1337,53 @@ mod repair {
         assert_eq!(rt.state.settings.assistant.setup_version, SETUP_VERSION);
         assert!(!rt.state.chats.repair.snoozed, "finished, not put off");
     }
+}
+
+/// One stream: every stored conversation, oldest first by when it was
+/// asked, with no list beside it.
+#[test]
+fn every_conversation_shows_in_one_stream_by_when_it_was_asked() {
+    let pane = pane_with(Vec::new());
+    assert_eq!(pane.stream.len(), pane.list.len());
+    let asked: Vec<u64> = pane.stream.iter().map(|c| c.created_ms).collect();
+    let mut sorted = asked.clone();
+    sorted.sort_unstable();
+    assert_eq!(asked, sorted, "oldest first");
+    let rt = chats();
+    assert!(rt.find("chats-list").is_none(), "no list of chats");
+    assert!(rt.find("chats-search").is_none());
+    for id in pane.list.iter().map(|row| row.id.as_str()) {
+        assert!(
+            rt.find(&format!("entry-{id}")).is_some(),
+            "{id} is in the stream"
+        );
+    }
+}
+
+/// Following new activity highlights it; only a click points the
+/// composer at an entry, and the clear button points it back.
+#[test]
+fn only_a_click_points_the_composer_at_an_entry() {
+    let mut rt = chats();
+    rt.update(|ui, _| ui.chats.auto_select());
+    settle(&mut rt);
+    assert!(rt.state.chats.selected.is_some());
+    assert_eq!(rt.state.chats.target, None, "following never targets");
+    assert!(rt.find("composer-target").is_none());
+    tap(&mut rt, "chat-reply-to-maya");
+    assert_eq!(rt.state.chats.target.as_deref(), Some("reply-to-maya"));
+    assert!(rt.find("composer-target").is_some());
+    tap(&mut rt, "clear-target");
+    assert_eq!(rt.state.chats.target, None);
+    rt.state.chats.composer = TextEdit::new("What did the Maya task do?");
+    rt.invalidate();
+    settle(&mut rt);
+    tap(&mut rt, "composer-send");
+    let store = rt.state.chats.store().unwrap();
+    let sent = store.submitted.last().unwrap();
+    assert_eq!(sent.conversation, None, "a request of its own");
+    assert!(
+        rt.state.chats.turns["reply-to-maya"].steered.is_empty(),
+        "the running task isn't steered"
+    );
 }

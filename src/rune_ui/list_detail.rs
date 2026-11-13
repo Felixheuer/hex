@@ -147,22 +147,6 @@ pub(super) fn item_with_icon(
     )
 }
 
-/// [`item_with_icon`] led by `mark` instead of an icon, such as the
-/// pulsing dot of something running.
-pub(super) fn item_with_mark(
-    p: Paint,
-    item: Item,
-    mark: El,
-    select: impl Fn(&mut Ui) + 'static,
-) -> El {
-    let selected = item.selected;
-    let row = item_body(p, item, Some(mark.mr(-6.0).a11y_hidden()));
-    super::lists::source_item(
-        super::lists::select_at_once(row, selected, select),
-        selected,
-    )
-}
-
 /// A row's small faint leading icon.
 fn leading_icon(p: Paint, glyph: &'static Icon) -> El {
     icon(glyph, LEADING_ICON)

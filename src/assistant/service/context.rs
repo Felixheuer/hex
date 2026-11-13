@@ -13,10 +13,27 @@ use regex::Regex;
 use crate::assistant::store;
 use crate::assistant::types::{ConversationId, ConversationSummary, Origin, Outcome, TaskStatus};
 
-/// The digest's budget: about 600 tokens.
-const MAX_CHARS: usize = 2400;
+/// The digest's budget: about 1,200 tokens.
+const MAX_CHARS: usize = 4800;
 /// How many finished conversations it lists.
-const RECENT: usize = 5;
+const RECENT: usize = 10;
+
+/// A task's short id in the digest, as `hex_tell_job` and `hex_job_result`
+/// take it (the conversation id's first eight characters).
+pub fn short_id(conversation: &str) -> &str {
+    conversation.get(..8).unwrap_or(conversation)
+}
+
+fn state(state: crate::assistant::TaskState) -> &'static str {
+    use crate::assistant::TaskState;
+    match state {
+        TaskState::Queued => "queued",
+        TaskState::Running => "working",
+        TaskState::Paused => "the person took it over",
+        TaskState::Waiting { .. } => "waiting for a usage limit",
+        TaskState::NeedsInput => "waits for the person's answer",
+    }
+}
 
 /// What else is going on, for a new conversation's first prompt; `None`
 /// when nothing is.
@@ -29,7 +46,14 @@ pub fn digest(
     if !running.is_empty() {
         lines.push("Running now:".to_owned());
         for (index, task) in running.iter().enumerate() {
-            let mut line = format!("{}. “{}” ({})", index + 1, task.title, lane(task.origin));
+            let mut line = format!(
+                "{}. [{}] “{}” ({}, {})",
+                index + 1,
+                short_id(&task.conversation),
+                task.title,
+                lane(task.origin),
+                state(task.state)
+            );
             if let Some(step) = &task.step {
                 line.push_str(&format!(", now: {}", store::shorten(step, 60)));
             }
@@ -63,8 +87,9 @@ pub fn digest(
         for (index, summary) in finished.iter().enumerate() {
             let preview = store::shorten(&summary.preview, 120);
             lines.push(format!(
-                "{}. “{}” — {} {}: {preview}",
+                "{}. [{}] “{}” — {} {}: {preview}",
                 index + 1,
+                short_id(&summary.id),
                 summary.title,
                 outcome(summary.outcome),
                 ago(now_ms.saturating_sub(summary.updated_ms)),
@@ -75,7 +100,7 @@ pub fn digest(
         return None;
     }
     let mut text = String::from(
-        "For context (the person may refer to these, e.g. “the other one” or “that task”):\n",
+        "Everything you did for the person lately, across tasks: one assistant, one stream. The person may refer to any of it (\u{201c}the Tokio one\u{201d}, \u{201c}that task\u{201d}, \u{201c}what did it find?\u{201d}). Answer from here, read a task's full result with hex_job_result([id]), and change a running job with hex_tell_job([id], text); start new work with hex_start_jobs.\n",
     );
     for line in lines {
         if text.chars().count() + line.chars().count() + 1 > MAX_CHARS {
@@ -119,7 +144,9 @@ fn ago(ms: u64) -> String {
 /// task ("Aufgabe", "task", "bei der …", "stop …") and shares a word with
 /// one task's title or apps more than with any other.
 pub fn route(text: &str, running: &[TaskStatus]) -> Option<ConversationId> {
-    if running.is_empty() || !cue().is_match(text) {
+    // A question about a task ("Was hat die Tokio-Aufgabe gefunden?") is
+    // answered from the stream (`digest`, `hex_job_result`), not steered.
+    if running.is_empty() || !cue().is_match(text) || asks_about(text) {
         return None;
     }
     let asked = words(text);
@@ -148,6 +175,23 @@ pub fn route(text: &str, running: &[TaskStatus]) -> Option<ConversationId> {
 }
 
 /// Words that tell an instruction is about a task.
+/// Whether `text` asks about something rather than tells a task to do it.
+fn asks_about(text: &str) -> bool {
+    let text = text.trim();
+    let first = text
+        .split(|c: char| !c.is_alphanumeric())
+        .find(|word| !word.is_empty())
+        .unwrap_or_default()
+        .to_lowercase();
+    text.ends_with('?')
+        && [
+            "was", "wie", "wo", "wann", "welche", "welcher", "welches", "warum", "hat", "ist",
+            "sind", "gibt", "what", "how", "where", "when", "which", "why", "did", "has", "is",
+            "are",
+        ]
+        .contains(&first.as_str())
+}
+
 fn cue() -> &'static Regex {
     static CUE: OnceLock<Regex> = OnceLock::new();
     CUE.get_or_init(|| {
@@ -409,12 +453,12 @@ mod tests {
         let digest = digest(&running, &recent, now).unwrap();
         assert_eq!(
             digest,
-            "For context (the person may refer to these, e.g. “the other one” or “that task”):\n\
+            "Everything you did for the person lately, across tasks: one assistant, one stream. The person may refer to any of it (\u{201c}the Tokio one\u{201d}, \u{201c}that task\u{201d}, \u{201c}what did it find?\u{201d}). Answer from here, read a task's full result with hex_job_result([id]), and change a running job with hex_tell_job([id], text); start new work with hex_start_jobs.\n\
              Running now:\n\
-             1. “Antworte Anna” (background), now: Typing 12 characters into “To”, in Mail\n\
+             1. [mail] “Antworte Anna” (background, working), now: Typing 12 characters into “To”, in Mail\n\
              Finished recently (newest first):\n\
-             1. “Wie spät ist es in Tokio?” — answered 5 min ago: Wie spät ist es in Tokio? done\n\
-             2. “Rechnung suchen” — failed 2 h ago: Rechnung suchen done"
+             1. [q1] “Wie spät ist es in Tokio?” — answered 5 min ago: Wie spät ist es in Tokio? done\n\
+             2. [q2] “Rechnung suchen” — failed 2 h ago: Rechnung suchen done"
         );
         assert_eq!(super::digest(&[], &[], now), None);
         let many: Vec<_> = (0..40)

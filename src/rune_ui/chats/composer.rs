@@ -1,7 +1,8 @@
-//! The bottom of the detail card: the interrupted banner with Resume, and
-//! the composer with its Here / Background toggle. The composer sends into
-//! the conversation that shows; while that one runs, what it sends steers
-//! it. Over the transcript float "Jump to current" (activity elsewhere
+//! The bottom of the stream: the interrupted banner with Resume, and the
+//! composer with its Here / Background toggle. The composer asks the
+//! assistant anew, which knows the whole stream; after a click on an entry
+//! it replies to that entry, and while that one runs, steers it. Over the
+//! stream float "Jump to current" (activity elsewhere
 //! while the person stays put) and "↓ New" (more arrived below while they
 //! scrolled up).
 
@@ -13,11 +14,12 @@ use super::super::onboarding_kit::arrives;
 use super::list::INTERRUPTED_ICON;
 use super::{SendMode, Ui, follow};
 use crate::assistant::Outcome;
-use crate::desktop::i18n::tr;
+use crate::desktop::i18n::{tr, tr_fill};
 
 static SEND_ICON: &rune::Icon = &rune_theme_opencode::icons::ARROW_UP;
 static STOP_ICON: &rune::Icon = &rune_theme_opencode::icons::STOP;
 static DOWN_ICON: &rune::Icon = &rune_theme_opencode::icons::ARROW_DOWN_TO_LINE;
+static CLEAR_ICON: &rune::Icon = &rune_theme_opencode::icons::CLOSE_SMALL;
 
 /// Hex quit or crashed while conversation `id` ran: say so, with Resume.
 pub(super) fn interrupted_banner(ui: &Ui, p: Paint, id: &str) -> Option<El> {
@@ -111,6 +113,9 @@ pub(super) fn pills(ui: &Ui, p: Paint) -> Vec<El> {
                         |ui: &mut Ui, tx: &mut Tx| {
                             tx.instant();
                             ui.chats.jump_to_current();
+                            if let Some(id) = &ui.chats.selected {
+                                tx.scroll_into_view(super::stream::entry_key(id));
+                            }
                         },
                     ),
                 ),
@@ -208,8 +213,8 @@ fn send_mode(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
 pub(super) fn composer(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     let pane = &ui.chats;
     let empty = pane.composer.text.trim().is_empty();
-    let running = pane.selected.as_deref().is_some_and(|id| pane.running(id));
-    let placeholder = match (running, pane.selected.is_some(), pane.lane) {
+    let running = pane.target.as_deref().is_some_and(|id| pane.running(id));
+    let placeholder = match (running, pane.target.is_some(), pane.lane) {
         (true, _, _) => tr("Tell it something while it works…"),
         (false, true, _) => tr("Reply…"),
         (false, false, SendMode::Here) => tr("Ask about the window in front…"),
@@ -250,7 +255,7 @@ pub(super) fn composer(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
         .pb(4.0)
         .child(rune::auto_grow(input, 1, 8));
     let action = if running && empty {
-        let stop = pane.selected.clone().unwrap_or_default();
+        let stop = pane.target.clone().unwrap_or_default();
         IconButton::new(STOP_ICON)
             .variant(IconButtonVariant::Neutral)
             .control_size(ControlSize::Large)
@@ -327,6 +332,7 @@ pub(super) fn composer(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
             color: rune::Color::BLACK.alpha(if k.dark { 0.28 } else { 0.06 }),
             inset: false,
         })
+        .children(target_chip(ui, p))
         .child(field)
         .child(controls.pl(6.0));
     col()
@@ -337,4 +343,39 @@ pub(super) fn composer(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
         .pb(16.0)
         .pr(12.0)
         .child(shell)
+}
+
+/// The entry the composer writes to, after a click on it, with a way back
+/// to writing to the assistant.
+fn target_chip(ui: &Ui, p: Paint) -> Option<El> {
+    let pane = &ui.chats;
+    let id = pane.target.as_deref()?;
+    let title = super::stream::title(pane, id);
+    Some(
+        row()
+            .key("composer-target")
+            .gap(4.0)
+            .pl(8.0)
+            .center_y()
+            .child(
+                text(tr_fill("To: {}", &title))
+                    .key("to")
+                    .font(p.k.ty.small)
+                    .color(p.accent())
+                    .shrink()
+                    .truncate(),
+            )
+            .child(
+                IconButton::new(CLEAR_ICON)
+                    .variant(IconButtonVariant::Ghost)
+                    .control_size(ControlSize::Small)
+                    .label(tr("Write to the assistant instead"))
+                    .on_press_tx(|ui: &mut Ui, tx: &mut Tx| {
+                        ui.chats.clear_target();
+                        tx.focus("composer-input", false);
+                    })
+                    .build(p.k)
+                    .key("clear-target"),
+            ),
+    )
 }

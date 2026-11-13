@@ -104,6 +104,7 @@ impl ChatsPane {
         if self.follow.elsewhere.as_ref() == Some(&id) {
             self.follow.elsewhere = None;
         }
+        self.target = Some(id.clone());
         self.select(id);
     }
 
