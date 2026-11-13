@@ -82,6 +82,20 @@ impl Kind {
                 | Self::WindowInput
         )
     }
+
+    /// Whether it only reads, and so runs beside the task's guard instead
+    /// of waiting behind an action that holds it (`proxy::shared`).
+    pub fn reads_alone(self) -> bool {
+        matches!(
+            self,
+            Self::Observe
+                | Self::InstalledApps
+                | Self::AppCapabilities
+                | Self::Displays
+                | Self::ReadWindow
+                | Self::WindowShot
+        )
+    }
 }
 
 /// Hex's tool for taking a free window (Background lane).
