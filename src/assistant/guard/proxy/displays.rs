@@ -41,8 +41,10 @@ impl<D: Desktop> Guard<D> {
         }
         let arrived = std::mem::take(&mut self.arrived);
         let displays = self.screen.displays();
-        let Some(agents) =
-            computer::agents_display(&displays, self.config.agent_display.as_deref()).cloned()
+        // A display for the agents only when the person picked one; else
+        // a job's windows park off the screen and show as live pictures on
+        // its card (as Codex does), never on another monitor of theirs.
+        let Some(agents) = picked_display(&displays, self.config.agent_display.as_deref())
         else {
             if park_allowed() {
                 for window in &arrived {
@@ -156,7 +158,29 @@ pub(super) fn tool() -> Value {
 
 /// Whether windows a job opens may be parked off the screen
 /// (`assistant.agent_space`), read once per guard process.
+/// The display the person picked for the agents (by id or name), if one
+/// is picked and attached; "none" or empty is none.
+fn picked_display(
+    displays: &[crate::assistant::computer::Display],
+    chosen: Option<&str>,
+) -> Option<crate::assistant::computer::Display> {
+    let chosen = chosen.map(|text| text.trim().to_lowercase())?;
+    if chosen.is_empty() || chosen == "none" {
+        return None;
+    }
+    computer::agents_display(displays, Some(&chosen))
+        .filter(|display| {
+            display.id.trim().to_lowercase() == chosen
+                || display.name.trim().to_lowercase() == chosen
+        })
+        .cloned()
+}
+
 fn park_allowed() -> bool {
+    // Tests never read the person's settings.
+    if cfg!(test) {
+        return false;
+    }
     static ALLOWED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ALLOWED.get_or_init(|| {
         crate::app_settings::AppSettings::read()

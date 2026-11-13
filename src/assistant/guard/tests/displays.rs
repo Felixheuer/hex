@@ -80,6 +80,8 @@ fn a_background_tasks_new_window_moves_to_the_agents_display() {
     // It opens on the person's display.
     fake.state().on_launch = Some(textedit_window("w-500", (100.0, 100.0, 500.0, 400.0)));
     let mut guard = background(&scratch, &fake, "bg", false);
+    // Only a display the person picked takes the agents' windows.
+    guard.config.agent_display = Some("M27Q".into());
     guard.call("desktop_launch", args(json!({"app": "TextEdit"})));
     let moved = moves(&fake);
     assert_eq!(moved.len(), 1);
@@ -110,6 +112,18 @@ fn a_background_tasks_new_window_moves_to_the_agents_display() {
         notes(&next).iter().any(|note| note.contains("is gone")),
         "{next}"
     );
+}
+
+#[test]
+fn with_no_display_picked_a_second_display_isn_t_taken() {
+    let scratch = Scratch::new();
+    let fake = Fake::recorded();
+    this_mac(&fake);
+    fake.state().on_launch = Some(textedit_window("w-500", (100.0, 100.0, 500.0, 400.0)));
+    let mut guard = background(&scratch, &fake, "bg", false);
+    guard.config.agent_display = Some("none".into());
+    guard.call("desktop_launch", args(json!({"app": "TextEdit"})));
+    assert!(moves(&fake).is_empty(), "parked (off in tests), not moved to the M27Q");
 }
 
 #[test]

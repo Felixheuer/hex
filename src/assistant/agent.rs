@@ -816,6 +816,9 @@ pub fn prepare(
     if settings.memory {
         system.push_str(&memory_rules(job.memory.as_deref(), !job_role));
     }
+    // Pages, tools, and Hex's own notes are mostly English; the person's
+    // language is named so every answer, question, and report keeps it.
+    system.push_str(&language_rule(&job.request.text));
     let tools = tools_server(
         &job.conversation,
         if job_role {
@@ -952,7 +955,7 @@ pub fn job_rules(workspace: &std::path::Path, browser: bool, unrestricted: bool)
     let mut rules = format!(
         "\nThis is a job, running in the background while the person does other things. Find the fastest way to do all of it, then do it fully on your own.\n\
          Your workspace is {ws} (your current folder). Keep every file of this job there: data, spreadsheets, documents, scripts. Use absolute paths inside it.\n\
-         1. Plan first: write {plan} in the workspace. Its first line says which consequential actions the person's own request explicitly asked for: `HEX_AUTHORIZED: <send, delete, pay, share, publish, or none> (<limits they gave, such as only to max@example.com>)`; Hex checks it against their words. Then a checklist (`- [ ] step`), each step naming its tool: the hidden browser for research and web apps (Gmail, Google Sheets, and other accounts through the browser's signed-in session), the desktop only for native apps (check which apps are installed with hex_installed_apps before choosing one), and files and scripts in the workspace for spreadsheets, CSV, and documents. Say what runs in parallel, and run it in parallel: subagents (Task) for independent batches{parallel}. Tick each step (`- [x]`) as it finishes; Hex shows this plan to the person.\n\
+         1. Plan first: write {plan} in the workspace. Its first line says which consequential actions the person's own request explicitly asked for: `HEX_AUTHORIZED: <send, delete, pay, share, publish, or none> (<limits they gave, such as only to max@example.com>)`; Hex checks it against their words. Then a checklist (`- [ ] step`), each step naming its tool: the hidden browser for research and web apps (Gmail, Google Sheets, and other accounts through the browser's signed-in session), the desktop only for native apps (check which apps are installed with hex_installed_apps before choosing one), and files and scripts in the workspace for spreadsheets, CSV, and documents. Say what runs in parallel, and run it in parallel: subagents (Task) for independent batches{parallel}. Tick each step (`- [x]`) in {plan} the moment it finishes, before you start the next one: the person watches this plan live on the job's card and sees nothing else of your progress. Before your final answer every finished step is ticked.\n\
          2. Ask everything up front, once, before the real work starts: the person often leaves right after giving the job (\u{201c}I'm going to the hairdresser\u{201d}) and won't be there to answer later. Go through the whole plan and list every detail any step will need: recipients and the channel to reach them (which contact, WhatsApp or Slack, which channel or thread), repository name and whether it is public or private, accounts and logins, wording, tone and language of messages, deadlines, where to publish. Find out yourself whatever you can (contacts, installed apps, signed-in accounts, files). If anything essential is still missing, ask ALL of it in ONE message, together with your plan in one sentence so their answer confirms it too, and stop: start your reply with the line `HEX_QUESTION:`, then the question in two or three speakable sentences. If nothing is missing, don't ask; start. After that, never ask for something you could have asked now: for anything unforeseen, choose the sensible default, note it in {report}, and go on; ask again only when you are truly blocked (a login only the person has, a payment they didn't approve).\n\
          3. Spreadsheets: write .xlsx with Python and openpyxl (if it's missing: `python3 -m venv .venv && .venv/bin/pip install openpyxl` in the workspace); if that fails, write CSV. {shell}\n\
          4. {consequential}\n\
@@ -1174,6 +1177,32 @@ pub fn computer_name() -> &'static str {
     } else {
         "Linux computer"
     }
+}
+
+/// The language every answer, question, and report is written in: the
+/// request's, else this Mac's.
+fn language_rule(request: &str) -> String {
+    let code = crate::assistant::speech::language_of(request)
+        .map(str::to_owned)
+        .unwrap_or_else(crate::assistant::speech::system_language);
+    let name = match code.as_str() {
+        "de" => "German",
+        "en" => "English",
+        "fr" => "French",
+        "es" => "Spanish",
+        "it" => "Italian",
+        "nl" => "Dutch",
+        "pl" => "Polish",
+        "pt" => "Portuguese",
+        "uk" => "Ukrainian",
+        "ru" => "Russian",
+        "ja" => "Japanese",
+        "zh" => "Chinese",
+        _ => return "\nWrite every answer, question, and report in the person's language.\n".into(),
+    };
+    format!(
+        "\nThe person speaks {name}: write every answer, question, and report to them in {name}, even when pages, tools, and Hex's notes are in English (messages to others in the language the request says).\n"
+    )
 }
 
 /// Who the assistant is, how it answers, and its lane's rules for the
