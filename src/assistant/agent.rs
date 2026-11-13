@@ -595,15 +595,23 @@ fn run_backend(
                 });
             }
         }
-        Report::Tool { name, input } => crate::assistant::audit::record(
-            id,
-            &crate::assistant::audit::Entry {
-                at_ms: crate::assistant::store::now_ms(),
-                tool: name,
-                input,
-                check: seen.quiet,
-            },
-        ),
+        Report::Tool { name, input } => {
+            if let Some(acts) = crate::assistant::guard::screen_work(&name) {
+                emit(Event::Acting {
+                    conversation: id.clone(),
+                    looking: !acts,
+                });
+            }
+            crate::assistant::audit::record(
+                id,
+                &crate::assistant::audit::Entry {
+                    at_ms: crate::assistant::store::now_ms(),
+                    tool: name,
+                    input,
+                    check: seen.quiet,
+                },
+            )
+        }
         Report::Session(session) => {
             if stored.sessions.get(key) != Some(&session) {
                 stored.sessions.insert(key.to_owned(), session);

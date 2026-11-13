@@ -405,6 +405,7 @@ fn follow(id: &str, events: &mpsc::Receiver<Event>, speak: bool) -> bool {
                 println!("[waiting until {until_ms}] {reason}")
             }
             Event::HandsOff { on, .. } => println!("[hands off] {on}"),
+            Event::Acting { .. } => {}
             Event::Plan { steps, .. } => {
                 for step in steps {
                     println!(

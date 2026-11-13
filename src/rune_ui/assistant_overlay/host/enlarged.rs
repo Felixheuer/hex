@@ -8,6 +8,7 @@ use rune::{
     ScreenEdge,
 };
 
+use super::super::app_live;
 use super::super::board::Board;
 use super::super::enlarged::{self, Enlarged};
 use super::super::live::{self, Viewer};
@@ -40,8 +41,18 @@ pub(super) fn install<S: 'static>(app: &mut rune::App<S>) -> OverlayHandle<Enlar
         spec,
         Enlarged::new(Actions {
             close,
-            take_over: |_, id| crate::assistant::service::take_over(id),
-            hand_back: |_, id| crate::assistant::service::hand_back(id),
+            take_over: |state, id| {
+                crate::assistant::service::take_over(id);
+                if let Some(number) = shown_window(state) {
+                    app_live::show(id, number);
+                }
+            },
+            hand_back: |state, id| {
+                if let Some(number) = shown_window(state) {
+                    app_live::park(id, number);
+                }
+                crate::assistant::service::hand_back(id);
+            },
             open_chats: Some(|state, task, session| {
                 live::request_view(task, session);
                 open_chats(task);
@@ -57,7 +68,7 @@ pub(super) fn open(board: &Board, task: &str, session: &str) {
     let Some(overlays) = OVERLAYS.get() else {
         return;
     };
-    live::view(Viewer::Overlay, Some((task, session)));
+    view(task, session);
     let (board, task, session) = (board.clone(), task.to_owned(), session.to_owned());
     overlays.enlarged.update(move |state, _| {
         enlarged::open(state, &task, &session, &board);
@@ -71,10 +82,34 @@ pub(super) fn open(board: &Board, task: &str, session: &str) {
 fn close(state: &mut Enlarged) {
     if enlarged::close(state) {
         live::view(Viewer::Overlay, None);
+        app_live::view(None);
     }
     if let Some(overlays) = OVERLAYS.get() {
         overlays.enlarged.fade_out(FADE);
     }
+}
+
+/// Streams what the card shows: a browser from `live`, an app window from
+/// `app_live`.
+fn view(task: &str, session: &str) {
+    match app_live::number_of(session) {
+        Some(number) => {
+            live::view(Viewer::Overlay, None);
+            app_live::view(Some((task, number)));
+        }
+        None => {
+            app_live::view(None);
+            live::view(Viewer::Overlay, Some((task, session)));
+        }
+    }
+}
+
+/// The app window the card shows, if it shows one.
+fn shown_window(state: &Enlarged) -> Option<u32> {
+    state
+        .target
+        .as_ref()
+        .and_then(|(_, session)| app_live::number_of(session))
 }
 
 /// The orb's board changed: the card follows who has its task.

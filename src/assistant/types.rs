@@ -298,6 +298,13 @@ pub enum Event {
     Escalated {
         conversation: ConversationId,
     },
+    /// A task called a desktop tool just now: it acts on the screen
+    /// (`looking` when it only read or screenshot a window). The screen
+    /// frame shows for a few seconds after (`assistant_overlay`).
+    Acting {
+        conversation: ConversationId,
+        looking: bool,
+    },
     /// A Here task is (or stops) moving the real pointer or pressing real
     /// keys in the window in front: the HUD shows "Hands off".
     HandsOff {
@@ -338,6 +345,7 @@ impl Event {
             | Self::Resumed { conversation }
             | Self::Waiting { conversation, .. }
             | Self::HandsOff { conversation, .. }
+            | Self::Acting { conversation, .. }
             | Self::Plan { conversation, .. }
             | Self::Question { conversation, .. }
             | Self::Escalated { conversation } => Some(conversation),

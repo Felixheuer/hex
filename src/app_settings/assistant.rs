@@ -173,7 +173,7 @@ impl Default for AssistantSettings {
             task_timeout_minutes: 30,
             job_budget_minutes: JOB_BUDGET_MAX_MINUTES,
             retry_on_limit: true,
-            agent_space: false,
+            agent_space: true,
             agent_display: None,
             autonomy: crate::assistant::autonomy::Autonomy::Smart,
             memory: true,

@@ -1070,3 +1070,8 @@ pub(super) fn run_sampler(sampler: Sampler) -> Option<super::Movie> {
         .filter(|path| path.metadata().is_ok_and(|m| m.len() > 0))
         .map(|path| super::Movie::written(path, offset.load(Ordering::Acquire)))
 }
+
+/// Window pictures by number are a macOS feature here.
+pub fn capture_window(_window_id: u32, _max_long_edge: u32) -> Option<(u32, u32, Vec<u8>)> {
+    None
+}
