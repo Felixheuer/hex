@@ -44,11 +44,11 @@ impl Runner {
     /// conversation; nothing when nothing is reserved or the Here lane has
     /// no browser.
     pub(super) fn speculate(self: &Arc<Self>, partial: &str) {
-        if !crate::assistant::route::wants_web(partial) {
+        if !crate::assistant::route::wants_web(partial, &(self.hooks.signed_in_sites)()) {
             return;
         }
         let (enabled, settings) = (self.hooks.settings)();
-        if !enabled || !settings.background_browser || !settings.background_front_window {
+        if !enabled || !settings.background_browser || !settings.full_control {
             return;
         }
         let now = self.now();

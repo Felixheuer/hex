@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use super::Runner;
+use crate::assistant::lines;
 
 /// A sentence shorter than this waits for the next one ("Ja." alone sounds
 /// clipped).
@@ -83,6 +84,14 @@ fn listening(now_ms: u64) -> bool {
     now_ms < LISTENING_UNTIL.load(Ordering::Acquire)
 }
 
+/// Whether jobs' lines wait now: the person speaks (a hold or a
+/// dictation, [`set_listening`]) or asked for quiet ([`quiet_for`]). The
+/// runner asks through its `announcements_wait` hook.
+pub(super) fn announcements_wait() -> bool {
+    let now = super::store::now_ms();
+    listening(now) || quiet(now)
+}
+
 /// Whether questions and summaries are read aloud, or only shown.
 pub(super) fn set_spoken_announcements(on: bool) {
     SPOKEN.store(on, Ordering::Release);
@@ -95,7 +104,7 @@ pub(super) fn spoken_announcements() -> bool {
 
 /// The next line to read from `items`, taken out of it: the most urgent,
 /// oldest first; more than [`COLLAPSE_OVER`] finished jobs become one line
-/// ("Drei Aufgaben sind fertig: A, B und C.").
+/// ("3 Aufträge sind fertig: A, B und C.").
 pub(super) fn next_announcement(items: &mut Vec<Announcement>) -> Option<Announcement> {
     let priority = items.iter().map(|item| item.priority).min()?;
     if priority == Priority::Summary {
@@ -122,24 +131,23 @@ fn collapsed(done: &[Announcement]) -> Announcement {
         .map(|item| item.text.as_str())
         .collect::<Vec<_>>()
         .join(" ");
-    let german = crate::assistant::speech::language_of(&joined) == Some("de");
+    let language = lines::language(&joined);
     let titles: Vec<&str> = done.iter().map(|item| item.title.as_str()).collect();
     let (last, first) = titles.split_last().unwrap_or((&"", &[]));
     let names = if first.is_empty() {
         (*last).to_owned()
     } else {
-        format!(
-            "{} {} {last}",
-            first.join(", "),
-            if german { "und" } else { "and" }
+        lines::tr_named_in(
+            language,
+            "{first} and {last}",
+            &[("first", &first.join(", ")), ("last", last)],
         )
     };
-    let count = super::inbox::number(done.len(), german);
-    let text = if german {
-        format!("{count} Aufgaben sind fertig: {names}.")
-    } else {
-        format!("{count} jobs are done: {names}.")
-    };
+    let text = lines::tr_named_in(
+        language,
+        "{count} jobs are done: {names}.",
+        &[("count", &done.len().to_string()), ("names", &names)],
+    );
     Announcement {
         priority: Priority::Summary,
         conversation: String::new(),
@@ -365,8 +373,7 @@ impl Voice {
     /// Nothing is read or waits to be read (an answer between two streamed
     /// sentences is still being read), and the person isn't speaking.
     fn idle(&self, runner: &Runner) -> bool {
-        let now = super::store::now_ms();
-        !self.reading() && !(runner.hooks.speaking)() && !listening(now) && !quiet(now)
+        !self.reading() && !(runner.hooks.speaking)() && !(runner.hooks.announcements_wait)()
     }
 
     /// Starts the thread that speaks the queue, unless it runs.
@@ -410,10 +417,10 @@ impl Voice {
             }
             // Never into a hold or a dictation: an answer that arrives
             // while the person talks to the microphone waits for them.
-            let waited_since = super::store::now_ms();
-            while person_talks()
+            let waited_since = (runner.hooks.now_ms)();
+            while (runner.hooks.person_talks)()
                 && self.state().generation == generation
-                && super::store::now_ms().saturating_sub(waited_since) < LISTENING_AT_MOST_MS
+                && (runner.hooks.now_ms)().saturating_sub(waited_since) < LISTENING_AT_MOST_MS
             {
                 (runner.hooks.sleep)(PUMP_EVERY);
             }
@@ -429,7 +436,8 @@ impl Voice {
 
 /// The person holds the Action shortcut or dictates: the microphone would
 /// hear Hex. (Conversation mode's window waits for the reading itself.)
-fn person_talks() -> bool {
+/// The runner asks through its `person_talks` hook.
+pub(super) fn person_talks() -> bool {
     use crate::assistant::interaction::{Listening, listening};
     matches!(listening(), Listening::Hold | Listening::Dictation)
 }
@@ -526,7 +534,7 @@ mod tests {
         let told = next_announcement(&mut items).unwrap();
         assert_eq!(
             told.text,
-            "Drei Aufgaben sind fertig: Einstein-Recherche, Mac mini Preise und Wetter Berlin."
+            "3 Aufträge sind fertig: Einstein-Recherche, Mac mini Preise und Wetter Berlin."
         );
         assert!(items.is_empty());
         // Two are still read one by one.
@@ -560,7 +568,7 @@ mod tests {
         ];
         assert_eq!(
             next_announcement(&mut three).unwrap().text,
-            "Three jobs are done: Laptops, Weather and Mail."
+            "3 jobs are done: Laptops, Weather and Mail."
         );
     }
 

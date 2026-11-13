@@ -191,8 +191,7 @@ pub fn prompt_with(
             .unwrap_or_default();
         // With full control every window is in reach; without it, only
         // the one in front.
-        let full =
-            crate::assistant::full_control(job.settings.background_front_window, &request.text);
+        let full = crate::assistant::full_control(job.settings.full_control, &request.text);
         seen.push(if full {
             format!("The window in front: {}{id}", window.app)
         } else {

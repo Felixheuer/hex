@@ -101,6 +101,10 @@ struct FakeState {
     menus: HashMap<i64, Vec<super::screen::MenuKey>>,
     /// What Return would press in each process.
     returns: HashMap<i64, super::screen::ReturnTarget>,
+    /// LaunchServices' link handlers, as the person set them.
+    link_handlers: Option<Value>,
+    /// Each window's text, read from its picture, by window number.
+    readings: HashMap<u32, crate::assistant::actions::ocr::Reading>,
 }
 
 /// agent-desktop answering from recorded windows; every call is kept.
@@ -187,6 +191,23 @@ impl Screen for Fake {
 
     fn return_target(&mut self, pid: i64) -> super::screen::ReturnTarget {
         self.state().returns.get(&pid).cloned().unwrap_or_default()
+    }
+
+    fn link_handlers(&mut self) -> Option<Value> {
+        self.state().link_handlers.clone()
+    }
+
+    fn read_window(
+        &mut self,
+        number: u32,
+        _size: Option<(f64, f64)>,
+    ) -> Result<crate::assistant::actions::ocr::Reading, String> {
+        Ok(self
+            .state()
+            .readings
+            .get(&number)
+            .cloned()
+            .unwrap_or_default())
     }
 }
 
@@ -986,14 +1007,27 @@ fn a_paused_task_waits_and_then_is_told_to_look_again() {
     let read = guard.call("desktop_snapshot", args(json!({"window_id": SETTINGS})));
     assert_eq!(error_code(&read), None);
     let reference = child::data(&read).unwrap()["tree"]["children"][0]["ref_id"].clone();
-    let resumer = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(150));
-        store.set_paused("bg", false, 2);
-    });
-    let started = std::time::Instant::now();
-    let held = guard.call("desktop_click", args(json!({"ref_id": reference.clone()})));
-    resumer.join().unwrap();
-    assert!(started.elapsed() >= Duration::from_millis(140), "it waited");
+    // The click waits in its own thread for as long as the task is paused:
+    // nothing comes back until it is resumed, however slow the machine.
+    let (sent, answer) = std::sync::mpsc::channel();
+    let clicking = {
+        let reference = reference.clone();
+        std::thread::spawn(move || {
+            let held = guard.call("desktop_click", args(json!({ "ref_id": reference })));
+            sent.send(held).unwrap();
+            guard
+        })
+    };
+    assert_eq!(
+        answer.recv_timeout(Duration::from_millis(150)),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout),
+        "it waits while paused"
+    );
+    store.set_paused("bg", false, 2);
+    let held = answer
+        .recv_timeout(Duration::from_secs(10))
+        .expect("resumed");
+    let mut guard = clicking.join().unwrap();
     assert_eq!(error_code(&held).as_deref(), Some("TAKEN_OVER"));
     assert_eq!(message(&held), RESUMED);
     assert_eq!(

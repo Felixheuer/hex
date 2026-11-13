@@ -173,16 +173,14 @@ fn server(hex: PathBuf, task: &str, browser: &Path) -> McpServer {
 /// (twenty helpers' at once 0.36 s, against about 4 s cold). Only a light
 /// Lightpanda browser is started for every job, and only while memory is
 /// fine; real Chrome with the person's accounts only when `request` names a
-/// site they signed in to for Hex ([`names_signed_in_site`]): the task's
+/// site they signed in to for Hex ([`names_site`] among
+/// [`signed_in_sites`]): the task's
 /// first `signedIn: true` browser is that one
 /// (`Sessions::pin`). The task's end closes them like any other
 /// ([`close`]), and they close themselves when unused for half an hour.
 /// Runs on threads of its own; starting one that runs already changes
 /// nothing (it reads the page's address and never navigates).
 pub fn prewarm_for(task: &str, request: &str) {
-    if cfg!(test) {
-        return;
-    }
     let enabled = crate::app_settings::assistant_runtime()
         .is_none_or(|(_, settings)| settings.background_browser);
     if !enabled
@@ -199,7 +197,7 @@ pub fn prewarm_for(task: &str, request: &str) {
     if clean_engine() == Engine::Lightpanda {
         starts.push((session(task), sessions.default_launch()));
     }
-    if signed_in() && names_signed_in_site(request) {
+    if signed_in() && names_site(request, &signed_in_sites()) {
         let (name, launch) = sessions.warm_chrome();
         starts.push((name, launch));
     }
@@ -231,17 +229,6 @@ pub fn prewarm_for(task: &str, request: &str) {
             tracing::debug!(%error, "couldn't start a browser ahead");
         }
     }
-}
-
-/// Whether `request` names a site the person signed in to for Hex (its
-/// address, or its name: "github" for github.com), so a job is worth a
-/// warm real Chrome with their accounts. Read from the sign-in store, never
-/// a list of sites; nothing in tests, which never read the person's.
-pub fn names_signed_in_site(request: &str) -> bool {
-    if cfg!(test) {
-        return false;
-    }
-    names_site(request, &signed_in_sites())
 }
 
 /// Whether `request` names one of `sites` (hosts such as
@@ -283,9 +270,11 @@ fn site_name(host: &str) -> Option<&str> {
     labels.get(n.checked_sub(suffix + 1)?).copied()
 }
 
-/// The sites in the sign-in store, read again only when a state file
-/// changed.
-fn signed_in_sites() -> Vec<String> {
+/// The sites the person signed in to for Hex: those in the sign-in store
+/// (never a list of sites), read again only when a state file changed. A
+/// request naming one ([`names_site`]) is worth a warm real Chrome with
+/// their accounts.
+pub fn signed_in_sites() -> Vec<String> {
     type Stamp = Vec<(std::ffi::OsString, Option<std::time::SystemTime>, u64)>;
     static CACHE: std::sync::Mutex<Option<(Stamp, Vec<String>)>> = std::sync::Mutex::new(None);
     let mut stamp: Stamp = state_dir()
@@ -426,9 +415,6 @@ fn stays_on_desk(lane: crate::assistant::types::Lane, open: impl FnOnce() -> boo
 
 /// Whether `task` has a browser open now.
 fn has_open(task: &str) -> bool {
-    if cfg!(test) {
-        return false;
-    }
     executable().is_some_and(|path| !running(&path, task).is_empty())
 }
 

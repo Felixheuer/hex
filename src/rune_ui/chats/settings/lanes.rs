@@ -1,7 +1,8 @@
-//! Assistant settings for the lanes: Stop all's shortcut, real input in the
-//! window in front, the hidden browser for web tasks, the apps no task may
+//! Assistant settings for the lanes: Stop all's shortcut, real input (one
+//! switch per lane: Here in the window in front, Background everywhere),
+//! full control, the hidden browser for web tasks, the apps no task may
 //! touch, how long a task may run and whether it waits out a usage limit,
-//! and the agents' own Space (experimental).
+//! and parking agent windows off-screen.
 
 use rune::{El, row, text};
 use rune_kit::TextInput;
@@ -25,8 +26,9 @@ const BUDGETS: [u32; 4] = [60, 24 * 60, 7 * 24 * 60, 0];
 
 static REMOVE_ICON: &rune::Icon = &rune_theme_opencode::icons::CLOSE_SMALL;
 
-/// Whether a question about the window in front may use the real pointer
-/// and keys there.
+/// Real input for the Here lane (`here_physical_input`): whether a
+/// question about the window in front may use the real pointer and keys
+/// there. [`background_input_row`] is the same switch for Background tasks.
 pub(in crate::rune_ui) fn here_input_row(ui: &Ui, p: Paint) -> CardRow {
     let on = ui.settings.assistant.here_physical_input;
     let description = if on {
@@ -56,9 +58,41 @@ pub(in crate::rune_ui) fn here_input_row(ui: &Ui, p: Paint) -> CardRow {
     .into()
 }
 
-/// Whether Background jobs may operate the window in front (full control).
-pub(in crate::rune_ui) fn front_window_row(ui: &Ui, p: Paint) -> CardRow {
-    let on = ui.settings.assistant.background_front_window;
+/// Real input for the Background lane (`background_physical_input`):
+/// whether jobs may move the real pointer and type with the keyboard.
+pub(in crate::rune_ui) fn background_input_row(ui: &Ui, p: Paint) -> CardRow {
+    let on = ui.settings.assistant.background_physical_input;
+    let description = if on {
+        (
+            tr("Tasks move your pointer and type with your keyboard. Don't use them while a task runs").to_owned(),
+            p.warning(),
+        )
+    } else {
+        (
+            tr("Off keeps every action in the background, without your pointer or keys").to_owned(),
+            p.muted(),
+        )
+    };
+    pressable_row(
+        described_row(
+            p,
+            "assistant-physical-input",
+            tr("Real input for background tasks"),
+            Some(description),
+            row_switch(p, on),
+        ),
+        on,
+    )
+    .on_press(|ui: &mut Ui| {
+        ui.update(|settings| settings.assistant.background_physical_input ^= true);
+    })
+    .into()
+}
+
+/// Full control of this Mac (`full_control`): tasks may open any app and
+/// use every window, the one in front too.
+pub(in crate::rune_ui) fn full_control_row(ui: &Ui, p: Paint) -> CardRow {
+    let on = ui.settings.assistant.full_control;
     let description = if on {
         (
             tr("Hex may open any app and use every window, the one you're in too, without asking. Say “only in the background” to keep a task out of your windows").to_owned(),
@@ -81,7 +115,7 @@ pub(in crate::rune_ui) fn front_window_row(ui: &Ui, p: Paint) -> CardRow {
         on,
     )
     .on_press(|ui: &mut Ui| {
-        ui.update(|settings| settings.assistant.background_front_window ^= true);
+        ui.update(|settings| settings.assistant.full_control ^= true);
     })
     .into()
 }
@@ -341,20 +375,19 @@ pub(in crate::rune_ui) fn task_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> V
     ]
 }
 
-/// Agent windows parked off-screen (experimental): macOS has no way for
-/// Hex to give them a Space of their own.
-/// Background tasks' windows move out of sight (a row of Apps & windows).
+/// Background tasks' windows parked off-screen (`park_windows`, on by
+/// default), a row of Apps & windows.
 pub(in crate::rune_ui) fn park_windows_row(ui: &Ui, p: Paint) -> El {
     toggle_row(
         p,
         "assistant-agent-space",
         tr("Park agent windows off-screen"),
         tr(
-            "Windows background tasks open move out of sight until you bring one forward from the task list. A Space of their own isn't possible on current macOS",
+            "Windows background tasks open move out of sight until you bring one forward from the task list",
         ),
-        ui.settings.assistant.agent_space,
+        ui.settings.assistant.park_windows,
         |ui: &mut Ui| {
-            ui.update(|settings| settings.assistant.agent_space ^= true);
+            ui.update(|settings| settings.assistant.park_windows ^= true);
         },
     )
 }

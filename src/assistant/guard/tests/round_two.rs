@@ -300,6 +300,31 @@ fn installed_apps_are_listed_with_what_runs_and_what_is_blocked() {
 }
 
 #[test]
+fn installed_apps_say_which_kinds_of_links_each_opens() {
+    let scratch = Scratch::new();
+    let fake = Fake::recorded();
+    with_apps(&fake);
+    fake.state().link_handlers = Some(json!({"LSHandlers": [
+        {"LSHandlerURLScheme": "mailto", "LSHandlerRoleAll": "com.apple.notes"},
+        {"LSHandlerURLScheme": "https", "LSHandlerRoleAll": "com.mitchellh.ghostty"},
+    ]}));
+    let mut guard = background(&scratch, &fake, "bg", false);
+    let listed = guard.call("hex_installed_apps", Map::new());
+    let apps = child::data(&listed).unwrap()["apps"].clone();
+    let app = |name: &str| {
+        apps.as_array()
+            .unwrap()
+            .iter()
+            .find(|app| app["name"] == name)
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(app("Ghostty")["default_for"], json!(["https"]));
+    assert_eq!(app("Notes")["default_for"], json!(["mailto"]));
+    assert!(app("TextEdit").get("default_for").is_none());
+}
+
+#[test]
 fn opening_an_app_waits_for_its_new_window_and_leases_it() {
     let scratch = Scratch::new();
     let fake = Fake::recorded();

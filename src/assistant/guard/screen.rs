@@ -9,6 +9,7 @@
 use std::path::PathBuf;
 
 use super::child::{Desktop, Window};
+use crate::assistant::actions::ocr::Reading;
 pub use crate::assistant::computer::Display;
 
 /// An installed app.
@@ -61,6 +62,19 @@ pub trait Screen: Send {
     /// What Return would act on in app `pid`'s focused window.
     fn return_target(&mut self, _pid: i64) -> ReturnTarget {
         ReturnTarget::default()
+    }
+
+    /// Which app opens each kind of link by default: LaunchServices'
+    /// handlers (`capabilities::launch_services`), none where they can't be
+    /// read.
+    fn link_handlers(&mut self) -> Option<serde_json::Value> {
+        None
+    }
+
+    /// Window `number`'s text, read from its picture (`ocr::read`); its
+    /// size in points (`size`) places the lines.
+    fn read_window(&mut self, _number: u32, _size: Option<(f64, f64)>) -> Result<Reading, String> {
+        Err("Reading a window's text isn't possible here.".into())
     }
 }
 
@@ -246,6 +260,14 @@ impl Screen for CoreGraphics {
         crate::assistant::computer::displays()
     }
 
+    fn link_handlers(&mut self) -> Option<serde_json::Value> {
+        crate::assistant::actions::capabilities::launch_services()
+    }
+
+    fn read_window(&mut self, number: u32, size: Option<(f64, f64)>) -> Result<Reading, String> {
+        crate::assistant::actions::ocr::read(number, size)
+    }
+
     fn running_apps(&mut self) -> Vec<PathBuf> {
         let paths = process_paths();
         if cfg!(target_os = "macos") {
@@ -364,6 +386,14 @@ impl<D: Desktop> Screen for Native<D> {
     fn displays(&mut self) -> Vec<Display> {
         CoreGraphics.displays()
     }
+
+    fn link_handlers(&mut self) -> Option<serde_json::Value> {
+        CoreGraphics.link_handlers()
+    }
+
+    fn read_window(&mut self, number: u32, size: Option<(f64, f64)>) -> Result<Reading, String> {
+        CoreGraphics.read_window(number, size)
+    }
 }
 
 /// agent-desktop's `list-windows`, through its own `agent-desktop mcp`.
@@ -372,6 +402,14 @@ pub struct Listed<D: Desktop>(pub D);
 impl<D: Desktop> Screen for Listed<D> {
     fn windows(&mut self) -> Vec<Window> {
         listed_windows(&mut self.0)
+    }
+
+    fn link_handlers(&mut self) -> Option<serde_json::Value> {
+        CoreGraphics.link_handlers()
+    }
+
+    fn read_window(&mut self, number: u32, size: Option<(f64, f64)>) -> Result<Reading, String> {
+        CoreGraphics.read_window(number, size)
     }
 }
 

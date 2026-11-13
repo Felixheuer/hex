@@ -313,9 +313,10 @@ pub(super) const KEYS: &[Key] = &[
         "Assistant tasks may operate apps through agent-desktop (macOS)",
     ),
     key(
-        "assistant.physical_input",
+        "assistant.background_physical_input",
         Kind::Bool,
-        "Assistant tasks may also move the real pointer and press real keys (macOS)",
+        "Background assistant tasks may also move the real pointer and press real keys; \
+         assistant.here_physical_input is the same switch for the Here lane (macOS)",
     ),
     key(
         "assistant.include_screenshot",
@@ -326,8 +327,9 @@ pub(super) const KEYS: &[Key] = &[
     key(
         "assistant.follow_up_seconds",
         Kind::Integer { min: 0, max: 600 },
-        "A hold this soon after a quick answer continues that conversation; 0 always \
-         starts a new one (macOS)",
+        "Follow-up, continue: a hold this soon after a quick answer continues that \
+         conversation; 0 always starts a new one (assistant.conversation_seconds is the \
+         hands-free listen) (macOS)",
     ),
     key(
         "assistant.max_parallel",
@@ -343,12 +345,14 @@ pub(super) const KEYS: &[Key] = &[
     key(
         "assistant.here_physical_input",
         Kind::Bool,
-        "A Here task may use the real pointer and keys in the window in front (macOS)",
+        "A Here task may use the real pointer and keys in the window in front; \
+         assistant.background_physical_input is the same switch for Background tasks (macOS)",
     ),
     key(
-        "assistant.background_front_window",
+        "assistant.full_control",
         Kind::Bool,
-        "Background assistant tasks may also operate the window in front, like the ChatGPT app (macOS)",
+        "Full control of this Mac: assistant tasks may open any app and use every window, \
+         the one in front too, like the ChatGPT app (macOS)",
     ),
     key(
         "assistant.projects_folder",
@@ -416,15 +420,22 @@ pub(super) const KEYS: &[Key] = &[
         "A task that hits its agent's usage limit waits and retries (macOS)",
     ),
     key(
-        "assistant.agent_space",
+        "assistant.park_windows",
         Kind::Bool,
-        "Experimental; windows Background tasks open move to a Space of their own (macOS)",
+        "Windows Background tasks open are parked off-screen until brought forward from \
+         the task list; on by default (macOS)",
     ),
     optional(
         "assistant.agent_display",
         Kind::Text,
         "The display new Background task windows move to, by agent-desktop id or name; \
          none is the display the person isn't working on (macOS)",
+    ),
+    key(
+        "assistant.desktop_driver",
+        Kind::Choice(&["cua", "agent_desktop"]),
+        "The desktop driver assistant tasks act through: cua (Cua Driver, the default) \
+         or agent_desktop; the other stands in when it is missing (macOS)",
     ),
     key(
         "assistant.autonomy",
@@ -440,8 +451,9 @@ pub(super) const KEYS: &[Key] = &[
     key(
         "assistant.conversation_seconds",
         Kind::Integer { min: 0, max: 60 },
-        "After a spoken answer Hex listens this long for a follow-up without the \
-         shortcut; 0 turns conversation mode off (macOS)",
+        "Follow-up, listen: after a spoken answer Hex listens this long for a follow-up \
+         without the shortcut; 0 turns conversation mode off (assistant.follow_up_seconds \
+         is the longer hold-to-continue window) (macOS)",
     ),
     key(
         "assistant.barge_in",
@@ -787,6 +799,28 @@ pub(super) const RETIRED: &[(&str, &str)] = &[
         "meetings.summaries opencode",
     ),
 ];
+
+/// Keys that were renamed, and their new names: `hex settings` takes the
+/// old name for the new one, as `settings.json` does (serde aliases).
+pub(super) const ALIASES: &[(&str, &str)] = &[
+    (
+        "assistant.background_front_window",
+        "assistant.full_control",
+    ),
+    ("assistant.agent_space", "assistant.park_windows"),
+    (
+        "assistant.physical_input",
+        "assistant.background_physical_input",
+    ),
+];
+
+/// The current name for `key`: its new name if it was renamed, else itself.
+pub(super) fn canonical(key: &str) -> &str {
+    ALIASES
+        .iter()
+        .find(|(old, _)| *old == key)
+        .map_or(key, |(_, new)| new)
+}
 
 /// Settings that act only where Hex has a capability (by its
 /// `rune_ui::capabilities` name), the same one that shows their row in the
