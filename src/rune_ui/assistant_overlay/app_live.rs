@@ -27,14 +27,14 @@ use crate::assistant::TaskWindow;
 pub(crate) const PREFIX: &str = "app:";
 /// The long side a card's picture is captured at, before it's filtered down
 /// to its thumbnail.
-const CARD_EDGE: u32 = 1200;
+const CARD_EDGE: u32 = 720;
 /// The long side of the picture shown large: the window's own pixels on a
 /// Retina display, up to this.
 const LARGE_EDGE: u32 = 2560;
 /// How often a window on a card is captured.
-const CARD_EVERY: Duration = Duration::from_millis(1000);
+const CARD_EVERY: Duration = Duration::from_millis(200);
 /// How often the window shown large is captured.
-const LARGE_EVERY: Duration = Duration::from_millis(350);
+const LARGE_EVERY: Duration = Duration::from_millis(80);
 /// How often a window nothing draws looks whether it shows again.
 const IDLE_POLL: Duration = Duration::from_millis(250);
 
