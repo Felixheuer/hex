@@ -72,7 +72,7 @@ fn a_quick_question_carries_what_was_on_screen() {
             ..Context::default()
         },
     );
-    kept.settings.background_front_window = false;
+    kept.settings.full_control = false;
     assert!(
         super::prompt(&kept, &[], false)
             .contains("Your only window, the one in front: Mail (window id w-3)")
@@ -263,7 +263,7 @@ fn the_guard_learns_each_lanes_window_and_input_policy() {
     };
     let mut here = job("What's this?", Origin::ActionShortcut, context.clone());
     here.settings.here_physical_input = true;
-    here.settings.physical_input = false;
+    here.settings.background_physical_input = false;
     here.settings.blocked_apps = vec!["1Password".into()];
     let spec = task_spec(&here);
     assert_eq!(
@@ -276,7 +276,7 @@ fn the_guard_learns_each_lanes_window_and_input_policy() {
             here_window: Some(mail()),
             physical_input: true,
             blocked_apps: vec!["1Password".into()],
-            // Full control is the default (`background_front_window`).
+            // Full control is the default (`full_control`).
             full_control: true,
             open_apps: true,
         }

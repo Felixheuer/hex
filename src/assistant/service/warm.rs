@@ -48,7 +48,7 @@ impl Runner {
             return;
         }
         let (enabled, settings) = (self.hooks.settings)();
-        if !enabled || !settings.background_browser || !settings.background_front_window {
+        if !enabled || !settings.background_browser || !settings.full_control {
             return;
         }
         let now = self.now();

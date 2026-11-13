@@ -156,7 +156,7 @@ mod tests {
         let settings = AssistantSettings {
             backend,
             control_desktop: variant.desktop,
-            background_front_window: variant.full_control,
+            full_control: variant.full_control,
             memory: variant.memory,
             ..Default::default()
         };

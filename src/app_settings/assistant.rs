@@ -70,15 +70,21 @@ pub struct AssistantSettings {
     pub voice: Option<String>,
     /// Tasks may operate apps through agent-desktop.
     pub control_desktop: bool,
-    /// Tasks may also move the real pointer and press real keys
-    /// (agent-desktop `--headed`); off keeps every action in the background.
-    pub physical_input: bool,
+    /// Real input, one switch per lane (`here_physical_input` is the
+    /// other): Background tasks may also move the real pointer and press
+    /// real keys (agent-desktop `--headed`); off, the default, keeps every
+    /// action of theirs in the background. Was `physical_input`.
+    #[serde(alias = "physical_input")]
+    pub background_physical_input: bool,
     /// A quick question sends a screenshot of the screen with it. Off by
     /// default: the agent looks with its desktop tools when it needs to,
     /// so the fast path encodes and sends no image.
     pub include_screenshot: bool,
-    /// A hold within this many seconds of a quick answer continues that
-    /// conversation; 0 always starts a new one. A Background task always starts one.
+    /// The longer of the two follow-up windows (`conversation_seconds` is
+    /// the short, hands-free one; Settings shows both in one row): a hold
+    /// within this many seconds of a quick answer continues that
+    /// conversation; 0 always starts a new one. A Background task always
+    /// starts one.
     pub follow_up_seconds: u32,
     /// At most this many tasks run at once; later ones wait their turn.
     pub max_parallel: u32,
@@ -90,8 +96,10 @@ pub struct AssistantSettings {
     /// Stops every task at once, and the speech: Control-Option-Escape by
     /// default. Never Command-Option-Escape, which is macOS's Force Quit.
     pub stop_all_hotkey: Option<HotkeyBinding>,
-    /// A Here task may move the real pointer and press real keys in the
-    /// window in front (under a "Hands off" pill); off keeps it headless too.
+    /// Real input for the Here lane (`background_physical_input` is the
+    /// other): a Here task may move the real pointer and press real keys in
+    /// the window in front (under a "Hands off" pill); off keeps it
+    /// headless too.
     pub here_physical_input: bool,
     /// Web work runs in agent-browser's own hidden browsers, one session per
     /// task, instead of in the person's browser windows.
@@ -104,9 +112,12 @@ pub struct AssistantSettings {
     pub browser_import_profile: Option<String>,
     /// Apps no task may read or operate (by name or bundle id).
     pub blocked_apps: Vec<String>,
-    /// Background tasks may also operate the window in front of the
-    /// person, as the ChatGPT app's agent does; off keeps that window theirs.
-    pub background_front_window: bool,
+    /// Full control of this Mac: tasks of either lane may open any app and
+    /// operate every window, the one in front of the person too, as the
+    /// ChatGPT app's agent does; off keeps the person's windows theirs and
+    /// tasks work in windows of their own. Was `background_front_window`.
+    #[serde(alias = "background_front_window")]
+    pub full_control: bool,
     /// Where coding jobs create their projects (`~` is the home folder).
     pub projects_folder: String,
     /// A question or chat running longer than this many minutes is stopped;
@@ -117,9 +128,11 @@ pub struct AssistantSettings {
     pub job_budget_minutes: u32,
     /// A task that hits its agent's usage limit waits and retries.
     pub retry_on_limit: bool,
-    /// Experimental: windows Background tasks open move to a Space of their
-    /// own, out of the person's way.
-    pub agent_space: bool,
+    /// Windows Background tasks open are parked off-screen, out of the
+    /// person's way, until brought forward from the task list. On by
+    /// default. Was `agent_space`.
+    #[serde(alias = "agent_space")]
+    pub park_windows: bool,
     /// The display new Background windows go to, by agent-desktop id ("5")
     /// or name ("M27Q"); `None` is the one the person isn't working on
     /// (with two or more displays; with one, windows stay where they open).
@@ -134,8 +147,9 @@ pub struct AssistantSettings {
     /// reads; edited in Settings and by `hex_remember`. Stored beside the
     /// conversations, not here; this only turns it on.
     pub memory: bool,
-    /// After a spoken answer, Hex keeps listening this many seconds for a
-    /// follow-up without the shortcut; 0 turns conversation mode off.
+    /// The shorter of the two follow-up windows (`follow_up_seconds` is the
+    /// other): after a spoken answer, Hex keeps listening this many seconds
+    /// for a follow-up without the shortcut; 0 turns conversation mode off.
     pub conversation_seconds: u32,
     /// Speaking while an answer is read aloud interrupts it (needs
     /// headphones or Hex's echo suppression).
@@ -182,7 +196,7 @@ impl Default for AssistantSettings {
             speak_answers: true,
             voice: None,
             control_desktop: true,
-            physical_input: false,
+            background_physical_input: false,
             include_screenshot: false,
             follow_up_seconds: 120,
             max_parallel: crate::assistant::capacity::recommended_parallel(),
@@ -205,12 +219,12 @@ impl Default for AssistantSettings {
             ]
             .map(String::from)
             .to_vec(),
-            background_front_window: true,
+            full_control: true,
             projects_folder: "~/dev".into(),
             task_timeout_minutes: 30,
             job_budget_minutes: JOB_BUDGET_MAX_MINUTES,
             retry_on_limit: true,
-            agent_space: true,
+            park_windows: true,
             agent_display: None,
             desktop_driver: crate::assistant::driver::Driver::Cua,
             autonomy: crate::assistant::autonomy::Autonomy::Smart,

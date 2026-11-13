@@ -790,16 +790,13 @@ pub fn task_spec(job: &Job) -> TaskSpec {
         },
         physical_input: match lane {
             Lane::Here => job.settings.here_physical_input,
-            Lane::Background => job.settings.physical_input,
+            Lane::Background => job.settings.background_physical_input,
         },
         blocked_apps: job.settings.blocked_apps.clone(),
-        full_control: crate::assistant::full_control(
-            job.settings.background_front_window,
-            &job.request.text,
-        ),
+        full_control: crate::assistant::full_control(job.settings.full_control, &job.request.text),
         // "Only in the background" keeps the person's windows theirs, not
         // the apps out of reach: they open in windows of the task's own.
-        open_apps: job.settings.background_front_window,
+        open_apps: job.settings.full_control,
     }
 }
 

@@ -13,7 +13,7 @@
 //!   exclusively, so separate processes agree; a dead holder's lease lapses
 //!   (its pid gone, or reused by a process that started at another time).
 //! - **Input policy.** Real pointer and keys (`--headed`) only for a Here task
-//!   with `here_physical_input`, or any task with `physical_input`; while one
+//!   with `here_physical_input`, or a Background task with `background_physical_input`; while one
 //!   runs, `hands_off()` names it for the HUD. The clipboard, shared with the
 //!   person, only for Here tasks or with real input.
 //! - **Blocked apps.** No task reads or operates `blocked_apps`.
@@ -118,7 +118,7 @@ pub struct WireSpec {
     /// `assistant.autonomy`: "ask", "smart" (the default), or "yolo".
     #[serde(default)]
     pub autonomy: crate::assistant::autonomy::Autonomy,
-    /// `assistant.background_front_window`: a Background task may claim
+    /// `assistant.full_control`: a Background task may claim
     /// the window in front of the person too.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub front_window: bool,

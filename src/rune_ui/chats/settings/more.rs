@@ -18,7 +18,7 @@ use super::super::{Job, Ui};
 use crate::assistant::autonomy::Autonomy;
 use crate::desktop::i18n::tr;
 
-/// "Keep listening after an answer" choices, in seconds.
+/// "Listen" follow-up choices, in seconds; 0 turns conversation mode off.
 const CONVERSATION: [u32; 4] = [0, 5, 8, 15];
 
 const MODES: [Autonomy; 3] = [Autonomy::Ask, Autonomy::Smart, Autonomy::Yolo];
@@ -220,43 +220,65 @@ pub(super) fn hex_voice_row(ui: &Ui, p: Paint) -> Option<CardRow> {
     )
 }
 
-/// Keep listening after an answer, and interrupt by speaking.
-pub(super) fn conversation_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<CardRow> {
-    let saved = ui.settings.assistant.conversation_seconds;
-    let (values, selected) = super::with_saved(&CONVERSATION, saved);
-    let labels = values
-        .iter()
-        .map(|seconds| match seconds {
-            0 => tr("Off").to_owned(),
-            _ => crate::desktop::i18n::tr_fill("{} s", &seconds.to_string()),
-        })
-        .collect();
+/// The two follow-up windows in one row: how long Hex listens for an
+/// answer back after a spoken answer (`conversation_seconds`, "Listen"),
+/// and how soon a hold continues that chat (`follow_up_seconds`,
+/// "Continue chat").
+pub(super) fn follow_up_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> CardRow {
+    let assistant = &ui.settings.assistant;
+    let (heard, heard_at) = super::with_saved(&CONVERSATION, assistant.conversation_seconds);
     let listen = quiet_select(
         ui,
         p,
         Menu::Pick("assistant-conversation"),
         "assistant-conversation-control".to_owned(),
-        tr("Keep listening after an answer"),
-        labels,
-        selected,
+        tr("Listen"),
+        heard
+            .iter()
+            .map(|seconds| super::seconds_label(*seconds))
+            .collect(),
+        heard_at,
         move |ui, chosen| {
-            let seconds = values[chosen];
+            let seconds = heard[chosen];
             ui.update(|settings| settings.assistant.conversation_seconds = seconds);
         },
         layer,
     );
-    vec![
-        setting_row(
-            p,
-            "assistant-conversation",
-            tr("Keep listening after an answer"),
-            Some(tr(
-                "Answer back without the shortcut, for a moment. Paused while other audio plays",
-            )),
-            listen,
-        )
-        .into(),
-    ]
+    let (held, held_at) = super::with_saved(&super::FOLLOW_UP, assistant.follow_up_seconds);
+    let resume = quiet_select(
+        ui,
+        p,
+        Menu::Pick("assistant-follow-up"),
+        "assistant-follow-up-control".to_owned(),
+        tr("Continue chat"),
+        held.iter()
+            .map(|seconds| super::seconds_label(*seconds))
+            .collect(),
+        held_at,
+        move |ui, chosen| {
+            let seconds = held[chosen];
+            ui.update(|settings| settings.assistant.follow_up_seconds = seconds);
+        },
+        layer,
+    );
+    let controls = row()
+        .key("assistant-follow-up-controls")
+        .gap(8.0)
+        .center_y()
+        .child(text(tr("Listen")).color(p.muted()))
+        .child(listen)
+        .child(text(tr("Continue chat")).color(p.muted()).ml(8.0))
+        .child(resume);
+    setting_row(
+        p,
+        "assistant-follow-up",
+        tr("Follow-ups"),
+        Some(tr(
+            "Listen: answer back without the shortcut, for a moment (paused while other audio plays). Continue chat: a hold this soon after an answer goes on with that chat",
+        )),
+        controls,
+    )
+    .into()
 }
 
 pub(super) fn notifications_row(ui: &Ui, p: Paint) -> CardRow {

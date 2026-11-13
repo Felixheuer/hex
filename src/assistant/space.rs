@@ -1,6 +1,6 @@
-//! Experimental (`assistant.agent_space`): the windows Background tasks open
-//! kept out of the person's way, with the task stack bringing one forward
-//! on request.
+//! Parked windows (`assistant.park_windows`, on by default): the windows
+//! Background tasks open kept out of the person's way, with the task stack
+//! bringing one forward on request.
 //!
 //! A real Space of their own isn't possible: macOS has no public API for
 //! Spaces, and the private SkyLight calls window managers used
@@ -37,11 +37,11 @@ use crate::assistant::backends::{self, desktop, search};
 use crate::assistant::guard::{self, ParkedHow};
 
 /// Whether moving task windows out of the way is on and can work here
-/// (`agent_space` and the assistant are on; on macOS Hex moves windows
+/// (`park_windows` and the assistant are on; on macOS Hex moves windows
 /// itself, elsewhere agent-desktop must be installed).
 pub fn available() -> bool {
     let on = crate::app_settings::assistant_runtime()
-        .is_some_and(|(lab, settings)| lab && settings.agent_space);
+        .is_some_and(|(lab, settings)| lab && settings.park_windows);
     on && (cfg!(target_os = "macos") || search::find("agent-desktop").is_some())
 }
 
