@@ -87,7 +87,7 @@ pub(crate) fn start(
     let tray = rune::Tray::new(spec, move |event| match event {
         rune::TrayEvent::Activate { token } => show(token),
         rune::TrayEvent::Menu(id) => match TrayCommand::from_id(&id) {
-            Some(TrayCommand::Show) => show(None),
+            Some(TrayCommand::Show | TrayCommand::Settings) => show(None),
             // As the window's Quit Agent-Desk: drains accepted work, then exits.
             Some(TrayCommand::Quit) => shutdown.store(true, Ordering::Release),
             Some(command) => perform(&host, &published, command),
@@ -229,9 +229,14 @@ fn perform(host: &HostHandle, published: &Published, command: TrayCommand) {
         }
         TrayCommand::CopyLastMeeting => crate::meeting::runtime::copy_last_transcript()
             .map_err(|error| color_eyre::eyre::eyre!(error)),
+        TrayCommand::UseProject(_) | TrayCommand::NoProject | TrayCommand::NewProject => {
+            crate::desktop::tray_menu::perform_project(command);
+            Ok(())
+        }
         // The assistant's items aren't in Linux's tray yet (`view` leaves
         // them out).
         TrayCommand::Show
+        | TrayCommand::Settings
         | TrayCommand::Quit
         | TrayCommand::OpenChats
         | TrayCommand::StopAllTasks => Ok(()),

@@ -620,6 +620,25 @@ pub(super) fn repair(ui: &mut Ui, fix_all: bool, tx: &mut Tx) {
 
 /// A hold of the Action shortcut before setup finished: the onboarding
 /// where it was left (or as it is, when it shows), saying so.
+/// Whether the assistant's setup flow takes the voice first run's place
+/// (its Voice page downloads the speech model and offers the dictation
+/// try): macOS, the assistant on, its setup unfinished.
+pub(super) fn voice_in_setup(ui: &Ui) -> bool {
+    setup::voice::takes_first_run(ui)
+}
+
+/// Run setup again with the assistant on: the one setup flow from its
+/// Welcome, the voice steps included. Whether it opened.
+pub(super) fn rerun_setup(ui: &mut Ui) -> bool {
+    if !cfg!(target_os = "macos") || !on(ui) {
+        return false;
+    }
+    ui.first_run = None;
+    ui.tour = None;
+    setup::open_at(ui, setup::Page::Welcome);
+    ui.chats.setup.is_some()
+}
+
 pub(super) fn open_setup_from_hold(ui: &mut Ui, tx: &mut Tx) {
     if !on(ui) {
         return;

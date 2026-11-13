@@ -446,7 +446,8 @@ pub(crate) fn open_assistant_setup(ui: &mut Ui, tx: &mut Tx) {
     if ui.first_run.is_some() {
         return;
     }
-    if ui.live() && !crate::desktop::onboarding::completion_recorded() {
+    if ui.live() && !crate::desktop::onboarding::completion_recorded() && !chats::voice_in_setup(ui)
+    {
         ui.tour = onboarding::Tour::start(&ui.settings, &ui.platform);
         onboarding_kit::live::open(ui);
         if ui.first_run.is_some() {
@@ -783,7 +784,13 @@ impl Ui {
             ui.pane = Pane::Chats;
         }
         ui.tour = onboarding::Tour::start(&ui.settings, &ui.platform);
-        onboarding_kit::live::open(&mut ui);
+        if chats::voice_in_setup(&ui) {
+            // The assistant's setup brings the voice steps itself (its
+            // Voice page downloads the model), opened once Chats connects.
+            ui.tour = None;
+        } else {
+            onboarding_kit::live::open(&mut ui);
+        }
         ui.platform.set_login_item(host::launch_at_login());
         ui
     }

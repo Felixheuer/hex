@@ -20,6 +20,7 @@ pub(super) fn table() -> &'static HashMap<&'static str, &'static str> {
             .chain(super::frames::FRENCH)
             .chain(super::window::FRENCH)
             .chain(super::projects::FRENCH)
+            .chain(super::menu::FRENCH)
             .copied()
             .collect()
     })

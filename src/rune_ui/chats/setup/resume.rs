@@ -84,6 +84,8 @@ pub(in crate::rune_ui) fn launch(ui: &mut Ui) {
                 flow.new_in_hex = true;
             }
         }
+        // A new install on macOS: the one flow, the voice steps in it.
+        None if super::voice::takes_first_run(ui) => open_at(ui, Page::Welcome),
         None => {}
     }
 }

@@ -21,8 +21,19 @@ pub(crate) fn toggle_tasks() {
     }
 }
 
-pub(super) fn toggle(orb: &mut Orb) {
-    if orb.expanded || !orb::listable(&orb.board) {
+pub(in super::super) fn toggle(orb: &mut Orb) {
+    if !orb.expanded && !orb::listable(&orb.board) {
+        // Nothing to list: the double-tap opens the rail's head on the
+        // project picker instead (or folds it), the one way to a project
+        // on the screen while nothing runs.
+        if orb.project.open {
+            cancel_project(orb);
+        } else {
+            open_picker(orb, false);
+        }
+        return;
+    }
+    if orb.expanded {
         fold(orb);
         return;
     }
@@ -279,6 +290,38 @@ pub(super) fn toggle_project(orb: &mut Orb) {
         }
     }
     refresh_projects();
+}
+
+/// The rail's head shows with the picker unfolded (`naming`: on New
+/// project…'s name field), even while nothing runs and no project is
+/// active: the menu bar's New project…, and the Action shortcut's
+/// double-tap with no task to list. Any thread.
+pub(crate) fn open_projects(naming: bool) {
+    if let Some(overlays) = OVERLAYS.get() {
+        overlays.orb.update(move |orb, tx| {
+            open_picker(orb, naming);
+            board_changed(orb, tx, Instant::now());
+        });
+    }
+}
+
+/// Unfolds the picker, its name field too when `naming`, and takes the
+/// keyboard for it.
+fn open_picker(orb: &mut Orb, naming: bool) {
+    orb.project.open = true;
+    orb.project.naming = None;
+    // Tests keep the projects their fixture set, not the person's.
+    if !cfg!(test) {
+        orb.project.snapshot = crate::assistant::projects::snapshot();
+    }
+    if orb.expanded {
+        fold(orb);
+    }
+    if naming {
+        name_project(orb);
+    } else if let Some(overlays) = OVERLAYS.get() {
+        overlays.orb.request_keys();
+    }
 }
 
 /// A project picked in the picker (`None`: "No project"): it is the active

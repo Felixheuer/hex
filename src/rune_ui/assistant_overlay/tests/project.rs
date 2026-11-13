@@ -123,6 +123,28 @@ fn the_picker_offers_the_recent_projects_no_project_and_a_new_one() {
     assert_eq!(count(&rt, "project-picker"), 1);
 }
 
+#[test]
+fn a_double_tap_with_nothing_to_list_opens_the_picker_and_a_second_folds_it() {
+    use super::super::host;
+    // No job, no project: the notch alone, so the double-tap is the way
+    // to a project on the screen.
+    let mut idle = orb_state(Board::default(), false);
+    assert!(!idle.project.shows());
+    host::toggle(&mut idle);
+    assert!(idle.project.open, "the picker unfolds");
+    assert!(idle.project.shows(), "the rail's head shows for it");
+    assert!(!idle.expanded);
+    host::toggle(&mut idle);
+    assert!(
+        !idle.project.open && !idle.project.shows(),
+        "and folds again"
+    );
+    // With jobs to list, the double-tap still unfolds the list.
+    let mut busy = orb_state(fixture::many_jobs_board(2), false);
+    host::toggle(&mut busy);
+    assert!(busy.expanded && !busy.project.open);
+}
+
 static PICKED: std::sync::Mutex<Vec<Option<String>>> = std::sync::Mutex::new(Vec::new());
 
 #[test]

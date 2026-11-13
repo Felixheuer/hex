@@ -534,7 +534,10 @@ everything runs exactly as before; questions and jobs never need one.
   active (and the recent ones) is `<support>/assistant/projects.json`.
 - **Choosing**: the rail's chip („● Startup“; with nothing at work, the chip
   alone) opens a picker (recent projects, No project, New project… typed in
-  place); by voice „wechsle zu Projekt Startup“, „neues Projekt
+  place); with nothing to list, the Action shortcut's double-tap opens the
+  rail's head on the picker (a second folds it), so the notch stays alone
+  while idle; the menu bar's „Projekt: … ▸“ (and the tray's project lines)
+  lists the same, New project… opening the picker's name field; by voice „wechsle zu Projekt Startup“, „neues Projekt
   Kalibermarkt“, „ohne Projekt“, „welches Projekt?“ (and English), answered
   by Agent-Desk itself (`projects::command`, `service::project`), never an
   agent; Assistant settings › Projects (Use/Leave, Open folder, Edit soul,
@@ -603,8 +606,16 @@ One short flow (`chats::setup::Page`), with a segmented progress bar and
 4. **Cua Driver** (`sheet/desktop.rs`): the driver, which display agents
    work on, and the self-tests ("Making sure it works"), run on arrival.
 5. **Web tasks** (optional): agent-browser; says "Optional" and is skippable.
-6. **Voice**: the Action and dictation shortcuts are free and a press
-   reaches Agent-Desk.
+6. **Voice** (`sheet/voice.rs`, `setup/voice.rs`): the speech model
+   (downloading from the moment the flow opens, its progress, Try again),
+   an optional dictation try (a field the person dictates into), then the
+   Action and dictation shortcuts are free and a press reaches Agent-Desk.
+   On macOS with the assistant on and unfinished, a new install opens this
+   flow instead of the old voice first run (`chats::voice_in_setup`); its
+   Microphone is a row of Permissions, and Finish records the voice
+   onboarding too. Run setup again opens this flow. Renders:
+   `AGENT_DESK_VOICE_SNAPS=<folder> cargo test --bin agent-desk
+   voice_setup_snapshots -- --ignored`.
 7. **Try it out**: hold the Action shortcut and ask.
 8. **Done** (`sheet/done.rs`): every step ready or left, Go to for each one
    left, and Finish.
@@ -649,8 +660,13 @@ adapts both); then the try-it: hold the Action shortcut and ask, waiting
 for one real spoken question, answered. A row shows ✓ only after its check saw
 it work. Continue waits for its page; Later moves on and marks it unfinished
 (amber in the progress marks). Finish waits until the chosen agent answers
-and can use the desktop tools, then sets `assistant.setup_done`. Menu bar: Stop
-All Tasks and Open Agent-Desk show only while the assistant is on. Checks:
+and can use the desktop tools, then sets `assistant.setup_done`. Menu bar (`status_item.rs`,
+shared words in `desktop::tray_menu`): while the assistant is on, its
+status line („Agent-Desk · 2 Aufträge laufen · 1 braucht dich“), „Projekt:
+Startup ▸“, Stop all tasks, and Open Agent-Desk head the menu; the meeting
+rows follow, then one „Diktieren“ section (Pause, Paste last dictation,
+Copy recent dictations, Speech model), then Settings…, Check for updates…,
+Quit. Every title is translated and set again as the menu opens. Checks:
 the tests in [rune_ui/chats/tests.rs](../../src/rune_ui/chats/tests.rs),
 `reads_chats_links` in [deep_link.rs](../../src/rune_ui/deep_link.rs), and
 `the_assistant_rows_start_hidden_and_do_something` in

@@ -462,6 +462,12 @@ pub(crate) fn restart(ui: &mut Ui, tx: &mut Tx) -> Result<(), String> {
     if ui.live() {
         crate::desktop::onboarding::reset().map_err(|error| format!("{error:#}"))?;
     }
+    // With the assistant on (macOS), the one setup flow, voice steps and
+    // all, from its Welcome.
+    if super::super::chats::rerun_setup(ui) {
+        tx.settle();
+        return Ok(());
+    }
     ui.select_pane(super::super::Pane::Dictation, tx);
     ui.first_run = None;
     ui.tour = Some(onboarding::Tour::replay(&ui.settings, &ui.platform));
