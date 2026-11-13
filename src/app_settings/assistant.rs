@@ -122,6 +122,9 @@ pub struct AssistantSettings {
     /// or name ("M27Q"); `None` is the one the person isn't working on
     /// (with two or more displays; with one, windows stay where they open).
     pub agent_display: Option<String>,
+    /// The desktop driver tasks act through (`assistant::driver`): Cua
+    /// Driver, or agent-desktop; the other stands in when it is missing.
+    pub desktop_driver: crate::assistant::driver::Driver,
     /// How freely tasks take consequential actions (send, delete, pay,
     /// share, publish): ask each time, only what the request named, or yolo.
     pub autonomy: crate::assistant::autonomy::Autonomy,
@@ -207,6 +210,7 @@ impl Default for AssistantSettings {
             retry_on_limit: true,
             agent_space: true,
             agent_display: None,
+            desktop_driver: crate::assistant::driver::Driver::Cua,
             autonomy: crate::assistant::autonomy::Autonomy::Smart,
             memory: true,
             conversation_seconds: 8,

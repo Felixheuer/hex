@@ -698,9 +698,11 @@ fn the_guide_keeps_what_a_task_uses() {
 /// Characters of each lane's own rules (agent-desktop's guide aside): what
 /// every request pays for before its first word. Raise only with a reason.
 // 9_300: the knowledge tools (hex_lookup, hex_chrome_tab) add a short rule.
-const HERE_BUDGET: usize = 9_300;
+// 9_600: acting by a window's picture when Accessibility fails (BACKGROUND_INPUT_RULES).
+const HERE_BUDGET: usize = 9_600;
 // 15_900: the knowledge tools add a short rule; every app's ways, scripting first (APP_METHODS).
-const JOB_BUDGET: usize = 15_900;
+// 16_200: acting by a window's picture (BACKGROUND_INPUT_RULES).
+const JOB_BUDGET: usize = 16_200;
 
 #[test]
 fn each_lane_s_rules_stay_within_their_budget() {

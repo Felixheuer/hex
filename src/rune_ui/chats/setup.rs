@@ -343,7 +343,7 @@ pub(in crate::rune_ui) fn fix_for(found: &Found) -> Option<Fix> {
 pub(in crate::rune_ui) fn fix_label(fix: Fix) -> String {
     match fix {
         Fix::Install(backend) => tr_fill("Install {}", super::backend_name(backend)),
-        Fix::InstallAgentDesktop => tr("Install agent-desktop").into(),
+        Fix::InstallAgentDesktop => tr("Install the desktop driver").into(),
         Fix::InstallAgentBrowser => tr("Install agent-browser").into(),
         Fix::InstallLightpanda => tr("Install Lightpanda").into(),
         Fix::SignIn(_) => tr("Sign in…").into(),
