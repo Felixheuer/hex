@@ -16,8 +16,24 @@ pub const TASK_STEPS: usize = 3;
 /// The most lines a task's log keeps while it runs; the stored
 /// conversation has them all.
 pub const LOG_MAX: usize = 200;
-/// How long the screen frame stays after a task last acted on the screen.
+/// How long a task counts as acting after it last acted on the screen
+/// (its mini's ring says "acting"), and how far ahead the desk frame's
+/// hold reaches while it has the person's input or a window in front.
 pub const ACTING_FOR: Duration = Duration::from_secs(4);
+/// How long "Back to you · Mail" shows after a borrowed window went back.
+pub const BACK_FOR: Duration = Duration::from_millis(1500);
+
+/// One of a task's windows brought in front of the person for a moment
+/// (`Event::Borrowed`): the desk frame shows with its tab until it goes
+/// back.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Borrow {
+    pub window: TaskWindow,
+    /// One of the guard's reasons (`guard::BORROW_REASONS`).
+    pub why: String,
+    /// When it goes back at the latest (Unix ms): the tab's countdown.
+    pub until_ms: u64,
+}
 
 /// Where a task is in its life.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -197,9 +213,14 @@ pub struct Task {
     /// The job it helps (`assistant::agent::team`): its card goes under
     /// that job's.
     pub lead: Option<ConversationId>,
-    /// When it last worked on the screen (`Event::Acting`): the screen
-    /// frame shows for [`ACTING_FOR`] after.
+    /// When it last worked on the screen (`Event::Acting`): its mini
+    /// counts as acting for [`ACTING_FOR`] after.
     pub acting_at: Option<Instant>,
+    /// Its window brought in front of the person now, if one is.
+    pub borrowed: Option<Borrow>,
+    /// Its borrowed window went back and the person's app is in front
+    /// again: which, and when ("Back to you · Mail" for [`BACK_FOR`]).
+    pub returned: Option<(String, Instant)>,
 }
 
 impl Task {
@@ -227,6 +248,8 @@ impl Task {
             since: None,
             lead: None,
             acting_at: None,
+            borrowed: None,
+            returned: None,
         }
     }
 

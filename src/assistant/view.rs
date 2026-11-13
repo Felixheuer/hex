@@ -24,8 +24,8 @@ mod text;
 use std::time::Instant;
 
 pub use task::{
-    ACTING_FOR, Activity, FINISHED_LINGER, Hold, LOG_MAX, Logged, Phase, Place, STOPPED_LINGER,
-    TASK_STEPS, Task,
+    ACTING_FOR, Activity, BACK_FOR, Borrow, FINISHED_LINGER, Hold, LOG_MAX, Logged, Phase, Place,
+    STOPPED_LINGER, TASK_STEPS, Task,
 };
 pub use text::{LINE_CHARS, first_line, plain, shorten};
 
@@ -262,8 +262,29 @@ impl Stream {
                 }),
             ),
             Event::ConversationsChanged => false,
-            // The frames' part (`frame_until`), drawn by the overlays.
-            Event::Borrowed { .. } | Event::Returned { .. } => false,
+            Event::Borrowed {
+                conversation,
+                window,
+                why,
+                until_ms,
+            } => self.live(conversation, |task| {
+                task.returned = None;
+                set(
+                    &mut task.borrowed,
+                    Some(task::Borrow {
+                        window: window.clone(),
+                        why: why.clone(),
+                        until_ms: *until_ms,
+                    }),
+                )
+            }),
+            Event::Returned { conversation, to } => self.live(conversation, |task| {
+                let was = task.borrowed.take().is_some();
+                // Taken over (`to` none): the window is the person's, and
+                // its dashed outline says so instead.
+                task.returned = to.as_ref().map(|app| (app.clone(), now));
+                was || task.returned.is_some()
+            }),
         }
     }
 
@@ -326,23 +347,39 @@ impl Stream {
             .find(|task| task.hands_off && task.phase.live())
     }
 
-    /// Until when the screen frame shows: while a live task works on the
-    /// screen (a desktop action within [`ACTING_FOR`], or real input under
-    /// "Hands off"). Background work in hidden browsers or files shows no
-    /// frame. `None`: no frame.
+    /// Until when the desk frame shows: only while the agent has the
+    /// person's controls, a live task moving the real pointer or keys
+    /// ("Hands off") or a window it brought in front (a borrow); held
+    /// [`ACTING_FOR`] ahead, and the next event decides again. Work in
+    /// parked windows, hidden browsers, or files shows no frame, however
+    /// busy (`docs/ux/redesign.md` §3.5). `None`: no frame.
     pub fn frame_until(&self, now: Instant) -> Option<Instant> {
         self.tasks
             .iter()
-            .filter(|task| task.phase.live())
-            .filter_map(|task| {
-                if task.hands_off {
-                    return Some(now + ACTING_FOR);
-                }
-                task.acting_at
-                    .map(|at| at + ACTING_FOR)
-                    .filter(|until| *until > now)
-            })
-            .max()
+            .any(|task| task.phase.live() && (task.hands_off || task.borrowed.is_some()))
+            .then_some(now + ACTING_FOR)
+    }
+
+    /// The live task whose window is in front of the person now, for the
+    /// desk frame's tab (the first, should two be).
+    pub fn borrowing(&self) -> Option<&Task> {
+        self.tasks
+            .iter()
+            .find(|task| task.phase.live() && task.borrowed.is_some())
+    }
+
+    /// The person's app in front again after a borrow, while "Back to you"
+    /// shows ([`BACK_FOR`]).
+    pub fn back_to(&self, now: Instant) -> Option<&str> {
+        if self.borrowing().is_some() {
+            return None;
+        }
+        self.tasks
+            .iter()
+            .filter_map(|task| task.returned.as_ref())
+            .filter(|(_, at)| now < *at + BACK_FOR)
+            .max_by_key(|(_, at)| *at)
+            .map(|(app, _)| app.as_str())
     }
 
     /// The live tasks waiting on a question for the person, newest first.
@@ -413,6 +450,7 @@ impl Stream {
         task.ended = Some(now);
         task.step = None;
         task.hands_off = false;
+        task.borrowed = None;
         change(task);
         true
     }

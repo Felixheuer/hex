@@ -230,6 +230,42 @@ fn focusing_waits_for_background_actions_to_fail_first() {
     );
 }
 
+/// A window brought forward is stored with why and until when, so
+/// Agent-Desk shows the desk frame and its tab, and goes with the borrow:
+/// given back, or the person's once they took the task over.
+#[test]
+fn a_borrow_is_stored_until_the_front_goes_back() {
+    for taken_over in [false, true] {
+        let scratch = Scratch::new();
+        let fake = Fake::recorded();
+        with_running_apps(&fake);
+        let mut guard = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
+        guard.config.front_window = true;
+        guard.call("hex_open_app", args(json!({"name": "Citrix Viewer"})));
+        assert!(scratch.store().borrowed().is_empty());
+        guard.call("desktop_focus_window", args(json!({"window_id": CITRIX})));
+        assert!(
+            scratch.store().borrowed().is_empty(),
+            "a refused focus borrows nothing"
+        );
+        guard.call("desktop_focus_window", args(json!({"window_id": CITRIX})));
+        let borrowed = scratch.store().borrowed();
+        assert_eq!(borrowed.len(), 1, "{borrowed:?}");
+        let borrow = &borrowed[0];
+        assert_eq!(borrow.task, guard.config.task);
+        assert_eq!(borrow.window_id, CITRIX);
+        assert_eq!(borrow.why, crate::assistant::guard::BORROW_KEYS);
+        assert_eq!(borrow.until_ms - borrow.at_ms, 20_000);
+        if taken_over {
+            scratch.store().set_paused(&guard.config.task, true, 1);
+        }
+        let task = guard.config.task.clone();
+        drop(guard);
+        assert!(scratch.store().borrowed().is_empty(), "{taken_over}");
+        scratch.store().set_paused(&task, false, 2);
+    }
+}
+
 #[test]
 fn any_app_takes_a_url_or_a_script_and_blocked_apps_and_sends_are_checked() {
     let scratch = Scratch::new();
