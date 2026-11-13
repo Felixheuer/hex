@@ -234,6 +234,9 @@ pub(crate) struct Hooks {
     pub authorize: Box<Authorize>,
     /// The person's memory note.
     pub memory: Hook<String>,
+    /// What the memory graph knows about what a request's words name
+    /// (`knowledge::recall`), asked only while memory is on.
+    pub recall: OnTask<Option<String>>,
     /// Shows a job's notification.
     pub notify: Box<dyn Fn(&Note) + Send + Sync>,
     /// The schedules due at a time, marked as run (`schedules::take_due`).
@@ -324,6 +327,7 @@ impl Hooks {
             authorized: Box::new(super::autonomy::read),
             authorize: Box::new(super::autonomy::write),
             memory: Box::new(super::memory::read),
+            recall: Box::new(|words| super::knowledge::recall(words, true)),
             notify: Box::new(super::notify::show),
             due_schedules: Box::new(super::schedules::take_due),
             pressure: Box::new(super::capacity::pressure),

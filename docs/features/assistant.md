@@ -565,7 +565,9 @@ agent-browser) run the same way on every OS; what differs:
   The memory graph (`knowledge::graph`, `memory-graph.json`) links people,
   companies, projects and their numbers, sites, repositories, and folders
   from `hex_remember` (optional `about`) and finished tasks; the part a
-  request mentions goes into its prompt after the memory note.
+  request mentions (`knowledge::recall`) goes with that request's message
+  (`agent::request_rules`), never the system prompt, so a backend started
+  ahead and the prompt cache keep it whatever the words.
 - **Liveness and time**: process start times come from `/proc` on Linux and
   `GetProcessTimes` on Windows; liveness from `OpenProcess` +
   `GetExitCodeProcess` on Windows, so conversations no longer look

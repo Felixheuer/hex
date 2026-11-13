@@ -43,6 +43,8 @@ struct World {
     events: Mutex<Vec<Event>>,
     log: Mutex<Vec<String>>,
     jobs: Mutex<Vec<Job>>,
+    /// The jobs backends were started ahead for.
+    prewarmed: Mutex<Vec<Job>>,
     spoken: Mutex<Vec<String>>,
     lab_on: Mutex<bool>,
     settings: Mutex<AssistantSettings>,
@@ -96,6 +98,7 @@ impl World {
             events: Mutex::default(),
             log: Mutex::default(),
             jobs: Mutex::default(),
+            prewarmed: Mutex::default(),
             spoken: Mutex::default(),
             lab_on: Mutex::new(true),
             settings: Mutex::new(settings),
@@ -307,6 +310,7 @@ impl World {
                     .map(|(_, origin, text)| (*origin, text.clone()))
             }),
             prewarm: Box::new(move |job| {
+                prewarm.prewarmed.lock().unwrap().push(job.clone());
                 prewarm.log(format!(
                     "prewarm {} {} {:?}",
                     job.conversation, job.agent_id, job.request.origin
@@ -351,6 +355,14 @@ impl World {
                     .insert(task.to_owned(), value.clone());
             }),
             memory: Box::new(move || memory.memory.lock().unwrap().clone()),
+            // The graph knows Kalibermarkt.
+            recall: Box::new(|words| {
+                words.contains("Kalibermarkt").then(|| {
+                    "What you know about the people, companies, and projects this request \
+                     mentions (memory graph):\n- Kalibermarkt (company): site kalibermarkt.de\n"
+                        .to_owned()
+                })
+            }),
             notify: Box::new(move |note| {
                 notify.log(format!("notify {}: {}", note.title, note.body));
             }),
@@ -1360,6 +1372,40 @@ fn prewarm_reserves_the_next_requests_conversation_and_agent() {
     world.settings.lock().unwrap().backend = AssistantBackend::Codex;
     runner.prewarm(Lane::Here, None);
     assert!(runner.state().warm.is_none());
+}
+
+#[test]
+fn a_request_naming_what_the_graph_knows_keeps_the_system_prompt_started_ahead() {
+    let world = World::new(8);
+    {
+        let mut settings = world.settings.lock().unwrap();
+        settings.backend = AssistantBackend::ClaudeCode;
+        settings.memory = true;
+        // The test reads nothing of this computer.
+        settings.control_desktop = false;
+    }
+    *world.memory.lock().unwrap() = "- Company: Kalibermarkt".into();
+    let runner = world.runner();
+    runner.prewarm(Lane::Here, None);
+    world.wait_until("the prewarm", || {
+        !world.prewarmed.lock().unwrap().is_empty()
+    });
+    let id = runner.state().warm.as_ref().unwrap().id.clone();
+    let words = "Wie läuft der Shop von Kalibermarkt?";
+    assert_eq!(runner.submit(request(words, Origin::ActionShortcut)), id);
+    world.wait_until("the job", || world.jobs.lock().unwrap().len() == 1);
+    let ahead = world.prewarmed.lock().unwrap()[0].clone();
+    let asked = world.jobs.lock().unwrap()[0].clone();
+    assert!(asked.memory.is_some(), "the memory note is in both");
+    assert_eq!(
+        crate::assistant::agent::system_for(&ahead, None, false),
+        crate::assistant::agent::system_for(&asked, None, false),
+        "the graph's context must not change the system prompt"
+    );
+    let rules = crate::assistant::agent::request_rules(&asked);
+    assert!(rules.contains("- Kalibermarkt (company)"), "{rules}");
+    world.release(words);
+    world.wait_for("the answer", ended(&id));
 }
 
 #[test]

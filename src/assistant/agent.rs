@@ -61,6 +61,11 @@ pub struct Job {
     pub authorized: crate::assistant::autonomy::Authorized,
     /// The person's memory note, when memory is on.
     pub memory: Option<String>,
+    /// What the memory graph knows about the people, companies, and
+    /// projects the request's words name (`knowledge::recall`). It goes
+    /// with the request's message, never the system prompt, which stays
+    /// the same whatever the words ([`system_for`]).
+    pub recall: Option<String>,
     /// The job this one helps (`agent::team`): its lead's title.
     pub helps: Option<String>,
 }
@@ -209,7 +214,7 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
     // A saved session keeps the rules it started with: when Hex's rules
     // changed (an update), start a new one that is told the conversation.
     let rules_key = format!("{key}.rules");
-    let rules = rules_fingerprint(&run.system);
+    let rules = rules_fingerprint(job, &run);
     if resume.is_some() && stored.sessions.get(&rules_key) != Some(&rules) {
         tracing::info!("the assistant's rules changed; starting a new session");
         resume = None;
@@ -469,13 +474,18 @@ fn check(
     verdict
 }
 
-/// A short fingerprint of a system prompt, to tell when a saved session's
-/// rules are out of date. What follows the autonomy section (this request's
-/// permissions, the memory note) changes from request to request without
-/// changing the rules, so only the text before it counts.
-fn rules_fingerprint(system: &str) -> String {
+/// A short fingerprint of `job`'s rules, to tell when a saved session's
+/// rules are out of date: its whole system prompt ([`system_for`], with
+/// `run`'s desktop and browser) but the memory note, which grows from
+/// request to request without changing the rules. What only the request
+/// decides is in its message, not here.
+fn rules_fingerprint(job: &Job, run: &Run) -> String {
     use std::hash::{Hash, Hasher};
-    let rules = system.split("\nAutonomy (").next().unwrap_or(system);
+    let without_note = Job {
+        memory: None,
+        ..job.clone()
+    };
+    let rules = system_for(&without_note, run.desktop.as_ref(), run.browser.is_some());
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     rules.hash(&mut hasher);
     format!("{:016x}", hasher.finish())

@@ -111,8 +111,12 @@ impl Runner {
             .memory
             .then(|| crate::assistant::memory::for_prompt(&(self.hooks.memory)()))
             .flatten();
-        let memory =
-            crate::assistant::knowledge::with_graph(memory, &request.text, settings.memory);
+        // What the graph knows about what the words name goes with the
+        // message: the system prompt stays the one started ahead.
+        let recall = settings
+            .memory
+            .then(|| (self.hooks.recall)(&request.text))
+            .flatten();
         let notify = |event: &Event| {
             // Away from the Mac: questions and results reach the phone.
             if parent.is_none() {
@@ -150,6 +154,7 @@ impl Runner {
             workspace: workspace.clone(),
             authorized,
             memory,
+            recall,
             helps: parent.as_ref().and_then(|lead| {
                 self.state()
                     .tasks

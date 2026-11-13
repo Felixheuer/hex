@@ -53,8 +53,9 @@ pub fn system_for(job: &Job, desktop: Option<&Desktop>, browser: bool) -> String
 
 /// What only this request decides, sent at the top of its message: the
 /// person's language (pages, tools, and Hex's notes are mostly English, so
-/// it is named) and, when their words or a yes allowed more than the
-/// mode's baseline in the system prompt, what they allowed.
+/// it is named), when their words or a yes allowed more than the mode's
+/// baseline in the system prompt, what they allowed, and what the memory
+/// graph knows about what their words name (`Job::recall`).
 pub fn request_rules(job: &Job) -> String {
     let mode = job.settings.autonomy;
     let mut rules = language_rule(&job.request.text).trim().to_owned();
@@ -62,6 +63,15 @@ pub fn request_rules(job: &Job) -> String {
     if allowed != autonomy_rules(mode, &crate::assistant::autonomy::Authorized::default()) {
         rules.push_str("\nFor this request: ");
         rules.push_str(allowed.trim());
+    }
+    if let Some(recall) = job
+        .recall
+        .as_deref()
+        .map(str::trim)
+        .filter(|recall| !recall.is_empty())
+    {
+        rules.push('\n');
+        rules.push_str(recall);
     }
     rules
 }
@@ -250,12 +260,14 @@ pub fn computer_name() -> &'static str {
 }
 
 /// The language every answer, question, and report is written in: the
-/// request's, else this Mac's.
+/// request's. Words too short or mixed to tell ("open Safari") get "the
+/// language of their words", never this Mac's: a person on a German Mac may
+/// well speak English to it.
 pub(super) fn language_rule(request: &str) -> String {
-    let code = crate::assistant::speech::language_of(request)
-        .map(str::to_owned)
-        .unwrap_or_else(crate::assistant::speech::system_language);
-    let name = match code.as_str() {
+    let Some(code) = crate::assistant::speech::language_of(request) else {
+        return LANGUAGE_OF_THEIR_WORDS.into();
+    };
+    let name = match code {
         "de" => "German",
         "en" => "English",
         "fr" => "French",
@@ -268,14 +280,15 @@ pub(super) fn language_rule(request: &str) -> String {
         "ru" => "Russian",
         "ja" => "Japanese",
         "zh" => "Chinese",
-        _ => {
-            return "\nWrite every answer, question, and report in the person's language.\n".into();
-        }
+        _ => return LANGUAGE_OF_THEIR_WORDS.into(),
     };
     format!(
         "\nThe person speaks {name}: write every answer, question, and report to them in {name}, even when pages, tools, and Hex's notes are in English (messages to others in the language the request says).\n"
     )
 }
+
+/// The language rule when the request's language can't be named.
+const LANGUAGE_OF_THEIR_WORDS: &str = "\nWrite every answer, question, and report to the person in the language of their words, even when pages, tools, and Hex's notes are in English (messages to others in the language the request says).\n";
 
 /// The browser rules of a quick (Here) turn.
 pub const HERE_BROWSER: &str = "You have your own hidden browser (the browser tools) for a quick look on the web or a page the person asks to open; prefer it over their browser windows. Omit `session`; it starts with the person's accounts when there are any, and `signedIn: true` opens real Chrome for heavy web apps or logins the light one can't handle. Never solve or get around a captcha or a check that you are human: ask the person with a reply starting `HEX_QUESTION:` to solve it in the live picture of that browser on your card.\n";
@@ -284,8 +297,7 @@ pub const HERE_BROWSER: &str = "You have your own hidden browser (the browser to
 /// desktop and the browser.
 pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -> String {
     let mut prompt = format!(
-        "You are Hex's assistant on the person's {}. Hex is a voice app: the person speaks a request and you answer or do it.\n\
-         Answer in the language the person used.\n",
+        "You are Hex's assistant on the person's {}. Hex is a voice app: the person speaks a request and you answer or do it.\n",
         computer_name()
     );
     prompt.push_str(match origin {

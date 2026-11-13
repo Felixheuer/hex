@@ -309,19 +309,22 @@ fn search_all(query: &str, limit: usize) -> Vec<(Scope, Result<Vec<Hit>, String>
     results
 }
 
-/// The memory note for a prompt with the part of the memory graph that
-/// `request` mentions after it (one hook in `service::run`).
-pub fn with_graph(note: Option<String>, request: &str, memory: bool) -> Option<String> {
-    if !memory || cfg!(test) {
-        return note;
+/// What the person's memory graph knows about the people, companies, and
+/// projects `request` names, for the request's message
+/// (`agent::request_rules`), never the system prompt: that stays the same
+/// whatever the words, so a backend started ahead and the prompt cache keep
+/// it. `None` when memory is off or the words name nothing it knows (one
+/// hook in `service::run`).
+pub fn recall(request: &str, memory: bool) -> Option<String> {
+    if !memory {
+        return None;
     }
-    let Some(context) = graph::load().and_then(|(_, graph)| graph.context(request)) else {
-        return note;
-    };
-    Some(match note {
-        Some(note) => format!("{note}\n\n{context}"),
-        None => context,
-    })
+    recall_in(&graph::load()?.1, request)
+}
+
+/// [`recall`] from `graph`.
+pub fn recall_in(graph: &graph::Graph, request: &str) -> Option<String> {
+    graph.context(request)
 }
 
 /// Adds a remembered fact to the graph (`hex_remember`), `about` naming
@@ -430,12 +433,17 @@ mod tests {
     }
 
     #[test]
-    fn the_prompt_keeps_the_note_in_tests() {
-        assert_eq!(
-            with_graph(Some("- a".into()), "Michael", true).as_deref(),
-            Some("- a")
+    fn the_graph_recalls_what_the_words_name_and_nothing_when_memory_is_off() {
+        assert_eq!(recall("Michael", false), None);
+        let mut graph = graph::Graph::default();
+        graph.learn(
+            &graph::extract("Michael Schwarz works at Kalibermarkt", None, "DE"),
+            "remember",
+            1,
         );
-        assert_eq!(with_graph(None, "Michael", false), None);
+        let recalled = recall_in(&graph, "Schreib Michael Schwarz").unwrap();
+        assert!(recalled.contains("- Michael Schwarz ("), "{recalled}");
+        assert_eq!(recall_in(&graph, "Wie wird das Wetter?"), None);
     }
 
     /// Measures each source on this Mac (read-only):
