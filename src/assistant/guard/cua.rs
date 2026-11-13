@@ -76,7 +76,8 @@ impl<I: Desktop> Cua<I> {
             .filter(|window| window["layer"].as_i64().unwrap_or(0) == 0)
             .collect();
         for window in &windows {
-            if let (Some(number), Some(pid)) = (window["window_id"].as_u64(), window["pid"].as_i64())
+            if let (Some(number), Some(pid)) =
+                (window["window_id"].as_u64(), window["pid"].as_i64())
             {
                 self.pids.insert(number as u32, pid);
             }
@@ -94,13 +95,17 @@ impl<I: Desktop> Cua<I> {
                 return Ok((*pid, number));
             }
             self.windows(None)?;
-            return self.pids.get(&number).map(|pid| (*pid, number)).ok_or_else(|| {
-                error(
-                    command,
-                    "WINDOW_NOT_FOUND",
-                    &format!("There's no window w-{number}."),
-                )
-            });
+            return self
+                .pids
+                .get(&number)
+                .map(|pid| (*pid, number))
+                .ok_or_else(|| {
+                    error(
+                        command,
+                        "WINDOW_NOT_FOUND",
+                        &format!("There's no window w-{number}."),
+                    )
+                });
         }
         if let Some(app) = text(args, "app") {
             let windows = self.windows(Some(&app))?;
@@ -109,7 +114,11 @@ impl<I: Desktop> Cua<I> {
                 .find(|window| window["is_on_screen"] == true)
                 .or(windows.first())
                 .ok_or_else(|| {
-                    error(command, "WINDOW_NOT_FOUND", &format!("{app} has no window."))
+                    error(
+                        command,
+                        "WINDOW_NOT_FOUND",
+                        &format!("{app} has no window."),
+                    )
                 })?;
             return Ok((
                 pick["pid"].as_i64().unwrap_or_default(),
@@ -163,7 +172,12 @@ impl<I: Desktop> Cua<I> {
         }
     }
 
-    fn snapshot(&mut self, command: &str, args: &Map<String, Value>, query: Option<String>) -> Result<Value, Value> {
+    fn snapshot(
+        &mut self,
+        command: &str,
+        args: &Map<String, Value>,
+        query: Option<String>,
+    ) -> Result<Value, Value> {
         let (pid, number) = self.target(command, args)?;
         let mut ask = json!({
             "pid": pid,
@@ -237,8 +251,13 @@ impl<I: Desktop> Cua<I> {
         args: &Map<String, Value>,
         extra: Value,
     ) -> Result<Value, Value> {
-        let reference = text(args, "ref_id")
-            .ok_or_else(|| error(command, "INVALID_ARGS", "This needs ref_id from a snapshot."))?;
+        let reference = text(args, "ref_id").ok_or_else(|| {
+            error(
+                command,
+                "INVALID_ARGS",
+                "This needs ref_id from a snapshot.",
+            )
+        })?;
         let (token, pid, number, _) = self.element(command, &reference)?;
         let mut ask = json!({"pid": pid, "window_id": number, "element_token": token});
         if let Some(extra) = extra.as_object() {
@@ -364,7 +383,9 @@ impl<I: Desktop> Cua<I> {
                         .cloned()
                         .or_else(|| element.get("label").cloned())
                         .unwrap_or(Value::Null),
-                    "name" | "title" | "label" => element.get("label").cloned().unwrap_or(Value::Null),
+                    "name" | "title" | "label" => {
+                        element.get("label").cloned().unwrap_or(Value::Null)
+                    }
                     "role" => element["role"].clone(),
                     "bounds" => ours("", &element)["bounds"].clone(),
                     "enabled" => json!(element["enabled"].as_bool().unwrap_or(true)),
@@ -372,7 +393,10 @@ impl<I: Desktop> Cua<I> {
                     "visible" => json!(true),
                     other => element.get(other).cloned().unwrap_or(Value::Null),
                 };
-                Ok(result_ok(command, json!({"property": property, "value": value})))
+                Ok(result_ok(
+                    command,
+                    json!({"property": property, "value": value}),
+                ))
             }
             "desktop_click" | "desktop_toggle" | "desktop_expand" | "desktop_collapse" => {
                 self.on_ref(command, "click", args, json!({}))
@@ -398,9 +422,10 @@ impl<I: Desktop> Cua<I> {
             "desktop_type" => {
                 let typed = text_raw(args, "text");
                 let body = typed.trim_end_matches(['\n', '\r']);
-                let returns = typed[body.len()..].matches('\n').count().max(
-                    usize::from(typed.ends_with('\r') && !typed.ends_with('\n')),
-                );
+                let returns = typed[body.len()..]
+                    .matches('\n')
+                    .count()
+                    .max(usize::from(typed.ends_with('\r') && !typed.ends_with('\n')));
                 let (pid, number, token) = match text(args, "ref_id") {
                     Some(reference) => {
                         let (token, pid, number, _) = self.element(command, &reference)?;
@@ -450,8 +475,13 @@ impl<I: Desktop> Cua<I> {
                 }
             }
             "desktop_press" => {
-                let combo = text(args, "combo")
-                    .ok_or_else(|| error(command, "INVALID_ARGS", "press needs combo (cmd+s, return, …)."))?;
+                let combo = text(args, "combo").ok_or_else(|| {
+                    error(
+                        command,
+                        "INVALID_ARGS",
+                        "press needs combo (cmd+s, return, …).",
+                    )
+                })?;
                 let (pid, number) = self.target(command, args)?;
                 let keys = keys(&combo);
                 let data = match keys.as_slice() {
@@ -487,9 +517,7 @@ impl<I: Desktop> Cua<I> {
                     }
                 }
                 let data = self.data(command, "launch_app", ask)?;
-                let pid = data["pid"]
-                    .as_i64()
-                    .or_else(|| data["app"]["pid"].as_i64());
+                let pid = data["pid"].as_i64().or_else(|| data["app"]["pid"].as_i64());
                 let name = data["name"]
                     .as_str()
                     .or_else(|| data["app"]["name"].as_str())
@@ -508,18 +536,33 @@ impl<I: Desktop> Cua<I> {
                     .flatten()
                     .filter(|found| found["running"] == true)
                     .filter(|found| {
-                        found["name"].as_str().is_some_and(|name| super::policy::app_key(name) == key)
-                            || found["bundle_id"].as_str().is_some_and(|id| super::policy::app_key(id) == key)
+                        found["name"]
+                            .as_str()
+                            .is_some_and(|name| super::policy::app_key(name) == key)
+                            || found["bundle_id"]
+                                .as_str()
+                                .is_some_and(|id| super::policy::app_key(id) == key)
                     })
-                    .filter_map(|found| found["pid"].as_i64().and_then(|pid| i32::try_from(pid).ok()))
+                    .filter_map(|found| {
+                        found["pid"]
+                            .as_i64()
+                            .and_then(|pid| i32::try_from(pid).ok())
+                    })
                     .collect();
                 if pids.is_empty() {
-                    return Err(error(command, "APP_NOT_FOUND", &format!("{app} isn't running.")));
+                    return Err(error(
+                        command,
+                        "APP_NOT_FOUND",
+                        &format!("{app} isn't running."),
+                    ));
                 }
                 let quit = pids
                     .iter()
                     .all(|pid| cfg!(test) || crate::assistant::actions::ax::terminate(*pid));
-                Ok(result_ok(command, json!({"app": app, "asked_to_quit": quit})))
+                Ok(result_ok(
+                    command,
+                    json!({"app": app, "asked_to_quit": quit}),
+                ))
             }
             "desktop_focus_window" => {
                 let (pid, number) = self.target(command, args)?;
@@ -539,9 +582,19 @@ impl<I: Desktop> Cua<I> {
                 if cfg!(test) {
                     return Ok(result_ok(command, json!({"window": format!("w-{number}")})));
                 }
-                crate::assistant::actions::ax::set_position(pid as i32, number, at)
-                    .map_err(|code| error(command, "ACTION_FAILED", &format!("Accessibility error {code}")))?;
-                Ok(result_ok(command, json!({"window": format!("w-{number}"), "x": at.0, "y": at.1})))
+                crate::assistant::actions::ax::set_position(pid as i32, number, at).map_err(
+                    |code| {
+                        error(
+                            command,
+                            "ACTION_FAILED",
+                            &format!("Accessibility error {code}"),
+                        )
+                    },
+                )?;
+                Ok(result_ok(
+                    command,
+                    json!({"window": format!("w-{number}"), "x": at.0, "y": at.1}),
+                ))
             }
             "desktop_resize_window" => {
                 let (pid, number) = self.target(command, args)?;
@@ -570,8 +623,18 @@ impl<I: Desktop> Cua<I> {
                 if cfg!(test) {
                     return Ok(result_ok(command, json!({"window": format!("w-{number}")})));
                 }
-                crate::assistant::actions::ax::set_minimized(pid as i32, number, tool == "desktop_minimize")
-                    .map_err(|code| error(command, "ACTION_FAILED", &format!("Accessibility error {code}")))?;
+                crate::assistant::actions::ax::set_minimized(
+                    pid as i32,
+                    number,
+                    tool == "desktop_minimize",
+                )
+                .map_err(|code| {
+                    error(
+                        command,
+                        "ACTION_FAILED",
+                        &format!("Accessibility error {code}"),
+                    )
+                })?;
                 Ok(result_ok(command, json!({"window": format!("w-{number}")})))
             }
             "desktop_wait" => self.wait(command, args),
@@ -594,7 +657,11 @@ impl<I: Desktop> Cua<I> {
         let started = Instant::now();
         if let Some(event) = text(args, "event") {
             if event != "window-opened" {
-                return Err(error(command, "UNSUPPORTED", "Only event window-opened is waited for."));
+                return Err(error(
+                    command,
+                    "UNSUPPORTED",
+                    "Only event window-opened is waited for.",
+                ));
             }
             let app = text(args, "app");
             let before: Vec<u64> = self
@@ -605,10 +672,11 @@ impl<I: Desktop> Cua<I> {
             while started.elapsed() < limit {
                 std::thread::sleep(Duration::from_millis(200));
                 let now = self.windows(app.as_deref())?;
-                if let Some(new) = now
-                    .iter()
-                    .find(|window| window["window_id"].as_u64().is_some_and(|id| !before.contains(&id)))
-                {
+                if let Some(new) = now.iter().find(|window| {
+                    window["window_id"]
+                        .as_u64()
+                        .is_some_and(|id| !before.contains(&id))
+                }) {
                     return Ok(result_ok(
                         command,
                         json!({"window": {"id": format!("w-{}", new["window_id"]), "app_name": new["app_name"], "title": new["title"]}}),
@@ -628,12 +696,19 @@ impl<I: Desktop> Cua<I> {
                 }
                 std::thread::sleep(Duration::from_millis(300));
             }
-            return Err(error(command, "TIMEOUT", &format!("“{wanted}” didn't show in time.")));
+            return Err(error(
+                command,
+                "TIMEOUT",
+                &format!("“{wanted}” didn't show in time."),
+            ));
         }
         if !cfg!(test) {
             std::thread::sleep(limit);
         }
-        Ok(result_ok(command, json!({"waited_ms": limit.as_millis() as u64})))
+        Ok(result_ok(
+            command,
+            json!({"waited_ms": limit.as_millis() as u64}),
+        ))
     }
 }
 
@@ -914,7 +989,8 @@ fn refused(command: &str, result: &Value) -> Value {
 pub fn tools() -> Vec<Value> {
     let window = json!({"type": "string", "description": "The window's id (w-1234) from desktop_list_windows"});
     let app = json!({"type": "string", "description": "The app's name, when it has one window"});
-    let reference = json!({"type": "string", "description": "A ref from a snapshot (@s00000001:e5)"});
+    let reference =
+        json!({"type": "string", "description": "A ref from a snapshot (@s00000001:e5)"});
     let tool = |name: &str, description: &str, properties: Value, required: &[&str]| {
         json!({
             "name": name,
@@ -923,10 +999,20 @@ pub fn tools() -> Vec<Value> {
         })
     };
     let on_ref = |name: &str, description: &str| {
-        tool(name, description, json!({"ref_id": reference.clone()}), &["ref_id"])
+        tool(
+            name,
+            description,
+            json!({"ref_id": reference.clone()}),
+            &["ref_id"],
+        )
     };
     vec![
-        tool("desktop_status", "The driver and its permissions.", json!({}), &[]),
+        tool(
+            "desktop_status",
+            "The driver and its permissions.",
+            json!({}),
+            &[],
+        ),
         tool("desktop_version", "The driver's version.", json!({}), &[]),
         tool(
             "desktop_list_windows",
@@ -934,7 +1020,12 @@ pub fn tools() -> Vec<Value> {
             json!({"app": app.clone()}),
             &[],
         ),
-        tool("desktop_list_apps", "Running apps (name, bundle id, pid).", json!({}), &[]),
+        tool(
+            "desktop_list_apps",
+            "Running apps (name, bundle id, pid).",
+            json!({}),
+            &[],
+        ),
         tool(
             "desktop_snapshot",
             "A window's Accessibility elements with refs, as an indented outline. root drills \
@@ -968,12 +1059,24 @@ pub fn tools() -> Vec<Value> {
             json!({"ref_id": reference.clone(), "property": {"type": "string"}}),
             &["ref_id", "property"],
         ),
-        on_ref("desktop_click", "Press an element (its Accessibility action), in the background."),
-        on_ref("desktop_double_click", "Open an element (double click), in the background."),
-        on_ref("desktop_right_click", "Show an element's menu, in the background."),
+        on_ref(
+            "desktop_click",
+            "Press an element (its Accessibility action), in the background.",
+        ),
+        on_ref(
+            "desktop_double_click",
+            "Open an element (double click), in the background.",
+        ),
+        on_ref(
+            "desktop_right_click",
+            "Show an element's menu, in the background.",
+        ),
         on_ref("desktop_toggle", "Toggle a checkbox or switch."),
         on_ref("desktop_check", "Check a checkbox (nothing when it is)."),
-        on_ref("desktop_uncheck", "Uncheck a checkbox (nothing when it isn't)."),
+        on_ref(
+            "desktop_uncheck",
+            "Uncheck a checkbox (nothing when it isn't).",
+        ),
         on_ref("desktop_expand", "Expand a disclosure or row."),
         on_ref("desktop_collapse", "Collapse a disclosure or row."),
         on_ref("desktop_clear", "Empty a text field."),
@@ -1088,18 +1191,18 @@ mod tests {
                      "is_on_screen": true, "layer": 0, "pid": 4921, "title": "pilot.txt", "window_id": 12796, "z_index": 0},
                 ]})),
                 "get_window_state" => structured(json!({
-                    "app_name": "TextEdit", "snapshot_id": "s00000001", "window_id": 12796, "window_title": "pilot.txt",
-                    "truncated": false,
-                    "elements": [
-                        {"actions": ["AXRaise"], "depth": 0, "element_index": 0, "element_token": "s00000001:0",
-                         "frame": {"h": 439.0, "w": 673.0, "x": 195.0, "y": 92.0}, "label": "pilot.txt", "role": "AXWindow"},
-                        {"actions": ["AXShowMenu"], "depth": 1, "element_index": 1, "element_token": "s00000001:1",
-                         "frame": {"h": 384.0, "w": 656.0, "x": 195.0, "y": 124.0}, "label": "seed", "parent_index": 0,
-                         "role": "AXTextArea", "value": "seed line"},
-                        {"actions": ["AXPress"], "depth": 1, "element_index": 2, "element_token": "s00000001:2",
-                         "frame": {"h": 22.0, "w": 120.0, "x": 300.0, "y": 100.0}, "parent_index": 0,
-                         "role": "AXTextField", "subrole": "AXSecureTextField", "value": "hunter2"},
-                    ]})),
+                "app_name": "TextEdit", "snapshot_id": "s00000001", "window_id": 12796, "window_title": "pilot.txt",
+                "truncated": false,
+                "elements": [
+                    {"actions": ["AXRaise"], "depth": 0, "element_index": 0, "element_token": "s00000001:0",
+                     "frame": {"h": 439.0, "w": 673.0, "x": 195.0, "y": 92.0}, "label": "pilot.txt", "role": "AXWindow"},
+                    {"actions": ["AXShowMenu"], "depth": 1, "element_index": 1, "element_token": "s00000001:1",
+                     "frame": {"h": 384.0, "w": 656.0, "x": 195.0, "y": 124.0}, "label": "seed", "parent_index": 0,
+                     "role": "AXTextArea", "value": "seed line"},
+                    {"actions": ["AXPress"], "depth": 1, "element_index": 2, "element_token": "s00000001:2",
+                     "frame": {"h": 22.0, "w": 120.0, "x": 300.0, "y": 100.0}, "parent_index": 0,
+                     "role": "AXTextField", "subrole": "AXSecureTextField", "value": "hunter2"},
+                ]})),
                 "click" if args.get("element_token") == Some(&json!("s00000001:9")) => json!({
                     "content": [{"type": "text", "text": "element_token is stale; call get_window_state again"}],
                     "isError": true,
@@ -1144,23 +1247,41 @@ mod tests {
         // The password never shows.
         assert_eq!(tree[2]["value"], json!({"redacted": true}));
         let outline = snapshot["content"][0]["text"].as_str().unwrap();
-        assert!(outline.contains("[@s00000001:e1] textarea \"seed\" = \"seed line\""), "{outline}");
+        assert!(
+            outline.contains("[@s00000001:e1] textarea \"seed\" = \"seed line\""),
+            "{outline}"
+        );
         assert!(!outline.contains("hunter2"));
         // The snapshot asked for no picture.
         let calls = fake.0.lock().unwrap().clone();
-        let state = &calls.iter().find(|(tool, _)| tool == "get_window_state").unwrap().1;
+        let state = &calls
+            .iter()
+            .find(|(tool, _)| tool == "get_window_state")
+            .unwrap()
+            .1;
         assert_eq!(state["include_screenshot"], false);
         assert_eq!(state["pid"], 4921);
         // Typing with a Return at the end: text, then the key.
         let typed = cua
-            .call("desktop_type", &args(json!({"ref_id": "@s00000001:e1", "text": "hello\n"})))
+            .call(
+                "desktop_type",
+                &args(json!({"ref_id": "@s00000001:e1", "text": "hello\n"})),
+            )
             .unwrap();
         assert_eq!(typed["structuredContent"]["ok"], true);
         let calls = fake.0.lock().unwrap().clone();
-        let typed_call = &calls.iter().find(|(tool, _)| tool == "type_text").unwrap().1;
+        let typed_call = &calls
+            .iter()
+            .find(|(tool, _)| tool == "type_text")
+            .unwrap()
+            .1;
         assert_eq!(typed_call["text"], "hello");
         assert_eq!(typed_call["element_token"], "s00000001:1");
-        assert!(calls.iter().any(|(tool, args)| tool == "press_key" && args["key"] == "return"));
+        assert!(
+            calls
+                .iter()
+                .any(|(tool, args)| tool == "press_key" && args["key"] == "return")
+        );
     }
 
     #[test]
@@ -1184,7 +1305,10 @@ mod tests {
             .unwrap();
         assert_eq!(unknown["structuredContent"]["error"]["code"], "STALE_REF");
         let physical = cua.call("desktop_mouse_click", &Map::new()).unwrap();
-        assert_eq!(physical["structuredContent"]["error"]["code"], "UNSUPPORTED");
+        assert_eq!(
+            physical["structuredContent"]["error"]["code"],
+            "UNSUPPORTED"
+        );
     }
 
     #[test]
@@ -1197,8 +1321,11 @@ mod tests {
         assert!(!looks_like_bundle_id("Visual Studio Code"));
         let fake = Fake::default();
         let mut cua = Cua::new(fake.clone());
-        cua.call("desktop_press", &args(json!({"combo": "cmd+s", "window_id": "w-12796"})))
-            .unwrap();
+        cua.call(
+            "desktop_press",
+            &args(json!({"combo": "cmd+s", "window_id": "w-12796"})),
+        )
+        .unwrap();
         let calls = fake.0.lock().unwrap().clone();
         let hotkey = &calls.iter().find(|(tool, _)| tool == "hotkey").unwrap().1;
         assert_eq!(hotkey["keys"], json!(["cmd", "s"]));
@@ -1209,8 +1336,7 @@ mod tests {
     fn status_says_permissions_as_agent_desktop_did() {
         let mut cua = Cua::new(Fake::default());
         let status = cua.call("desktop_status", &Map::new()).unwrap();
-        let grants =
-            crate::assistant::backends::desktop::grants(&data(&status)).expect("grants");
+        let grants = crate::assistant::backends::desktop::grants(&data(&status)).expect("grants");
         assert!(!grants.accessibility);
         let names: Vec<String> = tools()
             .iter()
@@ -1274,7 +1400,11 @@ mod live {
         let call = |cua: &mut Cua<super::super::child::AgentDesktop>, tool: &str, args: Value| {
             cua.call(tool, args.as_object().unwrap()).unwrap()
         };
-        let opened = call(&mut cua, "desktop_launch", json!({"app": "com.apple.TextEdit", "args": [file]}));
+        let opened = call(
+            &mut cua,
+            "desktop_launch",
+            json!({"app": "com.apple.TextEdit", "args": [file]}),
+        );
         println!("launch: {}", opened["structuredContent"]);
         let mut window = None;
         for _ in 0..40 {
@@ -1283,9 +1413,11 @@ mod live {
             window = listed["structuredContent"]["data"]
                 .as_array()
                 .and_then(|windows| {
-                    windows
-                        .iter()
-                        .find(|window| window["title"].as_str().is_some_and(|title| !title.is_empty()))
+                    windows.iter().find(|window| {
+                        window["title"]
+                            .as_str()
+                            .is_some_and(|title| !title.is_empty())
+                    })
                 })
                 .and_then(|window| window["id"].as_str().map(str::to_owned));
             if window.is_some() {
@@ -1294,7 +1426,10 @@ mod live {
         }
         let window = window.expect("TextEdit's window");
         let snapshot = call(&mut cua, "desktop_snapshot", json!({"window_id": window}));
-        println!("{}", snapshot["content"][0]["text"].as_str().unwrap_or_default());
+        println!(
+            "{}",
+            snapshot["content"][0]["text"].as_str().unwrap_or_default()
+        );
         let area = snapshot["structuredContent"]["data"]["tree"]
             .as_array()
             .unwrap()
@@ -1302,10 +1437,17 @@ mod live {
             .find(|node| node["role"] == "textarea")
             .map(|node| node["ref_id"].as_str().unwrap().to_owned())
             .expect("a text area");
-        let typed = call(&mut cua, "desktop_type", json!({"ref_id": area, "text": "[cua] "}));
+        let typed = call(
+            &mut cua,
+            "desktop_type",
+            json!({"ref_id": area, "text": "[cua] "}),
+        );
         println!("type: {}", typed["structuredContent"]);
         let again = call(&mut cua, "desktop_snapshot", json!({"window_id": window}));
-        let text = again["content"][0]["text"].as_str().unwrap_or_default().to_owned();
+        let text = again["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
         println!("{text}");
         assert_eq!(
             crate::dictation::context::frontmost_pid(),

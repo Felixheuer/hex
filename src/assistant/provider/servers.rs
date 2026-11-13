@@ -119,12 +119,14 @@ mod tests {
             codex
                 .contains(&r#"mcp_servers.agent-browser.args=["mcp","--session","t1"]"#.to_owned())
         );
-        assert!(codex.iter().any(
-            |arg| arg.starts_with("mcp_servers.desktop.enabled_tools=")
-                && arg.contains("desktop_claim_window")
-                && arg.contains("hex_installed_apps")
-                && arg.contains("hex_open_app")
-        ));
+        assert!(
+            codex
+                .iter()
+                .any(|arg| arg.starts_with("mcp_servers.desktop.enabled_tools=")
+                    && arg.contains("desktop_claim_window")
+                    && arg.contains("hex_installed_apps")
+                    && arg.contains("hex_open_app"))
+        );
         assert!(
             !codex
                 .iter()

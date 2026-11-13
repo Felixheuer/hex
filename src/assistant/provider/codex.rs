@@ -246,14 +246,17 @@ mod tests {
         assert_eq!(args.last().unwrap(), "-");
         assert!(args.contains(&r#"developer_instructions="Line one\n\"quoted\"""#.to_owned()));
         assert!(args.contains(&r#"mcp_servers.desktop.args=["mcp"]"#.to_owned()));
-        assert!(args.iter().any(
-            |arg| arg.starts_with("mcp_servers.desktop.enabled_tools=")
-                && arg.contains("desktop_click")
-                && !arg.contains("desktop_session_end")
-        ));
-        assert!(args.contains(
-            &r#"mcp_servers.desktop.default_tools_approval_mode="approve""#.to_owned()
-        ));
+        assert!(
+            args.iter()
+                .any(|arg| arg.starts_with("mcp_servers.desktop.enabled_tools=")
+                    && arg.contains("desktop_click")
+                    && !arg.contains("desktop_session_end"))
+        );
+        assert!(
+            args.contains(
+                &r#"mcp_servers.desktop.default_tools_approval_mode="approve""#.to_owned()
+            )
+        );
     }
 
     #[test]

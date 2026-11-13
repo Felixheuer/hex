@@ -195,7 +195,11 @@ impl<D: Desktop> Guard<D> {
                         Ok(()) if !cfg!(test) => true,
                         outcome => {
                             if let Err(why) = outcome {
-                                tracing::warn!(why, window = id, "restoring through Accessibility failed");
+                                tracing::warn!(
+                                    why,
+                                    window = id,
+                                    "restoring through Accessibility failed"
+                                );
                             }
                             let mut args = Map::new();
                             args.insert("window_id".into(), json!(id));

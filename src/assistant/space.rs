@@ -188,8 +188,11 @@ mod native {
     use super::{Display, PARKED, Parked, parking_spot};
     use crate::assistant::TaskWindow;
 
+    /// A frame: x, y, width, height in points.
+    type Rect = (f64, f64, f64, f64);
+
     /// Window `id`'s process, number, and frame.
-    pub fn window(id: &str) -> Option<(i32, u32, (f64, f64, f64, f64))> {
+    pub fn window(id: &str) -> Option<(i32, u32, Rect)> {
         if cfg!(test) || !cfg!(target_os = "macos") {
             return None;
         }

@@ -107,7 +107,9 @@ impl Desktop {
         let (agent_desktop, driver) = match (&guard, found.driver) {
             // Without the guard only agent-desktop serves the tools.
             (None, crate::assistant::driver::Driver::Cua) => (
-                crate::assistant::driver::Driver::AgentDesktop.backend().find()?,
+                crate::assistant::driver::Driver::AgentDesktop
+                    .backend()
+                    .find()?,
                 crate::assistant::driver::Driver::AgentDesktop,
             ),
             _ => (found.path, found.driver),

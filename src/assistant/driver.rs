@@ -202,9 +202,13 @@ mod tests {
         );
         // Cua Driver missing (or not installed yet): agent-desktop.
         let only_agent = |driver: Driver| {
-            (driver == Driver::AgentDesktop).then(|| PathBuf::from("/opt/homebrew/bin/agent-desktop"))
+            (driver == Driver::AgentDesktop)
+                .then(|| PathBuf::from("/opt/homebrew/bin/agent-desktop"))
         };
-        assert_eq!(pick(Driver::Cua, only_agent).unwrap().driver, Driver::AgentDesktop);
+        assert_eq!(
+            pick(Driver::Cua, only_agent).unwrap().driver,
+            Driver::AgentDesktop
+        );
         assert_eq!(pick(Driver::Cua, |_| None), None);
     }
 

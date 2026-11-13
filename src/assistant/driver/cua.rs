@@ -185,7 +185,11 @@ mod tests {
         assert!(url(file).starts_with("https://github.com/trycua/cua/releases/download/"));
         assert!(url(file).ends_with(file));
         let names = env();
-        assert!(names.iter().any(|(key, value)| key == "DO_NOT_TRACK" && value == "1"));
+        assert!(
+            names
+                .iter()
+                .any(|(key, value)| key == "DO_NOT_TRACK" && value == "1")
+        );
         assert!(
             names
                 .iter()
@@ -197,7 +201,8 @@ mod tests {
     fn only_cua_ai_s_signature_counts() {
         let theirs = "Identifier=com.trycua.driver\nAuthority=Developer ID Application: Cua AI, Inc. (YCK386LBJ7)\nTeamIdentifier=YCK386LBJ7\n";
         assert!(signed_by_team(theirs));
-        let other = "Authority=Developer ID Application: Someone (ABCDE12345)\nTeamIdentifier=ABCDE12345\n";
+        let other =
+            "Authority=Developer ID Application: Someone (ABCDE12345)\nTeamIdentifier=ABCDE12345\n";
         assert!(!signed_by_team(other));
     }
 }

@@ -210,7 +210,9 @@ pub fn mcp_server(spec: &TaskSpec) -> Option<McpServer> {
     let desktop = agent.clone().unwrap_or_else(|| McpServer {
         command: active.path.clone(),
         args: Vec::new(),
-        path_env: crate::assistant::backends::search::path_value(&[active.path.clone()]),
+        path_env: crate::assistant::backends::search::path_value(std::slice::from_ref(
+            &active.path,
+        )),
     });
     let hex = std::env::current_exe().ok()?;
     let store = state::Store::standard()?;
@@ -279,16 +281,23 @@ pub fn driver_round_trip() -> std::result::Result<(usize, usize), String> {
         backend.env(),
     ));
     driver.tools()?;
-    let count = |result: serde_json::Value, key: Option<&str>| -> std::result::Result<usize, String> {
-        let data = child::data(&result).ok_or_else(|| result.to_string())?;
-        let list = match key {
-            Some(key) => data.get(key).cloned().unwrap_or_default(),
-            None => data,
+    let count =
+        |result: serde_json::Value, key: Option<&str>| -> std::result::Result<usize, String> {
+            let data = child::data(&result).ok_or_else(|| result.to_string())?;
+            let list = match key {
+                Some(key) => data.get(key).cloned().unwrap_or_default(),
+                None => data,
+            };
+            Ok(list.as_array().map_or(0, Vec::len))
         };
-        Ok(list.as_array().map_or(0, Vec::len))
-    };
-    let apps = count(driver.call("desktop_list_apps", &serde_json::Map::new())?, Some("apps"))?;
-    let windows = count(driver.call("desktop_list_windows", &serde_json::Map::new())?, None)?;
+    let apps = count(
+        driver.call("desktop_list_apps", &serde_json::Map::new())?,
+        Some("apps"),
+    )?;
+    let windows = count(
+        driver.call("desktop_list_windows", &serde_json::Map::new())?,
+        None,
+    )?;
     Ok((apps, windows))
 }
 
@@ -549,10 +558,14 @@ fn install_driver_in_background() {
     }
     let spawned = std::thread::Builder::new()
         .name("hex-cua-install".into())
-        .spawn(|| match driver::cua::install(&mut |step| tracing::info!(step, "Cua Driver")) {
-            Ok(path) => tracing::info!(path = %path.display(), "Cua Driver is ready"),
-            Err(error) => tracing::warn!(%error, "Cua Driver didn't install; agent-desktop serves"),
-        });
+        .spawn(
+            || match driver::cua::install(&mut |step| tracing::info!(step, "Cua Driver")) {
+                Ok(path) => tracing::info!(path = %path.display(), "Cua Driver is ready"),
+                Err(error) => {
+                    tracing::warn!(%error, "Cua Driver didn't install; agent-desktop serves")
+                }
+            },
+        );
     if let Err(error) = spawned {
         tracing::warn!(%error, "couldn't start installing Cua Driver");
     }

@@ -140,7 +140,9 @@ mod tests {
             Fallback::Pointer
         );
         assert_eq!(
-            fallback(&json!({"content": [{"type": "text", "text": "AXError -25205"}], "isError": true})),
+            fallback(
+                &json!({"content": [{"type": "text", "text": "AXError -25205"}], "isError": true})
+            ),
             Fallback::Pointer
         );
     }

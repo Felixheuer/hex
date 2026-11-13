@@ -187,7 +187,11 @@ impl<D: Desktop> Guard<D> {
                     .list(super::Look::Check)
                     .ok()
                     .and_then(|windows| windows.into_iter().find(|listed| &listed.id == id))
-                    .filter(|listed| listed.bounds.is_some_and(|bounds| hangs_off(bounds, &displays)));
+                    .filter(|listed| {
+                        listed
+                            .bounds
+                            .is_some_and(|bounds| hangs_off(bounds, &displays))
+                    });
                 if let Some(parked) = parked {
                     self.put_behind(&parked, "it ignored actions off the screen");
                     continue;

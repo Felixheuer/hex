@@ -167,9 +167,7 @@ mod tests {
 
     #[test]
     fn an_elements_centre_and_the_primer() {
-        let target = RETINA
-            .element_centre((1366.0, 901.0, 100.0, 20.0))
-            .unwrap();
+        let target = RETINA.element_centre((1366.0, 901.0, 100.0, 20.0)).unwrap();
         assert_eq!(target.local, (56.0, 42.0));
         assert!(RETINA.element_centre((0.0, 0.0, 10.0, 10.0)).is_none());
         let primer = RETINA.primer();

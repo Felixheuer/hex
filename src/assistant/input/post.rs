@@ -20,8 +20,14 @@ use super::geometry::{Frame, Target};
 /// What a gesture is.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Gesture {
-    Click { button: Button, count: u32 },
-    Scroll { dx: i32, dy: i32 },
+    Click {
+        button: Button,
+        count: u32,
+    },
+    Scroll {
+        dx: i32,
+        dy: i32,
+    },
     /// Text typed as Unicode key events.
     Text(String),
     /// One key with modifiers (`cmd+shift+d`, `return`, `pagedown`).
@@ -245,11 +251,8 @@ mod macos {
     #[link(name = "CoreGraphics", kind = "framework")]
     unsafe extern "C" {
         fn CGEventSourceCreate(state: i32) -> CGEventSourceRef;
-        fn CGEventCreateKeyboardEvent(
-            source: CGEventSourceRef,
-            key: u16,
-            down: bool,
-        ) -> CGEventRef;
+        fn CGEventCreateKeyboardEvent(source: CGEventSourceRef, key: u16, down: bool)
+        -> CGEventRef;
         fn CGEventKeyboardSetUnicodeString(event: CGEventRef, length: usize, text: *const u16);
         fn CGEventCreateScrollWheelEvent2(
             source: CGEventSourceRef,
@@ -336,8 +339,9 @@ mod macos {
                     (!symbol.is_null()).then_some(symbol)
                 };
                 Private {
-                    window_location: find(c"CGEventSetWindowLocation")
-                        .map(|symbol| std::mem::transmute::<*mut c_void, SetWindowLocation>(symbol)),
+                    window_location: find(c"CGEventSetWindowLocation").map(|symbol| {
+                        std::mem::transmute::<*mut c_void, SetWindowLocation>(symbol)
+                    }),
                     fields: find(c"SLEventSetIntegerValueField")
                         .map(|symbol| std::mem::transmute::<*mut c_void, SetField>(symbol)),
                     record: find(c"SLPSPostEventRecordTo")
@@ -762,16 +766,26 @@ mod live {
         for _ in 0..40 {
             std::thread::sleep(std::time::Duration::from_millis(250));
             let pid: Option<i32> = String::from_utf8_lossy(
-                &std::process::Command::new("/usr/bin/pgrep").args(["-x", "TextEdit"]).output().unwrap().stdout,
+                &std::process::Command::new("/usr/bin/pgrep")
+                    .args(["-x", "TextEdit"])
+                    .output()
+                    .unwrap()
+                    .stdout,
             )
             .split_whitespace()
             .next()
             .and_then(|pid| pid.parse().ok());
             window = pid.and_then(|pid| {
-                crate::assistant::computer::now::all_windows().into_iter().find(|window| {
-                    window.pid == pid && window.layer == 0 && window.bounds[2] > 100.0
-                        && crate::assistant::actions::ax::windows(pid).iter().any(|listed| listed.number == window.number)
-                })
+                crate::assistant::computer::now::all_windows()
+                    .into_iter()
+                    .find(|window| {
+                        window.pid == pid
+                            && window.layer == 0
+                            && window.bounds[2] > 100.0
+                            && crate::assistant::actions::ax::windows(pid)
+                                .iter()
+                                .any(|listed| listed.number == window.number)
+                    })
             });
             if window.is_some() {
                 break;
@@ -779,12 +793,21 @@ mod live {
         }
         let window = window.expect("TextEdit's window");
         let [x, y, width, height] = window.bounds;
-        let frame = Frame { x, y, width, height, scale: 2.0 };
+        let frame = Frame {
+            x,
+            y,
+            width,
+            height,
+            scale: 2.0,
+        };
         println!("capabilities: {:?}", capabilities());
         // Off the screen, as a task's window waits.
         let displays = crate::assistant::computer::displays();
         let main = displays.iter().find(|display| display.is_primary).unwrap();
-        let parked = (main.frame.0 + main.frame.2 - 2.0, main.frame.1 + main.frame.3 - 2.0);
+        let parked = (
+            main.frame.0 + main.frame.2 - 2.0,
+            main.frame.1 + main.frame.3 - 2.0,
+        );
         let mut moved = Err(0);
         for _ in 0..20 {
             moved = crate::assistant::actions::ax::set_position(window.pid, window.number, parked);
@@ -795,23 +818,72 @@ mod live {
         }
         moved.unwrap();
         std::thread::sleep(std::time::Duration::from_millis(400));
-        let frame = Frame { x: parked.0, y: parked.1, ..frame };
-        let typed = post(window.pid, window.number, &frame, None, &Gesture::Key("cmd+down".into())).unwrap();
-        let typed2 = post(window.pid, window.number, &frame, None, &Gesture::Text(" [pid keys]".into())).unwrap();
+        let frame = Frame {
+            x: parked.0,
+            y: parked.1,
+            ..frame
+        };
+        let typed = post(
+            window.pid,
+            window.number,
+            &frame,
+            None,
+            &Gesture::Key("cmd+down".into()),
+        )
+        .unwrap();
+        let typed2 = post(
+            window.pid,
+            window.number,
+            &frame,
+            None,
+            &Gesture::Text(" [pid keys]".into()),
+        )
+        .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(400));
         let after_keys = textedit_value();
-        println!("after keys: {after_keys:?} front kept: {} {}", typed.front_before == typed.front_after, typed2.front_before == typed2.front_after);
+        println!(
+            "after keys: {after_keys:?} front kept: {} {}",
+            typed.front_before == typed.front_after,
+            typed2.front_before == typed2.front_after
+        );
         // Click at the very start of the text (about 10,40 points into the
         // window: below its title bar), then type there.
-        let target = frame.target((8.0, 36.0), super::super::geometry::Units::Points).unwrap();
-        let clicked = post(window.pid, window.number, &frame, Some(target), &Gesture::Click { button: Button::Left, count: 1 }).unwrap();
-        post(window.pid, window.number, &frame, None, &Gesture::Text("^".into())).unwrap();
+        let target = frame
+            .target((8.0, 36.0), super::super::geometry::Units::Points)
+            .unwrap();
+        let clicked = post(
+            window.pid,
+            window.number,
+            &frame,
+            Some(target),
+            &Gesture::Click {
+                button: Button::Left,
+                count: 1,
+            },
+        )
+        .unwrap();
+        post(
+            window.pid,
+            window.number,
+            &frame,
+            None,
+            &Gesture::Text("^".into()),
+        )
+        .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(400));
         let after_click = textedit_value();
-        println!("after click: {after_click:?} private route: {}", clicked.private);
+        println!(
+            "after click: {after_click:?} private route: {}",
+            clicked.private
+        );
         let after = front();
         let _ = std::process::Command::new("/usr/bin/osascript")
-            .args(["-e", "tell application id \"com.apple.TextEdit\" to close every document saving no", "-e", "tell application id \"com.apple.TextEdit\" to quit saving no"])
+            .args([
+                "-e",
+                "tell application id \"com.apple.TextEdit\" to close every document saving no",
+                "-e",
+                "tell application id \"com.apple.TextEdit\" to quit saving no",
+            ])
             .status();
         assert_eq!(before, after, "the person's app kept the front");
         assert!(after_keys.ends_with("[pid keys]"), "{after_keys}");

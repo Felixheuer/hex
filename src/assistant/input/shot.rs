@@ -43,8 +43,14 @@ pub fn changed_share(a: &[u8], b: &[u8], width: u32, height: u32) -> Option<f64>
     let mut differing = 0;
     for cy in 0..CELLS {
         for cx in 0..CELLS {
-            let (x0, x1) = (cx * w / CELLS, ((cx + 1) * w / CELLS).max(cx * w / CELLS + 1));
-            let (y0, y1) = (cy * h / CELLS, ((cy + 1) * h / CELLS).max(cy * h / CELLS + 1));
+            let (x0, x1) = (
+                cx * w / CELLS,
+                ((cx + 1) * w / CELLS).max(cx * w / CELLS + 1),
+            );
+            let (y0, y1) = (
+                cy * h / CELLS,
+                ((cy + 1) * h / CELLS).max(cy * h / CELLS + 1),
+            );
             let mut sum = 0_u64;
             let mut count = 0_u64;
             for y in (y0..y1.min(h)).step_by(2) {
@@ -78,9 +84,15 @@ pub fn fit(rgba: &[u8], width: u32, height: u32, edge: u32) -> (u32, u32, Vec<u8
     );
     let mut out = vec![0_u8; (to_w * to_h * 4) as usize];
     for y in 0..to_h {
-        let (y0, y1) = (y * height / to_h, ((y + 1) * height / to_h).max(y * height / to_h + 1));
+        let (y0, y1) = (
+            y * height / to_h,
+            ((y + 1) * height / to_h).max(y * height / to_h + 1),
+        );
         for x in 0..to_w {
-            let (x0, x1) = (x * width / to_w, ((x + 1) * width / to_w).max(x * width / to_w + 1));
+            let (x0, x1) = (
+                x * width / to_w,
+                ((x + 1) * width / to_w).max(x * width / to_w + 1),
+            );
             let mut sum = [0_u32; 4];
             let mut count = 0;
             for sy in y0..y1.min(height) {
@@ -121,7 +133,8 @@ pub fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, Strin
 
 /// Writes RGBA `rgba` (`width`×`height`) as a PNG at `path`.
 pub fn write_png(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Result<(), String> {
-    let file = std::fs::File::create(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let file =
+        std::fs::File::create(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), width, height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);

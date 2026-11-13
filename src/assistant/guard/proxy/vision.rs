@@ -78,7 +78,8 @@ impl<D: Desktop> Guard<D> {
     /// Snapshots name where each element is, so a failed Accessibility
     /// action can fall back to a click at its spot.
     pub(super) fn want_bounds(tool: &str, args: &mut Map<String, Value>) {
-        if matches!(tool, "desktop_snapshot" | "desktop_find") && !args.contains_key("include_bounds")
+        if matches!(tool, "desktop_snapshot" | "desktop_find")
+            && !args.contains_key("include_bounds")
         {
             args.insert("include_bounds".into(), Value::Bool(true));
         }
@@ -119,12 +120,14 @@ impl<D: Desktop> Guard<D> {
         for window in &found {
             self.check(tool, kind, window, &held)?;
         }
-        let resolved = found.into_iter().next().ok_or_else(|| {
-            refusal(tool, "WINDOW_NOT_FOUND", "That app has no window to use.")
-        })?;
-        let id = resolved.id.clone().ok_or_else(|| {
-            refusal(tool, "WINDOW_NOT_FOUND", "That app has no window to use.")
-        })?;
+        let resolved = found
+            .into_iter()
+            .next()
+            .ok_or_else(|| refusal(tool, "WINDOW_NOT_FOUND", "That app has no window to use."))?;
+        let id = resolved
+            .id
+            .clone()
+            .ok_or_else(|| refusal(tool, "WINDOW_NOT_FOUND", "That app has no window to use."))?;
         let window = self.window_info(&id).ok_or_else(|| {
             refusal(
                 tool,
@@ -207,7 +210,11 @@ impl<D: Desktop> Guard<D> {
                 Ok(()) => {
                     std::thread::sleep(Duration::from_millis(400));
                     self.looked = None;
-                    tracing::info!(window = window.id, attempt, "restored a minimized window, parked");
+                    tracing::info!(
+                        window = window.id,
+                        attempt,
+                        "restored a minimized window, parked"
+                    );
                     return Ok(());
                 }
                 Err(code) => last = code,
@@ -229,7 +236,11 @@ impl<D: Desktop> Guard<D> {
         std::thread::sleep(Duration::from_millis(150));
         let renders = shot::capture(number).is_ok_and(|(_, _, rgba)| {
             // A picture that is all transparent is no picture.
-            rgba.chunks_exact(4).step_by(31).any(|pixel| pixel[3] != 0)
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .step_by(31)
+                .any(|pixel| pixel[3] != 0)
         });
         let measured = decide::Measured {
             fresh_frame: Some(renders),
@@ -256,7 +267,11 @@ impl<D: Desktop> Guard<D> {
         let spot = (display.frame.0 + 80.0, display.frame.1 + 80.0);
         self.move_window(window, spot);
         self.looked = None;
-        tracing::info!(window = window.id, why, "a window waits behind the person's instead of off the screen");
+        tracing::info!(
+            window = window.id,
+            why,
+            "a window waits behind the person's instead of off the screen"
+        );
         self.notes.push(format!(
             "{} waits behind the person's windows now ({why}); act in it as before.",
             window.id
@@ -327,7 +342,11 @@ impl<D: Desktop> Guard<D> {
         );
         let changed = taken.changed.map(|share| (share * 100.0).round());
         let mut result = success(
-            if did.is_some() { "window-input" } else { "window-shot" },
+            if did.is_some() {
+                "window-input"
+            } else {
+                "window-shot"
+            },
             json!({
                 "window": window.id,
                 "app": window.app,
@@ -373,7 +392,10 @@ impl<D: Desktop> Guard<D> {
         let frame = self.frame_of(&window).ok_or_else(|| {
             failure("Hex can't tell where that window is; take a hex_window_shot first.")
         })?;
-        let units = match (text(args, "units").as_deref(), self.vision.shots.get(&number)) {
+        let units = match (
+            text(args, "units").as_deref(),
+            self.vision.shots.get(&number),
+        ) {
             (Some("points"), _) => Units::Points,
             (_, Some(seen)) => Units::ShotPixels {
                 width: seen.image.0,
@@ -488,10 +510,16 @@ impl<D: Desktop> Guard<D> {
             .ok_or_else(|| failure("Hex can't tell which process that window is."))?;
         // Text at a spot: click there first, so it lands in that field.
         if let (Gesture::Text(_), Some(spot)) = (&gesture, spot) {
-            self.deliver(pid, number, &frame, Some(spot), &Gesture::Click {
-                button: Button::Left,
-                count: 1,
-            })?;
+            self.deliver(
+                pid,
+                number,
+                &frame,
+                Some(spot),
+                &Gesture::Click {
+                    button: Button::Left,
+                    count: 1,
+                },
+            )?;
         }
         let delivered = self.deliver(pid, number, &frame, spot, &gesture)?;
         let _ = self.list(Look::AfterAction);
@@ -525,9 +553,8 @@ impl<D: Desktop> Guard<D> {
         }
         #[cfg(not(test))]
         {
-            let delivered = post::post(pid, number, frame, spot, gesture).map_err(|why| {
-                failure(&format!("Hex couldn't send that to the window: {why}"))
-            })?;
+            let delivered = post::post(pid, number, frame, spot, gesture)
+                .map_err(|why| failure(&format!("Hex couldn't send that to the window: {why}")))?;
             if let (Some(before), Some(after)) = (delivered.front_before, delivered.front_after)
                 && before != after
                 && after == pid
@@ -648,7 +675,11 @@ impl<D: Desktop> Guard<D> {
                 return retried;
             }
         }
-        tracing::info!(tool, window = id, "Accessibility failed twice; acted by pid input");
+        tracing::info!(
+            tool,
+            window = id,
+            "Accessibility failed twice; acted by pid input"
+        );
         success(
             &super::command(tool),
             json!({
@@ -683,7 +714,10 @@ fn label_near(lines: &[crate::assistant::actions::ocr::Line], (x, y): (f64, f64)
 
 /// Every `(ref, frame)` in a result's data: elements with a ref and bounds
 /// (agent-desktop's `bounds`, Cua Driver's `frame`), in global points.
-fn frames_in(value: &Value, found: &mut Vec<(String, (f64, f64, f64, f64))>) {
+/// A frame: x, y, width, height in global points.
+type Rect = (f64, f64, f64, f64);
+
+fn frames_in(value: &Value, found: &mut Vec<(String, Rect)>) {
     match value {
         Value::Object(fields) => {
             if let Some(reference) = fields.get("ref_id").and_then(Value::as_str)
@@ -710,7 +744,13 @@ fn frames_in(value: &Value, found: &mut Vec<(String, (f64, f64, f64, f64))>) {
 
 fn sanitize(task: &str) -> String {
     task.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 

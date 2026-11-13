@@ -5,7 +5,12 @@ use super::*;
 use crate::assistant::autonomy::Autonomy;
 use crate::assistant::input::post::{Button, Gesture};
 
-fn guard_with(scratch: &Scratch, fake: &Fake, autonomy: Autonomy, observe_only: bool) -> Guard<Fake> {
+fn guard_with(
+    scratch: &Scratch,
+    fake: &Fake,
+    autonomy: Autonomy,
+    observe_only: bool,
+) -> Guard<Fake> {
     let mut guard = Guard::new(
         Config {
             task: "bg".into(),
@@ -29,10 +34,7 @@ fn guard_with(scratch: &Scratch, fake: &Fake, autonomy: Autonomy, observe_only: 
 }
 
 fn claim(guard: &mut Guard<Fake>, id: &str) {
-    let claimed = guard.call(
-        policy::CLAIM_TOOL,
-        args(json!({"window_id": id})),
-    );
+    let claimed = guard.call(policy::CLAIM_TOOL, args(json!({"window_id": id})));
     assert_eq!(claimed["isError"], false, "{claimed}");
 }
 
@@ -53,9 +55,15 @@ fn the_vision_tools_are_offered_and_classed() {
         .collect();
     assert!(names.contains(&"hex_window_shot".to_owned()));
     assert!(names.contains(&"hex_window_input".to_owned()));
-    assert_eq!(policy::kind("hex_window_shot", &Map::new()), Kind::WindowShot);
+    assert_eq!(
+        policy::kind("hex_window_shot", &Map::new()),
+        Kind::WindowShot
+    );
     assert!(policy::kind("hex_window_input", &Map::new()).acts());
-    assert_eq!(super::super::screen_work("mcp__agent-desktop__hex_window_input"), Some(true));
+    assert_eq!(
+        super::super::screen_work("mcp__agent-desktop__hex_window_input"),
+        Some(true)
+    );
     assert_eq!(super::super::screen_work("hex_window_shot"), Some(false));
 }
 
@@ -132,7 +140,11 @@ fn a_click_on_send_needs_a_yes_unless_yolo() {
     claim(&mut guard, SETTINGS);
     guard.set_spot_label("Senden");
     let refused = guard.call("hex_window_input", click.clone());
-    assert_eq!(error_code(&refused).as_deref(), Some("NEEDS_CONFIRMATION"), "{refused}");
+    assert_eq!(
+        error_code(&refused).as_deref(),
+        Some("NEEDS_CONFIRMATION"),
+        "{refused}"
+    );
     assert!(guard.sent().is_empty());
     // An ordinary control goes ahead.
     guard.set_spot_label("Allgemein");
@@ -186,7 +198,9 @@ fn an_accessibility_failure_is_retried_then_done_by_pid_input() {
     };
     {
         let mut state = fake.state();
-        state.replies.insert("desktop_snapshot".into(), ok("snapshot", tree));
+        state
+            .replies
+            .insert("desktop_snapshot".into(), ok("snapshot", tree));
         state.replies.insert("desktop_click".into(), failed);
     }
     let snapshot = guard.call("desktop_snapshot", args(json!({"window_id": SETTINGS})));
