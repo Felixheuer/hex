@@ -12,6 +12,13 @@
 //!   flag (it prints its help and fails), and its config names providers
 //!   `provider.<id>.options` and rejects `providers`.
 //!
+//! Which one a path is, is read from what it offers: `opencode run --help`
+//! lists `--standalone` only on OpenCode 2 ([`generation_of_help`]). The
+//! version alone can't tell: both publish `0.0.0-dev-…` and `0.0.0-beta-…`
+//! builds (classic numbers them by date, `0.0.0-dev-202611092046`; OpenCode 2
+//! by run, `0.0.0-dev-1289`), so it is only the fallback when the help
+//! doesn't answer ([`generation_of`]).
+//!
 //! Tasks, self-tests and the model list ask [`generation`] and build their
 //! arguments and config here, so both work.
 //!
@@ -34,15 +41,36 @@ pub enum Generation {
     Two,
 }
 
+/// The generation `opencode run --help`'s words (both streams) say.
+pub fn generation_of_help(help: &str) -> Option<Generation> {
+    if !help.contains("--format") {
+        // Not `run`'s help at all.
+        return None;
+    }
+    Some(if help.contains("--standalone") {
+        Generation::Two
+    } else {
+        Generation::Classic
+    })
+}
+
 /// The generation a `--version` number belongs to; an unknown version is
 /// taken for OpenCode 2, which Agent-Desk installs.
 pub fn generation_of(version: Option<&str>) -> Generation {
     let Some(version) = version.map(str::trim).filter(|version| !version.is_empty()) else {
         return Generation::Two;
     };
-    // OpenCode 2's dev and beta builds.
-    if version.starts_with("0.0.0-") {
-        return Generation::Two;
+    // Snapshot builds: classic's carry a date (`0.0.0-202506070331`,
+    // `0.0.0-dev-202611092046`), OpenCode 2's a run number
+    // (`0.0.0-dev-1289`, `0.0.0-beta-19507`).
+    if let Some(snapshot) = version.strip_prefix("0.0.0-") {
+        let number = snapshot.rsplit('-').next().unwrap_or_default();
+        let dated = number.len() >= 12 && number.chars().all(|c| c.is_ascii_digit());
+        return if dated {
+            Generation::Classic
+        } else {
+            Generation::Two
+        };
     }
     match version
         .split('.')
@@ -56,8 +84,8 @@ pub fn generation_of(version: Option<&str>) -> Generation {
 }
 
 /// The generation of the OpenCode tasks run, remembered per executable
-/// until it changes on disk (an update), so a task doesn't wait on
-/// `--version` each time.
+/// until it changes on disk (an update), so a task doesn't wait on its
+/// help each time.
 pub fn generation() -> Generation {
     match super::executable(AssistantBackend::OpenCode) {
         Some(path) => generation_for(&path),
@@ -78,7 +106,18 @@ pub fn generation_for(path: &Path) -> Generation {
     {
         return *generation;
     }
-    let generation = generation_of(super::version_of(path).ok().flatten().as_deref());
+    let mut command = super::agent_command(path);
+    command.args(["run", "--help"]);
+    let help = super::run::bounded(command, std::time::Duration::from_secs(10))
+        .ok()
+        .filter(|ran| !ran.timed_out())
+        .and_then(|ran| generation_of_help(&format!("{}\n{}", ran.stdout, ran.stderr)));
+    let Some(generation) = help else {
+        // A slow or failing start isn't remembered: the next task asks
+        // again. Meanwhile the version guesses.
+        let version = super::version_of(path).ok().flatten();
+        return generation_of(version.as_deref());
+    };
     if let Ok(mut seen) = SEEN.lock() {
         *seen = Some((path.to_owned(), modified, generation));
     }
@@ -160,6 +199,9 @@ mod tests {
             (Some("2.2.6"), Generation::Two),
             (Some("0.0.0-dev-1289"), Generation::Two),
             (Some("0.0.0-beta-19507"), Generation::Two),
+            (Some("0.0.0-dev-202611092046"), Generation::Classic),
+            (Some("0.0.0-beta-202601310003"), Generation::Classic),
+            (Some("0.0.0-202506070331"), Generation::Classic),
             (None, Generation::Two),
             (Some(""), Generation::Two),
         ] {
@@ -173,6 +215,16 @@ mod tests {
             generation_of(crate::assistant::backends::parse_version("1.19.5\n").as_deref()),
             Generation::Classic
         );
+    }
+
+    #[test]
+    fn the_help_says_which_opencode_it_is() {
+        let two = "USAGE\n  opencode run [flags] [<message...>]\nFLAGS\n  --format choice  Output format\n  --archived\nGLOBAL FLAGS\n  --standalone  Run with a private server";
+        let classic = "opencode run [message..]\n\nOptions:\n  --format  format: default (formatted) or json\n  --auto  auto-approve permissions";
+        assert_eq!(generation_of_help(two), Some(Generation::Two));
+        assert_eq!(generation_of_help(classic), Some(Generation::Classic));
+        assert_eq!(generation_of_help("error: unknown command"), None);
+        assert_eq!(generation_of_help(""), None);
     }
 
     #[test]

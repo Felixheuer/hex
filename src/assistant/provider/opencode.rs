@@ -62,11 +62,13 @@ pub(super) fn run(
     while let Some(line) = process.next_line() {
         stream.line(&line, report);
         // A quick turn on the fast model that needs many tools: the strong
-        // model goes on in this session, which already holds every
-        // finished tool's result (OpenCode reports a tool once it ended).
-        if run
-            .escalate_after
-            .is_some_and(|after| stream.error.is_none() && stream.tools >= after)
+        // model goes on in this session. Only between two steps, once the
+        // step's every tool (several may run at once) has its result, so
+        // the session it resumes has no call left open.
+        if stream.between_steps
+            && run
+                .escalate_after
+                .is_some_and(|after| stream.error.is_none() && stream.tools >= after)
         {
             tracing::info!(
                 tools = stream.tools,
@@ -170,6 +172,8 @@ pub(super) struct Stream {
     error: Option<String>,
     /// The tool calls made so far.
     tools: usize,
+    /// The last event ended a step (`step_finish`): no tool runs now.
+    between_steps: bool,
 }
 
 impl Stream {
@@ -184,7 +188,9 @@ impl Stream {
             report(Report::Session(session.to_owned()));
         }
         let part = event.get("part").unwrap_or(&Value::Null);
-        match event.get("type").and_then(Value::as_str) {
+        let kind = event.get("type").and_then(Value::as_str);
+        self.between_steps = kind == Some("step_finish");
+        match kind {
             Some("text") => {
                 let text = part.get("text").and_then(Value::as_str).unwrap_or_default();
                 if text.trim().is_empty() {
@@ -217,6 +223,20 @@ impl Stream {
                             report(item);
                         }
                     }
+                }
+            }
+            // Between two steps: the session's size (what its last request
+            // carried), so a long job starts a fresh session in time
+            // (`agent::rollover`), as on Claude Code.
+            Some("step_finish") => {
+                let tokens = |path: &str| part.pointer(path).and_then(Value::as_u64).unwrap_or(0);
+                let context_tokens = tokens("/tokens/input")
+                    + tokens("/tokens/cache/read")
+                    + tokens("/tokens/cache/write");
+                if context_tokens > 0 {
+                    report(Report::Usage(crate::assistant::agent::rollover::Usage {
+                        context_tokens,
+                    }));
                 }
             }
             Some("error") => {
@@ -443,13 +463,51 @@ mod tests {
     }
 
     #[test]
-    fn tool_calls_are_counted_for_the_hand_over() {
+    fn each_step_reports_the_sessions_size() {
         let mut stream = Stream::default();
+        let mut sizes = Vec::new();
+        for line in include_str!("../../../tests/fixtures/assistant/opencode-desktop.jsonl").lines()
+        {
+            stream.line(line, &mut |report| {
+                if let Report::Usage(usage) = report {
+                    sizes.push(usage.context_tokens);
+                }
+            });
+        }
+        // input + cache read + cache write of each step.
+        assert_eq!(sizes[..3], [10_768, 11_853, 15_991]);
+        // Classic OpenCode's shape (a `total` beside them) counts the same.
+        let mut classic = Vec::new();
+        Stream::default().line(
+            r#"{"type":"step_finish","sessionID":"s","part":{"type":"step-finish","tokens":{"total":11139,"input":9473,"output":2,"reasoning":0,"cache":{"write":0,"read":1664}},"cost":0.0014}}"#,
+            &mut |report| {
+                if let Report::Usage(usage) = report {
+                    classic.push(usage.context_tokens);
+                }
+            },
+        );
+        assert_eq!(classic, [11_137]);
+    }
+
+    #[test]
+    fn tool_calls_are_counted_for_the_hand_over_between_steps() {
+        let mut stream = Stream::default();
+        let mut boundaries = Vec::new();
         for line in include_str!("../../../tests/fixtures/assistant/opencode-desktop.jsonl").lines()
         {
             stream.line(line, &mut |_| {});
+            if stream.between_steps {
+                boundaries.push(stream.tools);
+            }
         }
         assert!(stream.tools > 0);
+        // A hand-over waits for the step's end, never right after a tool.
+        assert!(!boundaries.is_empty());
+        stream.line(
+            r#"{"type":"tool_use","sessionID":"s","part":{"tool":"x","state":{"status":"completed","input":{}}}}"#,
+            &mut |_| {},
+        );
+        assert!(!stream.between_steps);
     }
 
     #[test]

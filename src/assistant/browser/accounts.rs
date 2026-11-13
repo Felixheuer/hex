@@ -136,8 +136,10 @@ pub fn import_from_chrome(profile: &str) -> Result<Vec<String>> {
     if cookies.is_empty() {
         return Err(eyre!("no signed-in cookies came over from Chrome"));
     }
-    let first_without_google = !last_import().is_some_and(|last| last.google_kept_out);
-    let sites = merge_into_sign_in(&cookies, first_without_google)?;
+    // Only an import from before copied Google's sign-in; with no record,
+    // a Google cookie in the state is a sign-in made by hand, and stays.
+    let copied_google = last_import().is_some_and(|last| !last.google_kept_out);
+    let sites = merge_into_sign_in(&cookies, copied_google)?;
     let record = Imported {
         profile: profile.to_owned(),
         at_ms: (now * 1000.0) as u64,
@@ -224,7 +226,11 @@ fn google_host(host: &str) -> bool {
 /// the person's Google session into every task's browser, which signed
 /// them out of Google and YouTube in Chrome. When the last import did, its
 /// Google cookies leave the sign-in state now (sign-ins made by hand in
-/// Agent-Desk's window afterwards stay).
+/// Agent-Desk's window afterwards stay). Every Agent-Desk browser still
+/// running from before closes first: they hold the copies in memory, and
+/// the sign-in window saves its state as it closes. Marked done only once
+/// the state is clean (or there is none), so a failed try comes again on
+/// the next launch.
 pub fn keep_google_out() {
     let Some(mut last) = last_import() else {
         return;
@@ -232,27 +238,41 @@ pub fn keep_google_out() {
     if last.google_kept_out {
         return;
     }
+    if let Some(program) = super::executable()
+        && let Err(error) = super::call(&program, super::SIGN_IN, &["close", "--all"])
+    {
+        tracing::debug!(%error, "no Agent-Desk browser to close before the cleanup");
+    }
     let Some(path) = super::sign_in_state_file() else {
         return;
     };
-    if let Some(mut state) = std::fs::read(&path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-    {
-        let removed = remove_google(&mut state);
-        if removed > 0 {
-            match serde_json::to_vec(&state)
-                .map_err(|error| eyre!("{error}"))
-                .and_then(|bytes| write_private(&path, &bytes))
-            {
-                Ok(()) => tracing::info!(
-                    removed,
-                    "removed copies of the person's Google sign-in from Agent-Desk's browsers"
-                ),
-                Err(error) => {
+    let _state = state_lock();
+    match std::fs::read(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            tracing::warn!(%error, "couldn't read the sign-in state to remove the copied Google sign-in");
+            return;
+        }
+        Ok(bytes) => {
+            let Ok(mut state) = serde_json::from_slice::<Value>(&bytes) else {
+                tracing::warn!(
+                    "the sign-in state isn't readable now; the Google cleanup tries again next time"
+                );
+                return;
+            };
+            let removed = remove_google(&mut state);
+            if removed > 0 {
+                let written = serde_json::to_vec(&state)
+                    .map_err(|error| eyre!("{error}"))
+                    .and_then(|bytes| write_private(&path, &bytes));
+                if let Err(error) = written {
                     tracing::warn!(%error, "couldn't remove the copied Google sign-in");
                     return;
                 }
+                tracing::info!(
+                    removed,
+                    "removed copies of the person's Google sign-in from Agent-Desk's browsers"
+                );
             }
             last.sites = super::sites_in_state(&state);
         }
@@ -263,6 +283,13 @@ pub fn keep_google_out() {
     {
         let _ = std::fs::write(record, bytes);
     }
+}
+
+/// Held while Agent-Desk itself reads, changes and writes the sign-in state
+/// (an import, the cleanup), so neither overwrites the other's change.
+fn state_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|error| error.into_inner())
 }
 
 /// Removes the cookies [`kept_in_chrome`] keeps out from `state`; how many.
@@ -280,12 +307,30 @@ fn remove_google(state: &mut Value) -> usize {
     before - cookies.len()
 }
 
+/// Writes `bytes` to `path` whole or not at all (a copy beside it, private
+/// before it holds anything, then renamed over it), so a browser starting
+/// meanwhile never reads half a state.
 fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
-    std::fs::write(path, bytes)?;
+    use std::io::Write;
+    let name = path
+        .file_name()
+        .ok_or_else(|| eyre!("no file name"))?
+        .to_string_lossy();
+    let partial = path.with_file_name(format!(".{name}.{}.partial", std::process::id()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let written = options
+        .open(&partial)
+        .and_then(|mut file| file.write_all(bytes).and_then(|()| file.sync_all()))
+        .and_then(|()| std::fs::rename(&partial, path));
+    if let Err(error) = written {
+        let _ = std::fs::remove_file(&partial);
+        return Err(error.into());
     }
     Ok(())
 }
@@ -472,6 +517,7 @@ fn merge_into_sign_in(cookies: &[Value], without_google: bool) -> Result<Vec<Str
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
+    let _state = state_lock();
     let mut state = std::fs::read(&path)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
@@ -563,6 +609,25 @@ mod tests {
             .collect();
         assert_eq!(left, ["SOCS", "user_session"]);
         assert_eq!(remove_google(&mut state), 0);
+    }
+
+    #[test]
+    fn the_state_is_written_whole_and_private() {
+        let dir = std::env::temp_dir().join(format!("hex-state-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("hex-sign-in-hex-sign-in.json");
+        std::fs::write(&path, b"old").unwrap();
+        write_private(&path, b"{\"cookies\":[]}").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"{\"cookies\":[]}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        // No partial copy is left beside it.
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
