@@ -32,6 +32,8 @@
 //! OWNER: brain. The signatures here are the contract the Action shortcut,
 //! the HUD, and the Chats pane build against.
 
+mod focus;
+use focus::{focus_in, focus_past, job_named};
 mod context;
 mod inbox;
 mod monitor;
@@ -82,8 +84,6 @@ pub type Subscriber = Box<dyn Fn(&Event) + Send + Sync>;
 
 /// How long a Background task waits for the desktop session to start.
 const SESSION_WAIT: Duration = Duration::from_secs(8);
-/// How long a backend started ahead is kept for its question.
-const PREWARM_FOR_MS: u64 = 60_000;
 /// Retries after a limit that named no reset time, before giving up.
 const BLIND_RETRIES: u32 = 8;
 /// A task's last steps kept for steering.
@@ -131,6 +131,19 @@ pub fn prewarm(lane: Lane) {
             runner().prewarm(lane, window);
         })
         .ok();
+}
+
+/// The words of the Action shortcut's hold so far (the live transcript, as
+/// it streams): what they will likely need starts now, before the release
+/// (the reserved quick conversation's browser when they ask for the web).
+/// Cheap and quiet to call on every change; does nothing outside a hold.
+pub fn speculate(partial: &str) {
+    if partial.trim().is_empty()
+        || super::interaction::listening() != super::interaction::Listening::Hold
+    {
+        return;
+    }
+    runner().speculate(partial);
 }
 
 /// `prewarm` for a window the caller already knows (`hex assistant ask`).
@@ -447,6 +460,8 @@ type Execute = dyn Fn(&Job, &Control, &mut dyn FnMut(Event)) -> Outcome + Send +
 type StyleAgent = dyn Fn(&str, &str, u8, Option<&str>) + Send + Sync;
 type Speak = dyn Fn(&str, Option<&str>) + Send + Sync;
 type Hook<T> = Box<dyn Fn() -> T + Send + Sync>;
+/// Called with a task and its request's words.
+type OnWords = dyn Fn(&str, &str) + Send + Sync;
 type OnTask<R = ()> = Box<dyn Fn(&str) -> R + Send + Sync>;
 type TaskHook = OnTask;
 /// Makes a job's workspace for its title, inside a folder (a helper's, in
@@ -501,6 +516,12 @@ pub(crate) struct Hooks {
     pub interrupted: OnTask<Option<(Origin, String)>>,
     /// Starts a job's backend ahead of its question.
     pub prewarm: Box<dyn Fn(&Job) + Send + Sync>,
+    /// The window in front now (`computer::quick_context`), for a backend
+    /// kept ready after a quick answer (`stand_by`).
+    pub front_window: Hook<Option<TaskWindow>>,
+    /// Starts a task's browser ahead for its request's words
+    /// (`browser::prewarm_for`).
+    pub browser_ahead: Box<OnWords>,
     /// Requests from other Hex processes (`remote`).
     pub requests: Hook<Vec<(String, remote::Verb)>>,
     /// Makes a new job's workspace for its title.
@@ -579,6 +600,8 @@ impl Hooks {
                 Some((stored.conversation.origin, stored.last_question()?))
             }),
             prewarm: Box::new(agent::prewarm),
+            front_window: Box::new(|| super::computer::quick_context().window),
+            browser_ahead: Box::new(super::browser::prewarm_for),
             requests: Box::new(move || {
                 remote::take_new(&mut seen.lock().unwrap_or_else(|error| error.into_inner()))
             }),
@@ -706,6 +729,9 @@ pub(crate) struct State {
     hands_off: Option<ConversationId>,
     /// A backend started ahead, waiting for its request.
     warm: Option<Warm>,
+    /// The reserved conversation whose browser a hold's words already
+    /// started (`speculate`).
+    speculated: Option<ConversationId>,
     /// The conversation the person last spoke to: its question is answered
     /// first (`inbox`).
     last_addressed: Option<ConversationId>,
@@ -733,6 +759,8 @@ struct Warm {
     key: u64,
     window: Option<TaskWindow>,
     at_ms: u64,
+    /// How long it is kept for its request (`agent::ahead_for`).
+    for_ms: u64,
 }
 
 struct Task {
@@ -1000,7 +1028,7 @@ impl Runner {
                 && warm.lane == request.origin.lane()
                 && warm.conversation == request.conversation
                 && warm.window == request.context.window
-                && now.saturating_sub(warm.at_ms) < PREWARM_FOR_MS
+                && now.saturating_sub(warm.at_ms) < warm.for_ms
             {
                 if new_conversation {
                     id = warm.id;
@@ -1419,33 +1447,6 @@ impl Runner {
     }
 }
 
-/// `focus` on `state`: the inbox's active question, a running Here task,
-/// Chats' conversation, or the last Here answer within `follow_up_seconds`.
-fn focus_in(state: &State, follow_up_seconds: u32, now: u64) -> Option<ConversationId> {
-    if let Some(active) = inbox::of(state).active {
-        return Some(active.conversation);
-    }
-    focus_past(state, follow_up_seconds, now)
-}
-
-/// `focus_in` past the inbox: a running Here task, Chats' conversation, or
-/// the last Here answer within `follow_up_seconds`.
-fn focus_past(state: &State, follow_up_seconds: u32, now: u64) -> Option<ConversationId> {
-    if let Some(task) = state
-        .tasks
-        .iter()
-        .find(|task| task.lane() == Lane::Here && !task.control.cancelled())
-    {
-        return Some(task.status.conversation.clone());
-    }
-    // One assistant, one stream: what Chats shows never decides where a
-    // hold goes. The assistant reads the stream (`context::digest`) and
-    // steers a job with `hex_tell_job` when the person means one.
-    let (id, answered) = state.last_quick.as_ref()?;
-    (follow_up_seconds > 0 && now.saturating_sub(*answered) <= u64::from(follow_up_seconds) * 1000)
-        .then(|| id.clone())
-}
-
 /// A step as the cursor's label: at most six words.
 fn cursor_label(step: &str) -> String {
     step.split_whitespace()
@@ -1469,30 +1470,6 @@ fn backoff(attempt: u32) -> u64 {
 
 #[cfg(test)]
 mod tests;
-
-/// The one task among `running` that `to` names: its short id (as the
-/// digest shows it, with or without brackets), else the only title that
-/// contains it.
-fn job_named(to: &str, running: &[TaskStatus]) -> Option<ConversationId> {
-    let to = to.trim().trim_matches(['[', ']']).trim();
-    if to.is_empty() {
-        return None;
-    }
-    if let Some(task) = running
-        .iter()
-        .find(|task| task.conversation.starts_with(to))
-    {
-        return Some(task.conversation.clone());
-    }
-    let lower = to.to_lowercase();
-    let mut titled = running
-        .iter()
-        .filter(|task| task.title.to_lowercase().contains(&lower));
-    match (titled.next(), titled.next()) {
-        (Some(task), None) => Some(task.conversation.clone()),
-        _ => None,
-    }
-}
 
 #[cfg(test)]
 mod tell_job_tests {
