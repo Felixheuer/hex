@@ -294,7 +294,9 @@ impl Runner {
             if paused {
                 (self.hooks.pause)(&conversation, false);
             }
-            (self.hooks.release)(&conversation);
+            // The lane this run ended in, not the conversation's first
+            // origin: an escalated job's browsers close (`browser::close`).
+            (self.hooks.release)(&conversation, lane);
         }
         if !handed_on {
             let (ended, message) = match &outcome {

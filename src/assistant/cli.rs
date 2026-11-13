@@ -270,7 +270,7 @@ pub fn run(command: AssistantCommand) -> u8 {
             super::browser::serve(&task, observe).map(|()| true)
         }
         AssistantCommand::BrowserClose { task } => {
-            super::browser::close(&task);
+            super::browser::close_now(&task);
             Ok(true)
         }
     };

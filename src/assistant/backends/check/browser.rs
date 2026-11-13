@@ -67,7 +67,7 @@ pub fn round_trip(check: Check) -> CheckResult {
     let started = Instant::now();
     let opened = browser::call(&path, &session, &["open", &page.url]);
     let title = opened.and_then(|_| browser::call(&path, &session, &["get", "title"]));
-    browser::close(&page.task);
+    browser::close_now(&page.task);
     match title {
         Ok(data) if data.get("title").and_then(Value::as_str) == Some(page.title.as_str()) => {
             CheckResult::passed(
@@ -124,7 +124,7 @@ pub fn light_round_trip(check: Check) -> CheckResult {
         &[&engine[..], &["open", &page.url]].concat(),
     );
     let title = opened.and_then(|_| browser::call(&path, &session, &["get", "title"]));
-    browser::close(&page.task);
+    browser::close_now(&page.task);
     match title {
         Ok(data) if data.get("title").and_then(Value::as_str) == Some(page.title.as_str()) => {
             CheckResult::passed(
@@ -180,7 +180,7 @@ pub fn through_agent(
         AssistantBackend::ClaudeApi => through_hex(check, &server, &page),
         backend => through(check, backend, settings, &server, &page),
     };
-    browser::close(&page.task);
+    browser::close_now(&page.task);
     result
 }
 
