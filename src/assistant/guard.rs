@@ -404,7 +404,7 @@ pub fn screen_work(tool: &str) -> Option<bool> {
     let name = tool.rsplit("__").next().unwrap_or(tool);
     let kind = policy::kind(name, &serde_json::Map::new());
     match kind {
-        policy::Kind::Observe | policy::Kind::ReadWindow => Some(false),
+        policy::Kind::Observe | policy::Kind::ReadWindow | policy::Kind::WindowShot => Some(false),
         policy::Kind::Claim => Some(true),
         kind if kind.acts() => Some(true),
         _ => None,

@@ -84,6 +84,46 @@ pub fn terminate(pid: i32) -> bool {
     }
 }
 
+/// Minimizes (`true`) or restores (`false`) window `number` of app `pid`
+/// through Accessibility; the Accessibility error code when it can't
+/// (`-25204` cannot complete, `-25205` not implemented, …).
+pub fn set_minimized(pid: i32, number: u32, minimized: bool) -> Result<(), i32> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::set_flag(pid, number, c"AXMinimized", minimized)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (pid, number, minimized);
+        Err(-1)
+    }
+}
+
+/// Moves window `number` of app `pid` so its top-left corner is at
+/// `(x, y)` (global points); works on a minimized window too, which then
+/// comes back there. The Accessibility error code when it can't.
+pub fn set_position(pid: i32, number: u32, (x, y): (f64, f64)) -> Result<(), i32> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::set_position(pid, number, x, y)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (pid, number, x, y);
+        Err(-1)
+    }
+}
+
+/// Asks the app's own accessibility to come on (`AXManualAccessibility`,
+/// which apps built on Chromium and some others wait for before they
+/// answer); harmless for apps that don't know it.
+pub fn wake(pid: i32) {
+    #[cfg(target_os = "macos")]
+    macos::wake(pid);
+    #[cfg(not(target_os = "macos"))]
+    let _ = pid;
+}
+
 #[cfg(target_os = "macos")]
 mod macos {
     use std::ffi::{CStr, c_void};
@@ -124,6 +164,7 @@ mod macos {
         fn CFBooleanGetTypeID() -> usize;
         fn CFBooleanGetValue(value: CfTypeRef) -> u8;
         static kCFBooleanFalse: CfTypeRef;
+        static kCFBooleanTrue: CfTypeRef;
         fn CFStringCreateWithCString(
             allocator: *const c_void,
             string: *const std::ffi::c_char,
@@ -229,6 +270,70 @@ mod macos {
         };
         // SAFETY: a live window element, a CFString key, the shared false.
         unsafe { AXUIElementSetAttributeValue(window.0, key.0, kCFBooleanFalse) == 0 }
+    }
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    unsafe extern "C" {
+        fn AXValueCreate(kind: u32, value: *const c_void) -> CfTypeRef;
+    }
+
+    /// `kAXValueCGPointType`.
+    const POINT: u32 = 1;
+
+    fn window(pid: i32, number: u32) -> Result<Cf, i32> {
+        elements(pid)
+            .into_iter()
+            .find(|(n, _)| *n == number)
+            .map(|(_, window)| window)
+            .ok_or(-25202)
+    }
+
+    pub fn set_flag(pid: i32, number: u32, key: &CStr, on: bool) -> Result<(), i32> {
+        let window = window(pid, number)?;
+        let key = name(key).ok_or(-1)?;
+        // SAFETY: a live window element, a CFString key, a shared boolean.
+        let status = unsafe {
+            AXUIElementSetAttributeValue(
+                window.0,
+                key.0,
+                if on { kCFBooleanTrue } else { kCFBooleanFalse },
+            )
+        };
+        if status == 0 { Ok(()) } else { Err(status) }
+    }
+
+    pub fn set_position(pid: i32, number: u32, x: f64, y: f64) -> Result<(), i32> {
+        let window = window(pid, number)?;
+        let key = name(c"AXPosition").ok_or(-1)?;
+        let point = [x, y];
+        // SAFETY: a CGPoint (two doubles) wrapped in a +1 AXValue.
+        let value = unsafe { AXValueCreate(POINT, point.as_ptr().cast()) };
+        if value.is_null() {
+            return Err(-1);
+        }
+        let value = Cf(value);
+        // SAFETY: live element, key, and value.
+        let status = unsafe { AXUIElementSetAttributeValue(window.0, key.0, value.0) };
+        if status == 0 { Ok(()) } else { Err(status) }
+    }
+
+    pub fn wake(pid: i32) {
+        if pid <= 0 || pid == std::process::id() as i32 {
+            return;
+        }
+        // SAFETY: +1 application element or null.
+        let app = unsafe { AXUIElementCreateApplication(pid) };
+        if app.is_null() {
+            return;
+        }
+        let app = Cf(app);
+        if let Some(key) = name(c"AXManualAccessibility") {
+            // SAFETY: live element and key; the shared true.
+            unsafe {
+                AXUIElementSetMessagingTimeout(app.0, TIMEOUT);
+                AXUIElementSetAttributeValue(app.0, key.0, kCFBooleanTrue);
+            }
+        }
     }
 
     pub fn with_app<T>(pid: i32, body: impl FnOnce(&NSRunningApplication) -> T) -> Option<T> {

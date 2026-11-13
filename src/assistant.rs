@@ -37,6 +37,7 @@ pub mod cli;
 pub mod computer;
 pub mod credentials;
 pub mod guard;
+pub mod input;
 pub mod interaction;
 pub mod knowledge;
 pub mod memory;

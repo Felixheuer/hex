@@ -16,6 +16,7 @@ mod displays;
 mod front;
 mod lookup;
 mod recover;
+mod vision;
 
 pub(super) use desk::DESK_NOTE;
 pub use recover::{Inert, Recoverer, System};
@@ -153,6 +154,8 @@ pub struct Guard<D: Desktop> {
     focus_asked: HashSet<String>,
     /// The window brought forward briefly, if one is.
     borrowed: Option<borrow::Borrowed>,
+    /// Window pictures and element spots for the vision path (`vision`).
+    vision: vision::Vision,
 }
 
 impl<D: Desktop> Guard<D> {
@@ -208,6 +211,7 @@ impl<D: Desktop> Guard<D> {
             failures: HashMap::new(),
             focus_asked: HashSet::new(),
             borrowed: None,
+            vision: vision::Vision::default(),
         }
     }
 
@@ -257,6 +261,8 @@ impl<D: Desktop> Guard<D> {
             tools.push(actions::app_action_tool());
         }
         tools.push(actions::read_window_tool());
+        tools.push(vision::shot_tool());
+        tools.push(vision::input_tool());
         Ok(tools)
     }
 
@@ -361,6 +367,7 @@ impl<D: Desktop> Guard<D> {
 
     fn run(&mut self, tool: &str, args: &mut Map<String, Value>) -> Result<Value, Value> {
         policy::lean_snapshot(tool, args);
+        Self::want_bounds(tool, args);
         let kind = policy::kind(tool, args);
         if let Some(app) = text(args, "app")
             && self.blocked(&app)
@@ -393,6 +400,7 @@ impl<D: Desktop> Guard<D> {
                     | Kind::InstalledApps
                     | Kind::Displays
                     | Kind::ReadWindow
+                    | Kind::WindowShot
             )
         {
             return Err(refusal(
@@ -417,6 +425,8 @@ impl<D: Desktop> Guard<D> {
                 return self.release_tool(args);
             }
             Kind::ReadWindow => return self.read_window(tool, args),
+            Kind::WindowShot => return self.window_shot(tool, args),
+            Kind::WindowInput => return self.window_input(tool, args),
             Kind::Clipboard
                 if self.config.lane == Lane::Background && !self.config.physical_input =>
             {
@@ -525,8 +535,10 @@ impl<D: Desktop> Guard<D> {
         drop(hands);
         let mut result = result?;
         self.learn_and_redact(&mut result);
+        self.learn_frames(&result);
         self.record(&result, &resolved);
         if kind.acts() {
+            result = self.ax_fallback(tool, args, &resolved, result);
             self.count_failure(&resolved, &result);
             if kind == Kind::CloseApp
                 && child::data(&result).is_some()

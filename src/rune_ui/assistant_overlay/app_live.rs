@@ -346,7 +346,14 @@ fn run(preview: &AppPreview) {
         let large = preview.large.load(Ordering::Acquire);
         let edge = if large { LARGE_EDGE } else { CARD_EDGE };
         match scrawl_capture::capture::capture_window(preview.number, edge) {
-            Some((width, height, rgba)) => {
+            Some((width, height, mut rgba)) => {
+                // Where the agent just acted in it, as a ring.
+                crate::assistant::input::pointer::stamp_recent(
+                    preview.number,
+                    &mut rgba,
+                    width,
+                    height,
+                );
                 let first = !preview.has_frame();
                 let (tw, th, thumb) = super::live::fit_width(
                     &rgba,
