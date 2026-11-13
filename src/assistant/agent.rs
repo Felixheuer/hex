@@ -651,6 +651,14 @@ fn run_backend(
                     looking: !acts,
                 });
             }
+            // A script reaching an app macOS hasn't asked about: the step
+            // says the prompt is coming, so the person allows it.
+            if let Some(notice) = crate::desktop::automation::first_use_notice(&input) {
+                emit(Event::Step {
+                    conversation: id.clone(),
+                    description: notice,
+                });
+            }
             crate::assistant::audit::record(
                 id,
                 &crate::assistant::audit::Entry {

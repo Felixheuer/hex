@@ -28,9 +28,12 @@ pub struct Facts {
     pub microphone: bool,
     pub accessibility: bool,
     pub screen_recording: bool,
-    /// Hex may control other apps (Automation for System Events), or macOS
-    /// couldn't tell.
+    /// Hex may control other apps (Automation for System Events and
+    /// Finder), or macOS couldn't tell.
     pub automation: bool,
+    /// macOS asked about Contacts, Reminders, and the Calendar, and the
+    /// person answered each (yes or no: `desktop::data_access`).
+    pub personal_data: bool,
     /// The selected transcription model is on disk.
     pub transcription_model: bool,
     /// The chosen agent is installed.
@@ -66,6 +69,9 @@ pub enum Gap {
     /// Automation for System Events: tasks can't script other apps without
     /// a prompt in the middle of their work.
     Automation,
+    /// Contacts, Reminders, or the Calendar was never asked for: the
+    /// assistant can't look someone up or read the agenda.
+    PersonalData,
     TranscriptionModel,
     /// The chosen agent isn't installed any more.
     Agent,
@@ -102,6 +108,7 @@ impl Gap {
             | Self::Accessibility
             | Self::ScreenRecording
             | Self::Automation
+            | Self::PersonalData
             | Self::AgentDesktop
             | Self::AgentDesktopGrants => Fix::Page("desktop"),
             Self::TranscriptionModel => Fix::Models,
@@ -135,6 +142,9 @@ impl Gap {
             Self::Accessibility => "Hex can't see its shortcut or read text: Accessibility is off",
             Self::ScreenRecording => "Hex can't see the screen: Screen Recording is off",
             Self::Automation => "Hex may not control other apps yet: Automation is off",
+            Self::PersonalData => {
+                "New: let the assistant read your contacts, reminders, and calendar"
+            }
             Self::TranscriptionModel => "The speech model is missing, so Hex can't understand you",
             Self::Agent => "The assistant's agent isn't installed any more",
             Self::AgentSignIn => "The assistant's agent is signed out",
@@ -175,6 +185,9 @@ pub fn setup_gaps(facts: &Facts) -> Vec<Gap> {
     }
     if facts.desktop_wanted && !facts.automation {
         gaps.push(Gap::Automation);
+    }
+    if !facts.personal_data {
+        gaps.push(Gap::PersonalData);
     }
     if facts.desktop_wanted {
         if !facts.agent_desktop_installed {
@@ -251,6 +264,7 @@ mod tests {
             accessibility: true,
             screen_recording: true,
             automation: true,
+            personal_data: true,
             transcription_model: true,
             agent_installed: true,
             agent_ready: true,
@@ -415,5 +429,19 @@ mod tests {
             ..whole()
         };
         assert!(setup_gaps(&facts).is_empty());
+    }
+
+    #[test]
+    fn data_never_asked_for_brings_back_the_permissions_page() {
+        // After an update that added the asks, someone set up before sees
+        // the permissions page once; answered either way, never again.
+        let facts = Facts {
+            personal_data: false,
+            ..whole()
+        };
+        assert_eq!(setup_gaps(&facts), [Gap::PersonalData]);
+        assert_eq!(Gap::PersonalData.fix(), Fix::Page("desktop"));
+        assert!(!Gap::PersonalData.essential());
+        assert_eq!(pages_for(&setup_gaps(&facts), ORDER), ["desktop"]);
     }
 }
