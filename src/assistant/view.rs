@@ -262,6 +262,7 @@ impl Stream {
                 }),
             ),
             Event::ConversationsChanged => false,
+            Event::Understood { .. } => false,
         }
     }
 
