@@ -526,6 +526,7 @@ fn follow(id: &str, events: &mpsc::Receiver<Event>, speak: bool) -> bool {
             Event::Failed { message, .. } => println!("[failed] {message}"),
             Event::Cancelled { .. } => println!("[cancelled]"),
             Event::ConversationsChanged => println!("[saved]"),
+            Event::Understood { text, .. } => println!("[understood] {text}"),
             Event::QuestionsChanged { active, waiting } => match active {
                 Some(asked) => println!(
                     "[questions] {}: {} (+{waiting})",

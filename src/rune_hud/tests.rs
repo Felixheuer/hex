@@ -68,6 +68,28 @@ fn a_question_tints_the_hud_and_a_dictation_never_does() {
     assert_eq!(model.step(start, 1.0 / 60.0, false).pose.ask, 0.0);
 }
 
+/// A capture that asks the assistant is the island: a black plate in
+/// light mode too, never a white capsule beside the black notch; a
+/// dictation keeps the appearance's plate.
+#[test]
+fn a_question_s_hud_is_black_in_both_appearances() {
+    let start = Instant::now();
+    let mut model = IndicatorModel::new(Tuning::default(), start);
+    model.handle(HudEvent::Started, start, false);
+    let dictation = model.step(start, 1.0 / 60.0, false);
+    model.handle(HudEvent::Asking { agent: false }, start, false);
+    let asking = model.step(start, 1.0 / 60.0, false);
+    let layout = Layout::default();
+    for dark in [false, true] {
+        let target = Target::whole((640, 256), 2.0, dark);
+        let island = DotUniforms::new(&asking, layout, target);
+        assert_eq!(island.plate, [0.0, 0.0, 0.0, 0.96], "dark: {dark}");
+        assert_eq!(island.dark, 1.0, "lit for black: {dark}");
+        let plain = DotUniforms::new(&dictation, layout, target);
+        assert_eq!(plain.dark, if dark { 1.0 } else { 0.0 });
+    }
+}
+
 /// The macOS HUD's window, which the captures use on every OS so they line
 /// up with the Metal reference frames.
 const CAPTURE_DOT_WINDOW: (f32, f32) = (320.0, 128.0);

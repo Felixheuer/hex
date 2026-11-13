@@ -322,6 +322,14 @@ pub enum Event {
     },
     /// The stored list changed (a new, renamed, or deleted conversation).
     ConversationsChanged,
+    /// What the agent understood the request as, in one line the person
+    /// reads before it acts (`docs/ux/redesign.md` §2): the request restated
+    /// with its resolved details (who, what, when), at most 80 characters,
+    /// in the request's language. The island's first reasoning line.
+    Understood {
+        conversation: ConversationId,
+        text: String,
+    },
     /// The guard brought one of the task's windows in front of the person
     /// for a moment (an app that refused background work): the desk frame
     /// and its tab ("Agent-Desk is using Numbers for a moment · why · Esc ·
@@ -364,6 +372,7 @@ impl Event {
             | Self::Plan { conversation, .. }
             | Self::Question { conversation, .. }
             | Self::Escalated { conversation }
+            | Self::Understood { conversation, .. }
             | Self::Borrowed { conversation, .. }
             | Self::Returned { conversation, .. } => Some(conversation),
             Self::ConversationsChanged | Self::QuestionsChanged { .. } => None,

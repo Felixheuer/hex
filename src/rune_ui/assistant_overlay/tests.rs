@@ -83,6 +83,8 @@ fn bubble_state(bubble: Option<super::board::Bubble>) -> BubbleOverlay {
         speaking: false,
         setup: None,
         answer_key: fixture::ANSWER_KEY.into(),
+        held: None,
+        front: None,
         level: None,
         actions: bubble::Actions {
             dismiss: |_| {},
@@ -334,9 +336,11 @@ fn the_bubble_shows_each_stage_of_a_here_question() {
     assert!(rect(&answered, "open-chats").is_some());
     assert!(rect(&answered, "voice").is_none(), "silent");
     let [_, card_y, _, _] = rect(&answered, "card").unwrap();
+    let [_, island_y, _, island_h] = rect(&answered, "island").expect("the island's line");
     assert!(
-        (card_y - bubble::INSET).abs() < 0.5,
-        "hangs from the top, under the HUD: {card_y}"
+        (island_y - bubble::INSET).abs() < 0.5
+            && (card_y - (island_y + island_h + bubble::ISLAND_GAP)).abs() < 0.5,
+        "hangs from the top, under the island: {island_y} {card_y}"
     );
 
     let speaking = runtime(

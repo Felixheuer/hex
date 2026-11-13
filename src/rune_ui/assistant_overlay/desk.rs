@@ -15,13 +15,15 @@ use super::board::{Board, Bubble, Due};
 use super::hint::Hint;
 use super::listening::{self, Listening};
 use super::outline::{self, Outline};
-use super::{bubble, fixture, frame, hands, hint, orb, place};
+use super::quick::Held;
+use super::{bubble, fixture, frame, hands, hint, island, orb, place};
 use crate::assistant::Event;
 
 /// The pretend desktop's size, in points.
 pub(crate) const SIZE: (f32, f32) = (1280.0, 800.0);
 const MENU_BAR: f32 = 24.0;
-const HUD: (f32, f32) = (132.0, 34.0);
+/// The pretend notch, idle: the menu bar's height.
+const NOTCH: (f32, f32) = (180.0, MENU_BAR);
 
 /// What the pretend desktop shows.
 pub(crate) struct Desk {
@@ -32,6 +34,9 @@ pub(crate) struct Desk {
     pub(crate) breathe: bool,
     /// What the HUD says past itself while the Action shortcut is held.
     pub(crate) hint: Option<Hint>,
+    /// The Action shortcut held for a quick turn: the island listens and
+    /// the card under it shows the live words.
+    pub(crate) held: Option<Held>,
     /// The orb's list is unfolded.
     pub(crate) expanded: bool,
     /// The Here answer is read aloud.
@@ -56,6 +61,7 @@ impl Desk {
             frame: false,
             breathe: true,
             hint: None,
+            held: None,
             expanded: false,
             speaking: false,
             setup: false,
@@ -269,18 +275,31 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
                 .child(outline::drawn(p, &shown, 0.0, 0.0)),
         );
     }
-    // The stand-in HUD, centred under the menu bar.
-    let hud_x = (SIZE.0 - HUD.0) / 2.0;
-    let hud_y = MENU_BAR + 8.0;
-    root = root.child(
-        el().key("hud")
-            .absolute(hud_x, hud_y)
-            .size(HUD.0, HUD.1)
-            .radius(HUD.1 / 2.0)
-            .fill(c.bg_inverse)
-            .a11y_hidden(),
+    // The island: the notch grown down with the conversation's one line,
+    // black in both appearances (`island`); the notch alone when idle.
+    let line = island::line(
+        desk.held.as_ref(),
+        desk.bubble.as_ref().filter(|_| !desk.setup),
     );
-    let mut past = hud_y + HUD.1 + 4.0;
+    // Drawn last, over the frame's glow: it is the notch, the topmost thing.
+    let (island_el, island_bottom) = match &line {
+        Some(line) => {
+            let width = island::width(line);
+            (
+                el().key("hud")
+                    .absolute((SIZE.0 - width) / 2.0, 0.0)
+                    .child(island::capsule(p, line, width, MENU_BAR)),
+                MENU_BAR + island::HEIGHT,
+            )
+        }
+        None => (
+            el().key("hud")
+                .absolute((SIZE.0 - NOTCH.0) / 2.0, 0.0)
+                .child(island::notch(NOTCH)),
+            NOTCH.1,
+        ),
+    };
+    let mut past = island_bottom + 8.0;
     if desk.board.hands_off().is_some() {
         let (w, h) = hands::SIZE;
         root = root.child(
@@ -300,6 +319,15 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
                 .size(w, h)
                 .center()
                 .child(listening::drawn(p, state, still)),
+        );
+    } else if let Some(held) = &desk.held {
+        let (w, _) = bubble::SIZE;
+        root = root.child(
+            el().key("bubble")
+                .absolute((SIZE.0 - w) / 2.0, past)
+                .w(w)
+                .padding(bubble::INSET)
+                .child(island::held_card(p, held, fixture::ANSWER_KEY)),
         );
     } else if let Some(shown) = &desk.hint {
         let (w, h) = hint::SIZE;
@@ -339,7 +367,7 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
         };
         root = root.child(
             el().key("bubble")
-                .absolute((SIZE.0 - w) / 2.0, past + 2.0)
+                .absolute((SIZE.0 - w) / 2.0, past)
                 .w(w)
                 .padding(bubble::INSET)
                 .child(card),
@@ -382,6 +410,7 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
                 .child(frame::glow(p.k.dark)),
         );
     }
+    root = root.child(island_el);
     if !desk.note.is_empty() {
         root = root.child(
             text(desk.note.clone())

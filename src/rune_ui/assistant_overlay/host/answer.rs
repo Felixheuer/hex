@@ -92,7 +92,7 @@ fn say_failure(bubble: &Bubble) {
     crate::assistant::speech::speak(line, voice.as_deref());
 }
 
-fn show_bubble(state: &mut BubbleOverlay, handle: &OverlayHandle<BubbleOverlay>) {
+pub(super) fn show_bubble(state: &mut BubbleOverlay, handle: &OverlayHandle<BubbleOverlay>) {
     state.below = place_bubble(handle);
     handle.fade_in(FADE);
     state.shown = true;
@@ -156,6 +156,10 @@ fn settle_bubble(state: &mut BubbleOverlay, tx: &mut Tx, now: Instant) -> bool {
         // Follow the voice: about 30 times a second while it's measured.
         tx.wake_after(VOICE_TICK);
     }
+    // The reasoning folds to Now and Next once the turn has worked a while.
+    let voice_changed = super::island::fold(state, tx, now) || voice_changed;
+    // "Back to you" goes on time; the island's moment keeps the panel up.
+    let voice_changed = super::island::settle_front(state, tx, now) || voice_changed;
     let Some(bubble) = state.bubble.as_mut() else {
         return voice_changed;
     };
@@ -172,7 +176,7 @@ fn settle_bubble(state: &mut BubbleOverlay, tx: &mut Tx, now: Instant) -> bool {
     }
 }
 
-fn hide_bubble(state: &mut BubbleOverlay) {
+pub(super) fn hide_bubble(state: &mut BubbleOverlay) {
     if !state.shown {
         return;
     }

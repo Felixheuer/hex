@@ -85,6 +85,8 @@ pub(super) struct Asker {
     stop_held: Option<u16>,
     /// Conversation mode and barge-in.
     talk: super::talk::Talk,
+    /// While a hold records: its live words go to the island's card.
+    live_words: Option<crate::rune_ui::live_text::IslandWords>,
 }
 
 impl Asker {
@@ -151,7 +153,13 @@ impl Asker {
                     background,
                     crate::assistant::shortcut::desktop_read,
                 ));
+                // Asked before the capture starts, so it streams its words
+                // for the island's card from the first one.
+                self.live_words = Some(crate::rune_ui::live_text::island_words());
                 let accepted = handle(action, context, events)?;
+                if !accepted {
+                    self.live_words = None;
+                }
                 // Questions and finished jobs wait to be read aloud while
                 // the person speaks.
                 crate::assistant::interaction::hold_listening(accepted);
@@ -187,7 +195,7 @@ impl Asker {
                         }
                     },
                 );
-                finish_question(
+                let finished = finish_question(
                     at,
                     input,
                     worker,
@@ -197,13 +205,17 @@ impl Asker {
                     events,
                     indicator,
                     release_while_idle,
-                )?;
+                );
+                // The capture has ended: Live text has its plate back.
+                self.live_words = None;
+                finished?;
                 Ok(true)
             }
             // The second tap's capture ends unheard, as a short tap's does,
             // and the task list shows or hides.
             HotkeyAction::DoubleTap => {
                 self.question = None;
+                self.live_words = None;
                 crate::assistant::interaction::hold_listening(false);
                 handle(action, context, events)?;
                 toggle_tasks();
@@ -214,6 +226,7 @@ impl Asker {
                 // Discarded (a ⌘C chord, a short tap) or cancelled: the
                 // hold ends here, or the listening state would stay on.
                 self.question = None;
+                self.live_words = None;
                 crate::assistant::interaction::hold_listening(false);
                 handle(action, context, events)
             }

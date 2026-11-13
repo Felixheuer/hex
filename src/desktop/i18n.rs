@@ -14,6 +14,7 @@ mod assistant_overlay;
 mod failures;
 mod frames;
 mod french;
+mod island;
 mod meetings;
 mod onboarding;
 mod portuguese;
@@ -372,6 +373,7 @@ pub(super) fn all_translations() -> impl Iterator<Item = &'static (&'static str,
         .chain(assistant::TRANSLATIONS)
         .chain(assistant_overlay::TRANSLATIONS)
         .chain(stage::TRANSLATIONS)
+        .chain(island::TRANSLATIONS)
         .chain(frames::TRANSLATIONS)
         .chain(window::TRANSLATIONS)
 }
@@ -1769,6 +1771,7 @@ mod tests {
         include_str!("../rune_hud.rs"),
         include_str!("../rune_ui/assistant_overlay/bubble.rs"),
         include_str!("../rune_ui/assistant_overlay/hint.rs"),
+        include_str!("../rune_ui/assistant_overlay/island.rs"),
         include_str!("../rune_ui/assistant_overlay/stack.rs"),
         include_str!("../rune_ui/assistant_overlay/orb.rs"),
         include_str!("../rune_ui/assistant_overlay/outline.rs"),

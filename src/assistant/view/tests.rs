@@ -449,7 +449,11 @@ fn listed_tasks_are_adopted_with_their_states() {
     ]);
     assert_eq!(stream.tasks[0].phase, Phase::Paused);
     assert_eq!(stream.tasks[1].phase, Phase::Waiting { until_ms: 5 });
-    assert_eq!(stream.tasks[0].colour, 9 % crate::assistant::view::COLOURS, "wraps");
+    assert_eq!(
+        stream.tasks[0].colour,
+        9 % crate::assistant::view::COLOURS,
+        "wraps"
+    );
     assert_eq!(stream.tasks[0].steps, ["Opened Mail"]);
     assert_eq!(stream.tasks[0].activity, Activity::Working);
     stream.apply(
@@ -514,4 +518,33 @@ fn a_task_keeps_its_last_three_steps_its_log_and_knows_where_it_works() {
         t0,
     );
     assert_eq!(stream.tasks[1].place(), Place::Desktop);
+}
+
+#[test]
+fn the_understood_line_is_kept_until_a_follow_up_starts_afresh() {
+    let t0 = Instant::now();
+    let mut stream = Stream::default();
+    stream.apply(
+        &started(1, Origin::ActionShortcut, "Book Nopa for two at eight"),
+        None,
+        t0,
+    );
+    assert!(stream.apply(
+        &Event::Understood {
+            conversation: id(1),
+            text: " Nopa, 2 people, tonight around 8 pm ".into(),
+        },
+        None,
+        t0,
+    ));
+    assert_eq!(
+        stream.tasks[0].understood.as_deref(),
+        Some("Nopa, 2 people, tonight around 8 pm")
+    );
+    stream.apply(
+        &started(1, Origin::ActionShortcut, "Make it 8:15"),
+        None,
+        t0,
+    );
+    assert_eq!(stream.tasks[0].understood, None);
 }

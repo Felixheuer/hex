@@ -9,10 +9,12 @@
 //! front, and nothing should pulse at the person meanwhile.
 //!
 //! It always comes with its **tab**, a black capsule hanging under the
-//! island on the display it's about: "Agent-Desk is using Numbers for a
-//! moment", then why, "Esc to stop", and the countdown from the borrow's
-//! budget ("back in 2 s"). When the front goes back, the glow goes and the
-//! tab says "Back to you · Mail" for a moment ([`Tab::Back`]).
+//! island on the display it's about. For a borrow the island itself says
+//! "Agent-Desk is using Numbers for a moment" and, after, "Back to you ·
+//! Mail" (`island::line_with`); the tab defers to it and says why, "Esc to
+//! stop", and the countdown from the borrow's budget ("back in 2 s"). For
+//! real input ("Hands off") the tab says it all. [`Tab::Back`] is the
+//! island's alone (the host shows no frame for it).
 //!
 //! Where two displays touch, the glow moves off the shared stretch so the
 //! frame runs on around the whole desk instead of doubling at the seam;
@@ -229,8 +231,11 @@ pub(crate) fn drawn(p: Paint, frame: &Frame) -> El {
 /// The tab: a black capsule (the island's black, in both appearances)
 /// with the agent's hand, who has what, and how to stop it.
 pub(crate) fn tab_view(p: Paint, tab: &Tab, left: Option<u64>) -> El {
-    let line = tab.line();
-    let detail = tab.detail(left);
+    // A borrow's first line is the island's: the tab says the rest.
+    let (line, detail) = match (tab, tab.detail(left)) {
+        (Tab::InFront { .. }, Some(detail)) => (detail, None),
+        (_, detail) => (tab.line(), detail),
+    };
     // On black: the agent's lighter hue, white words.
     let hue = palette::agent(true);
     let glyph = if tab.in_front() {

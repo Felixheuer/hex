@@ -310,9 +310,14 @@ pub(super) fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
     // The desk frame shows only while the agent has the person's controls
     // (`Board::frame_until`), with its tab; background work shows its
     // card and its minis' rings, not a frame.
+    // The front's moment ("using Numbers for a moment", "Back to you") is
+    // the island's line; the frame keeps its tab for why, Esc, and the
+    // countdown while the agent has the front, and shows nothing after.
+    let tab = super::super::frame::Tab::of(&orb.board, now);
+    super::island::front(tab.clone());
     watcher::set_frame(
         orb.board.frame_until(now),
-        super::super::frame::Tab::of(&orb.board, now),
+        tab.filter(super::super::frame::Tab::in_front),
     );
     watcher::escape_stops(orb.board.borrowing().map(|task| task.id.clone()));
     watcher::publish(outlined, live);

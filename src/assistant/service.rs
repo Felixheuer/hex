@@ -484,6 +484,9 @@ struct Task {
     new_conversation: bool,
     /// Its answer is read aloud as it streams.
     speak: bool,
+    /// Its answer started streaming: the thinking line isn't said
+    /// (`voice::THINKING_LINE_AFTER`).
+    heard: bool,
     /// Its last few steps, for steering.
     steps: VecDeque<String>,
     /// When it times out (runner clock), while running.
@@ -572,8 +575,10 @@ impl Runner {
                 }
             }
             Event::AnswerDelta { conversation, text } => {
-                let speak = running_task(&mut self.state(), conversation)
-                    .is_some_and(|task| task.speak && !task.control.cancelled());
+                let speak = running_task(&mut self.state(), conversation).is_some_and(|task| {
+                    task.heard = true;
+                    task.speak && !task.control.cancelled()
+                });
                 if speak {
                     self.voice.feed(self, conversation, text);
                 }
@@ -860,6 +865,7 @@ impl Runner {
             kind,
             new_conversation,
             speak: false,
+            heard: false,
             voice,
             steps: VecDeque::new(),
             deadline_ms: None,

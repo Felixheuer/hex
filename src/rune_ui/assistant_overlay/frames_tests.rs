@@ -136,11 +136,11 @@ fn a_borrow_shows_the_frame_and_its_tab_until_returned() {
         "centred under the island"
     );
     assert!(y >= frame::TAB_TOP - 0.5);
-    assert_eq!(
-        text_of(&rt, "frame-tab-line").as_deref(),
-        Some("Agent-Desk is using Numbers for a moment")
-    );
-    let detail = text_of(&rt, "frame-tab-detail").unwrap();
+    // "Agent-Desk is using Numbers for a moment" is the island's line
+    // (`island::line_with`); the tab defers to it and says the rest.
+    assert_eq!(tab.line(), "Agent-Desk is using Numbers for a moment");
+    assert!(text_of(&rt, "frame-tab-detail").is_none(), "one line");
+    let detail = text_of(&rt, "frame-tab-line").unwrap();
     assert!(
         detail.contains("didn't respond in the background"),
         "{detail}"

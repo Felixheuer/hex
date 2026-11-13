@@ -11,12 +11,44 @@
 //!   consequential action (`NEEDS_CONFIRMATION`) and the person's yes allows
 //!   that kind of action for the task (`autonomy`).
 //!
+//! - `HEX_UNDERSTOOD: <line>` before everything else in a quick turn's
+//!   reply: what the agent understood the request as, which the island
+//!   shows as its first reasoning line (`Event::Understood`) before the
+//!   agent acts. It is never part of the answer ([`strip_understood`]).
+//!
 //! They work the same on every backend (no tool needed), and `Gate` keeps
 //! them out of the streamed answer.
 
 const JOB: &str = "HEX_JOB:";
 const QUESTION: &str = "HEX_QUESTION:";
 const CONFIRM: &str = "HEX_CONFIRM:";
+const UNDERSTOOD: &str = "HEX_UNDERSTOOD:";
+
+/// The longest understood line shown, in characters.
+pub const UNDERSTOOD_CHARS: usize = 80;
+
+/// The person's own quick turn's rule for the understood line (system
+/// prompt).
+pub const UNDERSTOOD_RULE: &str = "First line of every reply, before any tool call: `HEX_UNDERSTOOD: <the request restated with its resolved details (who, what, when), at most 80 characters, in the person's language>`, e.g. `HEX_UNDERSTOOD: Nopa, 2 people, tonight around 8 pm`. It is shown while you work and removed from your answer.\n";
+
+/// `text` without its understood lines: the answer itself.
+pub fn strip_understood(text: &str) -> String {
+    if !text.contains(UNDERSTOOD) {
+        return text.to_owned();
+    }
+    text.lines()
+        .filter(|line| !line.trim_start().starts_with(UNDERSTOOD))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim_start()
+        .to_owned()
+}
+
+/// An understood line's words, trimmed and cut to [`UNDERSTOOD_CHARS`].
+fn understood_words(line: &str) -> Option<String> {
+    let line = line.trim().trim_matches(['“', '”', '"']).trim();
+    (!line.is_empty()).then(|| crate::assistant::store::shorten(line, UNDERSTOOD_CHARS))
+}
 
 /// What a reply asks of Agent-Desk.
 #[derive(Clone, Debug, PartialEq)]
@@ -96,6 +128,8 @@ pub struct Gate {
     marker: bool,
     /// The current piece isn't a marker: let it through.
     open: bool,
+    /// An understood line read from the stream, not yet taken.
+    understood: Option<String>,
 }
 
 impl Gate {
@@ -103,6 +137,12 @@ impl Gate {
     /// paragraph break starts a new piece (text after a tool call).
     pub fn pass(&mut self, delta: &str) -> Option<String> {
         if delta == "\n\n" {
+            // An understood line the piece ended on, without its newline.
+            if let Some(line) = self.held.trim_start().strip_prefix(UNDERSTOOD)
+                && let Some(words) = understood_words(line)
+            {
+                self.understood = Some(words);
+            }
             self.held.clear();
             self.marker = false;
             self.open = false;
@@ -115,19 +155,38 @@ impl Gate {
             return Some(delta.to_owned());
         }
         self.held.push_str(delta);
-        let start = self.held.trim_start();
-        if start.starts_with(JOB) || start.starts_with(QUESTION) || start.starts_with(CONFIRM) {
-            self.marker = true;
-            self.held.clear();
-            return None;
+        loop {
+            let start = self.held.trim_start();
+            // The understood line: read once it is whole, then the rest of
+            // the piece goes on as if it had started there.
+            if let Some(rest) = start.strip_prefix(UNDERSTOOD) {
+                let (line, after) = rest.split_once('\n')?;
+                if let Some(words) = understood_words(line) {
+                    self.understood = Some(words);
+                }
+                self.held = after.to_owned();
+                continue;
+            }
+            if start.starts_with(JOB) || start.starts_with(QUESTION) || start.starts_with(CONFIRM) {
+                self.marker = true;
+                self.held.clear();
+                return None;
+            }
+            let could_be = JOB.starts_with(start)
+                || QUESTION.starts_with(start)
+                || CONFIRM.starts_with(start)
+                || UNDERSTOOD.starts_with(start);
+            if could_be {
+                return None;
+            }
+            self.open = true;
+            return Some(std::mem::take(&mut self.held));
         }
-        let could_be =
-            JOB.starts_with(start) || QUESTION.starts_with(start) || CONFIRM.starts_with(start);
-        if could_be {
-            return None;
-        }
-        self.open = true;
-        Some(std::mem::take(&mut self.held))
+    }
+
+    /// The understood line the stream gave since last asked, once.
+    pub fn take_understood(&mut self) -> Option<String> {
+        self.understood.take()
     }
 }
 
@@ -176,6 +235,55 @@ mod tests {
         );
         assert_eq!(parse("It's 18:00 in Tokyo."), None);
         assert_eq!(parse("HEX_QUESTION:  "), None);
+    }
+
+    #[test]
+    fn the_understood_line_is_read_from_the_stream_and_kept_out_of_the_answer() {
+        let mut gate = Gate::default();
+        let mut shown = String::new();
+        let mut understood = Vec::new();
+        for delta in [
+            "HEX_UNDER",
+            "STOOD: Nopa, 2 people,",
+            " tonight 8 pm\nBooked",
+            " it.",
+        ] {
+            shown.extend(gate.pass(delta));
+            understood.extend(gate.take_understood());
+        }
+        assert_eq!(understood, ["Nopa, 2 people, tonight 8 pm"]);
+        assert_eq!(shown, "Booked it.");
+        // A marker on the next line is still one.
+        let mut gate = Gate::default();
+        let shown: Vec<_> = ["HEX_UNDERSTOOD: research\nHEX_JOB: Research\nOn it."]
+            .iter()
+            .filter_map(|delta| gate.pass(delta))
+            .collect();
+        assert!(shown.is_empty(), "{shown:?}");
+        assert_eq!(gate.take_understood().as_deref(), Some("research"));
+        // A line alone before a tool call: read at the piece's end.
+        let mut gate = Gate::default();
+        assert_eq!(gate.pass("HEX_UNDERSTOOD: the weather in Berlin"), None);
+        assert_eq!(gate.pass("\n\n").as_deref(), Some("\n\n"));
+        assert_eq!(
+            gate.take_understood().as_deref(),
+            Some("the weather in Berlin")
+        );
+        assert_eq!(gate.take_understood(), None, "once");
+        // Long lines are cut.
+        let mut gate = Gate::default();
+        gate.pass(&format!("HEX_UNDERSTOOD: {}\n", "word ".repeat(40)));
+        assert!(gate.take_understood().unwrap().chars().count() <= UNDERSTOOD_CHARS);
+        // The final text loses it, so its markers still parse.
+        assert_eq!(
+            strip_understood("HEX_UNDERSTOOD: research\nHEX_JOB: Research\nOn it."),
+            "HEX_JOB: Research\nOn it."
+        );
+        assert_eq!(
+            parse(&strip_understood("HEX_UNDERSTOOD: who\nHEX_QUESTION: Who?")),
+            Some(Marker::Question("Who?".into()))
+        );
+        assert_eq!(strip_understood("Plain answer."), "Plain answer.");
     }
 
     #[test]

@@ -16,6 +16,12 @@ use super::{
     Request, Runner, TaskState, TaskStatus, backoff, context,
 };
 
+/// How often a quick turn's thinking line looks whether it is due.
+const THINKING_POLL: Duration = Duration::from_millis(250);
+/// Past this, a turn still silent says nothing more: whatever kept the
+/// line back (another reading, the person talking) took the moment.
+const THINKING_LINE_UNTIL: Duration = Duration::from_secs(8);
+
 impl Runner {
     pub(super) fn run_task(self: &Arc<Self>, key: u64) {
         let (_, settings) = (self.hooks.settings)();
@@ -52,6 +58,10 @@ impl Runner {
             origin: request.origin,
             question: request.text.clone(),
         });
+        // Asked by voice and still silent after a moment: one short line.
+        if lane == Lane::Here && voice && settings.speak_answers {
+            self.say_thinking_line(key, &conversation, &request.text);
+        }
         // A helper works in a folder inside its lead's (`agent::team`).
         let parent = self
             .state()
@@ -399,6 +409,53 @@ impl Runner {
         }
         self.refresh_mode();
         self.pump();
+    }
+
+    /// Says the thinking line (`voice::thinking_line`) for the quick turn
+    /// `key` once it has been silent for `voice::THINKING_LINE_AFTER`, on a
+    /// thread of its own: never once a word of its answer streamed, it
+    /// asked, ended, or was stopped, nor over anything read or said; given
+    /// up after [`THINKING_LINE_UNTIL`].
+    fn say_thinking_line(self: &Arc<Self>, key: u64, conversation: &str, said: &str) {
+        let runner = Arc::clone(self);
+        let reading = format!("thinking:{conversation}");
+        let said = said.to_owned();
+        let since = self.now();
+        let watch = move || {
+            loop {
+                (runner.hooks.sleep)(THINKING_POLL);
+                let heard = {
+                    let state = runner.state();
+                    match state.tasks.iter().find(|task| task.key == key) {
+                        Some(task)
+                            if !task.control.cancelled()
+                                && task.status.state == TaskState::Running =>
+                        {
+                            task.heard
+                        }
+                        _ => return,
+                    }
+                };
+                let now = runner.now();
+                if heard || now.saturating_sub(since) > THINKING_LINE_UNTIL.as_millis() as u64 {
+                    return;
+                }
+                let busy = runner.voice.reading()
+                    || (runner.hooks.speaking)()
+                    || (runner.hooks.person_talks)();
+                if super::voice::thinking_line_due(since, now, heard, busy) {
+                    // Its own reading: the answer's first words replace it
+                    // if they come before it was handed to the voice.
+                    runner
+                        .voice
+                        .finish(&runner, &reading, super::voice::thinking_line(&said));
+                    return;
+                }
+            }
+        };
+        let _ = std::thread::Builder::new()
+            .name("assistant-thinking-line".into())
+            .spawn(watch);
     }
 
     /// Continues `request` (a Here or Chat request that turned out to be a

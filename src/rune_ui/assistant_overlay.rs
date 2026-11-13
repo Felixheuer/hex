@@ -18,6 +18,13 @@
 //!   Try again, recalled from the orb for a while ([`results`]); a plan
 //!   rings its dot with progress; an escalated Here question flies in as a
 //!   new dot. Nothing needs the window.
+//! - The agents' cursors ([`cursor`]): a soft arrow per task colour, for
+//!   agent-desktop's `--image`. The colours themselves are
+//!   `assistant::palette`, shared with the brain.
+//! - The island ([`island`]): the conversation's black capsule, one line of
+//!   state (Listening, Understood, the step now, Needs you, ✓, ✗), with the
+//!   live words under it while the Action shortcut is held and the
+//!   reasoning lines (Understood, Plan, Now, Next) while it thinks.
 //! - The Here question's bubble ([`bubble`]) just past the dictation HUD,
 //!   growing out of it and pulsing while the answer is read aloud; the
 //!   "Finish setting up" bubble in its place before setup.
@@ -49,6 +56,7 @@ mod frames_tests;
 mod hands;
 mod hint;
 mod host;
+mod island;
 mod jobs;
 mod listening;
 pub(crate) mod live;
