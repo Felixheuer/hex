@@ -53,6 +53,7 @@ mod listening;
 pub(crate) mod live;
 pub(crate) mod live_card;
 mod markdown;
+mod minis;
 #[cfg(test)]
 mod multi;
 mod orb;

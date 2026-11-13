@@ -1,0 +1,248 @@
+//! Background first, as Codex works: a task acts in its windows where they
+//! are (parked off the screen, or behind the person's), never bringing one
+//! forward just to act. Only when an app ignores background actions (one
+//! failed, and failed again on the retry), or keys must go to it, does
+//! `desktop_focus_window` bring the window forward, briefly: a parked
+//! window comes on the screen, the next few steps run in it while the
+//! frame shows, and then the guard gives the front back to the person's
+//! app and parks the window again, by itself.
+//!
+//! A focus asked before any background action failed in that window is
+//! refused once with how to work without it; asked again, it goes ahead.
+
+use std::time::{Duration, Instant};
+
+use serde_json::{Map, Value};
+
+use super::super::child::{Desktop, Window};
+use super::{Guard, Resolved, refusal};
+
+/// How long a borrowed front lasts at most.
+const BORROW_FOR: Duration = Duration::from_secs(20);
+/// Acting steps in the borrowed window before the front goes back.
+const BORROW_STEPS: u32 = 4;
+/// Failed background actions in a window after which focusing is offered.
+pub(super) const FAILS_BEFORE_FOCUS: u32 = 2;
+
+/// The window brought forward, and what to put back.
+pub(super) struct Borrowed {
+    /// The person's app in front before (pid).
+    before: Option<i32>,
+    window: Window,
+    /// It hung off the screen (parked) before: parked again after.
+    parked: bool,
+    at: Instant,
+    steps: u32,
+}
+
+/// What a refused first focus says.
+pub(super) const BACKGROUND_FIRST: &str = "Background first: act in the window where it is (click, type, set_value, select, scroll \
+     by ref work in a parked or covered window) instead of bringing it in front of the person. \
+     If this app ignored a background action and its retry, or keys (desktop_press) must reach \
+     it, call desktop_focus_window again: Hex then brings it forward briefly and gives the \
+     person's window back right after your next steps.";
+
+impl<D: Desktop> Guard<D> {
+    /// `desktop_focus_window` on a window this task may use (checked).
+    pub(super) fn focus(
+        &mut self,
+        tool: &str,
+        args: &Map<String, Value>,
+        resolved: &[Resolved],
+    ) -> Result<Value, Value> {
+        let Some(target) = resolved.first().cloned() else {
+            return self.forward(tool, args);
+        };
+        let Some(id) = target.id.clone() else {
+            return self.forward(tool, args);
+        };
+        if target.focused {
+            // In front already: nothing moves.
+            return self.forward(tool, args);
+        }
+        let failed = self.failures.get(&id).copied().unwrap_or(0) >= FAILS_BEFORE_FOCUS;
+        if !failed && self.focus_asked.insert(id.clone()) {
+            return Err(refusal(tool, "BACKGROUND_FIRST", BACKGROUND_FIRST));
+        }
+        // An earlier borrow ends first.
+        self.restore_borrowed();
+        let listed = self
+            .list(super::Look::Check)
+            .ok()
+            .and_then(|windows| windows.into_iter().find(|window| window.id == id));
+        let window = listed.unwrap_or(Window {
+            id: id.clone(),
+            app: target.app.clone(),
+            title: String::new(),
+            pid: None,
+            focused: false,
+            visible: true,
+            minimized: false,
+            bounds: None,
+        });
+        let displays = self.screen.displays();
+        let parked = window
+            .bounds
+            .is_some_and(|bounds| hangs_off(bounds, &displays));
+        if parked && let Some(spot) = on_screen_spot(&displays) {
+            self.move_window(&window, spot);
+        }
+        let before = super::front::frontmost();
+        let result = self.forward(tool, args)?;
+        self.borrowed = Some(Borrowed {
+            before,
+            window: window.clone(),
+            parked,
+            at: Instant::now(),
+            steps: 0,
+        });
+        self.notes.push(format!(
+            "{id} is in front briefly; do the step it needs now. Hex gives the person's window \
+             back after your next {BORROW_STEPS} steps in it (or {} s){}.",
+            BORROW_FOR.as_secs(),
+            if parked { " and parks it again" } else { "" }
+        ));
+        Ok(result)
+    }
+
+    /// Before a call: a borrow that ran out of time ends.
+    pub(super) fn borrow_expired(&mut self) {
+        if self
+            .borrowed
+            .as_ref()
+            .is_some_and(|borrowed| borrowed.at.elapsed() >= BORROW_FOR)
+        {
+            self.restore_borrowed();
+        }
+    }
+
+    /// An acting call on `resolved`: one in another window ends the borrow
+    /// first; one in the borrowed window counts as one of its steps.
+    pub(super) fn borrow_step(&mut self, resolved: &[Resolved]) {
+        let Some(borrowed) = self.borrowed.as_mut() else {
+            return;
+        };
+        let inside = resolved
+            .iter()
+            .all(|window| window.id.as_deref() == Some(borrowed.window.id.as_str()));
+        if !inside {
+            self.restore_borrowed();
+            return;
+        }
+        borrowed.steps += 1;
+    }
+
+    /// After an acting call: the borrow's last step ends it.
+    pub(super) fn borrow_done(&mut self) {
+        if self
+            .borrowed
+            .as_ref()
+            .is_some_and(|borrowed| borrowed.steps >= BORROW_STEPS)
+        {
+            self.restore_borrowed();
+        }
+    }
+
+    /// Gives the front back to the person's app (unless they moved on) and
+    /// parks the window again if it was parked.
+    pub(super) fn restore_borrowed(&mut self) {
+        let Some(borrowed) = self.borrowed.take() else {
+            return;
+        };
+        if let Some(pid) = super::front::give_back_to(
+            borrowed.before,
+            super::front::frontmost(),
+            borrowed.window.pid,
+        ) {
+            super::front::give_back(pid);
+        }
+        if borrowed.parked {
+            self.arrived.push(borrowed.window);
+            self.place_arrivals();
+        }
+        tracing::info!("a borrowed front went back to the person");
+    }
+
+    /// Notes an acting call's outcome in its windows: failures count toward
+    /// offering a brief focus.
+    pub(super) fn count_failure(&mut self, resolved: &[Resolved], result: &Value) {
+        let failed = result.get("isError").and_then(Value::as_bool) == Some(true)
+            || super::super::child::envelope(result)
+                .is_some_and(|envelope| envelope.get("ok") == Some(&Value::Bool(false)));
+        for window in resolved {
+            let Some(id) = &window.id else {
+                continue;
+            };
+            if !failed {
+                self.failures.remove(id);
+                continue;
+            }
+            let count = self.failures.entry(id.clone()).or_insert(0);
+            *count += 1;
+            if *count == FAILS_BEFORE_FOCUS {
+                self.notes.push(format!(
+                    "{} ignored this in the background twice. If a fresh snapshot shows nothing \
+                     changed, desktop_focus_window brings {id} forward briefly (Hex gives the \
+                     person's window back right after).",
+                    window.app
+                ));
+            }
+        }
+    }
+}
+
+/// Whether a window of `bounds` hangs off every display but a sliver.
+fn hangs_off(
+    (x, y, width, height): (f64, f64, f64, f64),
+    displays: &[crate::assistant::computer::Display],
+) -> bool {
+    let area = width.max(0.0) * height.max(0.0);
+    if area <= 0.0 || displays.is_empty() {
+        return false;
+    }
+    let shown: f64 = displays
+        .iter()
+        .map(|display| {
+            let (dx, dy, dw, dh) = display.frame;
+            let w = (x + width).min(dx + dw) - x.max(dx);
+            let h = (y + height).min(dy + dh) - y.max(dy);
+            w.max(0.0) * h.max(0.0)
+        })
+        .sum();
+    shown < area * 0.1
+}
+
+/// Where a parked window comes on the screen while it's borrowed: inside
+/// the person's display (else the main one).
+fn on_screen_spot(displays: &[crate::assistant::computer::Display]) -> Option<(f64, f64)> {
+    let display = displays
+        .iter()
+        .find(|display| display.has_focus)
+        .or_else(|| displays.iter().find(|display| display.is_primary))
+        .or(displays.first())?;
+    Some((display.frame.0 + 80.0, display.frame.1 + 80.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_parked_window_hangs_off_and_one_on_screen_does_not() {
+        let display = crate::assistant::computer::Display {
+            id: "1".into(),
+            name: "Built-in".into(),
+            frame: (0.0, 0.0, 1800.0, 1169.0),
+            visible_frame: (0.0, 25.0, 1800.0, 1144.0),
+            scale: 2.0,
+            is_primary: true,
+            has_focus: true,
+        };
+        assert!(hangs_off(
+            (1799.0, 1168.0, 900.0, 600.0),
+            &[display.clone()]
+        ));
+        assert!(!hangs_off((100.0, 100.0, 900.0, 600.0), &[display.clone()]));
+        assert_eq!(on_screen_spot(&[display]), Some((80.0, 80.0)));
+    }
+}

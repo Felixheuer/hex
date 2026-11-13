@@ -359,7 +359,14 @@ pub(crate) fn card<S: 'static>(
             rune::LiveRegion::Off
         })
         .hit()
-        .on_press(move |s: &mut S| dismiss(s))
+        // A click while the turn still works or reads its answer is harmless:
+        // it never hides a running turn (the person took that for a cancel).
+        // Once it is over, a press puts the bubble away; Esc always does.
+        .on_press(move |s: &mut S| {
+            if !live {
+                dismiss(s);
+            }
+        })
         .animate_layout()
         .child(question)
         .children(body)

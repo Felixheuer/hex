@@ -7,11 +7,18 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
+mod actions;
 mod apps;
+mod borrow;
 mod consent;
+mod desk;
 mod displays;
 mod front;
 mod lookup;
+mod recover;
+
+pub(super) use desk::DESK_NOTE;
+pub use recover::{Inert, Recoverer, System};
 
 use super::child::{self, Desktop, Window};
 use super::policy::{self, Kind};
@@ -131,6 +138,21 @@ pub struct Guard<D: Desktop> {
     /// Asks a running app to show a window again (`open -g`); a stand-in in
     /// tests, which never open the person's apps.
     pub reopen: Box<dyn Fn(&super::screen::App) + Send>,
+    /// Brings an app's window from another desktop, the Dock, or hiding
+    /// (`recover`); a stand-in in tests.
+    pub recover: Box<dyn Recoverer>,
+    /// Runs an app recipe (`actions`); a stand-in in tests.
+    pub run_recipe: Box<
+        dyn FnMut(&crate::assistant::actions::recipes::Command) -> Result<String, String> + Send,
+    >,
+    /// Hex's own process, which holds the desk (`desk`); `None`: no desk.
+    pub desk: Option<u32>,
+    /// Failed actions in a row per window (background first: `borrow`).
+    failures: HashMap<String, u32>,
+    /// Windows a focus was asked for once (and refused).
+    focus_asked: HashSet<String>,
+    /// The window brought forward briefly, if one is.
+    borrowed: Option<borrow::Borrowed>,
 }
 
 impl<D: Desktop> Guard<D> {
@@ -170,6 +192,22 @@ impl<D: Desktop> Guard<D> {
                     apps::reopen(app);
                 }
             }),
+            recover: if cfg!(test) {
+                Box::new(Inert)
+            } else {
+                Box::new(System)
+            },
+            run_recipe: Box::new(|command| {
+                if cfg!(test) {
+                    Ok(String::new())
+                } else {
+                    crate::assistant::actions::recipes::run(command)
+                }
+            }),
+            desk: None,
+            failures: HashMap::new(),
+            focus_asked: HashSet::new(),
+            borrowed: None,
         }
     }
 
@@ -199,7 +237,10 @@ impl<D: Desktop> Guard<D> {
                 | Kind::Displays => false,
                 Kind::Physical => physical,
                 Kind::Clipboard => !background || physical,
-                Kind::Launch | Kind::FocusWindow => background == (name == "desktop_launch"),
+                Kind::Launch => background,
+                // Background first: a Background task brings a window
+                // forward (briefly) only with full control.
+                Kind::FocusWindow => !background || self.config.front_window,
                 _ => true,
             }
         });
@@ -211,6 +252,11 @@ impl<D: Desktop> Guard<D> {
         }
         tools.extend(apps::tools(reach));
         tools.push(displays::tool());
+        if reach {
+            tools.push(desk::tool());
+            tools.push(actions::app_action_tool());
+        }
+        tools.push(actions::read_window_tool());
         Ok(tools)
     }
 
@@ -280,6 +326,7 @@ impl<D: Desktop> Guard<D> {
         if self.config.lane == Lane::Background {
             self.return_orphans();
         }
+        self.borrow_expired();
         let outcome = self.run(tool, &mut args);
         self.place_arrivals();
         tracing::debug!(
@@ -320,6 +367,9 @@ impl<D: Desktop> Guard<D> {
         {
             return Err(self.blocked_refusal(tool, &app));
         }
+        if tool.starts_with("desktop_") && kind.needs_desktop() {
+            self.running_name(args);
+        }
         // A locked screen stops every desktop step; say so instead of
         // failing silently (a sleeping display is woken on the way).
         if kind.needs_desktop()
@@ -338,7 +388,11 @@ impl<D: Desktop> Guard<D> {
         if self.config.observe_only
             && !matches!(
                 kind,
-                Kind::Free | Kind::Observe | Kind::InstalledApps | Kind::Displays
+                Kind::Free
+                    | Kind::Observe
+                    | Kind::InstalledApps
+                    | Kind::Displays
+                    | Kind::ReadWindow
             )
         {
             return Err(refusal(
@@ -352,6 +406,17 @@ impl<D: Desktop> Guard<D> {
             Kind::Claim => return self.claim(tool, args),
             Kind::InstalledApps => return Ok(self.installed_apps(args)),
             Kind::Displays => return Ok(self.displays_tool()),
+            Kind::Release => {
+                if !self.reaches_desk() {
+                    return Err(refusal(
+                        tool,
+                        "POLICY_DENIED",
+                        "This task acts only in the window that was in front when it was asked.",
+                    ));
+                }
+                return self.release_tool(args);
+            }
+            Kind::ReadWindow => return self.read_window(tool, args),
             Kind::Clipboard
                 if self.config.lane == Lane::Background && !self.config.physical_input =>
             {
@@ -401,7 +466,20 @@ impl<D: Desktop> Guard<D> {
         if kind == Kind::OpenApp {
             return self.open_app(args);
         }
-        if kind == Kind::FocusWindow && self.config.lane == Lane::Background {
+        if kind == Kind::AppAction {
+            if self.config.lane == Lane::Here && !self.opens_apps() {
+                return Err(refusal(
+                    tool,
+                    "POLICY_DENIED",
+                    "This task was asked about the window in front and acts only there.",
+                ));
+            }
+            return self.app_action(tool, args);
+        }
+        if kind == Kind::FocusWindow
+            && self.config.lane == Lane::Background
+            && !self.config.front_window
+        {
             return Err(refusal(
                 tool,
                 "POLICY_DENIED",
@@ -430,6 +508,14 @@ impl<D: Desktop> Guard<D> {
             // What was on screen before, so what its action opens is new.
             let _ = self.list(Look::Check);
         }
+        if kind.acts() {
+            self.borrow_step(&resolved);
+        }
+        if kind == Kind::FocusWindow {
+            let result = self.focus(tool, args, &resolved)?;
+            let _ = self.list(Look::AfterAction);
+            return Ok(result);
+        }
         let hands = if kind.acts() && self.config.physical_input {
             Some(self.take_hands(tool)?)
         } else {
@@ -441,7 +527,16 @@ impl<D: Desktop> Guard<D> {
         self.learn_and_redact(&mut result);
         self.record(&result, &resolved);
         if kind.acts() {
+            self.count_failure(&resolved, &result);
+            if kind == Kind::CloseApp
+                && child::data(&result).is_some()
+                && let Some(window) = resolved.first()
+            {
+                let app = window.app.clone();
+                self.closed_app(&app);
+            }
             let _ = self.list(Look::AfterAction);
+            self.borrow_done();
         }
         Ok(result)
     }
@@ -513,6 +608,12 @@ impl<D: Desktop> Guard<D> {
     /// The task's windows now (a Here task's are all in its app).
     fn held(&self) -> Vec<LeaseFile> {
         let mut held = self.store.held_by(&self.config.task);
+        // The desk's windows are every app-opening task's to act in.
+        for lease in self.desk_leases() {
+            if !held.iter().any(|mine| mine.window_id == lease.window_id) {
+                held.push(lease);
+            }
+        }
         if self.opens_apps() {
             return held;
         }
@@ -746,12 +847,26 @@ impl<D: Desktop> Guard<D> {
             .store
             .acquire(&self.config.task, self.pid, &window.id, &window.app, now)
         {
-            Acquire::Taken(_) => Err(refusal(
+            Acquire::Taken(task) if !self.usable(&Acquire::Taken(task.clone())) => Err(refusal(
                 tool,
                 "NOT_YOUR_WINDOW",
                 "That window belongs to another task. Open your own window with desktop_launch, \
                  or claim a free one.",
             )),
+            Acquire::Taken(_) => {
+                self.watch(&window.app);
+                let envelope = json!({
+                    "version": "hex-guard",
+                    "ok": true,
+                    "command": "claim-window",
+                    "data": {"window": {"id": window.id, "app_name": window.app, "title": window.title}, "desk": true},
+                });
+                Ok(json!({
+                    "content": [{"type": "text", "text": envelope.to_string()}],
+                    "structuredContent": envelope,
+                    "isError": false,
+                }))
+            }
             acquired @ (Acquire::Acquired | Acquire::Held) => {
                 // A window the task takes goes out of the person's way and
                 // shows live on its card, unless it is the one they're in.
@@ -843,6 +958,35 @@ impl<D: Desktop> Guard<D> {
                 mine.join(", ")
             ),
         });
+    }
+}
+
+impl<D: Desktop> Guard<D> {
+    /// Names the app in `args["app"]` exactly as it runs: a name the agent
+    /// typed ("WhatsApp") becomes the running app's own ("\u{200e}WhatsApp",
+    /// with its invisible mark), so agent-desktop finds it.
+    fn running_name(&mut self, args: &mut Map<String, Value>) {
+        let Some(app) = text(args, "app") else {
+            return;
+        };
+        let windows = self.list(Look::Check).unwrap_or_default();
+        let real = windows
+            .iter()
+            .find(|window| window.visible && same_app(&window.app, &app))
+            .or_else(|| windows.iter().find(|window| same_app(&window.app, &app)))
+            .map(|window| window.app.clone());
+        if let Some(real) = real
+            && real != app
+        {
+            args.insert("app".into(), Value::String(real));
+        }
+    }
+}
+
+impl<D: Desktop> Drop for Guard<D> {
+    /// A window brought forward briefly goes back as the task ends.
+    fn drop(&mut self) {
+        self.restore_borrowed();
     }
 }
 

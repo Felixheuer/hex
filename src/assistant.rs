@@ -26,6 +26,7 @@
 #![cfg_attr(target_os = "macos", allow(dead_code))]
 #![allow(unused_imports)]
 
+pub mod actions;
 pub mod agent;
 pub mod audit;
 pub mod autonomy;

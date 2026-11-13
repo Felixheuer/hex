@@ -31,6 +31,7 @@
 //! OWNER: guard.
 
 mod child;
+mod desk;
 mod policy;
 mod proxy;
 mod screen;
@@ -47,7 +48,11 @@ use serde::{Deserialize, Serialize};
 use crate::assistant::backends::McpServer;
 use crate::assistant::types::{ConversationId, Lane, TaskWindow};
 
-pub use policy::{CLAIM_TOOL, OPEN_APP_TOOL};
+pub use desk::{
+    DESK, desk, desk_browsers, desk_keep_browser, desk_release, desk_release_app,
+    desk_release_browser,
+};
+pub use policy::{CLAIM_TOOL, OPEN_APP_TOOL, app_key};
 
 /// What the guard needs to know about one task; passed to its MCP server.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -117,6 +122,10 @@ pub struct WireSpec {
     /// change nothing).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub observe_only: bool,
+    /// Hex's own process: the desk's holder (`desk`), so apps a quick turn
+    /// opens stay held after the turn ends, for as long as Hex runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desk_pid: Option<u32>,
 }
 
 /// Where the guard reads the windows on screen.
@@ -165,6 +174,7 @@ impl WireSpec {
             front_window: spec.full_control,
             open_apps: spec.open_apps,
             observe_only: false,
+            desk_pid: None,
         }
     }
 
@@ -231,6 +241,8 @@ fn server_for(spec: &TaskSpec, hex: &Path, desktop: &McpServer, state_dir: &Path
     wire.agent_desktop = Some(desktop.command.clone());
     wire.state_dir = Some(state_dir.to_path_buf());
     wire.agent_display = crate::assistant::computer::agent_display_setting();
+    // This process (Hex) holds the desk.
+    wire.desk_pid = Some(std::process::id());
     if let Some((_, settings)) = crate::app_settings::assistant_runtime() {
         wire.autonomy = settings.autonomy;
     }
@@ -281,7 +293,8 @@ pub fn serve(spec: &str) -> Result<()> {
     };
     let desktop = child::AgentDesktop::new(program, flags);
     let pid = std::process::id();
-    let guard = proxy::Guard::new(config(&wire), store.clone(), pid, desktop, screen);
+    let mut guard = proxy::Guard::new(config(&wire), store.clone(), pid, desktop, screen);
+    guard.desk = wire.desk_pid.filter(|pid| state::alive(*pid));
     let served = server::serve(guard);
     // This process's leases lapse when it ends; free them now.
     for lease in store.held_by(&wire.task) {
@@ -391,7 +404,7 @@ pub fn screen_work(tool: &str) -> Option<bool> {
     let name = tool.rsplit("__").next().unwrap_or(tool);
     let kind = policy::kind(name, &serde_json::Map::new());
     match kind {
-        policy::Kind::Observe => Some(false),
+        policy::Kind::Observe | policy::Kind::ReadWindow => Some(false),
         policy::Kind::Claim => Some(true),
         kind if kind.acts() => Some(true),
         _ => None,

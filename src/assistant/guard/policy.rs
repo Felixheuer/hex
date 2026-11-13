@@ -34,6 +34,12 @@ pub enum Kind {
     OpenApp,
     /// Hex's own `hex_displays`.
     Displays,
+    /// Hex's own `hex_release_window`: lets go of a desk window.
+    Release,
+    /// Hex's own `hex_app_action`: an app recipe (deep link, script, CLI).
+    AppAction,
+    /// Hex's own `hex_read_window`: a window's text from its picture.
+    ReadWindow,
     /// Never forwarded; the text says why.
     Refused(&'static str),
 }
@@ -44,7 +50,7 @@ impl Kind {
     pub fn needs_desktop(self) -> bool {
         !matches!(
             self,
-            Self::Free | Self::InstalledApps | Self::Displays | Self::Refused(_)
+            Self::Free | Self::InstalledApps | Self::Displays | Self::Release | Self::Refused(_)
         )
     }
 
@@ -60,6 +66,7 @@ impl Kind {
                 | Self::Launch
                 | Self::OpenApp
                 | Self::CloseApp
+                | Self::AppAction
         )
     }
 }
@@ -77,6 +84,16 @@ pub const OPEN_APP_TOOL: &str = "hex_open_app";
 /// Hex's display layout: which display the person works on, and which one
 /// Background tasks' windows go to.
 pub const DISPLAYS_TOOL: &str = "hex_displays";
+
+/// Hex's way to let go of a window on the person's desk (a live mini at the
+/// orb): the person said they're done with it ("schließ WhatsApp").
+pub const RELEASE_TOOL: &str = "hex_release_window";
+
+/// Hex's app recipes: deep links, AppleScript, and CLIs (`actions::recipes`).
+pub const APP_ACTION_TOOL: &str = "hex_app_action";
+
+/// Hex's screen text for a window without Accessibility (`actions::ocr`).
+pub const READ_WINDOW_TOOL: &str = "hex_read_window";
 
 const MANAGED: &str = "Hex manages agent-desktop's sessions, cursors, traces, and permissions; \
 this tool isn't available to tasks.";
@@ -149,6 +166,9 @@ pub fn kind(tool: &str, args: &Map<String, Value>) -> Kind {
         INSTALLED_APPS_TOOL => return Kind::InstalledApps,
         OPEN_APP_TOOL => return Kind::OpenApp,
         DISPLAYS_TOOL => return Kind::Displays,
+        RELEASE_TOOL => return Kind::Release,
+        APP_ACTION_TOOL => return Kind::AppAction,
+        READ_WINDOW_TOOL => return Kind::ReadWindow,
         _ => {}
     }
     let Some(name) = tool.strip_prefix("desktop_") else {
@@ -414,7 +434,10 @@ mod lean_tests {
 mod invisible_tests {
     #[test]
     fn invisible_marks_in_app_names_don_t_matter() {
-        assert_eq!(super::app_key("\u{200e}WhatsApp"), super::app_key("WhatsApp"));
+        assert_eq!(
+            super::app_key("\u{200e}WhatsApp"),
+            super::app_key("WhatsApp")
+        );
         assert_eq!(super::app_key("Google\u{a0}Chrome"), "google chrome");
     }
 }

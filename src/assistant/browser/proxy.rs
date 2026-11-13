@@ -282,6 +282,13 @@ fn rewrite_request(
     }
     match pin(&mut message, sessions, consent) {
         Ok(()) => {
+            // A browser Hex is starting ahead for this task: its first call
+            // waits for that start rather than racing it.
+            if let Some(session) = message["params"]["arguments"]["session"].as_str()
+                && !cfg!(test)
+            {
+                super::wait_for_warmup(session);
+            }
             remember(&message, pending);
             Forward::Server(message.to_string())
         }

@@ -207,9 +207,13 @@ pub fn prewarm_for(task: &str, request: &str) {
     }
     for (session, launch) in starts {
         let path = path.clone();
+        // The task's first browser call waits for this start instead of
+        // racing it (two starts of one session: the second fails).
+        let warming = Warming::mark(&session);
         let spawned = std::thread::Builder::new()
             .name("hex-browser-prewarm".into())
             .spawn(move || {
+                let _warming = warming;
                 let started = std::time::Instant::now();
                 let (args, env) = prewarm_command(&launch);
                 let mut command = command(&path, &session);
@@ -297,9 +301,100 @@ fn prewarm_command(
     (args, env)
 }
 
-/// Closes every browser of `task` (nothing is saved). Blocks for a moment;
-/// quick when it never opened one.
+/// A browser being started ahead (`prewarm_for`): a marker file under
+/// `<support>/assistant/browser-warming/<session>` while it starts, which
+/// the task's browser proxy (another process) waits on before its first
+/// call to that session. Removed when dropped.
+pub(crate) struct Warming(Option<PathBuf>);
+
+/// How long a first call waits for a start ahead, at most.
+const WARM_WAIT: Duration = Duration::from_secs(20);
+
+impl Warming {
+    fn dir() -> Option<PathBuf> {
+        crate::app_paths::support_dir()
+            .ok()
+            .map(|support| support.join("assistant").join("browser-warming"))
+    }
+
+    fn mark(session: &str) -> Self {
+        let path = Self::dir().map(|dir| dir.join(session));
+        if let Some(path) = &path {
+            let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new("/")));
+            let _ = std::fs::write(path, std::process::id().to_string());
+        }
+        Self(path)
+    }
+}
+
+impl Drop for Warming {
+    fn drop(&mut self) {
+        if let Some(path) = &self.0 {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+/// Waits while `session` is being started ahead (at most [`WARM_WAIT`],
+/// and never on a marker older than a start can take).
+pub(crate) fn wait_for_warmup(session: &str) {
+    let Some(path) = Warming::dir().map(|dir| dir.join(session)) else {
+        return;
+    };
+    let started = std::time::Instant::now();
+    loop {
+        let fresh = std::fs::metadata(&path)
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age < COMMAND_LIMIT);
+        if !fresh || started.elapsed() >= WARM_WAIT {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Closes every browser of `task` (nothing is saved), unless it was a quick
+/// (Here) turn's: those stay open on the person's desk, live at the orb,
+/// until they let them go ([`close_now`]). Blocks for a moment; quick when
+/// it never opened one.
 pub fn close(task: &str) {
+    if keeps_on_desk(task) {
+        return;
+    }
+    close_now(task);
+}
+
+/// Whether `task`, which ended, was a quick turn with browsers open: they
+/// go on the desk instead of closing.
+fn keeps_on_desk(task: &str) -> bool {
+    if cfg!(test) {
+        return false;
+    }
+    let quick = crate::assistant::store::Store::open()
+        .ok()
+        .and_then(|store| store.load(task))
+        .is_some_and(|stored| {
+            stored.conversation.origin.lane() == crate::assistant::types::Lane::Here
+        });
+    if !quick {
+        return false;
+    }
+    let Some(path) = executable() else {
+        return false;
+    };
+    if running(&path, task).is_empty() {
+        return false;
+    }
+    crate::assistant::guard::desk_keep_browser(task);
+    tracing::info!(task, "a quick turn's browser stays on the desk");
+    true
+}
+
+/// Closes every browser of `task` now, desk or not.
+pub fn close_now(task: &str) {
+    crate::assistant::guard::desk_release_browser(task);
     let Some(path) = executable() else {
         return;
     };
