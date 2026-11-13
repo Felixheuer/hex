@@ -1344,6 +1344,11 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
             }
         )),
     }
+    if desktop.open_apps || desktop.front_window {
+        prompt.push_str(
+            "- Background first: act in windows where they are, parked or behind others; never bring one to the front just to act in it. Only an app that doesn't react in the background after one retry gets its window forward for the shortest time (the person sees the frame); check the result, then give the front back to the window the person was in.\n",
+        );
+    }
     if let Some(guide) = guide(desktop.executable()) {
         prompt.push_str("\nagent-desktop's guide:\n\n");
         prompt.push_str(guide);
