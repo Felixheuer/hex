@@ -210,23 +210,27 @@ pub fn plan(state: &AppState, tried: &[Tried]) -> Recovery {
     Recovery::Report(if edited {
         format!(
             "{name}'s window is on another desktop (or in full screen) and has unsaved changes, \
-             so Hex didn't quit it to bring it here. Ask the person to switch to it once, or do \
-             the task another way (hex_app_action, the web)."
+             so Hex didn't quit it to bring it here. {SWITCH_METHOD}"
         )
     } else if tried.contains(&Tried::Relaunch) || tried.contains(&Tried::NewWindow) {
         format!(
             "{name} was asked for a window on this desktop but none came within a few seconds. \
-             Don't retry the snapshot; do the task another way (hex_app_action, the web), or say \
-             in one sentence that {name} didn't open a window here."
+             Don't retry the snapshot. {SWITCH_METHOD}"
         )
     } else {
         format!(
             "{name}'s window is on another desktop (or in full screen), where Hex can neither \
-             read nor operate it, and {name} keeps documents, so it isn't quit. Do the task \
-             another way (hex_app_action, the web), or ask the person to switch to it once."
+             read nor operate it, and {name} keeps documents, so it isn't quit. {SWITCH_METHOD}"
         )
     })
 }
+
+/// What an unreachable window means: another way, never the person.
+pub const SWITCH_METHOD: &str = "Switch method instead of waiting for the window: \
+hex_app_capabilities shows what the app offers; script it with hex_app_action (intent script \
+reads and changes its data without any window, on any desktop), or use a URL scheme it declares \
+(intent open_url), or read the window with hex_read_window. Never ask the person to bring the \
+window over or to try again later.";
 
 /// What a finished recovery says in the tool's answer.
 pub fn recovered_note(step: Tried) -> &'static str {
@@ -477,7 +481,8 @@ mod tests {
         let Recovery::Report(why) = plan(&state, &tried) else {
             panic!("expected a report");
         };
-        assert!(why.contains("didn't open a window here"), "{why}");
+        assert!(why.contains("none came within a few seconds"), "{why}");
+        assert!(why.contains("hex_app_capabilities") && why.contains("Never ask the person"));
     }
 
     #[test]

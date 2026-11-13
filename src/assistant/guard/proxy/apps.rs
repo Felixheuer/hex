@@ -51,17 +51,36 @@ impl<D: Desktop> Guard<D> {
             })
             .collect();
         apps.sort_by_key(|app| policy::app_key(&app.name));
+        // Which app is the person's browser, mail app, …: the links each
+        // opens by default (LaunchServices), never a list of apps. Tests
+        // never read the person's.
+        let defaults = if cfg!(test) {
+            None
+        } else {
+            crate::assistant::actions::capabilities::launch_services()
+        };
         let listed: Vec<Value> = apps
             .iter()
             .map(|app| {
                 let blocked = self.app_blocked(app);
-                json!({
+                let mut listed = json!({
                     "name": app.name,
                     "bundle_id": app.bundle_id,
                     "path": app.path,
                     "running": running.contains(&app.path),
                     "blocked": blocked,
-                })
+                });
+                let default_for = defaults
+                    .as_ref()
+                    .zip(app.bundle_id.as_deref())
+                    .map(|(defaults, id)| {
+                        crate::assistant::actions::capabilities::default_schemes(defaults, id)
+                    })
+                    .unwrap_or_default();
+                if !default_for.is_empty() {
+                    listed["default_for"] = json!(default_for);
+                }
+                listed
             })
             .collect();
         success("installed-apps", json!({ "apps": listed }))
@@ -257,8 +276,9 @@ impl<D: Desktop> Guard<D> {
                  desktop, minimized, or the app hidden): it is yours now. Act in it by its id; \
                  a minimized one comes back with desktop_restore. A window on another desktop \
                  can't be read from here: if one snapshot finds nothing or times out, don't \
-                 retry it; for the web use your own browser tools, for the app open a new \
-                 window of it from its File menu."
+                 retry it; for the web use your own browser tools; for the app's data script \
+                 it without any window (hex_app_capabilities, then hex_app_action script), or \
+                 open a new window of it from its File menu."
                     .to_owned()
             };
             let note = if !window.focused && window.visible && self.to_desk(&window.id) {

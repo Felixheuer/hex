@@ -1,9 +1,11 @@
 //! The onboarding's permissions page: what the assistant needs to see and
 //! use the Mac. Screen Recording for Hex, the Microphone and Accessibility
 //! only when the voice setup didn't already grant them (one ask for both),
-//! then agent-desktop, installed with one click, and its own grants. A
-//! grant macOS applies only after a restart gets one button that relaunches
-//! Hex and reopens this page.
+//! then Automation (System Events and Finder), agent-desktop, installed
+//! with one click, and its own grants, then the person's data (Contacts,
+//! Reminders, the Calendar, and optional Full Disk Access). A grant macOS
+//! applies only after a restart gets one button that relaunches Hex and
+//! reopens this page.
 
 use rune::{Align, El, Tx, col, row, text};
 use rune_kit::glyphs;
@@ -133,9 +135,10 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
     )
 }
 
-/// Automation: Hex may control other apps (System Events), asked here so
-/// tasks never stop midway for macOS's prompt. Allow shows the prompt; a
-/// denial opens System Settings › Automation.
+/// Automation: Hex may control other apps (System Events and Finder),
+/// asked here so tasks never stop midway for macOS's prompt. Allow shows
+/// one prompt each; a denial opens System Settings › Automation. Other apps
+/// ask on first use, and the task's step says so first.
 fn automation_row(p: Paint) -> El {
     use crate::desktop::automation::{self, AutomationState};
     let control = match automation::last() {
@@ -155,9 +158,11 @@ fn automation_row(p: Paint) -> El {
     };
     let detail = match automation::last() {
         AutomationState::Denied => {
-            tr("Turn on Hex › System Events in System Settings › Automation")
+            tr("Turn on System Events and Finder under Hex in System Settings › Automation")
         }
-        _ => tr("Lets tasks open and operate your apps without stopping to ask"),
+        _ => tr(
+            "Lets tasks operate your apps through System Events and Finder. Other apps ask the first time a task uses them",
+        ),
     };
     row_of(
         p,
@@ -165,6 +170,83 @@ fn automation_row(p: Paint) -> El {
         TOOL,
         tr("Control other apps"),
         detail,
+        p.muted(),
+        control,
+    )
+}
+
+/// Contacts, Reminders, and the Calendar (`desktop::data_access`), in one
+/// row: Allow shows macOS's prompt for each never answered, one after the
+/// other. A refusal stays the person's answer; System Settings turns it on.
+fn personal_data_row(p: Paint) -> El {
+    use crate::desktop::data_access::{self, Source};
+    let name = |source: Source| match source {
+        Source::Contacts => tr("Contacts"),
+        Source::Reminders => tr("Reminders"),
+        Source::Calendar => tr("Calendar"),
+        Source::FullDisk => tr("Full Disk Access"),
+    };
+    let to_ask = data_access::to_ask(data_access::last);
+    let refused = data_access::refused(data_access::last);
+    let (detail, control) = if !to_ask.is_empty() {
+        (
+            tr("Finds who you mean, and reads your reminders and agenda, when you ask").to_owned(),
+            push(p, "allow", tr("Allow"), true, |_: &mut Ui| {
+                data_access::request_all_async()
+            }),
+        )
+    } else if let Some(first) = refused.first().copied() {
+        let names: Vec<&str> = refused.iter().map(|source| name(*source)).collect();
+        (
+            tr_fill(
+                "Off for {}: switch on Hex there in System Settings",
+                &names.join(", "),
+            ),
+            push(
+                p,
+                "data-settings",
+                tr("Open System Settings"),
+                false,
+                move |_: &mut Ui| data_access::open_settings(first),
+            ),
+        )
+    } else {
+        (
+            tr("Finds who you mean, and reads your reminders and agenda, when you ask").to_owned(),
+            done_pill(p, "allowed", tr("Allowed")),
+        )
+    };
+    row_of(
+        p,
+        "personal-data",
+        &rune_theme_opencode::icons::OUTLINE_PAIR,
+        tr("Contacts, Reminders, and Calendar"),
+        &detail,
+        p.muted(),
+        control,
+    )
+}
+
+/// Full Disk Access, optional: no prompt, only System Settings.
+fn full_disk_row(p: Paint) -> El {
+    use crate::desktop::data_access::{self, Access, Source};
+    let control = if data_access::last(Source::FullDisk) == Access::Granted {
+        done_pill(p, "allowed", tr("Allowed"))
+    } else {
+        push(
+            p,
+            "full-disk-settings",
+            tr("Open System Settings"),
+            false,
+            |_: &mut Ui| data_access::open_settings(Source::FullDisk),
+        )
+    };
+    row_of(
+        p,
+        "full-disk",
+        &rune_theme_opencode::icons::LOCK,
+        tr("Full Disk Access"),
+        tr("Optional: lets the assistant search your Mail and Messages on this Mac"),
         p.muted(),
         control,
     )
@@ -281,6 +363,11 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                 .iter()
                 .map(|grant| grant_row(ui, flow, p, *grant, Some(*grant) == first_missing)),
         );
+    }
+    // What the assistant may read: macOS asks for each once.
+    if cfg!(target_os = "macos") {
+        rows.push(personal_data_row(p));
+        rows.push(full_disk_row(p));
     }
     // With two or more displays: which one agents work on (optional).
     rows.extend(super::super::displays::onboarding_row(ui, p));
