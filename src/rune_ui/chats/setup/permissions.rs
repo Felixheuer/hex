@@ -44,7 +44,7 @@ pub(super) fn received(ui: &mut Ui, previous: Fingerprint) {
     let Some(flow) = ui.chats.setup.as_mut() else {
         return;
     };
-    if flow.page != Page::Checks {
+    if flow.page != Page::Desktop {
         return;
     }
     if previous.is_some() && current.is_some() && previous != current {

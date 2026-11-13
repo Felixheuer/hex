@@ -265,6 +265,11 @@ fn rewrite_request(
             if let Err(refused) = pin(request, sessions, consent) {
                 return Forward::Agent(reply(request, refused).to_string());
             }
+            if !cfg!(test)
+                && let Some(used) = super::Used::here()
+            {
+                note_used(request, &used);
+            }
             remember(request, pending);
         }
         return Forward::Server(message.to_string());
@@ -288,11 +293,33 @@ fn rewrite_request(
                 && !cfg!(test)
             {
                 super::wait_for_warmup(session);
+                // Used from now on: it shows as a mini (after the start
+                // ahead, which blanks only a browser no task used yet).
+                if let Some(used) = super::Used::here() {
+                    note_used(&message, &used);
+                }
             }
             remember(&message, pending);
             Forward::Server(message.to_string())
         }
         Err(refused) => Forward::Agent(reply(&message, refused).to_string()),
+    }
+}
+
+/// A pinned tool call's browser is the task's in use now (`Used`): it shows
+/// as a mini. Closing it forgets that, so a later one of that name starts
+/// unused.
+fn note_used(request: &Value, used: &super::Used) {
+    if request.get("method").and_then(Value::as_str) != Some("tools/call") {
+        return;
+    }
+    let Some(session) = request["params"]["arguments"]["session"].as_str() else {
+        return;
+    };
+    if request["params"]["name"].as_str() == Some("agent_browser_close") {
+        used.forget(session);
+    } else {
+        used.mark(session);
     }
 }
 
@@ -426,6 +453,30 @@ mod tests {
     use crate::assistant::autonomy::{Authorized, Autonomy};
     use crate::assistant::browser::consent::{Inspection, Probe};
     use crate::assistant::browser::sessions::Engine;
+
+    /// A pinned call marks its browser used (it shows as a mini); closing
+    /// it forgets that; other messages mark nothing.
+    #[test]
+    fn a_pinned_call_marks_its_browser_used() {
+        let dir =
+            std::env::temp_dir().join(format!("agent-desk-proxy-used-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let used = super::super::Used(dir.clone());
+        let call = |name: &str| {
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": name, "arguments": {"session": "hex-t1__chrome"}}})
+        };
+        note_used(
+            &json!({"jsonrpc": "2.0", "id": 0, "method": "tools/list"}),
+            &used,
+        );
+        assert!(!used.has("hex-t1__chrome"));
+        note_used(&call("agent_browser_open"), &used);
+        assert!(used.has("hex-t1__chrome"));
+        note_used(&call("agent_browser_close"), &used);
+        assert!(!used.has("hex-t1__chrome"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     /// A page whose `#send` is Gmail's Send button.
     struct SendButton;

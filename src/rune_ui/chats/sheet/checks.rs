@@ -1,15 +1,14 @@
-//! The onboarding's Checks page: the agent answers and can use
-//! the desktop tools (and agent-browser). A failed check always shows its fix,
+//! The onboarding's self-test rows: the agent answers and can use the
+//! desktop tools (and agent-browser). A failed check always shows its fix,
 //! even while later checks still run.
 
 use rune::{El, col, el, row, text};
-use rune_kit::{Button, ButtonVariant};
 
-use super::super::super::controls::{Paint, PushSize};
+use super::super::super::controls::Paint;
 use super::super::Ui;
 
-use super::super::setup::{self, Page, SetupFlow, check_title, fix_label, page_done};
-use super::{actions, lead, mark, note, page, push, rows_card, spinner};
+use super::super::setup::{self, SetupFlow, check_title, fix_label};
+use super::{mark, push, spinner};
 use crate::assistant::backends::{CheckResult, CheckState, Fix};
 use crate::desktop::i18n::tr;
 
@@ -130,10 +129,9 @@ fn fix_control(ui: &Ui, flow: &SetupFlow, p: Paint, result: &CheckResult) -> El 
     }
 }
 
-/// The live self-tests, run on arrival; Run again after a fix.
-pub(super) fn checks(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
-    let rows = flow
-        .checks
+/// The live self-tests' rows, run on arrival at the Cua Driver page.
+pub(super) fn rows(ui: &Ui, flow: &SetupFlow, p: Paint) -> Vec<El> {
+    flow.checks
         .iter()
         .enumerate()
         .map(|(index, result)| {
@@ -146,26 +144,5 @@ pub(super) fn checks(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                 fix_control(ui, flow, p, result),
             )
         })
-        .collect();
-    let done = page_done(ui, flow, Page::Checks);
-    let again = (!flow.checks_running && !done).then(|| {
-        Button::new(tr("Run again"))
-            .variant(ButtonVariant::Neutral)
-            .on_press(setup::run_checks)
-            .build_push(p.k)
-            .key("run-again")
-    });
-    let actions = actions(p, done, true).children(again);
-    page(
-        p,
-        "checks",
-        tr("Making sure it works"),
-        lead(
-            p,
-            tr("Each check sends a real request, so what passes here works for you."),
-        ),
-        Some(rows_card(p, "checks-card", rows)),
-        flow.fix_error.as_ref().map(|error| note(p, error)),
-        actions,
-    )
+        .collect()
 }

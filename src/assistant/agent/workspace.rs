@@ -114,12 +114,41 @@ pub fn plan(workspace: &Path) -> Vec<PlanStep> {
         .unwrap_or_default()
 }
 
-/// The checklist lines of `text`.
+/// The checklist lines of `text`, as the card shows them (without their
+/// success criteria).
 pub fn parse_plan(text: &str) -> Vec<PlanStep> {
+    parse_steps(text)
+        .into_iter()
+        .map(|step| PlanStep {
+            title: crate::assistant::store::shorten(&step.title, 120),
+            done: step.done,
+        })
+        .collect()
+}
+
+/// One step of a job's plan with its success criterion: `- [ ] Research 50
+/// suppliers (browser) — check: `suppliers.xlsx` has 50 rows`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Step {
+    pub title: String,
+    pub done: bool,
+    /// How the step proves it is done (what follows `check:`).
+    pub check: Option<String>,
+}
+
+/// The steps in `workspace/plan.md`.
+pub fn steps(workspace: &Path) -> Vec<Step> {
+    fs::read_to_string(workspace.join(PLAN))
+        .map(|text| parse_steps(&text))
+        .unwrap_or_default()
+}
+
+/// The checklist lines of `text`, each with its criterion.
+pub fn parse_steps(text: &str) -> Vec<Step> {
     text.lines()
         .filter_map(|line| {
             let line = line.trim_start().strip_prefix(['-', '*'])?.trim_start();
-            let (done, title) = if let Some(rest) = line.strip_prefix("[ ]") {
+            let (done, rest) = if let Some(rest) = line.strip_prefix("[ ]") {
                 (false, rest)
             } else {
                 let rest = line
@@ -127,13 +156,79 @@ pub fn parse_plan(text: &str) -> Vec<PlanStep> {
                     .or_else(|| line.strip_prefix("[X]"))?;
                 (true, rest)
             };
-            let title = title.trim();
-            (!title.is_empty()).then(|| PlanStep {
-                title: crate::assistant::store::shorten(title, 120),
+            let (title, check) = split_check(rest.trim());
+            (!title.is_empty()).then(|| Step {
+                title: title.to_owned(),
                 done,
+                check,
             })
         })
         .collect()
+}
+
+/// A step's words split at its `check:`: the title before it (without the
+/// dash or bracket that leads to it) and the criterion after it.
+fn split_check(text: &str) -> (&str, Option<String>) {
+    let Some(at) = ["check:", "Check:", "CHECK:"]
+        .iter()
+        .filter_map(|marker| text.find(marker))
+        .min()
+    else {
+        return (text, None);
+    };
+    let title = text[..at]
+        .trim_end()
+        .trim_end_matches(['—', '–', '-', '|', '(', ';', ',']);
+    let check = text[at + "check:".len()..]
+        .trim()
+        .trim_end_matches(')')
+        .trim()
+        .to_owned();
+    (title.trim(), (!check.is_empty()).then_some(check))
+}
+
+/// What Agent-Desk can check of a step's criterion itself: every file it
+/// names in backticks (`report.xlsx`, `out/data.csv`) must exist, in the
+/// workspace or at its absolute path. `None` when it names no file;
+/// otherwise the files that are missing (empty when all are there).
+pub fn missing_files(workspace: &Path, check: &str) -> Option<Vec<String>> {
+    let named: Vec<&str> = check
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .map(str::trim)
+        .filter(|name| looks_like_file(name))
+        .collect();
+    if named.is_empty() {
+        return None;
+    }
+    Some(
+        named
+            .into_iter()
+            .filter(|name| {
+                let path = Path::new(name);
+                let path = if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    workspace.join(path)
+                };
+                !path.exists()
+            })
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+/// A backticked name that is a file: no spaces or call syntax, with an
+/// extension or a path separator.
+fn looks_like_file(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains([' ', '(', '=', '<', '>'])
+        && !name.contains("://")
+        && (name.contains('/')
+            || name
+                .rsplit_once('.')
+                .is_some_and(|(stem, ext)| !stem.is_empty() && (1..=5).contains(&ext.len())))
 }
 
 #[cfg(test)]
@@ -172,6 +267,39 @@ mod tests {
         assert_eq!(clean("nul.txt"), "nul.txt job");
         assert_eq!(clean("Console"), "Console");
         assert_eq!(clean("???"), "Job");
+    }
+
+    #[test]
+    fn each_step_carries_its_check_and_the_card_shows_only_the_step() {
+        let text = "- [x] Find 50 suppliers (browser) — check: `suppliers.csv` has 50 rows\n- [ ] Build the sheet (Check: `out/sheet.xlsx` opens)\n- [ ] Draft emails\n";
+        let steps = parse_steps(text);
+        assert_eq!(steps[0].title, "Find 50 suppliers (browser)");
+        assert_eq!(
+            steps[0].check.as_deref(),
+            Some("`suppliers.csv` has 50 rows")
+        );
+        assert_eq!(steps[1].title, "Build the sheet");
+        assert_eq!(steps[1].check.as_deref(), Some("`out/sheet.xlsx` opens"));
+        assert_eq!(steps[2].check, None);
+        assert_eq!(parse_plan(text)[0].title, "Find 50 suppliers (browser)");
+        let dir = std::env::temp_dir().join(format!(
+            "hex-workspace-check-{}-{}",
+            std::process::id(),
+            crate::assistant::store::now_ms()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("suppliers.csv"), "a").unwrap();
+        assert_eq!(
+            missing_files(&dir, "`suppliers.csv` has 50 rows"),
+            Some(vec![])
+        );
+        assert_eq!(
+            missing_files(&dir, "`out/sheet.xlsx` opens, `suppliers.csv` too"),
+            Some(vec!["out/sheet.xlsx".to_owned()])
+        );
+        assert_eq!(missing_files(&dir, "verify_state shows `Sent`"), None);
+        assert_eq!(missing_files(&dir, "`npm test` passes"), None);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

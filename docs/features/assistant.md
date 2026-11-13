@@ -537,6 +537,38 @@ typed in the Assistant pane. Message text is never logged. Code: `src/assistant/
 
 ## Onboarding
 
+One short flow (`chats::setup::Page`), with a segmented progress bar and
+"Step 2 of 8 · Permissions" over each page:
+
+1. **Welcome**: what Agent-Desk does on one screen (hold to ask, a bigger
+   job, every task, the Assistant stream) and three lines on what leaves
+   the Mac and what never does.
+2. **Permissions** (`sheet/permissions.rs`): one checklist with live state:
+   Accessibility, Screen Recording, Microphone, Automation, Contacts,
+   Reminders and Calendar, and Full Disk Access (optional). One button per
+   row; the row turns into a green check when macOS reports it; "3 of 5
+   allowed" under the card.
+3. **Agent**: who answers, installed and signed in.
+4. **Cua Driver** (`sheet/desktop.rs`): the driver, which display agents
+   work on, and the self-tests ("Making sure it works"), run on arrival.
+5. **Web tasks** (optional): agent-browser; says "Optional" and is skippable.
+6. **Voice**: the Action and dictation shortcuts are free and a press
+   reaches Agent-Desk.
+7. **Try it out**: hold the Action shortcut and ask.
+8. **Done** (`sheet/done.rs`): every step ready or left, Go to for each one
+   left, and Finish.
+
+How freely it acts, the blocked apps, and what it knows about you are no
+longer pages: they live in Assistant settings (the old Privacy and "Tell
+Agent-Desk about you" pages). Saved progress on a removed page resumes on
+its new home (`Page::named`). The repair guide uses the same pages; the
+Permissions checklist then shows only the rows still missing, under a
+notice listing what changed. Scenes: `mac-assistant-setup`,
+`-permissions`, `-agent`, `-desktop`, `-browser`, `-shortcut`, `-try`,
+`-finish`, `-done`, `-repair`.
+
+The details below predate the merge where they name the old page order.
+
 The assistant's onboarding (`chats/setup.rs`, drawn by `chats/sheet.rs` in
 the first run's type, card, and motion over the whole window) opens when
 the assistant is turned on (Settings' switch or the off card's Turn on)
@@ -730,6 +762,30 @@ macOS only: elsewhere tasks answer without using apps):
   ("Wie weit ist der Shop?", "status"), Agent-Desk tells each job's plan progress,
   time, and last check (`service::status`) without running an agent.
   `hex_compare_images` gives jobs a screenshot similarity score.
+- **Long jobs** (`agent::{journal, rollover, recovery, long}`): a job keeps
+  `journal.md` in its workspace, its memory across sessions and restarts.
+  The agent appends what it learned, decided, tried (`- tried: <step> ·
+  <method> · failed: <why>`), and what is open; Agent-Desk adds `hex:` lines
+  for the start and budget, each plan step ticked (a milestone, once), a
+  ticked step whose `check:` names files that aren't there, fresh sessions,
+  resumes, waits, and the final check (its exact record is
+  `.hex-journal.json`). Each plan step ends with `— check: <proof>`, run
+  before it is ticked; a failed check switches strategy instead of
+  repeating. Claude Code reports the session's size between steps
+  (`Report::Usage`); past 140k tokens, 250 steps, or steps three times
+  slower than at the start, Agent-Desk ends the session between two steps
+  (`Control::rotate`) and goes on in a fresh one seeded with the request,
+  `plan.md`, the journal's newest lines, what is open, what failed, the
+  browsers' last pages, and the time used and left. A resumed job (restart,
+  usage limit) is told the same, in a fresh session when its saved one was
+  already too large. A lost network (`recovery::classify`) waits until the
+  service answers again (up to 6 h), and a backend that ended without an
+  answer (sleep, lock screen) goes on in its session, up to six failures
+  in a row without a step between them. With less than a tenth of its
+  budget left a job is told to secure what is done and wrap up.
+  `agent::run_with` takes an `Engine` (backend, clock, network), so
+  `long_tests` simulates an eleven-hour job that rolls over four times,
+  loses the network, crashes, and resumes, redoing nothing.
 - **Knowing the person's things** (`assistant::knowledge`): `hex_lookup`
   (query + scope: files, recent_files, contacts, calendar, reminders, mail,
   browser_tabs, browser_history, apps, memory, all; `chrome_tabs` and

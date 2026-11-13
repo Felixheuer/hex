@@ -1,257 +1,23 @@
-//! The onboarding's permissions page: what the assistant needs to see and
-//! use the Mac. Screen Recording for Agent-Desk, the Microphone and Accessibility
-//! only when the voice setup didn't already grant them (one ask for both),
-//! then Automation (System Events and Finder), Cua Driver (installed with
-//! one click, kept current, with its version and update status), then the
-//! person's data (Contacts,
-//! Reminders, the Calendar, and optional Full Disk Access). A grant macOS
-//! applies only after a restart gets one button that relaunches Agent-Desk and
-//! reopens this page.
+//! The onboarding's Cua Driver page: the desktop driver (installed with one
+//! click, kept current, with its version and update status), which display
+//! agents work on, and the live self-tests, run on arrival, proving the
+//! chosen agent answers and can use the desktop tools. A failed check
+//! always shows its fix, even while later checks still run.
 
 use rune::{Align, El, Tx, col, row, text};
-use rune_kit::glyphs;
+use rune_kit::{Button, ButtonVariant};
 
-use super::super::super::controls::Paint;
+use super::super::super::controls::{Paint, PushSize};
 use super::super::super::lists::small_button;
 use super::super::super::onboarding_kit::arrives;
 use super::super::Ui;
-use super::super::setup::{
-    self, Grant, Page, SetupFlow, State, grant_state, needs_restart, page_done,
-};
+use super::super::setup::{self, Grant, Page, SetupFlow, grant_state, page_done};
 use super::{
-    COL_W, SCREEN, TOOL, actions, done_pill, lead, page, push, row_of, rows_card, spinner,
-    waiting_pill,
+    COL_W, TOOL, actions, done_pill, lead, page, push, rows_card, section_label, spinner,
+    status_row,
 };
 use crate::assistant::backends::Fix;
 use crate::desktop::i18n::{tr, tr_fill};
-
-/// A permission's control: Allow, then a waiting dot until macOS reports
-/// it on, then Allowed; Restart Agent-Desk and continue when macOS wants that.
-fn grant_control(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, primary: bool) -> El {
-    if needs_restart(ui, grant) {
-        if !primary {
-            return waiting_pill(p, "restart-needed", tr("Restart Agent-Desk and continue"));
-        }
-        return push(
-            p,
-            "restart",
-            tr("Restart Agent-Desk and continue"),
-            true,
-            move |ui: &mut Ui| setup::allow(ui, grant),
-        );
-    }
-    if setup::permissions::kind(grant).is_some_and(|kind| ui.platform.stale(kind)) {
-        return push(
-            p,
-            "repair",
-            tr("Repair permission entry"),
-            primary,
-            move |ui: &mut Ui| setup::allow(ui, grant),
-        );
-    }
-    match grant_state(ui, flow, grant) {
-        State::Passed => done_pill(p, "allowed", tr("Allowed")),
-        State::Checking | State::Pending => spinner(p, "reading"),
-        State::Waiting if needs_restart(ui, grant) => push(
-            p,
-            "restart",
-            tr("Restart Agent-Desk and continue"),
-            true,
-            move |ui: &mut Ui| setup::allow(ui, grant),
-        ),
-        State::Waiting => row()
-            .key("waiting-slot")
-            .gap(8.0)
-            .center_y()
-            .child(waiting_pill(p, "waiting", tr("Waiting")))
-            .child(push(
-                p,
-                "again",
-                tr("Open again"),
-                false,
-                move |ui: &mut Ui| setup::allow(ui, grant),
-            )),
-        State::Failed => push(p, "allow", tr("Allow"), primary, move |ui: &mut Ui| {
-            setup::allow(ui, grant)
-        }),
-    }
-}
-
-pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, primary: bool) -> El {
-    let shared = ui.platform.caps.os == super::super::super::platform::Os::Macos;
-    let (glyph, title, detail) = match grant {
-        Grant::Microphone => (
-            &glyphs::MIC,
-            tr("Microphone"),
-            tr("Hears your question while you hold the shortcut"),
-        ),
-        Grant::Accessibility => (
-            &glyphs::CURSOR_TEXT,
-            tr("Accessibility"),
-            if shared {
-                tr("Lets Agent-Desk and Cua Driver read and operate apps")
-            } else {
-                tr("Notices the shortcut and reads the text you selected")
-            },
-        ),
-        Grant::ScreenRecording => (
-            SCREEN,
-            tr("Screen Recording"),
-            if shared {
-                tr("Lets Agent-Desk and Cua Driver see the screen")
-            } else {
-                tr("Sends the screen you ask about with your question")
-            },
-        ),
-        Grant::DesktopAccessibility => (
-            &glyphs::CURSOR_TEXT,
-            tr("Accessibility"),
-            tr("Lets Cua Driver click, type, and read apps"),
-        ),
-        Grant::DesktopScreenRecording => (
-            SCREEN,
-            tr("Screen Recording"),
-            tr("Lets Cua Driver see windows while a task works"),
-        ),
-    };
-    let state = grant_state(ui, flow, grant);
-    let detail = match state {
-        _ if setup::permissions::kind(grant).is_some_and(|kind| ui.platform.stale(kind)) => tr(
-            "Already enabled? Repair the entry for this copy of Agent-Desk, then allow it again.",
-        ),
-        State::Waiting if needs_restart(ui, grant) => {
-            tr("macOS turns it on when Agent-Desk restarts. Agent-Desk reopens right here")
-        }
-        State::Waiting => tr("Switch on Agent-Desk in System Settings"),
-        _ => detail,
-    };
-    row_of(
-        p,
-        grant.key(),
-        glyph,
-        title,
-        detail,
-        p.muted(),
-        grant_control(ui, flow, p, grant, primary),
-    )
-}
-
-/// Automation: Agent-Desk may control other apps (System Events and Finder),
-/// asked here so tasks never stop midway for macOS's prompt. Allow shows
-/// one prompt each; a denial opens System Settings › Automation. Other apps
-/// ask on first use, and the task's step says so first.
-fn automation_row(p: Paint) -> El {
-    use crate::desktop::automation::{self, AutomationState};
-    let control = match automation::last() {
-        AutomationState::Granted => done_pill(p, "allowed", tr("Allowed")),
-        AutomationState::Denied => push(
-            p,
-            "automation-settings",
-            tr("Open System Settings"),
-            true,
-            |_: &mut Ui| automation::open_settings(),
-        ),
-        AutomationState::NotAsked | AutomationState::Unknown => {
-            push(p, "allow", tr("Allow"), true, |_: &mut Ui| {
-                automation::request_async()
-            })
-        }
-    };
-    let detail = match automation::last() {
-        AutomationState::Denied => {
-            tr("Turn on System Events and Finder under Agent-Desk in System Settings › Automation")
-        }
-        _ => tr(
-            "Lets tasks operate your apps through System Events and Finder. Other apps ask the first time a task uses them",
-        ),
-    };
-    row_of(
-        p,
-        "automation",
-        TOOL,
-        tr("Control other apps"),
-        detail,
-        p.muted(),
-        control,
-    )
-}
-
-/// Contacts, Reminders, and the Calendar (`desktop::data_access`), in one
-/// row: Allow shows macOS's prompt for each never answered, one after the
-/// other. A refusal stays the person's answer; System Settings turns it on.
-fn personal_data_row(p: Paint) -> El {
-    use crate::desktop::data_access::{self, Source};
-    let name = |source: Source| match source {
-        Source::Contacts => tr("Contacts"),
-        Source::Reminders => tr("Reminders"),
-        Source::Calendar => tr("Calendar"),
-        Source::FullDisk => tr("Full Disk Access"),
-    };
-    let to_ask = data_access::to_ask(data_access::last);
-    let refused = data_access::refused(data_access::last);
-    let (detail, control) = if !to_ask.is_empty() {
-        (
-            tr("Finds who you mean, and reads your reminders and agenda, when you ask").to_owned(),
-            push(p, "allow", tr("Allow"), true, |_: &mut Ui| {
-                data_access::request_all_async()
-            }),
-        )
-    } else if let Some(first) = refused.first().copied() {
-        let names: Vec<&str> = refused.iter().map(|source| name(*source)).collect();
-        (
-            tr_fill(
-                "Off for {}: switch on Agent-Desk there in System Settings",
-                &names.join(", "),
-            ),
-            push(
-                p,
-                "data-settings",
-                tr("Open System Settings"),
-                false,
-                move |_: &mut Ui| data_access::open_settings(first),
-            ),
-        )
-    } else {
-        (
-            tr("Finds who you mean, and reads your reminders and agenda, when you ask").to_owned(),
-            done_pill(p, "allowed", tr("Allowed")),
-        )
-    };
-    row_of(
-        p,
-        "personal-data",
-        &rune_theme_opencode::icons::OUTLINE_PAIR,
-        tr("Contacts, Reminders, and Calendar"),
-        &detail,
-        p.muted(),
-        control,
-    )
-}
-
-/// Full Disk Access, optional: no prompt, only System Settings.
-fn full_disk_row(p: Paint) -> El {
-    use crate::desktop::data_access::{self, Access, Source};
-    let control = if data_access::last(Source::FullDisk) == Access::Granted {
-        done_pill(p, "allowed", tr("Allowed"))
-    } else {
-        push(
-            p,
-            "full-disk-settings",
-            tr("Open System Settings"),
-            false,
-            |_: &mut Ui| data_access::open_settings(Source::FullDisk),
-        )
-    };
-    row_of(
-        p,
-        "full-disk",
-        &rune_theme_opencode::icons::LOCK,
-        tr("Full Disk Access"),
-        tr("Optional: lets the assistant search your Mail and Messages on this Mac"),
-        p.muted(),
-        control,
-    )
-}
 
 /// An install that failed: the end of what it printed, and its command to
 /// run in Terminal instead.
@@ -299,36 +65,10 @@ pub(in crate::rune_ui) fn install_failure(p: Paint, error: &str, command: Option
         }))
 }
 
-/// Screen Recording (and any voice grant still missing), then Cua Driver
-/// with its version and update status.
-pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
-    // The voice setup asked for the Microphone and Accessibility already;
-    // they show again only while missing.
-    let hex: Vec<Grant> = Grant::hex()
-        .iter()
-        .copied()
-        .filter(|grant| {
-            *grant == Grant::ScreenRecording || grant_state(ui, flow, *grant) != State::Passed
-        })
-        .collect();
+/// Cua Driver's row: installed with its version and Update, or Install.
+fn driver_row(flow: &SetupFlow, p: Paint) -> El {
     let found = flow.desktop.as_ref();
     let installed = found.is_some_and(|found| found.path.is_some());
-    let mut grants: Vec<Grant> = hex.clone();
-    let shared = ui.platform.caps.os == super::super::super::platform::Os::Macos;
-    if installed && !shared {
-        grants.extend(Grant::desktop());
-    }
-    let first_missing = grants
-        .iter()
-        .find(|grant| grant_state(ui, flow, **grant) != State::Passed)
-        .copied();
-    let mut rows: Vec<El> = hex
-        .iter()
-        .map(|grant| grant_row(ui, flow, p, *grant, Some(*grant) == first_missing))
-        .collect();
-    if cfg!(target_os = "macos") {
-        rows.push(automation_row(p));
-    }
     let (detail, control) = match found {
         _ if flow.fixing == Some(Fix::InstallDriver) => {
             super::browser::installing(p, flow, tr("Installing… this takes a minute"))
@@ -357,13 +97,9 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                 .gap(8.0)
                 .center_y()
                 .child(done_pill(p, "installed", tr("Installed")))
-                .child(push(
-                    p,
-                    "update",
-                    tr("Update Cua Driver"),
-                    false,
-                    |ui: &mut Ui| setup::apply(ui, Fix::UpdateDriver),
-                )),
+                .child(push(p, "update", tr("Update"), false, |ui: &mut Ui| {
+                    setup::apply(ui, Fix::UpdateDriver)
+                })),
         ),
         Some(_) => (
             tr("Operates apps through Accessibility, without your pointer").to_owned(),
@@ -372,71 +108,70 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             }),
         ),
     };
-    rows.push(row_of(
+    status_row(
         p,
         "cua-driver",
         TOOL,
+        installed,
         crate::assistant::driver::NAME,
         &detail,
-        p.muted(),
         control,
-    ));
+    )
+}
+
+/// Cua Driver, then the checks proving it works through the agent.
+pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
+    let installed = flow
+        .desktop
+        .as_ref()
+        .is_some_and(|found| found.path.is_some());
+    let shared = ui.platform.caps.os == super::super::super::platform::Os::Macos;
+    let mut rows: Vec<El> = vec![driver_row(flow, p)];
     if installed && !shared {
-        rows.extend(
-            Grant::desktop()
-                .iter()
-                .map(|grant| grant_row(ui, flow, p, *grant, Some(*grant) == first_missing)),
-        );
-    }
-    // What the assistant may read: macOS asks for each once.
-    if cfg!(target_os = "macos") {
-        rows.push(personal_data_row(p));
-        rows.push(full_disk_row(p));
+        let first_missing = Grant::desktop()
+            .iter()
+            .find(|grant| grant_state(ui, flow, **grant) != setup::State::Passed)
+            .copied();
+        rows.extend(Grant::desktop().iter().map(|grant| {
+            super::permissions::grant_row(ui, flow, p, *grant, Some(*grant) == first_missing)
+        }));
     }
     // With two or more displays: which one agents work on (optional).
     rows.extend(super::super::displays::onboarding_row(ui, p));
-    let resumed = flow.resumed.then(|| {
-        text(tr(
-            "Agent-Desk restarted. Checking again where you left off…",
-        ))
-        .key("resumed")
-        .role("status")
-        .font(p.k.ty.small_medium)
-        .color(p.accent())
-        .transition(arrives())
-    });
+    let checks = super::checks::rows(ui, flow, p);
     let failure = flow
         .fix_error
         .as_ref()
         .map(|error| install_failure(p, error, flow.fix_command.as_deref()));
-    let below = match (resumed, failure) {
-        (None, None) => None,
-        (resumed, failure) => Some(
+    let done = page_done(ui, flow, Page::Desktop);
+    let again = (!flow.checks_running && !done && !flow.checks.is_empty()).then(|| {
+        Button::new(tr("Run again"))
+            .variant(ButtonVariant::Neutral)
+            .on_press(setup::run_checks)
+            .build_push(p.k)
+            .key("run-again")
+    });
+    let cards = col()
+        .key("desktop-cards")
+        .gap(16.0)
+        .child(rows_card(p, "desktop-card", rows))
+        .children((!checks.is_empty()).then(|| {
             col()
-                .key("below")
+                .key("checks")
                 .gap(8.0)
-                .items_center()
-                .children(resumed)
-                .children(failure),
-        ),
-    };
+                .child(section_label(p, "checks-label", tr("Making sure it works")))
+                .child(rows_card(p, "checks-card", checks))
+        }));
     let (title, explained) = if crate::assistant::computer::asks_permissions() {
         (
-            tr("Let the assistant see and use your Mac"),
+            tr("Let it use your Mac"),
             tr(
-                "Each one opens its page in System Settings, and this page waits until macOS turns it on. Agent-Desk starts Cua Driver, so macOS asks for Agent-Desk.",
-            ),
-        )
-    } else if cfg!(target_os = "windows") {
-        (
-            tr("Let the assistant see and use your PC"),
-            tr(
-                "The assistant operates apps through Cua Driver, which runs on macOS only, so here it answers without using apps.",
+                "Cua Driver clicks and types in apps for the assistant, with Agent-Desk's permissions. Each check sends a real request, so what passes here works for you.",
             ),
         )
     } else {
         (
-            tr("Let the assistant see and use your computer"),
+            tr("Check the assistant"),
             tr(
                 "The assistant operates apps through Cua Driver, which runs on macOS only, so here it answers without using apps.",
             ),
@@ -447,8 +182,8 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         "desktop",
         title,
         lead(p, explained),
-        Some(rows_card(p, "desktop-card", rows)),
-        below,
-        actions(p, page_done(ui, flow, Page::Desktop), true),
+        Some(cards),
+        failure,
+        actions(p, done, true).children(again),
     )
 }

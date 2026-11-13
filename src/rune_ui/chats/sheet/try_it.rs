@@ -1,20 +1,19 @@
-//! The onboarding's last page: the Action shortcut, tried for real and
+//! The onboarding's try-it page: the Action shortcut, tried for real and
 //! checked when it works. A hold is the one way to ask: a quick question
 //! about the window in front is answered at once, and a bigger job goes to
 //! the background on the assistant's own decision. Double-tap opens the
 //! task list (optional: only the HUD sees it). Stop all's keys close it.
 
-use rune::{Align, El, Tx, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant};
+use rune::{Align, El, col, el, icon, row, text};
 
-use super::super::super::controls::{Paint, PushSize};
-use super::super::super::onboarding_kit::{LEAD, arrives, keys};
+use super::super::super::controls::Paint;
+use super::super::super::onboarding_kit::{LEAD, keys};
 use super::super::Ui;
+use super::super::setup::SetupFlow;
 use super::super::setup::tutorial::{Gesture, Tutorial};
-use super::super::setup::{self, SetupFlow, can_finish};
 use super::{
-    ACTION_H, COL_W, MIC, ROW_H, SPARKLES, STACK, action_keys, done_pill, later_button, page, push,
-    rows_card, spinner, waiting_pill,
+    COL_W, MIC, ROW_H, SPARKLES, STACK, action_keys, actions, done_pill, page, push, rows_card,
+    spinner, waiting_pill,
 };
 use crate::desktop::i18n::{tr, tr_fill};
 
@@ -232,38 +231,7 @@ pub(super) fn try_it(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
                 .font(p.k.ty.small)
                 .color(p.muted()),
         );
-    let finish_ready = can_finish(ui, flow);
-    let finish = Button::new(tr("Finish"))
-        .variant(ButtonVariant::Contrast)
-        .disabled(!finish_ready)
-        .on_press_tx(|ui: &mut Ui, tx: &mut Tx| setup::finish(ui, tx))
-        .build_push(p.k)
-        .key("finish");
-    let finish = if finish_ready && tutorial.done() {
-        finish.default_button()
-    } else {
-        finish
-    };
-    let blocked = (!finish_ready).then(|| {
-        text(tr_fill(
-            "Finish waits until {} answers and can use the desktop tools in Checks",
-            super::super::backend_name(ui.settings.assistant.backend),
-        ))
-        .key("finish-note")
-        .font(p.k.ty.small)
-        .color(p.muted())
-        .align(Align::Center)
-        .wrap()
-        .max_w(COL_W)
-    });
-    let actions = row()
-        .key("action")
-        .h(ACTION_H)
-        .gap(12.0)
-        .center()
-        .transition(arrives())
-        .child(later_button(p))
-        .child(finish);
+    let actions = actions(p, tutorial.done(), true);
     page(
         p,
         "try",
@@ -276,14 +244,7 @@ pub(super) fn try_it(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             .wrap()
             .max_w(COL_W),
         Some(card),
-        Some(
-            col()
-                .key("notes")
-                .gap(10.0)
-                .items_center()
-                .child(stop_hint)
-                .children(blocked),
-        ),
+        Some(col().key("notes").gap(10.0).items_center().child(stop_hint)),
         actions,
     )
 }

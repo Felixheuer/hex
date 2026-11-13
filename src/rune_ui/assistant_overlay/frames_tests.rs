@@ -245,11 +245,16 @@ fn why_says_each_reason_in_words() {
     crate::desktop::i18n::apply(Some("en"));
     for why in crate::assistant::guard::BORROW_REASONS {
         let words = frame::why_words(why, "Numbers");
-        assert!(words.starts_with("Numbers "), "{why}: {words}");
+        assert!(words.contains("Numbers"), "{why}: {words}");
     }
     assert_ne!(
         frame::why_words(crate::assistant::guard::BORROW_IGNORED, "Numbers"),
         frame::why_words(crate::assistant::guard::BORROW_KEYS, "Numbers")
+    );
+    // The reason is the specific one: keys typed in that app.
+    assert_eq!(
+        frame::why_words(crate::assistant::guard::BORROW_KEYS, "Chrome"),
+        "Keyboard input in Chrome"
     );
 }
 
