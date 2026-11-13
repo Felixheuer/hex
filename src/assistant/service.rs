@@ -106,6 +106,13 @@ pub fn submit(request: Request) -> ConversationId {
     runner().submit(request)
 }
 
+/// Passes `text` to the running job `to` names (its short id from the
+/// stream's digest, or words of its title) as the person's instruction;
+/// whether one was found (`hex_tell_job`).
+pub fn tell_job(to: &str, text: &str) -> bool {
+    runner().tell_job(to, text)
+}
+
 /// A hold of the Action shortcut just became real: starts the backend for
 /// the next `lane` request while the person is still speaking. Returns at
 /// once; for the Here lane it reads the window in front itself (a few
@@ -875,6 +882,35 @@ impl Runner {
         }
     }
 
+    /// [`tell_job`]: steers the one running task `to` names.
+    pub(crate) fn tell_job(self: &Arc<Self>, to: &str, text: &str) -> bool {
+        let text = text.trim();
+        if text.is_empty() {
+            return false;
+        }
+        let found = {
+            let state = self.state();
+            let running: Vec<TaskStatus> = state
+                .tasks
+                .iter()
+                .filter(|task| !task.control.cancelled())
+                .map(|task| task.status.clone())
+                .collect();
+            job_named(to, &running)
+        };
+        let Some(conversation) = found else {
+            tracing::info!(to, "hex_tell_job named no running job");
+            return false;
+        };
+        self.submit(Request {
+            conversation: Some(conversation),
+            text: text.to_owned(),
+            origin: Origin::Chat,
+            context: Context::default(),
+        });
+        true
+    }
+
     pub(crate) fn submit(self: &Arc<Self>, request: Request) -> ConversationId {
         self.submit_as(request, JobKind::Ask, Said::Request)
     }
@@ -1402,18 +1438,9 @@ fn focus_past(state: &State, follow_up_seconds: u32, now: u64) -> Option<Convers
     {
         return Some(task.status.conversation.clone());
     }
-    // Chats' conversation, unless it's a job still running: a hold then
-    // asks something new ("start WhatsApp") rather than steering the job;
-    // naming the job still reaches it (`context::route`).
-    if let Some(focus) = &state.focus
-        && !state.tasks.iter().any(|task| {
-            task.status.conversation == *focus
-                && task.lane() == Lane::Background
-                && !task.control.cancelled()
-        })
-    {
-        return Some(focus.clone());
-    }
+    // One assistant, one stream: what Chats shows never decides where a
+    // hold goes. The assistant reads the stream (`context::digest`) and
+    // steers a job with `hex_tell_job` when the person means one.
     let (id, answered) = state.last_quick.as_ref()?;
     (follow_up_seconds > 0 && now.saturating_sub(*answered) <= u64::from(follow_up_seconds) * 1000)
         .then(|| id.clone())
@@ -1442,3 +1469,66 @@ fn backoff(attempt: u32) -> u64 {
 
 #[cfg(test)]
 mod tests;
+
+/// The one task among `running` that `to` names: its short id (as the
+/// digest shows it, with or without brackets), else the only title that
+/// contains it.
+fn job_named(to: &str, running: &[TaskStatus]) -> Option<ConversationId> {
+    let to = to.trim().trim_matches(['[', ']']).trim();
+    if to.is_empty() {
+        return None;
+    }
+    if let Some(task) = running
+        .iter()
+        .find(|task| task.conversation.starts_with(to))
+    {
+        return Some(task.conversation.clone());
+    }
+    let lower = to.to_lowercase();
+    let mut titled = running
+        .iter()
+        .filter(|task| task.title.to_lowercase().contains(&lower));
+    match (titled.next(), titled.next()) {
+        (Some(task), None) => Some(task.conversation.clone()),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tell_job_tests {
+    use super::*;
+
+    fn task(id: &str, title: &str) -> TaskStatus {
+        TaskStatus {
+            conversation: id.into(),
+            origin: Origin::Background,
+            title: title.into(),
+            state: TaskState::Running,
+            step: None,
+            windows: Vec::new(),
+            colour: 0,
+        }
+    }
+
+    #[test]
+    fn a_job_is_named_by_its_short_id_or_title() {
+        let running = [
+            task("ebcfca18-8bd1", "WhatsApp starten"),
+            task("c9c33480-f74f", "Kraftstoffnotdienst recherchieren"),
+        ];
+        assert_eq!(
+            job_named("[c9c33480]", &running).as_deref(),
+            Some("c9c33480-f74f")
+        );
+        assert_eq!(
+            job_named("ebcfca18", &running).as_deref(),
+            Some("ebcfca18-8bd1")
+        );
+        assert_eq!(
+            job_named("whatsapp", &running).as_deref(),
+            Some("ebcfca18-8bd1")
+        );
+        assert_eq!(job_named("", &running), None);
+        assert_eq!(job_named("Tokio", &running), None);
+    }
+}
