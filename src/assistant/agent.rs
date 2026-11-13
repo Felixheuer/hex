@@ -837,6 +837,7 @@ pub fn prepare(
     if !job_role {
         system.push_str(TOOLS_RULES);
     }
+    system.push_str(crate::assistant::knowledge::RULES);
     if settings.memory {
         system.push_str(&memory_rules(job.memory.as_deref(), !job_role));
     }

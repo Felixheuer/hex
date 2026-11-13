@@ -111,6 +111,8 @@ impl Runner {
             .memory
             .then(|| crate::assistant::memory::for_prompt(&(self.hooks.memory)()))
             .flatten();
+        let memory =
+            crate::assistant::knowledge::with_graph(memory, &request.text, settings.memory);
         let notify = |event: &Event| {
             // Away from the Mac: questions and results reach the phone.
             if parent.is_none() {
@@ -307,6 +309,12 @@ impl Runner {
         }
         match outcome {
             Outcome::Answer(text) => {
+                crate::assistant::knowledge::learn_from_task(
+                    &conversation,
+                    &request.text,
+                    &text,
+                    settings.memory,
+                );
                 let text = with_workspace(text, workspace.as_deref());
                 if settings.speak_answers {
                     if lane == Lane::Here {

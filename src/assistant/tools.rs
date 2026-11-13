@@ -3,8 +3,10 @@
 //! memory note, `hex_schedule`, `hex_schedules`, `hex_unschedule` manage
 //! scheduled jobs, `hex_compare_images` tells how alike two screenshots look
 //! (a job's own check, `agent::goal`), and `hex_start_jobs` hands a request
-//! that is a job to the background (`agent::handoff`). Newline-delimited
-//! JSON-RPC on stdio, like the other servers.
+//! that is a job to the background (`agent::handoff`). `hex_lookup` and
+//! `hex_chrome_tab` find the person's own things and act in their Chrome
+//! tab (`knowledge`). Newline-delimited JSON-RPC on stdio, like the other
+//! servers.
 //!
 //! Two roles. A quick question or a chat (the person's own turn) has all of
 //! the above. A background job (`--role job`) reads web pages and files the
@@ -143,7 +145,7 @@ fn team_definitions() -> Vec<Value> {
 
 /// The tool definitions for a quick question or a chat.
 pub fn definitions() -> Vec<Value> {
-    vec![
+    let mut tools = vec![
         json!({
             "name": "hex_start_jobs",
             "description": "Hand the request to the background as one or more jobs, when it is a job rather than a quick question or a small action in the window in front (several steps, many items, other apps or websites, research, documents, files, or more than a minute or two). Hex starts each job with every tool it needs (its own browsers, apps, files) and the job asks the person what it needs. Call it once with all jobs: unrelated requests become separate jobs that run in parallel; parts that build on each other (research, then a sheet, then a message) stay one job, which leads helpers itself. Then end your reply with one or two short, speakable sentences saying you're on it. Never say something runs in the background without calling this.",
@@ -174,7 +176,8 @@ pub fn definitions() -> Vec<Value> {
             "name": "hex_remember",
             "description": "Remember one durable fact the person told you, for every later task: their company, website, a colleague's name and email, the tone or language they like. One short fact per call. Never passwords, keys, tokens, card or account numbers.",
             "inputSchema": {"type": "object", "properties": {
-                "fact": {"type": "string", "description": "The fact, as one short sentence."}
+                "fact": {"type": "string", "description": "The fact, as one short sentence."},
+                "about": {"type": "string", "description": "Who or what it is about (a person, company, or project name), so Hex links it in the memory graph."}
             }, "required": ["fact"]},
         }),
         json!({
@@ -209,7 +212,9 @@ pub fn definitions() -> Vec<Value> {
                 "id": {"type": "string"}
             }, "required": ["id"]},
         }),
-    ]
+    ];
+    tools.extend(crate::assistant::knowledge::definitions());
+    tools
 }
 
 /// Runs one tool; its text, or why it failed.
@@ -342,9 +347,10 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             if !memory_on() {
                 return Err("The person turned memory off; nothing is remembered.".into());
             }
-            memory::remember(&text("fact")?)
-                .map(|line| format!("Remembered: {line}"))
-                .map_err(|error| format!("{error:#}"))
+            let line = memory::remember(&text("fact")?).map_err(|error| format!("{error:#}"))?;
+            let about = arguments.get("about").and_then(Value::as_str);
+            crate::assistant::knowledge::learn_fact(&line, about);
+            Ok(format!("Remembered: {line}"))
         }
         "hex_schedule" => {
             let lane = match arguments.get("lane").and_then(Value::as_str) {
@@ -393,6 +399,9 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             } else {
                 Err(format!("There is no schedule {id}."))
             }
+        }
+        name if crate::assistant::knowledge::handles(name) => {
+            crate::assistant::knowledge::call(name, arguments, TASK.get().map(String::as_str))
         }
         other => Err(format!("There is no tool “{other}”.")),
     }
@@ -551,7 +560,9 @@ mod tests {
                 "hex_schedule",
                 "hex_schedules",
                 "hex_compare_images",
-                "hex_unschedule"
+                "hex_unschedule",
+                "hex_lookup",
+                "hex_chrome_tab"
             ]
         );
         let secret = answer(&json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -580,6 +591,8 @@ mod tests {
                 "hex_job_result",
                 "hex_schedules",
                 "hex_compare_images",
+                "hex_lookup",
+                "hex_chrome_tab",
                 "hex_team_start",
                 "hex_team_tell",
                 "hex_team_status"
