@@ -242,6 +242,7 @@ impl<D: Desktop> Guard<D> {
         if kind.acts() {
             result = self.ax_fallback(tool, args, &resolved, result);
             self.count_failure(&resolved, &result);
+            self.note_keys(tool, &resolved, &result);
             if kind == Kind::CloseApp
                 && child::data(&result).is_some()
                 && let Some(window) = resolved.first()

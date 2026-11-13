@@ -139,7 +139,7 @@ impl<D: Desktop> Guard<D> {
             launch.insert("no_attach".into(), json!(true));
         }
         // The person's app keeps the front (`front`): noted before.
-        let before = super::front::frontmost();
+        let before = self.front.frontmost();
         let result = self.forward("desktop_launch", &launch)?;
         let Some(data) = child::data(&result) else {
             // The driver's own failure, as it said it.
@@ -160,7 +160,10 @@ impl<D: Desktop> Guard<D> {
                 }
             }
         }
-        super::front::keep_front(before, launched.pid);
+        // Cua Driver launches in the background, but an app may still come
+        // forward by itself as it finishes starting: watched a moment.
+        let took = self.processes_of(&app, launched.pid);
+        self.keep_front(before, &took, super::front::SETTLE);
         // Out of the person's way now, before the task acts in it.
         self.place_arrivals();
         // The notes `adopt` left say the same; the data has it.
@@ -212,6 +215,10 @@ impl<D: Desktop> Guard<D> {
     /// background. A window that wasn't in front goes out of the person's
     /// way like any the task opens (`place_arrivals`).
     pub(super) fn take_running(&mut self, app: &App) -> Value {
+        // Taking a running app's window never brings it forward: whatever
+        // a step below asks of the app (unhide, a new window, a reopen),
+        // the person's app keeps the front.
+        let before = self.front.frontmost();
         let (mut pids, mut on_screen, mut off_screen) = self.windows_of(app);
         // No window here but one elsewhere (another desktop, minimized, the
         // app hidden): it is brought here first (`recover`), since a window
@@ -224,13 +231,21 @@ impl<D: Desktop> Guard<D> {
         // A window in full screen is a desktop of its own: as unreachable.
         let full_screen = !on_screen.is_empty() && self.full_screen(app);
         if (on_screen.is_empty() && elsewhere) || full_screen {
-            match self.bring_here(app) {
+            let outcome = self.bring_here(app);
+            let took = self.processes_of(app, None);
+            self.keep_front(before, &took, super::front::SETTLE);
+            match outcome {
                 Ok(step) => {
                     recovered = Some(step);
                     (pids, on_screen, off_screen) = self.windows_of(app);
                 }
                 Err(why) => report = Some(why),
             }
+        } else {
+            // Nothing was asked of the app; a look that it didn't come
+            // forward all the same.
+            let took = self.processes_of(app, None);
+            self.keep_front(before, &took, std::time::Duration::ZERO);
         }
         let pid = pids.first().copied().or_else(|| {
             on_screen
@@ -299,14 +314,14 @@ impl<D: Desktop> Guard<D> {
         if !taken_by_others {
             // Running without a window (its last one closed): it reopens
             // one, in the background.
-            let before = super::front::frontmost();
             (self.reopen)(app);
             let launched = Launched {
                 app: app.name.clone(),
                 pid,
             };
             mine = self.wait_for_window(&launched, &held_before);
-            super::front::keep_front(before, pid);
+            let took = self.processes_of(app, pid);
+            self.keep_front(before, &took, super::front::SETTLE);
             self.place_arrivals();
             self.notes.clear();
         }
@@ -358,6 +373,23 @@ impl<D: Desktop> Guard<D> {
             .filter(|window| of_app(window) && !on_screen.iter().any(|on| on.id == window.id))
             .collect();
         (pids, on_screen, off_screen)
+    }
+
+    /// Every process of `app` (and `also`, a pid known otherwise): which
+    /// of them in front means the app took the front.
+    fn processes_of(&mut self, app: &App, also: Option<i64>) -> Vec<i64> {
+        let mut pids = self.screen.app_pids(&app.path);
+        let windows = self.screen.windows();
+        pids.extend(
+            windows
+                .iter()
+                .filter(|window| same_app(&window.app, &app.name))
+                .filter_map(|window| window.pid),
+        );
+        pids.extend(also);
+        pids.sort_unstable();
+        pids.dedup();
+        pids
     }
 
     fn app_blocked(&mut self, app: &App) -> bool {

@@ -197,6 +197,9 @@ pub enum Report {
     /// sign it still works, for a quick turn's watchdog
     /// (`agent::watchdog`).
     Alive,
+    /// A step ended with no tool running: the session's size now, for a
+    /// long job's fresh session (`agent::rollover`).
+    Usage(crate::assistant::agent::rollover::Usage),
 }
 
 impl Report {
@@ -250,6 +253,8 @@ pub struct Control {
     failure: Mutex<Option<String>>,
     /// Turns ended for making no progress (`stall`).
     stalls: std::sync::atomic::AtomicUsize,
+    /// Sessions ended to go on in a fresh one (`rotate`).
+    rotations: std::sync::atomic::AtomicUsize,
     groups: Mutex<Vec<Tree>>,
     /// The shell commands held while the person took the task over.
     held: Mutex<Vec<u32>>,
@@ -328,6 +333,26 @@ impl Control {
         for group in groups {
             end_group(group);
         }
+    }
+
+    /// Ends the current turn's processes so a long job goes on in a fresh
+    /// session (`agent::rollover`); like [`stall`](Self::stall) the task
+    /// goes on.
+    pub fn rotate(&self) {
+        self.rotations.fetch_add(1, Ordering::AcqRel);
+        let groups = self
+            .groups
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        for group in groups {
+            end_group(group);
+        }
+    }
+
+    /// How often [`rotate`](Self::rotate) ended a turn of this task.
+    pub fn rotations(&self) -> usize {
+        self.rotations.load(Ordering::Acquire)
     }
 
     /// How often [`stall`](Self::stall) ended a turn of this task.

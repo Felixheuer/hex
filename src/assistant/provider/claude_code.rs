@@ -23,6 +23,7 @@ use serde_json::{Value, json};
 use super::desktop::Describer;
 use super::{Control, Finished, Process, Report, Run, Stdin, warm};
 use crate::app_settings::AssistantBackend;
+use crate::assistant::agent::rollover::Usage;
 
 pub(super) fn run(
     run: &Run,
@@ -364,6 +365,8 @@ pub(super) struct Stream {
     session: Option<String>,
     /// A synthetic message that reported a usage limit.
     limit: Option<String>,
+    /// The session's size at its last model request (`usage`).
+    context_tokens: u64,
 }
 
 impl Stream {
@@ -395,6 +398,12 @@ impl Stream {
             Some("assistant") => {
                 if let Some(limit) = limit_text(&event) {
                     self.limit = Some(limit);
+                }
+                // A subagent's messages carry its own, smaller session.
+                if top_level(&event)
+                    && let Some(tokens) = context_tokens(&event)
+                {
+                    self.context_tokens = tokens;
                 }
                 for block in blocks(&event) {
                     if block.get("type").and_then(Value::as_str) != Some("tool_use") {
@@ -440,6 +449,12 @@ impl Stream {
                     for item in self.describer.result(&name, &output) {
                         report(item);
                     }
+                }
+                // Between two steps: the session's size, for a long job.
+                if self.running.is_empty() && self.context_tokens > 0 && top_level(&event) {
+                    report(Report::Usage(Usage {
+                        context_tokens: self.context_tokens,
+                    }));
                 }
             }
             Some("result") => {
@@ -490,6 +505,23 @@ impl Stream {
     pub(super) fn finish(self) -> Option<Result<Finished>> {
         self.outcome
     }
+}
+
+/// The tokens an assistant message's request carried: input, read from and
+/// written to the cache, and its output.
+fn context_tokens(event: &Value) -> Option<u64> {
+    let usage = event.pointer("/message/usage")?;
+    let field = |name: &str| usage.get(name).and_then(Value::as_u64).unwrap_or(0);
+    let total = field("input_tokens")
+        + field("cache_creation_input_tokens")
+        + field("cache_read_input_tokens")
+        + field("output_tokens");
+    (total > 0).then_some(total)
+}
+
+/// Whether `event` is the session's own, not a subagent's.
+fn top_level(event: &Value) -> bool {
+    event.get("parent_tool_use_id").is_none_or(Value::is_null)
 }
 
 fn blocks(event: &Value) -> impl Iterator<Item = &Value> {
@@ -775,6 +807,27 @@ mod tests {
         assert!(args.windows(2).any(|pair| pair == ["--effort", "low"]));
         run.effort = Some(" ".into());
         assert!(!arguments(&run).iter().any(|arg| arg == "--effort"));
+    }
+
+    #[test]
+    fn the_session_s_size_is_reported_between_steps_only() {
+        let lines = [
+            r#"{"type":"assistant","message":{"usage":{"input_tokens":12,"cache_read_input_tokens":90000,"cache_creation_input_tokens":3000,"output_tokens":200},"content":[{"type":"tool_use","id":"t1","name":"Read","input":{}},{"type":"tool_use","id":"t2","name":"Read","input":{}}]}}"#,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"a"}]}}"#,
+            r#"{"type":"assistant","parent_tool_use_id":"t9","message":{"usage":{"input_tokens":5,"output_tokens":5},"content":[]}}"#,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"b"}]}}"#,
+        ];
+        let mut stream = Stream::default();
+        let mut sizes = Vec::new();
+        for line in lines {
+            stream.line(line, &mut |report| {
+                if let Report::Usage(usage) = report {
+                    sizes.push(usage.context_tokens);
+                }
+            });
+        }
+        // Not while t2 still ran, nor a subagent's own size.
+        assert_eq!(sizes, [93_212]);
     }
 
     #[test]
