@@ -297,6 +297,10 @@ impl Runner {
             };
             (self.hooks.settle)(&conversation, ended, message);
         }
+        // Always warm: the next new quick conversation finds its backend up.
+        if lane == Lane::Here && matches!(outcome, Outcome::Answer(_)) {
+            self.stand_by();
+        }
         if let Some(session) = end_session {
             (self.hooks.end_session)(&session);
         }

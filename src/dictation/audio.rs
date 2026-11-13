@@ -914,7 +914,13 @@ impl Owner {
                 {
                     self.capture.begin_stream(engine);
                 }
-                self.capture.report_live_text();
+                // A hold's words so far start what the assistant will need.
+                if let Some(partial) = self.capture.report_live_text() {
+                    crate::assistant::service::speculate(&format!(
+                        "{} {}",
+                        partial.stable, partial.tentative
+                    ));
+                }
                 #[cfg(hex_capture)]
                 {
                     let sample_rate = self.sample_rate();

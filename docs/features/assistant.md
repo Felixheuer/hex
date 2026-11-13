@@ -132,6 +132,45 @@ microphone loss never salvages its clip. Checks:
 real microphone, the overlays' drawing of `Listening`, or barge-in through
 real speakers.
 
+## Speed: two models, kept warm
+
+- **Two models.** A Here turn on Claude Code runs on `assistant.here_model`
+  at `assistant.here_effort` (`--effort`, low by default); jobs run on
+  `claude_code_model` (none: Claude Code's default). A Here turn on the fast
+  model that has made `assistant.escalate_after_tools` tool calls (8; 0
+  never) stops between two steps (no tool running, `provider::Escalate`)
+  and the strong model goes on in the same session, told
+  `agent::ESCALATED_NOTE`; so does one that failed (not on a usage limit,
+  not when stopped). Handing work to a job (`hex_start_jobs`) puts it on the
+  strong model anyway.
+- **One system prompt per lane and settings.** `agent::system_for` depends
+  on the settings and the task only, never on the request's words: the
+  person's language and what their words or a yes allowed beyond the
+  autonomy mode's baseline go at the top of the message
+  (`agent::request_rules`). So the process `prewarm` starts with no words
+  (and the memory note, as the request has it) is the one the request
+  finds, and the model's prompt cache keeps the rules from one request to
+  the next. agent-desktop's guide leaves out the sections written for a
+  shell (`agent::GUIDE_SKIPPED`); `each_lane_s_rules_stay_within_their_budget`
+  guards each lane's size.
+- **Kept warm.** Besides the hold's `prewarm` and the follow-up's process,
+  a Here answer starts Claude Code for the next new Here conversation in
+  the window in front then (`service::stand_by`), kept
+  `assistant.warm_minutes` (15; 0 off). It idles without tokens; a hold in
+  another window starts its own.
+- **Speculative start.** The live transcript of a hold
+  (`dictation::audio`, `service::speculate`) starts the reserved
+  conversation's own browser once its words ask for the web
+  (`service::warm::wants_web`), before the release.
+- Measured with `claude -p` stream-json (Claude Code 2.1.323, the Here
+  system prompt, cached, no MCP servers; medians of four, seconds from the
+  question to its first finished sentence): before, Haiku 5.5 with the old
+  prompt, 2.59 started with the question and 2.02 started 2 s ahead; now
+  Sonnet 5.5 at low effort with the new prompt, 1.81 and 1.12 (1.21 kept
+  warm). Haiku 5.5 at low effort stays at 1.96 to 2.42: it thinks before it
+  writes, so Sonnet 5.5 is `here_model`'s default. The Here system prompt
+  went from 9,674 to 8,045 cached tokens.
+
 ## Whether the shortcuts can work
 
 Whether the shortcuts can work (macOS, `shortcut_conflicts` and

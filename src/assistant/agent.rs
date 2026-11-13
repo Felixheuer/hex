@@ -209,7 +209,7 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
         resume = None;
         stored.sessions.remove(key);
         run.resume = None;
-        run.prompt = prompt_now(job, &history, true);
+        run.prompt = message(job, &history, true);
     }
     stored.sessions.insert(rules_key, rules);
 
@@ -236,13 +236,35 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
             && !seen.streamed
             && seen.actions.is_empty()
             && !control.cancelled()
+            && provider::escalated(error).is_none()
             && limit::detect(&format!("{error:#}")).is_none()
         {
             tracing::info!(error = %format!("{error:#}"), "the saved session didn't continue; starting a new one");
             run.resume = None;
             stored.sessions.remove(key);
-            run.prompt = prompt_now(job, &history, true);
+            run.prompt = message(job, &history, true);
             result = run_backend(&run, key, control, id, emit, &mut seen, store, &mut stored);
+        }
+        // Two models: a quick turn the fast model found hard (many tool
+        // calls) or failed goes on with the strong one, in its session.
+        if run.escalate_after.is_some()
+            && let Err(error) = &result
+            && !control.cancelled()
+            && should_escalate(error)
+            && let Some(session) = stored.sessions.get(key).cloned()
+        {
+            tracing::info!(error = %format!("{error:#}"), "the strong model takes the quick turn over");
+            let strong = escalated(&run, job, Some(session));
+            result = run_backend(
+                &strong,
+                key,
+                control,
+                id,
+                emit,
+                &mut seen,
+                store,
+                &mut stored,
+            );
         }
         first = false;
         let actions = std::mem::take(&mut seen.actions);
@@ -760,6 +782,70 @@ pub fn model(job: &Job) -> Option<String> {
     }
 }
 
+/// Whether a fast model's failed turn goes on with the strong one: it
+/// handed over ([`provider::Escalate`]) or failed, but not on a usage
+/// limit (the strong model shares it) nor when it was stopped.
+fn should_escalate(error: &color_eyre::Report) -> bool {
+    provider::escalated(error).is_some()
+        || (limit::detect(&format!("{error:#}")).is_none() && format!("{error:#}") != "cancelled")
+}
+
+/// The model a Here turn on the fast one goes on with when it hands over
+/// ([`provider::Escalate`]): Claude Code's own (`None`: its default).
+pub fn strong_model(settings: &AssistantSettings) -> Option<String> {
+    settings
+        .claude_code_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(str::to_owned)
+}
+
+/// Whether `job` runs on the Here lane's fast model on Claude Code, where
+/// a hard turn can hand over to the strong one.
+fn on_fast_model(job: &Job) -> bool {
+    job.settings.backend == AssistantBackend::ClaudeCode
+        && job.request.origin.lane() == Lane::Here
+        && model(job).is_some_and(|fast| Some(&fast) != strong_model(&job.settings).as_ref())
+}
+
+/// After how many tool calls a Here turn on the fast model hands over to
+/// the strong one (`assistant.escalate_after_tools`); `None` never.
+pub fn escalate_after(job: &Job) -> Option<usize> {
+    let after = job.settings.escalate_after_tools as usize;
+    (after > 0 && on_fast_model(job)).then_some(after)
+}
+
+/// How hard a run of `job` thinks: the Here lane's effort on Claude Code
+/// (`assistant.here_effort`), else the model's own.
+pub fn effort(job: &Job) -> Option<String> {
+    (job.settings.backend == AssistantBackend::ClaudeCode
+        && job.request.origin.lane() == Lane::Here)
+        .then(|| job.settings.here_effort.clone())
+        .flatten()
+        .filter(|effort| !effort.trim().is_empty())
+}
+
+/// What the strong model is told when it takes a turn over from the fast
+/// one, in the same session.
+pub const ESCALATED_NOTE: &str = "You are taking this turn over from a faster model, in the same session: everything above happened. Check where it stands (take a fresh look where it matters), then finish the person's request; never repeat a send or submit that may already have happened. Your answer is read aloud: keep it short and speakable.";
+
+/// The run that hands `run` (a fast model's turn that stopped or failed)
+/// to the strong model: the same session, a note to go on.
+fn escalated(run: &Run, job: &Job, session: Option<String>) -> Run {
+    let mut strong = run.clone();
+    strong.model = strong_model(&job.settings);
+    strong.effort = None;
+    strong.escalate_after = None;
+    // Its process has other arguments than the next fast turn's: keeping it
+    // would only wait to expire.
+    strong.keep_warm = None;
+    strong.image = None;
+    strong.resume = session;
+    strong.prompt = ESCALATED_NOTE.to_owned();
+    strong
+}
+
 /// The backend run for `job`, or why it can't run.
 pub fn prepare(
     job: &Job,
@@ -796,8 +882,7 @@ pub fn prepare(
     let lane = spec.lane;
     // Both lanes: a quick "open a browser and go to …" runs in Hex's own
     // browser (a live picture on the overlay), never in the person's Chrome.
-    let browser = (settings.background_browser
-        && (lane == Lane::Background || spec.full_control))
+    let browser = (settings.background_browser && (lane == Lane::Background || spec.full_control))
         .then(|| super::browser::mcp_server(&job.conversation))
         .flatten();
     let workdir = match &job.workspace {
@@ -805,44 +890,12 @@ pub fn prepare(
         None => workdir()
             .map_err(|error| format!("Hex can't prepare the assistant's folder: {error:#}"))?,
     };
-    let origin = job.request.origin;
     let continued = resume.is_none() && settings.backend != AssistantBackend::ClaudeApi;
-    let keep_warm = (lane == Lane::Here
-        && settings.backend == AssistantBackend::ClaudeCode
-        && settings.follow_up_seconds > 0)
-        .then(|| Duration::from_secs(settings.follow_up_seconds.into()));
-    let mut system = system_prompt(origin, desktop.as_ref(), browser.is_some());
-    match &job.workspace {
-        Some(workspace) => {
-            system.push_str(&job_rules(
-                workspace,
-                browser.is_some(),
-                settings.autonomy == crate::assistant::autonomy::Autonomy::Yolo,
-            ));
-            system.push_str(&project_rules(&settings.projects_folder));
-        }
-        None if origin != Origin::Background => system.push_str(ROUTING),
-        None => {}
-    }
-    if let Some(lead) = &job.helps {
-        system.push_str(&team::helper_rules(lead));
-    }
-    system.push_str(&autonomy_rules(settings.autonomy, &job.authorized));
-    // A background job reads pages and files the person never saw, with
-    // or without a workspace (one couldn't be made): never the person's
-    // own turn's tools.
-    let job_role = job.workspace.is_some() || job.request.origin == Origin::Background;
-    // A job can't make schedules or remember (`tools::Role::Job`); it still
-    // reads the memory note.
-    if !job_role {
-        system.push_str(TOOLS_RULES);
-    }
-    if settings.memory {
-        system.push_str(&memory_rules(job.memory.as_deref(), !job_role));
-    }
-    // Pages, tools, and Hex's own notes are mostly English; the person's
-    // language is named so every answer, question, and report keeps it.
-    system.push_str(&language_rule(&job.request.text));
+    let keep_warm = (lane == Lane::Here && settings.backend == AssistantBackend::ClaudeCode)
+        .then(|| keep_warm_for(settings))
+        .flatten();
+    let system = system_for(job, desktop.as_ref(), browser.is_some());
+    let job_role = job_role(job);
     let tools = tools_server(
         &job.conversation,
         if job_role {
@@ -854,8 +907,10 @@ pub fn prepare(
     Ok(Run {
         backend: settings.backend,
         model: model(job),
+        effort: effort(job),
+        escalate_after: escalate_after(job),
         system,
-        prompt: prompt_now(job, history, continued),
+        prompt: message(job, history, continued),
         image,
         resume,
         history: history.to_vec(),
@@ -875,6 +930,90 @@ pub fn prepare(
             .then(|| crate::assistant::backends::opencode_provider_config(settings))
             .flatten(),
     })
+}
+
+/// Whether `job` works as a job: a background job reads pages and files
+/// the person never saw, with or without a workspace (one couldn't be
+/// made), so it never gets the person's own turn's tools (`tools::Role`).
+fn job_role(job: &Job) -> bool {
+    job.workspace.is_some() || job.request.origin == Origin::Background
+}
+
+/// How long a Here process waits after its answer: for the follow-up
+/// window (the next new conversation's is started by `service::stand_by`).
+/// `None`: it ends.
+fn keep_warm_for(settings: &AssistantSettings) -> Option<Duration> {
+    let seconds = u64::from(settings.follow_up_seconds);
+    (seconds > 0).then(|| Duration::from_secs(seconds))
+}
+
+/// The system prompt of `job`'s run: who the assistant is, its lane's and
+/// tools' rules, the routing or job rules, the autonomy mode, and the
+/// memory note. Only the settings and the task decide it, never the words
+/// of the request, so a backend started ahead of the question (`prewarm`)
+/// or kept for the follow-up has exactly it, and the model's prompt cache
+/// keeps it from one request to the next. What only the request decides
+/// goes with its message ([`request_rules`]).
+pub fn system_for(job: &Job, desktop: Option<&Desktop>, browser: bool) -> String {
+    let settings = &job.settings;
+    let origin = job.request.origin;
+    let mut system = system_prompt(origin, desktop, browser);
+    match &job.workspace {
+        Some(workspace) => {
+            system.push_str(&job_rules(
+                workspace,
+                browser,
+                settings.autonomy == crate::assistant::autonomy::Autonomy::Yolo,
+            ));
+            system.push_str(&project_rules(&settings.projects_folder));
+        }
+        None if origin != Origin::Background => system.push_str(ROUTING),
+        None => {}
+    }
+    if let Some(lead) = &job.helps {
+        system.push_str(&team::helper_rules(lead));
+    }
+    // The mode's baseline; what the person's words allowed on top of it is
+    // the request's (`request_rules`).
+    system.push_str(&autonomy_rules(
+        settings.autonomy,
+        &crate::assistant::autonomy::Authorized::default(),
+    ));
+    let job_role = job_role(job);
+    // A job can't make schedules or remember (`tools::Role::Job`); it still
+    // reads the memory note.
+    if !job_role {
+        system.push_str(TOOLS_RULES);
+    }
+    if settings.memory {
+        system.push_str(&memory_rules(job.memory.as_deref(), !job_role));
+    }
+    system
+}
+
+/// What only this request decides, sent at the top of its message: the
+/// person's language (pages, tools, and Hex's notes are mostly English, so
+/// it is named) and, when their words or a yes allowed more than the
+/// mode's baseline in the system prompt, what they allowed.
+pub fn request_rules(job: &Job) -> String {
+    let mode = job.settings.autonomy;
+    let mut rules = language_rule(&job.request.text).trim().to_owned();
+    let allowed = autonomy_rules(mode, &job.authorized);
+    if allowed != autonomy_rules(mode, &crate::assistant::autonomy::Authorized::default()) {
+        rules.push_str("\nFor this request: ");
+        rules.push_str(allowed.trim());
+    }
+    rules
+}
+
+/// The message a run sends: [`request_rules`], then [`prompt`] with the
+/// desktop as it is now.
+fn message(job: &Job, history: &[Message], with_history: bool) -> String {
+    format!(
+        "{}\n\n{}",
+        request_rules(job),
+        prompt_now(job, history, with_history)
+    )
 }
 
 /// Hex's own tools for a task (`tools`): memory and schedules for the
@@ -1041,9 +1180,29 @@ pub fn prewarm(job: &Job) {
                 ))
                 .cloned()
         });
+    let ttl = ahead_for(
+        &job.settings,
+        job.request.origin.lane(),
+        job.request.conversation.is_none(),
+    );
     match prepare(job, &[], resume, None) {
-        Ok(run) => provider::prewarm(&run),
+        Ok(run) => provider::prewarm(&run, ttl),
         Err(why) => tracing::debug!(why, "nothing to start ahead"),
+    }
+}
+
+/// How long a backend started ahead waits for its request.
+const AHEAD: Duration = Duration::from_secs(60);
+
+/// How long a backend started ahead for the next `lane` request (for a
+/// `new` conversation or not) waits for it: a minute, and a new Here
+/// conversation's `assistant.warm_minutes` (the always-warm cap).
+pub fn ahead_for(settings: &AssistantSettings, lane: Lane, new: bool) -> Duration {
+    let warm = Duration::from_secs(u64::from(settings.warm_minutes) * 60);
+    if lane == Lane::Here && new {
+        warm.max(AHEAD)
+    } else {
+        AHEAD
     }
 }
 
@@ -1263,6 +1422,9 @@ fn language_rule(request: &str) -> String {
     )
 }
 
+/// The browser rules of a quick (Here) turn.
+pub const HERE_BROWSER: &str = "You have your own hidden browser (the browser tools) for a quick look on the web or a page the person asks to open; prefer it over their browser windows. Omit `session`; it starts with the person's accounts when there are any, and `signedIn: true` opens real Chrome for web apps that need it (Gmail, Google Sheets, …). Never solve or get around a captcha or a check that you are human: ask the person with a reply starting `HEX_QUESTION:` to solve it in the live picture of that browser on your card.\n";
+
 /// Who the assistant is, how it answers, and its lane's rules for the
 /// desktop and the browser.
 pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -> String {
@@ -1282,7 +1444,11 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
             "This is a typed chat; it may run beside other tasks. Markdown is fine; be as brief as the question allows.\n"
         }
     });
-    if browser {
+    // A quick turn's browser is for a quick look or a page the person asks
+    // to open (research is a job's, `ROUTING`): the short form.
+    if browser && origin.lane() == Lane::Here {
+        prompt.push_str(HERE_BROWSER);
+    } else if browser {
         prompt.push_str(&format!(
             "You have your own hidden browsers (the browser tools): prefer them for anything on the web (looking things up, web apps, forms), over the person's browser windows. Every browser tool takes `session` (omit it, or \"main\", for the main browser; any other short name opens another, at most {} on this computer). For research, or when the person asks for several browsers, open one per source or subtopic and work them in parallel (several tool calls in one turn), so the job is done fast; read pages in the light browsers, real Chrome only where a login or a heavy web app needs it. Your browsers start with the person's accounts (the sites they signed in to for Hex) when there are any, in a light browser; pass `signedIn: true` on the call that opens one for web apps that need real Chrome (Gmail, Google Sheets, …), or `signedIn: false` for a clean one with no accounts. Never ask the person to sign in unless a page still shows a login after that. If a page shows a captcha or a Cloudflare challenge, retry it in a `signedIn: true` browser. If it still asks you to prove you are human, never try to solve or get around it yourself: leave that browser open on the challenge, do whatever else needs no such page, then ask the person to solve it, starting your reply with the line `HEX_QUESTION:` (one or two speakable sentences naming the site, saying they can solve it in the live picture of that browser on your card: Take over, solve it, Hand back). When they answer, look at the page afresh and go on.\n",
             crate::assistant::browser::max_sessions()
@@ -1318,12 +1484,10 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
     );
     match origin.lane() {
         Lane::Here if desktop.front_window => prompt.push_str(
-            "- The person gave you full control of this Mac: look at and act in any window no other task holds, the one in front included, by its window_id (it becomes yours as you act in it; no need to claim it first) and open or switch to any app with hex_open_app (it takes a running app's window into this task, reopens one that has no window, and never starts a second instance). Do small things right here, at once: open or switch to an app, read, click, or type something, write a short message. Never say you can't open, reach, or use an app or window, and never offer a background job for something you can do now; hand only work of many steps or minutes (research, many items, documents) to the background with hex_start_jobs.\n\
-             - Asked only to open an app (\u{201c}open WhatsApp\u{201d}) without saying what to do there: open it with hex_open_app, then say in one short sentence that it's open and ask what to do in it.\n",
+            "- The person gave you full control of this Mac: look at and act in any window no other task holds, the one in front included, by its window_id (it becomes yours as you act in it; no need to claim it first) and open or switch to any app with hex_open_app (it takes a running app's window into this task, reopens one that has no window, and never starts a second instance). Never say you can't open, reach, or use an app or window, and never offer a background job for something you can do now. Asked only to open an app, open it, say so in one short sentence, and ask what to do in it.\n",
         ),
         Lane::Here if desktop.open_apps => prompt.push_str(
-            "- The person wants their own windows left alone: act in the window in front only if asked about it, and never in other windows they use. But open or switch to any app with hex_open_app: its window becomes yours, parked out of their way and live on your card, and you act there right away (a running app is never started twice). Do small things right here; never say you can't open or use an app, and never offer a background job for something you can do now.\n\
-             - Asked only to open an app without saying what to do there: open it with hex_open_app, then say in one short sentence that it's open and ask what to do in it.\n",
+            "- The person wants their own windows left alone: act in the window in front only if asked about it, and never in other windows they use. But open or switch to any app with hex_open_app: its window becomes yours, parked out of their way and live on your card, and you act there right away (a running app is never started twice). Never say you can't open or use an app, and never offer a background job for something you can do now. Asked only to open an app, open it, say so in one short sentence, and ask what to do in it.\n",
         ),
         Lane::Here => prompt.push_str(
             "- You may LOOK at any window to answer: list them with desktop_list_windows and read or screenshot the one the person means by its window_id (\"what am I doing in Citrix?\" means the Citrix window, even if it isn't in front). ACT only in the window in front, named in the message, and only if asked; don't bring another window forward.\n- If the request needs to act anywhere beyond that window (take over or operate another window such as Citrix, open an app or a browser, the web, files), never say you can't and never tell the person to do it themselves: hand it off at once with `HEX_JOB:` with the hex_start_jobs tool (see below), however small it is; a background job may open apps and browsers and take over the person's other windows.\n",
@@ -1377,9 +1541,42 @@ fn guide(executable: &std::path::Path) -> Option<&'static str> {
             };
             let desktop = read(&["skills", "get", "desktop"])?;
             let platform = read(&["skills", "get", "platform"]).unwrap_or_default();
-            Some(format!("{desktop}\n\n{platform}").trim().to_owned())
+            Some(trim_guide(&format!("{desktop}\n\n{platform}")))
         })
         .as_deref()
+}
+
+/// Sections of agent-desktop's guide written for a person or agent at a
+/// shell, which a task never needs: it calls the tools (no shell, no
+/// `--help`, no `skills get`), and Hex sets up the permissions.
+const GUIDE_SKIPPED: &[&str] = &[
+    "Shell syntax",
+    "First run",
+    "References",
+    "Requirements",
+    "First contact",
+];
+
+/// The guide without [`GUIDE_SKIPPED`]'s `##` sections, every one up to
+/// the next heading. A guide whose headings changed loses nothing.
+fn trim_guide(markdown: &str) -> String {
+    let mut kept = String::with_capacity(markdown.len());
+    let mut skipping = false;
+    let mut fenced = false;
+    for line in markdown.lines() {
+        if line.trim_start().starts_with("```") {
+            fenced = !fenced;
+        } else if !fenced && line.starts_with('#') {
+            skipping = line
+                .strip_prefix("## ")
+                .is_some_and(|title| GUIDE_SKIPPED.contains(&title.trim()));
+        }
+        if !skipping {
+            kept.push_str(line);
+            kept.push('\n');
+        }
+    }
+    kept.trim().to_owned()
 }
 
 /// Markdown without its leading `---` front matter.

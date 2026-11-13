@@ -270,6 +270,24 @@ pub(super) const KEYS: &[Key] = &[
          the backend's model (macOS)",
     ),
     optional(
+        "assistant.here_effort",
+        Kind::Choice(&["low", "medium", "high", "xhigh", "max"]),
+        "How hard a Here-lane turn on Claude Code thinks; none is the model's default \
+         (macOS)",
+    ),
+    key(
+        "assistant.escalate_after_tools",
+        Kind::Integer { min: 0, max: 100 },
+        "A Here-lane turn on the fast model goes on with Claude Code's own model after \
+         this many tool calls, or when it fails; 0 never (macOS)",
+    ),
+    key(
+        "assistant.warm_minutes",
+        Kind::Integer { min: 0, max: 120 },
+        "Claude Code stays started for the next hold this many minutes after a quick \
+         answer; 0 only for the follow-up window (macOS)",
+    ),
+    optional(
         "assistant.codex_model",
         Kind::Text,
         "The model Codex uses for the assistant; none is its default (macOS)",
