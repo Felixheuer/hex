@@ -64,40 +64,7 @@ impl<D: Desktop> Guard<D> {
                 }
             };
         let recipe = &recipe;
-        if self.blocked(&recipe.app)
-            || recipe
-                .bundle_id
-                .as_deref()
-                .is_some_and(|id| self.blocked(id))
-        {
-            return Err(self.blocked_refusal(tool, &recipe.app));
-        }
-        if let Some(category) = recipe.consequence {
-            let mode = self.config.autonomy;
-            let authorized = self.store.authorized(&self.config.task);
-            if mode != Autonomy::Yolo && !autonomy::allowed(mode, category, &authorized) {
-                let mut result = refusal(
-                    tool,
-                    "NEEDS_CONFIRMATION",
-                    &format!(
-                        "This {} would {} in {}. The person hasn't allowed that for this task; \
-                         ask them and wait for their yes, Hex refuses it until they confirm.",
-                        recipe.intent,
-                        serde_json::to_value(category)
-                            .ok()
-                            .and_then(|value| value.as_str().map(str::to_owned))
-                            .unwrap_or_default(),
-                        recipe.app
-                    ),
-                );
-                let details = &mut result["structuredContent"]["error"]["details"];
-                details["category"] = json!(category);
-                details["app"] = json!(recipe.app);
-                let text = result["structuredContent"].to_string();
-                result["content"][0]["text"] = Value::String(text);
-                return Err(result);
-            }
-        }
+        self.vet_action(tool, recipe, installed.as_ref())?;
         // An action that shows a window: the app's window comes here first
         // (from another desktop if need be) and becomes the task's.
         let running = installed
@@ -176,6 +143,80 @@ impl<D: Desktop> Guard<D> {
                 "note": note,
             }),
         ))
+    }
+
+    /// The checks an app action passes before it runs, the same for every
+    /// app: no blocked app among the ones it addresses (the one it is
+    /// wrapped in and every other its script names); outside YOLO nothing
+    /// that runs code beyond the apps' dictionaries (a shell, another
+    /// script, a raw Apple event, a program, or an app that opens shell
+    /// scripts, such as a terminal); and a consequential script waits for
+    /// the person's yes (`autonomy::Gate`).
+    fn vet_action(
+        &mut self,
+        tool: &str,
+        recipe: &app_action::Action,
+        installed: Option<&super::super::screen::App>,
+    ) -> Result<(), Value> {
+        let mut apps: Vec<(String, Option<String>, Option<std::path::PathBuf>)> = vec![(
+            recipe.app.clone(),
+            recipe.bundle_id.clone(),
+            installed.map(|app| app.path.clone()),
+        )];
+        for target in &recipe.targets {
+            // A path names the app by its bundle's name.
+            let key = if target.contains('/') {
+                std::path::Path::new(target.trim_end_matches('/'))
+                    .file_stem()
+                    .map(|stem| stem.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| target.clone())
+            } else {
+                target.clone()
+            };
+            apps.push(match self.installed_app(&key) {
+                Some(app) => (app.name, app.bundle_id, Some(app.path)),
+                None => (key, None, None),
+            });
+        }
+        for (name, bundle_id, _) in &apps {
+            if self.blocked(name) || bundle_id.as_deref().is_some_and(|id| self.blocked(id)) {
+                return Err(self.blocked_refusal(tool, name));
+            }
+        }
+        let mode = self.config.autonomy;
+        if mode != Autonomy::Yolo {
+            let runs = recipe.runs_code.clone().or_else(|| {
+                apps.iter()
+                    .find(|(_, _, path)| path.as_deref().is_some_and(app_action::vet::runs_shell))
+                    .map(|(name, _, _)| {
+                        format!("goes to {name}, which runs shell commands and scripts")
+                    })
+            });
+            if let Some(why) = runs {
+                return Err(refusal(
+                    tool,
+                    "RUNS_CODE",
+                    &format!(
+                        "This {} {why}. Outside YOLO Hex runs only what the apps' own \
+                         dictionaries and URLs offer, since a page or file a task read could \
+                         have written it. Use your shell tool for commands (sandboxed), \
+                         hex_browser_tab for a page in the person's browser, or the app's own \
+                         commands; or tell the person it needs YOLO.",
+                        recipe.intent
+                    ),
+                ));
+            }
+        }
+        if let Some(category) = recipe.consequence {
+            let authorized = self.store.authorized(&self.config.task);
+            let names: Vec<&str> = apps.iter().map(|(name, _, _)| name.as_str()).collect();
+            autonomy::Gate::new(tool, mode, authorized)
+                .check(category, &format!("this {}", recipe.intent))
+                .map_err(|refused| {
+                    super::consent::needs_confirmation(&refused.in_app(&names.join(", ")))
+                })?;
+        }
+        Ok(())
     }
 
     /// The installed app `app` names (its name or bundle id, compared as
@@ -299,7 +340,8 @@ pub(super) fn app_action_tool() -> Value {
             hex_app_capabilities; search with `whose`). intent open_url (params.url): a URL the \
             app takes (its own scheme, a file, a page), opened in the background; a window it \
             opens is yours, parked. A script that sends, deletes, pays, shares, or publishes \
-            follows the person's autonomy mode.",
+            follows the person's autonomy mode. Outside YOLO it runs no shell commands, other \
+            scripts, raw Apple events, or programs, and no app that runs shell scripts.",
         "inputSchema": {
             "type": "object",
             "additionalProperties": false,

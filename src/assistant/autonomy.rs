@@ -18,11 +18,15 @@
 //! OWNER: lead (contract); brain (authorization flow); guard and browser
 //! (enforcement).
 
+mod gate;
+
 use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+
+pub use gate::{Gate, NEEDS_CONFIRMATION, Refusal};
 
 /// The person's choice in Settings and onboarding.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]

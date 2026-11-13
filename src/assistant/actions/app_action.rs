@@ -6,8 +6,13 @@
 //! for either is found at runtime with `hex_app_capabilities`
 //! ([`super::capabilities`]), never from a hand-written list.
 //!
-//! [`build`] turns the agent's call into one [`Command`] (pure, tested);
-//! [`run`] runs it without bringing anything in front.
+//! [`build`] turns the agent's call into one [`Command`] (pure, tested)
+//! and says what it really reaches ([`vet`]): every app a script
+//! addresses, and whether it runs code beyond the apps' dictionaries,
+//! which the guard refuses outside YOLO. [`run`] runs it without bringing
+//! anything in front.
+
+pub mod vet;
 
 use std::collections::BTreeMap;
 
@@ -26,6 +31,13 @@ pub struct Action {
     pub consequence: Option<crate::assistant::autonomy::Category>,
     /// It may show a window of the app (taken for the task, parked).
     pub opens_window: bool,
+    /// The other apps a script addresses by name, bundle id, or path
+    /// (`tell application "…"` after an `end tell`, too).
+    pub targets: Vec<String>,
+    /// What it runs beyond the apps' dictionaries (a shell, another
+    /// script, a raw Apple event, an executable), if anything: only in
+    /// YOLO (`vet`).
+    pub runs_code: Option<String>,
 }
 
 /// What [`run`] runs.
@@ -70,6 +82,8 @@ pub fn build(
         intent: intent.clone(),
         consequence: None,
         opens_window,
+        targets: Vec::new(),
+        runs_code: None,
     };
     Some(match intent.as_str() {
         "open_url" => {
@@ -83,9 +97,11 @@ pub fn build(
             if let Some(id) = bundle_id {
                 args.extend(["-b".to_owned(), id.to_owned()]);
             }
+            let mut action = action(true);
+            action.runs_code = vet::url_risk(&url);
             args.push(url);
             Ok((
-                action(true),
+                action,
                 Command::Program {
                     program: "/usr/bin/open".into(),
                     args,
@@ -99,12 +115,15 @@ pub fn build(
             let Some(id) = bundle_id else {
                 return Some(Err(format!("{name} has no bundle id to script.")));
             };
-            if script.to_lowercase().contains("do shell script") {
-                return Some(Err(
-                    "Shell commands don't go through app scripts; use your shell tool.".into(),
-                ));
-            }
             let mut action = action(false);
+            let (targets, computed) = vet::targets(&script);
+            action.runs_code = vet::script_risk(&script, &targets).or_else(|| {
+                computed.then(|| "addresses an app by a name computed while it runs".to_owned())
+            });
+            action.targets = targets
+                .into_iter()
+                .filter(|target| !target.eq_ignore_ascii_case(id) && target != name)
+                .collect();
             // What the script says it does decides whether it needs a yes
             // ("send", "delete", …), as a button's label would.
             action.consequence = script
@@ -220,16 +239,50 @@ mod tests {
         .unwrap()
         .unwrap();
         assert!(action.consequence.is_some());
-        assert!(
-            build(
-                "Finder",
-                Some("com.apple.finder"),
+        // Shell commands, other apps, and programs are named for the guard.
+        let (action, _) = build(
+            "Finder",
+            Some("com.apple.finder"),
+            "script",
+            &values(&[("script", "do shell script \"rm -rf ~\"")]),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(action.runs_code.as_deref(), Some("runs shell commands"));
+        let (action, _) = build(
+            "Notes",
+            Some("com.apple.Notes"),
+            "script",
+            &values(&[(
                 "script",
-                &values(&[("script", "do shell script \"rm -rf ~\"")])
-            )
-            .unwrap()
-            .is_err()
-        );
+                "get name of note 1\nend tell\ntell application \"1Password\" to get name\ntell application id \"com.apple.Notes\" to get name",
+            )]),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(action.targets, ["1Password"]);
+        assert_eq!(action.runs_code, None);
+        let (action, _) = build(
+            "Notes",
+            Some("com.apple.Notes"),
+            "script",
+            &values(&[(
+                "script",
+                "set t to \"Terminal\"\ntell application t to get name",
+            )]),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(action.runs_code.unwrap().contains("computed"));
+        let (action, _) = build(
+            "Finder",
+            Some("com.apple.finder"),
+            "open_url",
+            &values(&[("url", "file:///Users/x/Downloads/x.command")]),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(action.runs_code.is_some());
         assert!(
             build("X", None, "script", &values(&[("script", "get name")]))
                 .unwrap()
