@@ -127,14 +127,12 @@ pub fn lightpanda() -> Option<PathBuf> {
     search::find("lightpanda")
 }
 
-/// The engine behind a task's clean browsers: Lightpanda when it's
-/// installed, else Chrome.
+/// The engine behind a task's browsers: Chrome, whose pages stream live
+/// pictures to the overlay (the person watches every browser as a mini);
+/// Lightpanda draws none, so it only takes the overflow past a task's
+/// share of Chrome ([`sessions::Sessions`]).
 pub fn clean_engine() -> Engine {
-    if lightpanda().is_some() {
-        Engine::Lightpanda
-    } else {
-        Engine::Chrome
-    }
+    Engine::Chrome
 }
 
 /// Installs Lightpanda with its official script (into `~/.local/bin`);
