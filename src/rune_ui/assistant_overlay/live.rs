@@ -55,10 +55,10 @@ pub(crate) enum Rate {
     /// four browsers): no stream at all, so fifty jobs with a dozen
     /// browsers each cost nothing until they show.
     Idle = 0,
-    /// Its job's card shows it: a frame a second, so a picture is ready
+    /// Its job's card shows it: six frames a second, so the mini moves live
     /// the moment the pointer comes.
     Background = 1,
-    /// The live wall shows it among all of a job's browsers: two frames a
+    /// The live wall shows it among all of a job's browsers: six frames a
     /// second, at full size so a tile stays sharp.
     Wall = 2,
     /// Its task is hovered in the list: thumbnails.
@@ -71,9 +71,9 @@ impl Rate {
     pub(crate) fn fps(self) -> u32 {
         match self {
             Self::Idle => 0,
-            Self::Background => 1,
-            Self::Wall => 2,
-            Self::Small => 5,
+            Self::Background => 6,
+            Self::Wall => 6,
+            Self::Small => 10,
             Self::Large => 24,
         }
     }
@@ -851,8 +851,9 @@ mod tests {
             .viewing
             .insert(Viewer::Overlay, ("h1".into(), "hex-h1_3".into()));
         assert_eq!(rate_of(&registry, "h1", "hex-h1_3"), Rate::Large);
-        // One or two frames a second: sharp but cheap.
-        assert!((1..=2).contains(&Rate::Wall.fps()));
+        // Live, not a still: several frames a second on cards and the wall.
+        assert!((4..=8).contains(&Rate::Wall.fps()));
+        assert!(Rate::Background.fps() >= 4);
         assert!(Rate::Background < Rate::Wall && Rate::Wall < Rate::Small);
         assert!(needs_refresh(Rate::Idle, Rate::Wall, false));
         // Closed again: back to what the cards show.

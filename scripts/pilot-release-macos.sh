@@ -11,7 +11,7 @@
 # identity. So the release also carries the bridge, a Hex.app with that
 # identity holding Agent-Desk.app in Contents/Library, as the `macos-arm64`
 # target older installs poll; Agent-Desk itself takes
-# `macos-arm64-agent-desk`. Launched, the bridge installs Agent-Desk.app
+# `macos-arm64-agentdesk`. Launched, the bridge installs Agent-Desk.app
 # beside itself and opens it, and Agent-Desk removes the bridge
 # (src/updater/macos.rs).
 #
@@ -197,7 +197,7 @@ if [ -n "$install" ]; then
   # LaunchServices may not know the new bundle yet (-600): try a few times,
   # and never let a failed open stop the cleanup below.
   for _ in 1 2 3 4 5; do
-    /usr/bin/open "$installed" 2> /dev/null && break
+    "$installed/Contents/MacOS/agent-desk" start > /dev/null 2>&1 && break
     sleep 2
   done
   echo "Installed $installed: it now updates itself from ai.sms-pilot.de." >&2

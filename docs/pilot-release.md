@@ -27,7 +27,7 @@ kein `hex://`, keine `HEX_*`-Variablen):
   Darum trägt jedes Release zusätzlich die **Brücke**: `hex-<v>-macos-arm64.zip`,
   ein `Hex.app` mit `anomaly.hex`, das `Agent-Desk.app` in
   `Contents/Library` mitbringt (Target `macos-arm64`, das alte Hex-Installationen
-  abfragen). Agent-Desk selbst fragt `macos-arm64-agent-desk` ab. Gestartet
+  abfragen). Agent-Desk selbst fragt `macos-arm64-agentdesk` ab. Gestartet
   legt die Brücke `Agent-Desk.app` daneben, öffnet es und beendet sich;
   Agent-Desk entfernt danach die Brücke und Hex' Update-Reste
   (`src/updater/macos.rs`). `--install` entfernt ein altes

@@ -620,6 +620,13 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
         });
     }
     app.run();
+    // A job's agent and its guard (this executable) must not outlive the app:
+    // macOS would take the guard for a running Agent-Desk and refuse to open
+    // it again. The jobs resume at the next start.
+    let ended = crate::assistant::provider::orphans::end_own();
+    if ended > 0 {
+        tracing::info!(ended, "ended the running agents as Agent-Desk quits");
+    }
 
     PUMP.with(|slot| {
         if let Some(state) = slot.borrow_mut().take() {

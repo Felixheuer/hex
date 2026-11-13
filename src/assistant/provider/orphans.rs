@@ -105,6 +105,31 @@ pub fn sweep() -> usize {
     left.len()
 }
 
+/// Ends the agent process groups this Agent-Desk started, as it quits: a
+/// job's agent and its MCP servers (the guard runs the app's own executable)
+/// would otherwise outlive it, and macOS then takes the guard for a running
+/// Agent-Desk and refuses to open the app again (-600). Their jobs resume at
+/// the next start.
+pub fn end_own() -> usize {
+    let Some(path) = path() else {
+        return 0;
+    };
+    let _held = LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let me = std::process::id();
+    let records = load(&path);
+    let (mine, others): (Vec<Record>, Vec<Record>) =
+        records.into_iter().partition(|record| record.hex_pid == me);
+    for record in &mine {
+        #[cfg(unix)]
+        if let Ok(group) = i32::try_from(record.pid) {
+            // SAFETY: signals the process group this Agent-Desk started.
+            unsafe { libc::kill(-group, libc::SIGTERM) };
+        }
+    }
+    save(&path, &others);
+    mine.len()
+}
+
 /// The records whose Agent-Desk is gone and whose group still runs (to end), and
 /// those of an Agent-Desk still running (to keep). The rest are forgotten.
 fn orphaned(
