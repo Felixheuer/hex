@@ -151,6 +151,55 @@ pub fn models_args(generation: Generation) -> Vec<&'static str> {
     }
 }
 
+/// `opencode session delete <id>` (OpenCode 2 on its own private server,
+/// so its background service needn't run).
+pub fn delete_session_args(generation: Generation, session: &str) -> Vec<String> {
+    let mut args = vec![
+        "session".to_owned(),
+        "delete".to_owned(),
+        session.to_owned(),
+    ];
+    if generation == Generation::Two {
+        args.push("--standalone".into());
+    }
+    args
+}
+
+/// Deletes OpenCode's `sessions` (a deleted conversation's) off the
+/// calling thread, so they leave the person's own OpenCode too (classic
+/// OpenCode lists them; OpenCode 2 keeps them archived). Best effort.
+pub fn forget_sessions(sessions: Vec<String>) {
+    let sessions: Vec<String> = sessions
+        .into_iter()
+        .filter(|session| {
+            session.starts_with("ses_")
+                && session
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        })
+        .collect();
+    if sessions.is_empty() {
+        return;
+    }
+    std::thread::spawn(move || {
+        let Some(path) = super::executable(AssistantBackend::OpenCode) else {
+            return;
+        };
+        let generation = generation_for(&path);
+        for session in sessions {
+            let mut command = super::agent_command(&path);
+            command.args(delete_session_args(generation, &session));
+            match super::run::bounded(command, std::time::Duration::from_secs(30)) {
+                Ok(ran) if ran.success() => {}
+                Ok(ran) => {
+                    tracing::debug!(%session, why = %ran.last_words(), "OpenCode kept a session")
+                }
+                Err(error) => tracing::debug!(%session, %error, "OpenCode didn't delete a session"),
+            }
+        }
+    });
+}
+
 /// `config` (an `OPENCODE_CONFIG_CONTENT` object, written in OpenCode 2's
 /// words) in `generation`'s words: Classic OpenCode's providers are
 /// `provider.<id>.options`, and it rejects the whole config for an
@@ -214,6 +263,18 @@ mod tests {
         assert_eq!(
             generation_of(crate::assistant::backends::parse_version("1.19.5\n").as_deref()),
             Generation::Classic
+        );
+    }
+
+    #[test]
+    fn a_session_is_deleted_by_each_opencode_its_way() {
+        assert_eq!(
+            delete_session_args(Generation::Classic, "ses_1"),
+            ["session", "delete", "ses_1"]
+        );
+        assert_eq!(
+            delete_session_args(Generation::Two, "ses_1"),
+            ["session", "delete", "ses_1", "--standalone"]
         );
     }
 

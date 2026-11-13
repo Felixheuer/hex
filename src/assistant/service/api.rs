@@ -191,6 +191,20 @@ pub fn delete(id: &str) {
     runner().cancel(id);
     crate::assistant::autonomy::forget(id);
     if let Ok(store) = Store::open() {
+        // Its OpenCode sessions go too (every lane's, its checks').
+        if let Some(stored) = store.load(id) {
+            let opencode = crate::assistant::provider::session_key(
+                crate::app_settings::AssistantBackend::OpenCode,
+                crate::assistant::Lane::Background,
+            );
+            let sessions: Vec<String> = stored
+                .sessions
+                .iter()
+                .filter(|(key, _)| key.split('.').next() == Some(opencode.as_str()))
+                .map(|(_, session)| session.clone())
+                .collect();
+            crate::assistant::backends::opencode::forget_sessions(sessions);
+        }
         store.delete(id);
     }
     {
