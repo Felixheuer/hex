@@ -48,6 +48,20 @@ maintainable, and nothing that isn't possible.
       element/role/label instead of name
 - [ ] Timing-flaky test: `a_paused_task_waits_and_then_is_told_to_look_again`
 
+## Round 7: the ultimate desk worker (docs/roadmap-round7.md)
+
+- [x] Background stays background (Chrome tab ids, no front on open, only used browsers as
+      minis) (pilot.59)
+- [x] B: 10-hour jobs: journal, fresh sessions, checks, budget, resume (pilot.60)
+- [x] Window + onboarding redesign (8-step setup) (pilot.61)
+- [x] C: media tools (pilot.62)
+- [x] A: Cua fully used (batches, scripts, menus, verify, skills) (pilot.63)
+- [ ] D+E: team blackboard, learning (running)
+- [ ] Projects with soul, folder, picker (running)
+- [ ] Compact the rules (Here ~11.2k, jobs ~18.8k characters), menu-bar menu, first-run voice
+      screens into the new flow
+- [ ] F: real bench against Dev + full suite once (with the user's OK)
+
 ## Round 6 (after the rename): Cua only, no legacy
 
 - [x] Remove agent-desktop completely (driver fallback, session/cursor CLI, guide in the
@@ -111,3 +125,8 @@ maintainable, and nothing that isn't possible.
 | pilot.56 | Island: black, live words, visible reasoning |
 | pilot.57 | (built without the integration pass: the GitHub PR timed out) |
 | pilot.58 | UX integration pass |
+| pilot.59 | Background stays background, only used browsers as minis |
+| pilot.60 | 10-hour jobs |
+| pilot.61 | Window + onboarding redesign |
+| pilot.62 | Media tools |
+| pilot.63 | Cua fully used, skills |
