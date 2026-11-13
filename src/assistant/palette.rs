@@ -4,12 +4,14 @@
 //! orb, and its rows in the list and Chats. `TaskStatus.colour` indexes
 //! [`COLOURS`] (wrapping).
 //!
-//! Eight hues after Okabe and Ito's colour-blind-safe set, tuned to sit well
-//! together: neighbours differ in hue and lightness, so the first few tasks
-//! never look alike, and the set stays apart under the common colour-vision
-//! deficiencies (blue, orange, teal, magenta, olive, violet, red, brown).
-//! Each has a deeper shade over light desktops and a lighter
-//! one over dark desktops, both readable with black or white text on top.
+//! Six hues (`docs/ux/redesign.md` §3.2: azure, amber, teal, rose, lime,
+//! clay), at least 0.1 apart (ΔE in Oklab) from each other *and* from what
+//! colour already means on the overlay: the done green, the failed red,
+//! the needs-you amber, and the assistant's own two frame hues (periwinkle
+//! and violet). So no task looks like a state: red, green, blue, and violet
+//! left the set. Each has a deeper shade over light desktops and a lighter
+//! one over dark desktops, both readable with black or white text on top
+//! (`rune_ui::assistant_overlay::palette`'s tests hold all of it).
 //!
 //! OWNER: overlays. The brain reads [`cursor_flags`] for each task's cursor.
 
@@ -24,50 +26,40 @@ pub struct TaskColour {
 }
 
 /// The colours in the order tasks take them.
-pub const COLOURS: [TaskColour; 8] = [
+pub const COLOURS: [TaskColour; 6] = [
     TaskColour {
-        name: "blue",
-        light: "#2B6FE0",
-        dark: "#6FA8FF",
+        name: "azure",
+        light: "#068BBD",
+        dark: "#7FCBFF",
     },
     TaskColour {
-        name: "orange",
-        light: "#D97500",
-        dark: "#FFA94A",
+        name: "amber",
+        light: "#C26300",
+        dark: "#FF9101",
     },
     TaskColour {
         name: "teal",
-        light: "#00916E",
-        dark: "#3CCFA6",
+        light: "#007F79",
+        dark: "#04CAC7",
     },
     TaskColour {
-        name: "magenta",
-        light: "#C23E92",
-        dark: "#F287CC",
+        name: "rose",
+        light: "#CB409E",
+        dark: "#FB79E3",
     },
     TaskColour {
-        name: "olive",
-        light: "#8A8A00",
-        dark: "#D9D94A",
+        name: "lime",
+        light: "#898500",
+        dark: "#B6B900",
     },
     TaskColour {
-        name: "violet",
-        light: "#8E44D8",
-        dark: "#C08CFF",
-    },
-    TaskColour {
-        name: "red",
-        light: "#D8342C",
-        dark: "#FF7A6E",
-    },
-    TaskColour {
-        name: "brown",
-        light: "#8B5E34",
-        dark: "#C99B6E",
+        name: "clay",
+        light: "#97523A",
+        dark: "#C78550",
     },
 ];
 
-/// Task `index`'s colour (wrapping past the eighth).
+/// Task `index`'s colour (wrapping past the sixth).
 pub fn colour(index: u8) -> &'static TaskColour {
     &COLOURS[usize::from(index) % COLOURS.len()]
 }
@@ -106,7 +98,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(colour(9), colour(1));
-        assert_eq!(cursor_flags(0)[1], "#2B6FE0");
+        assert_eq!(colour(7), colour(1));
+        assert_eq!(cursor_flags(0)[1], "#068BBD");
     }
 }

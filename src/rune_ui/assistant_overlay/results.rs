@@ -16,11 +16,11 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use rune::{El, ScrollSpec, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant};
 
 use super::super::controls::Paint;
 use super::super::icons::{BOOK, FOLDER, GLOBE};
 use super::board::{Task, first_line, plain};
+use super::look::{self, Card, State};
 use super::palette;
 use crate::assistant::ConversationId;
 use crate::desktop::i18n::{tr, tr_fill};
@@ -32,12 +32,12 @@ pub(crate) const RECENT_MAX: usize = 8;
 /// The most things a result offers to open.
 pub(crate) const MAX_TARGETS: usize = 3;
 /// A result bubble's width (the orb's bubbles and job rows share it).
-pub(crate) const WIDTH: f32 = 320.0;
+pub(crate) const WIDTH: f32 = look::RAIL_W;
 /// The room a folded result bubble takes at most: its head, two lines, and
 /// its buttons.
-pub(crate) const ROOM: f32 = 128.0;
+pub(crate) const ROOM: f32 = 170.0;
 /// The room an unfolded one takes at most.
-pub(crate) const OPEN_ROOM: f32 = 330.0;
+pub(crate) const OPEN_ROOM: f32 = 420.0;
 /// The unfolded answer's tallest; it scrolls past it.
 const ANSWER_MAX_H: f32 = 220.0;
 /// The folded answer's most lines.
@@ -287,9 +287,13 @@ impl<S> Clone for Actions<S> {
 
 impl<S> Copy for Actions<S> {}
 
-/// A result's bubble at the orb, keyed by its bubble's `key`: ✓ or ✗ and
-/// the job's title, its answer's first lines (the whole answer, scrolling,
-/// when `open`), what it names to open, Try again on a failure, More, and ×.
+/// A result's card in the rail, keyed by its bubble's `key`, on the one
+/// anatomy (`look::card`): the job's dot and title with its Done or Failed
+/// chip; its answer's first lines (the whole answer, scrolling, with every
+/// target as a row, when `open`), or why it failed; and its own actions:
+/// the first thing it names to open as the primary (Try again on a
+/// failure), the second and More as the secondary ones. A press on the
+/// card folds or unfolds it.
 pub(crate) fn bubble<S: 'static>(
     p: Paint,
     key: u64,
@@ -297,193 +301,182 @@ pub(crate) fn bubble<S: 'static>(
     open: bool,
     actions: Actions<S>,
 ) -> El {
-    let c = &p.k.c;
     let colour = palette::task(outcome.colour, p.k.dark);
-    let dismiss = actions.dismiss;
     let expand = actions.expand;
-    let mark = mark(p, outcome.failed);
-    let head = row()
-        .key("result-head")
-        .w_full()
-        .gap(7.0)
-        .center_y()
-        .child(mark)
-        .child(
-            text(outcome.title.clone())
-                .key("result-title")
-                .truncate()
-                .font(p.k.ty.small_medium)
-                .color(p.text())
-                .min_w(0.0)
-                .grow(1.0),
-        )
-        .child(
-            IconButton::new(p.k.glyph.close)
-                .variant(IconButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
-                .label(tr("Close"))
-                .on_press(move |s: &mut S| dismiss(s, key))
-                .build(p.k)
-                .key("result-close"),
-        );
+    let state = state(outcome);
     let long = outcome
         .text
         .trim()
         .lines()
         .filter(|l| !l.trim().is_empty())
         .count()
-        > 1
+        > LINES
         || outcome.text.chars().count() > 90;
-    let body = if open && !outcome.failed {
-        el().key("result-answer")
-            .w_full()
-            .max_h(ANSWER_MAX_H)
-            .min_h(0.0)
-            .shrink()
-            .scroll(ScrollSpec {
-                stick_bottom: false,
-            })
-            .scroll_edge_fade(12.0)
-            .child(super::markdown::view(p, outcome.text.trim()))
+    let targets = outcome.targets();
+    let mut body: Vec<El> = Vec::new();
+    if open && !outcome.failed {
+        body.push(
+            el().key("result-answer")
+                .w_full()
+                .max_h(ANSWER_MAX_H)
+                .min_h(0.0)
+                .shrink()
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
+                .scroll_edge_fade(12.0)
+                .child(super::markdown::view(p, outcome.text.trim())),
+        );
+        // Every target as a row with its verb.
+        body.extend(
+            targets
+                .iter()
+                .enumerate()
+                .map(|(index, target)| target_row(p, index, target, actions)),
+        );
     } else {
-        text(if open {
-            outcome.text.trim().to_owned()
-        } else {
-            summary_lines(&outcome.text, outcome.failed)
-        })
-        .key("result-text")
-        .wrap()
-        .max_lines(if open { 12 } else { LINES })
-        .font(p.k.ty.small)
-        .color(if outcome.failed {
-            p.danger()
-        } else {
-            p.muted()
-        })
-        .w_full()
-    };
-    let mut buttons: Vec<El> = outcome
-        .targets()
-        .iter()
-        .enumerate()
-        .map(|(index, target)| chip(p, index, target, actions))
-        .collect();
+        body.push(
+            look::body_text(
+                p,
+                &if open {
+                    outcome.text.trim().to_owned()
+                } else {
+                    summary_lines(&outcome.text, outcome.failed)
+                },
+            )
+            .key("result-text")
+            .max_lines(if open { 12 } else { LINES }),
+        );
+    }
+    let mut card = Card::named("result");
+    card.lead = Some(look::dot(colour, 9.0));
+    card.title = outcome.title.clone();
+    card.chip = Some(look::chip(p, state).key(state.key()));
+    card.body = body;
+    card.width = Some(WIDTH);
     if outcome.failed {
         let retry = actions.retry;
         let id = outcome.id.clone();
-        buttons.push(
-            Button::new(tr("Try again"))
-                .variant(ButtonVariant::Outline)
-                .control_size(ControlSize::Small)
-                .on_press(move |s: &mut S| retry(s, &id))
-                .build(p.k)
-                .key("result-retry"),
+        card.primary = Some(
+            look::button(p, look::Kind::Primary, tr("Try again"), move |s: &mut S| {
+                retry(s, &id)
+            })
+            .key("result-retry"),
         );
+    } else if !open {
+        let mut shown = targets.iter().enumerate();
+        card.primary = shown
+            .next()
+            .map(|(index, target)| target_button(p, look::Kind::Primary, index, target, actions));
+        card.secondary.extend(shown.next().map(|(index, target)| {
+            target_button(p, look::Kind::Secondary, index, target, actions)
+        }));
     }
     if long {
-        buttons.push(
-            Button::new(if open { tr("Less") } else { tr("More") })
-                .variant(ButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
-                .on_press(move |s: &mut S| expand(s, key))
-                .build(p.k)
-                .key("result-more"),
+        card.secondary.push(
+            look::button(
+                p,
+                look::Kind::Secondary,
+                if open { tr("Less") } else { tr("More") },
+                move |s: &mut S| expand(s, key),
+            )
+            .key("result-more"),
         );
     }
-    let foot = (!buttons.is_empty()).then(|| {
-        row()
-            .key("result-actions")
-            .w_full()
-            .pr(8.0)
-            .gap(6.0)
-            .flex_wrap()
-            .center_y()
-            .children(buttons)
-    });
     p.k.interactive(
-        col()
+        look::card(p, card)
             .key(format!("result-{key}"))
-            .w(WIDTH)
-            .pl(12.0)
-            .pr(4.0)
-            .py(8.0)
-            .gap(5.0)
-            .radius(16.0)
-            .fill(c.bg_base)
-            .border(
-                p.hair,
-                if outcome.failed {
-                    p.danger().alpha(0.55)
-                } else {
-                    colour.alpha(0.45)
-                },
-            )
-            .box_shadow(rune::Shadow {
-                x: 0.0,
-                y: 3.0,
-                blur: 12.0,
-                spread: 0.0,
-                color: rune::Color::BLACK.alpha(if p.k.dark { 0.4 } else { 0.12 }),
-                inset: false,
-            })
             .role("status")
-            .label(format!("{}: {}", outcome.title, outcome.summary()))
+            .label(format!(
+                "{}: {} · {}",
+                state.word(),
+                outcome.title,
+                outcome.summary()
+            ))
             .live_region(rune::LiveRegion::Polite)
-            // The whole bubble takes the pointer, so its buttons, the wheel
+            // The whole card takes the pointer, so its buttons, the wheel
             // over a long answer, and the space between them answer.
             .hit()
-            .on_press(move |s: &mut S| expand(s, key))
-            .child(head)
-            .child(body.pr(8.0))
-            .children(foot),
+            .on_press(move |s: &mut S| expand(s, key)),
     )
 }
 
-/// A result in the list's Done group: ✓ or ✗, its title, its first line,
-/// and what it names to open (or Try again); a press brings its bubble back.
+/// Done or Failed.
+fn state(outcome: &Outcome) -> State {
+    if outcome.failed {
+        State::Failed
+    } else {
+        State::Done
+    }
+}
+
+/// A result in the list's Done group: its dot, title, and first line, its
+/// Done or Failed chip, and its own actions (what it names to open, or Try
+/// again); a press brings its card back.
 pub(crate) fn list_row<S: 'static>(p: Paint, outcome: &Outcome, actions: Actions<S>) -> El {
     let recall = actions.recall;
     let id = outcome.id.clone();
-    let mut buttons: Vec<El> = outcome
-        .targets()
-        .iter()
-        .enumerate()
-        .map(|(index, target)| chip(p, index, target, actions))
-        .collect();
+    let mut buttons: Vec<El> = Vec::new();
     if outcome.failed {
         let retry = actions.retry;
         let id = outcome.id.clone();
         buttons.push(
-            Button::new(tr("Try again"))
-                .variant(ButtonVariant::Outline)
-                .control_size(ControlSize::Small)
-                .on_press(move |s: &mut S| retry(s, &id))
-                .build(p.k)
-                .key("result-retry"),
+            look::button(p, look::Kind::Primary, tr("Try again"), move |s: &mut S| {
+                retry(s, &id)
+            })
+            .key("result-retry"),
+        );
+    } else {
+        buttons.extend(
+            outcome
+                .targets()
+                .iter()
+                .enumerate()
+                .take(2)
+                .map(|(index, target)| {
+                    target_button(
+                        p,
+                        if index == 0 {
+                            look::Kind::Primary
+                        } else {
+                            look::Kind::Secondary
+                        },
+                        index,
+                        target,
+                        actions,
+                    )
+                }),
         );
     }
-    let lines = col()
-        .key("lines")
-        .grow(1.0)
-        .min_w(0.0)
-        .gap(2.0)
+    let state = state(outcome);
+    let head = row()
+        .key("head")
+        .w_full()
+        .gap(8.0)
+        .center_y()
+        .child(look::dot(palette::task(outcome.colour, p.k.dark), 9.0))
         .child(
             text(outcome.title.clone())
                 .key("title")
                 .truncate()
-                .font(p.k.ty.ui_medium)
-                .color(p.muted()),
+                .font(look::label(p))
+                .color(p.text())
+                .grow(1.0)
+                .min_w(0.0),
         )
+        .child(look::chip(p, state).key(state.key()));
+    let lines = col()
+        .key("lines")
+        .w_full()
+        .gap(4.0)
+        .child(head)
         .child(
             text(outcome.summary())
                 .key("outcome")
                 .truncate()
-                .font(p.k.ty.small)
-                .color(if outcome.failed {
-                    p.danger()
-                } else {
-                    p.faint()
-                })
+                .font(look::meta(p))
+                .color(p.muted())
+                .pl(17.0)
                 .min_w(0.0),
         )
         .children((!buttons.is_empty()).then(|| {
@@ -491,88 +484,97 @@ pub(crate) fn list_row<S: 'static>(p: Paint, outcome: &Outcome, actions: Actions
                 .key("result-actions")
                 .w_full()
                 .pt(4.0)
-                .gap(6.0)
-                .flex_wrap()
+                .pl(17.0)
+                .gap(8.0)
+                .justify_end()
                 .center_y()
                 .children(buttons)
         }));
-    let colour = palette::task(outcome.colour, p.k.dark);
     p.k.interactive(
-        row()
+        col()
             .key(format!("result-row-{}", outcome.id))
             .w_full()
-            .pl(10.0)
-            .pr(8.0)
-            .py(8.0)
-            .gap(10.0)
-            .items_start()
-            .radius(p.k.radius.md + 4.0)
+            .px(12.0)
+            .py(10.0)
+            .radius(12.0)
             .role("listitem")
-            .label(format!("{}: {}", outcome.title, outcome.summary()))
+            .label(format!(
+                "{}: {} · {}",
+                state.word(),
+                outcome.title,
+                outcome.summary()
+            ))
             .hit()
             .on_press(move |s: &mut S| recall(s, &id))
-            .child(
-                el().size(10.0, 10.0)
-                    .radius(5.0)
-                    .fill(colour.alpha(0.4))
-                    .mt(4.0)
-                    .a11y_hidden(),
-            )
-            .child(lines)
-            .child(mark(p, outcome.failed).mt(2.0)),
+            .child(lines),
     )
 }
 
-/// ✓ in green, or ✗ in red.
-fn mark(p: Paint, failed: bool) -> El {
-    if failed {
-        icon(p.k.glyph.circle_x, 15.0)
-            .key("failed")
-            .color(p.danger())
-            .label(tr("Failed"))
-    } else {
-        icon(p.k.glyph.check, 15.0)
-            .key("done")
-            .color(p.success())
-            .label(tr("Done"))
-    }
-}
-
-/// One thing to open: a small pill with a folder, page, or globe and its
-/// name.
-fn chip<S: 'static>(p: Paint, index: usize, target: &Target, actions: Actions<S>) -> El {
-    let c = &p.k.c;
-    let glyph = match target.kind {
+/// What a target's glyph is: a folder, a page, or a globe.
+fn glyph(kind: Kind) -> &'static rune::Icon {
+    match kind {
         Kind::Folder => &FOLDER,
         Kind::File => &BOOK,
         Kind::Link => &GLOBE,
-    };
+    }
+}
+
+/// One thing to open, as a pill button: "Open Angebote".
+fn target_button<S: 'static>(
+    p: Paint,
+    kind: look::Kind,
+    index: usize,
+    target: &Target,
+    actions: Actions<S>,
+) -> El {
+    let open = actions.open;
+    let what = target.open.clone();
+    look::button(
+        p,
+        kind,
+        &tr_fill(
+            "Open {}",
+            &crate::assistant::store::shorten(&target.name, 18),
+        ),
+        move |s: &mut S| open(s, &what),
+    )
+    .key(format!("result-open-{index}"))
+    .label(target.label())
+    .max_w(170.0)
+}
+
+/// One thing to open, as a row in an unfolded card: its glyph, its name,
+/// and Open.
+fn target_row<S: 'static>(p: Paint, index: usize, target: &Target, actions: Actions<S>) -> El {
     let open = actions.open;
     let what = target.open.clone();
     p.k.interactive(
         row()
             .key(format!("result-open-{index}"))
-            .h(24.0)
-            .max_w(136.0)
-            .pl(8.0)
-            .pr(10.0)
-            .gap(5.0)
+            .w_full()
+            .h(30.0)
+            .px(8.0)
+            .gap(8.0)
             .center_y()
-            .radius(12.0)
-            .fill(c.layer_02)
+            .radius(8.0)
             .role("button")
             .label(target.label())
             .hit()
             .on_press(move |s: &mut S| open(s, &what))
-            .child(icon(glyph, 12.0).color(p.muted()).a11y_hidden())
+            .child(
+                icon(glyph(target.kind), 14.0)
+                    .color(p.muted())
+                    .a11y_hidden(),
+            )
             .child(
                 text(target.name.clone())
                     .truncate()
-                    .font(p.k.ty.small_medium)
+                    .font(look::label(p))
                     .color(p.text())
-                    .min_w(0.0)
-                    .shrink(),
-            ),
+                    .grow(1.0)
+                    .min_w(0.0),
+            )
+            .child(text(tr("Open")).font(look::meta(p)).color(p.muted())),
     )
 }
 

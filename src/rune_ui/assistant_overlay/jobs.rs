@@ -1,17 +1,18 @@
-//! Background jobs at the orb, seen without opening anything: a calm,
-//! compact row per running job (its colour and plan ring, title, how long
-//! it runs, the step it's on, live as it changes) with every browser and
-//! app window it works in live and small, a press on one opening it large.
-//! At most [`MAX_ROWS`] rows show (one fewer while a question waits), the
+//! Background jobs in the rail, seen without opening anything: a calm row
+//! per running job in the card material (its colour and plan ring, title,
+//! how long it runs; one line of where it works and what it does now,
+//! "Safari · in background · choosing a time", live as it changes; every
+//! browser and app window it works in, live and small, a press on one
+//! opening it large; a thin plan bar). At most [`MAX_ROWS`] rows show, the
 //! newest first, in the order the jobs started, so nothing jumps; the rest
-//! fold into one line ("3 more tasks") whose press opens the task list,
+//! fold into one "N more" line whose press opens the task list in place,
 //! where every job is, scrolling. "All N live" on a row opens the live wall
 //! with every picture of the job and its helpers.
 //!
-//! The orb's cluster has one order, nearest the orb first, so nothing
-//! overlaps: the question waiting on the person, a task the person holds
-//! or that waits out a limit, the job rows (and their line), then the
-//! results ([`super::results`]).
+//! The rail has one order, nearest its head first, so nothing overlaps:
+//! the question waiting on the person, a task the person holds or that
+//! waits out a limit, the job rows (and their line), then the result
+//! ([`super::results`]).
 
 use std::time::Instant;
 
@@ -22,21 +23,22 @@ use super::super::icons::{GLOBE, PANEL};
 use super::app_live::{self, AppPreview};
 use super::board::{Phase, Task};
 use super::live::{self, Preview};
-use super::{orb, palette, stack};
+use super::{look, orb, palette, stack};
 use crate::assistant::Origin;
 use crate::desktop::i18n::{tr, tr_fill};
 
-/// Job rows shown, with no question waiting; one fewer with one.
+/// Job rows shown at most (`docs/ux/redesign.md` §3.6: the rail holds its
+/// head, one question, three job rows, and one result).
 pub(crate) const MAX_ROWS: usize = 3;
 /// Browsers shown on a row; more show as "+N".
 pub(crate) const MAX_THUMBS: usize = 3;
-/// A row's width, as the orb's bubbles.
-pub(crate) const CARD_W: f32 = 360.0;
+/// A row's width: the rail's.
+pub(crate) const CARD_W: f32 = look::RAIL_W;
 /// A browser's thumbnail on a row.
-pub(crate) const THUMB_W: f32 = 104.0;
-pub(crate) const THUMB_H: f32 = 65.0;
+pub(crate) const THUMB_W: f32 = 96.0;
+pub(crate) const THUMB_H: f32 = 60.0;
 /// The "more" line's height.
-pub(crate) const LINE_H: f32 = 30.0;
+pub(crate) const LINE_H: f32 = 36.0;
 
 /// What a job row asks of the host, beside the list's actions.
 pub(crate) struct LineActions<S> {
@@ -78,8 +80,9 @@ pub(crate) fn running(tasks: &[Task]) -> Vec<&Task> {
         .collect()
 }
 
-/// How `jobs` (in the board's order, oldest first) show, with a question
-/// waiting or not.
+/// How `jobs` (in the board's order, oldest first) show: at most
+/// [`MAX_ROWS`] rows, one fewer while a question waits on top (so the rail
+/// stays within head + question + three rows + result on a short display).
 ///
 /// A job's helpers (`assistant::agent::team`) fold into their lead's row
 /// (and count in its "N helpers"); the list shows each.
@@ -219,11 +222,16 @@ pub(crate) fn view<S: 'static>(
     Some(
         col()
             .key("jobs")
-            .w(CARD_W)
-            .max_h(room.max_h)
+            .w(CARD_W + 2.0 * SHADOW_ROOM)
+            .px(SHADOW_ROOM)
+            .ml(-SHADOW_ROOM)
+            .mr(-SHADOW_ROOM)
+            .pb(SHADOW_ROOM)
+            .mb(-SHADOW_ROOM)
+            .max_h(room.max_h + SHADOW_ROOM)
             .min_h(0.0)
             .shrink()
-            .gap(6.0)
+            .gap(5.0)
             .scroll(rune::ScrollSpec {
                 stick_bottom: !room.down,
             })
@@ -239,9 +247,12 @@ pub(crate) fn view<S: 'static>(
     )
 }
 
-/// One job: its dot (with its plan's ring), title, "All N live", and how
-/// long it runs; the step it's on; its browsers and windows, live; its
-/// helpers. A press opens the task list with its plan, Take over, and Stop.
+/// One job's row in the rail, in the card material: its dot (with its
+/// plan's ring), title, "All N live", and how long it runs; one line of
+/// where it works and what it does now ("Safari · in background ·
+/// choosing a time"); its browsers and windows, live; its helpers; and a
+/// thin plan bar. A press opens the task list with its plan, Take over,
+/// and Stop.
 fn card<S: 'static>(
     p: Paint,
     task: &Task,
@@ -277,53 +288,49 @@ fn card<S: 'static>(
                 .label(label.clone())
                 .hit()
                 .on_press(move |s: &mut S| open_wall(s, &id))
-                .child(text(label).font(p.k.ty.small_medium).color(p.text())),
+                .child(text(label).font(look::meta(p)).color(p.text())),
         )
     });
     let when = if task.phase == Phase::Queued {
-        // Not only the faint dot: waiting is said.
-        Some(
-            text(tr("Queued"))
-                .key("job-queued")
-                .font(p.k.ty.small)
-                .color(p.faint()),
-        )
+        None
     } else {
         minutes(task.since, Instant::now()).map(|minutes| {
             text(running_for(minutes))
                 .key("job-time")
-                .font(p.k.ty.small)
+                .font(look::meta(p))
                 .color(p.faint())
         })
     };
     let head = row()
         .key("job-head")
         .w_full()
-        .gap(7.0)
+        .gap(8.0)
         .center_y()
-        .child(orb::marker(p, task, colour, 8.0))
+        .child(orb::marker(p, task, colour, 9.0))
         .child(
             text(task.title.clone())
                 .key("job-title")
                 .truncate()
-                .font(p.k.ty.small_medium)
+                .font(look::label(p))
                 .color(p.text())
                 .min_w(0.0)
                 .grow(1.0),
         )
         .children(wall)
         .children(when);
-    let step = card_step(task)
-        .or_else(|| (task.phase == Phase::Running).then(|| tr("Thinking…").to_owned()))
-        .map(|step| {
-            text(step)
-                .key("job-step")
-                .truncate()
-                .font(p.k.ty.small)
-                .color(p.muted())
-                .min_w(0.0)
-                .pl(STEP_INSET)
-        });
+    let step = doing(task).map(|words| {
+        text(words)
+            .key(if task.phase == Phase::Queued {
+                "job-queued"
+            } else {
+                "job-step"
+            })
+            .truncate()
+            .font(look::meta(p))
+            .color(p.muted())
+            .min_w(0.0)
+            .pl(STEP_INSET)
+    });
     let browsers = (apps_shown + shown > 0).then(|| {
         let mut cells: Vec<El> = apps[..apps_shown]
             .iter()
@@ -355,7 +362,7 @@ fn card<S: 'static>(
                     .on_press(move |s: &mut S| open_wall(s, &id))
                     .child(
                         text(format!("+{more}"))
-                            .font(p.k.ty.small_medium)
+                            .font(look::label(p))
                             .color(p.text()),
                     ),
             );
@@ -363,44 +370,114 @@ fn card<S: 'static>(
         }
         row()
             .key("job-browsers")
-            .gap(6.0)
-            .pt(4.0)
+            .gap(THUMB_GAP)
+            .pt(2.0)
             .pl(STEP_INSET)
             .role("list")
             .label(tr("Live windows"))
             .children(cells)
     });
     let team = (!helpers.is_empty()).then(|| team_row(p, helpers).pl(STEP_INSET));
-    let card = col()
-        .key(format!("job-{}", task.id))
-        .w(CARD_W)
-        .px(10.0)
-        .py(8.0)
-        .gap(3.0)
-        .radius(14.0)
-        .fill(c.bg_base)
-        .border(p.hair, c.border_base)
-        .box_shadow(rune::Shadow {
-            x: 0.0,
-            y: 3.0,
-            blur: 12.0,
-            spread: 0.0,
-            color: rune::Color::BLACK.alpha(if p.k.dark { 0.4 } else { 0.12 }),
-            inset: false,
-        })
-        .role("button")
-        .label(card_label(task))
-        .hit()
-        .on_press(move |s: &mut S| toggle(s))
-        .child(head)
-        .children(step)
-        .children(browsers)
-        .children(team);
+    let plan = task.progress().map(|(done, all)| {
+        el().pl(STEP_INSET).child(look::progress(
+            p,
+            colour,
+            done as f32 / all.max(1) as f32,
+            CARD_W - 2.0 * CARD_PAD - STEP_INSET,
+        ))
+    });
+    let card = look::material(
+        p,
+        col()
+            .key(format!("job-{}", task.id))
+            .w(CARD_W)
+            .padding(CARD_PAD)
+            .gap(4.0),
+    )
+    .role("button")
+    .label(card_label(task))
+    .hit()
+    .on_press(move |s: &mut S| toggle(s))
+    .child(head)
+    .children(step)
+    .children(browsers)
+    .children(team)
+    .children(plan);
     p.k.interactive(card)
 }
 
+/// Room around the rows inside their scrolling column, so the cards'
+/// shadows show instead of ending at its edge.
+const SHADOW_ROOM: f32 = 10.0;
+/// Room inside a job's row.
+const CARD_PAD: f32 = 11.0;
+/// Between a row's pictures.
+const THUMB_GAP: f32 = 6.0;
 /// How far a row's step, pictures, and helpers are set in: past its dot.
-const STEP_INSET: f32 = 15.0;
+const STEP_INSET: f32 = 17.0;
+
+/// The app a job works in (its first window's), else the site its browser
+/// is on, else "Browser" for a job on the web.
+pub(crate) fn app_of(task: &Task) -> Option<String> {
+    task.windows
+        .first()
+        .map(|window| window.app.clone())
+        .or_else(|| {
+            live::previews(&task.id)
+                .first()
+                .and_then(|preview| live::host_of(&preview.page().url))
+        })
+        .or_else(|| (task.place() == super::board::Place::Web).then(|| tr("Browser").to_owned()))
+}
+
+/// Where a job works and how, as its row says it: the app (or the site)
+/// and whether it's in the background, queued, or yours ("Safari · in
+/// background"); `None` when there's nothing to say. A wait for a usage
+/// limit has its own words (its standing bubble, the list's line).
+pub(crate) fn whereabouts(task: &Task) -> Option<String> {
+    let app = app_of(task);
+    let how = match task.phase {
+        Phase::Queued => Some(tr("queued").to_owned()),
+        Phase::Paused => Some(tr("you have it").to_owned()),
+        Phase::Running => app.is_some().then(|| tr("in background").to_owned()),
+        _ => None,
+    };
+    let parts: Vec<String> = app.into_iter().chain(how).collect();
+    (!parts.is_empty()).then(|| capitalised(&parts.join(" · ")))
+}
+
+/// What a job does now, in its plan's words (or its latest step, or
+/// Thinking…): the step its row's line ends with.
+pub(crate) fn now_step(task: &Task) -> Option<String> {
+    if let Some(at) = task.current_step()
+        && let Some(step) = task.plan.get(at)
+    {
+        return Some(step.title.trim().to_owned());
+    }
+    task.step
+        .clone()
+        .or_else(|| (task.phase == Phase::Running).then(|| tr("Thinking…").to_owned()))
+}
+
+/// A row's one line: [`whereabouts`] and [`now_step`], "Safari · in
+/// background · choosing a time".
+pub(crate) fn doing(task: &Task) -> Option<String> {
+    let parts: Vec<String> = whereabouts(task)
+        .into_iter()
+        .chain(now_step(task).filter(|_| task.phase == Phase::Running))
+        .collect();
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
+/// `words` with its first letter in capitals ("queued" alone reads
+/// "Queued").
+fn capitalised(words: &str) -> String {
+    let mut chars = words.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
 /// Whether a card offers the live wall: `all` pictures of the job and its
 /// helpers, of which it shows `shown` itself; two or more it can't all
 /// show.
@@ -563,59 +640,58 @@ fn app_thumb<S: 'static>(
     )
 }
 
-/// The jobs past the rows: one line with each one's dot and how many; a
-/// press (or its list button) opens the task list, where every job is.
+/// The jobs past the rows: one "N more" line with each one's dot; a press
+/// (or its list button) opens the task list in place, where every job is.
 fn line<S: 'static>(p: Paint, rest: &[&Task], count: usize, actions: stack::Actions<S>) -> El {
-    let c = &p.k.c;
     let toggle = actions.toggle;
     let shown_dots = 6;
     let more_dots = rest.len().saturating_sub(shown_dots);
-    let label = tr_fill("{} more tasks", &count.to_string());
-    row()
-        .key("jobs-line")
-        .w(CARD_W)
-        .h(LINE_H)
-        .pl(12.0)
-        .pr(3.0)
-        .gap(6.0)
-        .center_y()
-        .radius(LINE_H / 2.0)
-        .fill(c.bg_base)
-        .border(p.hair, c.border_base)
-        .role("button")
-        .label(format!("{label}: {}", tr("Open the task list")))
-        .hit()
-        .on_press(move |s: &mut S| toggle(s))
-        .children(
-            rest.iter()
-                .take(shown_dots)
-                .map(|task| orb::dot(task, palette::task(task.colour, p.k.dark), 7.0)),
-        )
-        .children((more_dots > 0).then(|| {
-            text(format!("+{more_dots}"))
-                .key("jobs-line-more")
-                .font(p.k.ty.small)
-                .color(p.faint())
-        }))
-        .child(
-            text(label)
-                .key("jobs-line-text")
-                .font(p.k.ty.small_medium)
-                .color(p.text())
-                .grow(1.0)
-                .min_w(0.0),
-        )
-        .child(
-            rune_kit::IconButton::new(&PANEL)
-                .variant(rune_kit::IconButtonVariant::GhostMuted)
-                .control_size(rune_kit::ControlSize::Small)
-                .label(tr("Open the task list"))
-                .on_press(move |s: &mut S| toggle(s))
-                .build(p.k)
-                .key("jobs-line-list"),
-        )
+    let label = tr_fill("{} more", &count.to_string());
+    look::material(
+        p,
+        row()
+            .key("jobs-line")
+            .w(CARD_W)
+            .h(LINE_H)
+            .pl(14.0)
+            .pr(4.0)
+            .gap(6.0)
+            .center_y(),
+    )
+    .radius(LINE_H / 2.0)
+    .role("button")
+    .label(format!("{label}: {}", tr("Open the task list")))
+    .hit()
+    .on_press(move |s: &mut S| toggle(s))
+    .children(
+        rest.iter()
+            .take(shown_dots)
+            .map(|task| orb::dot(task, palette::task(task.colour, p.k.dark), 7.0)),
+    )
+    .children((more_dots > 0).then(|| {
+        text(format!("+{more_dots}"))
+            .key("jobs-line-more")
+            .font(look::meta(p))
+            .color(p.faint())
+    }))
+    .child(
+        text(label)
+            .key("jobs-line-text")
+            .font(look::label(p))
+            .color(p.text())
+            .grow(1.0)
+            .min_w(0.0),
+    )
+    .child(
+        rune_kit::IconButton::new(&PANEL)
+            .variant(rune_kit::IconButtonVariant::GhostMuted)
+            .control_size(rune_kit::ControlSize::Small)
+            .label(tr("Open the task list"))
+            .on_press(move |s: &mut S| toggle(s))
+            .build(p.k)
+            .key("jobs-line-list"),
+    )
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -668,6 +744,35 @@ mod tests {
     }
 
     #[test]
+    fn a_row_says_where_a_job_works_and_what_it_does_now() {
+        use crate::assistant::TaskWindow;
+        let board = board_with(1, false);
+        let mut task = board.tasks[0].clone();
+        task.phase = Phase::Running;
+        task.step = Some("Choosing a time".into());
+        assert_eq!(doing(&task).as_deref(), Some("Choosing a time"));
+        task.windows = vec![TaskWindow {
+            app: "Safari".into(),
+            window_id: None,
+        }];
+        assert_eq!(
+            doing(&task).as_deref(),
+            Some("Safari · in background · Choosing a time")
+        );
+        task.phase = Phase::Paused;
+        assert_eq!(whereabouts(&task).as_deref(), Some("Safari · you have it"));
+        assert_eq!(doing(&task).as_deref(), Some("Safari · you have it"));
+        task.phase = Phase::Queued;
+        assert_eq!(doing(&task).as_deref(), Some("Safari · queued"));
+        task.windows.clear();
+        assert_eq!(
+            doing(&task).as_deref(),
+            Some("Queued"),
+            "alone, capitalised"
+        );
+    }
+
+    #[test]
     fn many_jobs_keep_three_rows_and_count_the_rest() {
         let board = board_with(50, false);
         let jobs = running(&board.tasks);
@@ -711,8 +816,8 @@ mod tests {
         assert_eq!(strip(2, 5), (2, 1, 4));
         assert_eq!(strip(6, 1), (3, 0, 4));
         // Three pictures fill a row's strip, set in past its dot.
-        let strip_w = MAX_THUMBS as f32 * THUMB_W + (MAX_THUMBS - 1) as f32 * 6.0;
-        assert!(strip_w <= CARD_W - 20.0 - STEP_INSET, "{strip_w}");
+        let strip_w = MAX_THUMBS as f32 * THUMB_W + (MAX_THUMBS - 1) as f32 * THUMB_GAP;
+        assert!(strip_w <= CARD_W - 2.0 * CARD_PAD - STEP_INSET, "{strip_w}");
     }
 
     #[test]

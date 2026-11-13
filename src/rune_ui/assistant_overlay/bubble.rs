@@ -9,18 +9,21 @@
 //! Esc, dismisses it.
 //!
 //! It grows out of the HUD on a spring and shrinks back into it when it
-//! goes; while its answer is read aloud a small glow beside the question
+//! goes; while its answer is read aloud a small glow in place of its ✦
 //! pulses with a speaking rhythm.
+//!
+//! Its drawing is the one card anatomy (`super::look`, owned with the
+//! rail's cards); where it hangs (under the island) is the island's.
 
 use rune::{Cx, El, Transition, Vec2, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Spinner};
 use rune_motion::{LoopSpec, Spring};
 
 use super::super::controls::Paint;
 use super::board::{Bubble, BubblePhase};
 use super::failure::{Failure, Remedy};
+use super::look::{self, Card, Kind, State, Step};
 use super::palette;
-use crate::desktop::i18n::{tr, tr_in};
+use crate::desktop::i18n::{tr, tr_fill, tr_in};
 
 /// One speaking pulse, in seconds: about a syllable pair.
 const VOICE_PULSE: f64 = 0.9;
@@ -138,58 +141,50 @@ fn fly(below: bool) -> Transition {
 }
 
 /// "Finish setting up the assistant first", with Continue setup: what the
-/// Action shortcut gets before the assistant is set up.
+/// Action shortcut gets before the assistant is set up, on the one card
+/// anatomy (✦, what's missing, Continue setup as its primary).
 pub(crate) fn setup_card<S: 'static>(p: Paint, actions: Actions<S>) -> El {
-    let c = &p.k.c;
     let setup = actions.setup;
     let dismiss = actions.dismiss;
-    let (lead, _) = palette::frame(p.k.dark);
-    row()
+    let mut card = Card::named("setup");
+    card.body = vec![
+        row()
+            .w_full()
+            .gap(10.0)
+            .center_y()
+            .child(
+                icon(&look::SPARK, 13.0)
+                    .key("setup-sparkle")
+                    .color(palette::agent(p.k.dark))
+                    .a11y_hidden(),
+            )
+            .child(
+                // Set up before but missing something now: what.
+                look::body_text(
+                    p,
+                    crate::assistant::setup_gap()
+                        .map(tr)
+                        .unwrap_or(tr("Finish setting up the assistant first")),
+                )
+                .key("setup-text")
+                .grow(1.0)
+                .min_w(0.0),
+            ),
+    ];
+    card.primary = Some(
+        look::button(p, Kind::Primary, tr("Continue setup"), move |s: &mut S| {
+            setup(s)
+        })
+        .key("continue-setup"),
+    );
+    look::card(p, card)
         .key("setup-card")
-        .w_full()
-        .pl(16.0)
-        .pr(8.0)
-        .py(10.0)
-        .gap(10.0)
-        .center_y()
-        .radius(p.k.radius.md + 8.0)
-        .fill(c.bg_base)
-        .border(p.hair, c.border_base)
         .role("status")
         .live_region(rune::LiveRegion::Polite)
         .hit()
         .on_press(move |s: &mut S| dismiss(s))
         .animate_layout()
-        .child(
-            icon(&super::super::icons::SPARKLES, 15.0)
-                .key("setup-sparkle")
-                .color(lead)
-                .a11y_hidden(),
-        )
-        .child(
-            // Set up before but missing something now: what.
-            text(
-                crate::assistant::setup_gap()
-                    .map(tr)
-                    .unwrap_or(tr("Finish setting up the assistant first")),
-            )
-            .key("setup-text")
-            .wrap()
-            .font(p.k.ty.ui)
-            .color(p.text())
-            .grow(1.0)
-            .min_w(0.0),
-        )
-        .child(
-            Button::new(tr("Continue setup"))
-                .variant(ButtonVariant::Submit)
-                .control_size(ControlSize::Small)
-                .on_press(move |s: &mut S| setup(s))
-                .build(p.k)
-                .key("continue-setup"),
-        )
 }
-
 /// Whether the answer is read aloud now, how loud (`speech::level`, when it
 /// can be measured), and whether to hold its pulse still (Reduce motion).
 #[derive(Clone, Copy, Debug, Default)]
@@ -256,7 +251,13 @@ fn voice(p: Paint, voice: Voice) -> El {
     }
 }
 
-/// The card for `bubble`, as wide as its parent allows.
+/// The card for `bubble` on the one anatomy (`look::card`), as wide as its
+/// parent allows: ✦ (or the speaking glow) and the words the person said
+/// with the state chip (Thinking, Working, Needs you, Done, Failed); the
+/// steps (✓ past, the agent's dot now: nothing spins), the answer, or why
+/// it failed; what the task asks, if it does; and, once it's over, the
+/// footer: how to ask more by voice at the left, the one action at the
+/// right (Fix or Try again on a failure).
 pub(crate) fn card<S: 'static>(
     p: Paint,
     bubble: &Bubble,
@@ -264,24 +265,28 @@ pub(crate) fn card<S: 'static>(
     answer_key: &str,
     actions: Actions<S>,
 ) -> El {
-    let c = &p.k.c;
-    let question = row()
-        .key("question-row")
-        .w_full()
-        .gap(8.0)
-        .center_y()
-        .child(
-            text(bubble.question.clone())
-                .key("question")
-                .truncate()
-                .font(p.k.ty.small)
-                .color(p.faint())
-                .grow(1.0)
-                .min_w(0.0),
-        )
-        .children(voice_now.speaking.then(|| voice(p, voice_now)));
-    let body: Vec<El> = match bubble.phase {
-        BubblePhase::Thinking => vec![working(p, tr("Thinking…"), "thinking")],
+    let lead = if voice_now.speaking {
+        voice(p, voice_now)
+    } else {
+        icon(&look::SPARK, 13.0)
+            .key("spark")
+            .color(palette::agent(p.k.dark))
+            .a11y_hidden()
+    };
+    let state = if bubble.asks.is_some() {
+        State::NeedsYou
+    } else {
+        match bubble.phase {
+            BubblePhase::Thinking => State::Thinking,
+            BubblePhase::Working | BubblePhase::Answering => State::Working,
+            BubblePhase::Answered => State::Done,
+            BubblePhase::Failed => State::Failed,
+        }
+    };
+    let mut body: Vec<El> = match bubble.phase {
+        BubblePhase::Thinking => {
+            vec![look::step_line(p, None, tr("Thinking…"), Step::Now).key("thinking")]
+        }
         BubblePhase::Working => {
             let (last, earlier) = bubble
                 .steps
@@ -290,8 +295,10 @@ pub(crate) fn card<S: 'static>(
             earlier
                 .iter()
                 .enumerate()
-                .map(|(index, step)| done_step(p, step, index))
-                .chain(last.map(|step| working(p, step, "step")))
+                .map(|(index, step)| {
+                    look::step_line(p, None, step, Step::Done).key(format!("done-{index}"))
+                })
+                .chain(last.map(|step| look::step_line(p, None, step, Step::Now).key("step")))
                 .collect()
         }
         BubblePhase::Answering | BubblePhase::Answered => vec![
@@ -306,46 +313,40 @@ pub(crate) fn card<S: 'static>(
         ],
         BubblePhase::Failed => vec![failed(p, bubble)],
     };
-    let footer = bubble.over().then(|| {
-        let action = match bubble.failure {
-            Some(failure) => remedy(p, bubble, failure.remedy(), actions),
+    body.extend(bubble.asks.as_ref().map(|asks| asking(p, asks, answer_key)));
+    let mut card = Card::named("card");
+    card.lead = Some(lead);
+    card.title = bubble.question.clone();
+    card.chip = Some(look::chip(p, state));
+    card.body = body;
+    if bubble.over() {
+        match bubble.failure {
+            Some(failure) => card.primary = Some(remedy(p, bubble, failure.remedy(), actions)),
             None => {
                 let open = actions.open;
                 let id = bubble.conversation.clone();
-                Button::new(tr("Show in Assistant"))
-                    .variant(ButtonVariant::GhostMuted)
-                    .control_size(ControlSize::Small)
-                    .on_press(move |s: &mut S| open(s, &id))
-                    .build(p.k)
-                    .key("open-chats")
+                card.hint = Some(tr_fill("Hold {} to ask more", answer_key));
+                card.secondary.push(
+                    look::button(
+                        p,
+                        Kind::Secondary,
+                        tr("Show in Assistant"),
+                        move |s: &mut S| open(s, &id),
+                    )
+                    .key("open-chats"),
+                );
             }
-        };
-        row().key("footer").w_full().justify_end().child(action)
-    });
+        }
+    }
     let dismiss = actions.dismiss;
     let live = matches!(
         bubble.phase,
         BubblePhase::Thinking | BubblePhase::Working | BubblePhase::Answering
     );
-    col()
+    let card = look::card(p, card)
         .key("card")
-        .w_full()
-        .px(16.0)
-        .pt(12.0)
-        .pb(if footer.is_some() { 8.0 } else { 14.0 })
-        .gap(8.0)
-        .radius(p.k.radius.md + 8.0)
-        .fill(c.bg_base)
-        .border(
-            p.hair,
-            if voice_now.speaking {
-                palette::frame(p.k.dark).0.alpha(0.6)
-            } else {
-                c.border_base
-            },
-        )
         .role("status")
-        .label(bubble.question.clone())
+        .label(format!("{}: {}", state.word(), bubble.question))
         .live_region(if live {
             rune::LiveRegion::Polite
         } else {
@@ -360,16 +361,18 @@ pub(crate) fn card<S: 'static>(
                 dismiss(s);
             }
         })
-        .animate_layout()
-        .child(question)
-        .children(body)
-        .children(bubble.asks.as_ref().map(|asks| asking(p, asks, answer_key)))
-        .children(footer)
+        .animate_layout();
+    if voice_now.speaking {
+        // While it reads aloud, the card's edge glows in the agent's hue.
+        card.border(p.hair, palette::agent(p.k.dark).alpha(0.6))
+    } else {
+        card
+    }
 }
 
 /// Why the question failed: its line in the language it was asked in, and
 /// beneath it, small, the brain's own words when they say more (which
-/// agent, which tool).
+/// agent, which tool). The chip says Failed; the line says why.
 fn failed(p: Paint, bubble: &Bubble) -> El {
     let failure = bubble.failure.unwrap_or(Failure::Crash);
     let detail = bubble
@@ -377,138 +380,72 @@ fn failed(p: Paint, bubble: &Bubble) -> El {
         .as_deref()
         .map(str::trim)
         .filter(|error| failure.shows_detail() && !error.is_empty());
-    row()
+    col()
         .key("failure")
         .w_full()
-        .gap(8.0)
-        .items_start()
+        .gap(3.0)
         .child(
-            icon(p.k.glyph.circle_x, 16.0)
-                .key("failure-icon")
-                .color(p.danger())
-                .mt(2.0)
-                .a11y_hidden(),
+            text(tr_in(bubble.language, failure.line()).to_owned())
+                .key("error")
+                .wrap()
+                .max_lines(ERROR_LINES)
+                .font(look::body(p))
+                .color(p.text()),
         )
-        .child(
-            col()
-                .key("failure-lines")
-                .gap(2.0)
-                .grow(1.0)
-                .min_w(0.0)
-                .child(
-                    text(tr_in(bubble.language, failure.line()).to_owned())
-                        .key("error")
-                        .wrap()
-                        .max_lines(ERROR_LINES)
-                        .font(p.k.ty.ui_medium)
-                        .color(p.danger()),
-                )
-                .children(detail.map(|detail| {
-                    text(detail.to_owned())
-                        .key("error-detail")
-                        .wrap()
-                        .max_lines(DETAIL_LINES)
-                        .font(p.k.ty.small)
-                        .color(p.faint())
-                })),
-        )
+        .children(detail.map(|detail| {
+            text(detail.to_owned())
+                .key("error-detail")
+                .wrap()
+                .max_lines(DETAIL_LINES)
+                .font(look::meta(p))
+                .color(p.faint())
+        }))
 }
 
-/// A failure's one action: Fix (Assistant settings, or the setup where it
-/// repairs it) or Try again.
+/// A failure's one action, the card's primary: Fix (Assistant settings, or
+/// the setup where it repairs it) or Try again.
 fn remedy<S: 'static>(p: Paint, bubble: &Bubble, remedy: Remedy, actions: Actions<S>) -> El {
-    let button = Button::new(tr(remedy.label()))
-        .variant(ButtonVariant::Submit)
-        .control_size(ControlSize::Small);
-    let button = match remedy {
+    let key = match remedy {
+        Remedy::Retry => "failure-retry",
+        Remedy::Settings | Remedy::Repair => "failure-fix",
+    };
+    let label = tr(remedy.label());
+    match remedy {
         Remedy::Settings => {
             let settings = actions.settings;
-            button.on_press(move |s: &mut S| settings(s))
+            look::button(p, Kind::Primary, label, move |s: &mut S| settings(s))
         }
         Remedy::Repair => {
             let setup = actions.setup;
-            button.on_press(move |s: &mut S| setup(s))
+            look::button(p, Kind::Primary, label, move |s: &mut S| setup(s))
         }
         Remedy::Retry => {
             let retry = actions.retry;
             let (id, asked) = (bubble.conversation.clone(), bubble.asked.clone());
-            button.on_press(move |s: &mut S| retry(s, &id, &asked))
+            look::button(p, Kind::Primary, label, move |s: &mut S| {
+                retry(s, &id, &asked)
+            })
         }
-    };
-    button.build(p.k).key(match remedy {
-        Remedy::Retry => "failure-retry",
-        Remedy::Settings | Remedy::Repair => "failure-fix",
-    })
+    }
+    .key(key)
 }
 
 /// What the task asks the person, with how to answer.
 fn asking(p: Paint, asks: &str, answer_key: &str) -> El {
-    let (lead, _) = palette::frame(p.k.dark);
     col()
         .key("asks")
         .w_full()
-        .gap(3.0)
-        .pl(10.0)
-        .border_sides([0.0, 0.0, 0.0, 2.0], lead)
+        .gap(4.0)
         .child(
             text(asks.to_owned())
                 .key("asks-text")
                 .wrap()
                 .max_lines(4)
-                .font(p.k.ty.ui_medium)
+                .font(look::body(p))
                 .color(p.text()),
         )
-        .child(
-            text(crate::desktop::i18n::tr_fill(
-                "Hold {} to answer",
-                answer_key,
-            ))
-            .key("asks-hint")
-            .font(p.k.ty.small)
-            .color(lead),
-        )
+        .child(look::hint(p, &tr_fill("Hold {} to answer", answer_key)).key("asks-hint"))
 }
-
-/// A line with the activity spinner: what it's doing now.
-fn working(p: Paint, line: &str, key: &str) -> El {
-    row()
-        .key(key)
-        .gap(8.0)
-        .center_y()
-        .child(Spinner::new().size(14.0).build(p.k).key("spinner"))
-        .child(
-            text(line.to_owned())
-                .key("working-text")
-                .truncate()
-                .font(p.k.ty.ui)
-                .color(p.muted())
-                .min_w(0.0),
-        )
-}
-
-/// A step done before the current one.
-fn done_step(p: Paint, line: &str, index: usize) -> El {
-    row()
-        .key(format!("done-{index}"))
-        .gap(8.0)
-        .center_y()
-        .child(
-            el().key("bullet")
-                .size(14.0, 14.0)
-                .center()
-                .child(el().size(4.0, 4.0).radius(2.0).fill(p.k.c.icon_faint))
-                .a11y_hidden(),
-        )
-        .child(
-            text(line.to_owned())
-                .key("done-text")
-                .truncate()
-                .font(p.k.ty.ui)
-                .color(p.faint())
-                .min_w(0.0),
-        )
-}
-
 /// `answer` (Markdown) cut to about `max` characters: at the last line
 /// break that fits, else the last word, then "…". Never inside a code
 /// span or a bold run left open: their markers are dropped from the cut.

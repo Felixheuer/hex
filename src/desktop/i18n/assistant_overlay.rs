@@ -112,6 +112,20 @@ overlay_strings![
     ("{n} minutes", ["{n} min", "{n} 分钟", "{n} 分", "{n} Minuten", "{n} minutos", "{n} хв", "{n} minutos", "{n} minutes", "{n} мин"]),
     ("{n} hours", ["{n} godz.", "{n} 小时", "{n} 時間", "{n} Stunden", "{n} horas", "{n} год", "{n} horas", "{n} heures", "{n} ч"]),
     ("{n} days", ["{n} dni", "{n} 天", "{n} 日", "{n} Tagen", "{n} días", "{n} дн.", "{n} dias", "{n} jours", "{n} дн."]),
+    // The state chips (`look::State`): the same seven words everywhere.
+    ("Working", ["Pracuje", "工作中", "作業中", "Arbeitet", "Trabajando", "Працює", "Trabalhando", "En cours", "Работает"]),
+    ("In front", ["Na wierzchu", "在前台", "前面で操作中", "Im Vordergrund", "Al frente", "На передньому плані", "Na frente", "Au premier plan", "На переднем плане"]),
+    ("Needs you", ["Potrzebuje cię", "需要你", "対応が必要", "Braucht dich", "Te necesita", "Потребує вас", "Precisa de você", "Vous attend", "Нужны вы"]),
+    ("{} needs you", ["Potrzebują cię: {}", "{} 个需要你", "{} 件の対応が必要", "{} braucht dich", "{} te necesita", "Потребують вас: {}", "{} precisa de você", "{} vous attend", "Нужны вы: {}"]),
+    // The rail.
+    ("1 job", ["1 zadanie", "1 个任务", "1 件の仕事", "1 Auftrag", "1 trabajo", "1 завдання", "1 tarefa", "1 tâche", "1 задача"]),
+    ("{} jobs", ["Zadania: {}", "{} 个任务", "{} 件の仕事", "{} Aufträge", "{} trabajos", "Завдань: {}", "{} tarefas", "{} tâches", "Задач: {}"]),
+    ("{} more", ["Jeszcze {}", "还有 {} 个", "ほかに {} 件", "{} weitere", "{} más", "Ще {}", "Mais {}", "{} de plus", "Ещё {}"]),
+    ("in background", ["w tle", "在后台", "バックグラウンド", "im Hintergrund", "en segundo plano", "у фоні", "em segundo plano", "en arrière-plan", "в фоне"]),
+    ("queued", ["w kolejce", "排队中", "待機中", "wartet", "en cola", "у черзі", "na fila", "en attente", "в очереди"]),
+    ("you have it", ["masz kontrolę", "由你操作", "あなたが操作中", "du hast übernommen", "lo tienes tú", "керуєте ви", "com você", "c'est à vous", "управляете вы"]),
+    ("Hold {} and say it", ["Przytrzymaj {} i powiedz", "按住 {} 说出来", "{} を長押しして話す", "Halte {} und sag es", "Mantén {} y dilo", "Утримуйте {} і скажіть", "Segure {} e diga", "Maintenez {} et dites-le", "Удерживайте {} и скажите"]),
+    ("Hold {} to ask more", ["Przytrzymaj {}, aby zapytać o więcej", "按住 {} 继续问", "{} を長押ししてさらに質問", "Halte {} für mehr", "Mantén {} para preguntar más", "Утримуйте {}, щоб спитати ще", "Segure {} para perguntar mais", "Maintenez {} pour en demander plus", "Удерживайте {}, чтобы спросить ещё"]),
 ];
 
 #[cfg(test)]
@@ -123,6 +137,11 @@ mod tests {
         include_str!("../../rune_ui/assistant_overlay/jobs.rs"),
         include_str!("../../rune_ui/assistant_overlay/wall.rs"),
         include_str!("../../rune_ui/assistant_overlay/host.rs"),
+        include_str!("../../rune_ui/assistant_overlay/look.rs"),
+        include_str!("../../rune_ui/assistant_overlay/stack.rs"),
+        include_str!("../../rune_ui/assistant_overlay/bubble.rs"),
+        include_str!("../../rune_ui/assistant_overlay/orb/cluster.rs"),
+        include_str!("../../rune_ui/assistant_overlay/orb/bubbles.rs"),
     ];
 
     /// The string literals passed to `tr` and `tr_fill`.

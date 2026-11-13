@@ -1,27 +1,27 @@
-//! The orb: Background tasks' quiet presence. While any runs, a small
-//! glowing orb floats beside the HUD (or wherever the person dragged it on
-//! that display), breathing, with one tiny dot per task in its colour: full
-//! while it runs, a ring while the person has it, faint while it waits.
+//! The rail: Background jobs' quiet presence, top right under the menu bar
+//! (or wherever the person dragged it on that display, [`super::place`]).
+//! Its head is the orb's glowing core, breathing, and in words how many
+//! jobs run and how many questions wait ("3 jobs · 1 needs you").
 //!
-//! Beside it, one calm column, nearest the orb first, so nothing overlaps
-//! or jumps:
+//! Under it, one calm column, nearest the head first, so nothing overlaps
+//! or jumps (`docs/ux/redesign.md` §3.6: head + 1 question + 3 job rows +
+//! 1 result):
 //!
 //! - The question to answer now (the inbox's active one,
-//!   `Event::QuestionsChanged`), in its task's colour: who asks, the
-//!   question, and how to answer, by voice ("Hold ⌘ to answer") or typed
-//!   right there ([`super::ask`]); Later puts it behind the others. The orb
-//!   wears a small count of every open question.
+//!   `Event::QuestionsChanged`): who asks, the question, and how to
+//!   answer, by voice ("Hold ⌘ and say it") or typed right there
+//!   ([`super::ask`]); Later puts it behind the others.
 //! - A task the person took over keeps "You have it" with Hand back; one
 //!   waiting out a usage limit keeps "Waiting for limit · resumes 14:05".
-//! - The running jobs as a few compact rows with their step and live
-//!   pictures, the rest summed up in one line ([`super::jobs`]).
-//! - A finished job's result, which fades, with what it names to open and
-//!   Try again on a failure ([`super::results`]).
+//! - The running jobs as rows with where they work, what they do now, and
+//!   live pictures, the rest summed up in one "N more" line
+//!   ([`super::jobs`]).
+//! - A finished job's result ([`RAIL_RESULTS`]), which fades, with what it
+//!   names to open and Try again on a failure ([`super::results`]).
 //!
-//! A task with a plan wears a small progress ring around its dot. A Here
-//! question that turns into a long job (`Event::Escalated`) flies into the
-//! cluster as a new dot. After the last job ends the orb stays, quieter,
-//! while it can recall a result.
+//! A job with a plan wears a progress ring around its dot and a plan bar
+//! on its row. After the last job ends the rail stays, quieter, while it
+//! can recall a result.
 //!
 //! The full list ([`super::stack`]) unfolds from the orb on a press, a
 //! double-tap of the Action shortcut, or a press on a job's row, and folds
@@ -29,8 +29,8 @@
 //! from the orb's side of the panel with springs, and nothing but the orb
 //! and its bubbles takes clicks.
 
+use super::look;
 use rune::{Cx, El, LineCap, Shape, Transition, Vec2, canvas, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize};
 use rune_motion::{LoopSpec, Spring};
 
 mod bubbles;
@@ -44,7 +44,7 @@ use super::pops::MAX_POPS;
 use super::results::{self, Outcome};
 use super::{frame, jobs, palette, stack, wall, when};
 use crate::desktop::i18n::{tr, tr_fill};
-use bubbles::{all_waiting, anchor, fly_in, pop_in, standing_bubble, unfold};
+use bubbles::{all_waiting, anchor, pop_in, standing_bubble, unfold};
 use cluster::orb;
 pub(crate) use cluster::{dot, marker};
 
@@ -55,21 +55,20 @@ pub(crate) use cluster::{dot, marker};
 pub(crate) const SIZE: (f32, f32) = (400.0, 860.0);
 /// Room around everything inside the panel.
 pub(crate) const INSET: f32 = 10.0;
-/// The orb's height (it's as wide as its dots need).
-pub(crate) const ORB_H: f32 = 30.0;
+/// The rail's head's height (it's as wide as its words need).
+pub(crate) const ORB_H: f32 = 36.0;
 /// The glowing core's size.
-const CORE: f32 = 14.0;
-/// A task's dot.
-const DOT: f32 = 7.0;
-/// The most dots the orb wears; more live tasks show as "+N".
-pub(crate) const MAX_DOTS: usize = 10;
+const CORE: f32 = 22.0;
 const GAP: f32 = 8.0;
 /// A bubble's widest.
 const BUBBLE_MAX_W: f32 = jobs::CARD_W;
-const BUBBLE_H: f32 = 30.0;
-/// A job row's height with its strip of pictures: its head, step, and
-/// the pictures with their names.
-const ROW_MIN: f32 = 140.0;
+const BUBBLE_H: f32 = 36.0;
+/// A job row's height with its strip of pictures: its head, line, the
+/// pictures with their names, and its plan bar.
+const ROW_MIN: f32 = 150.0;
+/// Results in the rail at once (`docs/ux/redesign.md` §3.6): the newest,
+/// a failure before a success; the list recalls the rest.
+pub(crate) const RAIL_RESULTS: usize = 1;
 /// A progress ring around a dot: its size and stroke.
 const RING: f32 = 13.0;
 const RING_W: f32 = 1.75;
@@ -272,7 +271,8 @@ pub(crate) fn listable(board: &Board) -> bool {
 }
 
 /// The result bubbles up now, newest first: the unfolded one alone while
-/// one is, else the newest [`MAX_POPS`], each with its result.
+/// one is, else the newest of the last [`MAX_POPS`] (a failure first), at
+/// most [`RAIL_RESULTS`], each with its result.
 pub(crate) fn result_bubbles(board: &Board, open: Option<u64>) -> Vec<(u64, Outcome)> {
     let mut items: Vec<(u64, Outcome)> = board
         .pops
@@ -303,6 +303,11 @@ pub(crate) fn result_bubbles(board: &Board, open: Option<u64>) -> Vec<(u64, Outc
     {
         items.retain(|(key, _)| *key == open);
     }
+    // A failure first (it waits for Try again), else the newest.
+    if let Some(at) = items.iter().position(|(_, outcome)| outcome.failed) {
+        items[..=at].rotate_right(1);
+    }
+    items.truncate(RAIL_RESULTS);
     items
 }
 
