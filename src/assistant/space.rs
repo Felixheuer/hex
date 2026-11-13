@@ -97,6 +97,42 @@ pub fn park_now(window: &TaskWindow) -> Result<Parked, String> {
     Ok(Parked { from: (x, y), to })
 }
 
+/// Brings `window` back on the main display when it hangs off every screen
+/// (parked by a job that no longer has it); whether it moved.
+pub fn bring_back(window: &TaskWindow) -> Result<bool, String> {
+    let tool = agent_desktop()?;
+    let id = window
+        .window_id
+        .as_deref()
+        .ok_or("the window has no agent-desktop id")?;
+    let Some(bounds) = bounds(&tool, &window.app, id)? else {
+        return Ok(false);
+    };
+    let displays = displays(&call(&tool, &["list-displays"])?);
+    if !off_screen(bounds, &displays) {
+        return Ok(false);
+    }
+    show_now(window).map(|_| true)
+}
+
+/// Whether a window of `bounds` (x, y, width, height) hangs off every
+/// display but a sliver: less than a tenth of it shows.
+pub fn off_screen((x, y, width, height): (f64, f64, f64, f64), displays: &[Display]) -> bool {
+    let area = width.max(0.0) * height.max(0.0);
+    if area <= 0.0 || displays.is_empty() {
+        return false;
+    }
+    let shown: f64 = displays
+        .iter()
+        .map(|display| {
+            let w = (x + width).min(display.x + display.width) - x.max(display.x);
+            let h = (y + height).min(display.y + display.height) - y.max(display.y);
+            w.max(0.0) * h.max(0.0)
+        })
+        .sum();
+    shown < area * 0.1
+}
+
 /// Shows `window` whatever the setting says; where it was parked from.
 pub fn show_now(window: &TaskWindow) -> Result<(f64, f64), String> {
     let tool = agent_desktop()?;
@@ -267,6 +303,20 @@ mod tests {
             height,
             primary,
         }
+    }
+
+    #[test]
+    fn a_parked_window_is_off_screen_and_a_shown_one_is_not() {
+        let laptop = display(0.0, 0.0, 1800.0, 1169.0, true);
+        let screens = [laptop];
+        // Parked at the bottom-right corner: one point of it shows.
+        assert!(off_screen((1799.0, 1168.0, 900.0, 600.0), &screens));
+        // On the screen, or half off it: not parked.
+        assert!(!off_screen((80.0, 80.0, 900.0, 600.0), &screens));
+        assert!(!off_screen((1350.0, 100.0, 900.0, 600.0), &screens));
+        // No displays or no size: nothing to say.
+        assert!(!off_screen((1799.0, 1168.0, 900.0, 600.0), &[]));
+        assert!(!off_screen((10.0, 10.0, 0.0, 0.0), &screens));
     }
 
     #[test]

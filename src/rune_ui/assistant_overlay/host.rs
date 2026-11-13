@@ -384,11 +384,13 @@ fn toggle(orb: &mut Orb) {
 /// Tells the previews which jobs' cards show now, so only their browsers
 /// stream (`live::cards`).
 fn show_cards(orb: &Orb) {
-    super::live::cards(&orb::carded(
+    let carded = orb::carded(
         &orb.board,
         orb.expanded || orb.peek,
         orb.jobs_hovered || orb.jobs_pinned,
-    ));
+    );
+    super::live::cards(&carded);
+    super::app_live::cards(&carded);
 }
 
 /// The pointer came onto task `id`'s row in the list, or left it: its
@@ -501,6 +503,16 @@ fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
         .map(|task| task.id.clone())
         .collect();
     super::live::track(&working);
+    // Their app windows too: captured while a card shows them, and back on
+    // the screen once they leave the job.
+    let windows: Vec<(String, Vec<crate::assistant::TaskWindow>)> = orb
+        .board
+        .tasks
+        .iter()
+        .filter(|task| task.phase.live())
+        .map(|task| (task.id.clone(), task.windows.clone()))
+        .collect();
+    super::app_live::track(&windows);
     // The frame shows only while a task works on the screen right now
     // (`Board::frame_until`): background work shows its card, not a frame.
     watcher::set_frame_until(orb.board.frame_until(now));

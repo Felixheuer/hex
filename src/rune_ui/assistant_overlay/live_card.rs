@@ -66,6 +66,9 @@ pub(in crate::rune_ui) fn card<S: 'static>(
     room: (f32, f32),
     actions: Actions<S>,
 ) -> El {
+    if let Some(number) = super::app_live::number_of(session) {
+        return app_card(p, task, number, driver, room, actions);
+    }
     let k = p.k;
     let preview = live::preview(task, session);
     let page = preview
@@ -211,6 +214,160 @@ pub(in crate::rune_ui) fn card<S: 'static>(
         .on_press(|_: &mut S| {})
         .child(header)
         .child(picture)
+        .child(bar)
+}
+
+/// One of a job's app windows, live and large: its app above, the window
+/// (captured even while parked off the screen) in the middle, and below,
+/// Take over (the window comes to the person, in front) or Hand back (it
+/// goes back off the screen and the job goes on).
+fn app_card<S: 'static>(
+    p: Paint,
+    task: &str,
+    number: u32,
+    driver: Driver,
+    room: (f32, f32),
+    actions: Actions<S>,
+) -> El {
+    let k = p.k;
+    let preview = super::app_live::preview(task, number);
+    let pixels = preview
+        .as_ref()
+        .filter(|preview| preview.has_frame())
+        .map(|preview| preview.large_pixels().size());
+    let shape = pixels
+        .map(|(w, h)| (w as f32, h as f32))
+        .unwrap_or(DEFAULT_VIEWPORT);
+    let (w, h) = fitted(shape, room);
+    let app = preview
+        .as_ref()
+        .map_or_else(|| tr("App window").to_owned(), |p| p.window.app.clone());
+    let close = actions.close;
+    let header = row()
+        .key("live-header")
+        .w_full()
+        .gap(10.0)
+        .center_y()
+        .child(live_dot(p, driver))
+        .child(
+            col()
+                .key("live-words")
+                .grow(1.0)
+                .min_w(0.0)
+                .gap(2.0)
+                .child(
+                    text(app)
+                        .key("live-title")
+                        .role("heading")
+                        .truncate()
+                        .font(k.ty.ui_medium)
+                        .color(p.text()),
+                )
+                .child(
+                    text(match driver {
+                        Driver::Person => tr("On your screen"),
+                        _ => tr("In the background, off your screen"),
+                    })
+                    .key("live-url")
+                    .truncate()
+                    .font(k.ty.small)
+                    .color(p.faint()),
+                ),
+        )
+        .child(
+            IconButton::new(k.glyph.close)
+                .variant(IconButtonVariant::GhostMuted)
+                .label(tr("Close"))
+                .on_press(move |s: &mut S| close(s))
+                .build(k)
+                .key("live-close"),
+        );
+    let base = el()
+        .key("live-picture")
+        .size(w, h)
+        .radius(10.0)
+        .fill(k.c.layer_02)
+        .border(p.hair, k.alpha(k.c.text_base, 0.14));
+    let picture = match preview.as_ref().filter(|preview| preview.has_frame()) {
+        Some(preview) => base.pixels_fit(preview.large_pixels(), rune::SurfaceFit::Fit),
+        None => base.center().child(
+            text(if preview.as_ref().is_some_and(|p| p.failed()) {
+                tr("No live picture of this window")
+            } else {
+                tr("Loading…")
+            })
+            .key("live-waiting")
+            .font(k.ty.small)
+            .color(p.faint()),
+        ),
+    };
+    let (words, action) = match driver {
+        Driver::Finished => (tr("This task has finished."), None),
+        Driver::Person => {
+            let (id, hand_back) = (task.to_owned(), actions.hand_back);
+            (
+                tr("The window is yours. Hand back to move it out of your way again."),
+                Some(
+                    Button::new(tr("Hand back"))
+                        .variant(ButtonVariant::Contrast)
+                        .on_press(move |s: &mut S| hand_back(s, &id))
+                        .build_small_push(k)
+                        .key("live-hand-back"),
+                ),
+            )
+        }
+        Driver::Agent => {
+            let (id, take_over) = (task.to_owned(), actions.take_over);
+            (
+                tr("The assistant works in this window off your screen. Take over to bring it to you."),
+                Some(
+                    Button::new(tr("Take over"))
+                        .variant(ButtonVariant::Outline)
+                        .on_press(move |s: &mut S| take_over(s, &id))
+                        .build_small_push(k)
+                        .key("live-take-over"),
+                ),
+            )
+        }
+    };
+    let bar = row()
+        .key("live-bar")
+        .w_full()
+        .gap(10.0)
+        .center_y()
+        .child(
+            text(words)
+                .key("live-status")
+                .role("status")
+                .font(k.ty.small)
+                .color(p.muted())
+                .grow(1.0)
+                .min_w(0.0)
+                .wrap(),
+        )
+        .children(action);
+    col()
+        .key("live-card")
+        .role("dialog")
+        .label(tr("Live app window"))
+        .w(w.max(room.0 * 0.6) + PAD * 2.0)
+        .padding(PAD)
+        .gap(12.0)
+        .radius(k.radius.lg + 4.0)
+        .fill(k.c.bg_base)
+        .border(p.hair, k.c.border_weak)
+        .box_shadow(rune::Shadow {
+            x: 0.0,
+            y: 12.0,
+            blur: 36.0,
+            spread: 0.0,
+            color: rune::Color::BLACK.alpha(if k.dark { 0.5 } else { 0.18 }),
+            inset: false,
+        })
+        .hit()
+        .on_press(|_: &mut S| {})
+        .child(header)
+        .child(el().key("live-picture-row").w_full().center().child(picture))
         .child(bar)
 }
 

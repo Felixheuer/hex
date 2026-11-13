@@ -38,7 +38,7 @@ use crate::assistant::browser::stream::{self, Input, Message, Writer};
 /// A thumbnail's width in pixels: the list draws it 148 points wide, so
 /// this covers a Retina (2×) display with room, filtered down from the
 /// frame rather than scaled by the GPU.
-const THUMB_WIDTH: usize = 360;
+pub(super) const THUMB_WIDTH: usize = 360;
 /// How often the tracked tasks' browsers are listed again.
 const RELIST: Duration = Duration::from_millis(1500);
 
@@ -259,6 +259,12 @@ fn changed() {
     for hook in hooks().iter() {
         hook();
     }
+}
+
+/// Calls the [`on_change`] hooks: an app window's picture came or went
+/// (`app_live`).
+pub(super) fn notify() {
+    changed();
 }
 
 /// The tasks that work now (queued, running, paused, waiting): their
@@ -666,7 +672,7 @@ fn decode(jpeg: &[u8]) -> Option<(usize, usize, Vec<u8>)> {
 /// pixel the average of the source area it covers: a box filter at the
 /// exact size, so text stays legible instead of aliasing (the GPU samples
 /// a streamed frame without mipmaps).
-fn fit_width(
+pub(super) fn fit_width(
     rgba: &[u8],
     width: usize,
     height: usize,

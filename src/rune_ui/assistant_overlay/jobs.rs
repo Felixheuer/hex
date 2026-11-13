@@ -18,6 +18,7 @@ use rune::{El, col, el, icon, row, text};
 use super::super::controls::Paint;
 use super::super::icons::{GLOBE, PANEL};
 use super::board::{Phase, Task};
+use super::app_live::{self, AppPreview};
 use super::live::{self, Preview};
 use super::{orb, palette, stack};
 use crate::assistant::Origin;
@@ -134,10 +135,18 @@ fn helpers_of<'a>(team: &[&'a Task], lead: &str) -> Vec<&'a Task> {
         .collect()
 }
 
-/// Of `count` browsers, how many show and how many more there are.
-pub(crate) fn thumbs(count: usize) -> (usize, usize) {
-    let shown = count.min(MAX_THUMBS);
-    (shown, count - shown)
+/// A card's one strip of live pictures: of `apps` app windows and
+/// `browsers` browsers, how many of each show (apps first, the windows it
+/// works in on the desktop) and how many more there are, at most
+/// [`MAX_THUMBS`] in all.
+pub(crate) fn strip(apps: usize, browsers: usize) -> (usize, usize, usize) {
+    let apps_shown = apps.min(MAX_THUMBS);
+    let browsers_shown = browsers.min(MAX_THUMBS - apps_shown);
+    (
+        apps_shown,
+        browsers_shown,
+        apps + browsers - apps_shown - browsers_shown,
+    )
 }
 
 /// How long a job runs, for its card: whole minutes, at least one.
@@ -192,6 +201,7 @@ pub(crate) fn view<S: 'static>(
                 let card = card(
                     p,
                     task,
+                    &app_live::previews(&task.id),
                     &live::previews(&task.id),
                     &helpers_of(team, &task.id),
                     helping,
@@ -297,9 +307,11 @@ fn unfolding<S: 'static>(
 }
 
 /// One job: dot, title and how long; its step; its browsers.
+#[allow(clippy::too_many_arguments)]
 fn card<S: 'static>(
     p: Paint,
     task: &Task,
+    apps: &[std::sync::Arc<AppPreview>],
     previews: &[std::sync::Arc<Preview>],
     helpers: &[&Task],
     helping: bool,
@@ -348,14 +360,19 @@ fn card<S: 'static>(
             .color(p.muted())
             .min_w(0.0)
     });
-    let (shown, more) = thumbs(previews.len());
-    let browsers = (shown > 0).then(|| {
+    let (apps_shown, shown, more) = strip(apps.len(), previews.len());
+    let browsers = (apps_shown + shown > 0).then(|| {
         row()
             .key("job-browsers")
             .gap(6.0)
             .pt(2.0)
             .role("list")
-            .label(tr("Live browsers"))
+            .label(tr("Live windows"))
+            .children(
+                apps[..apps_shown]
+                    .iter()
+                    .map(|preview| app_thumb(p, &task.id, preview, actions)),
+            )
             .children(
                 previews[..shown]
                     .iter()
@@ -491,6 +508,57 @@ fn thumb<S: 'static>(p: Paint, task: &str, preview: &Preview, actions: stack::Ac
                     &preview.name
                 },
             ))
+            .hit()
+            .on_press(move |s: &mut S| open(s, &task, &session)),
+    )
+}
+
+/// One app window a job works in, live from its window (even parked off
+/// the screen), with the app's name; a press opens it large in the overlay.
+fn app_thumb<S: 'static>(
+    p: Paint,
+    task: &str,
+    preview: &AppPreview,
+    actions: stack::Actions<S>,
+) -> El {
+    let c = &p.k.c;
+    let base = el()
+        .key(format!("job-app-{}", preview.number))
+        .size(THUMB_W, THUMB_H)
+        .radius(6.0)
+        .fill(c.layer_02)
+        .border(p.hair, p.k.alpha(c.text_base, 0.14));
+    let picture = if preview.has_frame() {
+        base.pixels_fit(&preview.pixels, rune::SurfaceFit::Fill)
+    } else {
+        // Its name until the first picture comes.
+        base.center().px(4.0).child(
+            text(preview.window.app.clone())
+                .truncate()
+                .font(p.k.ty.small)
+                .color(p.faint()),
+        )
+    };
+    let open = actions.open_preview;
+    let (task, session) = (task.to_owned(), preview.session());
+    let name = preview.window.app.clone();
+    let captioned = col()
+        .key(format!("job-app-cell-{}", preview.number))
+        .w(THUMB_W)
+        .gap(2.0)
+        .child(picture)
+        .child(
+            text(name.clone())
+                .key("job-app-name")
+                .truncate()
+                .font(p.k.ty.small)
+                .color(p.muted())
+                .min_w(0.0),
+        );
+    p.k.interactive(
+        captioned
+            .role("button")
+            .label(tr_fill("Open {} live", &name))
             .hit()
             .on_press(move |s: &mut S| open(s, &task, &session)),
     )
@@ -638,11 +706,15 @@ mod tests {
     }
 
     #[test]
-    fn a_card_shows_four_browsers_and_counts_the_rest() {
-        assert_eq!(thumbs(0), (0, 0));
-        assert_eq!(thumbs(3), (3, 0));
-        assert_eq!(thumbs(4), (4, 0));
-        assert_eq!(thumbs(12), (4, 8));
+    fn a_card_shows_four_pictures_apps_first_and_counts_the_rest() {
+        // Browsers alone, as before.
+        assert_eq!(strip(0, 0), (0, 0, 0));
+        assert_eq!(strip(0, 3), (0, 3, 0));
+        assert_eq!(strip(0, 12), (0, 4, 8));
+        // App windows first, browsers in the room left, one strip of four.
+        assert_eq!(strip(1, 2), (1, 2, 0));
+        assert_eq!(strip(2, 5), (2, 2, 3));
+        assert_eq!(strip(6, 1), (4, 0, 3));
     }
 
     #[test]
