@@ -18,6 +18,7 @@ mod claude_api;
 mod claude_code;
 mod codex;
 pub mod desktop;
+pub mod hold;
 pub mod limit;
 mod mcp;
 mod opencode;
@@ -325,6 +326,8 @@ pub struct Control {
     /// Stopped by Hex for this reason (it ran too long): a failure.
     failure: Mutex<Option<String>>,
     groups: Mutex<Vec<Tree>>,
+    /// The shell commands held while the person took the task over.
+    held: Mutex<Vec<u32>>,
 }
 
 impl Control {
@@ -335,6 +338,7 @@ impl Control {
     /// Stops the task: ends every process group it started.
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
+        self.hold(false);
         let groups = self
             .groups
             .lock()
@@ -347,6 +351,26 @@ impl Control {
 
     pub fn cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
+    }
+
+    /// Holds (taken over) or lets go (handed back) the shell commands this
+    /// task's backend runs (`hold`); the backend itself keeps running.
+    pub fn hold(&self, on: bool) {
+        let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
+        if on {
+            if held.is_empty() {
+                let roots: Vec<u32> = self
+                    .groups
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .iter()
+                    .map(Tree::pid)
+                    .collect();
+                *held = hold::stop(&roots);
+            }
+        } else {
+            hold::resume(&std::mem::take(&mut *held));
+        }
     }
 
     /// Stops the current turn because the person gave a new instruction:

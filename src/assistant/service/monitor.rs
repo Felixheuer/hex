@@ -193,7 +193,7 @@ impl Runner {
 
     pub(crate) fn take_over(self: &Arc<Self>, conversation: &str) {
         let now = self.now();
-        let windows = {
+        let (windows, control) = {
             let mut state = self.state();
             let Some(task) = state.tasks.iter_mut().find(|task| {
                 task.running
@@ -205,9 +205,11 @@ impl Runner {
             task.before_pause = task.status.state;
             task.status.state = TaskState::Paused;
             task.held_since.get_or_insert(now);
-            task.status.windows.clone()
+            (task.status.windows.clone(), task.control.clone())
         };
         (self.hooks.pause)(conversation, true);
+        // Its shell commands wait too, not only its desktop and browser.
+        control.hold(true);
         self.emit(&Event::Paused {
             conversation: conversation.to_owned(),
         });
@@ -227,6 +229,7 @@ impl Runner {
             if task.status.state == TaskState::Running {
                 resume_clock(task, now);
             }
+            task.control.hold(false);
         }
         (self.hooks.pause)(conversation, false);
         self.emit(&Event::Resumed {

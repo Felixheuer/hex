@@ -91,6 +91,8 @@ pub struct AssistantSettings {
     /// Background tasks may also operate the window in front of the
     /// person, as the ChatGPT app's agent does; off keeps that window theirs.
     pub background_front_window: bool,
+    /// Where coding jobs create their projects (`~` is the home folder).
+    pub projects_folder: String,
     /// A question or chat running longer than this many minutes is stopped;
     /// 0 never.
     pub task_timeout_minutes: u32,
@@ -170,6 +172,7 @@ impl Default for AssistantSettings {
             .map(String::from)
             .to_vec(),
             background_front_window: true,
+            projects_folder: "~/dev".into(),
             task_timeout_minutes: 30,
             job_budget_minutes: JOB_BUDGET_MAX_MINUTES,
             retry_on_limit: true,

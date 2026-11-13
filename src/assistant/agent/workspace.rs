@@ -14,6 +14,9 @@ use crate::assistant::types::PlanStep;
 pub const PLAN: &str = "plan.md";
 /// The report's file in a workspace.
 pub const REPORT: &str = "report.md";
+/// What a job proves at its end: what was done, links, screenshots and
+/// diff images, message proofs (the person reads it after coming back).
+pub const EVIDENCE: &str = "Nachweis.md";
 
 /// `~/Documents/Hex`.
 pub fn root() -> Option<PathBuf> {
