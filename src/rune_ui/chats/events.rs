@@ -35,6 +35,17 @@ impl ChatsPane {
                     .entry(conversation.clone())
                     .or_insert_with(|| Turn::new(question.clone(), *origin, phase));
                 turn.phase = phase;
+                if !new && matches!(event, Event::Started { .. }) {
+                    // It goes on: what it said so far is stored now, so
+                    // the text in flight starts afresh (else it doubles).
+                    turn.answer.clear();
+                    turn.steps.clear();
+                    // Answered (by voice, the orb, or here): the question's
+                    // box goes; the question and its answer are stored
+                    // messages now, so they don't show again in flight.
+                    self.questions.remove(conversation);
+                    turn.answers.clear();
+                }
                 self.failures.remove(conversation);
                 reload_list = !self.list.iter().any(|row| &row.id == conversation);
                 if new {
@@ -130,6 +141,10 @@ impl ChatsPane {
             }
             Event::Question { conversation, text } => {
                 self.questions.insert(conversation.clone(), text.clone());
+                // What it said before asking is stored with the question.
+                if let Some(turn) = self.turns.get_mut(conversation) {
+                    turn.answer.clear();
+                }
                 // It waits on the person: show it, its answer field ready.
                 self.activity(conversation, Instant::now());
                 if self.selected.as_ref() == Some(conversation) {
