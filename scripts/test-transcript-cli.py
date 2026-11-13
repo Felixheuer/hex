@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix="hex-transcript-cli-") as directory:
         }
 
     before = snapshot()
-    env = {**os.environ, "HEX_APPLICATION_SUPPORT_DIR": str(root), "HEX_EXPERIMENTAL_MIC": "1"}
+    env = {**os.environ, "AGENT_DESK_APPLICATION_SUPPORT_DIR": str(root), "AGENT_DESK_EXPERIMENTAL_MIC": "1"}
 
     def run(*args):
         result = subprocess.run([binary, *args], env=env, capture_output=True, text=True, timeout=10)

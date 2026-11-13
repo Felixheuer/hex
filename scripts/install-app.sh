@@ -31,9 +31,9 @@ if [ -e "$installed_bundle" ] || [ -L "$installed_bundle" ]; then
   existing_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$installed_bundle/Contents/Info.plist" 2>/dev/null || true)
   # The Kit-signed com.kitlangton.hex2 build is the same Rust app under its old identity.
   case "$existing_id" in
-    anomaly.hex | anomaly.hex.dev | com.kitlangton.hex2) ;;
+    fheuer.agentdesk | fheuer.agentdesk.dev | com.kitlangton.hex2) ;;
     *)
-      echo "Refusing to replace $installed_bundle: it is not the Rust Hex app. Install the new app manually." >&2
+      echo "Refusing to replace $installed_bundle: it is not the Rust Agent-Desk app. Install the new app manually." >&2
       exit 1
       ;;
   esac
@@ -44,8 +44,8 @@ rm -rf "$staged_bundle"
 stop_bundle "$installed_bundle"
 rm -rf "$installed_bundle"
 mv "$staged_bundle" "$installed_bundle"
-# Launching is the person's choice: HEX_OPEN=1 opens it after installing.
-if [ "${HEX_OPEN:-}" = 1 ]; then
+# Launching is the person's choice: AGENT_DESK_OPEN=1 opens it after installing.
+if [ "${AGENT_DESK_OPEN:-}" = 1 ]; then
   /usr/bin/open "$installed_bundle"
 fi
 echo "$installed_bundle"

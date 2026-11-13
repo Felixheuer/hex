@@ -1,15 +1,15 @@
 [Desktop Entry]
 Type=Application
-Name=Hex
+Name=Agent-Desk
 Comment=Local voice dictation
-Exec=@HEX_BIN@
-Icon=anomaly.hex
+Exec=@AGENT_DESK_BIN@
+Icon=fheuer.agentdesk
 Terminal=false
 Categories=Utility;Accessibility;
 StartupNotify=true
-StartupWMClass=anomaly.hex
+StartupWMClass=fheuer.agentdesk
 Actions=quit;
 
 [Desktop Action quit]
-Name=Quit Hex
-Exec=@HEX_BIN@ quit
+Name=Quit Agent-Desk
+Exec=@AGENT_DESK_BIN@ quit

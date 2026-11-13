@@ -3,7 +3,7 @@ cask "hex" do
   sha256 "@SHA256@"
 
   url "@URL@"
-  name "Hex"
+  name "Agent-Desk"
   desc "Local voice dictation"
   homepage "https://anoma.ly/hex/"
 
@@ -18,16 +18,16 @@ cask "hex" do
   depends_on arch: :arm64
   depends_on macos: :sequoia
 
-  app "Hex.app"
+  app "Agent-Desk.app"
 
-  uninstall quit: "anomaly.hex"
+  uninstall quit: "fheuer.agentdesk"
 
   zap trash: [
-    "~/.config/hex",
-    "~/Library/Application Support/hex",
-    "~/Library/Caches/anomaly.hex",
-    "~/Library/HTTPStorages/anomaly.hex",
-    "~/Library/Preferences/anomaly.hex.plist",
-    "~/Library/Saved Application State/anomaly.hex.savedState",
+    "~/.config/agent-desk",
+    "~/Library/Application Support/agent-desk",
+    "~/Library/Caches/fheuer.agentdesk",
+    "~/Library/HTTPStorages/fheuer.agentdesk",
+    "~/Library/Preferences/fheuer.agentdesk.plist",
+    "~/Library/Saved Application State/fheuer.agentdesk.savedState",
   ]
 end

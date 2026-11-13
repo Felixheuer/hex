@@ -7,7 +7,7 @@
   "os": ["darwin"],
   "cpu": ["arm64"],
   "files": [
-    "bin/hex-service",
+    "bin/agent-desk-service",
     "README.md"
   ],
   "exports": {

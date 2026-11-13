@@ -1,71 +1,71 @@
-# The hex .deb and .rpm, built by scripts/package-linux.sh with nfpm from a
-# release executable, in a directory it stages with hex, anomaly.hex.desktop,
-# the hicolor icons, hex.service, LICENSE, and the postinst/postrm scripts. They install what the AUR package hex-bin does:
-# /usr/bin/hex, the desktop entry, and the systemd user unit. Hex never
+# The agent-desk .deb and .rpm, built by scripts/package-linux.sh with nfpm from a
+# release executable, in a directory it stages with agent-desk, fheuer.agentdesk.desktop,
+# the hicolor icons, agent-desk.service, LICENSE, and the postinst/postrm scripts. They install what the AUR package hex-bin does:
+# /usr/bin/agent-desk, the desktop entry, and the systemd user unit. Agent-Desk never
 # replaces a package-managed executable; it shows the update command the
 # release service lists for the deb-<arch> or rpm-<arch> distribution.
-name: hex
-arch: ${HEX_PACKAGE_ARCH}
+name: agent-desk
+arch: ${AGENT_DESK_PACKAGE_ARCH}
 platform: linux
-version: ${HEX_PACKAGE_VERSION}
+version: ${AGENT_DESK_PACKAGE_VERSION}
 version_schema: none
 release: "1"
 section: utils
 priority: optional
-maintainer: Anomaly <hex@anoma.ly>
-vendor: Anomaly
-homepage: https://anoma.ly/hex
+maintainer: fheuer <pilot@ai.sms-pilot.de>
+vendor: fheuer
+homepage: https://ai.sms-pilot.de
 license: MIT
 description: |-
-  Hex voice dictation: hold a key, speak, and it types.
+  Agent-Desk voice dictation: hold a key, speak, and it types.
   Local speech recognition with optional voice commands (Linux beta).
 contents:
-  - src: hex
-    dst: /usr/bin/hex
+  - src: agent-desk
+    dst: /usr/bin/agent-desk
     file_info:
       mode: 0755
-  - src: anomaly.hex.desktop
-    dst: /usr/share/applications/anomaly.hex.desktop
+  - src: fheuer.agentdesk.desktop
+    dst: /usr/share/applications/fheuer.agentdesk.desktop
     file_info:
       mode: 0644
-  - src: icons/hicolor/16x16/apps/anomaly.hex.png
-    dst: /usr/share/icons/hicolor/16x16/apps/anomaly.hex.png
+  - src: icons/hicolor/16x16/apps/fheuer.agentdesk.png
+    dst: /usr/share/icons/hicolor/16x16/apps/fheuer.agentdesk.png
     file_info:
       mode: 0644
-  - src: icons/hicolor/24x24/apps/anomaly.hex.png
-    dst: /usr/share/icons/hicolor/24x24/apps/anomaly.hex.png
+  - src: icons/hicolor/24x24/apps/fheuer.agentdesk.png
+    dst: /usr/share/icons/hicolor/24x24/apps/fheuer.agentdesk.png
     file_info:
       mode: 0644
-  - src: icons/hicolor/32x32/apps/anomaly.hex.png
-    dst: /usr/share/icons/hicolor/32x32/apps/anomaly.hex.png
+  - src: icons/hicolor/32x32/apps/fheuer.agentdesk.png
+    dst: /usr/share/icons/hicolor/32x32/apps/fheuer.agentdesk.png
     file_info:
       mode: 0644
-  - src: icons/hicolor/48x48/apps/anomaly.hex.png
-    dst: /usr/share/icons/hicolor/48x48/apps/anomaly.hex.png
+  - src: icons/hicolor/48x48/apps/fheuer.agentdesk.png
+    dst: /usr/share/icons/hicolor/48x48/apps/fheuer.agentdesk.png
     file_info:
       mode: 0644
-  - src: icons/hicolor/64x64/apps/anomaly.hex.png
-    dst: /usr/share/icons/hicolor/64x64/apps/anomaly.hex.png
+  - src: icons/hicolor/64x64/apps/fheuer.agentdesk.png
+    dst: /usr/share/icons/hicolor/64x64/apps/fheuer.agentdesk.png
     file_info:
       mode: 0644
-  - src: icons/hicolor/128x128/apps/anomaly.hex.png
-    dst: /usr/share/icons/hicolor/128x128/apps/anomaly.hex.png
+  - src: icons/hicolor/128x128/apps/fheuer.agentdesk.png
+    dst: /usr/share/icons/hicolor/128x128/apps/fheuer.agentdesk.png
     file_info:
       mode: 0644
-  - src: icons/hicolor/256x256/apps/anomaly.hex.png
-    dst: /usr/share/icons/hicolor/256x256/apps/anomaly.hex.png
+  - src: icons/hicolor/256x256/apps/fheuer.agentdesk.png
+    dst: /usr/share/icons/hicolor/256x256/apps/fheuer.agentdesk.png
     file_info:
       mode: 0644
-  - src: icons/hicolor/512x512/apps/anomaly.hex.png
-    dst: /usr/share/icons/hicolor/512x512/apps/anomaly.hex.png
+  - src: icons/hicolor/512x512/apps/fheuer.agentdesk.png
+    dst: /usr/share/icons/hicolor/512x512/apps/fheuer.agentdesk.png
     file_info:
       mode: 0644
-  - src: hex.service
-    dst: /usr/lib/systemd/user/hex.service
+  - src: agent-desk.service
+    dst: /usr/lib/systemd/user/agent-desk.service
     file_info:
       mode: 0644
   - src: LICENSE
-    dst: /usr/share/licenses/hex/LICENSE
+    dst: /usr/share/licenses/agent-desk/LICENSE
     file_info:
       mode: 0644
 scripts:
@@ -117,4 +117,4 @@ overrides:
       - xdg-utils
 rpm:
   group: Applications/Productivity
-  summary: Hex voice dictation by Anomaly
+  summary: Agent-Desk voice dictation by Anomaly

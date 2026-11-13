@@ -11,7 +11,7 @@ if [[ "${1:-}" == --inside ]]; then
     if [[ -n "$target" ]]; then kill "$target" 2>/dev/null || true; fi
     if [[ -n "$keyboard" ]]; then kill "$keyboard" 2>/dev/null || true; fi
     if [[ -n "$service" ]]; then kill "$service" 2>/dev/null || true; wait "$service" 2>/dev/null || true; fi
-    printf '%s\n' "$status" > "$HEX_WAYLAND_TEST_RESULT"
+    printf '%s\n' "$status" > "$AGENT_DESK_WAYLAND_TEST_RESULT"
     swaymsg exit >/dev/null 2>&1 || true
     exit "$status"
   }
@@ -26,14 +26,14 @@ if [[ "${1:-}" == --inside ]]; then
     if swaymsg -t get_inputs -r | grep -q wlr_virtual_keyboard; then break; fi
     sleep 0.05
   done
-  "$HEX_WAYLAND_TEST_TARGET" "$HEX_WAYLAND_PASTE_OUTPUT" &
+  "$AGENT_DESK_WAYLAND_TEST_TARGET" "$AGENT_DESK_WAYLAND_PASTE_OUTPUT" &
   target=$!
   for ((attempt = 0; attempt < 100; attempt++)); do
-    if [[ -f "$HEX_WAYLAND_PASTE_OUTPUT.ready" ]]; then break; fi
+    if [[ -f "$AGENT_DESK_WAYLAND_PASTE_OUTPUT.ready" ]]; then break; fi
     sleep 0.05
   done
-  test -f "$HEX_WAYLAND_PASTE_OUTPUT.ready"
-  "$HEX_WAYLAND_TEST_BINARY" --exact linux::paste::tests::native_wayland_clipboard_shortcut \
+  test -f "$AGENT_DESK_WAYLAND_PASTE_OUTPUT.ready"
+  "$AGENT_DESK_WAYLAND_TEST_BINARY" --exact linux::paste::tests::native_wayland_clipboard_shortcut \
     --ignored --nocapture --test-threads=1
   kill "$target"
   wait "$target" 2>/dev/null || true
@@ -48,67 +48,67 @@ if [[ "${1:-}" == --inside ]]; then
     if ! swaymsg -t get_inputs -r | grep wlr_virtual_keyboard >/dev/null; then break; fi
     sleep 0.05
   done
-  "$HEX_WAYLAND_APP_BINARY" service >"$HEX_WAYLAND_APP_LOG.service" 2>&1 &
+  "$AGENT_DESK_WAYLAND_APP_BINARY" service >"$AGENT_DESK_WAYLAND_APP_LOG.service" 2>&1 &
   service=$!
   for ((attempt = 0; attempt < 100; attempt++)); do
-    if "$HEX_WAYLAND_APP_BINARY" status >/dev/null 2>&1; then break; fi
+    if "$AGENT_DESK_WAYLAND_APP_BINARY" status >/dev/null 2>&1; then break; fi
     sleep 0.05
   done
-  "$HEX_WAYLAND_APP_BINARY" status >/dev/null
-  # A second launch forwards Activate to the running Hex and exits; the
+  "$AGENT_DESK_WAYLAND_APP_BINARY" status >/dev/null
+  # A second launch forwards Activate to the running Agent-Desk and exits; the
   # window opens in the service's own process.
   open_window() {
-    "$HEX_WAYLAND_APP_BINARY" app >>"$HEX_WAYLAND_APP_LOG" 2>&1
+    "$AGENT_DESK_WAYLAND_APP_BINARY" app >>"$AGENT_DESK_WAYLAND_APP_LOG" 2>&1
     for ((attempt = 0; attempt < 200; attempt++)); do
       kill -0 "$service"
-      if swaymsg -t get_tree -r | grep '"name": "Hex"' >/dev/null; then break; fi
+      if swaymsg -t get_tree -r | grep '"name": "Agent-Desk"' >/dev/null; then break; fi
       sleep 0.05
     done
-    swaymsg -t get_tree -r | grep '"name": "Hex"' >/dev/null
+    swaymsg -t get_tree -r | grep '"name": "Agent-Desk"' >/dev/null
     swaymsg -t get_tree -r | grep "\"pid\": $service," >/dev/null
-    swaymsg -t get_tree -r | grep '"app_id": "anomaly.hex"' >/dev/null
+    swaymsg -t get_tree -r | grep '"app_id": "fheuer.agentdesk"' >/dev/null
   }
   open_window
   # Keep the window connected while the paste helper creates a virtual keyboard.
-  export HEX_WAYLAND_PASTE_OUTPUT="$HEX_WAYLAND_PASTE_OUTPUT-coexist"
-  "$HEX_WAYLAND_TEST_TARGET" "$HEX_WAYLAND_PASTE_OUTPUT" &
+  export AGENT_DESK_WAYLAND_PASTE_OUTPUT="$AGENT_DESK_WAYLAND_PASTE_OUTPUT-coexist"
+  "$AGENT_DESK_WAYLAND_TEST_TARGET" "$AGENT_DESK_WAYLAND_PASTE_OUTPUT" &
   target=$!
   for ((attempt = 0; attempt < 100; attempt++)); do
-    if swaymsg -t get_tree -r | grep '"name": "Hex Wayland Test"' >/dev/null; then break; fi
+    if swaymsg -t get_tree -r | grep '"name": "Agent-Desk Wayland Test"' >/dev/null; then break; fi
     sleep 0.05
   done
-  swaymsg -t get_tree -r | grep '"name": "Hex Wayland Test"' >/dev/null
+  swaymsg -t get_tree -r | grep '"name": "Agent-Desk Wayland Test"' >/dev/null
   wtype -p v -p VoidSymbol -s 60000 &
   keyboard=$!
   for ((attempt = 0; attempt < 100; attempt++)); do
-    if [[ -f "$HEX_WAYLAND_PASTE_OUTPUT.ready" ]]; then break; fi
+    if [[ -f "$AGENT_DESK_WAYLAND_PASTE_OUTPUT.ready" ]]; then break; fi
     sleep 0.05
   done
-  test -f "$HEX_WAYLAND_PASTE_OUTPUT.ready"
-  "$HEX_WAYLAND_TEST_BINARY" --exact linux::paste::tests::native_wayland_clipboard_shortcut \
+  test -f "$AGENT_DESK_WAYLAND_PASTE_OUTPUT.ready"
+  "$AGENT_DESK_WAYLAND_TEST_BINARY" --exact linux::paste::tests::native_wayland_clipboard_shortcut \
     --ignored --nocapture --test-threads=1
   kill -0 "$service"
   kill "$target"
   wait "$target" 2>/dev/null || true
   target=
 
-  # Closing the window keeps Hex; a later launch opens it again.
-  swaymsg '[app_id="anomaly.hex"] kill' >/dev/null
+  # Closing the window keeps Agent-Desk; a later launch opens it again.
+  swaymsg '[app_id="fheuer.agentdesk"] kill' >/dev/null
   for ((attempt = 0; attempt < 100; attempt++)); do
-    if ! swaymsg -t get_tree -r | grep '"name": "Hex"' >/dev/null; then break; fi
+    if ! swaymsg -t get_tree -r | grep '"name": "Agent-Desk"' >/dev/null; then break; fi
     sleep 0.05
   done
-  if swaymsg -t get_tree -r | grep '"name": "Hex"' >/dev/null; then
-    echo "The Hex window did not close." >&2
+  if swaymsg -t get_tree -r | grep '"name": "Agent-Desk"' >/dev/null; then
+    echo "The Agent-Desk window did not close." >&2
     exit 1
   fi
   sleep 0.5
   kill -0 "$service"
-  "$HEX_WAYLAND_APP_BINARY" status >/dev/null
-  if [[ "${HEX_WAYLAND_REOPEN:-1}" == 1 ]]; then
+  "$AGENT_DESK_WAYLAND_APP_BINARY" status >/dev/null
+  if [[ "${AGENT_DESK_WAYLAND_REOPEN:-1}" == 1 ]]; then
     open_window
   fi
-  "$HEX_WAYLAND_APP_BINARY" quit
+  "$AGENT_DESK_WAYLAND_APP_BINARY" quit
   wait "$service"
   service=
   exit 0
@@ -124,23 +124,23 @@ done
 root=$(cd -- "$(dirname -- "$0")/.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
-export HEX_WAYLAND_TEST_BINARY
-HEX_WAYLAND_TEST_BINARY=$(realpath -- "$1")
-export HEX_WAYLAND_APP_BINARY
-HEX_WAYLAND_APP_BINARY=$(realpath -- "$2")
-export HEX_WAYLAND_TEST_SCRIPT="$root/scripts/test-wayland-paste.sh"
-export HEX_WAYLAND_TEST_TARGET="$work/target"
-export HEX_WAYLAND_PASTE_OUTPUT="$work/pasted.txt"
-export HEX_WAYLAND_TEST_RESULT="$work/result"
-export HEX_WAYLAND_APP_LOG="$work/hex.log"
+export AGENT_DESK_WAYLAND_TEST_BINARY
+AGENT_DESK_WAYLAND_TEST_BINARY=$(realpath -- "$1")
+export AGENT_DESK_WAYLAND_APP_BINARY
+AGENT_DESK_WAYLAND_APP_BINARY=$(realpath -- "$2")
+export AGENT_DESK_WAYLAND_TEST_SCRIPT="$root/scripts/test-wayland-paste.sh"
+export AGENT_DESK_WAYLAND_TEST_TARGET="$work/target"
+export AGENT_DESK_WAYLAND_PASTE_OUTPUT="$work/pasted.txt"
+export AGENT_DESK_WAYLAND_TEST_RESULT="$work/result"
+export AGENT_DESK_WAYLAND_APP_LOG="$work/hex.log"
 export XDG_RUNTIME_DIR="$work/runtime"
 export XDG_DATA_HOME="$work/data"
 export XDG_CONFIG_HOME="$work/config"
-export HEX_APPLICATION_SUPPORT_DIR="$work/support"
+export AGENT_DESK_APPLICATION_SUPPORT_DIR="$work/support"
 export ALSA_CONFIG_PATH="$work/alsa.conf"
 printf '# No physical audio devices in this fixture.\n' > "$ALSA_CONFIG_PATH"
 mkdir -m 700 "$XDG_RUNTIME_DIR"
-cc "$root/tests/fixtures/wayland-paste-target.c" $(pkg-config --cflags --libs gtk+-3.0) -o "$HEX_WAYLAND_TEST_TARGET"
+cc "$root/tests/fixtures/wayland-paste-target.c" $(pkg-config --cflags --libs gtk+-3.0) -o "$AGENT_DESK_WAYLAND_TEST_TARGET"
 unset DISPLAY WAYLAND_DISPLAY SWAYSOCK
 # Hardware Vulkan drivers need a GPU renderer (WLR_RENDERER=gles2) to share
 # surfaces with the compositor; Mesa's software driver works with pixman.

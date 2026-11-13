@@ -8,20 +8,20 @@
 #
 #   publish-github-release.sh <dist>
 #
-# Environment: HEX_VERSION, HEX_RELEASE_COMMIT, HEX_RELEASE_TAG,
-# HEX_RELEASE_SOURCE (a checkout of the commit with docs/releases/), GH_TOKEN.
+# Environment: AGENT_DESK_VERSION, AGENT_DESK_RELEASE_COMMIT, AGENT_DESK_RELEASE_TAG,
+# AGENT_DESK_RELEASE_SOURCE (a checkout of the commit with docs/releases/), GH_TOKEN.
 set -eu
 
-repo=${HEX_RELEASE_REPO:-anomalyco/hex}
+repo=${AGENT_DESK_RELEASE_REPO:-anomalyco/hex}
 [ $# -eq 1 ] || {
   echo "Usage: $0 <dist>" >&2
   exit 1
 }
 dist=$1
-version=${HEX_VERSION:?Set HEX_VERSION}
-commit=${HEX_RELEASE_COMMIT:?Set HEX_RELEASE_COMMIT}
-tag=${HEX_RELEASE_TAG:?Set HEX_RELEASE_TAG}
-source=${HEX_RELEASE_SOURCE:?Set HEX_RELEASE_SOURCE}
+version=${AGENT_DESK_VERSION:?Set AGENT_DESK_VERSION}
+commit=${AGENT_DESK_RELEASE_COMMIT:?Set AGENT_DESK_RELEASE_COMMIT}
+tag=${AGENT_DESK_RELEASE_TAG:?Set AGENT_DESK_RELEASE_TAG}
+source=${AGENT_DESK_RELEASE_SOURCE:?Set AGENT_DESK_RELEASE_SOURCE}
 # Only a stable X.Y.Z release is ever Latest; dev builds and prereleases never
 # reach this script.
 printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || {
@@ -53,7 +53,7 @@ if [ "$tagged" != "$commit" ]; then
   exit 1
 fi
 if ! gh release view "$tag" -R "$repo" --json name >/dev/null 2>&1; then
-  gh release create "$tag" -R "$repo" --verify-tag --title "Hex $version" \
+  gh release create "$tag" -R "$repo" --verify-tag --title "Agent-Desk $version" \
     --notes-file "$notes" --latest=true
 fi
 gh release view "$tag" -R "$repo" --json assets > "$temporary/release.json"

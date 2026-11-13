@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Display-free single-instance regression. Never uses personal settings or a microphone.
 
-One Hex process owns a data root. A second launch forwards to it and exits;
-`hex` commands forward over the same socket and fail fast without it.
+One Agent-Desk process owns a data root. A second launch forwards to it and exits;
+`agent-desk` commands forward over the same socket and fail fast without it.
 """
 import json
 import os
@@ -25,7 +25,7 @@ def wait_for(check, timeout=8):
         if result:
             return result
         time.sleep(0.025)
-    raise AssertionError("timed out waiting for Hex")
+    raise AssertionError("timed out waiting for Agent-Desk")
 
 
 with tempfile.TemporaryDirectory(prefix="hex-instance-", dir=os.environ.get("TMPDIR")) as directory:
@@ -50,8 +50,8 @@ with tempfile.TemporaryDirectory(prefix="hex-instance-", dir=os.environ.get("TMP
     fake.write_text(f'#!/bin/sh\ntouch "{marker}"\necho loaded\nexit 0\n')
     fake.chmod(0o755)
     env = os.environ | {
-        "HEX_APPLICATION_SUPPORT_DIR": str(support),
-        # Hex tidies its launcher and autostart entries at startup.
+        "AGENT_DESK_APPLICATION_SUPPORT_DIR": str(support),
+        # Agent-Desk tidies its launcher and autostart entries at startup.
         "XDG_DATA_HOME": str(root / "xdg-data"),
         "XDG_CONFIG_HOME": str(root / "xdg-config"),
         "XDG_RUNTIME_DIR": str(runtime),
@@ -60,8 +60,8 @@ with tempfile.TemporaryDirectory(prefix="hex-instance-", dir=os.environ.get("TMP
         "ALSA_CONFIG_PATH": str(alsa),
         "PATH": f'{fakebin}:{os.environ["PATH"]}',
     }
-    # No display: a window request fails the window, never Hex.
-    for key in ("DISPLAY", "WAYLAND_DISPLAY", "HEX_SYSTEMD_UNIT", "NOTIFY_SOCKET"):
+    # No display: a window request fails the window, never Agent-Desk.
+    for key in ("DISPLAY", "WAYLAND_DISPLAY", "AGENT_DESK_SYSTEMD_UNIT", "NOTIFY_SOCKET"):
         env.pop(key, None)
     path = support / "service.sock"
     children = []
@@ -86,7 +86,7 @@ with tempfile.TemporaryDirectory(prefix="hex-instance-", dir=os.environ.get("TMP
         data = b""
         while len(data) < size:
             chunk = client.recv(size - len(data))
-            assert chunk, "Hex disconnected"
+            assert chunk, "Agent-Desk disconnected"
             data += chunk
         return data
 
@@ -110,9 +110,9 @@ with tempfile.TemporaryDirectory(prefix="hex-instance-", dir=os.environ.get("TMP
             missing = run(*command)
             assert missing.returncode != 0 and "not running" in missing.stderr, missing.stderr
             assert time.monotonic() - started < 2
-        assert run("quit").returncode == 3, "quitting nothing says Hex isn't running"
+        assert run("quit").returncode == 3, "quitting nothing says Agent-Desk isn't running"
 
-        # `hex app --hidden` with no unit becomes the instance in this process.
+        # `agent-desk app --hidden` with no unit becomes the instance in this process.
         instance = spawn("app", "--hidden")
         state = wait_for(status)
         assert state["pid"] == instance.pid
@@ -122,7 +122,7 @@ with tempfile.TemporaryDirectory(prefix="hex-instance-", dir=os.environ.get("TMP
         assert stat.S_IMODE(support.stat().st_mode) == 0o700
 
         # A second launch forwards and exits 0, leaving the same instance;
-        # `hex start` finds it running.
+        # `agent-desk start` finds it running.
         for command in (["start"], ["app", "--hidden"], ["service"]):
             forwarded = run(*command)
             assert forwarded.returncode == 0, (command, forwarded.stderr)
@@ -154,11 +154,11 @@ with tempfile.TemporaryDirectory(prefix="hex-instance-", dir=os.environ.get("TMP
         refused = run("window", "story", "HUD")
         assert refused.returncode == 1 and "macOS-only" in refused.stderr, refused.stderr
 
-        # Keybinding commands need a listening Hex; they fail fast without one,
+        # Keybinding commands need a listening Agent-Desk; they fail fast without one,
         # with one line rather than an error report.
         refused = run("dictation", "toggle")
         assert refused.returncode != 0 and "not listening" in refused.stderr, refused.stderr
-        assert refused.stderr.startswith("hex: ") and refused.stderr.count("\n") == 1, refused.stderr
+        assert refused.stderr.startswith("agent-desk: ") and refused.stderr.count("\n") == 1, refused.stderr
 
         # Version 1 (service/Settings) clients get a version error, not a hang.
         with connection() as client:

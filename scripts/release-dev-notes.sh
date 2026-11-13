@@ -18,8 +18,8 @@ version=${1:?Usage: release-dev-notes.sh <version> <commit> <out>}
 commit=${2:?Usage: release-dev-notes.sh <version> <commit> <out>}
 out=${3:?Usage: release-dev-notes.sh <version> <commit> <out>}
 repository=https://github.com/anomalyco/hex
-notes_url=${HEX_DEV_NOTES_URL:-https://anoma.ly/hex/files/dev-notes.json}
-manifest_url=${HEX_DEV_MANIFEST_URL:-https://anoma.ly/release/hex/desktop/dev.json}
+notes_url=${AGENT_DESK_DEV_NOTES_URL:-https://anoma.ly/hex/files/dev-notes.json}
+manifest_url=${AGENT_DESK_DEV_MANIFEST_URL:-https://anoma.ly/release/hex/desktop/dev.json}
 max_builds=40
 max_items=40
 max_bytes=200000
@@ -54,7 +54,7 @@ fi
 # iOS, CI) is not in a dev build.
 app_path='^(src/|crates/|native/|resources/|assets/|app/|packaging/|sdk/commands/|build\.rs$|Cargo\.toml$)'
 test_path='(^tests/|/tests/|_tests\.rs$|/goldens/)'
-# Titles of changes nobody using Hex notices.
+# Titles of changes nobody using Agent-Desk notices.
 internal='^(fix\(ci\)|(ci|chore|test|tests|refactor|docs|build|style)(\([^)]*\))?!?:|release prep|release:|fold |extract |update (feature )?docs|goldens|bump rune|roll in|add code-shape|merge )'
 
 : > "$work/items.jsonl"

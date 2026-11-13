@@ -45,17 +45,17 @@ trap finish EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 export HOME="$work/home" XDG_RUNTIME_DIR="$work/runtime"
-export HEX_APPLICATION_SUPPORT_DIR="$work/support" NO_COLOR=1
+export AGENT_DESK_APPLICATION_SUPPORT_DIR="$work/support" NO_COLOR=1
 export PULSE_SERVER="unix:$work/pulse" PULSE_SOURCE=hex-fixture.monitor
 # The window uses software Vulkan on Xvfb; only inference uses the CPU in this fixture.
 export GDK_BACKEND=x11 GGML_VK_VISIBLE_DEVICES=""
 unset WAYLAND_DISPLAY VK_ICD_FILENAMES
-mkdir -m 700 "$HOME" "$XDG_RUNTIME_DIR" "$HEX_APPLICATION_SUPPORT_DIR"
-mkdir "$HEX_APPLICATION_SUPPORT_DIR/models"
+mkdir -m 700 "$HOME" "$XDG_RUNTIME_DIR" "$AGENT_DESK_APPLICATION_SUPPORT_DIR"
+mkdir "$AGENT_DESK_APPLICATION_SUPPORT_DIR/models"
 # This GTK target uses Ctrl-V. Omitting the preference from an existing settings
 # file deliberately selects the legacy terminal Ctrl-Shift-V behavior.
-printf '{"sound_effects":false,"paste_with_shift":false,"migrations":["streaming-english-model"]}\n' > "$HEX_APPLICATION_SUPPORT_DIR/settings.json"
-ln -s "$model" "$HEX_APPLICATION_SUPPORT_DIR/models/$(basename "$model")"
+printf '{"sound_effects":false,"paste_with_shift":false,"migrations":["streaming-english-model"]}\n' > "$AGENT_DESK_APPLICATION_SUPPORT_DIR/settings.json"
+ln -s "$model" "$AGENT_DESK_APPLICATION_SUPPORT_DIR/models/$(basename "$model")"
 printf 'pcm.!default { type pulse server "%s" }\n' "$PULSE_SERVER" > "$HOME/.asoundrc"
 pulseaudio -n --daemonize=no --use-pid-file=no --exit-idle-time=-1 \
   --load="module-native-protocol-unix socket=$work/pulse auth-anonymous=1" \
@@ -70,21 +70,21 @@ pactl info >/dev/null
 cc "$root/tests/fixtures/wayland-paste-target.c" $(pkg-config --cflags --libs gtk+-3.0) -o "$work/target"
 "$work/target" "$work/pasted.txt" >"$work/target.log" 2>&1 &
 target=$!
-window=$(xdotool search --sync --name '^Hex Wayland Test$' | head -n 1)
+window=$(xdotool search --sync --name '^Agent-Desk Wayland Test$' | head -n 1)
 xdotool windowfocus --sync "$window"
 "$binary" service >"$work/listener.log" 2>&1 &
 listener=$!
 echo 'Waiting for the model and virtual microphone...'
 for ((attempt = 0; attempt < 1200; attempt++)); do
   kill -0 "$listener"
-  if grep -q 'Hex dictation is ready' "$work/listener.log"; then break; fi
+  if grep -q 'Agent-Desk dictation is ready' "$work/listener.log"; then break; fi
   sleep 0.05
 done
-grep -q 'Hex dictation is ready' "$work/listener.log"
-# A second launch forwards to the running Hex, which opens its window; the
+grep -q 'Agent-Desk dictation is ready' "$work/listener.log"
+# A second launch forwards to the running Agent-Desk, which opens its window; the
 # complete dictation below runs beside it in the same process.
 "$binary" app >"$work/app.log" 2>&1
-xdotool search --sync --onlyvisible --all --pid "$listener" --name '^Hex$' >/dev/null
+xdotool search --sync --onlyvisible --all --pid "$listener" --name '^Agent-Desk$' >/dev/null
 kill -0 "$listener"
 # Holds the shortcut over the speech, then waits until the target holds
 # `$1` transcripts of it.
@@ -113,11 +113,11 @@ kill -TERM "$listener"
 wait "$listener"
 # Force a live stream on the CPU to exercise capture-time feeding, the finish,
 # and (when the stream lags behind real time) the whole-clip fallback.
-HEX_STREAMING=1 "$binary" service >"$work/stream.log" 2>&1 &
+AGENT_DESK_STREAMING=1 "$binary" service >"$work/stream.log" 2>&1 &
 listener=$!
 for ((attempt = 0; attempt < 1200; attempt++)); do
   kill -0 "$listener"
-  if grep -q 'Hex dictation is ready' "$work/stream.log"; then break; fi
+  if grep -q 'Agent-Desk dictation is ready' "$work/stream.log"; then break; fi
   sleep 0.05
 done
 grep -q 'streaming transcription is available' "$work/stream.log"

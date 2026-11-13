@@ -1,10 +1,10 @@
 name: Bug report
-description: Report something that does not work as expected in Hex.
+description: Report something that does not work as expected in Agent-Desk.
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for helping improve Hex. Please search existing issues first.
+        Thanks for helping improve Agent-Desk. Please search existing issues first.
         Do not share private dictation, audio recordings, credentials, or full logs.
         Review and redact any diagnostic excerpts or screenshots before attaching them.
         Diagnoses and proposed fixes are welcome here. We don't accept outside pull
@@ -12,7 +12,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Hex version
+      label: Agent-Desk version
       description: Include the commit if you built from source, or the package version for an SDK issue.
       placeholder: "2.1.13, installed from the signed DMG"
     validations:

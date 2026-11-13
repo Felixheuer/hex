@@ -4,12 +4,12 @@
 # callers can capture it without mixing diagnostics into codesign arguments.
 hex_codesign_identity() {
   team_id=$1
-  identity=${HEX_CODESIGN_IDENTITY:-}
+  identity=${AGENT_DESK_CODESIGN_IDENTITY:-}
   if [ -z "$identity" ]; then
     identity=$(security find-identity -v -p codesigning | sed -n "s/.*\"\(Developer ID Application:.*($team_id)\)\"/\1/p" | head -1)
   fi
   if [ -z "$identity" ]; then
-    echo "No Developer ID signing identity found for team $team_id. Set HEX_CODESIGN_IDENTITY." >&2
+    echo "No Developer ID signing identity found for team $team_id. Set AGENT_DESK_CODESIGN_IDENTITY." >&2
     return 1
   fi
   case "$identity" in
@@ -18,8 +18,8 @@ hex_codesign_identity() {
     # Development certificate keeps macOS permissions across rebuilds, but
     # can't be notarized or shared.
     "Apple Development:"*)
-      if [ "${HEX_ALLOW_DEVELOPMENT_SIGNING:-}" != 1 ]; then
-        echo "Signing identity is an Apple Development identity; set HEX_ALLOW_DEVELOPMENT_SIGNING=1 for a build for this Mac only." >&2
+      if [ "${AGENT_DESK_ALLOW_DEVELOPMENT_SIGNING:-}" != 1 ]; then
+        echo "Signing identity is an Apple Development identity; set AGENT_DESK_ALLOW_DEVELOPMENT_SIGNING=1 for a build for this Mac only." >&2
         return 1
       fi
       ;;
@@ -34,27 +34,27 @@ hex_codesign_identity() {
 # Submit one artifact and wait. A local notarytool keychain profile wins;
 # otherwise CI authenticates with an App Store Connect API key file.
 hex_notarize() {
-  if [ -n "${HEX_NOTARY_PROFILE:-}" ]; then
-    xcrun notarytool submit "$1" --keychain-profile "$HEX_NOTARY_PROFILE" --wait
+  if [ -n "${AGENT_DESK_NOTARY_PROFILE:-}" ]; then
+    xcrun notarytool submit "$1" --keychain-profile "$AGENT_DESK_NOTARY_PROFILE" --wait
   else
     xcrun notarytool submit "$1" \
-      --key "${HEX_NOTARY_KEY:?Set HEX_NOTARY_PROFILE, or HEX_NOTARY_KEY with HEX_NOTARY_KEY_ID and HEX_NOTARY_ISSUER}" \
-      --key-id "${HEX_NOTARY_KEY_ID:?Set HEX_NOTARY_KEY_ID to the App Store Connect API key ID}" \
-      --issuer "${HEX_NOTARY_ISSUER:?Set HEX_NOTARY_ISSUER to the App Store Connect issuer ID}" \
+      --key "${AGENT_DESK_NOTARY_KEY:?Set AGENT_DESK_NOTARY_PROFILE, or AGENT_DESK_NOTARY_KEY with AGENT_DESK_NOTARY_KEY_ID and AGENT_DESK_NOTARY_ISSUER}" \
+      --key-id "${AGENT_DESK_NOTARY_KEY_ID:?Set AGENT_DESK_NOTARY_KEY_ID to the App Store Connect API key ID}" \
+      --issuer "${AGENT_DESK_NOTARY_ISSUER:?Set AGENT_DESK_NOTARY_ISSUER to the App Store Connect issuer ID}" \
       --wait
   fi
 }
 
 hex_version() {
-  printf '%s\n' "${HEX_VERSION:-$(cargo metadata --no-deps --format-version 1 --manifest-path "$1/Cargo.toml" | jq -r '.packages[] | select(.name == "hex") | .version')}"
+  printf '%s\n' "${AGENT_DESK_VERSION:-$(cargo metadata --no-deps --format-version 1 --manifest-path "$1/Cargo.toml" | jq -r '.packages[] | select(.name == "hex") | .version')}"
 }
 
 # CFBundleVersion: the run number of a dev build (0.0.0-dev-N), else from
-# X.Y.Z (a prerelease shares its release's number). Hex's updater compares
+# X.Y.Z (a prerelease shares its release's number). Agent-Desk's updater compares
 # neither; it follows the channel's current release.
 hex_build_number() {
-  if [ -n "${HEX_BUILD_NUMBER:-}" ]; then
-    printf '%s\n' "$HEX_BUILD_NUMBER"
+  if [ -n "${AGENT_DESK_BUILD_NUMBER:-}" ]; then
+    printf '%s\n' "$AGENT_DESK_BUILD_NUMBER"
     return
   fi
   case "$1" in
