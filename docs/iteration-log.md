@@ -23,6 +23,11 @@ maintainable, and nothing that isn't possible.
       34, 35, 37 (pilot.42–43)
 - [x] Crash: system-wide AX reads off the main thread (pilot.44); the release opens Agent-Desk
       reliably
+- [x] P0 3, 4, 5 · P1 8–14, 20, 36 (pilot.45–46)
+- [x] P1 24 (assistant::view), 26 (settings names), 29 (partial: hooks), 38 (splits), flaky
+      tests, inbox/voice wording (pilot.47–48)
+- [ ] Remaining: cfg!(test) sites in guard/space/driver/input (each needs a hook), split
+      browser.rs again (warm), check Linux/Windows builds
 - [ ] P0 3 (tool allowlist per backend), 4 (parking store, windows back after a restart),
       5 (an escalated job's browsers), P1 8–14 (tools per lane, guard rules, routing, helper
       rules, speed rules for jobs, exclusive desk), 20 (consent without app lists), 36 (guard
@@ -42,6 +47,18 @@ maintainable, and nothing that isn't possible.
       `browser/consent.rs` (mail hosts), `knowledge/graph.rs` (messenger names), recognized by
       element/role/label instead of name
 - [ ] Timing-flaky test: `a_paused_task_waits_and_then_is_told_to_look_again`
+
+## Round 6 (after the rename): Cua only, no legacy
+
+- [ ] Remove agent-desktop completely (driver fallback, session/cursor CLI, guide in the
+      prompt, install/check, onboarding strings); Cua Driver is the only driver
+- [ ] Cua Driver updates: daily check for new releases (GitHub trycua/cua), verify the
+      signature/notarization (team ID) and checksum, install in the background, self-test,
+      roll back on failure; status in setup/repair
+- [ ] No backwards compatibility: no aliases (CLI, URL scheme, env, settings keys, tool
+      names); only dated one-time migrations for data, settings, Keychain and the app bundle
+- [ ] UX redesign per docs/ux/redesign.md (overlay as the main surface, the window recedes)
+- [ ] hex_watch_video and real Chrome codecs in the hidden browser
 
 ## Round 5 (planned): rename and real test
 
@@ -67,3 +84,7 @@ maintainable, and nothing that isn't possible.
 | pilot.42 | Cua Driver, Codex-style background input |
 | pilot.43 | Round 4: security, brain structure, errors/wording, any browser |
 | pilot.44 | Fix crash (system-wide AX), reliable restart after an update |
+| pilot.45 | Parking store, browser cleanup, exclusive desk, consent without app lists, parallel reads |
+| pilot.46 | One toolset per lane and backend |
+| pilot.47 | Clear setting names, file splits, stable tests |
+| pilot.48 | One view model for overlay and stream |
