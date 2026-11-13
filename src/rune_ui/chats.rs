@@ -717,6 +717,15 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
         changed = true;
     }
     ui.chats.follow.was_showing = showing;
+    // The running jobs' browsers and app windows stream while the window
+    // shows them, so each job card is live without the orb's cards open.
+    let live: Vec<String> = if showing {
+        ui.chats.tasks.iter().map(|task| task.conversation.clone()).collect()
+    } else {
+        Vec::new()
+    };
+    super::assistant_overlay::live::window(&live);
+    super::assistant_overlay::app_live::window(&live);
     ui.chats.follow.landed = false;
     if !showing {
         // Read again when it next shows.

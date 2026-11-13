@@ -236,10 +236,22 @@ pub(crate) fn view<S: 'static>(
             if !room.down {
                 cards.reverse();
             }
+            // Taller than the room (big cards, helpers, the wall's button):
+            // they scroll, and the whole column takes the pointer so the
+            // wheel and the gaps between cards answer.
             vec![
                 col()
                     .key("jobs-hover")
+                    .w(CARD_W)
+                    .max_h(room.max_h)
+                    .min_h(0.0)
+                    .shrink()
                     .gap(8.0)
+                    .scroll(rune::ScrollSpec {
+                        stick_bottom: !room.down,
+                    })
+                    .scroll_edge_fade(16.0)
+                    .hit()
                     .hover_delays(UNFOLD_AFTER, FOLD_AFTER)
                     .on_hover_change(move |s: &mut S, inside, _| hover(s, inside))
                     .animate_layout()
@@ -270,6 +282,7 @@ pub(crate) fn view<S: 'static>(
                     stick_bottom: !room.down,
                 })
                 .scroll_edge_fade(16.0)
+                .hit()
                 .role("list")
                 .label(tr_fill("{} jobs running", &ids.len().to_string()))
                 .children(cards);
