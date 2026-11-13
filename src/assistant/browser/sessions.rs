@@ -388,7 +388,7 @@ pub fn describe_tools(result: &mut Value) {
                     "signedIn".into(),
                     json!({"type": "boolean", "description":
                         "On a browser's first call only: true starts it in real Chrome with \
-                         the person's accounts (for web apps such as Gmail or Google Sheets); \
+                         the person's accounts (for heavy web apps and logins); \
                          false starts a clean browser with no accounts. Omitted: a light \
                          browser, with the person's accounts when they have some."}),
                 );

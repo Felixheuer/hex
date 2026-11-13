@@ -27,7 +27,7 @@ for anything on the web instead of the person's browser windows. Omit `session` 
 task's main browser, or name others (\"a\", \"b\", …) to read several pages at once; \
 hex_browser_sessions lists them. A browser is clean and light unless its first call says \
 signedIn: true, which starts real Chrome with the sites the person signed in to for Hex \
-(for web apps such as Gmail or Google Sheets). Nothing is saved.";
+(for heavy web apps and logins). Nothing is saved.";
 
 /// Serves `task`'s browser tool on stdin and stdout until the agent closes
 /// it.

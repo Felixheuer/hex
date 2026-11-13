@@ -171,11 +171,12 @@ impl Runner {
     }
 }
 
-/// Whether words said so far ask for the web: a site, a search, a browser.
+/// Whether words said so far ask for the web: a browser or a search, an
+/// address (written, or spoken as "spiegel punkt de"), or a site the
+/// person signed in to for Hex. No list of sites.
 pub(super) fn wants_web(words: &str) -> bool {
     const WEB: &[&str] = &[
         "browser",
-        "google",
         "website",
         "webseite",
         "web site",
@@ -189,17 +190,49 @@ pub(super) fn wants_web(words: &str) -> bool {
         "search for",
         "look up",
         "nachschauen",
-        "youtube",
-        "wikipedia",
-        "amazon",
-        ".com",
-        ".de",
-        ".org",
-        "punkt com",
-        "punkt de",
-        "dot com",
+        "googel",
     ];
     let text = words.to_lowercase();
     WEB.iter().any(|word| text.contains(word))
-        || crate::assistant::browser::wants_signed_in_chrome(&text)
+        || names_address(&text)
+        || crate::assistant::browser::names_signed_in_site(&text)
+}
+
+/// Whether `text` (lowercase) holds a web address: `https://…`, `www.…`, a
+/// host such as `spiegel.de`, or one spoken (`spiegel punkt de`, `example
+/// dot com`).
+pub(super) fn names_address(text: &str) -> bool {
+    const SPOKEN_DOT: &[&str] = &["punkt", "dot"];
+    const SPOKEN_SUFFIX: &[&str] = &[
+        "de", "com", "org", "net", "io", "at", "ch", "eu", "info", "ai", "app", "dev", "co", "uk",
+        "fr", "nl", "es", "it",
+    ];
+    let words: Vec<&str> = text
+        .split_whitespace()
+        .map(|word| word.trim_matches(|c: char| ",;:!?()\"'«»„“”".contains(c)))
+        .collect();
+    let host = |word: &str| {
+        let word = word
+            .split('/')
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches('.');
+        let Some((name, suffix)) = word.rsplit_once('.') else {
+            return false;
+        };
+        !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '.' || c == '-')
+            && (2..=6).contains(&suffix.len())
+            && suffix.chars().all(|c| c.is_ascii_lowercase())
+    };
+    words.iter().any(|word| {
+        word.starts_with("http://") || word.starts_with("https://") || word.starts_with("www.")
+    }) || words.iter().any(|word| host(word))
+        || words.windows(3).any(|three| {
+            !three[0].is_empty()
+                && SPOKEN_DOT.contains(&three[1])
+                && SPOKEN_SUFFIX.contains(&three[2])
+        })
 }

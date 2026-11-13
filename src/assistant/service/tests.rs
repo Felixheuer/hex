@@ -1429,8 +1429,15 @@ fn words_that_ask_for_the_web_start_the_holds_browser_once() {
         [format!("browser ahead {id} such mal auf google nach")]
     );
     assert!(warm::wants_web("Schau auf spiegel punkt de"));
-    assert!(warm::wants_web("open my Gmail"));
+    assert!(warm::wants_web("Öffne github.com/anomalyco"));
+    assert!(warm::wants_web("go to https://example.org"));
+    assert!(warm::wants_web("example dot com bitte"));
     assert!(!warm::wants_web("Was steht in dieser Mail?"));
+    // No brand words: a name alone says nothing (the sign-in store decides
+    // that, and tests never read it); "Punkt" in a sentence isn't a dot.
+    assert!(!warm::wants_web("Öffne WhatsApp"));
+    assert!(!warm::wants_web("Ein Punkt und noch einer"));
+    assert!(!warm::wants_web("Version 1.2 ist fertig, z.b. heute."));
 }
 
 #[test]

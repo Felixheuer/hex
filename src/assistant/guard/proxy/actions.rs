@@ -1,19 +1,20 @@
 //! Hex's fast actions for a task (`assistant::actions`): `hex_app_action`
-//! (an app recipe: deep link, AppleScript, CLI) and `hex_read_window` (a
-//! window's text from its picture), checked like every other action:
-//! blocked apps are refused, a consequential recipe needs the person's yes
-//! (`autonomy`), and a window the recipe opens is the task's (and, in a
-//! quick turn, the desk's), parked out of the person's way.
+//! (a URL or a script for any app), `hex_app_capabilities` (what an app
+//! offers, from the app itself), and `hex_read_window` (a window's text
+//! from its picture), checked like every other action: blocked apps are
+//! refused, a consequential script needs the person's yes (`autonomy`),
+//! and a window an action opens is the task's (and, in a quick turn, the
+//! desk's), parked out of the person's way.
 
 use std::collections::{BTreeMap, HashSet};
 
 use serde_json::{Map, Value, json};
 
 use super::super::child::Desktop;
-use super::super::policy::{APP_ACTION_TOOL, READ_WINDOW_TOOL, Target};
+use super::super::policy::{APP_ACTION_TOOL, APP_CAPABILITIES_TOOL, READ_WINDOW_TOOL, Target};
 use super::apps::success;
 use super::{Guard, Launched, Look, Resolved, failure, refusal, text};
-use crate::assistant::actions::{ocr, recipes};
+use crate::assistant::actions::{app_action, ocr};
 use crate::assistant::autonomy::{self, Autonomy};
 
 /// Most lines `hex_read_window` returns.
@@ -42,58 +43,34 @@ impl<D: Desktop> Guard<D> {
                 Some((key.clone(), value))
             })
             .collect();
-        let all = recipes::all();
-        let (recipe, command) = match recipes::find(all, &app, &intent) {
-            Some(recipe) => {
-                let command = recipes::build(recipe, &values)
-                    .map_err(|why| refusal(tool, "INVALID_ARGS", &why))?;
-                (recipe.clone(), command)
-            }
-            None => {
-                // Any installed app: its URLs and its scripting, no recipe
-                // needed (the recipes are fast paths, not a limit).
-                let key = crate::assistant::guard::app_key(&app);
-                let installed = self.screen.installed_apps().into_iter().find(|candidate| {
-                    crate::assistant::guard::app_key(&candidate.name) == key
-                        || candidate
-                            .bundle_id
-                            .as_deref()
-                            .is_some_and(|id| crate::assistant::guard::app_key(id) == key)
-                });
-                let (name, bundle_id) = installed
-                    .map(|found| (found.name, found.bundle_id))
-                    .unwrap_or_else(|| (app.clone(), None));
-                match recipes::generic(&name, bundle_id.as_deref(), &intent, &values) {
-                    Some(built) => built.map_err(|why| refusal(tool, "INVALID_ARGS", &why))?,
-                    None => {
-                        let known: Vec<String> = all
-                            .iter()
-                            .filter(|recipe| crate::assistant::guard::app_key(&recipe.app) == key)
-                            .map(|recipe| recipe.intent.clone())
-                            .chain(recipes::GENERIC.iter().map(|intent| (*intent).to_owned()))
-                            .collect();
-                        return Err(refusal(
-                            tool,
-                            "UNKNOWN_RECIPE",
-                            &format!(
-                                "{app} has no intent {intent}; it has: {} (open_url and script \
-                                 work for any app). Or open it with hex_open_app and act in its \
-                                 window.",
-                                known.join(", ")
-                            ),
-                        ));
-                    }
+        let installed = self.installed_app(&app);
+        let (name, bundle_id) = installed
+            .as_ref()
+            .map(|found| (found.name.clone(), found.bundle_id.clone()))
+            .unwrap_or_else(|| (app.clone(), None));
+        let (recipe, command) =
+            match app_action::build(&name, bundle_id.as_deref(), &intent, &values) {
+                Some(built) => built.map_err(|why| refusal(tool, "INVALID_ARGS", &why))?,
+                None => {
+                    return Err(refusal(
+                        tool,
+                        "UNKNOWN_INTENT",
+                        &format!(
+                            "hex_app_action has no intent {intent}; every app takes open_url \
+                             (params.url) and script (params.script, AppleScript). Find what \
+                             {app} offers for them with hex_app_capabilities."
+                        ),
+                    ));
                 }
-            }
-        };
+            };
         let recipe = &recipe;
-        if self.blocked(&recipe.name)
+        if self.blocked(&recipe.app)
             || recipe
                 .bundle_id
                 .as_deref()
                 .is_some_and(|id| self.blocked(id))
         {
-            return Err(self.blocked_refusal(tool, &recipe.name));
+            return Err(self.blocked_refusal(tool, &recipe.app));
         }
         if let Some(category) = recipe.consequence {
             let mode = self.config.autonomy;
@@ -103,38 +80,30 @@ impl<D: Desktop> Guard<D> {
                     tool,
                     "NEEDS_CONFIRMATION",
                     &format!(
-                        "{} {} would {} in {}. The person hasn't allowed that for this task; ask \
-                         them and wait for their yes, Hex refuses it until they confirm.",
-                        recipe.app,
+                        "This {} would {} in {}. The person hasn't allowed that for this task; \
+                         ask them and wait for their yes, Hex refuses it until they confirm.",
                         recipe.intent,
                         serde_json::to_value(category)
                             .ok()
                             .and_then(|value| value.as_str().map(str::to_owned))
                             .unwrap_or_default(),
-                        recipe.name
+                        recipe.app
                     ),
                 );
                 let details = &mut result["structuredContent"]["error"]["details"];
                 details["category"] = json!(category);
-                details["app"] = json!(recipe.name);
+                details["app"] = json!(recipe.app);
                 let text = result["structuredContent"].to_string();
                 result["content"][0]["text"] = Value::String(text);
                 return Err(result);
             }
         }
-        // A recipe that shows a window: the app's window comes here first
+        // An action that shows a window: the app's window comes here first
         // (from another desktop if need be) and becomes the task's.
-        let installed = self.screen.installed_apps().into_iter().find(|app| {
-            recipe
-                .bundle_id
-                .as_deref()
-                .is_some_and(|id| app.bundle_id.as_deref() == Some(id))
-                || super::same_app(&app.name, &recipe.name)
-        });
         let running = installed
             .as_ref()
             .is_some_and(|app| self.screen.running_apps().contains(&app.path));
-        let shows = recipe.opens_window();
+        let shows = recipe.opens_window;
         let mut windows = Vec::new();
         let mut desk = false;
         if shows
@@ -162,7 +131,7 @@ impl<D: Desktop> Guard<D> {
             .collect();
         let _ = self.list(Look::Check);
         let before = super::front::frontmost();
-        let output = (self.run_recipe)(&command).map_err(|why| {
+        let output = (self.run_action)(&command).map_err(|why| {
             failure(&format!(
                 "{} {} didn't work: {}",
                 recipe.app,
@@ -177,7 +146,7 @@ impl<D: Desktop> Guard<D> {
         if shows && !running {
             // It started: its new window is the task's.
             let launched = Launched {
-                app: recipe.name.clone(),
+                app: recipe.app.clone(),
                 pid: None,
             };
             windows = self.wait_for_window(&launched, &held_before);
@@ -189,16 +158,8 @@ impl<D: Desktop> Guard<D> {
             let pid = self.screen.app_pids(&app.path).first().copied();
             super::front::keep_front(before, pid);
         }
-        self.watch(&recipe.name);
-        let mut note = match recipe.consequence {
-            None if recipe.intent.contains("draft")
-                || recipe.intent == "open_chat"
-                || recipe.intent == "compose" =>
-            {
-                "Done as a draft: nothing was sent.".to_owned()
-            }
-            _ => "Done.".to_owned(),
-        };
+        self.watch(&recipe.app);
+        let mut note = "Done.".to_owned();
         if !windows.is_empty() {
             note.push_str(" Its window is yours: act in it by its id (check with a snapshot).");
         }
@@ -208,13 +169,55 @@ impl<D: Desktop> Guard<D> {
         Ok(success(
             "app-action",
             json!({
-                "app": recipe.name,
+                "app": recipe.app,
                 "intent": recipe.intent,
                 "output": output,
                 "windows": windows,
                 "note": note,
             }),
         ))
+    }
+
+    /// The installed app `app` names (its name or bundle id, compared as
+    /// app names are).
+    fn installed_app(&mut self, app: &str) -> Option<super::super::screen::App> {
+        let key = crate::assistant::guard::app_key(app);
+        self.screen.installed_apps().into_iter().find(|candidate| {
+            crate::assistant::guard::app_key(&candidate.name) == key
+                || candidate
+                    .bundle_id
+                    .as_deref()
+                    .is_some_and(|id| crate::assistant::guard::app_key(id) == key)
+        })
+    }
+
+    /// `hex_app_capabilities`: what an installed app offers, read from the
+    /// app itself (`actions::capabilities`).
+    pub(super) fn app_capabilities(
+        &mut self,
+        tool: &str,
+        args: &Map<String, Value>,
+    ) -> Result<Value, Value> {
+        let app = text(args, "app").unwrap_or_default();
+        if app.trim().is_empty() {
+            return Err(refusal(tool, "INVALID_ARGS", "Name the app with app."));
+        }
+        let Some(found) = self.installed_app(&app) else {
+            return Err(refusal(
+                tool,
+                "APP_NOT_FOUND",
+                &format!("No app “{app}” is installed; hex_installed_apps lists them."),
+            ));
+        };
+        if self.blocked(&found.name)
+            || found
+                .bundle_id
+                .as_deref()
+                .is_some_and(|id| self.blocked(id))
+        {
+            return Err(self.blocked_refusal(tool, &found.name));
+        }
+        Ok(success("app-capabilities", (self.discover)(&found)))
     }
 
     pub(super) fn read_window(
@@ -285,34 +288,52 @@ impl<D: Desktop> Guard<D> {
     }
 }
 
-/// `hex_app_action`'s schema, with every recipe listed.
+/// `hex_app_action`'s schema.
 pub(super) fn app_action_tool() -> Value {
     json!({
         "name": APP_ACTION_TOOL,
-        "description": format!(
-            "Hex: an app's action by its fastest way (deep link, AppleScript, or CLI), without \
-             clicking and without bringing anything in front. Prefer it to clicking through an \
-             app. Works for every installed app: intent open_url (params.url: any URL the app \
-             takes, its own scheme, a file, a page; opened in the background) and intent script \
-             (params.script: AppleScript run inside `tell application id …` for any scriptable \
-             app). Drafts are never sent; anything that sends, deletes, or pays needs the \
-             person's yes. A window it opens is yours (parked). Known fast paths (app \
-             intent(params): what it does):\n{}",
-            recipes::catalogue(recipes::all())
-        ),
+        "description": "Hex: any installed app's action by its fastest way, without clicking, \
+            without its window, and without bringing anything in front. intent script \
+            (params.script): AppleScript run inside `tell application id …` of the app, to read \
+            or change its data on any desktop (find what its dictionary has with \
+            hex_app_capabilities; search with `whose`). intent open_url (params.url): a URL the \
+            app takes (its own scheme, a file, a page), opened in the background; a window it \
+            opens is yours, parked. A script that sends, deletes, pays, shares, or publishes \
+            follows the person's autonomy mode.",
         "inputSchema": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-                "app": {"type": "string", "description": "The recipe's app, e.g. whatsapp"},
-                "intent": {"type": "string", "description": "The recipe's intent, e.g. open_chat"},
+                "app": {"type": "string", "description": "The app's name or bundle id"},
+                "intent": {"type": "string", "enum": ["script", "open_url"]},
                 "params": {
                     "type": "object",
-                    "description": "The recipe's parameters by name (strings)",
+                    "description": "{\"script\": \"…\"} or {\"url\": \"…\"}",
                     "additionalProperties": {"type": "string"}
                 }
             },
             "required": ["app", "intent"],
+        },
+    })
+}
+
+/// `hex_app_capabilities`' schema.
+pub(super) fn capabilities_tool() -> Value {
+    json!({
+        "name": APP_CAPABILITIES_TOOL,
+        "description": "Hex: what any installed app offers, read from the app itself in \
+            milliseconds: its scripting dictionary (classes with their properties and \
+            elements, commands with parameters), the URL schemes and documents it declares, \
+            what its windows are made of (native, Electron, Catalyst), and the ways to reach \
+            it, fastest first. Call it before working in an app you haven't scripted in this \
+            task. Read-only.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "app": {"type": "string", "description": "The app's name or bundle id"}
+            },
+            "required": ["app"],
         },
     })
 }

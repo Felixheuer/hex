@@ -1298,7 +1298,7 @@ fn language_rule(request: &str) -> String {
 }
 
 /// The browser rules of a quick (Here) turn.
-pub const HERE_BROWSER: &str = "You have your own hidden browser (the browser tools) for a quick look on the web or a page the person asks to open; prefer it over their browser windows. Omit `session`; it starts with the person's accounts when there are any, and `signedIn: true` opens real Chrome for web apps that need it (Gmail, Google Sheets, …). Never solve or get around a captcha or a check that you are human: ask the person with a reply starting `HEX_QUESTION:` to solve it in the live picture of that browser on your card.\n";
+pub const HERE_BROWSER: &str = "You have your own hidden browser (the browser tools) for a quick look on the web or a page the person asks to open; prefer it over their browser windows. Omit `session`; it starts with the person's accounts when there are any, and `signedIn: true` opens real Chrome for heavy web apps or logins the light one can't handle. Never solve or get around a captcha or a check that you are human: ask the person with a reply starting `HEX_QUESTION:` to solve it in the live picture of that browser on your card.\n";
 
 /// Who the assistant is, how it answers, and its lane's rules for the
 /// desktop and the browser.
@@ -1325,7 +1325,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
         prompt.push_str(HERE_BROWSER);
     } else if browser {
         prompt.push_str(&format!(
-            "You have your own hidden browsers (the browser tools): prefer them for anything on the web (looking things up, web apps, forms), over the person's browser windows. Every browser tool takes `session` (omit it, or \"main\", for the main browser; any other short name opens another, at most {} on this computer). For research, or when the person asks for several browsers, open one per source or subtopic and work them in parallel (several tool calls in one turn), so the job is done fast; read pages in the light browsers, real Chrome only where a login or a heavy web app needs it. Your browsers start with the person's accounts (the sites they signed in to for Hex) when there are any, in a light browser; pass `signedIn: true` on the call that opens one for web apps that need real Chrome (Gmail, Google Sheets, …), or `signedIn: false` for a clean one with no accounts. Never ask the person to sign in unless a page still shows a login after that. If a page shows a captcha or a Cloudflare challenge, retry it in a `signedIn: true` browser. If it still asks you to prove you are human, never try to solve or get around it yourself: leave that browser open on the challenge, do whatever else needs no such page, then ask the person to solve it, starting your reply with the line `HEX_QUESTION:` (one or two speakable sentences naming the site, saying they can solve it in the live picture of that browser on your card: Take over, solve it, Hand back). When they answer, look at the page afresh and go on.\n",
+            "You have your own hidden browsers (the browser tools): prefer them for anything on the web (looking things up, web apps, forms), over the person's browser windows. Every browser tool takes `session` (omit it, or \"main\", for the main browser; any other short name opens another, at most {} on this computer). For research, or when the person asks for several browsers, open one per source or subtopic and work them in parallel (several tool calls in one turn), so the job is done fast; read pages in the light browsers, real Chrome only where a login or a heavy web app needs it. Your browsers start with the person's accounts (the sites they signed in to for Hex) when there are any, in a light browser; pass `signedIn: true` on the call that opens one for heavy web apps or logins that need real Chrome, or `signedIn: false` for a clean one with no accounts. Never ask the person to sign in unless a page still shows a login after that. If a page shows a captcha or a Cloudflare challenge, retry it in a `signedIn: true` browser. If it still asks you to prove you are human, never try to solve or get around it yourself: leave that browser open on the challenge, do whatever else needs no such page, then ask the person to solve it, starting your reply with the line `HEX_QUESTION:` (one or two speakable sentences naming the site, saying they can solve it in the live picture of that browser on your card: Take over, solve it, Hand back). When they answer, look at the page afresh and go on.\n",
             crate::assistant::browser::max_sessions()
         ));
     }
@@ -1357,6 +1357,12 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
          - Never quit or close an app you didn't open in this task.\n\
          - Read before acting: one snapshot of the window (interactive refs), act on a ref, then check only what matters.\n",
     );
+    // Hex's app tools reach every app wherever the task may open apps.
+    if desktop.guarded
+        && (origin.lane() == Lane::Background || desktop.open_apps || desktop.front_window)
+    {
+        prompt.push_str(APP_METHODS);
+    }
     match origin.lane() {
         Lane::Here if desktop.front_window => prompt.push_str(
             "- The person gave you full control of this Mac: look at and act in any window no other task holds, the one in front included, by its window_id (it becomes yours as you act in it; no need to claim it first) and open or switch to any app with hex_open_app (it takes a running app's window into this task, reopens one that has no window, and never starts a second instance). Never say you can't open, reach, or use an app or window, and never offer a background job for something you can do now. Asked only to open an app, open it, say so in one short sentence, and ask what to do in it.\n",
