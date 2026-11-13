@@ -1,11 +1,13 @@
 //! A task's MCP servers in each backend's config format: its desktop tool
-//! under agent-desktop's name (the guard forwards agent-desktop's tools under
-//! the same names, plus `desktop_claim_window`, so `desktop_*` reads the same
-//! either way), and its hidden browser under `agent-browser`.
+//! (the guard, which forwards the driver's tools under agent-desktop's names
+//! plus Hex's own), its hidden browser under `agent-browser`, and Hex's
+//! tools. Each server lists exactly the tools the task may use, so every
+//! backend gets all of them and none keeps an allowlist of its own
+//! (`guard::proxy::tools`, `tools::definitions_for`).
 
 use serde_json::{Map, Value};
 
-use super::{DESKTOP_TOOLS, Run, WITHHELD_TOOLS};
+use super::Run;
 use crate::assistant::backends::{MCP_NAME, McpServer};
 
 /// The hidden browser's server name; its tools are `mcp__agent-browser__*`
@@ -41,32 +43,20 @@ pub fn claude_config(run: &Run) -> Option<String> {
     Some(serde_json::json!({ "mcpServers": map }).to_string())
 }
 
-/// Claude Code's allowed and withheld tools for `run`'s servers.
-pub fn claude_tools(run: &Run) -> (Vec<String>, Vec<String>) {
-    let mut allowed = Vec::new();
-    let mut withheld = Vec::new();
-    for (name, _) in of(run) {
-        allowed.push(format!("mcp__{name}"));
-        if name == MCP_NAME {
-            withheld.extend(
-                WITHHELD_TOOLS
-                    .iter()
-                    .map(|tool| format!("mcp__{name}__{tool}")),
-            );
-        }
-    }
-    (allowed, withheld)
+/// Claude Code's allowed tools for `run`'s servers: each server whole.
+pub fn claude_tools(run: &Run) -> Vec<String> {
+    of(run)
+        .into_iter()
+        .map(|(name, _)| format!("mcp__{name}"))
+        .collect()
 }
 
 /// `-c` overrides that add `run`'s servers to `codex exec`, approved up
-/// front: the desktop with only `DESKTOP_TOOLS`, the browser with all of its.
+/// front, each with every tool it lists.
 pub fn codex_args(run: &Run) -> Vec<String> {
     of(run)
         .into_iter()
-        .flat_map(|(name, server)| {
-            let tools: &[&str] = if name == MCP_NAME { DESKTOP_TOOLS } else { &[] };
-            server.codex_args_as(name, tools)
-        })
+        .flat_map(|(name, server)| server.codex_args_as(name, &[]))
         .collect()
 }
 
@@ -110,28 +100,15 @@ mod tests {
         let claude: Value = serde_json::from_str(&claude_config(&run).unwrap()).unwrap();
         assert_eq!(claude["mcpServers"]["desktop"]["args"][2], "s1");
         assert_eq!(claude["mcpServers"]["agent-browser"]["args"][2], "t1");
-        let (allowed, withheld) = claude_tools(&run);
-        assert_eq!(allowed, ["mcp__desktop", "mcp__agent-browser"]);
-        assert!(withheld.contains(&"mcp__desktop__desktop_session_end".to_owned()));
+        assert_eq!(claude_tools(&run), ["mcp__desktop", "mcp__agent-browser"]);
 
         let codex = codex_args(&run);
         assert!(
             codex
                 .contains(&r#"mcp_servers.agent-browser.args=["mcp","--session","t1"]"#.to_owned())
         );
-        assert!(
-            codex
-                .iter()
-                .any(|arg| arg.starts_with("mcp_servers.desktop.enabled_tools=")
-                    && arg.contains("desktop_claim_window")
-                    && arg.contains("hex_installed_apps")
-                    && arg.contains("hex_open_app"))
-        );
-        assert!(
-            !codex
-                .iter()
-                .any(|arg| arg.starts_with("mcp_servers.agent-browser.enabled_tools="))
-        );
+        // The guard lists exactly the task's tools: no backend narrows them.
+        assert!(!codex.iter().any(|arg| arg.contains(".enabled_tools=")));
 
         let opencode = opencode_config(&run).unwrap();
         assert_eq!(

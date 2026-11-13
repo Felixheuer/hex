@@ -52,12 +52,14 @@ fn hex_displays_tells_the_layout_and_both_displays() {
     let fake = Fake::recorded();
     this_mac(&fake);
     let mut guard = here(&scratch, &fake, FRONT, "Hex Test", false);
+    // Not offered (the guard places windows itself; the message names the
+    // displays), but still answered.
     assert!(
         guard
             .tools()
             .unwrap()
             .iter()
-            .any(|tool| tool["name"] == "hex_displays")
+            .all(|tool| tool["name"] != "hex_displays")
     );
     let data = child::data(&guard.call("hex_displays", Map::new())).unwrap();
     assert_eq!(data["person_display"], "1");

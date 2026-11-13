@@ -143,10 +143,20 @@ fn with_full_control_a_here_task_opens_and_switches_to_apps() {
         .iter()
         .map(|tool| tool["name"].clone())
         .collect();
-    for wanted in ["hex_open_app", "desktop_claim_window", "hex_installed_apps"] {
+    for wanted in [
+        "hex_open_app",
+        "hex_installed_apps",
+        "hex_release_window",
+        "hex_app_action",
+        "hex_app_capabilities",
+    ] {
         assert!(names.contains(&json!(wanted)), "{wanted}");
     }
-    assert!(guard.rules().contains("full control"));
+    // One tool per job: hex_open_app opens apps, and any window becomes the
+    // task's as it acts there (no claim in the Here lane).
+    for gone in ["desktop_launch", "desktop_claim_window", "hex_displays"] {
+        assert!(!names.contains(&json!(gone)), "{gone}");
+    }
     // A running app: its window is the task's at once.
     let switched = guard.call("hex_open_app", args(json!({"name": "Citrix Viewer"})));
     assert_eq!(data(&switched)["windows"][0]["id"], CITRIX);
@@ -183,7 +193,6 @@ fn asked_to_stay_in_the_background_a_here_task_still_opens_apps_of_its_own() {
     guard.config.open_apps = true;
     let tools = guard.tools().unwrap();
     assert!(tools.iter().any(|tool| tool["name"] == "hex_open_app"));
-    assert!(guard.rules().contains("stays out of the person's windows"));
     let opened = guard.call("hex_open_app", args(json!({"name": "Citrix Viewer"})));
     assert_eq!(data(&opened)["windows"][0]["id"], CITRIX);
     let read = guard.call("desktop_snapshot", args(json!({"window_id": CITRIX})));

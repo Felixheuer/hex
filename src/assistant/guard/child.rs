@@ -17,10 +17,6 @@ pub trait Desktop: Send {
     fn tools(&mut self) -> Result<Vec<Value>, String>;
     /// Calls `tool`; the MCP `CallToolResult` as it came.
     fn call(&mut self, tool: &str, args: &Map<String, Value>) -> Result<Value, String>;
-    /// agent-desktop's own instructions, once started.
-    fn instructions(&mut self) -> Option<String> {
-        None
-    }
 }
 
 /// A running `agent-desktop mcp`, started on first use and again if it ends.
@@ -30,7 +26,6 @@ pub struct AgentDesktop {
     /// Environment beside Hex's agent environment (Cua Driver's settings).
     env: Vec<(String, String)>,
     running: Option<Running>,
-    instructions: Option<String>,
     next_id: u64,
 }
 
@@ -56,7 +51,6 @@ impl AgentDesktop {
             args,
             env,
             running: None,
-            instructions: None,
             next_id: 0,
         }
     }
@@ -91,15 +85,11 @@ impl AgentDesktop {
             stdin,
             stdout: BufReader::new(stdout),
         });
-        let hello = self.request(
+        self.request(
             "initialize",
             json!({"protocolVersion": "2025-06-18", "capabilities": {},
                 "clientInfo": {"name": "hex-guard", "version": crate::VERSION}}),
         )?;
-        self.instructions = hello
-            .get("instructions")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
         self.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))
     }
 
@@ -164,11 +154,6 @@ impl Desktop for AgentDesktop {
     fn call(&mut self, tool: &str, args: &Map<String, Value>) -> Result<Value, String> {
         self.start()?;
         self.request("tools/call", json!({"name": tool, "arguments": args}))
-    }
-
-    fn instructions(&mut self) -> Option<String> {
-        self.start().ok()?;
-        self.instructions.clone()
     }
 }
 

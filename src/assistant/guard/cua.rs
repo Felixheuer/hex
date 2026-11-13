@@ -725,17 +725,6 @@ impl<I: Desktop> Desktop for Cua<I> {
             Ok(result) | Err(result) => result,
         })
     }
-
-    fn instructions(&mut self) -> Option<String> {
-        Some(
-            "Desktop tools (Cua Driver behind Hex's guard): list windows, snapshot one by \
-             window_id (its elements with refs @<snapshot>:eN), act on a ref (click, type, \
-             set_value, select, scroll, press keys with app or window_id). Everything works in \
-             the background: windows stay where they wait and the person's pointer and front \
-             window are never used."
-                .into(),
-        )
-    }
 }
 
 /// The app in front, by pid.

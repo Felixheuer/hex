@@ -298,11 +298,7 @@ fn arguments_with(run: &Run, sandboxed: bool) -> Vec<String> {
     args.extend(["--system-prompt".into(), run.system.clone()]);
     if let Some(config) = super::servers::claude_config(run) {
         args.extend(["--mcp-config".into(), config]);
-        let (servers, withheld) = super::servers::claude_tools(run);
-        allowed.extend(servers);
-        if !withheld.is_empty() {
-            args.extend(["--disallowedTools".into(), withheld.join(",")]);
-        }
+        allowed.extend(super::servers::claude_tools(run));
     }
     args.extend(["--allowedTools".into(), allowed.join(",")]);
     if let Some(model) = run
@@ -607,12 +603,7 @@ mod tests {
             args.windows(2)
                 .any(|pair| pair == ["--allowedTools", "WebSearch,WebFetch,mcp__desktop"])
         );
-        let withheld = &args[args
-            .iter()
-            .position(|arg| arg == "--disallowedTools")
-            .unwrap()
-            + 1];
-        assert!(withheld.contains("mcp__desktop__desktop_session_end"));
+        assert!(!args.iter().any(|arg| arg == "--disallowedTools"));
     }
 
     #[test]
@@ -634,6 +625,19 @@ mod tests {
             ]));
         let allowed = &args[args.iter().position(|arg| arg == "--allowedTools").unwrap() + 1];
         assert_eq!(allowed, "WebSearch,WebFetch,Bash,Task");
+        // The built-ins the rules name are the ones Claude Code gets.
+        let tools = |args: &[String]| {
+            args[args.iter().position(|arg| arg == "--tools").unwrap() + 1].clone()
+        };
+        for (args, job) in [(&plain, false), (&args, true)] {
+            let tools = tools(args);
+            for name in
+                crate::assistant::agent::toolset::Builtins::of(AssistantBackend::ClaudeCode, job)
+                    .names()
+            {
+                assert!(tools.split(',').any(|tool| tool == name), "{name}");
+            }
+        }
         let settings: Value = serde_json::from_str(
             &args[args.iter().position(|arg| arg == "--settings").unwrap() + 1],
         )

@@ -8,12 +8,14 @@
 //! their own browser (`knowledge`; a job only reads there). Newline-delimited JSON-RPC on stdio, like the other
 //! servers.
 //!
-//! Two roles. A quick question or a chat (the person's own turn) has all of
-//! the above. A background job (`--role job`) reads web pages and files the
-//! person never saw, so it may not change what outlives it: no memory, no
-//! schedules made or removed, no hand-off (a job's `hex_start_jobs` was lost
+//! Three roles, each with only the tools its rules name. A quick question
+//! or a chat (the person's own turn) hands jobs on, remembers (when memory
+//! is on), and schedules. A background job (`--role job`) reads web pages
+//! and files the person never saw, so it may not change what outlives it:
+//! no memory, no schedules, no hand-off (a job's `hex_start_jobs` was lost
 //! silently); it leads a team instead (`hex_team_start`, `hex_team_status`,
-//! `agent::team`).
+//! `agent::team`) and checks visual work (`hex_compare_images`). A helper
+//! (`--role helper`) is a job's part: a job without a team of its own.
 //!
 //! OWNER: brain.
 
@@ -42,8 +44,10 @@ pub const NAME: &str = "hex";
 
 /// The conversation this server serves (`--task`), for `hex_start_jobs`.
 static TASK: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-/// Whether it serves a background job (`--role job`).
-static JOB: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+/// Whom it serves (`--role`).
+static ROLE: std::sync::OnceLock<Role> = std::sync::OnceLock::new();
+/// Whether the person's memory is on (`hex_remember` is offered).
+static MEMORY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 /// Who the tools serve.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -52,6 +56,8 @@ pub enum Role {
     Turn,
     /// A background job.
     Job,
+    /// A job's helper (`agent::team`): a job without a team of its own.
+    Helper,
 }
 
 impl Role {
@@ -60,16 +66,53 @@ impl Role {
         match self {
             Self::Turn => "turn",
             Self::Job => "job",
+            Self::Helper => "helper",
         }
+    }
+
+    /// The role `--role <arg>` names; a turn for anything else.
+    pub fn parse(arg: &str) -> Self {
+        [Self::Job, Self::Helper]
+            .into_iter()
+            .find(|role| role.arg() == arg)
+            .unwrap_or(Self::Turn)
+    }
+
+    /// A background job or its helper.
+    pub fn is_job(self) -> bool {
+        self != Self::Turn
+    }
+
+    /// The names of the tools it is offered, in order.
+    pub fn tools(self, memory: bool) -> Vec<&'static str> {
+        let mut names = match self {
+            Self::Turn => vec![
+                "hex_start_jobs",
+                "hex_tell_job",
+                "hex_job_result",
+                "hex_remember",
+                "hex_schedule",
+                "hex_schedules",
+                "hex_unschedule",
+            ],
+            Self::Job | Self::Helper => vec!["hex_compare_images"],
+        };
+        if !memory {
+            names.retain(|name| *name != "hex_remember");
+        }
+        names.extend(crate::assistant::knowledge::NAMES);
+        if self == Self::Job {
+            names.extend(TEAM_TOOLS);
+        }
+        names
     }
 }
 
+/// A job's team tools (`agent::team`).
+const TEAM_TOOLS: [&str; 3] = ["hex_team_start", "hex_team_tell", "hex_team_status"];
+
 fn role() -> Role {
-    if JOB.get().copied().unwrap_or(false) {
-        Role::Job
-    } else {
-        Role::Turn
-    }
+    ROLE.get().copied().unwrap_or(Role::Turn)
 }
 
 /// Tools a background job may not use, and why.
@@ -96,20 +139,16 @@ const NOT_FOR_JOBS: [(&str, &str); 5] = [
     ),
 ];
 
-/// The tools for `role`.
-pub fn definitions_for(role: Role) -> Vec<Value> {
-    let all = definitions();
-    match role {
-        Role::Turn => all,
-        Role::Job => all
-            .into_iter()
-            .filter(|tool| {
-                let name = tool["name"].as_str().unwrap_or("");
-                !NOT_FOR_JOBS.iter().any(|(refused, _)| *refused == name)
-            })
-            .chain(team_definitions())
-            .collect(),
-    }
+/// The tools for `role` ([`Role::tools`]), `memory` on or off.
+pub fn definitions_for(role: Role, memory: bool) -> Vec<Value> {
+    let all: Vec<Value> = definitions()
+        .into_iter()
+        .chain(team_definitions())
+        .collect();
+    role.tools(memory)
+        .into_iter()
+        .filter_map(|name| all.iter().find(|tool| tool["name"] == name).cloned())
+        .collect()
 }
 
 /// A job's team tools (`agent::team`).
@@ -143,8 +182,8 @@ fn team_definitions() -> Vec<Value> {
     ]
 }
 
-/// The tool definitions for a quick question or a chat.
-pub fn definitions() -> Vec<Value> {
+/// Every tool's definition but the team's.
+fn definitions() -> Vec<Value> {
     let mut tools = vec![
         json!({
             "name": "hex_start_jobs",
@@ -185,8 +224,7 @@ pub fn definitions() -> Vec<Value> {
             "description": "Schedule a job to run by itself later or repeatedly (\"every morning at 8, …\"), in this computer's local time. Each run is a background job doing `task`. Tell the person the schedule and its next runs in your answer.",
             "inputSchema": {"type": "object", "properties": {
                 "when": {"type": "string", "description": "A cron line (minute hour day month weekday, e.g. \"0 8 * * 1-5\") or an RRULE (e.g. \"FREQ=WEEKLY;BYDAY=MO;BYHOUR=9\")."},
-                "task": {"type": "string", "description": "What to do each time, as the person would say it."},
-                "lane": {"type": "string", "enum": ["background", "here"], "description": "Always background in practice."}
+                "task": {"type": "string", "description": "What to do each time, as the person would say it."}
             }, "required": ["when", "task"]},
         }),
         json!({
@@ -226,12 +264,15 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             .map(str::to_owned)
             .ok_or_else(|| format!("{name} needs “{key}”"))
     };
-    if role() == Role::Job
+    if role().is_job()
         && let Some((_, why)) = NOT_FOR_JOBS.iter().find(|(refused, _)| *refused == name)
     {
         return Err((*why).to_owned());
     }
     match name {
+        "hex_team_start" | "hex_team_status" | "hex_team_tell" if role() == Role::Helper => {
+            Err("A helper does its own part itself; it starts no helpers of its own.".into())
+        }
         "hex_team_start" | "hex_team_status" | "hex_team_tell" if role() != Role::Job => {
             Err("Only a background job leads a team; hand the work on with hex_start_jobs.".into())
         }
@@ -353,12 +394,10 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             Ok(format!("Remembered: {line}"))
         }
         "hex_schedule" => {
-            let lane = match arguments.get("lane").and_then(Value::as_str) {
-                Some("here") => Lane::Here,
-                _ => Lane::Background,
-            };
-            let schedule = schedules::add_by_agent(&text("when")?, &text("task")?, lane)
-                .map_err(|error| format!("{error:#}"))?;
+            // Each run is a background job.
+            let schedule =
+                schedules::add_by_agent(&text("when")?, &text("task")?, Lane::Background)
+                    .map_err(|error| format!("{error:#}"))?;
             let next = schedules::next_runs(&schedule.when, 3)
                 .unwrap_or_default()
                 .into_iter()
@@ -413,7 +452,8 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
 /// Serves the tools on stdio until the agent disconnects.
 pub fn serve(task: &str, role: Role) -> Result<()> {
     let _ = TASK.set(task.to_owned());
-    let _ = JOB.set(role == Role::Job);
+    let _ = ROLE.set(role);
+    let _ = MEMORY.set(crate::assistant::knowledge::memory_on());
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -445,7 +485,9 @@ pub fn answer(message: &Value) -> Option<Value> {
             "capabilities": {"tools": {}},
             "serverInfo": {"name": "hex", "version": crate::VERSION},
         }),
-        "tools/list" => json!({"tools": definitions_for(role())}),
+        "tools/list" => {
+            json!({"tools": definitions_for(role(), MEMORY.get().copied().unwrap_or(true))})
+        }
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
@@ -551,7 +593,6 @@ mod tests {
                 "hex_remember",
                 "hex_schedule",
                 "hex_schedules",
-                "hex_compare_images",
                 "hex_unschedule",
                 "hex_lookup",
                 "hex_browser_tab"
@@ -573,15 +614,15 @@ mod tests {
 
     #[test]
     fn a_job_leads_a_team_and_can_t_change_what_outlives_it() {
-        let names: Vec<String> = definitions_for(Role::Job)
-            .iter()
-            .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
-            .collect();
+        let names = |role, memory| -> Vec<String> {
+            definitions_for(role, memory)
+                .iter()
+                .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+                .collect()
+        };
         assert_eq!(
-            names,
+            names(Role::Job, true),
             [
-                "hex_job_result",
-                "hex_schedules",
                 "hex_compare_images",
                 "hex_lookup",
                 "hex_browser_tab",
@@ -590,8 +631,23 @@ mod tests {
                 "hex_team_status"
             ]
         );
-        assert_eq!(definitions_for(Role::Turn), definitions());
-        assert_eq!(Role::Job.arg(), "job");
+        // A helper is a job without a team of its own.
+        assert_eq!(
+            names(Role::Helper, true),
+            ["hex_compare_images", "hex_lookup", "hex_browser_tab"]
+        );
+        // Every name has its definition; memory off offers no hex_remember.
+        for role in [Role::Turn, Role::Job, Role::Helper] {
+            assert_eq!(names(role, true), role.tools(true), "{role:?}");
+            assert_eq!(Role::parse(role.arg()), role);
+        }
+        assert!(!names(Role::Turn, false).contains(&"hex_remember".to_owned()));
+        // A schedule's runs are always background jobs: no lane to pick.
+        let schedule = definitions()
+            .into_iter()
+            .find(|tool| tool["name"] == "hex_schedule")
+            .unwrap();
+        assert!(schedule["inputSchema"]["properties"].get("lane").is_none());
     }
 
     #[test]

@@ -47,15 +47,13 @@ use crate::assistant::types::{Message, TaskWindow};
 /// The desktop tool a task may use, and who it is there.
 #[derive(Clone, Debug)]
 pub struct Desktop {
-    /// The guard's MCP server for this task, or `agent-desktop mcp` with
-    /// this task's flags when there is no guard.
+    /// The guard's MCP server for this task: a task never reaches the
+    /// desktop driver without it.
     pub server: McpServer,
     /// The desktop driver's executable (agent-desktop's for its guide).
     pub agent_desktop: PathBuf,
     /// Which desktop driver runs behind the guard (`assistant::driver`).
     pub driver: crate::assistant::driver::Driver,
-    /// The guard stands between the task and agent-desktop.
-    pub guarded: bool,
     /// The multi-agent session, when one is running.
     pub session: Option<String>,
     /// This task's id within the session; its own cursor.
@@ -84,7 +82,6 @@ impl Desktop {
             },
             agent_desktop: "/opt/homebrew/bin/agent-desktop".into(),
             driver: crate::assistant::driver::Driver::AgentDesktop,
-            guarded: false,
             session: session.map(str::to_owned),
             agent_id: agent_id.to_owned(),
             headed: false,
@@ -93,46 +90,31 @@ impl Desktop {
         }
     }
 
-    /// The desktop tool for a task: `guard`'s server when there is one,
-    /// else agent-desktop directly; `None` when agent-desktop isn't
-    /// installed.
+    /// The desktop tool for a task: `guard`'s server, with the driver
+    /// behind it; `None` when no desktop driver is installed.
     pub fn new(
-        guard: Option<McpServer>,
+        guard: McpServer,
         session: Option<String>,
         agent_id: String,
         headed: bool,
     ) -> Option<Self> {
         let found = crate::assistant::driver::active()?;
-        let guarded = guard.is_some();
-        let (agent_desktop, driver) = match (&guard, found.driver) {
-            // Without the guard only agent-desktop serves the tools.
-            (None, crate::assistant::driver::Driver::Cua) => (
-                crate::assistant::driver::Driver::AgentDesktop
-                    .backend()
-                    .find()?,
-                crate::assistant::driver::Driver::AgentDesktop,
-            ),
-            _ => (found.path, found.driver),
-        };
-        let server = match guard {
-            Some(server) => server,
-            None => {
-                let flags = flags(session.as_deref(), &agent_id, headed);
-                let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
-                crate::assistant::backends::mcp_server(&flags)?
-            }
-        };
         Some(Self {
-            server,
-            agent_desktop,
-            driver,
-            guarded,
+            server: guard,
+            agent_desktop: found.path,
+            driver: found.driver,
             session,
             agent_id,
             headed,
             front_window: false,
             open_apps: false,
         })
+    }
+
+    /// Whether the task opens and uses any app (full control, or allowed to
+    /// open apps in windows of its own); a Background task always does.
+    pub fn reaches_apps(&self) -> bool {
+        self.open_apps || self.front_window
     }
 
     /// The agent-desktop executable.
@@ -164,69 +146,6 @@ pub fn flags(session: Option<&str>, agent_id: &str, headed: bool) -> Vec<String>
     }
     flags
 }
-
-/// agent-desktop's MCP tools a task never gets: they manage the shared
-/// session and every agent's cursor, or block in stateless mode.
-pub const WITHHELD_TOOLS: &[&str] = &[
-    "desktop_session_start",
-    "desktop_session_end",
-    "desktop_session_list",
-    "desktop_session_gc",
-    "desktop_cursor_overlay_enable",
-    "desktop_cursor_overlay_disable",
-    "desktop_trace_show",
-    "desktop_trace_export",
-    "desktop_key_down",
-    "desktop_key_up",
-    "desktop_mouse_down",
-    "desktop_mouse_up",
-    "desktop_permissions",
-];
-
-/// The desktop tools a task gets where the backend takes an allowlist
-/// (Codex, the Claude API): enough to see, act, and wait.
-pub const DESKTOP_TOOLS: &[&str] = &[
-    "desktop_snapshot",
-    "desktop_find",
-    "desktop_screenshot",
-    "desktop_get",
-    "desktop_is",
-    "desktop_click",
-    "desktop_double_click",
-    "desktop_right_click",
-    "desktop_type",
-    "desktop_set_value",
-    "desktop_clear",
-    "desktop_focus",
-    "desktop_select",
-    "desktop_toggle",
-    "desktop_check",
-    "desktop_uncheck",
-    "desktop_expand",
-    "desktop_collapse",
-    "desktop_scroll",
-    "desktop_scroll_to",
-    "desktop_press",
-    "desktop_hover",
-    "desktop_drag",
-    "desktop_mouse_click",
-    "desktop_launch",
-    "desktop_close_app",
-    "desktop_list_apps",
-    "desktop_list_windows",
-    "desktop_list_displays",
-    "desktop_focus_window",
-    "desktop_list_surfaces",
-    "desktop_clipboard_get",
-    "desktop_clipboard_set",
-    "desktop_list_notifications",
-    "desktop_wait",
-    // The guard's own: take a free window (Background lane), see what's
-    // installed, and open an app in a window of the task's own.
-    crate::assistant::guard::CLAIM_TOOL,
-    "hex_installed_apps",
-    "hex_open_app",
-];
 
 /// One task for a backend.
 #[derive(Clone, Debug)]

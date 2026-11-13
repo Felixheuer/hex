@@ -6,7 +6,7 @@
 //! asking for the web, which start a hold's browser early ([`wants_web`]).
 //!
 //! These are cheap guesses, not the routing: the Here agent decides what is
-//! a job and hands it on with `hex_start_jobs` (`agent::ROUTING`). Each list
+//! a job and hands it on with `hex_start_jobs` (`agent::routing`). Each list
 //! carries the languages Hex speaks most (German, English, French, Spanish,
 //! Italian, Dutch); `route/tests.rs` holds one table per language.
 //!

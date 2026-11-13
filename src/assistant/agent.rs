@@ -1,9 +1,9 @@
 //! One task from start to end: builds its prompt (the question, its lane's
 //! rules, a Here question's window and context, what else is going on, the
-//! desktop's guide), gives it its tools (the guard's desktop server, or
-//! agent-desktop directly when there is no guard, and a hidden browser for
-//! Background work), runs it on the chosen backend (`provider`), reports
-//! steps and windows, and saves the conversation as it goes, so a restart
+//! desktop's guide), gives it its tools (the guard's desktop server, a
+//! hidden browser, and Hex's own: the same toolset for every backend,
+//! `toolset`), runs it on the chosen backend (`provider`), reports steps
+//! and windows, and saves the conversation as it goes, so a restart
 //! finds it `Running` and offers to resume it.
 //!
 //! A Here or Chat agent that finds the request is a job says so
@@ -24,6 +24,7 @@ pub mod goal;
 pub mod handoff;
 pub mod markers;
 pub mod team;
+pub mod toolset;
 pub mod watchdog;
 pub mod workspace;
 
@@ -811,27 +812,22 @@ pub fn prepare(
 ) -> Result<Run, String> {
     let settings = &job.settings;
     let spec = task_spec(job);
+    // The desktop only ever through the guard: it is what decides which
+    // windows and tools the task has (`guard::proxy::tools`).
     let desktop = if settings.control_desktop {
-        let guard = super::guard::mcp_server(&spec);
-        if guard.is_none() {
-            log_once("the guard has no MCP server yet; tasks use the desktop driver directly");
-        }
-        Some(
-            Desktop::new(
-                guard,
-                job.desktop_session.clone(),
-                job.agent_id.clone(),
-                spec.physical_input,
-            )
-            .ok_or(
-                "No desktop driver (Cua Driver or agent-desktop) is installed, so the assistant can't use apps. Install it in Assistant settings, or turn off “Use apps”.",
-            )
-            .map(|mut desktop| {
-                desktop.front_window = spec.full_control;
-                desktop.open_apps = spec.open_apps;
-                desktop
-            })?,
-        )
+        let mut desktop = super::guard::mcp_server(&spec)
+            .and_then(|guard| {
+                Desktop::new(
+                    guard,
+                    job.desktop_session.clone(),
+                    job.agent_id.clone(),
+                    spec.physical_input,
+                )
+            })
+            .ok_or(NO_DRIVER)?;
+        desktop.front_window = spec.full_control;
+        desktop.open_apps = spec.open_apps;
+        Some(desktop)
     } else {
         None
     };
@@ -851,15 +847,7 @@ pub fn prepare(
         .then(|| keep_warm_for(settings))
         .flatten();
     let system = system_for(job, desktop.as_ref(), browser.is_some());
-    let job_role = job_role(job);
-    let tools = tools_server(
-        &job.conversation,
-        if job_role {
-            crate::assistant::tools::Role::Job
-        } else {
-            crate::assistant::tools::Role::Turn
-        },
-    );
+    let tools = tools_server(&job.conversation, tool_role(job));
     Ok(Run {
         backend: settings.backend,
         model: model(job),
@@ -888,11 +876,22 @@ pub fn prepare(
     })
 }
 
-/// Whether `job` works as a job: a background job reads pages and files
-/// the person never saw, with or without a workspace (one couldn't be
-/// made), so it never gets the person's own turn's tools (`tools::Role`).
-fn job_role(job: &Job) -> bool {
-    job.workspace.is_some() || job.request.origin == Origin::Background
+/// Why a task that may use apps can't.
+const NO_DRIVER: &str = "No desktop driver (Cua Driver or agent-desktop) is installed, so the assistant can't use apps. Install it in Assistant settings, or turn off “Use apps”.";
+
+/// Whom Hex's tools serve for `job` (`tools::Role`): a background job
+/// reads pages and files the person never saw, with or without a workspace
+/// (one couldn't be made), so it never gets the person's own turn's tools;
+/// a helper is a job without a team of its own.
+pub(crate) fn tool_role(job: &Job) -> crate::assistant::tools::Role {
+    use crate::assistant::tools::Role;
+    if job.helps.is_some() {
+        Role::Helper
+    } else if job.workspace.is_some() || job.request.origin == Origin::Background {
+        Role::Job
+    } else {
+        Role::Turn
+    }
 }
 
 /// Hex's own tools for a task (`tools`): memory and schedules for the
@@ -939,13 +938,6 @@ pub fn prewarm(job: &Job) {
     match prepare(job, &[], resume, None) {
         Ok(run) => provider::prewarm(&run, ttl),
         Err(why) => tracing::debug!(why, "nothing to start ahead"),
-    }
-}
-
-fn log_once(message: &'static str) {
-    static LOGGED: OnceLock<()> = OnceLock::new();
-    if LOGGED.set(()).is_ok() {
-        tracing::info!("{message}");
     }
 }
 

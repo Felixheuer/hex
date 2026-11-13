@@ -228,6 +228,12 @@ pub fn mcp_server(spec: &TaskSpec) -> Option<McpServer> {
     Some(server)
 }
 
+/// The desktop tools a task with `spec` is offered (Cua Driver behind the
+/// guard): what its system prompt may name (`agent::toolset`).
+pub fn offered_tools(spec: &TaskSpec) -> Vec<String> {
+    proxy::offered_names(&config(&WireSpec::new(spec)))
+}
+
 /// `server` (the guard's) running Cua Driver at `path`, with agent-desktop
 /// as its stand-in only when that is installed.
 fn with_cua(server: &mut McpServer, path: &Path, agent_desktop: bool) {
@@ -455,13 +461,6 @@ impl child::Desktop for Driven {
         match self.cua() {
             Some(cua) => cua.call(tool, args),
             None => self.agent.call(tool, args),
-        }
-    }
-
-    fn instructions(&mut self) -> Option<String> {
-        match self.cua() {
-            Some(cua) => cua.instructions(),
-            None => self.agent.instructions(),
         }
     }
 }

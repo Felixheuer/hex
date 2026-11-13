@@ -100,7 +100,8 @@ pub enum AssistantCommand {
         #[arg(long)]
         task: String,
         /// `job` for a background job (team tools; no memory, schedules,
-        /// or hand-off), `turn` (the default) for a question or a chat.
+        /// or hand-off), `helper` for a job's helper (the same, without a
+        /// team), `turn` (the default) for a question or a chat.
         #[arg(long, default_value = "turn")]
         role: String,
     },
@@ -252,12 +253,7 @@ pub fn run(command: AssistantCommand) -> u8 {
         AssistantCommand::HandBack { id } => send(&id, remote::Verb::HandBack),
         AssistantCommand::Schedules { command } => schedules(command),
         AssistantCommand::ToolsMcp { task, role } => {
-            let role = if role == "job" {
-                super::tools::Role::Job
-            } else {
-                super::tools::Role::Turn
-            };
-            super::tools::serve(&task, role).map(|()| true)
+            super::tools::serve(&task, super::tools::Role::parse(&role)).map(|()| true)
         }
         AssistantCommand::Conversations => {
             list();

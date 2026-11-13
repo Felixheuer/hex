@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use super::desktop::Describer;
 use super::mcp::{Called, Client};
-use super::{Control, DESKTOP_TOOLS, Finished, Report, Run};
+use super::{Control, Finished, Report, Run};
 use crate::assistant::types::{Message, Role};
 
 const URL: &str = "https://api.anthropic.com/v1/messages";
@@ -35,9 +35,9 @@ pub(super) fn run(
     let mut servers = Vec::new();
     let mut tools = Vec::new();
     let started = (|| -> Result<()> {
-        for (name, server) in super::servers::of(run) {
+        for (_, server) in super::servers::of(run) {
             let mut client = Client::start(server, run.desktop.as_ref(), &run.workdir, control)?;
-            let (definitions, names) = tool_definitions(&mut client, name)?;
+            let (definitions, names) = tool_definitions(&mut client)?;
             tools.extend(definitions);
             servers.push(Server {
                 client,
@@ -276,15 +276,10 @@ fn send(key: &str, body: &Value) -> Result<Value> {
     Ok(value)
 }
 
-/// A server's tools as API tool definitions, and their names: the desktop's
-/// `DESKTOP_TOOLS`, every tool of the others.
-fn tool_definitions(client: &mut Client, server: &str) -> Result<(Vec<Value>, Vec<String>)> {
-    let desktop = server == crate::assistant::backends::MCP_NAME;
-    let offered: Vec<_> = client
-        .tools()?
-        .into_iter()
-        .filter(|tool| !desktop || DESKTOP_TOOLS.contains(&tool.name.as_str()))
-        .collect();
+/// A server's tools as API tool definitions, and their names: every tool
+/// it lists (each server lists only what the task may use).
+fn tool_definitions(client: &mut Client) -> Result<(Vec<Value>, Vec<String>)> {
+    let offered = client.tools()?;
     let names = offered.iter().map(|tool| tool.name.clone()).collect();
     let tools = offered
         .into_iter()

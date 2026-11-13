@@ -290,7 +290,7 @@ impl<D: Desktop> Guard<D> {
                     .map_or("unknown".into(), describe_task_window)
             ),
             Lane::Background => format!(
-                "{whose}: {window}. Open your own window with desktop_launch, or claim a free one \
+                "{whose}: {window}. Open your own window with hex_open_app, or claim a free one \
                  with desktop_claim_window."
             ),
         };
