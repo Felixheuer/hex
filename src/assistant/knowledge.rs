@@ -24,7 +24,7 @@ mod history;
 mod mail;
 pub(crate) mod native;
 mod people;
-mod rank;
+pub(crate) mod rank;
 mod script;
 mod tab;
 

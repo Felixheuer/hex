@@ -106,7 +106,7 @@ fn pattern(cell: &'static OnceLock<Regex>, source: &str) -> &'static Regex {
     cell.get_or_init(|| Regex::new(source).expect("valid pattern"))
 }
 
-fn emails(text: &str) -> Vec<String> {
+pub(crate) fn emails(text: &str) -> Vec<String> {
     static RE: OnceLock<Regex> = OnceLock::new();
     pattern(
         &RE,
@@ -117,7 +117,7 @@ fn emails(text: &str) -> Vec<String> {
     .collect()
 }
 
-fn repos(text: &str) -> Vec<String> {
+pub(crate) fn repos(text: &str) -> Vec<String> {
     static RE: OnceLock<Regex> = OnceLock::new();
     pattern(
         &RE,
@@ -134,7 +134,7 @@ fn repos(text: &str) -> Vec<String> {
 /// Web addresses (a host, with its path when one is given), not inside an
 /// email or a repository link; bare hosts only with a common top-level
 /// domain, so "z.B." or "main.rs" are none.
-fn sites(text: &str) -> Vec<String> {
+pub(crate) fn sites(text: &str) -> Vec<String> {
     static RE: OnceLock<Regex> = OnceLock::new();
     const TLDS: [&str; 26] = [
         "de", "com", "io", "net", "org", "app", "dev", "ai", "eu", "at", "ch", "co", "uk", "info",
