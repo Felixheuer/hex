@@ -28,6 +28,9 @@ pub struct Facts {
     pub microphone: bool,
     pub accessibility: bool,
     pub screen_recording: bool,
+    /// Hex may control other apps (Automation for System Events), or macOS
+    /// couldn't tell.
+    pub automation: bool,
     /// The selected transcription model is on disk.
     pub transcription_model: bool,
     /// The chosen agent is installed.
@@ -60,6 +63,9 @@ pub enum Gap {
     Microphone,
     Accessibility,
     ScreenRecording,
+    /// Automation for System Events: tasks can't script other apps without
+    /// a prompt in the middle of their work.
+    Automation,
     TranscriptionModel,
     /// The chosen agent isn't installed any more.
     Agent,
@@ -95,6 +101,7 @@ impl Gap {
             Self::Microphone
             | Self::Accessibility
             | Self::ScreenRecording
+            | Self::Automation
             | Self::AgentDesktop
             | Self::AgentDesktopGrants => Fix::Page("desktop"),
             Self::TranscriptionModel => Fix::Models,
@@ -127,6 +134,7 @@ impl Gap {
             Self::Microphone => "Hex can't hear you: the microphone permission is off",
             Self::Accessibility => "Hex can't see its shortcut or read text: Accessibility is off",
             Self::ScreenRecording => "Hex can't see the screen: Screen Recording is off",
+            Self::Automation => "Hex may not control other apps yet: Automation is off",
             Self::TranscriptionModel => "The speech model is missing, so Hex can't understand you",
             Self::Agent => "The assistant's agent isn't installed any more",
             Self::AgentSignIn => "The assistant's agent is signed out",
@@ -164,6 +172,9 @@ pub fn setup_gaps(facts: &Facts) -> Vec<Gap> {
     }
     if !facts.screen_recording {
         gaps.push(Gap::ScreenRecording);
+    }
+    if facts.desktop_wanted && !facts.automation {
+        gaps.push(Gap::Automation);
     }
     if facts.desktop_wanted {
         if !facts.agent_desktop_installed {
@@ -239,6 +250,7 @@ mod tests {
             microphone: true,
             accessibility: true,
             screen_recording: true,
+            automation: true,
             transcription_model: true,
             agent_installed: true,
             agent_ready: true,
@@ -385,5 +397,23 @@ mod tests {
             essential(&[Gap::ScreenRecording, Gap::AgentSignIn]),
             Some(&Gap::AgentSignIn)
         );
+    }
+
+    #[test]
+    fn automation_off_is_a_gap_on_the_permissions_page() {
+        let facts = Facts {
+            automation: false,
+            ..whole()
+        };
+        assert_eq!(setup_gaps(&facts), [Gap::Automation]);
+        assert_eq!(Gap::Automation.fix(), Fix::Page("desktop"));
+        assert!(!Gap::Automation.essential());
+        // Without operating apps, it isn't needed.
+        let facts = Facts {
+            automation: false,
+            desktop_wanted: false,
+            ..whole()
+        };
+        assert!(setup_gaps(&facts).is_empty());
     }
 }

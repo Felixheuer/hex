@@ -22,6 +22,9 @@ pub struct Screenshot {
     /// Size of `png` in pixels: the coordinate space actions use.
     pub width: u32,
     pub height: u32,
+    /// The capture at full resolution (PNG), kept with the conversation so
+    /// Chats shows it sharp; `png` is the copy the model gets.
+    pub full: Option<Vec<u8>>,
 }
 
 /// A screenshot's long side, at most.
@@ -432,6 +435,58 @@ pub fn resize(rgba: &[u8], from: (u32, u32), to: (u32, u32)) -> Vec<u8> {
     out
 }
 
+/// The most bytes a screenshot kept with a conversation takes at full
+/// resolution; a larger one is kept at [`KEPT_LONG_SIDE`].
+pub const MAX_KEPT_BYTES: usize = 8_000_000;
+/// A kept screenshot's long side when the full one is too large: still
+/// sharp on a Retina display, a quarter of a 5K capture.
+pub const KEPT_LONG_SIDE: u32 = 2560;
+
+/// The size a kept screenshot is encoded again at, when its full-resolution
+/// PNG (`encoded` bytes) is too large; `None` keeps it as it is.
+pub fn kept_size(width: u32, height: u32, encoded: usize) -> Option<(u32, u32)> {
+    (encoded > MAX_KEPT_BYTES && width.max(height) > KEPT_LONG_SIDE)
+        .then(|| fit(width, height, KEPT_LONG_SIDE))
+}
+
+/// A screenshot from a full-resolution capture: the model's copy fitted to
+/// [`LONG_SIDE`], and the full one kept for the conversation.
+pub fn screenshot_from(width: u32, height: u32, rgba: &[u8]) -> Result<Screenshot> {
+    let (fitted_width, fitted_height) = fit(width, height, LONG_SIDE);
+    let small = resize(rgba, (width, height), (fitted_width, fitted_height));
+    let mut full = encode_png_fast(width, height, rgba)?;
+    if let Some((kept_width, kept_height)) = kept_size(width, height, full.len()) {
+        let kept = resize(rgba, (width, height), (kept_width, kept_height));
+        full = encode_png_fast(kept_width, kept_height, &kept)?;
+    }
+    Ok(Screenshot {
+        png: encode_png(fitted_width, fitted_height, &small)?,
+        width: fitted_width,
+        height: fitted_height,
+        full: Some(full),
+    })
+}
+
+/// RGBA as a PNG, compressed quickly (a full Retina screen in a fraction of
+/// a second).
+fn encode_png_fast(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    let mut encoder = png::Encoder::new(&mut bytes, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_compression(png::Compression::Fast);
+    let mut writer = encoder
+        .write_header()
+        .map_err(|error| eyre!("Couldn't encode the screenshot: {error}"))?;
+    writer
+        .write_image_data(rgba)
+        .map_err(|error| eyre!("Couldn't encode the screenshot: {error}"))?;
+    writer
+        .finish()
+        .map_err(|error| eyre!("Couldn't encode the screenshot: {error}"))?;
+    Ok(bytes)
+}
+
 /// RGBA as a PNG.
 pub fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
@@ -551,7 +606,9 @@ mod macos {
         let mut image = capture_core::screenshot_with(
             &capture_core::Source::Display(id),
             &exclusions(),
-            Some(LONG_SIDE),
+            // Full resolution: the conversation keeps it sharp; the model
+            // gets a copy fitted to LONG_SIDE.
+            None,
             true,
         )
         .map_err(|error| {
@@ -562,13 +619,7 @@ mod macos {
             }
         })?;
         super::privacy::black_out(&mut image.rgba, (image.width, image.height), frame, &secure);
-        let (width, height) = fit(image.width, image.height, LONG_SIDE);
-        let rgba = resize(&image.rgba, (image.width, image.height), (width, height));
-        Ok(Screenshot {
-            png: encode_png(width, height, &rgba)?,
-            width,
-            height,
-        })
+        super::screenshot_from(image.width, image.height, &image.rgba)
     }
 
     /// Every window of Hex's (the HUD, Agent mode's frame and outlines,
@@ -841,7 +892,31 @@ mod tests {
             png: vec![1; 1024],
             width: 1,
             height: 1,
+            full: None,
         }
+    }
+
+    #[test]
+    fn a_kept_screenshot_stays_full_size_unless_huge() {
+        // A Retina capture whose PNG fits stays as it is.
+        assert_eq!(kept_size(3024, 1964, 4_000_000), None);
+        // A huge one is kept at 2560 on its long side.
+        assert_eq!(kept_size(5120, 2880, 12_000_000), Some((2560, 1440)));
+        // A small screen is never enlarged, however large its file.
+        assert_eq!(kept_size(1920, 1080, 12_000_000), None);
+    }
+
+    #[test]
+    fn a_screenshot_keeps_its_full_resolution_beside_the_models_copy() {
+        let (w, h) = (2000_u32, 1000_u32);
+        let rgba = vec![200_u8; (w * h * 4) as usize];
+        let shot = screenshot_from(w, h, &rgba).unwrap();
+        assert_eq!((shot.width, shot.height), (1280, 640));
+        let full = shot.full.unwrap();
+        let reader = png::Decoder::new(std::io::Cursor::new(full))
+            .read_info()
+            .unwrap();
+        assert_eq!((reader.info().width, reader.info().height), (2000, 1000));
     }
 
     #[test]
