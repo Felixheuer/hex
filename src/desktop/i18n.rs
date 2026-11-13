@@ -361,8 +361,7 @@ fn tables() -> &'static [HashMap<&'static str, &'static str>; 6] {
     })
 }
 
-/// Every translated string: the main, Meetings, preferences, failure, and first-run
-/// rows.
+/// Every translated string: the main table, then each area's own.
 pub(super) fn all_translations() -> impl Iterator<Item = &'static (&'static str, [&'static str; 6])>
 {
     TRANSLATIONS
