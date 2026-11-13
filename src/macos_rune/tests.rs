@@ -9,7 +9,9 @@ use crate::app_settings::{DictationMode, KeyboardModelChoice, KeyboardModelSwitc
 use crate::transcription::models::{TranscriptionModelId, TranscriptionSelection};
 use crate::transcription::preparation::TranscriptionPreparation;
 
-const WAIT: Duration = Duration::from_secs(3);
+/// Generous: a full test run keeps every core busy, and a preparation
+/// thread can take seconds to be scheduled.
+const WAIT: Duration = Duration::from_secs(15);
 
 /// The pump ticks every frame only while the HUD animates; otherwise it
 /// idles and senders wake it (#1378).

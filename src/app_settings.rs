@@ -517,7 +517,12 @@ impl KeyboardModelChoice {
 /// A new install starts with the model recommended for the person's
 /// language, so first-run setup can download it without asking.
 fn default_transcription() -> TranscriptionSelection {
-    crate::transcription::models::recommended_selection(&crate::desktop::i18n::preferred_language())
+    // Tests run the same on every Mac, whatever its language.
+    #[cfg(test)]
+    let language = "en".to_owned();
+    #[cfg(not(test))]
+    let language = crate::desktop::i18n::preferred_language();
+    crate::transcription::models::recommended_selection(&language)
 }
 
 impl AppSettings {

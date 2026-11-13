@@ -5,6 +5,7 @@
 // Only the macOS playground reads much of this.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
+#[cfg(not(test))]
 use std::sync::RwLock;
 
 use rune::Spring;
@@ -138,6 +139,7 @@ pub(crate) const DEFAULT: Tuning = Tuning {
     flow: CapsuleFlow::List,
 };
 
+#[cfg(not(test))]
 static CURRENT: RwLock<Tuning> = RwLock::new(DEFAULT);
 
 #[cfg(test)]
@@ -145,6 +147,8 @@ thread_local! {
     /// A test's flow, on its own thread only, so tests in parallel never
     /// see each other's.
     static TEST_FLOW: std::cell::Cell<Option<CapsuleFlow>> = const { std::cell::Cell::new(None) };
+    /// A test's whole tuning, on its own thread only.
+    static TEST_TUNING: std::cell::Cell<Option<Tuning>> = const { std::cell::Cell::new(None) };
 }
 
 /// Runs `body` with `flow` in use on this thread.
@@ -159,17 +163,26 @@ pub(crate) fn with_flow<T>(flow: CapsuleFlow, body: impl FnOnce() -> T) -> T {
 /// The values in use: [`DEFAULT`] unless the playground changed them.
 pub(crate) fn get() -> Tuning {
     #[cfg(test)]
-    if let Some(flow) = TEST_FLOW.get() {
-        return Tuning {
-            flow,
-            ..*CURRENT.read().unwrap_or_else(|e| e.into_inner())
+    {
+        // Tests in parallel each see only their own tuning (from DEFAULT),
+        // never one another test set on the shared one.
+        let tuning = TEST_TUNING.get().unwrap_or(DEFAULT);
+        return match TEST_FLOW.get() {
+            Some(flow) => Tuning { flow, ..tuning },
+            None => tuning,
         };
     }
+    #[cfg(not(test))]
     *CURRENT.read().unwrap_or_else(|e| e.into_inner())
 }
 
 pub(crate) fn set(tuning: Tuning) {
-    *CURRENT.write().unwrap_or_else(|e| e.into_inner()) = tuning;
+    #[cfg(test)]
+    TEST_TUNING.set(Some(tuning));
+    #[cfg(not(test))]
+    {
+        *CURRENT.write().unwrap_or_else(|e| e.into_inner()) = tuning;
+    }
 }
 
 impl Tuning {

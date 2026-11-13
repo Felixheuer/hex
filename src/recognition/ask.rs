@@ -42,8 +42,10 @@ use color_eyre::Result;
 use crate::app_settings::RuntimeHotkey;
 use crate::assistant::computer::ContextHandle;
 #[cfg(test)]
+use crate::assistant::shortcut::set_toggle_tasks;
+#[cfg(test)]
 use crate::assistant::shortcut::spoken_background;
-pub(crate) use crate::assistant::shortcut::{Question, set_open_setup, set_toggle_tasks, submit};
+pub(crate) use crate::assistant::shortcut::{Question, set_open_setup, submit};
 use crate::assistant::shortcut::{
     held, here_tasks, open_setup, quick_question_running, toggle_tasks,
 };

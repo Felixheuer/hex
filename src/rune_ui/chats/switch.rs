@@ -21,7 +21,11 @@ fn about(ui: &Ui) -> String {
         .map(|binding| binding.keycaps().join(" "))
         .filter(|keys| !keys.is_empty());
     match keys {
-        _ if cfg!(target_os = "macos") && keys.as_deref().is_none_or(|keys| keys == "Right ⌘") => {
+        _ if cfg!(target_os = "macos")
+            && keys
+                .as_deref()
+                .is_none_or(|keys| keys == "Right ⌘" || keys == "R⌘") =>
+        {
             tr("Hold right ⌘ to ask, double-tap for your tasks").to_owned()
         }
         Some(keys) => tr_fill("Hold {} to ask, double-tap for your tasks", &keys),

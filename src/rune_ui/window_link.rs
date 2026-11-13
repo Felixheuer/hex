@@ -20,7 +20,9 @@ pub(crate) fn remember(window: rune::AppHandle<Ui>) {
     let _ = WINDOW.set(window);
 }
 
-/// Opens the window on Chats, on `conversation` when given.
+/// Opens the window on Chats, on `conversation` when given. Wired on Linux
+/// and Windows (`wire_assistant`); macOS wires its own in `macos_rune`.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(crate) fn open_chat(conversation: Option<String>) {
     #[cfg(target_os = "macos")]
     crate::macos_rune::open_chat(conversation);
@@ -31,7 +33,9 @@ pub(crate) fn open_chat(conversation: Option<String>) {
     }
 }
 
-/// Opens the assistant's setup where it was left.
+/// Opens the assistant's setup where it was left (Linux and Windows wire
+/// it; macOS has its own).
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(crate) fn open_assistant_setup() {
     #[cfg(target_os = "macos")]
     crate::macos_rune::open_assistant_setup();

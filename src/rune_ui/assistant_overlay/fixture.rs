@@ -376,6 +376,7 @@ pub(crate) fn escalated_board() -> Board {
 
 /// `count` Background jobs at work, each with a step, as many as fold into
 /// the orb's count line: research, spreadsheets, messages, and code.
+#[cfg(test)]
 pub(crate) fn many_jobs_board(count: usize) -> Board {
     const JOBS: [(&str, &str); 8] = [
         ("Recherche Lieferanten", "Vergleicht Preise auf 12 Seiten"),
@@ -406,6 +407,7 @@ pub(crate) fn many_jobs_board(count: usize) -> Board {
 
 /// One job leading `helpers` helpers (`assistant::agent::team`), each at a
 /// supplier.
+#[cfg(test)]
 pub(crate) fn team_board(helpers: usize) -> Board {
     let now = Instant::now();
     let mut board = Board::default();
