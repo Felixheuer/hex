@@ -737,7 +737,10 @@ const HERE_BUDGET: usize = 10_400;
 // 16_500: the work-fast rules reach jobs too (speed_rules).
 // 16_600: the product name is Agent-Desk.
 // 16_750: watching a video is hex_watch_video's (media::RULES).
-const JOB_BUDGET: usize = 16_750;
+// 17_700: long jobs: the journal, a check per plan step, time, and what to
+// do when an app or a browser dies (journal::rules).
+// 18_000: the background-first browser rules (pilot.59) and the journal rules together.
+const JOB_BUDGET: usize = 18_000;
 
 #[test]
 fn each_lane_s_rules_stay_within_their_budget() {

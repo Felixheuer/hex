@@ -22,7 +22,11 @@ mod prompt;
 pub use prompt::*;
 pub mod goal;
 pub mod handoff;
+pub mod journal;
+pub mod long;
 pub mod markers;
+pub mod recovery;
+pub mod rollover;
 pub mod team;
 pub mod toolset;
 pub mod watchdog;
@@ -131,7 +135,7 @@ pub enum Outcome {
 }
 
 /// What a restarted task is told before anything else.
-pub const RESUME_NOTE: &str = "You were interrupted by a restart. Check what was already done (take a fresh look; a job reads its plan.md and report.md first) before continuing where you left off; never repeat a send/submit you may already have done.";
+pub const RESUME_NOTE: &str = "You were interrupted by a restart. Check what was already done (take a fresh look; a job reads its plan.md, journal.md, and report.md first) before continuing where you left off; never repeat a send/submit you may already have done.";
 
 /// What a task is told after waiting out a usage limit.
 pub const LIMIT_NOTE: &str = "You were paused by a usage limit and may go on now. Check what was already done (take a fresh look) before continuing; never repeat a send/submit you may already have done.";
@@ -149,8 +153,78 @@ pub fn run(job: &Job, control: &Control, emit: &mut dyn FnMut(Event)) -> Outcome
     run_in(&store, job, control, emit)
 }
 
+/// What a task's run needs of the world: its backend, a clock, waiting, and
+/// whether the network is there. The long-job simulation replaces it.
+pub trait Engine {
+    /// Runs `run` on its backend until it answers, fails, or is cancelled.
+    fn run(
+        &self,
+        run: &Run,
+        control: &Control,
+        report: &mut dyn FnMut(Report),
+    ) -> color_eyre::Result<provider::Finished>;
+
+    fn now_ms(&self) -> u64 {
+        store::now_ms()
+    }
+
+    fn sleep(&self, duration: Duration) {
+        std::thread::sleep(duration);
+    }
+
+    fn online(&self) -> bool {
+        recovery::online()
+    }
+}
+
+/// The real backends, clock, and network.
+pub struct System;
+
+impl Engine for System {
+    fn run(
+        &self,
+        run: &Run,
+        control: &Control,
+        report: &mut dyn FnMut(Report),
+    ) -> color_eyre::Result<provider::Finished> {
+        provider::run(run, control, report)
+    }
+}
+
 /// `run`, with conversations in `store`.
 pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(Event)) -> Outcome {
+    run_with(&System, store, job, control, emit)
+}
+
+/// Waits until `engine` is online again, at most `most`; `false` when it
+/// wasn't in time or the task was stopped.
+fn wait_online(engine: &dyn Engine, control: &Control, most: Duration) -> bool {
+    let until = engine.now_ms() + most.as_millis() as u64;
+    loop {
+        if control.cancelled() {
+            return false;
+        }
+        if engine.online() {
+            return true;
+        }
+        if engine.now_ms() >= until {
+            return false;
+        }
+        engine.sleep(recovery::POLL);
+    }
+}
+
+/// `run_in` on `engine`. A supervised job (one with a workspace) also
+/// keeps its journal, goes on in a fresh session when its session grows
+/// too large (`rollover`), and gets past a lost network or an ended backend
+/// (`recovery`).
+pub fn run_with(
+    engine: &dyn Engine,
+    store: &Store,
+    job: &Job,
+    control: &Control,
+    emit: &mut dyn FnMut(Event),
+) -> Outcome {
     let id = &job.conversation;
     let request = &job.request;
     let mut stored = store
@@ -224,6 +298,27 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
     }
     stored.sessions.insert(rules_key, rules);
 
+    // A job keeps its journal and goes on for hours (`long`): back after a
+    // restart or a usage limit, it is told where it was, in a fresh session
+    // when its saved one was already too large.
+    let mut long = job.workspace.as_deref().map(|workspace| {
+        long::Long::open(job, workspace, rollover::Limits::default(), engine.now_ms())
+    });
+    if let Some(long) = long.as_mut()
+        && matches!(job.kind, JobKind::Resume | JobKind::AfterLimit)
+    {
+        let now = engine.now_ms();
+        match long.saved_too_large().filter(|_| run.resume.is_some()) {
+            Some(why) => {
+                stored.sessions.remove(key);
+                resume = None;
+                run.resume = None;
+                run.prompt = long.roll_over(job, &why, now);
+            }
+            None => run.prompt = long.go_on(&run.prompt, now),
+        }
+    }
+
     // A job works until its goal is met (`goal`): its in-between answers
     // aren't streamed, and an independent check decides when it is done.
     let supervised = job.workspace.is_some();
@@ -239,12 +334,28 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
             conversation: id.clone(),
         });
         let stalls = control.stalls();
-        let mut result = run_backend(&run, key, control, id, emit, &mut seen, store, &mut stored);
+        let rotations = control.rotations();
+        if let Some(long) = long.as_mut() {
+            long.meter.start(engine.now_ms());
+        }
+        let mut result = run_backend(
+            engine,
+            &run,
+            key,
+            control,
+            id,
+            emit,
+            &mut seen,
+            store,
+            &mut stored,
+            long.as_mut(),
+        );
         // A saved session the backend no longer has: start a new one that is
         // told the conversation so far.
         if first
             && let Err(error) = &result
             && control.stalls() == stalls
+            && control.rotations() == rotations
             && resume.is_some()
             && !seen.streamed
             && seen.actions.is_empty()
@@ -256,7 +367,18 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
             run.resume = None;
             stored.sessions.remove(key);
             run.prompt = message(job, &history, true);
-            result = run_backend(&run, key, control, id, emit, &mut seen, store, &mut stored);
+            result = run_backend(
+                engine,
+                &run,
+                key,
+                control,
+                id,
+                emit,
+                &mut seen,
+                store,
+                &mut stored,
+                long.as_mut(),
+            );
         }
         // Two models: a quick turn the fast model found hard (many tool
         // calls), failed, or got stuck on (`watchdog`) goes on with the
@@ -270,6 +392,7 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
             tracing::info!(error = %format!("{error:#}"), "the strong model takes the quick turn over");
             let strong = escalated(&run, job, Some(session));
             result = run_backend(
+                engine,
                 &strong,
                 key,
                 control,
@@ -278,6 +401,7 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
                 &mut seen,
                 store,
                 &mut stored,
+                None,
             );
         }
         // Stuck, and not saved by the strong model: a plain Try again.
@@ -299,6 +423,25 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
             let _ = store.save(&stored);
             return Outcome::Cancelled;
         }
+        // The session grew too large and was ended between two steps: the
+        // job goes on in a fresh one, seeded with its plan and journal (an
+        // answer that came first stands).
+        let rotated = control.rotations() > rotations;
+        if let Some(long) = long.as_mut()
+            && let Some(why) = rotated.then(|| long.due.take()).flatten()
+            && result.is_err()
+        {
+            let why = why.words();
+            keep_actions(store, &mut stored, actions);
+            stored.sessions.remove(key);
+            if let Err(error) = store.save(&stored) {
+                tracing::warn!(%error, "couldn't forget the job's old session");
+            }
+            run.prompt = long.roll_over(job, &why, engine.now_ms());
+            run.resume = None;
+            run.image = None;
+            continue;
+        }
         let result = result
             .map(|finished| markers::strip_understood(&finished.text))
             .map_err(|error| format!("{error:#}"));
@@ -307,6 +450,13 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
         {
             if job.settings.retry_on_limit {
                 keep_actions(store, &mut stored, actions);
+                if let Some(long) = long.as_mut() {
+                    long.journal.note(
+                        engine.now_ms(),
+                        journal::Kind::Waiting,
+                        &format!("usage limit: {}", limit.reason),
+                    );
+                }
                 return Outcome::Limited {
                     reason: limit.reason,
                     until_ms: limit.until_ms,
@@ -318,6 +468,62 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
                 limit.reason
             );
             return finish(store, &mut stored, actions, Err(message), emit);
+        }
+        // The network went away, or the backend ended without an answer
+        // (the computer slept, its screen locked): a job waits for the
+        // network and goes on where it was, unless it keeps failing.
+        if let Some(long) = long.as_mut()
+            && let Err(message) = &result
+            && let failure = recovery::classify(message)
+            && failure != recovery::Failure::Other
+            && long.retries < recovery::MAX_RETRIES
+        {
+            long.retries += 1;
+            keep_actions(store, &mut stored, actions);
+            long.journal.note(
+                engine.now_ms(),
+                journal::Kind::Failed,
+                &format!(
+                    "the backend's turn ended: {}",
+                    crate::assistant::store::shorten(message, 160)
+                ),
+            );
+            if failure == recovery::Failure::Network {
+                long.journal
+                    .note(engine.now_ms(), journal::Kind::Waiting, "for the network");
+                let back = wait_online(engine, control, recovery::MAX_OFFLINE);
+                if control.steered() {
+                    return Outcome::Steered;
+                }
+                if let Some(reason) = control.failure() {
+                    return finish(store, &mut stored, Vec::new(), Err(reason), emit);
+                }
+                if control.cancelled() {
+                    let _ = finish(store, &mut stored, Vec::new(), Err("Stopped.".into()), emit);
+                    stored.set_outcome(Ended::Cancelled);
+                    let _ = store.save(&stored);
+                    return Outcome::Cancelled;
+                }
+                if !back {
+                    return finish(
+                        store,
+                        &mut stored,
+                        Vec::new(),
+                        Err(format!("The network stayed away: {message}")),
+                        emit,
+                    );
+                }
+                long.journal
+                    .note(engine.now_ms(), journal::Kind::Back, "the network is back");
+            }
+            let now = engine.now_ms();
+            run.resume = stored.sessions.get(key).cloned();
+            run.prompt = match &run.resume {
+                Some(_) => long.go_on(recovery::note(failure), now),
+                None => long.roll_over(job, "the last session ended before it was saved", now),
+            };
+            run.image = None;
+            continue;
         }
         // Jobs handed on with `hex_start_jobs` (the deterministic way), or an
         // answer that claims the background without having started anything
@@ -373,13 +579,37 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
             .workspace
             .as_deref()
             .map_or(0, |workspace| workspace::plan(workspace).len());
+        if let Some(long) = long.as_mut() {
+            long.journal.milestones(engine.now_ms());
+        }
         let answer = match &result {
             Ok(answer) if supervised && !wrapping_up && goal::worth_checking(steps) => {
                 answer.clone()
             }
-            _ => return finish(store, &mut stored, actions, result, emit),
+            _ => {
+                if let Some(long) = long.as_mut() {
+                    long.journal.note(
+                        engine.now_ms(),
+                        journal::Kind::Done,
+                        if result.is_ok() { "answered" } else { "failed" },
+                    );
+                }
+                return finish(store, &mut stored, actions, result, emit);
+            }
         };
-        let verdict = check(&run, job, &answer, control, store, &mut stored, key);
+        let verdict = check(engine, &run, job, &answer, control, store, &mut stored, key);
+        if let Some(long) = long.as_mut() {
+            let found = match &verdict {
+                goal::Verdict::Verified => "verified".to_owned(),
+                goal::Verdict::NotDone(gaps) => format!(
+                    "gaps: {}",
+                    crate::assistant::store::shorten(&gaps.replace('\n', "; "), 200)
+                ),
+                goal::Verdict::Unclear => "no verdict".to_owned(),
+            };
+            long.journal
+                .note(engine.now_ms(), journal::Kind::Checked, &found);
+        }
         // Stopped, steered, or out of time while it was checked: the job's
         // own answer is what there is.
         if control.steered() {
@@ -404,10 +634,21 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
             "job checked"
         );
         match next {
-            goal::Next::Done => return finish(store, &mut stored, actions, result, emit),
-            goal::Next::Continue(instruction) | goal::Next::WrapUp(instruction) => {
+            goal::Next::Done => {
+                if let Some(long) = long.as_mut() {
+                    long.journal
+                        .note(engine.now_ms(), journal::Kind::Done, "answered");
+                }
+                return finish(store, &mut stored, actions, result, emit);
+            }
+            goal::Next::Continue(mut instruction) | goal::Next::WrapUp(mut instruction) => {
                 wrapping_up = wraps;
                 keep_actions(store, &mut stored, actions);
+                // Its time, and what Agent-Desk found since (`long`).
+                if let Some(long) = long.as_mut() {
+                    instruction.push_str("\n\n");
+                    instruction.push_str(&long.reminder(engine.now_ms()));
+                }
                 run.prompt = instruction;
                 run.resume = stored.sessions.get(key).cloned();
                 run.image = None;
@@ -420,7 +661,9 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
 /// the same backend with the same tools, told to change nothing, whose
 /// steps are neither shown nor kept. Its verdict is recorded in the
 /// workspace for the status Agent-Desk tells on request.
+#[allow(clippy::too_many_arguments)]
 fn check(
+    engine: &dyn Engine,
     run: &Run,
     job: &Job,
     answer: &str,
@@ -456,6 +699,7 @@ fn check(
     };
     let id = job.conversation.clone();
     let result = run_backend(
+        engine,
         &checker,
         &check_key,
         control,
@@ -464,6 +708,7 @@ fn check(
         &mut seen,
         store,
         stored,
+        None,
     );
     stored.sessions.remove(&check_key);
     let verdict = match result {
@@ -626,8 +871,12 @@ fn keep_reply(
 
 /// Runs the backend once, turning its reports into events, and saves its
 /// session the moment it has one, so a restart can resume it.
+/// A supervised job's step reports also feed its `long` state: the
+/// session's size (and a fresh session when it is due), milestones, and
+/// its browsers' pages.
 #[allow(clippy::too_many_arguments)]
 fn run_backend(
+    engine: &dyn Engine,
     run: &Run,
     key: &str,
     control: &Control,
@@ -636,9 +885,15 @@ fn run_backend(
     seen: &mut Seen,
     store: &Store,
     stored: &mut Stored,
+    mut long: Option<&mut long::Long>,
 ) -> color_eyre::Result<provider::Finished> {
     let mut report = |report: Report| match report {
         Report::Alive => {}
+        Report::Usage(usage) => {
+            if let Some(long) = long.as_deref_mut() {
+                long.step(usage, engine.now_ms(), control);
+            }
+        }
         Report::Thinking => emit(Event::Thinking {
             conversation: id.clone(),
         }),
@@ -689,6 +944,9 @@ fn run_backend(
                     description: notice,
                 });
             }
+            if let Some(long) = long.as_deref_mut() {
+                long.tool(&name, &input);
+            }
             crate::assistant::audit::record(
                 id,
                 &crate::assistant::audit::Entry {
@@ -710,7 +968,7 @@ fn run_backend(
     };
     // A quick turn that reports nothing for too long is ended (`watchdog`).
     watchdog::watch(control, watchdog::limit(run), |touch| {
-        provider::run(run, control, &mut |sign: Report| {
+        engine.run(run, control, &mut |sign: Report| {
             touch();
             report(sign);
         })
@@ -945,5 +1203,7 @@ fn workdir() -> color_eyre::Result<PathBuf> {
     Ok(dir)
 }
 
+#[cfg(test)]
+mod long_tests;
 #[cfg(test)]
 mod tests;
