@@ -99,6 +99,8 @@ pub fn build(
             }
             let mut action = action(true);
             action.runs_code = vet::url_risk(&url);
+            // A call is reaching someone, as a message is.
+            action.consequence = vet::url_consequence(&url);
             args.push(url);
             Ok((
                 action,
@@ -126,9 +128,11 @@ pub fn build(
                 .collect();
             // What the script says it does decides whether it needs a yes
             // ("send", "delete", …), as a button's label would.
-            action.consequence = script
-                .lines()
-                .find_map(crate::assistant::autonomy::classify);
+            action.consequence = vet::script_consequence(&script).or_else(|| {
+                script
+                    .split(['\n', '\r'])
+                    .find_map(crate::assistant::autonomy::classify)
+            });
             let id = id.replace(['"', '\\'], "");
             Ok((
                 action,

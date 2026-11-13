@@ -73,6 +73,12 @@ maintainable, and nothing that isn't possible.
       (first token 1.2–2.2 s instead of 4.5–5 s with DeepSeek Flash)
 - [x] Browser audit: screenshots can't overwrite files outside Agent-Desk's folders,
       forgetting logins sticks, consent for Return/addresses in the person's Chrome
+- [x] Consent audit: toggle/check/expand, Space/Return on a button, blank menu items, drag
+      onto Trash, AppleScript commands anywhere in the script, Shortcuts and call URLs,
+      more shop/send words, a safe word only counts first
+- [ ] Consent still open: Return in a chat box without a Send button (Messages,
+      WhatsApp before typing), icon-only buttons with no name, a browser ref beyond the
+      first 400 learned, accepting a page's confirm() dialog in the person's Chrome
 - [ ] Safari tab ids are window id + position: an action can land on a moved tab
 - [ ] Other sites that bind sessions to a device (Microsoft, Meta, X) may react like
       Google to copied cookies; an allow list for the Chrome import would be safer
