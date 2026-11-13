@@ -58,7 +58,7 @@ impl Guard {
             json!({"protocolVersion": "2025-06-18", "capabilities": {},
                 "clientInfo": {"name": "agent-desk-test", "version": "1"}}),
         );
-        assert_eq!(hello["result"]["serverInfo"]["name"], "agent-desktop");
+        assert_eq!(hello["result"]["serverInfo"]["name"], "desktop");
         assert!(
             hello["result"]["instructions"]
                 .as_str()
