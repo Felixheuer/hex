@@ -240,6 +240,10 @@ pub(super) mod desktop_session {
             return;
         };
         std::thread::spawn(move || {
+            // Hex moves and fronts it itself, whichever driver runs.
+            if window.window_id.is_some() && crate::assistant::space::show_now(&window).is_ok() {
+                return;
+            }
             let reply = match &window.window_id {
                 Some(id) => agent_desktop(&["focus-window", "--window-id", id]),
                 None => agent_desktop(&["focus-window", "--app", &window.app]),

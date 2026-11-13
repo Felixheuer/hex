@@ -31,6 +31,7 @@
 //! OWNER: guard.
 
 mod child;
+mod cua;
 mod desk;
 mod policy;
 mod proxy;
@@ -97,6 +98,11 @@ pub struct WireSpec {
     /// agent-desktop's executable; `agent-desktop` on `PATH` when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_desktop: Option<PathBuf>,
+    /// Cua Driver's executable: when given, the desktop driver
+    /// (`assistant::driver`), with agent-desktop standing in when it fails
+    /// to start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cua_driver: Option<PathBuf>,
     /// The guard's folder; `<support>/assistant` when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state_dir: Option<PathBuf>,
@@ -167,6 +173,7 @@ impl WireSpec {
             physical_input: spec.physical_input,
             blocked_apps: spec.blocked_apps.clone(),
             agent_desktop: None,
+            cua_driver: None,
             state_dir: None,
             windows: WindowSource::default(),
             agent_display: None,
@@ -198,10 +205,36 @@ impl WireSpec {
 /// found them, so the guard agrees with Hex even when an agent starts its
 /// MCP servers with an environment of its own.
 pub fn mcp_server(spec: &TaskSpec) -> Option<McpServer> {
-    let desktop = crate::assistant::backends::mcp_server(&[])?;
+    let active = crate::assistant::driver::active()?;
+    let agent = crate::assistant::backends::mcp_server(&[]);
+    let desktop = agent.clone().unwrap_or_else(|| McpServer {
+        command: active.path.clone(),
+        args: Vec::new(),
+        path_env: crate::assistant::backends::search::path_value(std::slice::from_ref(
+            &active.path,
+        )),
+    });
     let hex = std::env::current_exe().ok()?;
     let store = state::Store::standard()?;
-    Some(server_for(spec, &hex, &desktop, store.root()))
+    let mut server = server_for(spec, &hex, &desktop, store.root());
+    if active.driver == crate::assistant::driver::Driver::Cua {
+        with_cua(&mut server, &active.path, agent.is_some());
+    }
+    Some(server)
+}
+
+/// `server` (the guard's) running Cua Driver at `path`, with agent-desktop
+/// as its stand-in only when that is installed.
+fn with_cua(server: &mut McpServer, path: &Path, agent_desktop: bool) {
+    if let Some(spec) = server.args.get_mut(3)
+        && let Ok(mut wire) = WireSpec::parse(spec)
+    {
+        wire.cua_driver = Some(path.to_path_buf());
+        if !agent_desktop {
+            wire.agent_desktop = None;
+        }
+        *spec = serde_json::to_string(&wire).unwrap_or_default();
+    }
 }
 
 /// `server` (the guard's, from [`mcp_server`]) reading only: a job's check
@@ -217,6 +250,55 @@ pub fn observe_only(server: &McpServer) -> McpServer {
         *spec = serde_json::to_string(&wire).unwrap_or_default();
     }
     server
+}
+
+/// The guard's server for a setup check: a read-only Background task, so
+/// an agent can call `desktop_status` through whichever driver runs.
+pub fn check_server() -> Option<McpServer> {
+    let spec = TaskSpec {
+        task: "setup-check".into(),
+        lane: Lane::Background,
+        agent_id: "hex-check".into(),
+        session: None,
+        here_window: None,
+        physical_input: false,
+        blocked_apps: Vec::new(),
+        full_control: false,
+        open_apps: false,
+    };
+    mcp_server(&spec).map(|server| observe_only(&server))
+}
+
+/// Starts Cua Driver as the guard does and lists the running apps and the
+/// windows through it: (apps, windows).
+pub fn driver_round_trip() -> std::result::Result<(usize, usize), String> {
+    use child::Desktop;
+    let found = crate::assistant::driver::active().ok_or("no desktop driver is installed")?;
+    let backend = found.driver.backend();
+    let mut driver = cua::Cua::new(child::AgentDesktop::server(
+        found.path,
+        backend.mcp_args(None, "", false),
+        backend.env(),
+    ));
+    driver.tools()?;
+    let count =
+        |result: serde_json::Value, key: Option<&str>| -> std::result::Result<usize, String> {
+            let data = child::data(&result).ok_or_else(|| result.to_string())?;
+            let list = match key {
+                Some(key) => data.get(key).cloned().unwrap_or_default(),
+                None => data,
+            };
+            Ok(list.as_array().map_or(0, Vec::len))
+        };
+    let apps = count(
+        driver.call("desktop_list_apps", &serde_json::Map::new())?,
+        Some("apps"),
+    )?;
+    let windows = count(
+        driver.call("desktop_list_windows", &serde_json::Map::new())?,
+        None,
+    )?;
+    Ok((apps, windows))
 }
 
 /// Whether process `pid` is running (for the store's conversations).
@@ -291,7 +373,8 @@ pub fn serve(spec: &str) -> Result<()> {
             Vec::new(),
         ))),
     };
-    let desktop = child::AgentDesktop::new(program, flags);
+    let fallback = child::AgentDesktop::new(program, flags);
+    let desktop = Driven::new(wire.cua_driver.as_deref(), fallback);
     let pid = std::process::id();
     let mut guard = proxy::Guard::new(config(&wire), store.clone(), pid, desktop, screen);
     guard.desk = wire.desk_pid.filter(|pid| state::alive(*pid));
@@ -303,6 +386,72 @@ pub fn serve(spec: &str) -> Result<()> {
         }
     }
     served
+}
+
+/// The desktop driver a guard runs: Cua Driver when it is given and
+/// starts, else agent-desktop (`assistant::driver`).
+struct Driven {
+    cua: Option<cua::Cua<child::AgentDesktop>>,
+    agent: child::AgentDesktop,
+    /// Cua Driver failed to start: agent-desktop serves from now on.
+    fell_back: bool,
+}
+
+impl Driven {
+    fn new(cua_driver: Option<&Path>, agent: child::AgentDesktop) -> Self {
+        let backend = crate::assistant::driver::Driver::Cua.backend();
+        Self {
+            cua: cua_driver.map(|path| {
+                cua::Cua::new(child::AgentDesktop::server(
+                    path.to_path_buf(),
+                    backend.mcp_args(None, "", false),
+                    backend.env(),
+                ))
+            }),
+            agent,
+            fell_back: false,
+        }
+    }
+
+    fn cua(&mut self) -> Option<&mut cua::Cua<child::AgentDesktop>> {
+        if self.fell_back {
+            return None;
+        }
+        self.cua.as_mut()
+    }
+}
+
+impl child::Desktop for Driven {
+    fn tools(&mut self) -> std::result::Result<Vec<serde_json::Value>, String> {
+        if let Some(cua) = self.cua() {
+            match cua.tools() {
+                Ok(tools) => return Ok(tools),
+                Err(why) => {
+                    tracing::warn!(why, "Cua Driver didn't start; agent-desktop stands in");
+                    self.fell_back = true;
+                }
+            }
+        }
+        self.agent.tools()
+    }
+
+    fn call(
+        &mut self,
+        tool: &str,
+        args: &serde_json::Map<String, serde_json::Value>,
+    ) -> std::result::Result<serde_json::Value, String> {
+        match self.cua() {
+            Some(cua) => cua.call(tool, args),
+            None => self.agent.call(tool, args),
+        }
+    }
+
+    fn instructions(&mut self) -> Option<String> {
+        match self.cua() {
+            Some(cua) => cua.instructions(),
+            None => self.agent.instructions(),
+        }
+    }
 }
 
 fn config(wire: &WireSpec) -> proxy::Config {
@@ -393,6 +542,33 @@ pub fn startup() {
         store.sweep();
         store.clear_paused();
     }
+    install_driver_in_background();
+}
+
+/// Cua Driver, when it is the chosen driver and not installed yet, comes in
+/// the background (a pinned, checked download); until it is, agent-desktop
+/// serves.
+fn install_driver_in_background() {
+    use crate::assistant::driver::{self, Driver};
+    if cfg!(test) || !cfg!(target_os = "macos") || driver::chosen() != Driver::Cua {
+        return;
+    }
+    if Driver::Cua.backend().find().is_some() {
+        return;
+    }
+    let spawned = std::thread::Builder::new()
+        .name("hex-cua-install".into())
+        .spawn(
+            || match driver::cua::install(&mut |step| tracing::info!(step, "Cua Driver")) {
+                Ok(path) => tracing::info!(path = %path.display(), "Cua Driver is ready"),
+                Err(error) => {
+                    tracing::warn!(%error, "Cua Driver didn't install; agent-desktop serves")
+                }
+            },
+        );
+    if let Err(error) = spawned {
+        tracing::warn!(%error, "couldn't start installing Cua Driver");
+    }
 }
 
 /// Whether a tool call named `tool` (as a backend reports it, e.g.
@@ -404,7 +580,7 @@ pub fn screen_work(tool: &str) -> Option<bool> {
     let name = tool.rsplit("__").next().unwrap_or(tool);
     let kind = policy::kind(name, &serde_json::Map::new());
     match kind {
-        policy::Kind::Observe | policy::Kind::ReadWindow => Some(false),
+        policy::Kind::Observe | policy::Kind::ReadWindow | policy::Kind::WindowShot => Some(false),
         policy::Kind::Claim => Some(true),
         kind if kind.acts() => Some(true),
         _ => None,

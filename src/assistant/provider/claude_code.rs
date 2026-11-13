@@ -599,19 +599,19 @@ mod tests {
         let config = &args[args.iter().position(|arg| arg == "--mcp-config").unwrap() + 1];
         let config: Value = serde_json::from_str(config).unwrap();
         assert_eq!(
-            config.pointer("/mcpServers/agent-desktop/args").unwrap(),
+            config.pointer("/mcpServers/desktop/args").unwrap(),
             &json!(["mcp", "--session", "s1", "--agent-id", "hex-2"])
         );
         assert!(
             args.windows(2)
-                .any(|pair| pair == ["--allowedTools", "WebSearch,WebFetch,mcp__agent-desktop"])
+                .any(|pair| pair == ["--allowedTools", "WebSearch,WebFetch,mcp__desktop"])
         );
         let withheld = &args[args
             .iter()
             .position(|arg| arg == "--disallowedTools")
             .unwrap()
             + 1];
-        assert!(withheld.contains("mcp__agent-desktop__desktop_session_end"));
+        assert!(withheld.contains("mcp__desktop__desktop_session_end"));
     }
 
     #[test]

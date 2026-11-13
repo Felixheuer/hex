@@ -215,7 +215,7 @@ impl Fix {
     pub fn label(self) -> String {
         match self {
             Self::Install(backend) => format!("Install {}", name(backend)),
-            Self::InstallAgentDesktop => "Install agent-desktop".into(),
+            Self::InstallAgentDesktop => "Install the desktop driver".into(),
             Self::InstallAgentBrowser => "Install agent-browser".into(),
             Self::InstallLightpanda => "Install Lightpanda".into(),
             Self::SignIn(_) => "Sign in".into(),
@@ -695,6 +695,18 @@ fn judge_grants(check: Check, grants: desktop::Grants, who: &str) -> CheckResult
 }
 
 fn desktop_permissions(check: Check) -> CheckResult {
+    // Cua Driver runs inside Hex's process tree: Hex's grants are its.
+    if cua_active() {
+        let permissions = computer::permissions_now();
+        return judge_grants(
+            check,
+            desktop::Grants {
+                accessibility: permissions.accessibility,
+                screen_recording: permissions.screen_recording,
+            },
+            "Cua Driver, acting with Hex's grants",
+        );
+    }
     let path = match agent_desktop(check) {
         Ok(path) => path,
         Err(failed) => return failed,
@@ -763,7 +775,23 @@ fn atspi_bus() -> Option<Result<(), String>> {
     })
 }
 
+/// Whether Cua Driver is the desktop driver that runs.
+fn cua_active() -> bool {
+    crate::assistant::driver::active()
+        .is_some_and(|found| found.driver == crate::assistant::driver::Driver::Cua)
+}
+
 fn round_trip(check: Check) -> CheckResult {
+    if cua_active() {
+        return match crate::assistant::guard::driver_round_trip() {
+            Ok((apps, windows)) if apps > 0 => CheckResult::passed(
+                check,
+                format!("Cua Driver: {apps} apps running, {windows} windows"),
+            ),
+            Ok(_) => failed_round_trip(check, "list the running apps", "it listed none"),
+            Err(error) => failed_round_trip(check, "list the apps and windows", &error),
+        };
+    }
     let path = match agent_desktop(check) {
         Ok(path) => path,
         Err(failed) => return failed,
@@ -890,10 +918,17 @@ fn through_agent(
         Ok(path) => path,
         Err(failed) => return failed,
     };
-    let Some(server) = super::mcp_server(&[]) else {
+    // With Cua Driver the agent calls the guard's desktop tools (read only),
+    // which serve `desktop_status` as agent-desktop did.
+    let server = if cua_active() {
+        crate::assistant::guard::check_server()
+    } else {
+        super::mcp_server(&[])
+    };
+    let Some(server) = server else {
         return CheckResult::failed(
             check,
-            "agent-desktop isn't installed",
+            "No desktop driver is installed",
             Some(Fix::InstallAgentDesktop),
         );
     };

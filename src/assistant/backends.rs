@@ -451,6 +451,12 @@ pub fn install_agent_desktop() -> Result<()> {
     install::install(Tool::AgentDesktop, &mut |_| {})
 }
 
+/// Installs agent-desktop (the fallback desktop driver), telling
+/// `progress` what it does.
+pub fn install_tool_agent_desktop(progress: &mut dyn FnMut(&str)) -> Result<()> {
+    install::install(Tool::AgentDesktop, progress)
+}
+
 /// Opens System Settings at agent-desktop's missing permission
 /// (`agent-desktop permissions --guide`), with its guide showing Hex as the
 /// app to switch on. Returns at once.
@@ -488,9 +494,9 @@ pub struct McpServer {
 }
 
 /// The server's name in each agent's config; its tools are then
-/// `mcp__agent-desktop__desktop_*` (Claude Code), `desktop_*` (Codex), and
-/// `agent-desktop_desktop_*` (OpenCode).
-pub const MCP_NAME: &str = "agent-desktop";
+/// `mcp__desktop__desktop_*` (Claude Code), `desktop_*` (Codex), and
+/// `desktop_desktop_*` (OpenCode), whichever driver serves them (`assistant::driver`).
+pub const MCP_NAME: &str = "desktop";
 
 pub fn mcp_server(args: &[&str]) -> Option<McpServer> {
     let command = search::find("agent-desktop")?;
@@ -681,27 +687,27 @@ mod tests {
         };
         let claude: serde_json::Value = serde_json::from_str(&server.claude_config()).unwrap();
         assert_eq!(
-            claude["mcpServers"]["agent-desktop"]["command"],
+            claude["mcpServers"]["desktop"]["command"],
             "/opt/homebrew/bin/agent-desktop"
         );
-        assert_eq!(claude["mcpServers"]["agent-desktop"]["args"][2], "s1");
+        assert_eq!(claude["mcpServers"]["desktop"]["args"][2], "s1");
         assert_eq!(
             server.codex_args(&["desktop_status"]),
             [
                 "-c",
-                r#"mcp_servers.agent-desktop.command="/opt/homebrew/bin/agent-desktop""#,
+                r#"mcp_servers.desktop.command="/opt/homebrew/bin/agent-desktop""#,
                 "-c",
-                r#"mcp_servers.agent-desktop.args=["mcp","--session","s1"]"#,
+                r#"mcp_servers.desktop.args=["mcp","--session","s1"]"#,
                 "-c",
-                r#"mcp_servers.agent-desktop.env.PATH="/opt/homebrew/bin:/usr/bin""#,
+                r#"mcp_servers.desktop.env.PATH="/opt/homebrew/bin:/usr/bin""#,
                 "-c",
-                r#"mcp_servers.agent-desktop.default_tools_approval_mode="approve""#,
+                r#"mcp_servers.desktop.default_tools_approval_mode="approve""#,
                 "-c",
-                r#"mcp_servers.agent-desktop.enabled_tools=["desktop_status"]"#,
+                r#"mcp_servers.desktop.enabled_tools=["desktop_status"]"#,
             ]
         );
         assert_eq!(
-            server.opencode_config()["agent-desktop"]["command"],
+            server.opencode_config()["desktop"]["command"],
             serde_json::json!(["/opt/homebrew/bin/agent-desktop", "mcp", "--session", "s1"])
         );
     }

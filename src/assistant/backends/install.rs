@@ -612,6 +612,17 @@ pub fn apply_fix_with(fix: Fix, mut progress: impl FnMut(&str)) -> Result<()> {
             open_url("https://console.anthropic.com/settings/keys")
         }
         Fix::Install(backend) => install(Tool::Agent(backend), progress),
+        // The desktop driver: Cua Driver (pinned, checked) on macOS, with
+        // agent-desktop as the stand-in where it can't be had.
+        Fix::InstallAgentDesktop if cfg!(target_os = "macos") => {
+            match crate::assistant::driver::cua::install(progress) {
+                Ok(_) => Ok(()),
+                Err(error) => {
+                    tracing::warn!(%error, "Cua Driver didn't install; installing agent-desktop");
+                    install(Tool::AgentDesktop, progress)
+                }
+            }
+        }
         Fix::InstallAgentDesktop => install(Tool::AgentDesktop, progress),
         Fix::InstallAgentBrowser => install(Tool::AgentBrowser, progress),
         Fix::InstallLightpanda => install(Tool::Lightpanda, progress),
