@@ -134,8 +134,9 @@ impl Pane {
             #[cfg(hex_capture)]
             Pane::Captures => tr("Captures"),
             Pane::Meetings => tr("Meetings"),
-            Pane::Chats => tr("Chats"),
-            Pane::Assistant => tr("Assistant"),
+            // One assistant, one stream: no "chats".
+            Pane::Chats => tr("Assistant"),
+            Pane::Assistant => tr("Assistant settings"),
             #[cfg(hex_capture)]
             Pane::Annotate => tr("Annotate"),
             Pane::VoiceFilter => tr("Voice Filter"),

@@ -584,11 +584,7 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) {
     if std::mem::take(&mut ui.chats.focus_answer) {
         tx.focus(ANSWER_FIELD, false);
     }
-    let running_plan = ui
-        .chats
-        .selected
-        .as_ref()
-        .is_some_and(|id| ui.chats.plans.contains_key(id) && ui.chats.running(id));
+    let running_plan = ui.chats.plans.keys().any(|id| ui.chats.running(id));
     if running_plan {
         // The elapsed time ticks.
         tx.wake_after(std::time::Duration::from_secs(1));

@@ -1,8 +1,9 @@
-//! Chats (the assistant, macOS): every conversation with the assistant
-//! and how it ended, the selected one's transcript with its answers
-//! streaming in, a composer that asks about the window in front (Here) or
-//! starts a Background task, the running tasks with Take over, Hand back,
-//! and Stop, and the
+//! Chats (the assistant, macOS): one assistant, one stream. Every request,
+//! answer, and job in one timeline, oldest at the top (`stream`), jobs as
+//! live cards with their plan, question, and results; one composer that
+//! asks anything new (the assistant knows the whole stream and routes it),
+//! or, after a click on an entry, replies to it or steers it; the running
+//! tasks with Take over, Hand back, and Stop; and the
 //! assistant's settings. The setup sheet (`setup`) checks, live, that every
 //! piece the assistant needs works on this Mac.
 //!
@@ -30,6 +31,7 @@ mod sheet;
 mod shortcut;
 mod site_sign_in;
 mod source;
+mod stream;
 mod strip;
 mod switch;
 #[cfg(all(test, target_os = "macos"))]
@@ -152,9 +154,15 @@ pub(super) struct ChatsPane {
     pub(super) list: Vec<ConversationSummary>,
     /// Read since the pane last showed, or since the store last changed.
     listed: bool,
+    /// The entry the stream highlights (following new activity, a link).
     pub(super) selected: Option<ConversationId>,
+    /// The entry the person clicked: the composer replies to it, or steers
+    /// it while it runs. Never set by following, only by a click.
+    pub(super) target: Option<ConversationId>,
     /// The selected conversation as stored, once read.
     pub(super) shown: Option<Conversation>,
+    /// The stream: the latest conversations as stored, oldest first.
+    pub(super) stream: Vec<Conversation>,
     /// Requests in flight, by conversation.
     pub(super) turns: HashMap<ConversationId, Turn>,
     /// Why a conversation's last request failed, until it asks again.
@@ -165,7 +173,6 @@ pub(super) struct ChatsPane {
     pub(super) holds: HashMap<ConversationId, Hold>,
     /// The Here task moving the real pointer or keys now.
     pub(super) hands_off: Option<ConversationId>,
-    pub(super) search: TextEdit,
     pub(super) composer: TextEdit,
     /// Where the composer sends a new message: Auto, or Here or Background.
     pub(super) lane: SendMode,
@@ -221,13 +228,14 @@ impl Default for ChatsPane {
             list: Vec::new(),
             listed: false,
             selected: None,
+            target: None,
             shown: None,
+            stream: Vec::new(),
             turns: HashMap::new(),
             failures: HashMap::new(),
             tasks: Vec::new(),
             holds: HashMap::new(),
             hands_off: None,
-            search: TextEdit::default(),
             composer: TextEdit::default(),
             lane: SendMode::Auto,
             plans: HashMap::new(),
@@ -291,9 +299,55 @@ impl ChatsPane {
     fn reload(&mut self) {
         self.list = self.source.conversations();
         self.listed = true;
+        self.refresh_stream();
         self.reload_shown();
         self.tasks = self.source.tasks();
         self.schedules = self.source.schedules();
+    }
+
+    /// Reads the stream again: the latest [`stream::LENGTH`] conversations,
+    /// each read from the store only when it changed, oldest first; the
+    /// folders their answers name, and their plans and questions (live).
+    pub(super) fn refresh_stream(&mut self) {
+        let mut latest = self.list.clone();
+        latest.sort_by_key(|summary| std::cmp::Reverse(summary.updated_ms));
+        latest.truncate(stream::LENGTH);
+        let mut known: HashMap<ConversationId, Conversation> = std::mem::take(&mut self.stream)
+            .into_iter()
+            .map(|conversation| (conversation.id.clone(), conversation))
+            .collect();
+        let mut stream = Vec::with_capacity(latest.len());
+        for summary in &latest {
+            match known.remove(&summary.id) {
+                Some(conversation) if conversation.updated_ms == summary.updated_ms => {
+                    stream.push(conversation);
+                }
+                _ => stream.extend(self.source.conversation(&summary.id)),
+            }
+        }
+        stream.sort_by(|a, b| (a.created_ms, &a.id).cmp(&(b.created_ms, &b.id)));
+        for folder in stream.iter().filter_map(work::folder_of) {
+            if !self.folders.contains_key(&folder) {
+                let files = self.source.files(&folder);
+                self.folders.insert(folder, files);
+            }
+        }
+        if self.live() {
+            for conversation in &stream {
+                let id = &conversation.id;
+                if self.plans.contains_key(id) || !self.running(id) {
+                    continue;
+                }
+                let plan = crate::assistant::service::plan(id);
+                if !plan.is_empty() {
+                    self.plans.insert(id.clone(), plan);
+                }
+                if let Some(question) = crate::assistant::service::question(id) {
+                    self.questions.insert(id.clone(), question);
+                }
+            }
+        }
+        self.stream = stream;
     }
 
     fn reload_shown(&mut self) {
@@ -330,12 +384,10 @@ impl ChatsPane {
         self.reload_shown();
     }
 
-    /// Starts a new conversation: nothing selected, the composer empty.
-    /// Chats stops following until something is picked again.
-    pub(super) fn new_chat(&mut self) {
-        self.follow.pinned = true;
-        self.selected = None;
-        self.shown = None;
+    /// The composer writes to the assistant again, not to one entry: the
+    /// next message is a request of its own, which knows the whole stream.
+    pub(super) fn clear_target(&mut self) {
+        self.target = None;
         self.delete_armed = None;
     }
 
@@ -344,16 +396,17 @@ impl ChatsPane {
         self.turns.contains_key(id) || self.tasks.iter().any(|task| task.conversation == id)
     }
 
-    /// Sends the composer's text into the shown conversation (a new one
-    /// when none shows). While that conversation runs, it steers it: the
-    /// agent hears it as the person interrupting. Nothing for an empty
-    /// composer.
+    /// Sends the composer's text: a new request (the assistant reads the
+    /// stream and decides: answer, steer a job, start one), or, after a
+    /// click on an entry, a reply to it. While that entry runs, it steers
+    /// it: the agent hears it as the person interrupting. Nothing for an
+    /// empty composer.
     pub(super) fn send(&mut self) -> bool {
         let question = self.composer.text.trim().to_owned();
         if question.is_empty() {
             return false;
         }
-        if let Some(id) = self.selected.clone()
+        if let Some(id) = self.target.clone()
             && self.running(&id)
         {
             if self.questions.contains_key(&id) {
@@ -371,7 +424,7 @@ impl ChatsPane {
             SendMode::Background => (Origin::Chat, Context::default()),
         };
         let id = self.source.submit(Request {
-            conversation: self.selected.clone(),
+            conversation: self.target.clone(),
             text: question.clone(),
             origin,
             context,
@@ -465,9 +518,10 @@ impl ChatsPane {
         };
         self.error = None;
         let question = self
-            .shown
-            .as_ref()
-            .filter(|shown| shown.id == id)
+            .stream
+            .iter()
+            .find(|shown| shown.id == id)
+            .or(self.shown.as_ref().filter(|shown| shown.id == id))
             .and_then(|shown| {
                 shown
                     .messages
@@ -523,39 +577,14 @@ impl ChatsPane {
         self.turns.remove(&id);
         self.failures.remove(&id);
         if self.selected.as_ref() == Some(&id) {
-            self.new_chat();
+            self.selected = None;
+            self.shown = None;
+        }
+        if self.target.as_ref() == Some(&id) {
+            self.target = None;
         }
         self.list = self.source.conversations();
-    }
-
-    /// The rows the list shows: stored conversations, and new ones whose
-    /// first request is still in flight, matching the search.
-    pub(super) fn rows(&self) -> Vec<ConversationSummary> {
-        let mut rows: Vec<ConversationSummary> = self
-            .turns
-            .iter()
-            .filter(|(id, _)| !self.list.iter().any(|row| &row.id == *id))
-            .map(|(id, turn)| ConversationSummary {
-                id: id.clone(),
-                title: turn.question.clone(),
-                updated_ms: crate::history::now_ms(),
-                origin: turn.origin,
-                preview: String::new(),
-                outcome: crate::assistant::Outcome::Running,
-            })
-            .collect();
-        rows.sort_by(|a, b| a.id.cmp(&b.id));
-        rows.extend(self.list.iter().cloned());
-        let query = self.search.text.trim().to_lowercase();
-        if query.is_empty() {
-            return rows;
-        }
-        rows.into_iter()
-            .filter(|row| {
-                row.title.to_lowercase().contains(&query)
-                    || row.preview.to_lowercase().contains(&query)
-            })
-            .collect()
+        self.refresh_stream();
     }
 }
 
@@ -763,7 +792,7 @@ pub(super) fn pane(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> (Vec<El>, El) {
     }
     layer.extend(schedules::sheet(ui, p));
     layer.extend(live_view::sheet(ui, p));
-    (header_actions(ui, p), list::body(ui, p, layer))
+    (header_actions(ui, p), stream::body(ui, p, layer))
 }
 
 /// The Assistant pane: every assistant setting, with Run setup… in its
@@ -807,27 +836,16 @@ pub(super) const BACKENDS: [AssistantBackend; 4] = [
     AssistantBackend::ClaudeApi,
 ];
 
-/// The Chats view's header: which agent answers, how many tasks run with
-/// Stop all while any does, and New chat.
+/// The stream's header: which agent answers, and how many tasks run with
+/// Stop all while any does. No New chat: there is one stream.
 fn header_actions(ui: &Ui, p: Paint) -> Vec<El> {
     let backend = text(backend_name(ui.settings.assistant.backend))
         .key("chats-backend")
         .font(p.k.ty.small)
         .color(p.faint())
         .help(tr("The agent that answers. Change it in Settings"));
-    let new_chat = button(
-        p,
-        "new-chat",
-        tr("New chat"),
-        ButtonKind::Secondary,
-        |ui: &mut Ui, tx: &mut Tx| {
-            ui.chats.new_chat();
-            tx.focus("composer-input", false);
-        },
-    );
     let mut actions = vec![backend];
     actions.extend(strip::header_running(ui, p));
-    actions.push(new_chat);
     actions
 }
 

@@ -894,7 +894,7 @@ fn a_request_naming_a_running_task_is_routed_to_it() {
     let job = world.job_for("mach das auch für Bob");
     let digest = job.digest.unwrap();
     assert!(
-        digest.contains("“Lade die Hetzner Rechnung” (background)"),
+        digest.contains("“Lade die Hetzner Rechnung” (background, working)"),
         "{digest}"
     );
     runner.cancel_all();
@@ -1278,7 +1278,7 @@ fn a_hush_cuts_the_rest_of_a_streaming_answer_until_it_asks_again() {
 }
 
 #[test]
-fn focus_prefers_a_running_here_task_then_chats_then_a_recent_answer() {
+fn focus_prefers_a_running_here_task_then_a_recent_answer_never_chats() {
     let world = World::new(8);
     let runner = world.runner();
     let id = runner.submit(request("q", Origin::ActionShortcut));
@@ -1287,8 +1287,7 @@ fn focus_prefers_a_running_here_task_then_chats_then_a_recent_answer() {
     assert_eq!(runner.focus(120), Some(id.clone()));
     world.release("q");
     world.wait_for("the answer", ended(&id));
-    assert_eq!(runner.focus(120).as_deref(), Some("chat"));
-    runner.state().focus = None;
+    // One stream: what Chats shows never decides where a hold goes.
     assert_eq!(runner.focus(120), Some(id.clone()));
     world.advance(121_000);
     assert_eq!(runner.focus(120), None);
@@ -1922,4 +1921,39 @@ fn words_said_while_a_job_waits_its_turn_join_it_in_order() {
     assert!(matches!(job.kind, JobKind::Job { .. }));
     world.release("second job\n\nnimm bitte den Freitag");
     world.wait_for("the second answer", ended(&second));
+}
+
+/// One assistant, one stream: a task, then another, then a question about
+/// the first is a request of its own that knows both — it never steers the
+/// second (nor the first: it asks, it doesn't tell).
+#[test]
+fn a_question_about_an_earlier_task_is_answered_from_the_stream() {
+    let world = World::new(8);
+    let runner = world.runner();
+    let tokio = runner.submit(request(
+        "Recherchiere das Wetter in Tokio",
+        Origin::Background,
+    ));
+    let downloads = runner.submit(request("Sortiere meine Downloads", Origin::Background));
+    world.job_for("Recherchiere das Wetter in Tokio");
+    world.job_for("Sortiere meine Downloads");
+    let asked = runner.submit(request(
+        "Was hat die Tokio-Aufgabe gefunden?",
+        Origin::ActionShortcut,
+    ));
+    assert_ne!(asked, tokio);
+    assert_ne!(asked, downloads);
+    let job = world.job_for("Was hat die Tokio-Aufgabe gefunden?");
+    assert!(matches!(job.kind, JobKind::Ask));
+    let digest = job.digest.expect("a new request knows the stream");
+    assert!(
+        digest.contains("Recherchiere das Wetter in Tokio"),
+        "{digest}"
+    );
+    assert!(digest.contains("Sortiere meine Downloads"), "{digest}");
+    assert!(
+        digest.contains(super::context::short_id(&tokio)),
+        "{digest}"
+    );
+    runner.cancel_all();
 }

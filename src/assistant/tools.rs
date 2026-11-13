@@ -71,7 +71,11 @@ fn role() -> Role {
 }
 
 /// Tools a background job may not use, and why.
-const NOT_FOR_JOBS: [(&str, &str); 4] = [
+const NOT_FOR_JOBS: [(&str, &str); 5] = [
+    (
+        "hex_tell_job",
+        "A background job steers its own helpers with hex_team_tell, not other jobs.",
+    ),
     (
         "hex_start_jobs",
         "You are already a background job: start helpers with hex_team_start instead, or do it yourself.",
@@ -150,6 +154,21 @@ pub fn definitions() -> Vec<Value> {
                 }, "required": ["task"]}},
                 "say": {"type": "string", "description": "The short line to say meanwhile, in the person's language."}
             }, "required": ["jobs"]},
+        }),
+        json!({
+            "name": "hex_tell_job",
+            "description": "Pass the person's words to a job that is running (listed in the stream with its [id]): a change of plan, an answer, more to do. It reaches the job at its next step. Use it instead of starting a new job when the person means one that runs.",
+            "inputSchema": {"type": "object", "properties": {
+                "job": {"type": "string", "description": "The job's [id] from the stream, or words of its title."},
+                "text": {"type": "string", "description": "The instruction, in the person's words."}
+            }, "required": ["job", "text"]},
+        }),
+        json!({
+            "name": "hex_job_result",
+            "description": "Read what a task did and found (one listed in the stream with its [id], running or finished): its answer, its report and plan, and its folder. Use it to answer questions about earlier tasks (\u{201c}what did the Tokio one find?\u{201d}).",
+            "inputSchema": {"type": "object", "properties": {
+                "job": {"type": "string", "description": "The task's [id] from the stream, or words of its title."}
+            }, "required": ["job"]},
         }),
         json!({
             "name": "hex_remember",
@@ -298,6 +317,27 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             let diff = arguments.get("diff").and_then(Value::as_str);
             images::compare(&text("a")?, &text("b")?, options, diff)
         }
+        "hex_tell_job" => {
+            let task = TASK
+                .get()
+                .ok_or("hex_tell_job needs the task this server serves")?;
+            let job = text("job")?;
+            let said = text("text")?;
+            if said.trim().is_empty() {
+                return Err("hex_tell_job needs “text”".into());
+            }
+            crate::assistant::agent::handoff::record(
+                task,
+                crate::assistant::agent::handoff::Handoff {
+                    tells: vec![(job.clone(), said)],
+                    ..Default::default()
+                },
+            )?;
+            Ok(format!(
+                "Hex passes it to the job “{job}” as soon as you end your reply. Say briefly that you told it."
+            ))
+        }
+        "hex_job_result" => job_result(&text("job")?),
         "hex_remember" => {
             if !memory_on() {
                 return Err("The person turned memory off; nothing is remembered.".into());
@@ -423,6 +463,64 @@ pub fn answer(message: &Value) -> Option<Value> {
     Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))
 }
 
+/// What a task did and found, for `hex_job_result`: its title and outcome,
+/// its last answer, and its report and plan from its folder.
+fn job_result(job: &str) -> Result<String, String> {
+    let store = crate::assistant::store::Store::open().map_err(|error| error.to_string())?;
+    let summaries = store.list();
+    let id = find_job(job, &summaries)
+        .ok_or_else(|| format!("No task matches “{job}”; use an [id] from the stream."))?;
+    let stored = store
+        .load(&id)
+        .ok_or_else(|| format!("The task {job} has no record any more."))?;
+    let conversation = &stored.conversation;
+    let mut text = format!("“{}”\n", conversation.title);
+    if let Some(answer) = conversation
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role == crate::assistant::types::Role::Assistant)
+        .map(crate::assistant::types::Message::text)
+        .filter(|answer| !answer.trim().is_empty())
+    {
+        text.push_str("Its answer:\n");
+        text.push_str(&crate::assistant::store::shorten(answer.trim(), 3000));
+        text.push('\n');
+    }
+    if let Some(folder) = &stored.workspace {
+        text.push_str(&format!("Folder: {}\n", folder.display()));
+        for name in ["report.md", "plan.md"] {
+            if let Ok(file) = std::fs::read_to_string(folder.join(name)) {
+                text.push_str(&format!("{name}:\n"));
+                text.push_str(&crate::assistant::store::shorten(file.trim(), 4000));
+                text.push('\n');
+            }
+        }
+    }
+    Ok(text)
+}
+
+/// The conversation `job` names among `summaries`: its id's start, else
+/// the newest whose title contains it.
+fn find_job(
+    job: &str,
+    summaries: &[crate::assistant::types::ConversationSummary],
+) -> Option<String> {
+    let job = job.trim().trim_matches(['[', ']']).trim();
+    if job.is_empty() {
+        return None;
+    }
+    if let Some(summary) = summaries.iter().find(|summary| summary.id.starts_with(job)) {
+        return Some(summary.id.clone());
+    }
+    let lower = job.to_lowercase();
+    summaries
+        .iter()
+        .filter(|summary| summary.title.to_lowercase().contains(&lower))
+        .max_by_key(|summary| summary.updated_ms)
+        .map(|summary| summary.id.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,6 +545,8 @@ mod tests {
             names,
             [
                 "hex_start_jobs",
+                "hex_tell_job",
+                "hex_job_result",
                 "hex_remember",
                 "hex_schedule",
                 "hex_schedules",
@@ -477,6 +577,7 @@ mod tests {
         assert_eq!(
             names,
             [
+                "hex_job_result",
                 "hex_schedules",
                 "hex_compare_images",
                 "hex_team_start",
@@ -495,5 +596,32 @@ mod tests {
         assert_eq!(not_started(&asked, 5), None);
         let waiting = not_started(&asked, 1).unwrap();
         assert!(waiting.contains("B; C"), "{waiting}");
+    }
+
+    #[test]
+    fn a_task_is_found_by_its_short_id_or_the_newest_title() {
+        use crate::assistant::types::ConversationSummary;
+        let summary = |id: &str, title: &str, updated_ms| ConversationSummary {
+            id: id.into(),
+            title: title.into(),
+            updated_ms,
+            origin: crate::assistant::Origin::Background,
+            preview: String::new(),
+            outcome: crate::assistant::Outcome::Answered,
+        };
+        let all = [
+            summary("ebcfca18-1", "Wetter in Tokio", 10),
+            summary("c9c33480-2", "Tokio Hotels vergleichen", 20),
+            summary("a1b2c3d4-3", "Downloads sortieren", 30),
+        ];
+        assert_eq!(find_job("[ebcfca18]", &all).as_deref(), Some("ebcfca18-1"));
+        assert_eq!(
+            find_job("tokio", &all).as_deref(),
+            Some("c9c33480-2"),
+            "the newest"
+        );
+        assert_eq!(find_job("downloads", &all).as_deref(), Some("a1b2c3d4-3"));
+        assert_eq!(find_job(" ", &all), None);
+        assert_eq!(find_job("Rechnung", &all), None);
     }
 }

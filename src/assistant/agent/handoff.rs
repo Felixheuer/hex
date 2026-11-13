@@ -27,6 +27,10 @@ pub struct Handoff {
     /// The short line said meanwhile, if the agent gave one.
     #[serde(default)]
     pub say: Option<String>,
+    /// Instructions for running jobs (`hex_tell_job`): (job id or title,
+    /// text), passed on when the run ends.
+    #[serde(default)]
+    pub tells: Vec<(String, String)>,
 }
 
 fn dir() -> Option<PathBuf> {
@@ -54,6 +58,7 @@ pub fn record(conversation: &str, handoff: Handoff) -> Result<usize, String> {
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default();
     all.jobs.extend(handoff.jobs);
+    all.tells.extend(handoff.tells);
     if handoff.say.is_some() {
         all.say = handoff.say;
     }
@@ -70,7 +75,7 @@ pub fn take(conversation: &str) -> Option<Handoff> {
     let _ = std::fs::remove_file(&path);
     serde_json::from_slice::<Handoff>(&bytes)
         .ok()
-        .filter(|handoff| !handoff.jobs.is_empty())
+        .filter(|handoff| !handoff.jobs.is_empty() || !handoff.tells.is_empty())
 }
 
 /// Forgets a hand-off a run left but didn't end with (a stopped run).
@@ -115,7 +120,11 @@ pub fn parse(arguments: &serde_json::Value) -> Result<Handoff, String> {
         .map(str::trim)
         .filter(|say| !say.is_empty())
         .map(str::to_owned);
-    Ok(Handoff { jobs, say })
+    Ok(Handoff {
+        jobs,
+        say,
+        tells: Vec::new(),
+    })
 }
 
 /// Phrases with which an answer says it *starts* the work in the
