@@ -1,10 +1,12 @@
 //! Notifications for Background jobs (`assistant.notifications`): a job
-//! finished, failed, or asks something, and clicking one opens the
-//! Assistant pane on its conversation ([`set_open`]).
+//! finished, failed, or asks something. Clicking one projects its result on
+//! the overlay's stage, not the window; its own "Open Agent-Desk" action
+//! (macOS) is the deliberate way into the window ([`set_open`]).
 //!
 //! ```ts
 //! macOS    UNUserNotificationCenter (the `assistant_notifications` Swift bridge) inside
-//!          the signed Agent-Desk.app; `osascript` outside a bundle (a click opens nothing)
+//!          the signed Agent-Desk.app, its clicks handed back in process; `osascript`
+//!          outside a bundle (a click opens nothing)
 //! Linux    the desktop's notification server (`notify-send --action --wait`)
 //! Windows  a toast (Windows.UI.Notifications) under Agent-Desk's own app id
 //! ```
@@ -13,28 +15,32 @@
 
 use std::sync::Mutex;
 
-/// What a click on a notification opens (set by the window's owner).
-type Open = Box<dyn Fn(&str) + Send + Sync>;
+/// What a click on a notification does: its conversation, and whether the
+/// person chose "Open Agent-Desk" (set by the window's owner).
+type Open = Box<dyn Fn(&str, bool) + Send + Sync>;
 
 static OPEN: Mutex<Option<Open>> = Mutex::new(None);
 
-/// Sets what a click on a notification does with its conversation: open
-/// Chats on it. Called on a notification's own thread, so post to the UI
+/// Sets what a click on a notification does with its conversation: the
+/// result on the stage, or (`true`, its "Open Agent-Desk" action) the
+/// window on it. Called on a notification's own thread, so post to the UI
 /// and return at once.
-pub fn set_open(open: impl Fn(&str) + Send + Sync + 'static) {
+pub fn set_open(open: impl Fn(&str, bool) + Send + Sync + 'static) {
     *OPEN.lock().unwrap_or_else(|error| error.into_inner()) = Some(Box::new(open));
+    #[cfg(target_os = "macos")]
+    bridge::listen();
 }
 
-/// A click on the notification for `conversation`.
-#[cfg_attr(target_os = "macos", allow(dead_code))]
-fn clicked(conversation: &str) {
+/// A click on the notification for `conversation`; `window` when it was
+/// its "Open Agent-Desk" action.
+fn clicked(conversation: &str, window: bool) {
     match OPEN
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .as_ref()
     {
-        Some(open) => open(conversation),
-        None => tracing::debug!("a notification was clicked before Chats could open"),
+        Some(open) => open(conversation, window),
+        None => tracing::debug!("a notification was clicked before the overlays could show it"),
     }
 }
 
@@ -207,7 +213,7 @@ mod linux {
                     let _ = out.read_to_string(&mut said);
                 }
                 if actions && said.trim() == "default" {
-                    super::clicked(&note.conversation);
+                    super::clicked(&note.conversation, false);
                 }
             });
         if let Err(error) = spawned {
@@ -258,7 +264,7 @@ mod windows {
         let conversation = note.conversation.clone();
         toast.Activated(&TypedEventHandler::<ToastNotification, IInspectable>::new(
             move |_, _| {
-                super::clicked(&conversation);
+                super::clicked(&conversation, false);
                 Ok(())
             },
         ))?;
@@ -321,6 +327,38 @@ mod bridge {
             body: *const std::ffi::c_char,
             conversation: *const std::ffi::c_char,
         ) -> bool;
+        fn hex_assistant_notifications_on_click(
+            clicked: extern "C" fn(*const std::ffi::c_char, bool),
+            open_title: *const std::ffi::c_char,
+        );
+    }
+
+    /// A click, from the Swift delegate (main thread).
+    extern "C" fn clicked(conversation: *const std::ffi::c_char, window: bool) {
+        if conversation.is_null() {
+            return;
+        }
+        // SAFETY: the bridge passes a NUL-terminated string alive for the call.
+        let conversation = unsafe { std::ffi::CStr::from_ptr(conversation) }
+            .to_string_lossy()
+            .into_owned();
+        super::clicked(&conversation, window);
+    }
+
+    /// Hands clicks back here, in process (no `agent-desk://` link, so the
+    /// window doesn't open and the app isn't activated), once.
+    pub(super) fn listen() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            // SAFETY: takes no arguments; reads the main bundle.
+            if !unsafe { hex_assistant_notifications_available() } {
+                return;
+            }
+            let title =
+                CString::new(crate::desktop::i18n::tr("Open Agent-Desk")).unwrap_or_default();
+            // SAFETY: `clicked` lives for the program; the bridge copies the title.
+            unsafe { hex_assistant_notifications_on_click(clicked, title.as_ptr()) };
+        });
     }
 
     /// Posts through UNUserNotificationCenter; false outside a bundle.

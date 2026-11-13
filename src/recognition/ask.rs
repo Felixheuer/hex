@@ -42,8 +42,10 @@ use color_eyre::Result;
 use crate::app_settings::RuntimeHotkey;
 use crate::assistant::computer::ContextHandle;
 #[cfg(test)]
+use crate::assistant::shortcut::set_open_setup;
+#[cfg(test)]
 use crate::assistant::shortcut::set_toggle_tasks;
-pub(crate) use crate::assistant::shortcut::{Question, set_open_setup, submit};
+pub(crate) use crate::assistant::shortcut::{Question, submit};
 use crate::assistant::shortcut::{
     held, here_tasks, open_setup, quick_question_running, toggle_tasks,
 };
@@ -175,7 +177,16 @@ impl Asker {
                     .take()
                     .unwrap_or_else(|| Question::press(false, || ContextHandle::start(|_| {})));
                 let follow_up = crate::app_settings::applied_assistant().follow_up_seconds;
-                let reply = question.ask(move || crate::assistant::focus(follow_up), submit);
+                // A short "open the folder" while the stage shows a result
+                // acts on it there; anything else goes to the assistant.
+                let reply = question.ask(
+                    move || crate::assistant::focus(follow_up),
+                    |request| {
+                        if !crate::rune_ui::assistant_overlay::stage_takes(&request.text) {
+                            submit(request);
+                        }
+                    },
+                );
                 finish_question(
                     at,
                     input,
