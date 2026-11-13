@@ -142,9 +142,10 @@ fn region() -> String {
 /// already [`clean_handle`]d, so it is a safe literal).
 pub fn query(handle: &str, after: i64) -> String {
     format!(
-        "SELECT m.ROWID AS rowid, m.date AS date, m.text AS text, hex(m.attributedBody) AS body \
+        "SELECT m.ROWID AS rowid, m.date AS date, m.text AS text, hex(m.attributedBody) AS body, \
+         m.is_from_me AS mine \
          FROM message m JOIN handle h ON h.ROWID = m.handle_id \
-         WHERE m.is_from_me = 0 AND h.id = '{handle}' AND m.ROWID > {after} \
+         WHERE h.id = '{handle}' AND m.ROWID > {after} \
          ORDER BY m.ROWID LIMIT 20;"
     )
 }
@@ -206,6 +207,13 @@ pub fn parse(rows: &[Value]) -> Vec<Reply> {
                     let body = row.get("body")?.as_str()?;
                     attributed_text(&hex_bytes(body)?)
                 })?;
+            // The handle is the person's own: in the chat with themselves
+            // ("Ich") their replies are stored as sent by this Mac too.
+            // Hex's own messages are left out by how they start.
+            let mine = row.get("mine").and_then(Value::as_i64) == Some(1);
+            if mine && from_hex(&text) {
+                return None;
+            }
             Some(Reply {
                 rowid,
                 sent: apple_time(date),
@@ -213,6 +221,42 @@ pub fn parse(rows: &[Value]) -> Vec<Reply> {
             })
         })
         .collect()
+}
+
+/// Whether `text` is one of Hex's own messages (`outgoing`): its marks
+/// (question, warning, done), or the test's name first.
+pub fn from_hex(text: &str) -> bool {
+    let text = text.trim_start();
+    ['\u{2753}', '\u{26a0}', '\u{2705}']
+        .iter()
+        .any(|mark| text.starts_with(*mark))
+        || ["Hex:", "Agent-Desk:"].iter().any(|name| text.starts_with(name))
+}
+
+/// The query for the last message this Mac sent to `handle` (already
+/// [`clean_handle`]d).
+pub fn last_sent_query(handle: &str) -> String {
+    format!(
+        "SELECT m.ROWID AS rowid, m.error AS error \
+         FROM message m JOIN handle h ON h.ROWID = m.handle_id \
+         WHERE m.is_from_me = 1 AND h.id = '{handle}' \
+         ORDER BY m.ROWID DESC LIMIT 1;"
+    )
+}
+
+/// Whether the last message sent to `handle` failed ("Nicht zugestellt":
+/// Messages sets its error).
+pub fn last_send_failed(handle: &str) -> Result<bool> {
+    let path = database().ok_or_else(|| eyre!("no home folder"))?;
+    let Some(handle) = clean_handle(handle) else {
+        bail!("not a phone number or e-mail address");
+    };
+    let rows = run(&path, &last_sent_query(&handle))?;
+    Ok(rows
+        .first()
+        .and_then(|row| row.get("error"))
+        .and_then(Value::as_i64)
+        .is_some_and(|error| error != 0))
 }
 
 /// Apple's message date (nanoseconds, or seconds in old databases, since
@@ -292,11 +336,13 @@ mod tests {
     }
 
     #[test]
-    fn the_query_reads_only_the_handles_newer_incoming_rows() {
+    fn the_query_reads_only_the_handles_newer_rows() {
         let sql = query("+491701234567", 42);
         assert!(sql.contains("h.id = '+491701234567'"));
         assert!(sql.contains("m.ROWID > 42"));
-        assert!(sql.contains("m.is_from_me = 0"));
+        // The handle is the person's own: their replies in the chat with
+        // themselves are stored as sent by this Mac, so both count.
+        assert!(sql.contains("m.is_from_me AS mine"));
     }
 
     #[test]
@@ -359,9 +405,27 @@ mod tests {
                 .iter()
                 .map(|reply| reply.text.as_str())
                 .collect::<Vec<_>>(),
-            ["Ja, privat"]
+            ["mine", "Ja, privat"]
         );
-        assert_eq!(replies[0].rowid, 4);
+        assert_eq!(replies[1].rowid, 4);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod self_chat_tests {
+    use super::*;
+
+    #[test]
+    fn in_the_chat_with_oneself_replies_count_but_hex_s_own_messages_don_t() {
+        let rows = vec![
+            serde_json::json!({"rowid": 1, "date": 0, "text": "\u{2705} Done:\nresult", "mine": 1}),
+            serde_json::json!({"rowid": 2, "date": 0, "text": "Hex: test", "mine": 1}),
+            serde_json::json!({"rowid": 3, "date": 0, "text": "ja, mach weiter", "mine": 1}),
+            serde_json::json!({"rowid": 4, "date": 0, "text": "\u{2705} from someone", "mine": 0}),
+        ];
+        let replies: Vec<i64> = parse(&rows).iter().map(|reply| reply.rowid).collect();
+        assert_eq!(replies, [3, 4]);
+        assert!(last_sent_query("+491621575563").contains("is_from_me = 1"));
     }
 }
