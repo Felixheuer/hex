@@ -383,7 +383,16 @@ mod macos {
     /// The focused window's frame: the window the focused app says has
     /// focus, else its frontmost ordinary window.
     pub fn focused_window_frame() -> Option<Frame> {
-        let pid = scrawl_capture::ax::focused_app_pid()?;
+        // The app in front from the workspace, not the system-wide
+        // Accessibility element: asked from a worker thread while Hex itself
+        // is in front, that request reached Hex's own UI tree and aborted
+        // Hex (accesskit "RefCell already borrowed").
+        let (pid, _, _) = objc2::rc::autoreleasepool(|_| {
+            scrawl_capture::capture::frontmost_external_app_info()
+        })?;
+        if u32::try_from(pid).is_ok_and(|pid| pid == std::process::id()) {
+            return None;
+        }
         let number = crate::accessibility::focused_window_number(pid);
         let windows = objc2::rc::autoreleasepool(|_| scrawl_capture::windows::raw_windows());
         let found = number

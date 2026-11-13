@@ -135,6 +135,19 @@ pub fn quick_context() -> crate::assistant::Context {
     }
 }
 
+/// The window in front, without Accessibility (safe on any thread): the
+/// warm stand-by's key. Elsewhere [`quick_context`]'s window.
+pub fn front_window_quick() -> Option<crate::assistant::TaskWindow> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::front_window_quick()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        quick_context().window
+    }
+}
+
 /// Starts reading the desktop on its own thread and returns at once: the
 /// Accessibility part first, then (when `with_screenshot`) the screenshot.
 /// Dropping the handle cancels it: a read not yet at its screenshot takes
@@ -643,6 +656,17 @@ mod macos {
 
     fn is_own_process(pid: i32) -> bool {
         u32::try_from(pid).is_ok_and(|pid| pid == std::process::id())
+    }
+
+    /// The window in front (not Hex's), from the window list alone: no
+    /// Accessibility, so any thread may ask (the stand-by thread did, and an
+    /// Accessibility read there took Hex down through its own UI tree).
+    pub fn front_window_quick() -> Option<crate::assistant::TaskWindow> {
+        let (pid, name, _) =
+            objc2::rc::autoreleasepool(|_| scrawl_capture::capture::frontmost_external_app_info())
+                .filter(|(pid, _, _)| !is_own_process(*pid))?;
+        let windows = objc2::rc::autoreleasepool(|_| scrawl_capture::windows::raw_windows());
+        super::front_window_among(&windows, pid, &name, None)
     }
 
     pub fn quick_context() -> Context {
