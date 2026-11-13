@@ -1398,7 +1398,16 @@ fn focus_past(state: &State, follow_up_seconds: u32, now: u64) -> Option<Convers
     {
         return Some(task.status.conversation.clone());
     }
-    if let Some(focus) = &state.focus {
+    // Chats' conversation, unless it's a job still running: a hold then
+    // asks something new ("start WhatsApp") rather than steering the job;
+    // naming the job still reaches it (`context::route`).
+    if let Some(focus) = &state.focus
+        && !state.tasks.iter().any(|task| {
+            task.status.conversation == *focus
+                && task.lane() == Lane::Background
+                && !task.control.cancelled()
+        })
+    {
         return Some(focus.clone());
     }
     let (id, answered) = state.last_quick.as_ref()?;

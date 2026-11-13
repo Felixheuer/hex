@@ -63,6 +63,10 @@ pub struct TaskSpec {
     /// the lane and settings).
     pub physical_input: bool,
     pub blocked_apps: Vec<String>,
+    /// Full control: the task may operate any window (the one in front
+    /// too) and open any app, in either lane — unless the person asked it
+    /// to work only in the background (`assistant::full_control`).
+    pub full_control: bool,
 }
 
 /// A [`TaskSpec`] as `hex assistant mcp --spec` reads it (JSON).
@@ -149,7 +153,7 @@ impl WireSpec {
             windows: WindowSource::default(),
             agent_display: None,
             autonomy: crate::assistant::autonomy::Autonomy::default(),
-            front_window: false,
+            front_window: spec.full_control,
             observe_only: false,
         }
     }
@@ -219,7 +223,6 @@ fn server_for(spec: &TaskSpec, hex: &Path, desktop: &McpServer, state_dir: &Path
     wire.agent_display = crate::assistant::computer::agent_display_setting();
     if let Some((_, settings)) = crate::app_settings::assistant_runtime() {
         wire.autonomy = settings.autonomy;
-        wire.front_window = settings.background_front_window;
     }
     McpServer {
         command: hex.to_path_buf(),

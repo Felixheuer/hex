@@ -110,3 +110,46 @@ pub fn set_trying(on: bool) {
 pub fn trying() -> bool {
     TRYING.load(std::sync::atomic::Ordering::Acquire)
 }
+
+/// Whether a task gets full control of the Mac (every window, the one in
+/// front too, and any app, in either lane): the setting allows it and the
+/// request doesn't ask to stay in the background („arbeite nur im
+/// Hintergrund“, „lass meine Fenster in Ruhe“, "only in the background").
+pub fn full_control(allowed: bool, request: &str) -> bool {
+    allowed && !asks_background_only(request)
+}
+
+fn asks_background_only(request: &str) -> bool {
+    let text = request.to_lowercase();
+    [
+        "nur im hintergrund",
+        "ausschließlich im hintergrund",
+        "lass meine fenster",
+        "nicht in meinen fenstern",
+        "nicht in meinem fenster",
+        "fass meine fenster nicht",
+        "only in the background",
+        "don't touch my windows",
+        "leave my windows",
+    ]
+    .iter()
+    .any(|phrase| text.contains(phrase))
+}
+
+#[cfg(test)]
+mod full_control_tests {
+    #[test]
+    fn full_control_unless_asked_to_stay_in_the_background() {
+        assert!(super::full_control(true, "Übernimm das Citrix-Fenster"));
+        assert!(!super::full_control(
+            true,
+            "Recherchiere das, aber arbeite nur im Hintergrund"
+        ));
+        assert!(!super::full_control(
+            true,
+            "Lass meine Fenster in Ruhe und sortier die Downloads"
+        ));
+        assert!(!super::full_control(true, "Do it only in the background"));
+        assert!(!super::full_control(false, "Übernimm das Citrix-Fenster"));
+    }
+}

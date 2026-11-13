@@ -147,7 +147,10 @@ fn a_here_task_holds_the_dialog_its_action_opens_but_nothing_of_other_apps() {
     assert!(scratch.store().holder("w-701").is_none());
     let dialog = guard_with.call("desktop_snapshot", args(json!({"window_id": "w-700"})));
     assert_eq!(error_code(&dialog), None);
-    let other = guard_with.call("desktop_snapshot", args(json!({"window_id": "w-701"})));
+    // It may look at another window, but not act in it.
+    let looked = guard_with.call("desktop_snapshot", args(json!({"window_id": "w-701"})));
+    assert_eq!(error_code(&looked), None);
+    let other = guard_with.call("desktop_minimize", args(json!({"window_id": "w-701"})));
     assert_eq!(error_code(&other).as_deref(), Some("NOT_YOUR_WINDOW"));
     // A window of its app the person opens later isn't the task's.
     fake.state().windows.push(json!({

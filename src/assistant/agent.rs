@@ -691,6 +691,10 @@ pub fn task_spec(job: &Job) -> TaskSpec {
             Lane::Background => job.settings.physical_input,
         },
         blocked_apps: job.settings.blocked_apps.clone(),
+        full_control: crate::assistant::full_control(
+            job.settings.background_front_window,
+            &job.request.text,
+        ),
     }
 }
 
@@ -738,8 +742,7 @@ pub fn prepare(
                 "agent-desktop isn't installed, so the assistant can't use apps. Install it in Chats › Settings, or turn off “Use apps”.",
             )
             .map(|mut desktop| {
-                desktop.front_window =
-                    spec.lane == Lane::Background && settings.background_front_window;
+                desktop.front_window = spec.full_control;
                 desktop
             })?,
         )
@@ -1190,8 +1193,11 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
          - Read before acting: snapshot or find, act on a ref, then verify.\n",
     );
     match origin.lane() {
+        Lane::Here if desktop.front_window => prompt.push_str(
+            "- The person gave you full control of this Mac: look at and act in any window (claim it with desktop_claim_window by its window_id from desktop_list_windows, the one in front included) and open any app (hex_open_app). Do what was asked right here; hand a long job (many steps, minutes of work) to the background with hex_start_jobs. Never say you can't reach a window or app.\n",
+        ),
         Lane::Here => prompt.push_str(
-            "- Work only in the window in front, named in the message: read it, and act in it only if asked. Never touch any other window or app, and don't bring another one forward.\n- If the request needs anything beyond that window (open an app or a browser, another window, the web, files), never say you can't and never tell the person to do it themselves: hand it off at once with `HEX_JOB:` with the hex_start_jobs tool (see below), however small it is; a background job may open apps and browsers.\n",
+            "- You may LOOK at any window to answer: list them with desktop_list_windows and read or screenshot the one the person means by its window_id (\"what am I doing in Citrix?\" means the Citrix window, even if it isn't in front). ACT only in the window in front, named in the message, and only if asked; don't bring another window forward.\n- If the request needs to act anywhere beyond that window (take over or operate another window such as Citrix, open an app or a browser, the web, files), never say you can't and never tell the person to do it themselves: hand it off at once with `HEX_JOB:` with the hex_start_jobs tool (see below), however small it is; a background job may open apps and browsers and take over the person's other windows.\n",
         ),
         Lane::Background => prompt.push_str(&format!(
             "- You run beside the person and other agents, each with its own cursor; yours is agent “{}”. Work only in your own windows: open apps with hex_open_app, which gives you your own window, or claim a free window that is already open with desktop_claim_window (its window_id from desktop_list_windows). {}Never another task's windows: don't move, close, or type into them. The clipboard is Here-only: don't use it. Once you know a window's id, always pass it (--window-id / window_id), and don't bring windows to the front.\n\

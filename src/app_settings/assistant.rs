@@ -169,7 +169,7 @@ impl Default for AssistantSettings {
             ]
             .map(String::from)
             .to_vec(),
-            background_front_window: false,
+            background_front_window: true,
             task_timeout_minutes: 30,
             job_budget_minutes: JOB_BUDGET_MAX_MINUTES,
             retry_on_limit: true,

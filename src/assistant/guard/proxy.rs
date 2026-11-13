@@ -332,7 +332,10 @@ impl<D: Desktop> Guard<D> {
                  (click, type, set_value, select, scroll, press with app).",
             ));
         }
-        if self.config.lane == Lane::Here && matches!(kind, Kind::Launch) {
+        if self.config.lane == Lane::Here
+            && matches!(kind, Kind::Launch)
+            && !self.config.front_window
+        {
             return Err(refusal(
                 tool,
                 "POLICY_DENIED",
@@ -641,7 +644,7 @@ impl<D: Desktop> Guard<D> {
     }
 
     fn claim(&mut self, tool: &str, args: &Map<String, Value>) -> Result<Value, Value> {
-        if self.config.lane == Lane::Here {
+        if self.config.lane == Lane::Here && !self.config.front_window {
             return Err(refusal(
                 tool,
                 "POLICY_DENIED",
