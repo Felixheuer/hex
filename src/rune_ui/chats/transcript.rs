@@ -13,7 +13,8 @@ use rune_kit::{Markdown, Spinner};
 use super::super::controls::{DESCRIPTION, Paint};
 use super::super::list_detail::{FOLDED, UNFOLDED};
 use super::list::AGENT_ICON;
-use super::{Hold, Phase, Turn, Ui};
+use super::{Hold, Turn, Ui};
+use crate::assistant::view::{Activity, Logged, Phase};
 use crate::assistant::{Conversation, Message, Part};
 use crate::desktop::i18n::{tr, tr_fill};
 
@@ -433,15 +434,28 @@ fn step_row(p: Paint, index: usize, step: &str, ink: rune::Color) -> El {
         )
 }
 
+/// A line of a running task's log as the person reads it.
+fn logged(line: &Logged) -> String {
+    match line {
+        Logged::Step(step) => step.clone(),
+        Logged::Window(app) => tr_fill("Working in {}", app),
+    }
+}
+
 /// A request in flight: its steps, its answer so far, and what it's doing
 /// with Stop.
 pub(super) fn in_flight(ui: &Ui, p: Paint, id: &str, turn: &Turn) -> El {
     let pane = &ui.chats;
+    // What the service said it does; nothing yet while it's sending.
+    let task = pane.in_flight(id);
     let mut block = col().key("in-flight").gap(10.0);
-    if !turn.steps.is_empty() {
+    let steps: Vec<String> = task
+        .map(|task| task.log.iter().map(logged).collect())
+        .unwrap_or_default();
+    if !steps.is_empty() {
         let key = format!("{id}/live");
         let folded = !pane.unfolded.contains(&key);
-        let steps: Vec<&str> = turn.steps.iter().map(String::as_str).collect();
+        let steps: Vec<&str> = steps.iter().map(String::as_str).collect();
         block = block.child(step_block(p, &key, &steps, folded));
     }
     for (index, (question, answer)) in turn.answers.iter().enumerate() {
@@ -462,8 +476,11 @@ pub(super) fn in_flight(ui: &Ui, p: Paint, id: &str, turn: &Turn) -> El {
                 ),
         );
     }
-    if !turn.answer.is_empty() {
-        block = block.child(markdown(p, "streaming", &turn.answer, true));
+    if let Some(answer) = task
+        .map(|task| &task.answer)
+        .filter(|answer| !answer.is_empty())
+    {
+        block = block.child(markdown(p, "streaming", answer, true));
     }
     if let Some(question) = super::work::question_block(ui, p, id) {
         return block.child(question);
@@ -475,12 +492,12 @@ pub(super) fn in_flight(ui: &Ui, p: Paint, id: &str, turn: &Turn) -> El {
             "Hit a usage limit. Retries in {}",
             &super::strip::countdown(until_ms, crate::history::now_ms()),
         ),
-        None => match turn.phase {
-            Phase::Sending => tr("Sending…"),
-            Phase::Queued => tr("Waiting for a free slot"),
-            Phase::Thinking => tr("Thinking…"),
-            Phase::Working => tr("Working…"),
-            Phase::Answering => tr("Writing…"),
+        None => match task.map(|task| (task.phase, task.activity)) {
+            None => tr("Sending…"),
+            Some((Phase::Queued, _)) => tr("Waiting for a free slot"),
+            Some((_, Activity::Thinking)) => tr("Thinking…"),
+            Some((_, Activity::Working)) => tr("Working…"),
+            Some((_, Activity::Answering)) => tr("Writing…"),
         }
         .to_owned(),
     };

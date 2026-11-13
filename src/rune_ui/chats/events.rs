@@ -1,18 +1,27 @@
-//! The service's events as the Chats pane takes them in: a request's turn
-//! from Queued to its answer, a task taken over or waiting on a usage
-//! limit, and the stored list changing.
+//! The service's events as the Assistant pane takes them in: the shared
+//! task view (`assistant::view`, which the overlays read too) decides what
+//! each task does; the pane keeps the turns the person made here, follows
+//! new activity, and reloads the stored list when it changes.
 
 use std::time::Instant;
 
-use super::{ChatsPane, Hold, MAX_STEPS, Phase, Turn};
-use crate::assistant::Event;
-use crate::desktop::i18n::tr_fill;
+use super::{ChatsPane, Turn};
+use crate::assistant::view::{Phase, Task};
+use crate::assistant::{Event, PlanStep};
 
 impl ChatsPane {
     /// Takes in one event. True when what the pane shows changed.
     pub(in crate::rune_ui) fn apply(&mut self, event: &Event) -> bool {
+        let now = Instant::now();
         let mut reload_list = false;
         let mut reload_shown = false;
+        if let Some(id) = event.conversation()
+            && self.view.task(id).is_none()
+        {
+            // A task that started before the pane listened.
+            self.view.adopt(&self.tasks);
+        }
+        self.view.apply(event, None, now);
         match event {
             Event::Queued {
                 conversation,
@@ -24,129 +33,43 @@ impl ChatsPane {
                 origin,
                 question,
             } => {
-                let phase = if matches!(event, Event::Queued { .. }) {
-                    Phase::Queued
-                } else {
-                    Phase::Thinking
-                };
                 let new = !self.turns.contains_key(conversation);
                 let turn = self
                     .turns
                     .entry(conversation.clone())
-                    .or_insert_with(|| Turn::new(question.clone(), *origin, phase));
-                turn.phase = phase;
+                    .or_insert_with(|| Turn::new(question.clone(), *origin));
                 if !new && matches!(event, Event::Started { .. }) {
-                    // It goes on: what it said so far is stored now, so
-                    // the text in flight starts afresh (else it doubles).
-                    turn.answer.clear();
-                    turn.steps.clear();
-                    // Answered (by voice, the orb, or here): the question's
-                    // box goes; the question and its answer are stored
-                    // messages now, so they don't show again in flight.
-                    self.questions.remove(conversation);
+                    // Answered (by voice, the orb, or here): the question
+                    // and its answer are stored messages now, so they don't
+                    // show again in flight.
                     turn.answers.clear();
                 }
-                self.failures.remove(conversation);
                 reload_list = !self.list.iter().any(|row| &row.id == conversation);
                 if new {
                     // A task started, or a question was asked.
-                    self.activity(conversation, Instant::now());
-                }
-            }
-            Event::Thinking { conversation } => {
-                self.retrying(conversation);
-                if let Some(turn) = self.turns.get_mut(conversation) {
-                    turn.phase = Phase::Thinking;
-                }
-            }
-            Event::Step {
-                conversation,
-                description,
-            } => {
-                self.retrying(conversation);
-                if let Some(turn) = self.turns.get_mut(conversation) {
-                    turn.phase = Phase::Working;
-                    if turn.steps.len() < MAX_STEPS {
-                        turn.steps.push(description.clone());
-                    }
-                }
-            }
-            Event::Window {
-                conversation,
-                window,
-            } => {
-                if let Some(turn) = self.turns.get_mut(conversation)
-                    && turn.steps.len() < MAX_STEPS
-                {
-                    turn.steps.push(tr_fill("Working in {}", &window.app));
-                }
-            }
-            Event::AnswerDelta { conversation, text } => {
-                if let Some(turn) = self.turns.get_mut(conversation) {
-                    turn.phase = Phase::Answering;
-                    turn.answer.push_str(text);
+                    self.activity(conversation, now);
                 }
             }
             Event::Answer { conversation, .. } | Event::Cancelled { conversation } => {
-                self.ended(conversation);
+                self.turns.remove(conversation);
+                // Stored now; the pane keeps no finished task.
+                self.view.forget(conversation);
                 reload_list = true;
                 reload_shown = self.selected.as_ref() == Some(conversation);
             }
-            Event::Failed {
-                conversation,
-                message,
-            } => {
-                self.ended(conversation);
-                self.failures.insert(conversation.clone(), message.clone());
+            Event::Failed { conversation, .. } => {
+                // Its failure stays in the view until it's asked again.
+                self.turns.remove(conversation);
                 reload_list = true;
                 reload_shown = self.selected.as_ref() == Some(conversation);
             }
-            Event::Paused { conversation } => {
-                self.holds.insert(conversation.clone(), Hold::Paused);
-            }
-            Event::Resumed { conversation } => {
-                self.holds.remove(conversation);
-            }
-            Event::Waiting {
-                conversation,
-                until_ms,
-                reason,
-            } => {
-                self.holds.insert(
-                    conversation.clone(),
-                    Hold::Waiting {
-                        until_ms: *until_ms,
-                        reason: reason.clone(),
-                    },
-                );
-            }
-            Event::HandsOff { conversation, on } => {
-                if *on {
-                    self.hands_off = Some(conversation.clone());
-                } else if self.hands_off.as_ref() == Some(conversation) {
-                    self.hands_off = None;
-                }
-            }
-            // The overlay's frame follows it; Chats has nothing to show.
-            Event::Acting { .. } => {}
             Event::ConversationsChanged => {
                 reload_list = true;
                 reload_shown = true;
             }
-            Event::Plan {
-                conversation,
-                steps,
-            } => {
-                self.plans.insert(conversation.clone(), steps.clone());
-            }
-            Event::Question { conversation, text } => {
-                self.questions.insert(conversation.clone(), text.clone());
-                // What it said before asking is stored with the question.
-                if let Some(turn) = self.turns.get_mut(conversation) {
-                    turn.answer.clear();
-                }
+            Event::Question { conversation, .. } => {
                 // It waits on the person: show it, its answer field ready.
-                self.activity(conversation, Instant::now());
+                self.activity(conversation, now);
                 if self.selected.as_ref() == Some(conversation) {
                     self.focus_answer = true;
                     self.follow.to_end = true;
@@ -156,13 +79,20 @@ impl ChatsPane {
                 if let Some(turn) = self.turns.get_mut(conversation) {
                     turn.origin = crate::assistant::Origin::Background;
                 }
-                if !self.escalated.contains(conversation) {
-                    self.escalated.push(conversation.clone());
-                }
                 reload_list = true;
             }
-            // The screen frame shows it; the strip follows the tasks.
-            Event::QuestionsChanged { .. } => {}
+            // The view has them; the overlays draw the screen's part.
+            Event::Thinking { .. }
+            | Event::Step { .. }
+            | Event::Window { .. }
+            | Event::AnswerDelta { .. }
+            | Event::Paused { .. }
+            | Event::Resumed { .. }
+            | Event::Waiting { .. }
+            | Event::HandsOff { .. }
+            | Event::Acting { .. }
+            | Event::Plan { .. }
+            | Event::QuestionsChanged { .. } => {}
         }
         if matches!(
             event,
@@ -186,31 +116,58 @@ impl ChatsPane {
             if self.shown.is_none()
                 && let Some(id) = &self.selected
                 && !self.turns.contains_key(id)
-                && !self.failures.contains_key(id)
+                && self.failure(id).is_none()
                 && !self.list.iter().any(|row| &row.id == id)
             {
                 self.selected = None;
             }
         }
         self.tasks = self.source.tasks();
+        self.view.adopt(&self.tasks);
         true
     }
 
-    /// A task waiting on a usage limit moves again.
-    fn retrying(&mut self, conversation: &str) {
-        if matches!(self.holds.get(conversation), Some(Hold::Waiting { .. })) {
-            self.holds.remove(conversation);
-        }
+    /// Task `id` while it's live, as its events left it.
+    pub(super) fn in_flight(&self, id: &str) -> Option<&Task> {
+        self.view.live_task(id)
     }
 
-    /// A request ended: its turn, plan, question, hold, and Hands off go.
-    fn ended(&mut self, conversation: &str) {
-        self.turns.remove(conversation);
-        self.holds.remove(conversation);
-        self.plans.remove(conversation);
-        self.questions.remove(conversation);
-        if self.hands_off.as_deref() == Some(conversation) {
-            self.hands_off = None;
-        }
+    /// Why conversation `id`'s last request failed, until it's asked again.
+    pub(super) fn failure(&self, id: &str) -> Option<&str> {
+        self.view
+            .task(id)
+            .filter(|task| task.phase == Phase::Failed)
+            .and_then(|task| task.error.as_deref())
+    }
+
+    /// Every conversation whose last request failed.
+    pub(super) fn failed(&self) -> impl Iterator<Item = &str> {
+        self.view
+            .tasks
+            .iter()
+            .filter(|task| task.phase == Phase::Failed && task.error.is_some())
+            .map(|task| task.id.as_str())
+    }
+
+    /// Running task `id`'s plan, once it made one.
+    pub(super) fn plan(&self, id: &str) -> Option<&[PlanStep]> {
+        self.in_flight(id)
+            .map(|task| task.plan.as_slice())
+            .filter(|plan| !plan.is_empty())
+    }
+
+    /// What running task `id` asked the person and waits on.
+    pub(super) fn question(&self, id: &str) -> Option<&str> {
+        self.in_flight(id)?.question.as_deref()
+    }
+
+    /// Whether task `id` moves the real pointer or keys now.
+    pub(super) fn hands_off(&self, id: &str) -> bool {
+        self.in_flight(id).is_some_and(|task| task.hands_off)
+    }
+
+    /// Whether `id` was a quick turn that moved to the background.
+    pub(super) fn escalated(&self, id: &str) -> bool {
+        self.view.task(id).is_some_and(|task| task.escalated)
     }
 }
