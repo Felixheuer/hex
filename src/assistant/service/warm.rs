@@ -10,6 +10,16 @@ use super::{
     TaskWindow, Warm, focus_in, store,
 };
 
+/// Whether `backend` can start a `lane` request ahead: Claude Code always,
+/// OpenCode for quick turns (over ACP, `provider::opencode_acp`).
+fn starts_ahead(backend: AssistantBackend, lane: Lane) -> bool {
+    match backend {
+        AssistantBackend::ClaudeCode => true,
+        AssistantBackend::OpenCode => lane == Lane::Here,
+        AssistantBackend::Codex | AssistantBackend::ClaudeApi => false,
+    }
+}
+
 impl Runner {
     pub(super) fn prewarm(self: &Arc<Self>, lane: Lane, window: Option<TaskWindow>) {
         self.start_ahead(lane, window, false);
@@ -22,10 +32,7 @@ impl Runner {
     /// idles (no tokens) until then, at most `assistant.warm_minutes`.
     pub(super) fn stand_by(self: &Arc<Self>) {
         let (enabled, settings) = (self.hooks.settings)();
-        if !enabled
-            || settings.warm_minutes == 0
-            || settings.backend != AssistantBackend::ClaudeCode
-        {
+        if !enabled || settings.warm_minutes == 0 || !starts_ahead(settings.backend, Lane::Here) {
             return;
         }
         let runner = Arc::clone(self);
@@ -75,7 +82,7 @@ impl Runner {
     /// for a new one when `new`.
     fn start_ahead(self: &Arc<Self>, lane: Lane, window: Option<TaskWindow>, new: bool) {
         let (enabled, settings) = (self.hooks.settings)();
-        if !enabled || !settings.setup_done || settings.backend != AssistantBackend::ClaudeCode {
+        if !enabled || !settings.setup_done || !starts_ahead(settings.backend, lane) {
             // What was reserved for a backend that can't start ahead is void.
             if let Some(void) = self.state().warm.take() {
                 (self.hooks.end_ahead)(&void.id);

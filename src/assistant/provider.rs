@@ -22,6 +22,7 @@ pub mod hold;
 pub mod limit;
 mod mcp;
 mod opencode;
+mod opencode_acp;
 pub mod orphans;
 pub mod servers;
 mod warm;
@@ -395,8 +396,10 @@ impl Control {
 /// process and its MCP servers are up when the question comes. It waits at
 /// most `ttl`.
 pub fn prewarm(run: &Run, ttl: Duration) {
-    if run.backend == AssistantBackend::ClaudeCode {
-        claude_code::prewarm(run, ttl);
+    match run.backend {
+        AssistantBackend::ClaudeCode => claude_code::prewarm(run, ttl),
+        AssistantBackend::OpenCode if opencode_acp::fits(run) => opencode_acp::prewarm(run, ttl),
+        _ => {}
     }
 }
 

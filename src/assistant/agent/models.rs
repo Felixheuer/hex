@@ -33,13 +33,14 @@ pub fn model(job: &Job) -> Option<String> {
 
 /// Whether a fast model's failed turn goes on with the strong one: it
 /// handed over ([`provider::Escalate`]) or failed, but not on a usage
-/// limit or an empty account (the strong model shares them) nor when it
-/// was stopped.
+/// limit, an empty account or a refused key (the strong model shares
+/// them) nor when it was stopped.
 pub(super) fn should_escalate(error: &color_eyre::Report) -> bool {
     let message = format!("{error:#}");
     provider::escalated(error).is_some()
         || (limit::detect(&message).is_none()
             && !limit::out_of_credit(&message)
+            && !limit::signed_out(&message)
             && message != "cancelled")
 }
 
