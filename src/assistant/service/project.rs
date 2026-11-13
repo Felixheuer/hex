@@ -28,10 +28,16 @@ impl Runner {
         let stored = lead
             .and_then(|lead| (self.hooks.project_of)(lead))
             .or_else(|| (self.hooks.project_of)(conversation));
+        // „im Projekt Startup: …“ names the project for this request alone;
+        // the active one stays (any project the person has, by its name).
+        let named = command::scoped(words).and_then(|(name, _)| projects.find(&name));
         let project = match stored {
             // A conversation keeps its project, archived since or not.
             Some(id) => projects.get(&id)?,
-            None if new_conversation && lead.is_none() => projects.active()?,
+            None if new_conversation && lead.is_none() => match named {
+                Some(project) => project,
+                None => projects.active()?,
+            },
             None => return None,
         };
         Some(projects.for_task(&project, words))

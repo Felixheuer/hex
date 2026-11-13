@@ -107,3 +107,10 @@ pub(super) use palette::task as task_colour;
 pub fn toggle_tasks() {
     host::toggle_tasks();
 }
+
+/// Shows the rail's head with the project picker unfolded, its New
+/// project… name field focused when `naming`: the menu bar's and the
+/// tray's New project…. Any thread.
+pub fn open_projects(naming: bool) {
+    host::open_projects(naming);
+}

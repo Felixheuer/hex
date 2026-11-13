@@ -68,7 +68,7 @@ use answer::{
     bubble_event, bubble_poll, dismiss_bubble, place_bubble, want_escape, want_escape_list,
 };
 use follow::{drag_orb, place_orb, place_past_hud};
-pub(crate) use orb_panel::toggle_tasks;
+pub(crate) use orb_panel::{open_projects, toggle_tasks};
 pub(crate) use stage::{needs_repair, show_result, takes as stage_takes};
 #[cfg(test)]
 pub(crate) fn projected() -> Vec<String> {
@@ -84,7 +84,7 @@ use orb_panel::{
     toggle_pressed, toggle_project,
 };
 #[cfg(test)]
-pub(super) use orb_panel::{escape, should_chime};
+pub(super) use orb_panel::{escape, should_chime, toggle};
 
 /// How the orb's parts, outlines, pills, and bubble come and go.
 const FADE: Duration = Duration::from_millis(160);

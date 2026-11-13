@@ -1,3 +1,12 @@
+//! The menu bar's menu, top to bottom: Agent-Desk's status ("Agent-Desk ·
+//! 2 jobs running · 1 needs you"), the project ("Project: Startup ▸" with
+//! the recent ones, No project, and New project…), Stop all tasks, and Open
+//! Agent-Desk while the assistant is on; the meeting rows while Meetings
+//! is; one "Dictate" section (Pause, Paste last dictation, Copy recent
+//! dictations, the speech model); then Settings…, the update, and Quit.
+//! Every title goes through the interface's translations and is set again
+//! each time the menu opens, so a language change shows at once.
+
 use std::cell::RefCell;
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 
@@ -9,7 +18,10 @@ use objc2_app_kit::{NSEventModifierFlags, NSImage, NSMenu, NSMenuItem, NSStatusB
 use objc2_foundation::{MainThreadMarker, NSData, NSObject, NSSize, NSString};
 
 use crate::app_settings::{AppSettings, HotkeyBinding};
-use crate::desktop::tray_menu::model_menu_entries;
+use crate::desktop::i18n::{tr, tr_fill, tr_named};
+use crate::desktop::tray_menu::{
+    AssistantCounts, model_menu_entries, project_entries, project_title, status_line,
+};
 use crate::transcription::models::{MODELS, TranscriptionModelId};
 use crate::transcription::preparation::PreparationStatus;
 
@@ -40,6 +52,13 @@ pub enum StatusItemAction {
     OpenChats,
     /// Stop all tasks, while any runs.
     StopAllTasks,
+    /// The project submenu's recent project at this place becomes the
+    /// active one ([`project_at`]).
+    UseProject(usize),
+    /// No project: none is active.
+    NoProject,
+    /// New project…: the overlay's picker opens on its name field.
+    NewProject,
     /// The update item: check, download, or restart into an update.
     Update,
     Quit,
@@ -107,9 +126,28 @@ objc2::define_class!(
         /// The status menu's delegate: it is about to open.
         #[unsafe(method(menuNeedsUpdate:))]
         fn menu_needs_update(&self, _menu: &NSMenu) {
+            retitle();
+            refresh_assistant();
             refresh_recent_dictations();
             refresh_restore_capture();
             update_pause();
+        }
+
+        #[unsafe(method(pickProject:))]
+        fn pick_project(&self, sender: &NSMenuItem) {
+            if let Ok(index) = usize::try_from(sender.tag()) {
+                let _ = self.ivars().actions.try_send(StatusItemAction::UseProject(index));
+            }
+        }
+
+        #[unsafe(method(noProject:))]
+        fn no_project(&self, _sender: &AnyObject) {
+            let _ = self.ivars().actions.try_send(StatusItemAction::NoProject);
+        }
+
+        #[unsafe(method(newProject:))]
+        fn new_project(&self, _sender: &AnyObject) {
+            let _ = self.ivars().actions.try_send(StatusItemAction::NewProject);
         }
 
         /// Restore Last Capture is dimmed while no closed card can come
@@ -196,78 +234,120 @@ impl StatusItemTarget {
     }
 }
 
-/// One row of the status menu, top to bottom: what's happening now (the
-/// meeting group), then things to do, then the app.
+/// One row of the status menu, top to bottom: the assistant (what it does
+/// now, the project, Stop all tasks, Open Agent-Desk), the meeting group,
+/// one "Dictate" section, then the app.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Row {
+    /// "Agent-Desk · 2 jobs running · 1 needs you": says, never does.
+    AssistantStatus,
+    /// "Project: Startup ▸": the recent projects, No project, New project….
+    Project,
+    /// The assistant: Stop all tasks (enabled while any runs), then
+    /// Open Agent-Desk; the assistant's rows hide while it's off.
+    StopAllTasks,
+    Chats,
+    AssistantSeparator,
     MeetingStatus,
     StopMeeting,
     CopySection,
     RecordMeeting,
+    CopyLastMeetingTranscript,
     MeetingSeparator,
-    /// The assistant: Stop all tasks (enabled while any runs), then
-    /// Chats, hidden while it's off.
-    StopAllTasks,
-    Chats,
-    AssistantSeparator,
+    /// The dictation section's header.
+    Dictate,
     /// Pause from menu bar: hidden until the menu opens with it on.
     PauseHex,
     PasteLast,
     /// Copy recent dictations: hidden until the menu opens with it on.
     CopyRecentDictation,
-    CopyLastMeetingTranscript,
-    /// Screenshots: hidden until the menu opens with it on.
-    RestoreCapture,
     SpeechModel,
     Separator,
+    /// Screenshots: hidden until the menu opens with it on.
+    RestoreCapture,
     Settings,
     Update,
     Quit,
 }
 
-const ROWS: [Row; 18] = [
+const ROWS: [Row; 21] = [
+    Row::AssistantStatus,
+    Row::Project,
+    Row::StopAllTasks,
+    Row::Chats,
+    Row::AssistantSeparator,
     Row::MeetingStatus,
     Row::StopMeeting,
     Row::CopySection,
     Row::RecordMeeting,
+    Row::CopyLastMeetingTranscript,
     Row::MeetingSeparator,
-    Row::StopAllTasks,
-    Row::Chats,
-    Row::AssistantSeparator,
+    Row::Dictate,
     Row::PauseHex,
     Row::PasteLast,
     Row::CopyRecentDictation,
-    Row::CopyLastMeetingTranscript,
-    Row::RestoreCapture,
     Row::SpeechModel,
     Row::Separator,
+    Row::RestoreCapture,
     Row::Settings,
     Row::Update,
     Row::Quit,
 ];
 
+/// The assistant's rows, shown only while it's on.
+const ASSISTANT_ROWS: [Row; 5] = [
+    Row::AssistantStatus,
+    Row::Project,
+    Row::StopAllTasks,
+    Row::Chats,
+    Row::AssistantSeparator,
+];
+
 impl Row {
-    /// The title it is built with; `None` for a separator.
+    /// The title it is built with, translated; `None` for a separator.
+    /// The status line, the project, the meeting status, Pause, and the
+    /// update change their titles as things change ([`Row::fixed_title`]).
     fn title(self) -> Option<String> {
         let title = match self {
             Row::MeetingSeparator | Row::AssistantSeparator | Row::Separator => return None,
-            Row::MeetingStatus => "Recording meeting",
-            Row::StopMeeting => "Stop & Transcribe",
-            Row::CopySection => "Copy Section",
-            Row::RecordMeeting => "Record Meeting",
-            Row::StopAllTasks => "Stop All Tasks",
-            Row::Chats => "Open Agent-Desk",
+            Row::AssistantStatus => return Some(status_line(AssistantCounts::default())),
+            Row::Project => {
+                return Some(project_title(
+                    &crate::assistant::projects::Snapshot::default(),
+                ));
+            }
+            Row::MeetingStatus => tr("Recording meeting"),
+            Row::StopMeeting => tr("Stop & transcribe"),
+            Row::CopySection => tr("Copy section"),
+            Row::RecordMeeting => tr("Record meeting"),
+            Row::StopAllTasks => tr("Stop all tasks"),
+            Row::Chats => tr("Open Agent-Desk"),
+            Row::Dictate => tr("Dictate"),
             Row::PauseHex => pause_title(false),
-            Row::PasteLast => "Paste Last Dictation",
-            Row::CopyRecentDictation => "Copy Recent Dictation",
-            Row::CopyLastMeetingTranscript => "Copy Last Meeting Transcript",
-            Row::RestoreCapture => "Restore Last Capture",
-            Row::SpeechModel => "Speech Model",
-            Row::Settings => "Settings…",
-            Row::Update => "Check for Updates…",
-            Row::Quit => return Some(format!("Quit {}", crate::app_paths::app_name())),
+            Row::PasteLast => tr("Paste last dictation"),
+            Row::CopyRecentDictation => tr("Copy recent dictations"),
+            Row::CopyLastMeetingTranscript => tr("Copy last meeting transcript"),
+            Row::RestoreCapture => tr("Restore last capture"),
+            Row::SpeechModel => tr("Speech model"),
+            Row::Settings => tr("Settings…"),
+            Row::Update => tr("Check for updates…"),
+            Row::Quit => tr("Quit Agent-Desk"),
         };
         Some(title.into())
+    }
+
+    /// Whether its title changes only with the language, so the menu sets
+    /// it again as it opens ([`retitle`]).
+    fn fixed_title(self) -> bool {
+        self.title().is_some()
+            && !matches!(
+                self,
+                Row::AssistantStatus
+                    | Row::Project
+                    | Row::MeetingStatus
+                    | Row::PauseHex
+                    | Row::Update
+            )
     }
 
     fn action(self) -> Option<Sel> {
@@ -287,10 +367,29 @@ impl Row {
             Row::MeetingSeparator
             | Row::AssistantSeparator
             | Row::Separator
+            | Row::AssistantStatus
+            | Row::Project
+            | Row::Dictate
             | Row::CopySection
             | Row::CopyRecentDictation
             | Row::SpeechModel => return None,
         })
+    }
+
+    /// Whether it opens a submenu.
+    #[cfg(test)]
+    fn opens_submenu(self) -> bool {
+        matches!(
+            self,
+            Row::Project | Row::CopySection | Row::CopyRecentDictation | Row::SpeechModel
+        )
+    }
+
+    /// Whether it only says something: the status line and the section's
+    /// header.
+    #[cfg(test)]
+    fn says(self) -> bool {
+        matches!(self, Row::AssistantStatus | Row::Dictate)
     }
 
     /// A fixed ⌘ key equivalent. Paste Last Dictation follows the saved
@@ -303,23 +402,22 @@ impl Row {
         }
     }
 
-    /// Rows shown only by a meeting or a Lab, from the first refresh on.
+    /// Rows shown only by the assistant, a meeting, or a Lab, from the
+    /// first refresh on.
     fn starts_hidden(self) -> bool {
-        matches!(
-            self,
-            Row::MeetingStatus
-                | Row::StopMeeting
-                | Row::CopySection
-                | Row::RecordMeeting
-                | Row::MeetingSeparator
-                | Row::StopAllTasks
-                | Row::Chats
-                | Row::AssistantSeparator
-                | Row::PauseHex
-                | Row::CopyRecentDictation
-                | Row::CopyLastMeetingTranscript
-                | Row::RestoreCapture
-        )
+        ASSISTANT_ROWS.contains(&self)
+            || matches!(
+                self,
+                Row::MeetingStatus
+                    | Row::StopMeeting
+                    | Row::CopySection
+                    | Row::RecordMeeting
+                    | Row::MeetingSeparator
+                    | Row::PauseHex
+                    | Row::CopyRecentDictation
+                    | Row::CopyLastMeetingTranscript
+                    | Row::RestoreCapture
+            )
     }
 }
 
@@ -374,6 +472,8 @@ struct StatusItemController {
     item: Retained<NSStatusItem>,
     idle_symbol: Retained<NSImage>,
     recording_symbol: Retained<NSImage>,
+    /// Every row, as built, for [`retitle`].
+    rows: Vec<(Row, Retained<NSMenuItem>)>,
     meeting_status: Retained<NSMenuItem>,
     meeting_start: Retained<NSMenuItem>,
     meeting_stop: Retained<NSMenuItem>,
@@ -389,8 +489,13 @@ struct StatusItemController {
     pause_title: RefCell<String>,
     recent: Retained<NSMenuItem>,
     recent_menu: Retained<NSMenu>,
-    /// The assistant's rows: Stop All Tasks, Open Agent-Desk, and their separator.
-    assistant: [Retained<NSMenuItem>; 3],
+    /// The assistant's rows ([`ASSISTANT_ROWS`]).
+    assistant: Vec<Retained<NSMenuItem>>,
+    status: Retained<NSMenuItem>,
+    project: Retained<NSMenuItem>,
+    project_menu: Retained<NSMenu>,
+    /// The project submenu's ids, by tag, as it last opened.
+    project_ids: RefCell<Vec<String>>,
     restore_capture: Retained<NSMenuItem>,
     update: Option<Retained<NSMenuItem>>,
     update_title: RefCell<String>,
@@ -401,10 +506,17 @@ struct StatusItemController {
     model_preparing: Retained<NSMenuItem>,
     model_cancel: Retained<NSMenuItem>,
     model_error: Retained<NSMenuItem>,
+    /// The speech-model submenu's fixed items and their English titles.
+    model_fixed: Vec<(Retained<NSMenuItem>, &'static str)>,
 }
 
 thread_local! {
     static STATUS_ITEM: RefCell<Option<StatusItemController>> = const { RefCell::new(None) };
+}
+
+/// "Quit Agent-Desk", naming this copy ("Agent-Desk Dev").
+fn quit_title() -> String {
+    tr("Quit Agent-Desk").replace("Agent-Desk", crate::app_paths::app_name())
 }
 
 pub fn install() -> Result<Receiver<StatusItemAction>> {
@@ -414,12 +526,13 @@ pub fn install() -> Result<Receiver<StatusItemAction>> {
     let target = StatusItemTarget::new(actions, mtm);
     let menu = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("Agent-Desk"));
     let meeting_sections_menu =
-        NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("Copy Section"));
+        NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("Copy section"));
     let recent_menu = NSMenu::initWithTitle(
         NSMenu::alloc(mtm),
-        &NSString::from_str("Copy Recent Dictation"),
+        &NSString::from_str("Copy recent dictations"),
     );
-    let models = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("Speech Model"));
+    let project_menu = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("Projects"));
+    let models = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("Speech model"));
     models.setAutoenablesItems(false);
     let model_items = MODELS
         .iter()
@@ -432,41 +545,42 @@ pub fn install() -> Result<Receiver<StatusItemAction>> {
             (model.id, item)
         })
         .collect();
-    let model_empty = add_item(
-        &models,
-        &target,
-        "No downloaded models",
-        sel!(openModels:),
-        mtm,
-    );
+    const EMPTY: &str = "No downloaded models";
+    const CANCEL: &str = "Cancel model switch";
+    const FAILED: &str = "Model switch failed — open Settings…";
+    const MANAGE: &str = "Manage models…";
+    let model_empty = add_item(&models, &target, tr(EMPTY), sel!(openModels:), mtm);
     model_empty.setEnabled(false);
     models.addItem(&NSMenuItem::separatorItem(mtm));
-    let model_preparing = add_item(&models, &target, "Preparing model…", sel!(openModels:), mtm);
+    let model_preparing = add_item(&models, &target, "", sel!(openModels:), mtm);
     model_preparing.setEnabled(false);
     model_preparing.setHidden(true);
     let model_cancel = add_item(
         &models,
         &target,
-        "Cancel Model Switch",
+        tr(CANCEL),
         sel!(cancelModelPreparation:),
         mtm,
     );
     model_cancel.setHidden(true);
-    let model_error = add_item(
-        &models,
-        &target,
-        "Model switch failed — open Settings…",
-        sel!(openModels:),
-        mtm,
-    );
+    let model_error = add_item(&models, &target, tr(FAILED), sel!(openModels:), mtm);
     model_error.setHidden(true);
-    add_item(&models, &target, "Manage Models…", sel!(openModels:), mtm);
+    let model_manage = add_item(&models, &target, tr(MANAGE), sel!(openModels:), mtm);
+    let model_fixed = vec![
+        (model_empty.clone(), EMPTY),
+        (model_cancel.clone(), CANCEL),
+        (model_error.clone(), FAILED),
+        (model_manage, MANAGE),
+    ];
 
     let update_managed = crate::updater::managed_by_policy();
     let mut rows = Vec::with_capacity(ROWS.len());
     for row in ROWS {
         let item = match (row, row.title()) {
             (_, None) => NSMenuItem::separatorItem(mtm),
+            (Row::Dictate, Some(title)) => {
+                NSMenuItem::sectionHeaderWithTitle(&NSString::from_str(&title), mtm)
+            }
             // An item without an action is shown disabled.
             (Row::Update, Some(_)) if update_managed => {
                 plain_item(crate::updater::MANAGED_LABEL, mtm)
@@ -477,11 +591,13 @@ pub fn install() -> Result<Receiver<StatusItemAction>> {
                 sel!(checkForUpdates:),
                 mtm,
             ),
+            (Row::Quit, Some(_)) => action_item(&target, &quit_title(), sel!(quit:), mtm),
             (row, Some(title)) => match row.action() {
                 Some(action) => action_item(&target, &title, action, mtm),
                 None => {
                     let item = plain_item(&title, mtm);
                     match row {
+                        Row::Project => item.setSubmenu(Some(&project_menu)),
                         Row::CopySection => item.setSubmenu(Some(&meeting_sections_menu)),
                         Row::CopyRecentDictation => item.setSubmenu(Some(&recent_menu)),
                         Row::SpeechModel => item.setSubmenu(Some(&models)),
@@ -543,14 +659,15 @@ pub fn install() -> Result<Receiver<StatusItemAction>> {
             pause_title: RefCell::new(pause_title(false).into()),
             recent: row(Row::CopyRecentDictation),
             recent_menu,
-            assistant: [
-                row(Row::StopAllTasks),
-                row(Row::Chats),
-                row(Row::AssistantSeparator),
-            ],
+            assistant: ASSISTANT_ROWS.iter().map(|wanted| row(*wanted)).collect(),
+            status: row(Row::AssistantStatus),
+            project: row(Row::Project),
+            project_menu,
+            project_ids: RefCell::new(Vec::new()),
             restore_capture: row(Row::RestoreCapture),
             update: (!update_managed).then(|| row(Row::Update)),
-            update_title: RefCell::new("Check for Updates…".into()),
+            update_title: RefCell::new(String::new()),
+            rows: rows.clone(),
             _menu: menu,
             target,
             model_items,
@@ -558,9 +675,111 @@ pub fn install() -> Result<Receiver<StatusItemAction>> {
             model_preparing,
             model_cancel,
             model_error,
+            model_fixed,
         });
     });
     Ok(receiver)
+}
+
+/// Sets every title that changes only with the language again, as the
+/// menu opens: a language picked in Settings shows at once.
+fn retitle() {
+    STATUS_ITEM.with(|controller| {
+        let controller = controller.borrow();
+        let Some(controller) = controller.as_ref() else {
+            return;
+        };
+        let set = |item: &NSMenuItem, title: &str| {
+            if item.title().to_string() != title {
+                item.setTitle(&NSString::from_str(title));
+            }
+        };
+        for (row, item) in &controller.rows {
+            match row {
+                Row::Quit => set(item, &quit_title()),
+                Row::Update if controller.update.is_none() => {}
+                row if row.fixed_title() => {
+                    if let Some(title) = row.title() {
+                        set(item, &title);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for (item, english) in &controller.model_fixed {
+            set(item, tr(english));
+        }
+        // Pause and the update read their state afresh in their own refresh.
+        controller.pause_title.replace(String::new());
+        controller.update_title.replace(String::new());
+    });
+}
+
+/// The assistant's status line and project submenu, read as the menu
+/// opens: how many jobs run and wait for the person, and the recent
+/// projects with a check on the active one, then No project and New
+/// project….
+fn refresh_assistant() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    if !ASSISTANT_SHOWN.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let counts = AssistantCounts::now();
+    let projects = crate::assistant::projects::snapshot();
+    STATUS_ITEM.with(|controller| {
+        let controller = controller.borrow();
+        let Some(controller) = controller.as_ref() else {
+            return;
+        };
+        controller
+            .status
+            .setTitle(&NSString::from_str(&status_line(counts)));
+        controller
+            .project
+            .setTitle(&NSString::from_str(&project_title(&projects)));
+        let menu = &controller.project_menu;
+        menu.removeAllItems();
+        let entries = project_entries(&projects);
+        for (index, (_, name, active)) in entries.iter().enumerate() {
+            let item = add_item(menu, &controller.target, name, sel!(pickProject:), mtm);
+            item.setTag(index as isize);
+            item.setState(if *active { 1 } else { 0 });
+        }
+        if !entries.is_empty() {
+            menu.addItem(&NSMenuItem::separatorItem(mtm));
+        }
+        let none = add_item(
+            menu,
+            &controller.target,
+            tr("No project"),
+            sel!(noProject:),
+            mtm,
+        );
+        none.setState(if projects.active.is_none() { 1 } else { 0 });
+        add_item(
+            menu,
+            &controller.target,
+            tr("New project…"),
+            sel!(newProject:),
+            mtm,
+        );
+        controller
+            .project_ids
+            .replace(entries.into_iter().map(|(id, _, _)| id).collect());
+    });
+}
+
+/// The id of the project the submenu listed at `index` when it last
+/// opened.
+pub fn project_at(index: usize) -> Option<String> {
+    STATUS_ITEM.with(|controller| {
+        controller
+            .borrow()
+            .as_ref()
+            .and_then(|controller| controller.project_ids.borrow().get(index).cloned())
+    })
 }
 
 fn status_bar_icon(png: &[u8], accessibility_description: &str) -> Result<Retained<NSImage>> {
@@ -651,7 +870,7 @@ pub fn update_transcription(settings: &AppSettings, status: &PreparationStatus) 
         if let Some(model) = status.model {
             controller
                 .model_preparing
-                .setTitle(&NSString::from_str(&format!(
+                .setTitle(&NSString::from_str(&tr_fill(
                     "Preparing {}…",
                     crate::transcription::models::definition(model).name,
                 )));
@@ -683,7 +902,7 @@ fn meeting_menu(state: &crate::meeting::watcher::MeetingMenuState, enabled: bool
             sections: Vec::new(),
         },
         MeetingMenuState::Starting => MeetingMenu {
-            status: Some("Starting meeting recording…".into()),
+            status: Some(tr("Starting meeting recording…").into()),
             button_title: String::new(),
             recording: true,
             can_start: false,
@@ -698,9 +917,13 @@ fn meeting_menu(state: &crate::meeting::watcher::MeetingMenuState, enabled: bool
             ..
         } => {
             let elapsed = crate::meeting::format_duration(started.elapsed().as_millis() as u64);
-            let mut status = format!("Recording · {} · {elapsed}", menu_title(title));
+            let mut status = tr_named(
+                "Recording · {title} · {time}",
+                &[("title", &menu_title(title)), ("time", &elapsed)],
+            );
             if warning.is_some() {
-                status.push_str(" · Microphone is silent");
+                status.push_str(" · ");
+                status.push_str(tr("Microphone is silent"));
             }
             MeetingMenu {
                 status: Some(status),
@@ -721,7 +944,7 @@ fn meeting_menu(state: &crate::meeting::watcher::MeetingMenuState, enabled: bool
             }
         }
         MeetingMenuState::Transcribing => MeetingMenu {
-            status: Some("Transcribing meeting…".into()),
+            status: Some(tr("Transcribing meeting…").into()),
             button_title: String::new(),
             recording: false,
             can_start: false,
@@ -741,9 +964,9 @@ fn icon_shown(hide: bool, meeting_active: bool) -> bool {
 /// Agent-Desk while they are paused or a resume waits for a neutral keyboard.
 fn pause_title(suspended: bool) -> &'static str {
     if suspended {
-        "Resume Agent-Desk"
+        tr("Resume Agent-Desk")
     } else {
-        "Pause Agent-Desk"
+        tr("Pause Agent-Desk")
     }
 }
 
@@ -821,8 +1044,8 @@ fn refresh_restore_capture() {
 /// The assistant's rows show while it's on; off, the menu is as it was.
 static ASSISTANT_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Shows Stop All Tasks and Open Agent-Desk while the assistant is on (`on`), and
-/// hides them while it's off.
+/// Shows the assistant's rows (the status line, the project, Stop all tasks,
+/// and Open Agent-Desk) while it is on (`on`), and hides them while it's off.
 pub fn update_assistant(on: bool) {
     let was = ASSISTANT_SHOWN.swap(on, std::sync::atomic::Ordering::Relaxed);
     if was == on {
@@ -871,12 +1094,12 @@ fn restore_capture_enabled() -> bool {
 fn update_title(status: &crate::desktop::host::DesktopUpdateStatus) -> String {
     use crate::desktop::host::DesktopUpdateStatus;
     match status {
-        DesktopUpdateStatus::ReadyToRestart => "Restart to Update".into(),
-        DesktopUpdateStatus::Available => "Download Update…".into(),
+        DesktopUpdateStatus::ReadyToRestart => tr("Restart to update").into(),
+        DesktopUpdateStatus::Available => tr("Download update…").into(),
         DesktopUpdateStatus::SwitchAvailable { channel, version } => {
             format!("{}…", crate::updater::switch_label(channel, version))
         }
-        _ => "Check for Updates…".into(),
+        _ => tr("Check for updates…").into(),
     }
 }
 
@@ -1067,48 +1290,85 @@ mod tests {
     }
 
     #[test]
-    fn the_menu_reads_meeting_then_actions_then_the_app() {
+    fn the_menu_reads_the_assistant_then_meetings_then_dictation_then_the_app() {
         let titles = ROWS
             .iter()
             .map(|row| row.title().unwrap_or_else(|| "—".into()))
             .collect::<Vec<_>>();
+        let app = crate::app_paths::app_name();
         assert_eq!(
             titles,
             [
-                "Recording meeting".to_string(),
-                "Stop & Transcribe".into(),
-                "Copy Section".into(),
-                "Record Meeting".into(),
-                "—".into(),
-                "Stop All Tasks".into(),
+                format!("{app} · Ready"),
+                "Project: No project".into(),
+                "Stop all tasks".into(),
                 "Open Agent-Desk".into(),
                 "—".into(),
-                "Pause Agent-Desk".into(),
-                "Paste Last Dictation".into(),
-                "Copy Recent Dictation".into(),
-                "Copy Last Meeting Transcript".into(),
-                "Restore Last Capture".into(),
-                "Speech Model".into(),
+                "Recording meeting".into(),
+                "Stop & transcribe".into(),
+                "Copy section".into(),
+                "Record meeting".into(),
+                "Copy last meeting transcript".into(),
                 "—".into(),
+                "Dictate".into(),
+                "Pause Agent-Desk".into(),
+                "Paste last dictation".into(),
+                "Copy recent dictations".into(),
+                "Speech model".into(),
+                "—".into(),
+                "Restore last capture".into(),
                 "Settings…".into(),
-                "Check for Updates…".into(),
-                format!("Quit {}", crate::app_paths::app_name()),
+                "Check for updates…".into(),
+                "Quit Agent-Desk".into(),
             ]
         );
+        assert_eq!(quit_title(), format!("Quit {app}"), "Quit names this copy");
         assert_eq!(Row::Settings.command_key(), Some(","));
         assert_eq!(Row::Quit.command_key(), Some("q"));
-        // Every row with neither a submenu nor a separator does something.
+        // Every row that neither opens a submenu, only says something, nor
+        // separates does something.
         for row in ROWS {
-            let opens_submenu = matches!(
-                row,
-                Row::CopySection | Row::CopyRecentDictation | Row::SpeechModel
-            );
             assert_eq!(
                 row.action().is_some(),
-                row.title().is_some() && !opens_submenu,
+                row.title().is_some() && !row.opens_submenu() && !row.says(),
                 "{row:?}"
             );
         }
+        // The dictation items sit under their header, before the app's.
+        let at = |wanted: Row| ROWS.iter().position(|row| *row == wanted).unwrap();
+        for row in [
+            Row::PauseHex,
+            Row::PasteLast,
+            Row::CopyRecentDictation,
+            Row::SpeechModel,
+        ] {
+            assert!(at(Row::Dictate) < at(row) && at(row) < at(Row::Separator));
+        }
+    }
+
+    #[test]
+    fn the_menu_speaks_the_interface_language() {
+        crate::desktop::i18n::apply(Some("de"));
+        let title = |row: Row| row.title().unwrap();
+        assert_eq!(title(Row::Project), "Projekt: Kein Projekt");
+        assert_eq!(title(Row::StopAllTasks), "Alle Aufträge stoppen");
+        assert_eq!(title(Row::Chats), "Agent-Desk öffnen");
+        assert_eq!(title(Row::Dictate), "Diktieren");
+        assert_eq!(title(Row::Settings), "Einstellungen…");
+        assert_eq!(title(Row::Update), "Nach Updates suchen…");
+        assert!(title(Row::AssistantStatus).ends_with(" · Bereit"));
+        assert_eq!(
+            status_line(AssistantCounts {
+                jobs: 2,
+                needs_you: 1,
+                working: true
+            }),
+            format!(
+                "{} · 2 Aufträge laufen · 1 braucht dich",
+                crate::app_paths::app_name()
+            )
+        );
+        crate::desktop::i18n::apply(Some("en"));
     }
 
     #[test]
@@ -1142,9 +1402,11 @@ mod tests {
 
     #[test]
     fn the_assistant_rows_start_hidden_and_do_something() {
-        for row in [Row::StopAllTasks, Row::Chats, Row::AssistantSeparator] {
+        for row in ASSISTANT_ROWS {
             assert!(row.starts_hidden(), "{row:?}");
         }
+        assert!(Row::Project.opens_submenu() && Row::AssistantStatus.says());
+        assert!(!Row::AssistantStatus.fixed_title() && !Row::Project.fixed_title());
         assert_eq!(Row::StopAllTasks.action(), Some(sel!(stopAllTasks:)));
         assert_eq!(Row::Chats.action(), Some(sel!(openChats:)));
         assert_eq!(Row::AssistantSeparator.title(), None);

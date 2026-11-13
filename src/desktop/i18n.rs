@@ -16,6 +16,7 @@ mod frames;
 mod french;
 mod island;
 mod meetings;
+mod menu;
 mod onboarding;
 mod portuguese;
 mod preferences;
@@ -85,14 +86,12 @@ const ENGLISH: u8 = 255;
 const PORTUGUESE_COLUMN: u8 = 6;
 /// French, kept in its own table ([`french::TRANSLATIONS`]).
 const FRENCH_COLUMN: u8 = 7;
-/// Traditional Chinese, drawn from the Simplified column
-/// ([`traditional_chinese::table`]).
+/// Traditional Chinese, from the Simplified column ([`traditional_chinese::table`]).
 const TRADITIONAL_CHINESE_COLUMN: u8 = 8;
 /// Russian, kept in its own table ([`russian::TRANSLATIONS`]).
 const RUSSIAN_COLUMN: u8 = 9;
 
-/// The column for a persisted code; `pt` (any Portuguese system language)
-/// is Brazilian Portuguese, `fr` any French one, and `ru` any Russian one.
+/// A persisted code's column; `pt`, `fr`, and `ru` cover any such system language.
 fn column_for_code(code: &str) -> u8 {
     match code {
         "pl" => 0,
@@ -377,6 +376,7 @@ pub(super) fn all_translations() -> impl Iterator<Item = &'static (&'static str,
         .chain(frames::TRANSLATIONS)
         .chain(window::TRANSLATIONS)
         .chain(projects::TRANSLATIONS)
+        .chain(menu::TRANSLATIONS)
 }
 
 /// Columns: Polish, Chinese (Simplified), Japanese, German, Spanish, Ukrainian.
@@ -1719,6 +1719,7 @@ mod tests {
         include_str!("../rune_ui/chats/sheet/desktop.rs"),
         include_str!("../rune_ui/chats/sheet/privacy.rs"),
         include_str!("../rune_ui/chats/sheet/shortcut.rs"),
+        include_str!("../rune_ui/chats/sheet/voice.rs"),
         include_str!("../rune_ui/chats/sheet/try_it.rs"),
         include_str!("../rune_ui/chats/shortcut.rs"),
         include_str!("../rune_ui/chats/strip.rs"),
@@ -1766,6 +1767,7 @@ mod tests {
         include_str!("../rune_ui/vocabulary.rs"),
         include_str!("../rune_ui/windows_host.rs"),
         include_str!("tray_menu.rs"),
+        include_str!("../macos_rune/status_item.rs"),
         include_str!("../rune_ui/meetings_host.rs"),
         include_str!("../windows/app.rs"),
         include_str!("../windows/rune.rs"),

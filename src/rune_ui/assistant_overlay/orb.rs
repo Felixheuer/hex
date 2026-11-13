@@ -332,6 +332,7 @@ pub(crate) fn result_bubbles(board: &Board, open: Option<u64>) -> Vec<(u64, Outc
                     failed: pop.kind == super::pops::PopKind::Failed,
                     text: pop.text.clone(),
                     at: std::time::Instant::now(),
+                    project: board.task(&pop.task).and_then(|task| task.project.clone()),
                 });
             (pop.key, outcome)
         })
@@ -397,7 +398,13 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
     }
     if look.project.open {
         // The picker unfolds under the chip, before anything else.
-        parts.push(project::picker(p, &look.project, actions.project).transition(pop_in(grow)));
+        let running = jobs::groups(&jobs::running(&board.tasks))
+            .into_iter()
+            .filter_map(|(name, tasks)| name.map(|name| (name.to_owned(), tasks.len())))
+            .collect::<Vec<_>>();
+        parts.push(
+            project::picker(p, &look.project, &running, actions.project).transition(pop_in(grow)),
+        );
     }
     if look.open && (!tasks.is_empty() || !done.is_empty()) {
         let max_h = inner_h - ORB_H - GAP;
