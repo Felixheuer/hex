@@ -88,7 +88,7 @@ impl Restore {
         self.original = None;
     }
 
-    /// Labs › Keep dictation on clipboard: an earlier paste's pending restore
+    /// Keep dictation on clipboard: an earlier paste's pending restore
     /// stands down and nothing is kept to put back, so a later restoring
     /// paste never brings an older clipboard back over this one.
     fn keep(&mut self) {
@@ -488,7 +488,7 @@ impl LinuxPaster {
         // Read as the paste commits, so the toggle applies at once. A kept
         // paste snapshots nothing and restores nothing, and an earlier
         // paste's pending restore stands down.
-        let keep = crate::labs::keep_on_clipboard();
+        let keep = crate::features::keep_on_clipboard();
         self.paste_as(Mime::Text, text.as_bytes(), None, shift, keep)
     }
 
@@ -512,7 +512,7 @@ impl LinuxPaster {
     /// clipboard a typed-text job saved before it copied the selection.
     /// `shift` asks for Ctrl+Shift+V whatever the saved Terminal paste
     /// setting says. `keep` leaves the paste on the clipboard instead of
-    /// restoring it (Labs › Keep dictation on clipboard).
+    /// restoring it (Keep dictation on clipboard).
     fn paste_as(
         &mut self,
         mime: Mime,
@@ -981,7 +981,7 @@ mod tests {
         assert!(restore.original.is_none());
     }
 
-    /// Labs › Keep dictation on clipboard: a kept paste cancels the restore
+    /// Keep dictation on clipboard: a kept paste cancels the restore
     /// an earlier paste left pending and keeps nothing to put back, so a
     /// later restoring paste cannot bring an older clipboard back.
     #[test]
@@ -1290,14 +1290,14 @@ mod tests {
             "the transcript stayed on a clipboard that was empty"
         );
 
-        // Labs › Keep dictation on clipboard: the dictation stays, and the
+        // Keep dictation on clipboard: the dictation stays, and the
         // clipboard it replaced never comes back.
         Selection::Wayland
             .restore(Snapshot::Wayland(original.clone()))
             .unwrap();
-        crate::labs::apply(&crate::app_settings::LabsSettings {
-            keep_on_clipboard: true,
-            ..crate::app_settings::LabsSettings::default()
+        crate::features::apply(&crate::app_settings::Preferences {
+            after_dictation: crate::app_settings::AfterDictation::PasteAndKeep,
+            ..crate::app_settings::Preferences::default()
         });
         paster.paste(expected, false).unwrap();
         let thrice = expected.repeat(3);
@@ -1310,6 +1310,6 @@ mod tests {
             kept.status.success() && kept.stdout == expected.as_bytes(),
             "a kept paste left the transcript on the clipboard"
         );
-        crate::labs::apply(&crate::app_settings::LabsSettings::default());
+        crate::features::apply(&crate::app_settings::Preferences::default());
     }
 }

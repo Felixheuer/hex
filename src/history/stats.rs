@@ -1,4 +1,4 @@
-//! Labs › Dictation stats (issue 790): a summary of the retained
+//! Dictation stats (issue 790): a summary of the retained
 //! dictations only, computed when asked. Nothing is stored beyond History
 //! itself, so the stats end with the entries retention removes.
 
@@ -144,7 +144,7 @@ impl HistoryStore {
 }
 
 impl History {
-    /// The summary of every retained entry (Labs › Dictation stats).
+    /// The summary of every retained entry (Dictation stats).
     pub fn stats(&self) -> HistoryStats {
         self.synced().stats(super::now_ms())
     }

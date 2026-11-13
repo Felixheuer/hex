@@ -69,7 +69,7 @@ pub struct MeetingSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retention: Option<MeetingRetention>,
     /// How long finished meetings keep their WAV tracks, apart from their
-    /// text (Labs › Expire meeting audio separately). `None` follows
+    /// text (Expire meeting audio separately). `None` follows
     /// `retention`, and is left out of the file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_retention: Option<MeetingRetention>,
@@ -256,7 +256,7 @@ pub const KNOWN_MEETING_PROVIDERS: [(&str, &str); 8] = [
     ("com.hnc.Discord", "Discord"),
 ];
 
-/// The call services Labs › More call apps adds, by the same provider keys.
+/// The call services More call apps adds, by the same provider keys.
 /// Settings lists them only while the lab is on; an offer's "…" still saves
 /// a choice for any of them.
 pub const MORE_MEETING_PROVIDERS: [(&str, &str); 10] = [
@@ -272,7 +272,7 @@ pub const MORE_MEETING_PROVIDERS: [(&str, &str); 10] = [
     ("web.groupme.com", "GroupMe"),
 ];
 
-/// The providers Settings always lists: the known services, then Labs › More
+/// The providers Settings always lists: the known services, then More
 /// call apps' while `more_call_apps` is on.
 pub fn known_meeting_providers(
     more_call_apps: bool,
@@ -335,7 +335,7 @@ impl MeetingSettings {
     /// Whether meetings may record and process: always in developer builds,
     /// otherwise once turned on, and never under a managed lock.
     pub fn available(&self) -> bool {
-        crate::labs::Feature::Meetings.managed().is_none()
+        crate::policy::Policy::meetings_lock().is_none()
             && (crate::DEVELOPER_FEATURES_ENABLED || self.enabled)
     }
 
@@ -355,7 +355,7 @@ pub fn meetings_enabled() -> bool {
 
 /// Why meetings can't record now.
 pub fn meetings_off_reason() -> &'static str {
-    match crate::labs::Feature::Meetings.managed() {
+    match crate::policy::Policy::meetings_lock() {
         Some(lock) => lock.refusal(),
         None => "Meetings are off; turn them on with `hex settings set meetings.enabled on`",
     }
@@ -405,7 +405,7 @@ fn stored_meeting_retention() -> Option<MeetingRetention> {
 }
 
 /// [`MeetingSettings::audio_retention`] for the running meeting controller:
-/// the chosen audio retention only while Labs › Expire meeting audio
+/// the chosen audio retention only while Expire meeting audio
 /// separately is on; `None` means audio follows `meetings.retention`. A
 /// process that never loaded settings reads it from `settings.json` without
 /// writing anything.
@@ -415,7 +415,7 @@ pub fn meeting_audio_retention() -> Option<MeetingRetention> {
         RETENTION_UNSET => stored_retention("audio_retention"),
         value => MeetingRetention::decode(value),
     };
-    effective_audio_retention(crate::labs::expire_meeting_audio(), chosen)
+    effective_audio_retention(crate::features::expire_meeting_audio(), chosen)
 }
 
 fn stored_retention(field: &str) -> Option<MeetingRetention> {

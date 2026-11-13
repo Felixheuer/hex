@@ -159,17 +159,17 @@ fn the_pane_title_is_its_heading() {
 #[test]
 fn the_sidebar_says_which_pane_shows_and_switches_through_accessibility() {
     let mut rt = runtime("portal");
-    let general = node(&rt, "nav-general");
-    assert_eq!(general["role"], "list-item");
-    assert_eq!(name(&general), "General");
-    assert!(states(&general).contains(&"selected"), "{general}");
+    let dictation = node(&rt, "nav-dictation");
+    assert_eq!(dictation["role"], "list-item");
+    assert_eq!(name(&dictation), "Dictation");
+    assert!(states(&dictation).contains(&"selected"), "{dictation}");
     assert!(!states(&node(&rt, "nav-history")).contains(&"selected"));
 
     assert!(rt.accessibility_action("nav-history", Action::Click, None));
     settle(&mut rt);
     assert_eq!(rt.state.pane, Pane::History);
     assert!(states(&node(&rt, "nav-history")).contains(&"selected"));
-    assert!(!states(&node(&rt, "nav-general")).contains(&"selected"));
+    assert!(!states(&node(&rt, "nav-dictation")).contains(&"selected"));
     assert_eq!(name(&node(&rt, "pane-title")), "History");
 }
 

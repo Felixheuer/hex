@@ -47,7 +47,7 @@ pub(super) struct OutputPane {
     pub(super) trial: TextEdit,
     /// Edit with agent copied its prompt, until the pane is left.
     pub(super) prompt_copied: bool,
-    /// The Try sentence Labs › Fix results in Output's Fix this copied a
+    /// The Try sentence Fix results in Output's Fix this copied a
     /// prompt for; it reads Copied while the sentence stays the same.
     pub(super) fix_copied: Option<String>,
     /// The app rule opened to show its steps.
@@ -198,7 +198,7 @@ pub(super) fn pane(ui: &Ui, p: Paint, reduced: bool) -> El {
         .child(every_dictation(ui, p, &processing.default_mode))
         .child(try_card(ui, p, &processing.default_mode));
     #[cfg(target_os = "linux")]
-    if ui.settings.labs.typed_text {
+    {
         content = content.child(typed_text(ui, p));
     }
     if !processing.modes.is_empty() {
@@ -458,7 +458,7 @@ fn step_row(p: Paint, key: &str, index: usize, step: &Step) -> El {
         .child(tag)
 }
 
-/// Labs › Transform typed text: a shortcut that runs the focused app's
+/// Transform typed text: a shortcut that runs the focused app's
 /// Output steps on the text already typed in the focused field and replaces
 /// it. Unbound until the person records one (Linux).
 #[cfg(target_os = "linux")]
@@ -533,23 +533,17 @@ fn try_card(ui: &Ui, p: Paint, mode: &DictationMode) -> El {
             )
             .child(col().key("out").w(0.0).grow(1.0).child(result)),
     ];
-    if ui.settings.labs.output_fixes {
-        rows.push(fix_row(ui, p, trial));
-    }
+    rows.push(fix_row(ui, p, trial));
     card(p, "try-card", rows)
 }
 
-/// Labs › Fix results in Output: Vocabulary opens the shared vocabulary
+/// Vocabulary opens the shared vocabulary
 /// sheet, and Fix this (once there is a sentence) copies Edit with agent's
 /// prompt ending with the sentence and what Hex pastes for it.
 fn fix_row(ui: &Ui, p: Paint, trial: &str) -> El {
     let vocabulary = Button::new(tr("Vocabulary"))
         .variant(ButtonVariant::Ghost)
-        .on_press(|ui: &mut Ui| {
-            if ui.settings.labs.output_fixes {
-                super::vocabulary::open(ui);
-            }
-        })
+        .on_press(|ui: &mut Ui| super::vocabulary::open(ui))
         .build_push(p.k)
         .key("output-vocabulary");
     let fix = (!trial.is_empty()).then(|| {
@@ -712,11 +706,8 @@ fn allow_config(ui: &mut Ui, hash: &str) {
 }
 
 /// Fix this: copies the agent prompt naming the Try sentence and what Hex
-/// pastes for it (Labs › Fix results in Output).
+/// pastes for it.
 fn fix_this(ui: &mut Ui, tx: &mut Tx) {
-    if !ui.settings.labs.output_fixes {
-        return;
-    }
     let trial = ui.output.trial.text.trim().to_string();
     if trial.is_empty() {
         return;

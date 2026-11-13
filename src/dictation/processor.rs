@@ -23,7 +23,7 @@ pub use crate::app_settings::DictationPostProcessing as PostProcessingSettings;
 pub enum Source {
     /// A hotkey, API, or meeting dictation: heard speech.
     Dictation,
-    /// Labs › Transform typed text: the selection already written in the
+    /// Transform typed text: the selection already written in the
     /// focused field.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     TypedText,
@@ -59,7 +59,7 @@ pub struct Profile {
     /// The mode's own vocabulary, heard and spelled ahead of the shared list.
     vocabulary: Vec<VocabularyEntry>,
     /// The mode's speech model and language while it matches the foreground
-    /// app (Labs › Switch model with app).
+    /// app (Switch model with app).
     speech: Option<crate::app_settings::KeyboardModelChoice>,
 }
 
@@ -374,7 +374,7 @@ impl Profiles {
         source: Source,
     ) -> Processed {
         let profile = self.select(context);
-        // Labs › Spoken formatting, spoken symbols, and filler words only
+        // Spoken formatting, spoken symbols, and filler words only
         // make sense for speech: typed text starts from what is already
         // written and skips them.
         let prepared = prepare_transcript(
@@ -382,9 +382,9 @@ impl Profiles {
             language,
             source,
             DictationLabs {
-                spoken_formatting: crate::labs::spoken_formatting(),
-                spoken_symbols: crate::labs::spoken_symbols(),
-                filler_words: crate::labs::filler_words(),
+                spoken_formatting: crate::features::spoken_formatting(),
+                spoken_symbols: crate::features::spoken_symbols(),
+                filler_words: crate::features::filler_words(),
             },
         );
         let corrected = profile

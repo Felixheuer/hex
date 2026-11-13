@@ -12,10 +12,10 @@ use crate::app_settings::KeyboardModelChoice;
 use crate::desktop::i18n::tr;
 use crate::transcription::models::{self as transcription_models, ModelDefinition, ModelRuntime};
 
-/// Whether the Modes pane offers a speech choice per mode: Labs › Switch
-/// model with app is on where the runtime can follow the frontmost app.
+/// Whether the Modes pane offers a speech choice per mode: where the
+/// runtime can follow the frontmost app.
 pub(super) fn enabled(ui: &Ui) -> bool {
-    ui.platform.caps.app_model_switching && ui.settings.labs.app_model_switching
+    ui.platform.caps.app_model_switching
 }
 
 /// One row's keys and copy.

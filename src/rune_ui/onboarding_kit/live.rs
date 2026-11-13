@@ -1,4 +1,8 @@
 //! Hex's first run: the onboarding story, the one onboarding on every OS.
+//! Agent first: where the assistant runs, the run sets up the speech model
+//! and permissions, then hands over to the assistant's pages (its agent,
+//! its permissions, a spoken task) and ends on the assistant's stream; the
+//! dictation demo and practice are passed over (optional, not required).
 //! A new install (or an upgrade whose setup isn't ready) opens it at
 //! launch, and Run setup again and `hex onboarding reset` replay it. The
 //! window's tour ([`onboarding`](super::super::onboarding)) is the state
@@ -458,7 +462,7 @@ pub(crate) fn restart(ui: &mut Ui, tx: &mut Tx) -> Result<(), String> {
     if ui.live() {
         crate::desktop::onboarding::reset().map_err(|error| format!("{error:#}"))?;
     }
-    ui.select_pane(super::super::Pane::General, tx);
+    ui.select_pane(super::super::Pane::Dictation, tx);
     ui.first_run = None;
     ui.tour = Some(onboarding::Tour::replay(&ui.settings, &ui.platform));
     open(ui);
@@ -549,9 +553,20 @@ pub(in crate::rune_ui) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
     let relaunch_failed = ui.platform.relaunch_failed;
     let paste = ui.platform.paste;
     let live_window = !ui.is_fixture();
+    // Agent first: where the assistant runs, the dictation demo and the
+    // dictation practice are passed over; the assistant's own pages (its
+    // agent, its permissions, a spoken task to try) take their place.
+    // Dictation stays set up (the speech model hears the assistant too)
+    // and is tried any time from the Dictation pane.
+    let agent_first = live_window
+        && super::super::chats::available(ui)
+        && crate::assistant::enabled(&ui.settings);
     let Some(s) = ui.first_run.as_mut() else {
         return false;
     };
+    if agent_first && s.step.optional() {
+        s.skip_optional();
+    }
     if s.login.set(login, now) {
         s.sfx.on_login(now);
     }
@@ -760,6 +775,10 @@ pub(super) fn finish(ui: &mut Ui) {
     }
     ui.first_run = None;
     ui.tour = None;
+    // The window lands on the assistant's stream.
+    if super::super::chats::available(ui) {
+        ui.pane = super::super::Pane::Chats;
+    }
 }
 
 fn choose(ui: &mut Ui, selection: &TranscriptionSelection) {

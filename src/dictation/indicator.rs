@@ -74,11 +74,11 @@ pub enum DictationIndicatorEvent {
     },
     JobFailed {
         job_id: u64,
-        /// Why it failed, for Labs › Failure notices; the HUD ignores it.
+        /// Why it failed, for Failure notices; the HUD ignores it.
         message: Option<String>,
     },
     Failed {
-        /// Why it failed, for Labs › Failure notices; the HUD ignores it.
+        /// Why it failed, for Failure notices; the HUD ignores it.
         message: Option<String>,
     },
 }

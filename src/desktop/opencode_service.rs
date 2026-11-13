@@ -5,7 +5,7 @@
 //! executable; when no service answers, OpenCode isn't running, and when
 //! one answers `/api/info` with 404 it predates the current OpenCode 2.
 //!
-//! On Windows, Labs › OpenCode in WSL also reads the default WSL
+//! On Windows, OpenCode in WSL also reads the default WSL
 //! distribution's registration when no Windows one answers; that service
 //! gets Hex's workspace as a Linux path.
 
@@ -70,7 +70,7 @@ impl Missing {
 
 /// The running service, or why there is none. Reads only registration files
 /// and asks each registered service for `/api/info`. On Windows it also
-/// looks in WSL while Labs › OpenCode in WSL is on.
+/// looks in WSL while OpenCode in WSL is on.
 pub(crate) fn find() -> Result<Service, Missing> {
     let found = match state_dir() {
         Some(state) => find_in(&state),
@@ -99,7 +99,7 @@ pub(crate) fn find_cancellable(
     )
 }
 
-/// The Windows result, or a WSL service when Labs › OpenCode in WSL is on
+/// The Windows result, or a WSL service when OpenCode in WSL is on
 /// and no Windows registration confirmed one. A confirmed service wins; with
 /// neither, "update OpenCode" is the more useful answer.
 fn with_wsl(
@@ -108,7 +108,7 @@ fn with_wsl(
     cancelled: &AtomicBool,
 ) -> Result<Service, Missing> {
     #[cfg(target_os = "windows")]
-    if crate::labs::opencode_in_wsl() {
+    if crate::features::opencode_in_wsl() {
         if found.is_err() {
             return prefer_wsl(found, wsl::discover(budget, cancelled));
         }

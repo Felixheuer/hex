@@ -52,7 +52,7 @@ pub(super) struct LanguageFallback {
     pub(super) from: String,
 }
 
-/// How Labs › Sort and filter models orders the cards. Browsing only: it is
+/// How Sort and filter models orders the cards. Browsing only: it is
 /// never saved and never changes the language or the active model.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) enum Sort {
@@ -90,12 +90,12 @@ pub(super) struct Picker {
     pub(super) view: View,
     /// The models that don't speak the saved language, in the full list.
     pub(super) others_open: bool,
-    /// The card order while Labs › Sort and filter models is on.
+    /// The card order while Sort and filter models is on.
     sort: Sort,
     /// Only models that support the saved language (or detect it, for Auto),
-    /// while Labs › Sort and filter models is on.
+    /// while Sort and filter models is on.
     supported_only: bool,
-    /// Only downloaded models, while Labs › Downloaded models only is on.
+    /// Only downloaded models, while Downloaded models only is on.
     downloaded_only: bool,
     /// The model whose Delete (an import's Remove) is armed.
     pub(super) deletion: Option<TranscriptionModelId>,
@@ -109,7 +109,7 @@ pub(super) struct Picker {
     /// The card whose details are open (Parakeet Ultra's credit and
     /// published benchmarks).
     pub(super) details: super::model_details::DetailsState,
-    /// The model in use when the picker opened, which Labs › Model in use
+    /// The model in use when the picker opened, which Model in use
     /// first lists first; fixed until the picker closes.
     in_use_first: Option<TranscriptionModelId>,
 }
@@ -157,16 +157,14 @@ pub(super) fn show(ui: &mut Ui, view: View) {
     ui.picker.clear_deletion();
 }
 
-/// Whether Labs › Sort and filter models is on.
-fn sort_filter_on(ui: &Ui) -> bool {
-    let feature = crate::labs::Feature::PickerSortFilter;
-    feature.shipped() && feature.on(&ui.settings)
+/// The full list offers a sort and a language filter.
+fn sort_filter_on(_ui: &Ui) -> bool {
+    true
 }
 
-/// Whether Labs › Downloaded models only is on.
-fn downloaded_on(ui: &Ui) -> bool {
-    let feature = crate::labs::Feature::PickerDownloaded;
-    feature.shipped() && feature.on(&ui.settings)
+/// The full list offers "Only downloaded models".
+fn downloaded_on(_ui: &Ui) -> bool {
+    true
 }
 
 /// Whether the full list shows only downloaded models now.
@@ -212,28 +210,26 @@ fn bytes_label(bytes: u64) -> String {
     }
 }
 
-/// Whether Labs › Model in use first is on.
-fn active_first_on(ui: &Ui) -> bool {
-    let feature = crate::labs::Feature::PickerActiveFirst;
-    feature.shipped() && feature.on(&ui.settings)
+/// The comparison lists the model in use first.
+fn active_first_on(_ui: &Ui) -> bool {
+    true
 }
 
 /// The model the comparison shows first: the one in use when the picker
-/// opened, while Labs › Model in use first is on.
+/// opened.
 fn pinned(ui: &Ui) -> Option<TranscriptionModelId> {
     ui.picker.in_use_first.filter(|_| active_first_on(ui))
 }
 
-/// The model the full list leads with: [`pinned`], unless Labs › Sort and
-/// filter models sorts by size or name, which keep their exact order.
+/// The model the full list leads with: [`pinned`], unless the list sorts by
+/// size or name, which keep their exact order.
 fn list_first(ui: &Ui) -> Option<TranscriptionModelId> {
     pinned(ui).filter(|_| !sort_filter_on(ui) || ui.picker.sort == Sort::Recommended)
 }
 
-/// Whether Labs › Benchmark details is on.
-pub(super) fn benchmark_details_on(ui: &Ui) -> bool {
-    let feature = crate::labs::Feature::BenchmarkDetails;
-    feature.shipped() && feature.on(&ui.settings)
+/// Each model's raw benchmark details: removed with Labs, so off.
+pub(super) fn benchmark_details_on(_ui: &Ui) -> bool {
+    false
 }
 
 /// The badge a card shows. With Benchmark details on, "Most accurate" stays
@@ -341,7 +337,7 @@ fn shown_models(ui: &Ui, language: &str) -> Vec<PickerModel> {
     } else {
         transcription_models::picker_models(language)
     };
-    // Labs › Downloaded models only.
+    // Downloaded models only.
     if downloaded_filter(ui) {
         models.retain(|(model, _)| is_downloaded(ui, model, language));
     }
@@ -533,7 +529,7 @@ pub(super) fn modal(ui: &Ui, p: Paint) -> Option<[El; 2]> {
                         .rotate(std::f32::consts::PI),
                 )
                 .child(heading(&title));
-            // Labs › Use model files where they are.
+            // Use model files where they are.
             if let Some(in_place) = super::model_import::in_place_button(ui, p) {
                 header = header.child(in_place);
             }
@@ -636,7 +632,7 @@ pub(super) fn preparation(ui: &Ui, model: &ModelDefinition) -> Option<(String, O
     })
 }
 
-/// Labs › Sort and filter models' row under the header: the sort and the
+/// Sort and filter models' row under the header: the sort and the
 /// saved-language toggle. Neither saves anything.
 fn sort_filter_row(ui: &Ui, p: Paint, language: &str) -> El {
     let labels = [tr("By recommendation"), tr("By size"), tr("By name")];
@@ -687,7 +683,7 @@ fn sort_filter_row(ui: &Ui, p: Paint, language: &str) -> El {
         .child(toggle)
 }
 
-/// Labs › Downloaded models only's row under the header: what the
+/// Downloaded models only's row under the header: what the
 /// downloaded models take on disk and the toggle. It saves nothing.
 fn downloaded_row(ui: &Ui, p: Paint, language: &str) -> El {
     let total = downloaded_total(
@@ -792,10 +788,8 @@ fn hidden_note(ui: &Ui, p: Paint, shown: &[PickerModel], language: &str) -> Opti
 
 /// Parakeet Ultra's card first with its details and benchmark table open
 /// (Maltese saved, sorted by name, only models for Maltese). It lists Ultra
-/// only where Labs › Parakeet Ultra is on in the saved settings.
+/// always now.
 pub(super) fn parakeet_ultra_fixture(ui: &mut Ui) {
-    ui.settings.labs.parakeet_ultra = true;
-    ui.settings.labs.picker_sort_filter = true;
     ui.settings.transcription = TranscriptionSelection {
         model: TranscriptionModelId::ParakeetV3,
         language: "mt".into(),
@@ -967,21 +961,16 @@ mod tests {
     }
 
     #[test]
-    fn benchmark_details_are_off_by_default() {
+    fn benchmark_details_left_with_labs() {
         let ui = Ui::with(
             AppSettings::default(),
             super::super::Service::Fixture(Vec::new()),
         );
         assert!(!benchmark_details_on(&ui));
-        let mut settings = AppSettings::default();
-        settings.labs.benchmark_details = true;
-        let ui = Ui::with(settings, super::super::Service::Fixture(Vec::new()));
-        assert!(benchmark_details_on(&ui));
     }
 
-    fn ui_with_active_first(on: bool) -> Ui {
-        let mut settings = AppSettings::default();
-        settings.labs.picker_active_first = on;
+    fn ui_with_active_first() -> Ui {
+        let settings = AppSettings::default();
         let mut ui = Ui::with(settings, super::super::Service::Fixture(Vec::new()));
         ui.picker.installed = Some(vec![ui.settings.transcription.model]);
         ui
@@ -989,7 +978,7 @@ mod tests {
 
     #[test]
     fn the_model_in_use_is_fixed_while_the_picker_is_open() {
-        let mut ui = ui_with_active_first(true);
+        let mut ui = ui_with_active_first();
         let saved = ui.settings.transcription.model;
         open(&mut ui);
         assert_eq!(pinned(&ui), Some(saved));
@@ -998,7 +987,6 @@ mod tests {
         ui.settings.transcription.model = TranscriptionModelId::WhisperLargeV3Turbo;
         assert_eq!(pinned(&ui), Some(saved));
         // By size and by name keep their exact order.
-        ui.settings.labs.picker_sort_filter = true;
         ui.picker.sort = Sort::Size;
         assert_eq!(list_first(&ui), None);
         assert_eq!(pinned(&ui), Some(saved));
@@ -1011,21 +999,16 @@ mod tests {
     }
 
     #[test]
-    fn without_model_in_use_first_nothing_is_pinned() {
-        let mut ui = ui_with_active_first(false);
-        open(&mut ui);
-        assert_eq!(pinned(&ui), None);
-        assert_eq!(list_first(&ui), None);
+    fn a_model_not_installed_is_never_pinned() {
         // A model that isn't installed is never pinned.
-        let mut ui = ui_with_active_first(true);
+        let mut ui = ui_with_active_first();
         ui.picker.installed = Some(Vec::new());
         open(&mut ui);
         assert_eq!(pinned(&ui), None);
     }
 
-    fn ui_with_downloaded(on: bool) -> Ui {
-        let mut settings = AppSettings::default();
-        settings.labs.picker_downloaded = on;
+    fn ui_with_downloaded() -> Ui {
+        let settings = AppSettings::default();
         let mut ui = Ui::with(settings, super::super::Service::Fixture(Vec::new()));
         ui.picker.installed = Some(vec![
             TranscriptionModelId::ParakeetUnifiedEnglish,
@@ -1036,7 +1019,7 @@ mod tests {
 
     #[test]
     fn only_downloaded_models_keeps_the_installed_ones() {
-        let mut ui = ui_with_downloaded(true);
+        let mut ui = ui_with_downloaded();
         open(&mut ui);
         assert!(!ui.picker.downloaded_only, "the switch starts off");
         let all = shown_models(&ui, "en");
@@ -1094,21 +1077,8 @@ mod tests {
     }
 
     #[test]
-    fn without_downloaded_models_only_the_picker_is_unchanged() {
-        let mut ui = ui_with_downloaded(false);
-        open(&mut ui);
-        let all = shown_models(&ui, "en");
-        // Even a stale switch does nothing while the Lab is off.
-        ui.picker.downloaded_only = true;
-        assert!(!downloaded_filter(&ui));
-        assert_eq!(ids(&shown_models(&ui, "en")), ids(&all));
-        assert_eq!(ids(&all), ids(&transcription_models::picker_models("en")));
-    }
-
-    #[test]
     fn browsing_never_saves_or_asks_for_a_model() {
-        let mut settings = AppSettings::default();
-        settings.labs.picker_sort_filter = true;
+        let settings = AppSettings::default();
         let mut ui = Ui::with(settings, super::super::Service::Fixture(Vec::new()));
         let before = ui.settings.clone();
         open(&mut ui);

@@ -32,14 +32,6 @@ line_icon!(
     ]
 );
 line_icon!(
-    CAMERA,
-    "hex-row-camera",
-    [
-        "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z",
-        "M15 13a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
-    ]
-);
-line_icon!(
     BLUETOOTH,
     "hex-row-bluetooth",
     ["m7 7 10 10-5 5V2l5 5L7 17"]
@@ -246,14 +238,6 @@ line_icon!(
     CLOCK,
     "hex-row-clock",
     ["M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0", "M12 6v6l4 2"]
-);
-line_icon!(
-    MOUSE,
-    "hex-row-mouse",
-    [
-        "M12 2a6 6 0 0 1 6 6v8a6 6 0 0 1-12 0V8a6 6 0 0 1 6-6z",
-        "M12 6v4"
-    ]
 );
 line_icon!(
     CALL,

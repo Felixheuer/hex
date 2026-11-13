@@ -1,143 +1,52 @@
-//! Settings › General's search (Labs › Settings search): the field at the
-//! top of the pane, the query it holds, the rows each section keeps, and the
-//! pane that assembles them.
+//! The Dictation pane's assembly: permissions and errors, the listener and
+//! desktop shortcut cards, the basics, what happens to the text, then the
+//! Advanced fold's Dictation and Output sections. Also [`Rows`], which the
+//! sections build their rows with (a query keeps only matching rows; the
+//! panes pass none).
 
-use rune::{El, Key, KeyEvent, Tx, row};
-use rune_kit::TextInput;
+use rune::{El, row};
 
-use super::super::controls::{CardRow, METRICS, Paint, icon_row, page, section};
+use super::super::controls::Paint;
+use super::super::controls::{CardRow, icon_row, page, section};
 use super::super::icons::CIRCLE_X;
-use super::super::list_detail::{SEARCH_ICON, empty_state};
 use super::super::platform_settings as os;
 use super::super::settings as s;
 use super::super::{Pane, ShortcutTarget, Ui, scroll_body};
-use super::{
-    advanced_open, advanced_toggle, application, basics, dictation, output, shortcut_rows,
-};
+use super::{advanced_open, advanced_toggle, basics, dictation, output, shortcut_rows, text_rows};
 use crate::desktop::i18n::tr;
-use crate::labs::Feature;
 
-const SEARCH_WIDTH: f32 = 320.0;
-
-/// The pane, with the search field first while its lab is on. With a query,
-/// every matching row shows whatever its fold, empty sections hide, and
-/// nothing matching shows the empty state; without one it is the pane as
-/// before. Permissions and errors always show; the listener and desktop
-/// shortcut cards show while their titles match.
+/// The Dictation pane.
 pub(crate) fn pane(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
-    let enabled = Feature::SettingsSearch.on(&ui.settings);
-    let query = if enabled {
-        ui.general_search.text.trim()
-    } else {
-        ""
-    };
-    let searching = !query.is_empty();
-    let mut content = page("content");
-    if enabled {
-        content = content.child(search_row(ui, p));
-    }
-    content = content
+    let mut content = page("content")
         .children(os::permissions_section(ui, p))
         .children(os::error_section(ui, p));
-    let mut matched = false;
     if ui.platform.caps.listener_control {
-        let (text, card) = s::listener_card(ui, p);
-        if !searching || matches(query, &text, None) {
-            content = content.child(card);
-            matched |= searching;
-        }
+        let (_, card) = s::listener_card(ui, p);
+        content = content.child(card);
     }
     if !ui.records_shortcuts() {
-        let title = tr("Desktop shortcuts");
-        if !searching || matches(query, title, None) {
-            content = content.child(s::desktop_commands(ui, p));
-            matched |= searching;
-        }
+        content = content.child(s::desktop_commands(ui, p));
     }
-    if let Some(basics) = basics(ui, p, layer, query) {
+    if let Some(basics) = basics(ui, p, layer, "") {
         content = content.child(basics);
-        matched = true;
     }
-    if !searching {
-        content = content.child(advanced_toggle(ui, p, Pane::General));
-    }
-    if advanced_open(ui, Pane::General) || searching {
+    content = content.child(section(p, "text", tr("Text"), text_rows(ui, p, layer, "")));
+    content = content.child(advanced_toggle(ui, p, Pane::Dictation));
+    if advanced_open(ui, Pane::Dictation) {
         for (key, title, rows) in [
             (
                 "more-dictation",
                 tr("Dictation"),
-                dictation(ui, p, layer, query),
+                dictation(ui, p, layer, ""),
             ),
-            ("output", tr("Output"), output(ui, p, layer, query)),
-            (
-                "application",
-                tr("Application"),
-                application(ui, p, layer, query),
-            ),
+            ("output", tr("Output"), output(ui, p, layer, "")),
         ] {
             if !rows.is_empty() {
                 content = content.child(section(p, key, title, rows));
-                matched = true;
             }
         }
     }
-    if searching && !matched {
-        content = content.child(empty_state(
-            p,
-            "settings-empty",
-            SEARCH_ICON,
-            tr("No settings match"),
-            Some(tr("Try another search")),
-        ));
-    }
     scroll_body(p.k, "scroll", content)
-}
-
-/// The single-line field, cleared by its button and focused by ⌘F.
-fn search_row(ui: &Ui, p: Paint) -> El {
-    let mut field = TextInput::new(&ui.general_search)
-        .placeholder(tr("Search settings"))
-        .width(Some(SEARCH_WIDTH))
-        .leading_icon(p.k.glyph.search)
-        .on_edit(|ui: &mut Ui| &mut ui.general_search)
-        .on_change(|ui: &mut Ui, _: &mut Tx| ui.open = None);
-    if !ui.general_search.text.is_empty() {
-        field = field.clear_button();
-    }
-    row()
-        .key("settings-search-row")
-        .mx(METRICS.row_px)
-        .child(field.build(p.k).key("settings-search"))
-}
-
-/// ⌘F (Ctrl+F off macOS) on General puts the caret in its search.
-fn focus_search(ui: &mut Ui) {
-    ui.general_search.focused = true;
-}
-
-/// ⌘F (Ctrl+F off macOS): Labs' search while Labs is open, else General's
-/// while its search lab is on.
-pub(crate) fn focus_search_key(ui: &mut Ui, event: &KeyEvent) -> bool {
-    if event.key != Key::Command('f') || event.mods.shift {
-        return false;
-    }
-    if ui.picker.open
-        || ui.explainer.open
-        || ui.sound_sets.open
-        || ui.vocabulary.open
-        || ui.tour.is_some()
-    {
-        return false;
-    }
-    if ui.labs_open {
-        super::super::labs::focus_search(ui);
-        return true;
-    }
-    if ui.pane == Pane::General && Feature::SettingsSearch.on(&ui.settings) {
-        focus_search(ui);
-        return true;
-    }
-    false
 }
 
 /// Toggle's cancel shortcut. A shortcuts portal would hold its key from

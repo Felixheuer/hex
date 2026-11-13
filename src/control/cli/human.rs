@@ -357,8 +357,7 @@ pub(super) fn human_status(report: &StatusReport) -> String {
          Features     meetings {}, release mic while idle {}, history {}\n\
          Permissions  {permission_line}\n\
          Window       {window}\n\
-         Update       {}\n\
-         Labs         {}\n",
+         Update       {}\n",
         report.app_version,
         report.pid,
         if report.listener.running {
@@ -370,9 +369,5 @@ pub(super) fn human_status(report: &StatusReport) -> String {
         on(features.release_microphone_while_idle),
         features.history_retention,
         report.update,
-        match report.labs.as_slice() {
-            [] => "none".to_string(),
-            names => names.join(", "),
-        },
     )
 }

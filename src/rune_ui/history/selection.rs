@@ -1,4 +1,4 @@
-//! Labs › Select multiple dictations: which History entries are selected,
+//! Select multiple dictations: which History entries are selected,
 //! how a row's press changes that, and the card that copies or deletes them
 //! together. Off, History keeps its one selected entry and none of this
 //! runs, so every press selects just its row as it always has.
@@ -11,11 +11,9 @@ use super::super::list_detail as ld;
 use super::HistoryPane;
 use crate::desktop::i18n::{tr, tr_fill};
 
-/// Whether History selects several entries. The pane reads its own switch,
-/// as it reads Labs › Keep recordings; `labs::history_multi_select` is the
-/// same switch for this process.
-pub(super) fn on(ui: &Ui) -> bool {
-    crate::labs::Feature::HistoryMultiSelect.on(&ui.settings)
+/// Whether History selects several entries: always, now.
+pub(super) fn on(_ui: &Ui) -> bool {
+    crate::features::history_multi_select()
 }
 
 /// How far a press may travel and still be a click, as Rune pairs double
@@ -332,7 +330,7 @@ pub(super) fn prune(pane: &mut HistoryPane) -> bool {
     changed
 }
 
-/// Labs › Select multiple dictations off: forgets the rest of a multiple
+/// Select multiple dictations off: forgets the rest of a multiple
 /// selection, keeping the one entry the detail card shows.
 pub(super) fn collapse(pane: &mut HistoryPane) -> bool {
     if pane.selection.ids.is_empty() {

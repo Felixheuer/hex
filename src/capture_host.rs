@@ -91,7 +91,6 @@ pub use permissions::{
     AskedBy, CaptureNeed, NeedState, allow as allow_permission, on_missing,
     restart as restart_for_permission, state_of as permission_state,
 };
-pub use replay::available as replay_available;
 pub use routing::CaptureRoute;
 pub use routing::{RouteAnswer, RouteDelivery, RouteDest};
 #[cfg(target_os = "macos")]
@@ -273,7 +272,7 @@ pub enum TargetKind {
 pub enum CaptureCommand {
     /// Starts a capture on the picker's pick; nothing while one records.
     Start(CaptureTarget),
-    /// Labs › Screenshots' recording: a capture of `target` that, once
+    /// Screenshots' recording: a capture of `target` that, once
     /// written, goes to the screenshot card ([`on_clip_written`]) rather
     /// than the clipboard and the router.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]

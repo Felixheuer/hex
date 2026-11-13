@@ -128,15 +128,13 @@ fn entries(settings: &AppSettings) -> Vec<Entry> {
         "paste-last",
         settings.paste_last_hotkey.as_ref(),
     );
-    // Only while Labs › Transform typed text is on and its key is bound.
-    if settings.labs.typed_text {
-        add(
-            "hex-typed-text",
-            "Hex: transform typed text",
-            "typed-text",
-            settings.active_typed_text_hotkey(),
-        );
-    }
+    // Only while its key is bound.
+    add(
+        "hex-typed-text",
+        "Hex: transform typed text",
+        "typed-text",
+        settings.active_typed_text_hotkey(),
+    );
     #[cfg(hex_capture)]
     if settings.capture.enabled {
         add(
@@ -298,12 +296,8 @@ mod tests {
             typed_text_hotkey: Some(chord(HotkeyModifiers::control_option(), "t")),
             ..AppSettings::default()
         };
-        let off = entries(&settings);
-        assert!(off.iter().all(|entry| entry.id != "hex-typed-text"));
-        assert!(off.iter().any(|entry| entry.id == "hex-paste-last"));
-
-        settings.labs.typed_text = true;
         let on = entries(&settings);
+        assert!(on.iter().any(|entry| entry.id == "hex-paste-last"));
         let typed = on
             .iter()
             .find(|entry| entry.id == "hex-typed-text")

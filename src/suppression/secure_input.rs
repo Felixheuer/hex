@@ -438,7 +438,7 @@ fn poll() {
 
 #[cfg(hex_capture)]
 fn screenshot_hotkeys() -> [Option<RuntimeHotkey>; 2] {
-    if crate::labs::screenshots() {
+    if crate::features::screenshots() {
         [
             crate::app_settings::screenshot_hotkey(),
             crate::app_settings::screenshot_record_hotkey(),

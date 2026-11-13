@@ -153,7 +153,7 @@ impl WindowsHotkey {
             .is_some_and(|number| (1..=24).contains(&number));
         // Keys that type nothing may stand alone: function keys, mouse
         // buttons, Menu, Pause, and Scroll Lock, and the navigation keys,
-        // which Settings allow alone only with Labs › Special keys alone.
+        // which Settings allow alone only with Special keys alone.
         let types_nothing = function_key
             || HotkeyKey::mouse_number(key).is_some()
             || HotkeyKey::special_name(key)
@@ -227,7 +227,7 @@ pub enum HotkeyAction {
 pub struct HotkeyEvent {
     pub action: HotkeyAction,
     /// The shortcut that started the capture: dictation, Dictate without
-    /// processing, Labs › Terminal paste, Labs › Second dictation, or the
+    /// processing, Terminal paste, Second dictation, or the
     /// assistant's Action shortcut.
     pub flavour: DictationFlavour,
     /// An Action shortcut press that followed a tap: a Background task.
@@ -269,11 +269,11 @@ struct CallbackState {
     raw: Option<WindowsHotkey>,
     raw_trigger_vk: Option<u32>,
     raw_trigger_down: bool,
-    /// Labs › Terminal paste shortcut, while the lab is on and it is bound.
+    /// Terminal paste shortcut, while the lab is on and it is bound.
     terminal_paste: Option<WindowsHotkey>,
     terminal_paste_trigger_vk: Option<u32>,
     terminal_paste_trigger_down: bool,
-    /// Labs › Second dictation shortcut, while the lab is on and it is bound.
+    /// Second dictation shortcut, while the lab is on and it is bound.
     second: Option<WindowsHotkey>,
     second_trigger_vk: Option<u32>,
     second_trigger_down: bool,
@@ -479,7 +479,7 @@ impl CaptureState {
 }
 
 impl CallbackState {
-    /// Dictate without processing, Labs › Terminal paste, and Labs › Second
+    /// Dictate without processing, Terminal paste, and Second
     /// dictation: each key held, locked, and finished like the dictation
     /// key, owning the capture it starts. `None` when the key is not its
     /// trigger.
@@ -1200,7 +1200,7 @@ impl CallbackState {
             }
             return Disposition::Suppress;
         }
-        // Dictate without processing, Labs › Terminal paste, Labs › Second
+        // Dictate without processing, Terminal paste, Second
         // dictation, and a key-chord Action shortcut: key chords held (and,
         // but for the Action shortcut, locked) and finished like the
         // dictation key, each owning the capture it starts.
@@ -1461,7 +1461,7 @@ mod tests {
         assert!(alone("pause").validate().is_ok());
         assert!(alone("scroll lock").validate().is_ok());
         assert!(alone("menu").validate().is_ok());
-        // Settings gate these behind Labs › Special keys alone.
+        // Settings gate these behind Special keys alone.
         assert!(alone("home").validate().is_ok());
         assert!(alone("num 5").validate().is_err());
         let control = WindowsHotkey {
@@ -1916,7 +1916,7 @@ mod tests {
         assert!(!state.locked);
     }
 
-    /// Labs › Second dictation shortcut is its own owner too: the dictation,
+    /// Second dictation shortcut is its own owner too: the dictation,
     /// raw, and terminal-paste shortcuts neither claim its capture nor count
     /// a tap around it toward its double tap.
     #[test]

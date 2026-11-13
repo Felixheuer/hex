@@ -65,9 +65,9 @@ pub(super) struct Capabilities {
     /// Windows, and Linux on X11; Wayland has no general layout protocol).
     pub(super) keyboard_model_switching: bool,
     /// A mode's speech model and language follow the frontmost application
-    /// (macOS and Windows; Labs › Switch model with app).
+    /// (macOS and Windows; Switch model with app).
     pub(super) app_model_switching: bool,
-    /// Labs › Transform typed text: run Output steps on text already typed in
+    /// Transform typed text: run Output steps on text already typed in
     /// the focused field and replace it (Linux).
     pub(super) typed_text: bool,
 }
@@ -319,9 +319,6 @@ pub(super) struct PlatformState {
     /// The desktop's paste permission where Hex pastes through the
     /// RemoteDesktop portal (GNOME and KDE on Wayland); `None` elsewhere.
     pub(super) paste: Option<super::paste_access::PasteAccess>,
-    /// A Wayland desktop without data-control (GNOME): a paste can't put
-    /// the clipboard back unless Labs › Restore clipboard on GNOME is on.
-    pub(super) clipboard_unrestorable: bool,
     /// A scene's state: [`Self::setup_status`] reports `permissions` on
     /// every OS rather than asking this computer.
     preview: bool,
@@ -412,7 +409,6 @@ impl PlatformState {
             calendar: CalendarView::default(),
             relaunch_failed: false,
             paste: None,
-            clipboard_unrestorable: false,
             preview: false,
             developer: false,
             accessibility_renamed: false,
@@ -585,7 +581,7 @@ impl PlatformState {
 pub(super) enum MeetingRequest {
     Start,
     Stop,
-    /// Import a local audio file as a meeting (macOS; Labs › Import audio).
+    /// Import a local audio file as a meeting (macOS; Import audio).
     Import(PathBuf),
     Rename {
         id: String,
@@ -863,7 +859,7 @@ const DIFFERENCES: &[(&str, Difference)] = &[
     ),
     (
         "terminal_paste",
-        Difference::OsPattern("macOS terminals take ⌘V; Windows keeps the row in Labs"),
+        Difference::OsPattern("macOS terminals take ⌘V; Windows keeps the row in Dictation"),
     ),
     (
         "share_shortcut",

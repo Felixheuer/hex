@@ -3271,7 +3271,7 @@ mod tests {
         assert!(matches!(flow.pres(303.0), Pres::Recording { .. }));
     }
 
-    /// Labs › Screenshots' permission helper returns to its picker in the
+    /// Screenshots' permission helper returns to its picker in the
     /// mode its shortcut asked for, never to Annotate's whole-screen
     /// recording. Annotate's own helper still records.
     #[test]

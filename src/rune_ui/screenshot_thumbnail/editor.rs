@@ -1,4 +1,4 @@
-//! Labs › Screenshots: the editor a click on the thumbnail opens, a panel
+//! Screenshots: the editor a click on the thumbnail opens, a panel
 //! floating over the display under the pointer, as CleanShot's is. It
 //! shows the shot with a pen, an arrow, a box, text, and a crop, and the
 //! edited shot goes to the clipboard, a new file beside the first, or an

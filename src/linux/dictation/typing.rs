@@ -1,4 +1,4 @@
-//! The Linux listener's Labs › Live typing glue: when a capture's session
+//! The Linux listener's Live typing glue: when a capture's session
 //! starts, the input-method session that shows its provisional words and
 //! commits its final text. Split from [`super`] to keep it under the source
 //! cap.
@@ -34,7 +34,7 @@ pub(super) fn begin(
 ) {
     if typing.is_some()
         || !wayland
-        || !crate::labs::live_typing()
+        || !crate::features::live_typing()
         || !due(capture.is_recording(), capture.is_intentional(), toggle)
     {
         return;

@@ -4,7 +4,7 @@
 //! responsive. Imported cards say what the file declared, can be renamed,
 //! and can be removed; one that is missing or changed says so instead of
 //! offering Use, with Check again (the selected one too). A file found on
-//! this computer (`found`), or one added with Labs › Use model files where
+//! this computer (`found`), or one added with Use model files where
 //! they are, is used in place, and Remove only forgets it.
 
 use std::sync::atomic::AtomicBool;
@@ -30,7 +30,7 @@ pub(super) struct ImportState {
     /// The file being chosen becomes the selected model once imported
     /// ([`use_file`]): onboarding's way past a download that can't finish.
     use_after: bool,
-    /// The file being chosen is used where it is, not copied (Labs › Use
+    /// The file being chosen is used where it is, not copied (Use
     /// model files where they are).
     in_place: bool,
     /// The selected import being checked again: once it matches, the
@@ -67,13 +67,12 @@ pub(super) fn add_button(ui: &Ui, p: Paint) -> El {
     )
 }
 
-/// Whether Labs › Use model files where they are is on.
-pub(super) fn in_place_on(ui: &Ui) -> bool {
-    let feature = crate::labs::Feature::ModelInPlace;
-    feature.shipped() && feature.managed().is_none() && feature.on(&ui.settings)
+/// Whether "Use model file where it is…" is offered: always, now.
+pub(super) fn in_place_on(_ui: &Ui) -> bool {
+    true
 }
 
-/// The header's "Use model file where it is…" while its Labs toggle is on.
+/// The header's "Use model file where it is…".
 pub(super) fn in_place_button(ui: &Ui, p: Paint) -> Option<El> {
     in_place_on(ui).then(|| {
         button(
@@ -86,7 +85,7 @@ pub(super) fn in_place_button(ui: &Ui, p: Paint) -> Option<El> {
     })
 }
 
-/// Chooses a GGUF file to use where it is; the Labs toggle is checked here
+/// Chooses a GGUF file to use where it is; the setting is checked here
 /// and again when the dialog answers.
 fn choose_in_place(ui: &mut Ui) {
     if !in_place_on(ui) || !ui.live() || ui.picker.import.busy() {
@@ -178,7 +177,7 @@ pub(super) fn poll(ui: &mut Ui) -> bool {
     if let Some(choice) = ui.picker.import.chooser.as_ref().and_then(Pending::poll) {
         ui.picker.import.chooser = None;
         changed = true;
-        // Used where it is only while its Labs toggle is still on.
+        // Used where it is only while its setting is still on.
         let in_place = std::mem::take(&mut ui.picker.import.in_place);
         let refused = in_place && !in_place_on(ui);
         match choice {
@@ -260,12 +259,6 @@ pub(super) fn status_note(model: &ModelDefinition) -> Option<String> {
 pub(super) fn selection_notice(ui: &Ui) -> Option<String> {
     let model = crate::transcription::models::definition(ui.settings.transcription.model);
     let fallback = crate::transcription::models::definition(custom_models::fallback().model).name;
-    if model.id == TranscriptionModelId::ParakeetUltra && !model.available() {
-        return Some(tr_named(
-            "{model} needs Labs › Parakeet Ultra, so Hex uses {fallback} until you turn it on or choose another model",
-            &[("model", model.name), ("fallback", fallback)],
-        ));
-    }
     let TranscriptionModelId::Custom(id) = model.id else {
         return None;
     };

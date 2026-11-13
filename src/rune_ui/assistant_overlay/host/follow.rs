@@ -160,7 +160,7 @@ pub(super) fn place_past_hud<T>(handle: &OverlayHandle<T>, (width, height): (f32
     let Some((screen, all)) = working() else {
         return;
     };
-    let past = if crate::labs::live_text() {
+    let past = if crate::features::live_text() {
         f64::from(crate::rune_ui::live_text::SIZE.1)
     } else {
         0.0

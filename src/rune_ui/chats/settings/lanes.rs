@@ -344,11 +344,12 @@ pub(in crate::rune_ui) fn task_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> V
 
 /// Agent windows parked off-screen (experimental): macOS has no way for
 /// Hex to give them a Space of their own.
-pub(in crate::rune_ui) fn experimental_section(ui: &Ui, p: Paint) -> El {
-    let row = toggle_row(
+/// Background tasks' windows move out of sight (a row of Apps & windows).
+pub(in crate::rune_ui) fn park_windows_row(ui: &Ui, p: Paint) -> El {
+    toggle_row(
         p,
         "assistant-agent-space",
-        tr("Park agent windows off-screen (experimental)"),
+        tr("Park agent windows off-screen"),
         tr(
             "Windows background tasks open move out of sight until you bring one forward from the task list. A Space of their own isn't possible on current macOS",
         ),
@@ -356,8 +357,7 @@ pub(in crate::rune_ui) fn experimental_section(ui: &Ui, p: Paint) -> El {
         |ui: &mut Ui| {
             ui.update(|settings| settings.assistant.agent_space ^= true);
         },
-    );
-    section(p, "assistant-experimental", tr("Experimental"), vec![row])
+    )
 }
 
 /// Which engine clean browsers run: Lightpanda (light, for many at once)

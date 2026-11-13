@@ -1,4 +1,4 @@
-//! Labs › Screenshots' capture history, as CleanShot's Capture History
+//! Screenshots' capture history, as CleanShot's Capture History
 //! keeps one: every shot and recording the Lab saved in the last 30 days,
 //! newest first, with a small thumbnail and the words said over it.
 //!

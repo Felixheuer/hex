@@ -955,7 +955,10 @@ mod tests {
         assert_eq!(rate_of(&registry, "job", "hex-job"), Rate::Idle);
         registry.window = vec!["job".into()];
         assert_eq!(rate_of(&registry, "job", "hex-job"), Rate::Background);
-        assert_eq!(rate_of(&registry, "job", "hex-job_content"), Rate::Background);
+        assert_eq!(
+            rate_of(&registry, "job", "hex-job_content"),
+            Rate::Background
+        );
         assert_eq!(rate_of(&registry, "other", "hex-other"), Rate::Idle);
         assert!(wanted(&registry).contains(&"job".to_owned()));
     }

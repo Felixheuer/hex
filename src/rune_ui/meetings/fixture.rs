@@ -1,6 +1,6 @@
 //! The meetings previews and scenes show: one recording, one with notes, one
 //! without, and one that failed, plus variants with more call services and
-//! live chapters (Labs).
+//! live chapters.
 
 use super::{Chapter, Meeting, MeetingsPane, Status, Transcript, Turn, transcript_markdown};
 
@@ -151,7 +151,7 @@ impl MeetingsPane {
         pane
     }
 
-    /// The fixture with live chapters (Labs) on the
+    /// The fixture with live chapters on the
     /// meeting with notes, its title extended by them.
     pub(in crate::rune_ui) fn chapters_fixture() -> Self {
         let mut pane = Self::fixture();

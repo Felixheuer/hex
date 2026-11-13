@@ -1,4 +1,4 @@
-//! Labs › Use your own speech model: GGUF files the person imports from
+//! Use your own speech model: GGUF files the person imports from
 //! disk, beside the pinned catalog. An import is checked from its header
 //! alone (architecture, variant, languages, and tensor types every build runs
 //! on Metal and Vulkan) before transcribe.cpp ever loads it, then copied into
@@ -8,7 +8,7 @@
 //!
 //! The digest identifies the file Hex copied; it is not a publisher's
 //! checksum and Hex vouches for nothing in it. A saved choice of an import
-//! that is missing, changed since it was imported, or behind its Labs toggle
+//! that is missing, changed since it was imported, or behind its setting
 //! stays saved, and the listener runs the default model until it is fixed
 //! ([`runnable`]).
 
@@ -805,7 +805,7 @@ pub fn adopt_in_place(
     record_in_place(path, blob_sha256, Some(origin), canceled)
 }
 
-/// Labs › Use model files where they are: adds a file the person chose
+/// Use model files where they are: adds a file the person chose
 /// and uses it where it is, as a found file is, so several accounts can
 /// share one file. Its header is checked, it is hashed in full once, and
 /// only Hex's receipt and record are written, in Hex's own folder. An

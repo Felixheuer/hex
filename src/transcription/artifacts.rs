@@ -144,7 +144,7 @@ pub(super) const UNDERDOG_BARK_3_CLEAN_ARTIFACT: GgufArtifact = GgufArtifact {
 };
 // Moondream's Parakeet Ultra, a post-trained Parakeet TDT 0.6B v3
 // (CC-BY-4.0), converted to GGUF and quantized to Q8_0 by handy-computer
-// (430 F32, 225 Q8_0, and 48 F16 tensors). Behind Labs › Parakeet Ultra.
+// (430 F32, 225 Q8_0, and 48 F16 tensors). Behind Parakeet Ultra.
 pub(super) const PARAKEET_ULTRA_ARTIFACT: GgufArtifact = GgufArtifact {
     filename: "parakeet-ultra-Q8_0.gguf",
     revision: "a1539be1b849ea7463b88343e5277b373d0c4ea9",
