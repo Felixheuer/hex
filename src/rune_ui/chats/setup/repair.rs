@@ -1,14 +1,19 @@
 //! "Agent-Desk needs your help for a moment": after setup was finished, the
 //! onboarding comes back for what's missing now, and only for that
 //! (`desktop::setup_gaps`). Agent-Desk looks at launch and every few minutes, off
-//! the window's thread (`Job::Gaps`); when something is missing it opens the
-//! flow at the first page that fixes it, shows just the pages needed, says
-//! what changed at the top, moves on by itself once a page works, and
-//! closes after the last. Later puts it off until Agent-Desk next starts. What no
-//! page fixes is done with one action (the Agent-Desk voice downloads again).
+//! the window's thread (`Job::Gaps`). When something is missing it never
+//! switches the window: a small card on the overlay's stage says what
+//! (`assistant_overlay::needs_repair`), once for each new set of gaps, with
+//! the one fix it can do in place (a System Settings pane, the agent's
+//! sign-in), Later, and Fix all…. Only Fix all… (or Continue setup after a
+//! hold) opens the guide in the window: the flow at the first page that
+//! fixes it, just the pages needed, what changed at the top, moving on by
+//! itself once a page works, and closing after the last. Later puts it off
+//! until Agent-Desk next starts. What no page fixes is done with one action
+//! (the Agent-Desk voice downloads again).
 //!
 //! A hold of the Action shortcut while something essential is missing says
-//! what (`crate::assistant::setup_gap`) and opens the guide, so it's found
+//! what (`crate::assistant::setup_gap`) with Continue setup, so it's found
 //! without the window too.
 
 use std::time::{Duration, Instant};
@@ -33,6 +38,9 @@ pub(in crate::rune_ui) struct Watch {
     checking: bool,
     /// Later was pressed: the guide stays closed until Agent-Desk next starts.
     pub(in crate::rune_ui) snoozed: bool,
+    /// What the stage's card last said, so a check that finds the same
+    /// again says nothing.
+    told: Vec<Gap>,
 }
 
 /// The guide inside the setup flow: the pages it shows, in order, and why.
@@ -75,7 +83,7 @@ pub(in crate::rune_ui) fn pages_for(gaps: &[Gap]) -> Vec<Page> {
 }
 
 /// Reads this Mac for [`setup_gaps::setup_gaps`]. Blocks for a moment
-/// (agent detection, agent-desktop's own report); off the window's thread.
+/// (agent detection, Cua Driver's status); off the window's thread.
 pub(in crate::rune_ui) fn read_facts(settings: &AppSettings) -> Facts {
     use crate::assistant::backends;
     use crate::desktop::onboarding::{self, PermissionState};
@@ -87,7 +95,7 @@ pub(in crate::rune_ui) fn read_facts(settings: &AppSettings) -> Facts {
         .iter()
         .find(|found| found.backend == assistant.backend);
     let desktop = if assistant.control_desktop {
-        Some(backends::agent_desktop())
+        Some(backends::driver())
     } else {
         None
     };
@@ -121,10 +129,9 @@ pub(in crate::rune_ui) fn read_facts(settings: &AppSettings) -> Facts {
         }),
         agent_ready: agent.is_some_and(|agent| agent.ready),
         desktop_wanted: assistant.control_desktop,
-        agent_desktop_installed: desktop.as_ref().is_some_and(|found| found.path.is_some()),
-        agent_desktop_grants: desktop
-            .as_ref()
-            .is_some_and(|found| found.accessibility && found.screen_recording),
+        driver_installed: desktop.as_ref().is_some_and(|found| found.path.is_some()),
+        driver_update_failed: crate::assistant::driver::update::status().outcome
+            == crate::assistant::driver::update::Outcome::Failed,
         browser_wanted: assistant.background_browser,
         agent_browser_installed: browser.as_ref().is_some_and(|found| found.path.is_some()),
         shortcut_taken,
@@ -169,18 +176,63 @@ pub(in crate::rune_ui) fn poll(ui: &mut Ui, tx: &mut rune::Tx) -> bool {
     changed
 }
 
-/// A check's answer: kept, told to the shortcut, and the guide opened when
-/// something is missing and nothing else shows.
+/// A check's answer: kept, told to the shortcut, and, when something new
+/// is missing and nothing else shows, said on the overlay's stage. The
+/// window is never switched to the guide by a check: only Fix all… or
+/// Continue setup open it ([`open`]).
 pub(in crate::rune_ui) fn received(ui: &mut Ui, gaps: Vec<Gap>) {
     ui.chats.repair.checking = false;
     if ui.chats.live() {
         crate::assistant::set_setup_gap(setup_gaps::essential(&gaps).map(Gap::message));
     }
-    ui.chats.repair.gaps = gaps;
+    ui.chats.repair.gaps = gaps.clone();
+    if gaps.is_empty() {
+        ui.chats.repair.told.clear();
+        return;
+    }
     if ui.chats.repair.snoozed || ui.chats.setup.is_some() || ui.first_run.is_some() {
         return;
     }
-    open(ui);
+    if gaps.contains(&Gap::HexVoice) && ui.chats.settings.voice_download.is_none() {
+        // The person chose that voice: it downloads again, no page needed.
+        ui.chats.jobs.run(super::super::jobs::Job::DownloadVoice);
+    }
+    let told: Vec<Gap> = gaps
+        .iter()
+        .filter(|gap| **gap != Gap::HexVoice)
+        .cloned()
+        .collect();
+    if told.is_empty() || told == ui.chats.repair.told {
+        return;
+    }
+    ui.chats.repair.told = told.clone();
+    if ui.chats.live() {
+        crate::rune_ui::assistant_overlay::needs_repair(told);
+    }
+}
+
+/// The stage card's Fix all…: the guide, in the window (the caller brings
+/// it forward; the person asked).
+pub(in crate::rune_ui) fn fix_all(ui: &mut Ui, tx: &mut rune::Tx) {
+    ui.chats.repair.snoozed = false;
+    if ui.chats.setup.is_some() {
+        return;
+    }
+    if !open(ui)
+        && ui
+            .chats
+            .repair
+            .gaps
+            .iter()
+            .any(|gap| gap.fix() == Fix::Models)
+    {
+        ui.select_pane(super::super::super::Pane::Dictation, tx);
+    }
+}
+
+/// The stage card's Later: nothing more until Agent-Desk next starts.
+pub(in crate::rune_ui) fn later(ui: &mut Ui) {
+    ui.chats.repair.snoozed = true;
 }
 
 /// Opens the guide on what the last check found; false when no page

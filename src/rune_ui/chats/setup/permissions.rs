@@ -26,20 +26,6 @@ pub(in crate::rune_ui) fn kind(grant: Grant) -> Option<PermissionKind> {
     }
 }
 
-pub(in crate::rune_ui) fn desktop_grant(ui: &Ui) -> Grant {
-    if ui
-        .chats
-        .setup
-        .as_ref()
-        .and_then(|flow| flow.desktop.as_ref())
-        .is_some_and(|desktop| desktop.accessibility)
-    {
-        Grant::DesktopScreenRecording
-    } else {
-        Grant::DesktopAccessibility
-    }
-}
-
 pub(in crate::rune_ui) fn stale_fix(ui: &Ui, fix: Fix) -> bool {
     let kind = match fix {
         Fix::OpenSettings(crate::assistant::computer::Permission::Accessibility) => {
@@ -48,7 +34,6 @@ pub(in crate::rune_ui) fn stale_fix(ui: &Ui, fix: Fix) -> bool {
         Fix::OpenSettings(crate::assistant::computer::Permission::ScreenRecording) => {
             PermissionKind::ScreenRecording
         }
-        Fix::GuidePermissions => kind(desktop_grant(ui)).unwrap(),
         _ => return false,
     };
     ui.platform.stale(kind)

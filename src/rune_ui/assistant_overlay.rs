@@ -71,6 +71,7 @@ mod quick;
 mod results;
 mod screens;
 mod stack;
+mod stage;
 #[cfg(target_os = "macos")]
 pub(crate) mod stories;
 #[cfg(test)]
@@ -78,7 +79,12 @@ mod tests;
 mod wall;
 mod when;
 
-pub(crate) use host::{ask_hint, install, listening, set_open_chats, set_open_setup, setup_needed};
+pub(crate) use host::{
+    Repair, ask_hint, install, listening, needs_repair, set_open_chats, set_open_setup,
+    set_repair, set_turn_on, setup_needed, show_result, stage_takes,
+};
+#[cfg(test)]
+pub(crate) use host::projected;
 
 /// A task's colour, for Chats' running tasks.
 pub(super) use palette::task as task_colour;

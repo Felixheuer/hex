@@ -1,6 +1,6 @@
 //! One of a task's browsers, live and large: the card both the overlay
 //! (beside the orb) and Chats show. Above the picture, the page's title and
-//! address with Show in Assistant (in the overlay) and ×; below it, what the
+//! address with What it did (in the overlay, on the stage) and ×; below it, what the
 //! task is doing and Take over / Hand back. While the person drives, the
 //! picture takes their pointer, wheel, and keys to the page.
 
@@ -33,8 +33,9 @@ pub(crate) struct Actions<S> {
     pub(crate) close: fn(&mut S),
     pub(crate) take_over: fn(&mut S, &str),
     pub(crate) hand_back: fn(&mut S, &str),
-    /// "Show in Assistant" (task, session); `None` hides it (in the Assistant pane itself).
-    pub(crate) open_chats: Option<fn(&mut S, &str, &str)>,
+    /// "What it did" (task, session): its steps on the stage; `None` hides
+    /// it (in the Assistant pane itself).
+    pub(crate) what_it_did: Option<fn(&mut S, &str, &str)>,
 }
 
 impl<S> Clone for Actions<S> {
@@ -93,13 +94,13 @@ pub(in crate::rune_ui) fn card<S: 'static>(
             )
     };
     let close = actions.close;
-    let open_chats = actions.open_chats.map(|open| {
+    let what_it_did = actions.what_it_did.map(|open| {
         let (task, session) = (task.to_owned(), session.to_owned());
-        Button::new(tr("Show in Assistant"))
+        Button::new(tr("What it did"))
             .variant(ButtonVariant::Ghost)
             .on_press(move |s: &mut S| open(s, &task, &session))
             .build_small_push(k)
-            .key("live-open-chats")
+            .key("live-what-it-did")
     });
     let header = row()
         .key("live-header")
@@ -129,7 +130,7 @@ pub(in crate::rune_ui) fn card<S: 'static>(
                         .color(p.faint())
                 })),
         )
-        .children(open_chats)
+        .children(what_it_did)
         .child(
             IconButton::new(k.glyph.close)
                 .variant(IconButtonVariant::GhostMuted)

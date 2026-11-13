@@ -1,16 +1,16 @@
 //! Running one task on a backend: `claude -p --output-format stream-json`,
 //! `codex exec --json`, `opencode run --format json`, or the Claude Messages
-//! API, each given its desktop tool (the guard's MCP server, or agent-desktop
-//! itself when there is no guard) and, for web work, its own hidden browser
-//! (`servers`), with their output turned into `Report`s.
+//! API, each given its desktop tool (the guard's MCP server, with Cua Driver
+//! behind it) and, for web work, its own hidden browser (`servers`), with
+//! their output turned into `Report`s.
 //!
 //! Claude Code can be started ahead (`warm`): its process and MCP servers
 //! come up while the person still speaks, and a Here conversation's process
 //! stays for the follow-up.
 //!
 //! Every backend process runs in its own process group, so cancelling a task
-//! ends the agent and everything it started (its agent-desktop MCP server,
-//! any command it ran) together.
+//! ends the agent and everything it started (its MCP servers, the desktop
+//! driver behind the guard, any command it ran) together.
 //!
 //! OWNER: brain.
 
@@ -44,21 +44,13 @@ use crate::assistant::backends::McpServer;
 use crate::assistant::backends::run::{self, Tree};
 use crate::assistant::types::{Message, TaskWindow};
 
-/// The desktop tool a task may use, and who it is there.
+/// The desktop tool a task may use.
 #[derive(Clone, Debug)]
 pub struct Desktop {
     /// The guard's MCP server for this task: a task never reaches the
-    /// desktop driver without it.
+    /// desktop driver (Cua Driver) without it.
     pub server: McpServer,
-    /// The desktop driver's executable (agent-desktop's for its guide).
-    pub agent_desktop: PathBuf,
-    /// Which desktop driver runs behind the guard (`assistant::driver`).
-    pub driver: crate::assistant::driver::Driver,
-    /// The multi-agent session, when one is running.
-    pub session: Option<String>,
-    /// This task's id within the session; its own cursor.
-    pub agent_id: String,
-    /// Real pointer and keyboard input (`--headed`) is allowed.
+    /// Real pointer and keyboard input is allowed.
     pub headed: bool,
     /// A Background task may also operate the window in front
     /// (`assistant.full_control`; the guard enforces it).
@@ -69,46 +61,30 @@ pub struct Desktop {
 }
 
 impl Desktop {
-    /// A task's agent-desktop at a made-up path, for tests.
+    /// A task's guard at a made-up path, for tests.
     #[cfg(test)]
-    pub fn fixture(session: Option<&str>, agent_id: &str) -> Self {
-        let mut args = vec!["mcp".to_owned()];
-        args.extend(flags(session, agent_id, false));
+    pub fn fixture() -> Self {
+        Self::new(McpServer {
+            command: "/Applications/Agent-Desk.app/Contents/MacOS/agent-desk".into(),
+            args: vec![
+                "assistant".into(),
+                "mcp".into(),
+                "--spec".into(),
+                r#"{"task":"t","lane":"background"}"#.into(),
+            ],
+            path_env: "/usr/bin:/bin".into(),
+        })
+    }
+
+    /// The desktop tool for a task: `guard`'s server, with Cua Driver
+    /// behind it (`guard::mcp_server`).
+    pub fn new(guard: McpServer) -> Self {
         Self {
-            server: McpServer {
-                command: "/opt/homebrew/bin/agent-desktop".into(),
-                args,
-                path_env: "/usr/bin:/bin".into(),
-            },
-            agent_desktop: "/opt/homebrew/bin/agent-desktop".into(),
-            driver: crate::assistant::driver::Driver::AgentDesktop,
-            session: session.map(str::to_owned),
-            agent_id: agent_id.to_owned(),
+            server: guard,
             headed: false,
             front_window: false,
             open_apps: false,
         }
-    }
-
-    /// The desktop tool for a task: `guard`'s server, with the driver
-    /// behind it; `None` when no desktop driver is installed.
-    pub fn new(
-        guard: McpServer,
-        session: Option<String>,
-        agent_id: String,
-        headed: bool,
-    ) -> Option<Self> {
-        let found = crate::assistant::driver::active()?;
-        Some(Self {
-            server: guard,
-            agent_desktop: found.path,
-            driver: found.driver,
-            session,
-            agent_id,
-            headed,
-            front_window: false,
-            open_apps: false,
-        })
     }
 
     /// Whether the task opens and uses any app (full control, or allowed to
@@ -116,35 +92,6 @@ impl Desktop {
     pub fn reaches_apps(&self) -> bool {
         self.open_apps || self.front_window
     }
-
-    /// The agent-desktop executable.
-    pub fn executable(&self) -> &Path {
-        &self.agent_desktop
-    }
-
-    /// The environment that names the session and agent, for every process
-    /// the task starts.
-    pub fn env(&self) -> Vec<(String, String)> {
-        let mut env = vec![("AGENT_DESKTOP_AGENT_ID".to_owned(), self.agent_id.clone())];
-        if let Some(session) = &self.session {
-            env.push(("AGENT_DESKTOP_SESSION".into(), session.clone()));
-        }
-        env
-    }
-}
-
-/// agent-desktop's flags for a task: its session and agent id, and
-/// `--headed` when physical input is allowed.
-pub fn flags(session: Option<&str>, agent_id: &str, headed: bool) -> Vec<String> {
-    let mut flags = Vec::new();
-    if let Some(session) = session {
-        flags.extend(["--session".to_owned(), session.to_owned()]);
-        flags.extend(["--agent-id".to_owned(), agent_id.to_owned()]);
-    }
-    if headed {
-        flags.push("--headed".into());
-    }
-    flags
 }
 
 /// One task for a backend.
@@ -496,23 +443,11 @@ pub fn executable(backend: AssistantBackend) -> Result<PathBuf> {
     })
 }
 
-/// agent-desktop's executable when it is the desktop driver that runs (its
-/// sessions, cursors, and guide); `None` with Cua Driver.
-pub fn agent_desktop() -> Option<PathBuf> {
-    crate::assistant::driver::active()
-        .filter(|found| found.driver == crate::assistant::driver::Driver::AgentDesktop)
-        .map(|found| found.path)
-}
-
-/// A command for `executable` in `workdir`, with the environment Agent-Desk gives
-/// agents (`backends::agent_command`: its PATH finds `node` and
-/// agent-desktop) and the task's desktop session.
-pub fn command(executable: &Path, workdir: &Path, desktop: Option<&Desktop>) -> Command {
+/// A command for `executable` in `workdir`, with the environment Agent-Desk
+/// gives agents (`backends::agent_command`: its PATH finds `node`).
+pub fn command(executable: &Path, workdir: &Path) -> Command {
     let mut command = crate::assistant::backends::agent_command(executable);
     command.current_dir(workdir);
-    for (key, value) in desktop.map(Desktop::env).unwrap_or_default() {
-        command.env(key, value);
-    }
     command
 }
 
@@ -629,7 +564,7 @@ impl Process {
     }
 }
 
-/// Runs `executable args` to completion (an agent-desktop call) and returns
+/// Runs `executable args` to completion and returns
 /// its stdout, ended early when the task is cancelled.
 pub fn output(command: Command, control: &Control, limit: usize) -> Result<String> {
     let mut process = Process::spawn(command, Stdin::Null, control)?;
@@ -732,15 +667,10 @@ mod tests {
     }
 
     #[test]
-    fn desktop_flags_name_the_session_only_when_there_is_one() {
-        assert!(flags(None, "hex-1", false).is_empty());
+    fn steering_cancels_the_turn() {
         let control = Control::new();
         control.steer();
         assert!(control.cancelled() && control.steered());
-        assert_eq!(
-            flags(Some("s1"), "hex-1", true),
-            ["--session", "s1", "--agent-id", "hex-1", "--headed"]
-        );
     }
 
     #[cfg(unix)]

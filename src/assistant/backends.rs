@@ -1,12 +1,12 @@
 //! Finding the agents installed on this Mac (Claude Code, Codex, OpenCode)
-//! and agent-desktop, the desktop tool every task uses. A GUI app does not
+//! and Cua Driver, the desktop driver behind every task's guard. A GUI app does not
 //! inherit the person's shell PATH, so this looks where installers put them
 //! and asks the login shell (`search`), and gives every agent it starts that
 //! PATH (`agent_env`), so a Node-based agent finds `node`.
 //!
 //! Setup proves each piece works with `check`'s self-tests, run from Agent-Desk so
 //! macOS judges Agent-Desk's own permissions: an agent Agent-Desk starts, and the
-//! agent-desktop it starts, act with Agent-Desk.app's Accessibility and Screen
+//! Cua Driver it starts, act with Agent-Desk.app's Accessibility and Screen
 //! Recording, not Terminal's.
 //!
 //! OWNER: hands.
@@ -216,7 +216,7 @@ pub(in crate::assistant) fn version_of(path: &Path) -> std::result::Result<Optio
 }
 
 /// The first version number in `text`: `2.1.318 (Claude Code)`,
-/// `codex-cli 0.166.0`, `opencode v2.2.6`, `agent-desktop 1.2.0`.
+/// `codex-cli 0.166.0`, `opencode v2.2.6`, `cua-driver 0.49.3`.
 pub fn parse_version(text: &str) -> Option<String> {
     text.split(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == ',')
         .map(|word| word.trim_start_matches(['v', 'V']))
@@ -285,12 +285,12 @@ pub fn codex_logged_in(output: &str) -> bool {
     })
 }
 
-/// The environment for an agent Agent-Desk starts (and for the agent-desktop it
-/// starts): Agent-Desk's own, less another agent's session markers, with a PATH
-/// that has the agents, `node`, and agent-desktop. Use it whole:
+/// The environment for an agent Agent-Desk starts: Agent-Desk's own, less another
+/// agent's session markers, with a PATH that has the agents and `node`. Use it
+/// whole:
 /// `command.env_clear().envs(agent_env())`, or [`agent_command`].
 pub fn agent_env() -> Vec<(String, String)> {
-    let extra: Vec<PathBuf> = ["claude", "codex", "opencode", "agent-desktop", "node"]
+    let extra: Vec<PathBuf> = ["claude", "codex", "opencode", "node"]
         .into_iter()
         .filter_map(search::find)
         .collect();
@@ -372,8 +372,6 @@ fn is_session_marker(key: &str) -> bool {
             | "CODEX_THREAD_ID"
             | "CODEX_SANDBOX"
             | "CODEX_SANDBOX_NETWORK_DISABLED"
-            | "AGENT_DESKTOP_SESSION"
-            | "AGENT_DESKTOP_AGENT_ID"
     )
 }
 
@@ -391,104 +389,39 @@ pub fn refresh() {
     search::forget();
 }
 
-/// agent-desktop as found.
+/// Cua Driver, the desktop driver, as found.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct AgentDesktop {
+pub struct Driver {
     pub path: Option<PathBuf>,
+    /// The version tasks run.
     pub version: Option<String>,
+    /// Agent-Desk's grants, which the driver acts with (it runs in Agent-Desk's
+    /// process tree).
     pub accessibility: bool,
     pub screen_recording: bool,
+    /// How its last update check went (`driver::update::Status::line`):
+    /// "Cua Driver 0.49.3 · up to date".
+    pub update: String,
 }
 
-/// agent-desktop's path, version, and permissions as it reports them when
-/// Agent-Desk starts it (so they are Agent-Desk's grants). Blocks briefly; off the UI
-/// thread.
-pub fn agent_desktop() -> AgentDesktop {
-    let Some(path) = search::find("agent-desktop") else {
-        return AgentDesktop::default();
-    };
-    let version = version_of(&path).ok().flatten();
-    let grants = agent_desktop_grants(&path).unwrap_or_default();
-    AgentDesktop {
-        path: Some(path),
-        version,
-        accessibility: grants.accessibility,
-        screen_recording: grants.screen_recording,
+/// Cua Driver's path and version, Agent-Desk's grants, and its update
+/// status. Quick; off the UI thread all the same.
+pub fn driver() -> Driver {
+    let path = crate::assistant::driver::find();
+    let permissions = crate::assistant::computer::permissions_now();
+    Driver {
+        version: path
+            .as_ref()
+            .and_then(|_| crate::assistant::driver::cua::version()),
+        path,
+        accessibility: permissions.accessibility,
+        screen_recording: permissions.screen_recording,
+        update: crate::assistant::driver::update::status().line(),
     }
 }
 
-fn agent_desktop_grants(path: &Path) -> std::result::Result<desktop::Grants, String> {
-    match desktop_call(path, &["permissions"])? {
-        desktop::Reply::Ok(data) => {
-            desktop::grants(&data).ok_or_else(|| "agent-desktop didn't say its permissions".into())
-        }
-        desktop::Reply::Failed { message, .. } => Err(message),
-    }
-}
-
-/// Runs one read-only agent-desktop command from Agent-Desk and reads its reply.
-pub(in crate::assistant) fn desktop_call(
-    path: &Path,
-    args: &[&str],
-) -> std::result::Result<desktop::Reply, String> {
-    let mut command = agent_command(path);
-    command.args(args);
-    let ran = run::bounded(command, Duration::from_secs(15)).map_err(|error| error.to_string())?;
-    if ran.timed_out() {
-        return Err(format!("`agent-desktop {}` took too long", args.join(" ")));
-    }
-    desktop::parse(&ran.stdout).ok_or_else(|| {
-        let words = ran.last_words();
-        if words.is_empty() {
-            "agent-desktop said nothing".into()
-        } else {
-            words
-        }
-    })
-}
-
-/// Installs agent-desktop (Homebrew, else npm); blocks until done (minutes
-/// at most). Fails with a person-readable reason when neither is there
-/// ([`install_command`] has what to paste in Terminal instead).
-pub fn install_agent_desktop() -> Result<()> {
-    install::install(Tool::AgentDesktop, &mut |_| {})
-}
-
-/// Installs agent-desktop (the fallback desktop driver), telling
-/// `progress` what it does.
-pub fn install_tool_agent_desktop(progress: &mut dyn FnMut(&str)) -> Result<()> {
-    install::install(Tool::AgentDesktop, progress)
-}
-
-/// Opens System Settings at agent-desktop's missing permission
-/// (`agent-desktop permissions --guide`), with its guide showing Agent-Desk as the
-/// app to switch on. Returns at once.
-pub fn guide_permissions() {
-    let Some(path) = search::find("agent-desktop") else {
-        tracing::warn!("agent-desktop isn't installed; nothing to guide");
-        return;
-    };
-    let spawned = std::thread::Builder::new()
-        .name("hex-assistant-guide".into())
-        .spawn(
-            move || match desktop_call(&path, &["permissions", "--guide"]) {
-                Ok(desktop::Reply::Ok(data)) => {
-                    tracing::info!(guide = %data, "agent-desktop's permission guide");
-                }
-                Ok(desktop::Reply::Failed { code, message }) => {
-                    tracing::warn!(code, message, "agent-desktop's permission guide failed");
-                }
-                Err(error) => tracing::warn!(error, "agent-desktop's permission guide failed"),
-            },
-        );
-    if let Err(error) = spawned {
-        tracing::warn!(%error, "could not start agent-desktop's permission guide");
-    }
-}
-
-/// agent-desktop as an agent's MCP server (`agent-desktop mcp`, plus
-/// `args` such as `--session <id> --agent-id <id>`), with the PATH Agent-Desk gives
-/// agents.
+/// An agent's MCP server (the guard's, a browser's): its command and
+/// arguments, with the PATH Agent-Desk gives agents.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct McpServer {
     pub command: PathBuf,
@@ -498,21 +431,9 @@ pub struct McpServer {
 
 /// The server's name in each agent's config; its tools are then
 /// `mcp__desktop__desktop_*` (Claude Code), `desktop_*` (Codex), and
-/// `desktop_desktop_*` (OpenCode), whichever driver serves them (`assistant::driver`).
+/// `desktop_desktop_*` (OpenCode), served by the guard from Cua Driver
+/// (`assistant::driver`).
 pub const MCP_NAME: &str = "desktop";
-
-pub fn mcp_server(args: &[&str]) -> Option<McpServer> {
-    let command = search::find("agent-desktop")?;
-    let extra = [command.clone()];
-    Some(McpServer {
-        command,
-        args: std::iter::once("mcp")
-            .chain(args.iter().copied())
-            .map(str::to_owned)
-            .collect(),
-        path_env: search::path_value(&extra),
-    })
-}
 
 impl McpServer {
     /// For `claude --mcp-config <this> --strict-mcp-config`.
@@ -624,7 +545,7 @@ mod tests {
             ("2.1.318 (Claude Code)\n", "2.1.318"),
             ("codex-cli 0.166.0\n", "0.166.0"),
             ("opencode v2.2.6\n", "2.2.6"),
-            ("agent-desktop 1.2.0\n", "1.2.0"),
+            ("cua-driver 0.49.3\n", "0.49.3"),
             ("Homebrew 5.1.0-beta\n", "5.1.0-beta"),
         ] {
             assert_eq!(parse_version(text).as_deref(), Some(version), "{text}");
@@ -682,25 +603,25 @@ mod tests {
     }
 
     #[test]
-    fn each_agent_gets_agent_desktop_in_its_own_config_format() {
+    fn each_agent_gets_the_guard_in_its_own_config_format() {
         let server = McpServer {
-            command: PathBuf::from("/opt/homebrew/bin/agent-desktop"),
-            args: vec!["mcp".into(), "--session".into(), "s1".into()],
+            command: PathBuf::from("/opt/homebrew/bin/agent-desk"),
+            args: vec!["assistant".into(), "mcp".into(), "s1".into()],
             path_env: "/opt/homebrew/bin:/usr/bin".into(),
         };
         let claude: serde_json::Value = serde_json::from_str(&server.claude_config()).unwrap();
         assert_eq!(
             claude["mcpServers"]["desktop"]["command"],
-            "/opt/homebrew/bin/agent-desktop"
+            "/opt/homebrew/bin/agent-desk"
         );
         assert_eq!(claude["mcpServers"]["desktop"]["args"][2], "s1");
         assert_eq!(
             server.codex_args(&["desktop_status"]),
             [
                 "-c",
-                r#"mcp_servers.desktop.command="/opt/homebrew/bin/agent-desktop""#,
+                r#"mcp_servers.desktop.command="/opt/homebrew/bin/agent-desk""#,
                 "-c",
-                r#"mcp_servers.desktop.args=["mcp","--session","s1"]"#,
+                r#"mcp_servers.desktop.args=["assistant","mcp","s1"]"#,
                 "-c",
                 r#"mcp_servers.desktop.env.PATH="/opt/homebrew/bin:/usr/bin""#,
                 "-c",
@@ -711,7 +632,7 @@ mod tests {
         );
         assert_eq!(
             server.opencode_config()["desktop"]["command"],
-            serde_json::json!(["/opt/homebrew/bin/agent-desktop", "mcp", "--session", "s1"])
+            serde_json::json!(["/opt/homebrew/bin/agent-desk", "assistant", "mcp", "s1"])
         );
     }
 }

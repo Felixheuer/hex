@@ -1,6 +1,6 @@
 //! A task's browser, live and large, right in the overlay: pressing a
 //! preview in the orb's list opens it here, on the display the pointer is
-//! on, with Take over / Hand back below it, Show in Assistant and × above it,
+//! on, with Take over / Hand back below it, What it did and × above it,
 //! and Escape to close. The panel takes the keyboard only while it shows
 //! (so Escape and, once taken over, typing reach it) and gives it up when
 //! it hides.
@@ -116,7 +116,7 @@ mod tests {
             },
             take_over: |_, _| {},
             hand_back: |_, _| {},
-            open_chats: None,
+            what_it_did: None,
         }
     }
 

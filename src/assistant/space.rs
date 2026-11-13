@@ -11,38 +11,29 @@
 //! into the Dock.
 //!
 //! So this does what AeroSpace does for its workspaces: a parked window is
-//! moved through Accessibility (Agent-Desk's own `actions::ax`, agent-desktop's
-//! `move-window` where that fails) so its
+//! moved through Accessibility (Agent-Desk's own `actions::ax`) so its
 //! top-left corner sits in a bottom corner of a screen, leaving a pixel or
 //! two on screen. It stays on the person's Space, in its app, and in
-//! Accessibility's tree, so agent-desktop reads and operates it as before;
+//! Accessibility's tree, so Cua Driver reads and operates it as before;
 //! it still shows in Mission Control and the app switcher. [`show_now`]
 //! moves it back where it was and brings it to the front. Where it was is
 //! kept in the guard's parking store (`guard::parking`), which the guard
-//! writes too, so a window goes back even after Agent-Desk quits or crashes. Whether this holds on a
-//! given Mac is what `agent-desk dev assistant-space-probe` checks, run only when
-//! the person asks.
+//! writes too, so a window goes back even after Agent-Desk quits or crashes.
 //!
 //! OWNER: browser (with the Space spike).
-
-#[cfg(debug_assertions)]
-pub mod probe;
-
-use std::path::Path;
 
 use serde_json::Value;
 
 use crate::assistant::TaskWindow;
-use crate::assistant::backends::{self, desktop, search};
 use crate::assistant::guard::{self, ParkedHow};
 
 /// Whether moving task windows out of the way is on and can work here
-/// (`park_windows` and the assistant are on; on macOS Agent-Desk moves windows
-/// itself, elsewhere agent-desktop must be installed).
+/// (`park_windows` and the assistant are on, on macOS, where Agent-Desk moves
+/// windows itself).
 pub fn available() -> bool {
     let on = crate::app_settings::assistant_runtime()
         .is_some_and(|(lab, settings)| lab && settings.park_windows);
-    on && (cfg!(target_os = "macos") || search::find("agent-desktop").is_some())
+    on && cfg!(target_os = "macos")
 }
 
 /// A window as it was parked.
@@ -205,32 +196,10 @@ mod native {
     pub fn activate(_pid: i32) {}
 }
 
-/// One agent-desktop command's data.
-pub(crate) fn call(tool: &Path, args: &[&str]) -> Result<Value, String> {
-    match backends::desktop_call(tool, args)? {
-        desktop::Reply::Ok(data) => Ok(data),
-        desktop::Reply::Failed { code, message } => Err(format!("{code}: {message}")),
-    }
-}
-
-/// `window`'s bounds as `list-windows` gives them; `None` when it isn't
-/// listed or has none.
-pub(crate) fn bounds(
-    tool: &Path,
-    app: &str,
-    id: &str,
-) -> Result<Option<(f64, f64, f64, f64)>, String> {
-    let windows = desktop::windows(&call(tool, &["list-windows", "--app", app])?);
-    Ok(windows
-        .into_iter()
-        .find(|window| window.id == id)
-        .and_then(|window| window.bounds))
-}
-
 /// A display as `list-displays` gives it (top-left origin, points).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Display {
-    /// agent-desktop's id ("1", "5").
+    /// The display's id ("1", "5").
     pub id: String,
     pub x: f64,
     pub y: f64,

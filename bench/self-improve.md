@@ -18,7 +18,7 @@ with the bench, and open a PR when the bench is not worse.
   Never install a source build over `/Applications/Agent-Desk.app`.
 - **Hands off the person's Mac.** No injected keys or clicks, no
   `--allow-front` unless `AGENT_DESK_SELF_IMPROVE_ALLOW_FRONT=1`. Read-only desktop
-  checks only (`agent-desktop list-apps`, `list-windows`, `lsappinfo`).
+  checks only (Cua Driver's `desktop_list_apps` and `desktop_list_windows`, `lsappinfo`).
 - **Messages are drafts**, only to the test recipients in
   `bench/config.toml`. Never send anything to anyone.
 - **Files** only under `~/Documents/Agent-Desk/bench` (the bench's temp folders)

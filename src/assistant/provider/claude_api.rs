@@ -36,7 +36,7 @@ pub(super) fn run(
     let mut tools = Vec::new();
     let started = (|| -> Result<()> {
         for (_, server) in super::servers::of(run) {
-            let mut client = Client::start(server, run.desktop.as_ref(), &run.workdir, control)?;
+            let mut client = Client::start(server, &run.workdir, control)?;
             let (definitions, names) = tool_definitions(&mut client)?;
             tools.extend(definitions);
             servers.push(Server {
@@ -338,7 +338,7 @@ fn run_tools(
 }
 
 /// MCP content as API tool-result content: text as text, images inline,
-/// and a screenshot agent-desktop saved to a file shown as the image.
+/// and a screenshot saved to a file shown as the image.
 fn result_content(content: &[Value]) -> Vec<Value> {
     let mut blocks = Vec::new();
     for item in content {

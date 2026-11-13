@@ -1,7 +1,7 @@
 //! Codex: `codex exec --json`, signed in with the person's ChatGPT account.
 //!
 //! The prompt goes in on stdin, Agent-Desk's instructions as `developer_instructions`,
-//! and agent-desktop as an MCP server through `-c mcp_servers.desktop.*`
+//! and the guard (the desktop tools) as an MCP server through `-c mcp_servers.desktop.*`
 //! with its tools approved up front (`default_tools_approval_mode`), because
 //! `exec` never asks. Shell commands run in the read-only sandbox. A
 //! conversation continues with `codex exec resume <thread id>`.
@@ -19,7 +19,7 @@ pub(super) fn run(
     report: &mut dyn FnMut(Report),
 ) -> Result<Finished> {
     let executable = super::executable(AssistantBackend::Codex)?;
-    let mut command = super::command(&executable, &run.workdir, run.desktop.as_ref());
+    let mut command = super::command(&executable, &run.workdir);
     command.args(arguments(run));
     let mut process = Process::spawn(
         command,
@@ -230,12 +230,12 @@ mod tests {
     }
 
     #[test]
-    fn arguments_resume_and_approve_agent_desktop() {
+    fn arguments_resume_and_approve_the_desktop_tools() {
         let run = Run {
             system: "Line one\n\"quoted\"".into(),
             image: Some("/tmp/shot.png".into()),
             resume: Some("thread-1".into()),
-            desktop: Some(Desktop::fixture(None, "hex-1")),
+            desktop: Some(Desktop::fixture()),
             ..Run::fixture(AssistantBackend::Codex)
         };
         let args = arguments(&run);
@@ -245,7 +245,12 @@ mod tests {
         );
         assert_eq!(args.last().unwrap(), "-");
         assert!(args.contains(&r#"developer_instructions="Line one\n\"quoted\"""#.to_owned()));
-        assert!(args.contains(&r#"mcp_servers.desktop.args=["mcp"]"#.to_owned()));
+        assert!(
+            args.iter()
+                .any(|arg| arg
+                    .starts_with(r#"mcp_servers.desktop.args=["assistant","mcp","--spec","#)),
+            "{args:?}"
+        );
         // The guard lists exactly the task's tools; Codex keeps no list.
         assert!(!args.iter().any(|arg| arg.contains(".enabled_tools=")));
         assert!(

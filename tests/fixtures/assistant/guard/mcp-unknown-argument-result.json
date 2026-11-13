@@ -1,1 +1,0 @@
-{"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"agent-desktop","version":"1.2.0"}},"content":[{"text":"Unknown argument 'bogus' for desktop_snapshot. Known arguments: app, window_id, max_depth, include_bounds, interactive_only, compact, skeleton, surface, root, timeout_ms, force_electron_a11y","type":"text"}],"isError":true,"resultType":"complete"}

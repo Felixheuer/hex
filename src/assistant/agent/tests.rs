@@ -13,8 +13,6 @@ fn job(text: &str, origin: Origin, context: Context) -> Job {
             context,
         },
         settings: AssistantSettings::default(),
-        agent_id: "hex-7".into(),
-        desktop_session: Some("S1".into()),
         kind: JobKind::Ask,
         digest: None,
         workspace: None,
@@ -120,7 +118,7 @@ fn staying_in_the_background_still_opens_apps_in_windows_of_its_own() {
     let spec = task_spec(&asked);
     assert!(!spec.full_control);
     assert!(spec.open_apps);
-    let mut desktop = Desktop::fixture(None, "hex-1");
+    let mut desktop = Desktop::fixture();
     desktop.open_apps = true;
     let here = system_prompt(Origin::ActionShortcut, Some(&desktop), false);
     assert!(
@@ -159,18 +157,14 @@ fn small_things_and_capability_questions_never_become_jobs() {
     let rules = job_rules(std::path::Path::new("/tmp/job"), all_tools(), true);
     assert!(rules.contains("skips the paperwork"), "{rules}");
     assert!(rules.contains("Only when the job sent, posted, published"));
-    let background = system_prompt(
-        Origin::Background,
-        Some(&Desktop::fixture(None, "hex-1")),
-        true,
-    );
+    let background = system_prompt(Origin::Background, Some(&Desktop::fixture()), true);
     assert!(background.contains("even one that already runs, call hex_open_app first"));
     assert!(background.contains("Never only check that an app runs"));
 }
 
 #[test]
 fn with_full_control_a_quick_turn_opens_apps_itself() {
-    let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
+    let mut desktop = Desktop::fixture();
     desktop.front_window = true;
     let here = system_prompt(Origin::ActionShortcut, Some(&desktop), false);
     assert!(
@@ -271,8 +265,6 @@ fn the_guard_learns_each_lanes_window_and_input_policy() {
         TaskSpec {
             task: "c1".into(),
             lane: Lane::Here,
-            agent_id: "hex-7".into(),
-            session: Some("S1".into()),
             here_window: Some(mail()),
             physical_input: true,
             blocked_apps: vec!["1Password".into()],
@@ -310,7 +302,7 @@ fn the_here_lane_runs_on_the_fast_model_where_the_backend_takes_it() {
 
 #[test]
 fn each_lane_gets_its_own_rules() {
-    let desktop = Desktop::fixture(Some("S1"), "hex-7");
+    let desktop = Desktop::fixture();
     let here = system_prompt(Origin::ActionShortcut, Some(&desktop), false);
     assert!(here.contains("ACT only in the window in front"));
     assert!(here.contains("speakable"));
@@ -324,7 +316,11 @@ fn each_lane_gets_its_own_rules() {
     );
     assert!(background.contains("Never the person's window"));
     assert!(background.contains("Use the browser tools for anything on the web"));
-    assert!(background.contains("agent “hex-7”"));
+    assert!(background.contains("You run beside the person and other agents"));
+    assert!(
+        !background.contains("cursor"),
+        "Cua Driver keeps no cursors"
+    );
     let quick = system_prompt(Origin::ActionShortcut, None, false);
     assert!(quick.contains("no markdown"));
     assert!(quick.contains("no access to the desktop"));
@@ -376,15 +372,6 @@ fn the_prompt_explains_the_autonomy_mode_and_memory() {
         allowed: true,
     };
     assert!(prompt(&confirm, &[], false).contains("That's a yes"));
-}
-
-#[test]
-fn front_matter_is_dropped_from_the_guide() {
-    assert_eq!(
-        strip_front_matter("---\nname: x\n---\n\n# Guide"),
-        "# Guide"
-    );
-    assert_eq!(strip_front_matter("# Guide"), "# Guide");
 }
 
 #[test]
@@ -549,11 +536,7 @@ fn the_routing_rule_hands_jobs_on_with_the_tool() {
             "dependent parts stay one job"
         );
     }
-    let here = system_prompt(
-        Origin::ActionShortcut,
-        Some(&Desktop::fixture(None, "hex-1")),
-        false,
-    );
+    let here = system_prompt(Origin::ActionShortcut, Some(&Desktop::fixture()), false);
     assert!(here.contains("hex_start_jobs"));
 }
 
@@ -606,7 +589,7 @@ fn any_app_is_scripted_first_and_an_unreachable_window_means_another_way() {
         assert!(!rule.contains(name), "{name}");
         assert!(!apps_rules(true, true).contains(name), "{name}");
     }
-    let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
+    let mut desktop = Desktop::fixture();
     desktop.open_apps = true;
     let asked = job(
         "Was ist das Passwort vom IP-Zugang von Kraftstoffnotdienst? Steht in Notizen",
@@ -619,7 +602,7 @@ fn any_app_is_scripted_first_and_an_unreachable_window_means_another_way() {
     desktop.open_apps = false;
     assert!(system_for(&background, Some(&desktop), true).contains(APP_METHODS));
     // A quick turn kept to the window in front hands app work to a job.
-    let front_only = Desktop::fixture(Some("S1"), "hex-7");
+    let front_only = Desktop::fixture();
     assert!(!system_for(&asked, Some(&front_only), true).contains(APP_METHODS));
 }
 
@@ -643,7 +626,7 @@ fn a_job_is_told_the_person_s_language() {
 fn a_backend_started_ahead_has_the_requests_own_system_prompt() {
     use crate::assistant::autonomy::{Authorized, Category};
     use crate::assistant::knowledge::{self, graph};
-    let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
+    let mut desktop = Desktop::fixture();
     desktop.front_window = true;
     // As `service::prewarm` builds it: no words yet, nothing authorized.
     let mut ahead = job("", Origin::ActionShortcut, Context::default());
@@ -739,27 +722,8 @@ fn quick_turns_run_fast_and_hand_hard_ones_to_the_strong_model() {
     )));
 }
 
-#[test]
-fn the_guide_keeps_what_a_task_uses() {
-    let guide = "# agent-desktop\n\nIntro.\n\n## Shell syntax\n\nPowerShell.\n\n## The loop\n\n```\n# not a heading\nagent-desktop snapshot\n```\n\n## First run\n\n1. status\n\n## Refs\n\nRefs.\n\n# agent-desktop on macOS\n\n## Requirements\n\nmacOS 13.\n\n## What differs on macOS\n\nKeys.";
-    let kept = trim_guide(guide);
-    for gone in ["PowerShell", "1. status", "macOS 13"] {
-        assert!(!kept.contains(gone), "{gone}: {kept}");
-    }
-    for stays in [
-        "Intro.",
-        "## The loop",
-        "# not a heading",
-        "Refs.",
-        "# agent-desktop on macOS",
-        "Keys.",
-    ] {
-        assert!(kept.contains(stays), "{stays}: {kept}");
-    }
-}
-
-/// Characters of each lane's own rules (agent-desktop's guide aside): what
-/// every request pays for before its first word. Raise only with a reason.
+/// Characters of each lane's own rules: what every request pays for before
+/// its first word. Raise only with a reason.
 // 9_300: the knowledge tools (hex_lookup, hex_browser_tab) add a short rule.
 // 9_600: acting by a window's picture when Accessibility fails (BACKGROUND_INPUT_RULES).
 // 9_700: one routing rule per lane (the web, hex_job_result) and letting go of desk windows.
@@ -775,23 +739,12 @@ const JOB_BUDGET: usize = 16_750;
 
 #[test]
 fn each_lane_s_rules_stay_within_their_budget() {
-    let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
+    let mut desktop = Desktop::fixture();
     desktop.front_window = true;
     desktop.open_apps = true;
-    // The guide is agent-desktop's: measured apart, where it is installed.
-    let without_guide = |system: String| match system.find("\nagent-desktop's guide:") {
-        Some(start) => {
-            let end = system[start..]
-                .find("\nYou decide how")
-                .or_else(|| system[start..].find("\nThis is a job"))
-                .map_or(system.len(), |end| start + end);
-            format!("{}{}", &system[..start], &system[end..])
-        }
-        None => system,
-    };
     let mut here = job("q", Origin::ActionShortcut, Context::default());
     here.memory = Some("- Company: blabla.com".into());
-    let quick = without_guide(system_for(&here, Some(&desktop), true));
+    let quick = system_for(&here, Some(&desktop), true);
     assert!(
         quick.len() <= HERE_BUDGET,
         "the Here lane's rules grew to {} characters",
@@ -800,7 +753,7 @@ fn each_lane_s_rules_stay_within_their_budget() {
     let mut background = here.clone();
     background.request.origin = Origin::Background;
     background.workspace = Some("/tmp/job".into());
-    let job_rules = without_guide(system_for(&background, Some(&desktop), true));
+    let job_rules = system_for(&background, Some(&desktop), true);
     assert!(
         job_rules.len() <= JOB_BUDGET,
         "a job's rules grew to {} characters",
@@ -811,7 +764,7 @@ fn each_lane_s_rules_stay_within_their_budget() {
 #[test]
 #[ignore = "prints the prompt sizes per lane; run with --ignored --nocapture"]
 fn print_prompt_sizes() {
-    let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
+    let mut desktop = Desktop::fixture();
     desktop.front_window = true;
     desktop.open_apps = true;
     let here = job(
@@ -820,18 +773,12 @@ fn print_prompt_sizes() {
         Context::default(),
     );
     let system = system_for(&here, Some(&desktop), true);
-    let guide = system
-        .find("\nagent-desktop's guide:")
-        .unwrap_or(system.len());
-    println!("here: {} chars ({} without the guide)", system.len(), guide);
+    println!("here: {} chars", system.len());
     std::fs::write(std::env::temp_dir().join("hex-here-system.txt"), &system).unwrap();
     let mut background = here.clone();
     background.request.origin = Origin::Background;
     background.workspace = Some("/tmp/job".into());
     let system = system_for(&background, Some(&desktop), true);
-    let guide = system
-        .find("\nagent-desktop's guide:")
-        .unwrap_or(system.len());
-    println!("job: {} chars ({} without the guide)", system.len(), guide);
+    println!("job: {} chars", system.len());
     std::fs::write(std::env::temp_dir().join("hex-job-system.txt"), &system).unwrap();
 }

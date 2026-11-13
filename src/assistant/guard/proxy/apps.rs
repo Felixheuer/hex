@@ -142,7 +142,7 @@ impl<D: Desktop> Guard<D> {
         let before = super::front::frontmost();
         let result = self.forward("desktop_launch", &launch)?;
         let Some(data) = child::data(&result) else {
-            // agent-desktop's own failure, as it said it.
+            // The driver's own failure, as it said it.
             return Ok(result);
         };
         let launched = Launched {

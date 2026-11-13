@@ -176,7 +176,7 @@ impl<D: Desktop> Guard<D> {
                         .map_or_else(|| app.name.clone(), |window| window.app.clone());
                     // Moved off the screen while minimized, then restored
                     // there (retried while a just-started app can't answer);
-                    // else agent-desktop's restore.
+                    // else the driver's restore.
                     let window = listed.unwrap_or(Window {
                         id: id.clone(),
                         app: name.clone(),

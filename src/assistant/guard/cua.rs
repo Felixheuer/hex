@@ -1,13 +1,13 @@
 //! Cua Driver behind the guard (`assistant::driver`): its MCP tools
 //! (`list_windows`, `get_window_state`, `click` by `element_token`, …)
-//! served as the guard's `desktop_*` tools, with agent-desktop's argument
-//! names, refs (`@<snapshot>:eN` for Cua's `<snapshot>:N`), and result
-//! envelopes (`{ok, command, data | error}`), so the guard's leases, consent,
-//! and fallbacks, the prompts, and the overlay work unchanged whichever
-//! driver runs.
+//! served as the guard's `desktop_*` tools: one vocabulary of argument
+//! names (`window_id`, `ref_id`), refs (`@<snapshot>:eN` for Cua's
+//! `<snapshot>:N`), and result envelopes (`{ok, command, data | error}`),
+//! which the guard's leases, consent, and fallbacks, the prompts, and the
+//! overlay read.
 //!
-//! Window ids are CoreGraphics window numbers either way (`w-<number>`).
-//! Moving, minimizing, and restoring a window go through Agent-Desk's own
+//! Window ids are CoreGraphics window numbers (`w-<number>`). Moving,
+//! minimizing, and restoring a window go through Agent-Desk's own
 //! Accessibility calls (`actions::ax`): Cua Driver refuses frames off the
 //! screen, which parking needs. Real pointer tools aren't offered; acting
 //! by a window's picture is `hex_window_input`.
@@ -18,6 +18,12 @@ use std::time::{Duration, Instant};
 use serde_json::{Map, Value, json};
 
 use super::child::Desktop;
+
+/// The Cua Driver version tasks run, for `desktop_status`.
+fn driver_version() -> String {
+    crate::assistant::driver::cua::version()
+        .unwrap_or_else(|| crate::assistant::driver::cua::PINNED.to_owned())
+}
 
 /// Snapshots whose elements are kept (refs of older ones are stale).
 const KEPT: usize = 12;
@@ -287,7 +293,7 @@ impl<I: Desktop> Cua<I> {
                     "status",
                     json!({
                         "driver": "cua-driver",
-                        "version": crate::assistant::driver::cua::VERSION,
+                        "version": driver_version(),
                         "permissions": {
                             "accessibility": {"state": state(permissions.accessibility)},
                             "screen_recording": {"state": state(permissions.screen_recording)},
@@ -297,7 +303,7 @@ impl<I: Desktop> Cua<I> {
             }
             "desktop_version" => Ok(result_ok(
                 command,
-                json!({"version": format!("cua-driver {}", crate::assistant::driver::cua::VERSION)}),
+                json!({"version": format!("cua-driver {}", driver_version())}),
             )),
             "desktop_list_windows" => {
                 let app = text(args, "app");
@@ -715,7 +721,7 @@ impl<I: Desktop> Cua<I> {
 impl<I: Desktop> Desktop for Cua<I> {
     fn tools(&mut self) -> Result<Vec<Value>, String> {
         // Starts the driver: a missing or broken one fails here, and the
-        // guard falls back to agent-desktop.
+        // task is told the desktop isn't there.
         self.inner.tools()?;
         Ok(tools())
     }
@@ -973,7 +979,7 @@ fn refused(command: &str, result: &Value) -> Value {
     error(command, &code, &message)
 }
 
-/// The tools served (agent-desktop's names and arguments for what Cua
+/// The tools served (the guard's names and arguments for what Cua
 /// Driver does).
 pub fn tools() -> Vec<Value> {
     let window = json!({"type": "string", "description": "The window's id (w-1234) from desktop_list_windows"});
@@ -1218,7 +1224,7 @@ mod tests {
     }
 
     #[test]
-    fn windows_snapshots_and_ref_actions_speak_agent_desktop() {
+    fn windows_snapshots_and_ref_actions_speak_the_guard_s_vocabulary() {
         let fake = Fake::default();
         let mut cua = Cua::new(fake.clone());
         let windows = cua.call("desktop_list_windows", &Map::new()).unwrap();
@@ -1322,7 +1328,7 @@ mod tests {
     }
 
     #[test]
-    fn status_says_permissions_as_agent_desktop_did() {
+    fn status_says_the_driver_s_permissions() {
         let mut cua = Cua::new(Fake::default());
         let status = cua.call("desktop_status", &Map::new()).unwrap();
         let grants = crate::assistant::backends::desktop::grants(&data(&status)).expect("grants");
@@ -1378,15 +1384,10 @@ mod live {
             }
         }
         let _quit = Quit;
-        let backend = crate::assistant::driver::Driver::Cua.backend();
-        let mut cua = Cua::new(super::super::child::AgentDesktop::server(
-            driver.into(),
-            backend.mcp_args(None, "", false),
-            backend.env(),
-        ));
+        let mut cua = Cua::new(super::super::child::Server::driver(driver.into()));
         assert!(!cua.tools().unwrap().is_empty());
         let front = crate::dictation::context::frontmost_pid();
-        let call = |cua: &mut Cua<super::super::child::AgentDesktop>, tool: &str, args: Value| {
+        let call = |cua: &mut Cua<super::super::child::Server>, tool: &str, args: Value| {
             cua.call(tool, args.as_object().unwrap()).unwrap()
         };
         let opened = call(

@@ -271,7 +271,7 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
             p,
             "assistant-control-desktop",
             tr("Operate apps"),
-            tr("Tasks click, type, and read apps through agent-desktop"),
+            tr("Tasks click, type, and read apps through Cua Driver"),
             assistant.control_desktop,
             |ui: &mut Ui| {
                 ui.update(|settings| settings.assistant.control_desktop ^= true);

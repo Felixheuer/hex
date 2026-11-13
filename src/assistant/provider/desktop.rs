@@ -1,4 +1,4 @@
-//! agent-desktop calls as a person reads them ("Clicking “Reply” in Mail"),
+//! Desktop tool calls as a person reads them ("Clicking “Reply” in Mail"),
 //! and the windows a task works in, learned from the calls' arguments and
 //! results. Every backend reports its desktop tool calls through here.
 
@@ -9,8 +9,8 @@ use serde_json::Value;
 use super::Report;
 use crate::assistant::types::TaskWindow;
 
-/// The agent-desktop command a tool name stands for (`click` for
-/// `mcp__agent-desktop__desktop_click`, `agent-desktop_desktop_click`, or
+/// The desktop command a tool name stands for (`click` for
+/// `mcp__desktop__desktop_click`, `desktop_desktop_click`, or
 /// `desktop_click`), if it is one.
 pub fn command(tool: &str) -> Option<&str> {
     unprefixed(tool).strip_prefix("desktop_")
@@ -18,14 +18,9 @@ pub fn command(tool: &str) -> Option<&str> {
 
 /// A desktop tool's name without its server's prefix: the server is
 /// `desktop` (`mcp__desktop__desktop_click`, OpenCode's
-/// `desktop_desktop_click`), or `agent-desktop` as it was named before.
+/// `desktop_desktop_click`).
 fn unprefixed(tool: &str) -> &str {
-    if let Some(rest) = tool
-        .strip_prefix("mcp__desktop__")
-        .or_else(|| tool.strip_prefix("mcp__agent-desktop__"))
-        .or_else(|| tool.strip_prefix("agent-desktop_"))
-        .or_else(|| tool.strip_prefix("agent_desktop_"))
-    {
+    if let Some(rest) = tool.strip_prefix("mcp__desktop__") {
         return rest;
     }
     match tool.strip_prefix("desktop_") {
@@ -35,7 +30,7 @@ fn unprefixed(tool: &str) -> &str {
 }
 
 /// The guard's own tool a tool name stands for (`hex_open_app` for
-/// `mcp__agent-desktop__hex_open_app` or `agent-desktop_hex_open_app`).
+/// `mcp__desktop__hex_open_app` or `desktop_hex_open_app`).
 fn guard_tool(tool: &str) -> Option<&str> {
     let name = unprefixed(tool);
     (name == crate::assistant::guard::OPEN_APP_TOOL).then_some(name)
@@ -137,7 +132,7 @@ impl Describer {
         reports
     }
 
-    /// Learns from a call's `output` (agent-desktop's JSON envelope, or the
+    /// Learns from a call's `output` (the guard's JSON envelope, or the
     /// MCP text that holds it): the refs a snapshot named, the window an app
     /// opened in.
     pub fn result(&mut self, tool: &str, output: &str) -> Vec<Report> {
@@ -423,7 +418,7 @@ impl Describer {
     }
 }
 
-/// agent-desktop's JSON envelope inside `output`: the text itself, MCP
+/// The guard's JSON envelope inside `output`: the text itself, MCP
 /// content (`[{"type":"text","text":…}]` or `{"content":[…]}`), or a JSON
 /// string holding either.
 fn envelope(output: &str) -> Option<Value> {
@@ -504,7 +499,7 @@ mod tests {
     fn a_click_names_the_element_its_snapshot_found() {
         let mut describer = Describer::default();
         let first = describer.call(
-            "mcp__agent-desktop__desktop_snapshot",
+            "mcp__desktop__desktop_snapshot",
             &json!({"app": "Mail", "interactive_only": true}),
         );
         assert_eq!(
@@ -526,14 +521,14 @@ mod tests {
         let mcp = json!([{"type": "text", "text": snapshot.to_string()}]).to_string();
         assert!(
             describer
-                .result("mcp__agent-desktop__desktop_snapshot", &mcp)
+                .result("mcp__desktop__desktop_snapshot", &mcp)
                 .is_empty()
         );
 
         let click = describer.call("desktop_click", &json!({"ref_id": "@sabc:e5"}));
         assert_eq!(steps(&click), ["Clicking “Reply” in Mail"]);
         let typed = describer.call(
-            "agent-desktop_desktop_type",
+            "desktop_desktop_type",
             &json!({"ref_id": "@sabc:e6", "text": "hello"}),
         );
         assert_eq!(
@@ -574,7 +569,7 @@ mod tests {
     #[test]
     fn an_opened_app_is_a_step_and_its_window_shows_on_the_card() {
         let mut describer = Describer::default();
-        let tool = "mcp__agent-desktop__hex_open_app";
+        let tool = "mcp__desktop__hex_open_app";
         assert_eq!(
             describer.call(tool, &json!({"name": "WhatsApp"})),
             [Report::Step {
@@ -608,7 +603,7 @@ mod tests {
         );
         assert!(describer.call("desktop_session_end", &json!({})).is_empty());
         assert!(describer.call("Bash", &json!({"command": "ls"})).is_empty());
-        assert_eq!(command("mcp__agent-desktop__desktop_press"), Some("press"));
+        assert_eq!(command("mcp__desktop__desktop_press"), Some("press"));
         assert_eq!(command("WebSearch"), None);
     }
 }

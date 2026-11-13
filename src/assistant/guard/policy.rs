@@ -1,4 +1,4 @@
-//! What each agent-desktop tool is (a read anywhere, a read of a window, an
+//! What each desktop tool is (a read anywhere, a read of a window, an
 //! action, real input, …) and which windows its arguments point at. Pure:
 //! the decisions that need the desktop's state are in `proxy`.
 
@@ -132,7 +132,7 @@ pub const WINDOW_SHOT_TOOL: &str = "hex_window_shot";
 /// Agent-Desk's background input at a spot of a window's picture.
 pub const WINDOW_INPUT_TOOL: &str = "hex_window_input";
 
-const MANAGED: &str = "Agent-Desk manages agent-desktop's sessions, cursors, traces, and permissions; \
+const MANAGED: &str = "Agent-Desk manages the desktop driver's sessions, cursors, traces, and permissions; \
 this tool isn't available to tasks.";
 const HOLD: &str = "Holding keys or buttons down isn't available to tasks; use desktop_press, \
 desktop_mouse_click, or desktop_drag.";
@@ -263,7 +263,7 @@ pub enum Target {
     Ref(String),
     /// Absolute screen coordinates.
     Point(f64, f64),
-    /// Nothing named: agent-desktop picks the window in front.
+    /// Nothing named: the driver picks the window in front.
     Focused,
 }
 
@@ -420,7 +420,7 @@ pub fn app_key(name: &str) -> String {
         .join(" ")
 }
 
-/// A snapshot that names none of agent-desktop's shape options gets
+/// A snapshot that names none of the shape options gets
 /// `compact`: single-child unnamed containers collapse, so the tree the
 /// model reads (and pays for in tokens and time) is smaller, with every
 /// named element kept. Jobs' snapshots took 7.9 s at the median.

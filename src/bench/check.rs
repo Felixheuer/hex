@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use super::task::{Check, FileRoot, LaneExpect, Lang, fill};
 
-/// A window as agent-desktop lists it.
+/// A window as `desktop_list_windows` lists it.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Win {
     pub app: String,

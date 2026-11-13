@@ -246,7 +246,7 @@ pub(super) fn try_it(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     };
     let blocked = (!finish_ready).then(|| {
         text(tr_fill(
-            "Finish waits until {} answers and can use agent-desktop in Checks",
+            "Finish waits until {} answers and can use the desktop tools in Checks",
             super::super::backend_name(ui.settings.assistant.backend),
         ))
         .key("finish-note")

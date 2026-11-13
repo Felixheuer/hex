@@ -781,7 +781,7 @@ fn a_failed_check_shows_its_fix_while_later_checks_still_run() {
     let flow = rt.state.chats.setup.as_ref().unwrap();
     assert!(flow.checks_running);
     assert!(
-        shows(&rt, "Grant permissions…"),
+        shows(&rt, "Open Screen Recording…"),
         "the fix shows at once: {:?}",
         texts(&rt)
     );
@@ -982,7 +982,7 @@ fn the_merged_flow_says_it_continues_and_new_in_hex_says_so() {
 }
 
 #[test]
-fn checks_run_on_arrival_and_finish_waits_for_answers_and_agent_desktop() {
+fn checks_run_on_arrival_and_finish_waits_for_answers_and_the_desktop_tools() {
     let mut rt = onboarding();
     rt.update(|ui, _| super::setup::go(ui, Page::Checks));
     settle(&mut rt);
@@ -1246,7 +1246,7 @@ fn stale_assistant_grants_use_the_running_apps_permission_repair() {
     )));
     assert!(!rt.state.chats.jobs.asked.iter().any(|job| matches!(
         job,
-        Job::Fix(crate::assistant::backends::Fix::GuidePermissions)
+        Job::Fix(crate::assistant::backends::Fix::OpenSettings(_))
     )));
 }
 
@@ -1256,6 +1256,33 @@ mod repair {
 
     fn gaps(rt: &mut Runtime<Ui>, gaps: Vec<Gap>) {
         answer(rt, Done::Gaps(gaps));
+    }
+
+    /// The stage card's Fix all…: the person asks for the guide.
+    fn fix_all(rt: &mut Runtime<Ui>) {
+        rt.update(|ui, tx| super::super::repair(ui, true, tx));
+        settle(rt);
+    }
+
+    #[test]
+    fn the_repair_check_never_switches_the_window() {
+        let mut rt = chats();
+        let pane = rt.state.pane;
+        gaps(&mut rt, vec![Gap::Shortcut, Gap::ScreenRecording]);
+        assert!(rt.state.chats.setup.is_none(), "no guide by itself");
+        assert_eq!(rt.state.pane, pane, "the window shows what it showed");
+        // The same again in five minutes: still nothing.
+        gaps(&mut rt, vec![Gap::Shortcut, Gap::ScreenRecording]);
+        assert!(rt.state.chats.setup.is_none());
+        // Fix all… on the stage's card opens it.
+        fix_all(&mut rt);
+        assert_eq!(page(&rt), Page::Desktop);
+        // Later on the card puts it off until Agent-Desk starts again.
+        let mut rt = chats();
+        gaps(&mut rt, vec![Gap::ScreenRecording]);
+        rt.update(|ui, tx| super::super::repair(ui, false, tx));
+        assert!(rt.state.chats.repair.snoozed);
+        assert!(rt.state.chats.setup.is_none());
     }
 
     fn repair_pages(rt: &Runtime<Ui>) -> Vec<Page> {
@@ -1279,6 +1306,7 @@ mod repair {
     fn what_went_missing_brings_back_only_its_pages_and_says_why() {
         let mut rt = chats();
         gaps(&mut rt, vec![Gap::Shortcut, Gap::ScreenRecording]);
+        fix_all(&mut rt);
         assert_eq!(
             page(&rt),
             Page::Desktop,
@@ -1301,6 +1329,7 @@ mod repair {
     fn later_puts_the_guide_off_until_hex_starts_again_but_a_hold_opens_it() {
         let mut rt = chats();
         gaps(&mut rt, vec![Gap::ScreenRecording]);
+        fix_all(&mut rt);
         tap(&mut rt, "later");
         assert!(rt.state.chats.setup.is_none());
         assert!(rt.state.chats.repair.snoozed);
@@ -1317,6 +1346,7 @@ mod repair {
     fn closing_the_guide_puts_it_off_too() {
         let mut rt = chats();
         gaps(&mut rt, vec![Gap::ScreenRecording]);
+        fix_all(&mut rt);
         tap(&mut rt, "close-setup");
         assert!(rt.state.chats.repair.snoozed);
     }
@@ -1347,6 +1377,7 @@ mod repair {
         // The welcome page always works: a stand-in for a step a release
         // added that's already done.
         gaps(&mut rt, vec![Gap::NewSteps(vec!["welcome"])]);
+        fix_all(&mut rt);
         assert_eq!(page(&rt), Page::Welcome);
         settle(&mut rt);
         std::thread::sleep(std::time::Duration::from_millis(1_000));

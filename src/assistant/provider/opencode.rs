@@ -4,11 +4,11 @@
 //! Why the CLI and not the running service: Agent-Desk's other features only talk
 //! to an already running OpenCode service, but that service loads its MCP
 //! servers once, from its own configuration, and its API has no way to give
-//! one session its own agent-desktop with this task's agent id and session.
+//! one session its own desktop tool (this task's guard).
 //! `--standalone` runs a private server for just this task, and
 //! `OPENCODE_CONFIG_CONTENT` adds to the person's configuration an agent
-//! `agent-desk` (Agent-Desk's instructions; shell and file edits denied) and agent-desktop
-//! as a local MCP server. `--auto` approves the rest, so nothing waits on a
+//! `agent-desk` (Agent-Desk's instructions; shell and file edits denied) and the
+//! guard as a local MCP server. `--auto` approves the rest, so nothing waits on a
 //! prompt; `--archived` keeps these sessions out of the person's list.
 //! A conversation continues with `--session <id>`.
 
@@ -28,21 +28,13 @@ pub(super) fn run(
     report: &mut dyn FnMut(Report),
 ) -> Result<Finished> {
     let executable = super::executable(AssistantBackend::OpenCode)?;
-    let mut command = super::command(&executable, &run.workdir, run.desktop.as_ref());
+    let mut command = super::command(&executable, &run.workdir);
     // A bring-your-own-key provider's key travels in the environment only;
     // the config names it by reference.
     if let Some(env) = &run.backend_env {
         command
             .env_clear()
             .envs(env.iter().map(|(key, value)| (key, value)));
-        for (key, value) in run
-            .desktop
-            .as_ref()
-            .map(super::Desktop::env)
-            .unwrap_or_default()
-        {
-            command.env(key, value);
-        }
     }
     command.env("OPENCODE_CONFIG_CONTENT", config(run).to_string());
     // A Windows batch file can't take the prompt's newlines and quotes as
@@ -248,7 +240,7 @@ impl Stream {
 }
 
 /// The desktop tools one tool part called: itself, or, for OpenCode's code
-/// mode (`execute`), each `tools["agent-desktop"].desktop_*` call in its code.
+/// mode (`execute`), each `tools["desktop"].desktop_*` call in its code.
 fn calls(part: &Value) -> Vec<(String, Value)> {
     let tool = part.get("tool").and_then(Value::as_str).unwrap_or_default();
     let input = part.pointer("/state/input").cloned().unwrap_or(Value::Null);
@@ -268,7 +260,9 @@ fn calls(part: &Value) -> Vec<(String, Value)> {
                 .iter()
                 .filter_map(|call| {
                     let tool = call.get("tool").and_then(Value::as_str)?;
-                    let name = tool.strip_prefix("agent-desktop.")?;
+                    let name = tool
+                        .strip_prefix(crate::assistant::backends::MCP_NAME)?
+                        .strip_prefix('.')?;
                     let args = call.get("input").cloned().or_else(|| {
                         in_code
                             .iter()
@@ -357,8 +351,8 @@ mod tests {
     #[test]
     fn code_mode_calls_are_read_from_their_code() {
         let calls = code_calls(
-            r#"const s = await tools["agent-desktop"].desktop_snapshot({ app: 'Mail', interactive_only: true });
-               await tools["agent-desktop"].desktop_click({"ref_id": "@s1:e2"});"#,
+            r#"const s = await tools["desktop"].desktop_snapshot({ app: 'Mail', interactive_only: true });
+               await tools["desktop"].desktop_click({"ref_id": "@s1:e2"});"#,
         );
         assert_eq!(calls[0].0, "desktop_snapshot");
         assert_eq!(calls[0].1, json!({"app": "Mail", "interactive_only": true}));

@@ -1,7 +1,7 @@
 //! The assistant's onboarding: a full-window flow in the first run's kit,
 //! started when the assistant turns on before it was ever finished, and
 //! again from Chats. Page by page it makes sure an agent answers (chosen,
-//! installed, signed in), that Agent-Desk and agent-desktop have every permission
+//! installed, signed in), that Agent-Desk (and so Cua Driver) has every permission
 //! (each missing one opens its exact System Settings page with Agent-Desk's
 //! floating guide, and the page waits until macOS reports the grant), runs
 //! the hidden browser for web tasks (`browser`), the live self-tests until
@@ -13,7 +13,7 @@
 //! Nothing shows as working until its check ran and saw it work. Continue
 //! waits for a page's checks; Later moves on and leaves that page marked
 //! unfinished. Finish waits for an agent that answers and can use
-//! agent-desktop.
+//! the desktop tools.
 
 pub(in crate::rune_ui) mod browser;
 pub(in crate::rune_ui) mod permissions;
@@ -35,7 +35,7 @@ use super::shortcut::{self, Conflict, ConflictFix, Probe};
 use super::{Job, Ui};
 use crate::app_settings::{AssistantBackend, HotkeySlot};
 use crate::assistant::Event;
-use crate::assistant::backends::{AgentDesktop, Check, CheckResult, CheckState, Fix, Found};
+use crate::assistant::backends::{Check, CheckResult, CheckState, Driver, Fix, Found};
 use crate::assistant::computer::{Permission, Permissions};
 use crate::desktop::i18n::{tr, tr_fill};
 use crate::desktop::onboarding::{PermissionAction, PermissionKind, PermissionState};
@@ -64,8 +64,8 @@ pub(in crate::rune_ui) enum Page {
     Privacy,
     Agent,
     /// Screen Recording (and the Microphone and Accessibility, when the
-    /// voice setup didn't already grant them), and agent-desktop with its
-    /// own grants.
+    /// voice setup didn't already grant them), and Cua Driver, the desktop
+    /// driver, acting with them.
     Desktop,
     /// agent-browser, for web tasks in hidden browsers.
     Browser,
@@ -215,8 +215,8 @@ impl Grant {
         }
     }
 
-    /// agent-desktop's grants here: macOS's; Windows asks none, and on
-    /// Linux its self-test says whether AT-SPI is on.
+    /// Cua Driver's grants here (Agent-Desk's, which it acts with): macOS's;
+    /// elsewhere there is no driver.
     pub(in crate::rune_ui) fn desktop() -> &'static [Grant] {
         if crate::assistant::computer::asks_permissions() {
             &Self::DESKTOP
@@ -242,7 +242,7 @@ pub(in crate::rune_ui) struct SetupFlow {
     /// Pages left with Later, still unfinished.
     pub(in crate::rune_ui) later: Vec<Page>,
     pub(in crate::rune_ui) detecting: bool,
-    pub(in crate::rune_ui) desktop: Option<AgentDesktop>,
+    pub(in crate::rune_ui) desktop: Option<Driver>,
     pub(in crate::rune_ui) desktop_checking: bool,
     /// Agent-Desk's own Accessibility and Screen Recording, read afresh.
     pub(in crate::rune_ui) permissions: Option<Permissions>,
@@ -358,14 +358,14 @@ pub(in crate::rune_ui) fn fix_for(found: &Found) -> Option<Fix> {
 pub(in crate::rune_ui) fn fix_label(fix: Fix) -> String {
     match fix {
         Fix::Install(backend) => tr_fill("Install {}", super::backend_name(backend)),
-        Fix::InstallAgentDesktop => tr("Install the desktop driver").into(),
+        Fix::InstallDriver => tr("Install Cua Driver").into(),
+        Fix::UpdateDriver => tr("Update Cua Driver").into(),
         Fix::InstallAgentBrowser => tr("Install agent-browser").into(),
         Fix::InstallLightpanda => tr("Install Lightpanda").into(),
         Fix::SignIn(_) => tr("Sign in…").into(),
         Fix::UseApiKey(_) => tr("Use an API key…").into(),
         Fix::StartOpenCode => tr("Start OpenCode").into(),
         Fix::AddApiKey => tr("Add API key").into(),
-        Fix::GuidePermissions => tr("Grant permissions…").into(),
         Fix::OpenSettings(Permission::Accessibility) => tr("Open Accessibility…").into(),
         Fix::OpenSettings(Permission::ScreenRecording) => tr("Open Screen Recording…").into(),
         Fix::Retry => tr("Try again").into(),
@@ -383,12 +383,10 @@ pub(in crate::rune_ui) fn check_title(check: Check) -> String {
     match check {
         Check::HexPermissions => tr("Agent-Desk can read the screen and selected text").into(),
         Check::Answers(backend) => tr_fill("{} answers", super::backend_name(backend)),
-        Check::DesktopPermissions => {
-            tr("agent-desktop has Accessibility and Screen Recording").into()
-        }
-        Check::DesktopRoundTrip => tr("agent-desktop reads apps and windows").into(),
+        Check::DesktopPermissions => tr("Cua Driver has Accessibility and Screen Recording").into(),
+        Check::DesktopRoundTrip => tr("Cua Driver reads apps and windows").into(),
         Check::DesktopThroughAgent(backend) => {
-            tr_fill("{} can use agent-desktop", super::backend_name(backend))
+            tr_fill("{} can use the desktop tools", super::backend_name(backend))
         }
         Check::BrowserRoundTrip => tr("agent-browser opens pages in hidden browsers").into(),
         Check::LightBrowser => tr("Lightpanda reads pages in light browsers").into(),
@@ -398,8 +396,8 @@ pub(in crate::rune_ui) fn check_title(check: Check) -> String {
     }
 }
 
-/// The checks Finish waits for: the agent answers and can use
-/// agent-desktop (for the Claude API, Agent-Desk runs agent-desktop itself).
+/// The checks Finish waits for: the agent answers and can use the desktop
+/// tools (for the Claude API, Agent-Desk runs them itself).
 pub(in crate::rune_ui) fn required(backend: AssistantBackend) -> [Check; 2] {
     let desktop = if backend == AssistantBackend::ClaudeApi {
         Check::DesktopRoundTrip
@@ -470,8 +468,8 @@ fn macos_asks_answered() -> bool {
             && data_access::all_answered(data_access::last))
 }
 
-/// Whether Finish may finish: the chosen agent answers and can use
-/// agent-desktop, checked just now.
+/// Whether Finish may finish: the chosen agent answers and can use the
+/// desktop tools, checked just now.
 pub(in crate::rune_ui) fn can_finish(ui: &Ui, flow: &SetupFlow) -> bool {
     let backend = ui.settings.assistant.backend;
     flow.checked_backend == Some(backend)
@@ -505,7 +503,7 @@ pub(in crate::rune_ui) fn detect(ui: &mut Ui) {
     ui.chats.jobs.run(Job::Detect);
 }
 
-/// Reads agent-desktop and Agent-Desk's permissions again.
+/// Reads Cua Driver and Agent-Desk's permissions again.
 fn recheck(ui: &mut Ui) {
     let Some(flow) = ui.chats.setup.as_mut() else {
         return;
@@ -680,11 +678,6 @@ pub(in crate::rune_ui) fn run_checks(ui: &mut Ui) {
 
 /// Does what a failed row offers.
 pub(in crate::rune_ui) fn apply(ui: &mut Ui, fix: Fix) {
-    if fix == Fix::GuidePermissions && ui.platform.caps.os == super::super::platform::Os::Macos {
-        let grant = permissions::desktop_grant(ui);
-        allow(ui, grant);
-        return;
-    }
     match fix {
         Fix::AddApiKey => {
             go(ui, Page::Agent);

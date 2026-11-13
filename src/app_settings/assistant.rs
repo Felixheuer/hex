@@ -7,7 +7,7 @@ use super::*;
 
 /// The agent that answers and acts. Agent-Desk finds which are installed
 /// (`assistant::backends::detect`); each task runs as its own process or
-/// session of it, with agent-desktop as its desktop tool.
+/// session of it, with the guard (Cua Driver behind it) as its desktop tool.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssistantBackend {
@@ -68,11 +68,11 @@ pub struct AssistantSettings {
     pub speak_answers: bool,
     /// The macOS voice name; `None` is the system voice.
     pub voice: Option<String>,
-    /// Tasks may operate apps through agent-desktop.
+    /// Tasks may operate apps through Cua Driver.
     pub control_desktop: bool,
     /// Real input, one switch per lane (`here_physical_input` is the
     /// other): Background tasks may also move the real pointer and press
-    /// real keys (agent-desktop `--headed`); off, the default, keeps every
+    /// real keys; off, the default, keeps every
     /// action of theirs in the background.
     pub background_physical_input: bool,
     /// A quick question sends a screenshot of the screen with it. Off by
@@ -87,7 +87,7 @@ pub struct AssistantSettings {
     pub follow_up_seconds: u32,
     /// At most this many tasks run at once; later ones wait their turn.
     pub max_parallel: u32,
-    /// The setup sheet (agents found, agent-desktop, permissions) was finished.
+    /// The setup sheet (agents found, Cua Driver, permissions) was finished.
     pub setup_done: bool,
     /// The setup version finished (`desktop::setup_gaps::SETUP_VERSION`): a
     /// lower one brings back the setup steps a release added.
@@ -130,13 +130,10 @@ pub struct AssistantSettings {
     /// person's way, until brought forward from the task list. On by
     /// default.
     pub park_windows: bool,
-    /// The display new Background windows go to, by agent-desktop id ("5")
+    /// The display new Background windows go to, by display id ("5")
     /// or name ("M27Q"); `None` is the one the person isn't working on
     /// (with two or more displays; with one, windows stay where they open).
     pub agent_display: Option<String>,
-    /// The desktop driver tasks act through (`assistant::driver`): Cua
-    /// Driver, or agent-desktop; the other stands in when it is missing.
-    pub desktop_driver: crate::assistant::driver::Driver,
     /// How freely tasks take consequential actions (send, delete, pay,
     /// share, publish): ask each time, only what the request named, or yolo.
     pub autonomy: crate::assistant::autonomy::Autonomy,
@@ -223,7 +220,6 @@ impl Default for AssistantSettings {
             retry_on_limit: true,
             park_windows: true,
             agent_display: None,
-            desktop_driver: crate::assistant::driver::Driver::Cua,
             autonomy: crate::assistant::autonomy::Autonomy::Smart,
             memory: true,
             conversation_seconds: 8,

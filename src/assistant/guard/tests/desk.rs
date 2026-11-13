@@ -131,7 +131,7 @@ fn whatsapp_on_another_desktop_is_reopened_here_and_stays_on_the_desk() {
     // The desk holds it, not the turn.
     assert_eq!(scratch.store().holder("w-901").unwrap().task, "desk");
     // The agent names the app without its invisible mark: it reaches
-    // agent-desktop as the running app's own name.
+    // the driver as the running app's own name.
     let read = guard.call(
         "desktop_snapshot",
         args(json!({"app": "WhatsApp", "window_id": "w-901"})),

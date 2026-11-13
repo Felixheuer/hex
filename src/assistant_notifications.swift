@@ -1,7 +1,10 @@
 // The assistant's notifications: a Background job finished, failed, or
 // asks something. Posted through UNUserNotificationCenter, which only works
-// inside the bundled, signed Agent-Desk.app; clicking one opens Chats on its
-// conversation (`agent-desk://chats?id=<conversation>`).
+// inside the bundled, signed Agent-Desk.app. A click is handed back to Rust in
+// process (`hex_assistant_notifications_on_click`), which projects the job's
+// result on the overlay's stage; the notification's own "Open Agent-Desk"
+// action asks for the window. No `agent-desk://` link: the app isn't activated
+// and the window doesn't open by itself.
 
 import AppKit
 import Foundation
@@ -22,14 +25,41 @@ private final class Delegate: NSObject, UNUserNotificationCenterDelegate, @unche
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         if let id = response.notification.request.content.userInfo["conversation"] as? String,
-           let encoded = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-_"))),
-           let url = URL(string: "agent-desk://chats?id=\(encoded)") {
+           !id.isEmpty,
+           let clicked = clickHandler {
+            let window = response.actionIdentifier == openWindowAction
             DispatchQueue.main.async {
-                NSWorkspace.shared.open(url)
+                id.withCString { clicked($0, window) }
             }
         }
         completionHandler()
     }
+}
+
+/// What Rust does with a click: the conversation, and whether it was "Open Agent-Desk".
+public typealias ClickHandler = @convention(c) (UnsafePointer<CChar>, Bool) -> Void
+nonisolated(unsafe) private var clickHandler: ClickHandler?
+private let category = "hex-assistant-job"
+private let openWindowAction = "open-window"
+
+/// Takes clicks in process from now on, and adds the "Open Agent-Desk" action
+/// (titled `openTitle`, in the interface's language) to every job notification.
+@_cdecl("hex_assistant_notifications_on_click")
+public func hexAssistantNotificationsOnClick(
+    _ clicked: ClickHandler,
+    _ openTitle: UnsafePointer<CChar>
+) {
+    clickHandler = clicked
+    let title = String(cString: openTitle)
+    let center = UNUserNotificationCenter.current()
+    setupLock.lock()
+    center.delegate = delegate
+    setUp = true
+    setupLock.unlock()
+    let open = UNNotificationAction(identifier: openWindowAction, title: title, options: [.foreground])
+    center.setNotificationCategories([
+        UNNotificationCategory(identifier: category, actions: [open], intentIdentifiers: [], options: [])
+    ])
 }
 
 private let delegate = Delegate()
@@ -71,6 +101,7 @@ public func hexAssistantNotify(
         if !conversation.isEmpty {
             content.userInfo = ["conversation": conversation]
             content.threadIdentifier = conversation
+            content.categoryIdentifier = category
         }
         let request = UNNotificationRequest(
             identifier: UUID().uuidString, content: content, trigger: nil)

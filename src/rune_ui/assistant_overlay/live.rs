@@ -395,12 +395,6 @@ pub(crate) fn view(viewer: Viewer, target: Option<(&str, &str)>) {
     sync(&mut registry);
 }
 
-/// A preview pressed in the orb's list: Chats opens it large.
-pub(crate) fn request_view(task: &str, session: &str) {
-    registry().requested = Some((task.to_owned(), session.to_owned()));
-    changed();
-}
-
 /// The preview pressed since the last call, if one was.
 pub(crate) fn take_request() -> Option<(String, String)> {
     registry().requested.take()

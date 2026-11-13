@@ -1,5 +1,5 @@
 //! The onboarding's Checks page: the agent answers and can use
-//! agent-desktop (and agent-browser). A failed check always shows its fix,
+//! the desktop tools (and agent-browser). A failed check always shows its fix,
 //! even while later checks still run.
 
 use rune::{El, col, el, row, text};
@@ -37,13 +37,13 @@ pub(super) fn result_row(
         CheckState::Failed if doctor(detail).is_some() => doctor(detail).unwrap().to_owned(),
         CheckState::Failed
             if detail.starts_with("Agent-Desk needs Accessibility")
-                || detail.starts_with("agent-desktop has no Accessibility") =>
+                || detail.starts_with("Cua Driver has no Accessibility") =>
         {
             tr("Switch on Agent-Desk in System Settings").to_owned()
         }
         CheckState::Failed
             if detail.starts_with("Agent-Desk needs Screen Recording")
-                || detail.starts_with("agent-desktop has no Screen Recording") =>
+                || detail.starts_with("Cua Driver has no Screen Recording") =>
         {
             tr("Open Screen Recording…").to_owned()
         }

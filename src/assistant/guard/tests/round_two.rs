@@ -29,7 +29,7 @@ fn checks_close_together_look_at_the_screen_once() {
         2,
         "after its own action the guard looks again"
     );
-    // The window list never goes through agent-desktop.
+    // The window list never goes through the driver.
     assert!(
         fake.state()
             .calls
@@ -284,7 +284,7 @@ fn installed_apps_are_listed_with_what_runs_and_what_is_blocked() {
     assert_eq!(apps[0]["name"], "Notes");
     assert!(
         fake.forwarded().is_empty(),
-        "read in Agent-Desk, not through agent-desktop"
+        "read in Agent-Desk, not through the driver"
     );
     // A Here task may look, but not open.
     let mut here_task = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);

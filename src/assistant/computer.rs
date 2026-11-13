@@ -1,7 +1,7 @@
 //! What Agent-Desk itself reads from the desktop: a quick question's context
 //! (screenshot, selected text, frontmost app) and where a task's windows
-//! are, for their outlines. Tasks operate apps through agent-desktop
-//! (`backends`), not through this module.
+//! are, for their outlines. Tasks operate apps through Cua Driver behind
+//! the guard (`driver`, `guard`), not through this module.
 //!
 //! Everything here only reads, never the clipboard. macOS: the selection
 //! through Accessibility and the screenshot through ScreenCaptureKit with
@@ -75,7 +75,7 @@ pub fn screenshot() -> Result<Screenshot> {
 /// Where `window` is on screen, in global display points (x, y, width,
 /// height), for its task's outline; `None` when it's gone or hidden.
 ///
-/// A window id is agent-desktop's (`w-4521`), whose number is the
+/// A window id is `w-4521`, whose number is the
 /// CoreGraphics window number; without one, the app's frontmost window.
 pub fn window_frame(window: &crate::assistant::TaskWindow) -> Option<(f64, f64, f64, f64)> {
     #[cfg(target_os = "macos")]
@@ -397,7 +397,7 @@ pub fn open_settings(permission: Permission) {
     let _ = permission;
 }
 
-/// The CoreGraphics window number in an agent-desktop window id (`w-4521`).
+/// The CoreGraphics window number in a window id (`w-4521`).
 pub fn window_number(id: &str) -> Option<u32> {
     id.trim().strip_prefix("w-")?.parse().ok()
 }
@@ -552,7 +552,7 @@ pub fn frame_among(
     Some((x, y, width, height))
 }
 
-/// App `pid`'s window in front, as agent-desktop names it (`w-<number>`):
+/// App `pid`'s window in front, as the guard names it (`w-<number>`):
 /// the Here lane's window. That is the window the app says has focus
 /// (`focused`, through Accessibility) when CoreGraphics shows it, else the
 /// app's frontmost ordinary window among CoreGraphics' on-screen windows
@@ -800,7 +800,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_desktop_window_ids_carry_the_cg_window_number() {
+    fn window_ids_carry_the_cg_window_number() {
         assert_eq!(window_number("w-14569"), Some(14569));
         assert_eq!(window_number(" w-7 "), Some(7));
         assert_eq!(window_number("14569"), None);
@@ -866,7 +866,7 @@ mod tests {
     }
 
     #[test]
-    fn the_window_in_front_is_named_as_agent_desktop_names_it() {
+    fn the_window_in_front_is_named_as_the_guard_names_it() {
         let mut other = raw(5, "Notes", [0.0, 39.0, 400.0, 300.0], 0);
         other.pid = 2;
         let windows = [

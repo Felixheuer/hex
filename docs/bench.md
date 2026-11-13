@@ -24,7 +24,7 @@ acts on the person's front window. It follows each task in the
 assistant's conversation files (`<data>/assistant/conversations/<id>.json`)
 and audit log (`<data>/assistant/audit/<id>.jsonl`), and stops a task that
 times out the way `agent-desk assistant stop-all` does. The desktop is only read:
-`lsappinfo` for the front app, and agent-desktop's `list-apps` and
+`lsappinfo` for the front app, and Cua Driver's (`guard::Reader`) `desktop_list_apps` and
 `list-windows`.
 
 `--target dev` (the default) uses `~/Library/Application Support/agent-desk-dev`;

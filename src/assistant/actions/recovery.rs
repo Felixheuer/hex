@@ -2,7 +2,7 @@
 //!
 //! macOS has no public way to move another app's window between desktops
 //! (Spaces), and Accessibility doesn't list a window on another desktop or
-//! in full screen (its own Space), so agent-desktop can neither read nor
+//! in full screen (its own Space), so Cua Driver can neither read nor
 //! operate it ("nicht lesbar, Zeitfehler"). What works, cheapest first,
 //! for any app (no list of apps: what an app is comes from the app itself,
 //! its bundle's `Info.plist` and what its windows say):

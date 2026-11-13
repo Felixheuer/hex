@@ -1,7 +1,7 @@
 //! The real [`App`] and [`Desktop`]: the running Agent-Desk (Dev or Live) through
 //! its owner-only local API (`assistant-submit`, `status`) and the
 //! conversation and audit files it writes; the desktop through
-//! `lsappinfo` and agent-desktop's read-only `list-apps` / `list-windows`.
+//! `lsappinfo` and Cua Driver's read-only listings (`guard::Reader`).
 //! Nothing here clicks, types, or brings a window forward.
 
 use std::path::{Path, PathBuf};
@@ -207,40 +207,19 @@ pub fn read_audit(path: &Path) -> Vec<ToolCall> {
 
 /// The Mac's desktop, read only.
 pub struct MacDesktop {
-    agent_desktop: Option<PathBuf>,
+    driver: Option<crate::assistant::guard::Reader>,
 }
 
 impl MacDesktop {
     pub fn new() -> Self {
         Self {
-            agent_desktop: find("agent-desktop"),
+            driver: crate::assistant::guard::Reader::new(),
         }
     }
 
-    fn call(&self, args: &[&str]) -> Option<Value> {
-        let output = Command::new(self.agent_desktop.as_ref()?)
-            .args(args)
-            .output()
-            .ok()?;
-        envelope(&String::from_utf8_lossy(&output.stdout))
+    fn call(&mut self, tool: &str, args: Value) -> Option<Value> {
+        self.driver.as_mut()?.read(tool, args)
     }
-}
-
-fn find(name: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH")
-        .into_iter()
-        .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
-        .chain(["/opt/homebrew/bin".into(), "/usr/local/bin".into()])
-        .map(|dir| dir.join(name))
-        .find(|path| path.is_file())
-}
-
-/// agent-desktop's reply data (the last `{"ok": true, …}` line).
-pub fn envelope(output: &str) -> Option<Value> {
-    output.lines().rev().find_map(|line| {
-        let value: Value = serde_json::from_str(line.trim()).ok()?;
-        (value.get("ok")? == &Value::Bool(true)).then(|| value.get("data").cloned())?
-    })
 }
 
 pub fn apps_of(data: &Value) -> Vec<String> {
@@ -299,11 +278,12 @@ impl Desktop for MacDesktop {
     }
 
     fn apps(&mut self) -> Option<Vec<String>> {
-        self.call(&["list-apps"]).map(|data| apps_of(&data))
+        self.call("desktop_list_apps", serde_json::json!({}))
+            .map(|data| apps_of(&data))
     }
 
     fn windows(&mut self, app: &str) -> Option<Vec<Win>> {
-        self.call(&["list-windows", "--app", app, "--timeout-ms", "3000"])
+        self.call("desktop_list_windows", serde_json::json!({"app": app}))
             .map(|data| windows_of(&data))
     }
 }

@@ -89,8 +89,10 @@ pub(in crate::rune_ui) fn fixture(ui: &mut Ui, page: Page, all_passed: bool) {
             result(
                 Check::DesktopPermissions,
                 CheckState::Failed,
-                "agent-desktop has no Screen Recording",
-                Some(Fix::GuidePermissions),
+                "Cua Driver has no Screen Recording (acting with Agent-Desk's grants)",
+                Some(Fix::OpenSettings(
+                    crate::assistant::computer::Permission::ScreenRecording,
+                )),
             ),
             result(Check::DesktopRoundTrip, CheckState::Running, "", None),
             result(
@@ -108,11 +110,15 @@ pub(in crate::rune_ui) fn fixture(ui: &mut Ui, page: Page, all_passed: bool) {
         } else {
             vec![Page::Desktop]
         },
-        desktop: Some(AgentDesktop {
-            path: Some("/opt/homebrew/bin/agent-desktop".into()),
-            version: Some("0.4.2".into()),
+        desktop: Some(Driver {
+            path: Some(
+                "/Users/me/Library/Application Support/agent-desk/assistant/cua-driver/0.49.3/cua-driver-rs-0.49.3-darwin-arm64/cua-driver"
+                    .into(),
+            ),
+            version: Some("0.49.3".into()),
             accessibility: true,
             screen_recording: all_passed,
+            update: "Cua Driver 0.49.3 · up to date".into(),
         }),
         permissions: Some(Permissions {
             accessibility: true,

@@ -1,5 +1,5 @@
 //! Work the setup flow and Settings start that blocks (finding the agents,
-//! asking agent-desktop, installing, the self-tests, the Keychain, the
+//! reading Cua Driver, installing, the self-tests, the Keychain, the
 //! voices) runs on its own thread; each answer wakes the window and lands
 //! in the next poll. In scenes and tests nothing runs: each job is
 //! recorded, and a test answers it with [`Jobs::finish`].
@@ -11,7 +11,7 @@ use rune::Waker;
 use super::Ui;
 use super::shortcut::{self, Conflict};
 use crate::app_settings::{AppSettings, AssistantBackend, AssistantSettings, HotkeySlot};
-use crate::assistant::backends::{AgentDesktop, Check, CheckResult, Fix, Found};
+use crate::assistant::backends::{Check, CheckResult, Driver, Fix, Found};
 use crate::assistant::browser::{AgentBrowser, Engine};
 use crate::assistant::computer::Permissions;
 
@@ -20,7 +20,7 @@ use crate::assistant::computer::Permissions;
 pub(in crate::rune_ui) enum Job {
     /// Which agents this Mac has, looked for afresh (`backends::detect`).
     Detect,
-    /// agent-desktop and its permissions (`backends::agent_desktop`).
+    /// Cua Driver, its grants, and its update status (`backends::driver`).
     Desktop,
     /// Agent-Desk's own Accessibility and Screen Recording, read afresh.
     Permissions,
@@ -82,7 +82,7 @@ pub(in crate::rune_ui) enum Done {
     Detected(Vec<Found>),
     /// What setup misses now.
     Gaps(Vec<crate::desktop::setup_gaps::Gap>),
-    Desktop(AgentDesktop),
+    Desktop(Driver),
     Permissions(Permissions),
     /// A line of what a fix is doing (an installer's output).
     FixProgress(Fix, String),
@@ -203,7 +203,7 @@ fn perform(job: Job, send: &dyn Fn(Done)) {
             backends::refresh();
             send(Done::Detected(backends::detect()));
         }
-        Job::Desktop => send(Done::Desktop(backends::agent_desktop())),
+        Job::Desktop => send(Done::Desktop(backends::driver())),
         Job::Permissions => send(Done::Permissions(computer::permissions_now())),
         Job::Fix(fix) => {
             let result =
