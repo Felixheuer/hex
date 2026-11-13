@@ -1,5 +1,5 @@
 //! Which display the HUD-side overlays show on (the orb, the Here bubble,
-//! the hint, the Hands off pill): the one the person works on, its front
+//! the hint): the one the person works on, its front
 //! window's, else the pointer's. They're placed there, and move there when
 //! the person switches displays or displays come and go (the watcher asks
 //! once a second while there's work, and at once when displays change).
@@ -64,9 +64,28 @@ pub(super) fn screens() -> Vec<Screen> {
             r.size.height,
         ]
     };
-    all.iter()
+    let mut notches = Vec::new();
+    let read: Vec<Screen> = all
+        .iter()
         .filter_map(|screen| {
             let id = screen_number(&screen)?;
+            // The notch, as the HUD reads it (`rune_hud::hud_placement`):
+            // the safe area's top and the menu bar either side of it.
+            let metrics = crate::rune_hud::hud_placement::Screen {
+                frame: crate::rune_hud::hud_placement::Rect {
+                    x: screen.frame().origin.x,
+                    y: screen.frame().origin.y,
+                    width: screen.frame().size.width,
+                    height: screen.frame().size.height,
+                },
+                safe_top: screen.safeAreaInsets().top,
+                aux_left: screen.auxiliaryTopLeftArea().size.width,
+                aux_right: screen.auxiliaryTopRightArea().size.width,
+                ..Default::default()
+            };
+            if let Some(notch) = metrics.notch() {
+                notches.push((id, notch.x, notch.height));
+            }
             Some(Screen {
                 id,
                 key: displays::key(id),
@@ -75,7 +94,52 @@ pub(super) fn screens() -> Vec<Screen> {
                 scale: screen.backingScaleFactor(),
             })
         })
-        .collect()
+        .collect();
+    *NOTCHES.lock().unwrap_or_else(|error| error.into_inner()) = notches;
+    read
+}
+
+/// Each display's notch as last read (main thread, [`screens`]): its id,
+/// the notch's middle (global x), and its height. Empty off macOS.
+static NOTCHES: Mutex<Vec<(u32, f64, f64)>> = Mutex::new(Vec::new());
+
+/// Where the island hangs on `screen` (`island::hang`), in global points:
+/// its middle (x), its capsule's top, the black above its line (the
+/// notch's height; 0 for a free capsule under the menu bar's centre), and
+/// its bottom. Any thread: the notches are as [`screens`] last read them.
+pub(super) fn island_hang(screen: &Screen) -> (f64, f64, f64, f64) {
+    let notch = NOTCHES
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .iter()
+        .find(|(id, _, _)| *id == screen.id)
+        .map(|(_, x, height)| (*x, *height));
+    let [x, y, w, _] = screen.frame;
+    // The menu bar's height (24 while it hides itself).
+    let bar = (screen.visible[1] - y).clamp(0.0, 64.0);
+    let bar = if bar < 1.0 { 24.0 } else { bar };
+    let (top, black, bottom) =
+        super::super::island::hang(notch.map(|(_, height)| height as f32), bar as f32);
+    (
+        notch.map_or(x + w / 2.0, |(mid, _)| mid),
+        y + f64::from(top),
+        f64::from(black),
+        y + f64::from(bottom),
+    )
+}
+
+/// What the rail covers now (global points), for the island's card to
+/// keep clear of; set as the rail is placed.
+static RAIL_AT: Mutex<Option<place::Area>> = Mutex::new(None);
+
+pub(super) fn rail_area() -> Option<place::Area> {
+    *RAIL_AT.lock().unwrap_or_else(|error| error.into_inner())
+}
+
+/// The front window's title bar (global points): the card never covers
+/// it.
+pub(super) fn front_title_bar() -> Option<place::Area> {
+    front_window().map(|[x, y, w, _]| [x, y, w, 30.0])
 }
 
 #[cfg(target_os = "macos")]
@@ -201,23 +265,9 @@ fn rail_anchor(orb: &Orb, screen: &Screen, all: &[Screen]) -> (f64, f64) {
     )
 }
 
-/// About how tall the rail stands now: its head, its question, and up to
-/// three job rows with their pictures (the list unfolded: all its room).
+/// About how tall the rail stands now (`place::rail_height`).
 fn rail_height(orb: &Orb) -> f64 {
-    const HEAD: f64 = 52.0;
-    const ROW: f64 = 150.0;
-    const QUESTION: f64 = 170.0;
-    let room = f64::from(orb.room);
-    if orb.expanded {
-        return room;
-    }
-    let rows = super::super::orb::carded(&orb.board, false).len().min(3) as f64;
-    let question = if orb.board.active_question().is_some() {
-        QUESTION
-    } else {
-        0.0
-    };
-    (HEAD + rows * ROW + question).min(room)
+    place::rail_height(&orb.board, orb.expanded, f64::from(orb.room), orb.cards)
 }
 
 /// Puts the orb on the working display: where it was dragged there, else
@@ -234,6 +284,8 @@ pub(super) fn place_orb(handle: &OverlayHandle<Orb>, orb: &mut Orb) {
         screen.scale,
     );
     orb.room = rect[3] as f32;
+    *RAIL_AT.lock().unwrap_or_else(|error| error.into_inner()) =
+        Some(place::footprint(anchor, orb.grow, rail_height(orb)));
     set_rect(handle, rect.map(|v| v as f32));
     note_placed(screen.id);
 }
@@ -345,16 +397,12 @@ fn follow_now(orb: &mut Orb, force: bool) {
             && state.shown
         {
             overlays.bubble.hide();
-            state.below = super::place_bubble(&overlays.bubble);
+            super::place_bubble(state, &overlays.bubble);
             overlays.bubble.fade_in(MOVE_IN);
+            return true;
         }
         false
     });
-    if super::hands_task().is_some() {
-        overlays.hands.hide();
-        place_past_hud(&overlays.hands, super::super::hands::SIZE);
-        overlays.hands.fade_in(MOVE_IN);
-    }
     overlays.listening.update_if(|state, _| {
         if let Some(overlays) = OVERLAYS.get()
             && state.since.is_some()

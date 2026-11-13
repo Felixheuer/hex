@@ -146,6 +146,7 @@ pub(crate) fn view(state: &TwoDisplays, cx: &mut Cx<TwoDisplays>) -> El {
             step: None,
             here: false,
             origin: (0.0, 0.0),
+            room: None,
         };
         root = root.child(
             el().key(format!("outline-{app}"))

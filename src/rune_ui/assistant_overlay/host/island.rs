@@ -12,7 +12,7 @@ use rune::Tx;
 use super::super::bubble::BubbleOverlay;
 use super::super::frame::Tab;
 use super::super::quick::Held;
-use super::answer::{hide_bubble, show_bubble};
+use super::answer::{hide_bubble, place_bubble, show_bubble};
 use super::{OVERLAYS, answer_key};
 
 /// Hears the dictation's live text: while the shortcut is held, its words
@@ -49,10 +49,13 @@ pub(super) fn hold(app: Option<String>) {
             state.bubble = None;
         }
         state.answer_key = answer_key();
-        if !state.shown
-            && let Some(overlays) = OVERLAYS.get()
-        {
-            show_bubble(state, &overlays.bubble);
+        if let Some(overlays) = OVERLAYS.get() {
+            if state.shown {
+                // From the island to past the HUD: the HUD is the island now.
+                place_bubble(state, &overlays.bubble);
+            } else {
+                show_bubble(state, &overlays.bubble);
+            }
         }
     });
 }
@@ -69,6 +72,9 @@ pub(super) fn release() {
         }
         if state.bubble.is_none() && state.setup.is_none() {
             hide_bubble(state);
+        } else if let Some(overlays) = OVERLAYS.get() {
+            // Back under the island once the HUD has gone.
+            place_bubble(state, &overlays.bubble);
         }
         true
     });
@@ -88,6 +94,12 @@ pub(super) fn front(tab: Option<Tab>) {
             return false;
         }
         state.front = tab;
+        if state.shown
+            && let Some(overlays) = OVERLAYS.get()
+        {
+            // Under the tab while a borrow shows it, back up after.
+            place_bubble(state, &overlays.bubble);
+        }
         settle_front(state, tx, Instant::now());
         true
     });

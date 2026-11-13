@@ -101,8 +101,31 @@ pub(crate) struct BubbleOverlay {
     /// A task's window in front for a moment, or the front just given
     /// back: the island says it (`island::line_with`).
     pub(crate) front: Option<super::frame::Tab>,
+    /// Hung from the island (`docs/ux/redesign.md` §3.1) rather than past
+    /// the HUD: where in the panel the island and the card go.
+    pub(crate) hang: Option<Hang>,
     pub(crate) actions: Actions<BubbleOverlay>,
 }
+
+/// The panel hung from the island: the island's capsule at the notch (or
+/// under the menu bar's centre), its card where it covers nothing it
+/// mustn't (`place::clear_spot`). Points from the panel's top-left.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Hang {
+    /// The island's middle (x) and its top.
+    pub(crate) island: (f32, f32),
+    /// The black above the island's line: the notch's height, 0 for a
+    /// free capsule.
+    pub(crate) notch: f32,
+    /// The card's top-left (its inset included).
+    pub(crate) card: (f32, f32),
+}
+
+/// The panel's widest when hung from the island: room for the card to
+/// move aside, clear of what it mustn't cover.
+pub(crate) const HUNG_W: f32 = 2.0 * SIZE.0 + 2.0 * INSET;
+/// … and its tallest: room to move down past the tab and a label.
+pub(crate) const HUNG_H: f32 = SIZE.1 + 200.0;
 
 pub(crate) fn view(state: &BubbleOverlay, cx: &mut Cx<BubbleOverlay>) -> El {
     let p = Paint::new(cx.system_dark(), cx.env().scale);
@@ -151,8 +174,65 @@ pub(crate) fn view(state: &BubbleOverlay, cx: &mut Cx<BubbleOverlay>) -> El {
     } else {
         grow(state.below)
     };
+    if let Some(hang) = state.hang {
+        // Hung from the island: the capsule at its spot, the card at its.
+        let line = (state.shown && state.held.is_none() && state.setup.is_none())
+            .then(|| island::line_with(None, state.front.as_ref(), state.bubble.as_ref()))
+            .flatten();
+        let island = line.map(|line| {
+            let width = island::width(&line);
+            el().key("island-spot")
+                .absolute(hang.island.0 - width / 2.0, hang.island.1)
+                .child(
+                    island::capsule(p, &line, width, hang.notch).transition(Transition::opacity()),
+                )
+        });
+        let card = shown.map(|card| {
+            el().key("card-spot")
+                .absolute(hang.card.0, hang.card.1)
+                .w(SIZE.0)
+                .padding(INSET)
+                .child(card.transition(motion))
+        });
+        return el()
+            .key("bubble-root")
+            .w_full()
+            .h_full()
+            .hover_motion_within(rune::Anim::INSTANT, rune::Anim::INSTANT)
+            .children(card)
+            .children(island);
+    }
     root.children(island)
         .children(shown.map(|card| card.transition(motion)))
+}
+
+/// About how tall the island's card stands (inside its inset), for
+/// keeping it clear of what it mustn't cover before it is laid out
+/// (`place::clear_spot`): the live words while `held`, else `bubble`'s
+/// card, else the setup card.
+pub(crate) fn about_h(bubble: Option<&Bubble>, held: bool) -> f32 {
+    // Padding, header, footer, and the gaps between.
+    const FRAME: f32 = 2.0 * look::PADDING + 20.0 + look::BUTTON_H + 2.0 * look::GAP;
+    const LINE: f32 = 22.0;
+    const PER_LINE: f32 = 62.0;
+    let lines = |text: &str| (text.chars().count() as f32 / PER_LINE).ceil().max(1.0);
+    let body = match bubble {
+        _ if held => 4.0 * LINE,
+        None => LINE,
+        Some(bubble) if bubble.asks.is_some() => {
+            lines(bubble.asks.as_deref().unwrap_or_default()) * LINE
+        }
+        Some(bubble) => match bubble.phase {
+            BubblePhase::Answered | BubblePhase::Answering => {
+                (lines(&clip_answer(&bubble.answer, ANSWER_CHARS)) * LINE).min(ANSWER_MAX_H)
+            }
+            BubblePhase::Failed => 3.0 * LINE,
+            BubblePhase::Thinking | BubblePhase::Working => {
+                bubble.reasoning().len().max(1) as f32 * 26.0
+            }
+        },
+    };
+    FRAME + body
 }
 
 /// A Here question that became a Background task: the card shrinks to a dot

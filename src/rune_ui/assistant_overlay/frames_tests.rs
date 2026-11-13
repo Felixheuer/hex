@@ -111,6 +111,7 @@ fn display(tab: Option<Tab>, glow: bool, left: Option<u64>) -> Frame {
         glow,
         tab,
         left,
+        tab_top: None,
     }
 }
 
@@ -263,6 +264,7 @@ fn outline_of(look: Look, label: LabelSide) -> Outline {
         step: Some("checking 8:15 pm".into()),
         here: false,
         origin: (0.0, 0.0),
+        room: None,
     }
 }
 
@@ -583,6 +585,7 @@ fn frames_snapshots() {
         step: Some("exporting PDF".into()),
         here: false,
         origin: (0.0, 0.0),
+        room: None,
     };
     let scenes = [
         (

@@ -656,6 +656,24 @@ rename lands
             light/dark sets, then one full test run (alone, once)
 ```
 
+### Integration pass (done)
+
+- One placement for every card (`place::clear_spot`, `place::label_room`,
+  `place::beside_rail`): the island's card slides aside or down off the
+  focus window's title bar, the rail, the tab, and outline labels; a label
+  still beside a card (or the stage's top) shortens instead of hiding.
+  `desk::layout` and the host use the same rules; `desk_tests` checks
+  them on eleven desks (1280 × 800 and 1800 × 1169, notch and flat,
+  borrow, Hands off, held, question, stage) in English and German.
+- The island hangs from the notch (`island::hang`, the notch read with
+  the screens in `host::follow`), or under the menu bar's centre; the
+  frame's tab hangs under it, the card under both.
+- A borrow is announced (stored) 400 ms before the window comes forward;
+  a take-over meanwhile cancels it (`guard/proxy/borrow.rs`).
+- Hands off is the frame's tab only; `hands.rs` is gone.
+- At most five floating cards (`orb::rail_cards`): the island's card and
+  the stage take theirs, the rail shows the rest and an "N more" line.
+
 Shared files and who owns them: `bubble.rs` anatomy A / placement B;
 `results.rs` drawing A / targets D (read only); `types.rs` C first, then B;
 `host.rs` D only (others add hooks through their own `host/*` file).

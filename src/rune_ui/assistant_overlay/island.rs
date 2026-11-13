@@ -36,6 +36,21 @@ const RADIUS: f32 = 18.0;
 /// Room either side of its line.
 const PAD_X: f32 = 18.0;
 
+/// Below the menu bar to a free capsule (a display without a notch).
+pub(crate) const FREE_GAP: f32 = 6.0;
+
+/// Where the island hangs on a display (`docs/ux/redesign.md` §3.1), in
+/// points from the display's top: grown out of the notch (`notch`, its
+/// height) on a display with one, else a free capsule under the menu bar
+/// (`bar` tall) at its centre. Its capsule's top, the black above its line
+/// (the notch's; 0 for a free capsule), and its bottom.
+pub(crate) fn hang(notch: Option<f32>, bar: f32) -> (f32, f32, f32) {
+    match notch {
+        Some(notch) => (0.0, notch, notch + HEIGHT),
+        None => (bar + FREE_GAP, 0.0, bar + FREE_GAP + HEIGHT),
+    }
+}
+
 /// One line of the island: its state (glyph and colour), its words, and a
 /// faint note at its right end ("Mail in front", "2/5").
 #[derive(Clone, Debug, PartialEq)]
@@ -48,6 +63,7 @@ pub(crate) struct Line {
 /// What the island says: while the shortcut is held, that it listens (and
 /// which app is in front); else what the Here question does now. `None`:
 /// the island is the notch alone.
+#[cfg(test)]
 pub(crate) fn line(held: Option<&Held>, bubble: Option<&Bubble>) -> Option<Line> {
     line_with(held, None, bubble)
 }
@@ -475,6 +491,16 @@ mod tests {
             State::Listening,
             "the person talking comes first"
         );
+    }
+
+    #[test]
+    fn the_island_grows_from_the_notch_or_hangs_under_the_menu_bar() {
+        // A 32-point notch: from the display's top, its black above.
+        assert_eq!(hang(Some(32.0), 32.0), (0.0, 32.0, 32.0 + HEIGHT));
+        // No notch: a free capsule under a 24-point menu bar.
+        let (top, black, bottom) = hang(None, 24.0);
+        assert_eq!((top, black), (24.0 + FREE_GAP, 0.0));
+        assert_eq!(bottom, top + HEIGHT);
     }
 
     #[test]

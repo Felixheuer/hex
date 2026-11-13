@@ -1775,7 +1775,6 @@ mod tests {
         include_str!("../rune_ui/assistant_overlay/stack.rs"),
         include_str!("../rune_ui/assistant_overlay/orb.rs"),
         include_str!("../rune_ui/assistant_overlay/outline.rs"),
-        include_str!("../rune_ui/assistant_overlay/hands.rs"),
         include_str!("../rune_ui/assistant_overlay/stage.rs"),
         include_str!("../rune_ui/assistant_overlay/host/stage.rs"),
         include_str!("../rune_ui/assistant_overlay/frame.rs"),

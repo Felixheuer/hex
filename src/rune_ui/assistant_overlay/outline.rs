@@ -67,6 +67,40 @@ pub(crate) struct Outline {
     /// Where the whole outline starts in this panel: (0, 0), or less for a
     /// piece of one spanning displays.
     pub(crate) origin: (f32, f32),
+    /// The label's widest here, when a card beside it leaves it less
+    /// than its own (`place::label_room`): it shortens rather than hide
+    /// under the card.
+    pub(crate) room: Option<f32>,
+}
+
+/// The label's least width: its dot and the start of the title.
+pub(crate) const LABEL_LEAST_W: f32 = 120.0;
+
+/// About how wide `outline`'s label draws for a window `width` wide.
+pub(crate) fn label_width(outline: &Outline, width: f32) -> f32 {
+    let title = (outline.title.chars().count() as f32 * 7.0).min(TITLE_MAX_W);
+    let state = state_words(outline).map_or(0.0, |state| 12.0 + state.chars().count() as f32 * 6.2);
+    (8.0 + 7.0 + 6.0 + title + state + 9.0).min(LABEL_MAX_W.min(width - 16.0).max(40.0))
+}
+
+/// Where the label of a window at `window` (global points) draws, whole
+/// and at its least, `wide` its natural width (`label_width`), `top` the
+/// top of the display (as [`rect`]).
+pub(crate) fn label_rects(
+    window: (f64, f64, f64, f64),
+    top: f64,
+    wide: f32,
+) -> ([f64; 4], [f64; 4]) {
+    let (x, y, _, _) = window;
+    let (lx, ly) = match rect(window, top).1 {
+        LabelSide::Above => (x + 2.0, y - f64::from(LABEL_GAP + LABEL_H)),
+        LabelSide::Inside => (x + 8.0, y + 8.0),
+    };
+    let h = f64::from(LABEL_H);
+    (
+        [lx, ly, f64::from(wide), h],
+        [lx, ly, f64::from(LABEL_LEAST_W.min(wide)), h],
+    )
 }
 
 /// The overlay's rect in global points (x, y, width, height) for a window
@@ -152,7 +186,12 @@ pub(crate) fn drawn(p: Paint, outline: &Outline, x: f32, y: f32) -> El {
     };
     let label = chip(p, outline, colour)
         .absolute(label_left, label_top)
-        .max_w(LABEL_MAX_W.min(w - 16.0).max(40.0));
+        .max_w(
+            LABEL_MAX_W
+                .min(w - 16.0)
+                .min(outline.room.unwrap_or(f32::MAX))
+                .max(40.0),
+        );
     let drawn = el()
         .key("outline")
         .w_full()

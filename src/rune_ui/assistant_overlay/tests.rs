@@ -11,7 +11,7 @@ use super::fixture;
 use super::hint::{self, Hint};
 use super::orb::{self, Orb};
 use super::outline::{self, LabelSide, Outline};
-use super::{hands, stack};
+use super::stack;
 use crate::assistant::{Event, Origin};
 
 fn runtime<S: 'static>(
@@ -85,6 +85,7 @@ fn bubble_state(bubble: Option<super::board::Bubble>) -> BubbleOverlay {
         answer_key: fixture::ANSWER_KEY.into(),
         held: None,
         front: None,
+        hang: None,
         level: None,
         actions: bubble::Actions {
             dismiss: |_| {},
@@ -432,17 +433,13 @@ fn no_bubble_draws_nothing() {
 }
 
 #[test]
-fn the_hints_and_the_hands_off_pill_fit_their_panels() {
+fn the_hints_fit_their_panel() {
     for state in [Hint::Background, Hint::Here("Microsoft Outlook".into())] {
         let here = matches!(state, Hint::Here(_));
         let rt = runtime(state, hint::view, hint::SIZE, false);
         let key = if here { "here" } else { "hint" };
         assert!(inside(rect(&rt, key).unwrap(), hint::SIZE), "{key}");
     }
-    let rt = runtime(hands::Hands::default(), hands::view, hands::SIZE, true);
-    let pill = rect(&rt, "hands-off").unwrap();
-    assert!(inside(pill, hands::SIZE), "{pill:?}");
-    assert!(rect(&rt, "hands-esc").is_some());
 }
 
 fn outline_of(look: Look) -> Runtime<Outline> {
@@ -456,6 +453,7 @@ fn outline_of(look: Look) -> Runtime<Outline> {
         step: Some("checking 8:15 pm".into()),
         here: false,
         origin: (0.0, 0.0),
+        room: None,
     };
     let (rect_global, _) = outline::rect((100.0, 200.0, 600.0, 400.0), 0.0);
     runtime(
@@ -482,8 +480,11 @@ fn an_outline_frames_its_window_with_the_label_above() {
 #[test]
 fn the_pretend_desktop_shows_every_overlay() {
     let rt = runtime(Desk::settled(), desk::view, desk::SIZE, true);
+    assert!(
+        rect(&rt, "frame").is_none(),
+        "no desk frame for work in the background"
+    );
     for key in [
-        "frame",
         "orb",
         "bubble",
         "outline-table",
@@ -502,8 +503,11 @@ fn the_pretend_desktop_shows_every_overlay() {
         orb_x > bubble_x + bubble_w,
         "the orb keeps clear of the Here bubble"
     );
+    // Hands off is the frame's tab under the island: one surface, no pill.
     let hands = runtime(hands_off_desk(), desk::view, desk::SIZE, false);
-    assert!(rect(&hands, "hands-off").is_some());
+    assert!(rect(&hands, "frame-tab").is_some());
+    assert!(rect(&hands, "frame").is_some(), "the agent has the controls");
+    assert!(rect(&hands, "hands-off").is_none());
     assert!(rect(&hands, "outline-quick").is_some(), "its soft outline");
 }
 
@@ -613,7 +617,7 @@ fn the_speaking_pulse_follows_the_voice_when_it_can_be_measured() {
 }
 
 /// The desktop while the Here question holds the pointer.
-fn hands_off_desk() -> Desk {
+pub(super) fn hands_off_desk() -> Desk {
     Desk {
         board: fixture::board_at(9.0),
         bubble: fixture::bubble_at(9.0),
@@ -1417,13 +1421,6 @@ fn snapshots() {
             let (w, h) = px(size);
             save(name, size, backdrop(&gpu, &mut rt, w, h, dark));
         }
-        let mut hands_rt = runtime(hands::Hands::default(), hands::view, hands::SIZE, dark);
-        let (w, h) = px(hands::SIZE);
-        save(
-            "hands-off",
-            hands::SIZE,
-            backdrop(&gpu, &mut hands_rt, w, h, dark),
-        );
         for (name, state) in [
             ("hint-background", Hint::Background),
             ("hint-here", Hint::Here("Mail".into())),

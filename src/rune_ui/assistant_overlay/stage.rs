@@ -37,7 +37,7 @@ use crate::desktop::setup_gaps::Gap;
 /// The panel's width (the stage of §3.1: 560–640).
 pub(crate) const WIDTH: f32 = 640.0;
 /// A repair card's width (a rail card's).
-pub(crate) const NOTICE_WIDTH: f32 = 380.0;
+pub(crate) const NOTICE_WIDTH: f32 = super::look::RAIL_W;
 /// Room around the card for its shadow.
 pub(crate) const INSET: f32 = 24.0;
 /// The overlay: the card and its shadow, at most about 70 % of a laptop
@@ -1146,7 +1146,12 @@ fn repair(p: Paint, state: &Stage, gaps: &[Gap]) -> El {
 }
 
 pub(crate) fn view(state: &Stage, cx: &mut Cx<Stage>) -> El {
-    let p = Paint::new(cx.system_dark(), cx.env().scale);
+    drawn(Paint::new(cx.system_dark(), cx.env().scale), state)
+}
+
+/// The stage's panel at the top of its overlay (the pretend desk draws it
+/// too, to look at; its presses are the stage overlay's).
+pub(crate) fn drawn(p: Paint, state: &Stage) -> El {
     let shown = state.panel.as_ref().map(|panel| match panel {
         Panel::Answer(a) => answer(p, state, a),
         Panel::Result { outcome, steps, .. } => result(p, state, outcome, steps),

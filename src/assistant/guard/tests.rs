@@ -110,7 +110,12 @@ struct FakeState {
     link_handlers: Option<Value>,
     /// Each window's text, read from its picture, by window number.
     readings: HashMap<u32, crate::assistant::actions::ocr::Reading>,
+    /// Runs on each call (its tool) before it's answered; it must not
+    /// touch the fake itself.
+    on_call: Option<OnCall>,
 }
+
+type OnCall = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// Cua Driver (through its adapter) answering from recorded windows; every
 /// call is kept.
@@ -223,6 +228,10 @@ impl Desktop for Fake {
     }
 
     fn call(&mut self, tool: &str, args: &Map<String, Value>) -> Result<Value, String> {
+        let hook = self.state().on_call.clone();
+        if let Some(hook) = hook {
+            hook(tool);
+        }
         let mut state = self.state();
         state.calls.push((tool.to_owned(), args.clone()));
         if let Some(reply) = state.replies.get(tool) {

@@ -17,8 +17,9 @@
 //!   open, What it did, and the repair card, under the island. The window
 //!   opens only from its "Open in Agent-Desk" (behind ⋯), "Continue
 //!   setup", and Fix for what only the setup repairs: presses.
-//! - The hint past the HUD while the Action shortcut is held, and the
-//!   "Hands off" pill while a task moves the real pointer (Esc stops it).
+//! - The hint past the HUD while the Action shortcut is held. "Hands
+//!   off" (a task moves the real pointer; Esc stops it) is the desk
+//!   frame's tab under the island, one surface for it.
 //!
 //! Every panel is click-through except the orb's and the bubble's own
 //! parts, joins every Space and full-screen Space, is left out of screen
@@ -55,7 +56,6 @@ use super::ask::{Reply, ReplyActions};
 use super::board::{Board, Look, Outlined};
 use super::bubble::{self, BubbleOverlay};
 use super::frame::{self, Frame};
-use super::hands::{self, Hands};
 use super::hint::{self, Hint};
 use super::listening::{self, Listening};
 use super::orb::{self, Orb};
@@ -92,7 +92,6 @@ struct Overlays {
     orb: OverlayHandle<Orb>,
     bubble: OverlayHandle<BubbleOverlay>,
     hint: OverlayHandle<Hint>,
-    hands: OverlayHandle<Hands>,
     listening: OverlayHandle<Listening>,
     /// A task's browser, live and large (`enlarged`).
     enlarged: OverlayHandle<super::enlarged::Enlarged>,
@@ -354,6 +353,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             answer_key: answer_key(),
             held: None,
             front: None,
+            hang: None,
             level: None,
             actions: bubble::Actions {
                 dismiss: dismiss_bubble,
@@ -388,10 +388,6 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         passive("Agent-Desk new task", hint::SIZE, hint::view),
         Hint::default(),
     );
-    let hands = app.overlay(
-        passive("Agent-Desk hands off", hands::SIZE, hands::view),
-        Hands::default(),
-    );
     let listening = app.overlay(
         passive("Agent-Desk listening", listening::SIZE, listening::view).poll(listening_poll),
         Listening::default(),
@@ -406,7 +402,6 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         orb,
         bubble,
         hint,
-        hands,
         listening,
         enlarged,
         wall,
@@ -645,9 +640,40 @@ fn listening_poll(state: &mut Listening, _clock: f64, tx: &mut Tx) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// At most five floating cards
+
+/// The island shows a card, and the stage a panel: each takes one of the
+/// five floating cards from the rail (`orb::rail_cards`).
+static ISLAND_CARD: AtomicBool = AtomicBool::new(false);
+static STAGE_PANEL: AtomicBool = AtomicBool::new(false);
+
+/// Notes whether the island's card (`island`) or the stage's panel
+/// (`stage`) shows, and gives the rail what's left of the five. Any thread.
+fn cards_shown(island: Option<bool>, stage: Option<bool>) {
+    if let Some(on) = island {
+        ISLAND_CARD.store(on, Ordering::Relaxed);
+    }
+    if let Some(on) = stage {
+        STAGE_PANEL.store(on, Ordering::Relaxed);
+    }
+    let Some(overlays) = OVERLAYS.get() else {
+        return;
+    };
+    let cards = orb::rail_cards(
+        ISLAND_CARD.load(Ordering::Relaxed),
+        STAGE_PANEL.load(Ordering::Relaxed),
+    );
+    overlays.orb.update_if(move |orb, _| {
+        let changed = orb.cards != cards;
+        orb.cards = cards;
+        changed && orb.shown
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Hands off
 
-/// The task moving the real pointer, while the pill shows.
+/// The task moving the real pointer, while the frame's tab says so.
 static HANDS: Mutex<Option<ConversationId>> = Mutex::new(None);
 
 fn hands_task() -> Option<ConversationId> {
@@ -657,17 +683,18 @@ fn hands_task() -> Option<ConversationId> {
         .clone()
 }
 
-/// Shows the pill while `task` moves the real pointer, with Esc stopping
-/// it, and makes room for it above the Here bubble. Main thread.
+/// Notes `task` moving the real pointer: Esc stops it, and the Here
+/// card hangs under the frame's tab, which says so (`frame::Tab::Hands`,
+/// shown by the watcher). Main thread.
 fn set_hands(task: Option<ConversationId>) {
     {
         let mut hands = HANDS.lock().unwrap_or_else(|error| error.into_inner());
         if *hands == task {
             return;
         }
-        let same_pill = hands.is_some() == task.is_some();
+        let same = hands.is_some() == task.is_some();
         *hands = task.clone();
-        if same_pill {
+        if same {
             return;
         }
     }
@@ -675,20 +702,12 @@ fn set_hands(task: Option<ConversationId>) {
         return;
     };
     let on = task.is_some();
-    if on {
-        let shown = task.clone();
-        overlays.hands.update(move |state, _| state.task = shown);
-        place_past_hud(&overlays.hands, hands::SIZE);
-        overlays.hands.fade_in(FADE);
-    } else {
-        overlays.hands.fade_out(FADE);
-    }
     want_escape(None, Some(on));
     overlays.bubble.update_if(|state, _| {
         if state.shown {
-            state.below = place_bubble(&OVERLAYS.get().expect("installed").bubble);
+            place_bubble(state, &OVERLAYS.get().expect("installed").bubble);
         }
-        false
+        state.shown
     });
 }
 

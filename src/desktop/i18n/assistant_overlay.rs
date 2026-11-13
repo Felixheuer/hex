@@ -55,7 +55,6 @@ overlay_strings![
     ("Take over", ["Przejmij", "接管", "引き継ぐ", "Übernehmen", "Tomar el control", "Перехопити", "Assumir", "Prendre la main", "Перехватить"]),
     ("Hand back", ["Oddaj", "交还", "返す", "Zurückgeben", "Devolver", "Повернути", "Devolver", "Rendre la main", "Вернуть"]),
     ("Waiting for limit · resumes {}", ["Czeka na limit · wznowi o {}", "等待额度 · {} 恢复", "上限の解除待ち · {} に再開", "Wartet auf das Limit · weiter um {}", "Esperando el límite · se reanuda a las {}", "Чекає на ліміт · продовжить о {}", "Aguardando o limite · retoma às {}", "En attente de la limite · reprise à {}", "Ждёт лимит · продолжит в {}"]),
-    ("Hands off: Agent-Desk is using your mouse", ["Nie dotykaj: Agent-Desk używa twojej myszy", "请勿操作：Agent-Desk 正在使用你的鼠标", "操作しないでください：Agent-Desk がマウスを使用中", "Finger weg: Agent-Desk benutzt deine Maus", "No toques nada: Agent-Desk está usando tu ratón", "Не торкайтеся: Agent-Desk використовує вашу мишу", "Não mexa: o Agent-Desk está usando seu mouse", "Ne touchez à rien : Agent-Desk utilise votre souris", "Не трогайте: Agent-Desk использует вашу мышь"]),
     ("Esc to stop", ["Esc, aby zatrzymać", "按 Esc 停止", "Esc で停止", "Esc zum Stoppen", "Esc para detener", "Esc, щоб зупинити", "Esc para parar", "Échap pour arrêter", "Esc — остановить"]),
     ("On the web", ["W sieci", "在网页上", "ウェブ上", "Im Web", "En la web", "В інтернеті", "Na web", "Sur le web", "В интернете"]),
     ("Open the task list", ["Otwórz listę zadań", "打开任务列表", "タスク一覧を開く", "Auftragsliste öffnen", "Abrir la lista de tareas", "Відкрити список завдань", "Abrir a lista de tarefas", "Ouvrir la liste des tâches", "Открыть список задач"]),
@@ -69,7 +68,7 @@ overlay_strings![
     ("{} asks", ["{} pyta", "{} 提问", "{} からの質問", "{} fragt", "{} pregunta", "{} питає", "{} pergunta", "{} demande", "{} спрашивает"]),
     ("Open questions: {}", ["Otwarte pytania: {}", "待回答的问题：{}", "未回答の質問：{}", "Offene Fragen: {}", "Preguntas abiertas: {}", "Відкриті запитання: {}", "Perguntas em aberto: {}", "Questions en attente : {}", "Открытые вопросы: {}"]),
     ("Waiting for you", ["Czeka na ciebie", "等你回复", "あなたの返答待ち", "Wartet auf dich", "Esperándote", "Чекає на вас", "Esperando por você", "En attente de vous", "Ждёт вас"]),
-    ("Hold {} to answer", ["Przytrzymaj {}, aby odpowiedzieć", "按住 {} 回答", "{} を長押しして回答", "Halte {} zum Antworten", "Mantén {} para responder", "Утримуйте {}, щоб відповісти", "Segure {} para responder", "Maintenez {} pour répondre", "Удерживайте {}, чтобы ответить"]),
+    ("Hold {} to answer", ["Przytrzymaj {}, aby odpowiedzieć", "按住 {} 回答", "{} を長押しして回答", "Halte {}, um zu antworten", "Mantén {} para responder", "Утримуйте {}, щоб відповісти", "Segure {} para responder", "Maintenez {} pour répondre", "Удерживайте {}, чтобы ответить"]),
     ("Hide question", ["Ukryj pytanie", "隐藏问题", "質問を隠す", "Frage ausblenden", "Ocultar pregunta", "Сховати запитання", "Ocultar pergunta", "Masquer la question", "Скрыть вопрос"]),
     ("Waiting for your answer", ["Czeka na twoją odpowiedź", "等待你的回答", "回答を待っています", "Wartet auf deine Antwort", "Esperando tu respuesta", "Чекає на вашу відповідь", "Aguardando sua resposta", "En attente de votre réponse", "Ждёт вашего ответа"]),
     ("{} done", ["Gotowe: {}", "已完成 {} 项", "{} 件完了", "{} erledigt", "{} hechos", "Виконано: {}", "{} concluídos", "{} terminées", "Готово: {}"]),
@@ -121,7 +120,7 @@ overlay_strings![
     ("Live", ["Na żywo", "实时", "ライブ", "Live", "En vivo", "Наживо", "Ao vivo", "En direct", "Вживую"]),
     ("{} s ago", ["{} s temu", "{} 秒前", "{} 秒前", "vor {} s", "hace {} s", "{} с тому", "há {} s", "il y a {} s", "{} с назад"]),
     ("{} min ago", ["{} min temu", "{} 分钟前", "{} 分前", "vor {} min", "hace {} min", "{} хв тому", "há {} min", "il y a {} min", "{} мин назад"]),
-    ("Waiting for a picture…", ["Czekam na obraz…", "正在等待画面…", "映像を待っています…", "Warte auf ein Bild…", "Esperando la imagen…", "Чекаю на зображення…", "Aguardando a imagem…", "En attente d'une image…", "Жду изображение…"]),
+    ("Waiting for a picture…", ["Czekam na obraz…", "正在等待画面…", "映像を待っています…", "Wartet auf ein Bild…", "Esperando la imagen…", "Чекаю на зображення…", "Aguardando a imagem…", "En attente d'une image…", "Жду изображение…"]),
     // The rail.
     ("1 job", ["1 zadanie", "1 个任务", "1 件の仕事", "1 Auftrag", "1 trabajo", "1 завдання", "1 tarefa", "1 tâche", "1 задача"]),
     ("{} jobs", ["Zadania: {}", "{} 个任务", "{} 件の仕事", "{} Aufträge", "{} trabajos", "Завдань: {}", "{} tarefas", "{} tâches", "Задач: {}"]),
@@ -130,7 +129,7 @@ overlay_strings![
     ("queued", ["w kolejce", "排队中", "待機中", "wartet", "en cola", "у черзі", "na fila", "en attente", "в очереди"]),
     ("you have it", ["masz kontrolę", "由你操作", "あなたが操作中", "du hast übernommen", "lo tienes tú", "керуєте ви", "com você", "c'est à vous", "управляете вы"]),
     ("Hold {} and say it", ["Przytrzymaj {} i powiedz", "按住 {} 说出来", "{} を長押しして話す", "Halte {} und sag es", "Mantén {} y dilo", "Утримуйте {} і скажіть", "Segure {} e diga", "Maintenez {} et dites-le", "Удерживайте {} и скажите"]),
-    ("Hold {} to ask more", ["Przytrzymaj {}, aby zapytać o więcej", "按住 {} 继续问", "{} を長押ししてさらに質問", "Halte {} für mehr", "Mantén {} para preguntar más", "Утримуйте {}, щоб спитати ще", "Segure {} para perguntar mais", "Maintenez {} pour en demander plus", "Удерживайте {}, чтобы спросить ещё"]),
+    ("Hold {} to ask more", ["Przytrzymaj {}, aby zapytać o więcej", "按住 {} 继续问", "{} を長押ししてさらに質問", "Halte {}, um mehr zu fragen", "Mantén {} para preguntar más", "Утримуйте {}, щоб спитати ще", "Segure {} para perguntar mais", "Maintenez {} pour en demander plus", "Удерживайте {}, чтобы спросить ещё"]),
 ];
 
 #[cfg(test)]

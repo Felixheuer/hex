@@ -25,12 +25,12 @@
 //!   state (Listening, Understood, the step now, Needs you, ✓, ✗), with the
 //!   live words under it while the Action shortcut is held and the
 //!   reasoning lines (Understood, Plan, Now, Next) while it thinks.
-//! - The Here question's bubble ([`bubble`]) just past the dictation HUD,
-//!   growing out of it and pulsing while the answer is read aloud; the
-//!   "Finish setting up" bubble in its place before setup.
+//! - The island at the notch ([`island`]) with the Here question's card
+//!   ([`bubble`]) under it, pulsing while the answer is read aloud; the
+//!   "Finish setting up" card in its place before setup.
 //! - Past the HUD while the Action shortcut is held ([`hint`]): "New
-//!   background task" for a tap+hold, "Here · Mail" for a hold; and the
-//!   "Hands off" pill ([`hands`]) while a task moves the real pointer.
+//!   background task" for a tap+hold, "Here · Mail" for a hold. "Hands
+//!   off" is the desk frame's tab ([`frame`]) under the island.
 //!
 //! [`board`] adds the orb's bubbles and results over the shared task view
 //! (`assistant::view`, which the Assistant pane reads too); [`host`] makes
@@ -53,7 +53,6 @@ mod fixture;
 mod frame;
 #[cfg(test)]
 mod frames_tests;
-mod hands;
 mod hint;
 mod host;
 mod island;

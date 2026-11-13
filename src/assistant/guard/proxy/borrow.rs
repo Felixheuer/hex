@@ -10,7 +10,9 @@
 //! A focus asked before any background action failed in that window is
 //! refused once with how to work without it; asked again, it goes ahead.
 //!
-//! While a window is borrowed the guard says so in the store
+//! The borrow is stored a moment ([`ANNOUNCE`]) before the window comes
+//! forward, so the island announces it first; a take-over meanwhile
+//! cancels it. While a window is borrowed the guard says so in the store
 //! (`guard/borrowed/<task>.json`: the window, why, until when, and the
 //! person's app that gets the front back), so Agent-Desk shows the desk
 //! frame with its tab and "Back to you" after (`Event::Borrowed`,
@@ -29,6 +31,10 @@ use super::{Guard, Resolved, refusal};
 const BORROW_FOR: Duration = Duration::from_secs(20);
 /// Acting steps in the borrowed window before the front goes back.
 const BORROW_STEPS: u32 = 4;
+/// How long the island says "Agent-Desk is using … for a moment" before
+/// the window comes forward, so it doesn't jump in front unannounced
+/// (Agent-Desk reads the borrow every 250 ms).
+pub(super) const ANNOUNCE: Duration = Duration::from_millis(if cfg!(test) { 0 } else { 400 });
 /// Failed background actions in a window after which focusing is offered.
 pub(super) const FAILS_BEFORE_FOCUS: u32 = 2;
 
@@ -90,11 +96,6 @@ impl<D: Desktop> Guard<D> {
         let parked = window
             .bounds
             .is_some_and(|bounds| hangs_off(bounds, &displays));
-        if parked && let Some(spot) = on_screen_spot(&displays) {
-            // Where it was before it was parked, when that still shows.
-            let spot = self.unparked_spot(&window, spot);
-            self.move_window(&window, spot);
-        }
         let before = super::front::frontmost();
         let before_app = before.and_then(|pid| {
             windows
@@ -102,15 +103,11 @@ impl<D: Desktop> Guard<D> {
                 .find(|window| window.pid == Some(i64::from(pid)))
                 .map(|window| window.app.clone())
         });
-        let result = self.forward(tool, args)?;
-        self.borrowed = Some(Borrowed {
-            before,
-            window: window.clone(),
-            parked,
-            at: Instant::now(),
-            steps: 0,
-        });
-        let at_ms = crate::desktop::events::now_ms();
+        // Announce first: the borrow is stored (the island says so and the
+        // frame comes up), and the window comes forward a moment later.
+        // It begins when it comes forward, so a touch during the announce
+        // isn't counted against the person.
+        let at_ms = crate::desktop::events::now_ms() + self.announce.as_millis() as u64;
         self.store.set_borrowed(
             &self.config.task,
             Some(&BorrowFile {
@@ -125,6 +122,32 @@ impl<D: Desktop> Guard<D> {
                 before: before_app,
             }),
         );
+        std::thread::sleep(self.announce);
+        if self.store.paused(&self.config.task) {
+            // Taken over during the announce: nothing comes forward; the
+            // person has the task (and the window, where it is).
+            self.store.set_borrowed(&self.config.task, None);
+            return Err(super::resumed_refusal(tool));
+        }
+        if parked && let Some(spot) = on_screen_spot(&displays) {
+            // Where it was before it was parked, when that still shows.
+            let spot = self.unparked_spot(&window, spot);
+            self.move_window(&window, spot);
+        }
+        let result = match self.forward(tool, args) {
+            Ok(result) => result,
+            Err(error) => {
+                self.store.set_borrowed(&self.config.task, None);
+                return Err(error);
+            }
+        };
+        self.borrowed = Some(Borrowed {
+            before,
+            window: window.clone(),
+            parked,
+            at: Instant::now(),
+            steps: 0,
+        });
         self.notes.push(format!(
             "{id} is in front briefly; do the step it needs now. Agent-Desk gives the person's window \
              back after your next {BORROW_STEPS} steps in it (or {} s){}.",
