@@ -689,6 +689,30 @@ pub fn launch_services() -> Option<Value> {
     plist_json(&path)
 }
 
+/// The app which LaunchServices opens `scheme` links with (`https`: the
+/// person's browser), from [`launch_services`]; `None` when the person
+/// never chose one (the system's default applies).
+pub fn handler_for(launch_services: &Value, scheme: &str) -> Option<String> {
+    launch_services
+        .get("LSHandlers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|handler| {
+            handler
+                .get("LSHandlerURLScheme")
+                .and_then(Value::as_str)
+                .is_some_and(|known| known.eq_ignore_ascii_case(scheme))
+        })
+        .and_then(|handler| handler.get("LSHandlerRoleAll").and_then(Value::as_str))
+        .map(str::to_owned)
+}
+
+/// The `Info.plist` of the app bundle at `path`, as JSON.
+pub fn info_plist(path: &Path) -> Option<Value> {
+    plist_json(&path.join("Contents/Info.plist"))
+}
+
 fn plist_json(path: &Path) -> Option<Value> {
     let output = std::process::Command::new("/usr/bin/plutil")
         .args(["-convert", "json", "-o", "-"])
@@ -1035,6 +1059,11 @@ mod tests {
             ["http", "https"]
         );
         assert!(default_schemes(&services, "org.example.other").is_empty());
+        assert_eq!(
+            handler_for(&services, "HTTPS").as_deref(),
+            Some("org.example.browser")
+        );
+        assert_eq!(handler_for(&services, "ftp"), None);
     }
 
     #[test]

@@ -13,22 +13,31 @@ use crate::assistant::types::TaskWindow;
 /// `mcp__agent-desktop__desktop_click`, `agent-desktop_desktop_click`, or
 /// `desktop_click`), if it is one.
 pub fn command(tool: &str) -> Option<&str> {
-    let tool = tool
-        .strip_prefix("mcp__agent-desktop__")
+    unprefixed(tool).strip_prefix("desktop_")
+}
+
+/// A desktop tool's name without its server's prefix: the server is
+/// `desktop` (`mcp__desktop__desktop_click`, OpenCode's
+/// `desktop_desktop_click`), or `agent-desktop` as it was named before.
+fn unprefixed(tool: &str) -> &str {
+    if let Some(rest) = tool
+        .strip_prefix("mcp__desktop__")
+        .or_else(|| tool.strip_prefix("mcp__agent-desktop__"))
         .or_else(|| tool.strip_prefix("agent-desktop_"))
         .or_else(|| tool.strip_prefix("agent_desktop_"))
-        .unwrap_or(tool);
-    tool.strip_prefix("desktop_")
+    {
+        return rest;
+    }
+    match tool.strip_prefix("desktop_") {
+        Some(rest) if rest.starts_with("desktop_") || rest.starts_with("hex_") => rest,
+        _ => tool,
+    }
 }
 
 /// The guard's own tool a tool name stands for (`hex_open_app` for
 /// `mcp__agent-desktop__hex_open_app` or `agent-desktop_hex_open_app`).
 fn guard_tool(tool: &str) -> Option<&str> {
-    let name = tool
-        .strip_prefix("mcp__agent-desktop__")
-        .or_else(|| tool.strip_prefix("agent-desktop_"))
-        .or_else(|| tool.strip_prefix("agent_desktop_"))
-        .unwrap_or(tool);
+    let name = unprefixed(tool);
     (name == crate::assistant::guard::OPEN_APP_TOOL).then_some(name)
 }
 

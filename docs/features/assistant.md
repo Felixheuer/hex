@@ -635,14 +635,39 @@ agent-browser) run the same way on every OS; what differs:
   `hex_compare_images` gives jobs a screenshot similarity score.
 - **Knowing the person's things** (`assistant::knowledge`): `hex_lookup`
   (query + scope: files, recent_files, contacts, calendar, reminders, mail,
-  chrome_tabs, chrome_history, apps, memory, all) answers from Spotlight,
+  browser_tabs, browser_history, apps, memory, all; `chrome_tabs` and
+  `chrome_history` still parse, for one release) answers from Spotlight,
   Contacts (`knowledge.swift`, else the address book's database), EventKit,
-  Mail's Envelope Index and Chrome's History (both read from a clone, Full
-  Disk Access), and Chrome's tabs (JXA, never launching Chrome), ranked and
-  bounded; never message bodies, cookies, or passwords. `hex_chrome_tab`
-  reads and acts in the tab the person means in their own Chrome
-  (JavaScript from Apple Events; a read falls back to fetching the URL);
-  its clicks go through `autonomy::classify`/`allowed` like the guard's.
+  Mail's Envelope Index and the browsers' history (every Chromium-based
+  browser's profiles, found by their `Local State` + `<profile>/History`
+  layout, and Safari's `History.db`; read from a clone, Full Disk Access),
+  and the tabs of the person's default browser (LaunchServices' `https`
+  handler; JXA, never launching it), ranked and bounded; never message
+  bodies, cookies, or passwords. `hex_browser_tab` (`hex_chrome_tab` still
+  answers, for one release) reads and acts in the tab the person means in
+  that browser, scripted by the family its own dictionary speaks: Chromium
+  (`execute … javascript`) or Safari (`do JavaScript`); no list of brands.
+  A read falls back to fetching the URL. Its clicks, fills, and navigations
+  go through the one autonomy gate (`autonomy::Gate`); `run` only reads the
+  page (`knowledge::script::read_only`: an allowlist of names, no
+  assignment, no computed members) unless YOLO on the person's own turn; a
+  background job only reads there unless YOLO.
+- **One autonomy gate** (`autonomy::Gate::check(category, target)`): the
+  guard's clicks and shortcuts, Hex's browser, the person's browser tab, and
+  app scripts all ask it, and every refusal has one `NEEDS_CONFIRMATION`
+  shape (`autonomy::Refusal`: code, message, details {category, target,
+  tool, mode, app}).
+- **App actions run no code outside YOLO** (`actions::app_action::vet`):
+  every app a script addresses (`tell application …` after an `end tell`,
+  `application id`, a path, `«class capp»`, JXA `Application(…)`) is checked
+  against the blocked apps and the gate; outside YOLO a script that runs
+  shell commands (`do shell script`, `do script`), other scripts (`run
+  script`, `load script`), raw `«event …»`, the Objective-C bridge,
+  JavaScript in a browser, direct file writes, or keystrokes, that names an
+  executable, or that addresses an app by a computed name is refused
+  (`RUNS_CODE`), as is any action for an app whose `Info.plist` says it
+  opens shell scripts (a terminal) and an `open_url` of a local program,
+  script, or link file. YOLO runs everything but blocked apps.
   The memory graph (`knowledge::graph`, `memory-graph.json`) links people,
   companies, projects and their numbers, sites, repositories, and folders
   from `hex_remember` (optional `about`) and finished tasks; the part a

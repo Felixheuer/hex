@@ -53,6 +53,8 @@ impl<D: Desktop> Guard<D> {
                 for window in &arrived {
                     if let Some(spot) = park_spot(&displays) {
                         self.move_window(window, spot);
+                        // Off the screen only where it still renders there.
+                        self.measure_parked(window);
                     }
                 }
             }

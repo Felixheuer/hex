@@ -4,8 +4,8 @@
 //! scheduled jobs, `hex_compare_images` tells how alike two screenshots look
 //! (a job's own check, `agent::goal`), and `hex_start_jobs` hands a request
 //! that is a job to the background (`agent::handoff`). `hex_lookup` and
-//! `hex_chrome_tab` find the person's own things and act in their Chrome
-//! tab (`knowledge`). Newline-delimited JSON-RPC on stdio, like the other
+//! `hex_browser_tab` find the person's own things and act in the tab of
+//! their own browser (`knowledge`; a job only reads there). Newline-delimited JSON-RPC on stdio, like the other
 //! servers.
 //!
 //! Two roles. A quick question or a chat (the person's own turn) has all of
@@ -344,7 +344,7 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
         }
         "hex_job_result" => job_result(&text("job")?),
         "hex_remember" => {
-            if !memory_on() {
+            if !crate::assistant::knowledge::memory_on() {
                 return Err("The person turned memory off; nothing is remembered.".into());
             }
             let line = memory::remember(&text("fact")?).map_err(|error| format!("{error:#}"))?;
@@ -400,22 +400,14 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
                 Err(format!("There is no schedule {id}."))
             }
         }
-        name if crate::assistant::knowledge::handles(name) => {
-            crate::assistant::knowledge::call(name, arguments, TASK.get().map(String::as_str))
-        }
+        name if crate::assistant::knowledge::handles(name) => crate::assistant::knowledge::call(
+            name,
+            arguments,
+            TASK.get().map(String::as_str),
+            role(),
+        ),
         other => Err(format!("There is no tool “{other}”.")),
     }
-}
-
-fn memory_on() -> bool {
-    crate::app_settings::assistant_runtime()
-        .map(|(_, settings)| settings.memory)
-        .or_else(|| {
-            crate::app_settings::AppSettings::read()
-                .ok()
-                .map(|settings| settings.assistant.memory)
-        })
-        .unwrap_or(true)
 }
 
 /// Serves the tools on stdio until the agent disconnects.
@@ -562,7 +554,7 @@ mod tests {
                 "hex_compare_images",
                 "hex_unschedule",
                 "hex_lookup",
-                "hex_chrome_tab"
+                "hex_browser_tab"
             ]
         );
         let secret = answer(&json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -592,7 +584,7 @@ mod tests {
                 "hex_schedules",
                 "hex_compare_images",
                 "hex_lookup",
-                "hex_chrome_tab",
+                "hex_browser_tab",
                 "hex_team_start",
                 "hex_team_tell",
                 "hex_team_status"

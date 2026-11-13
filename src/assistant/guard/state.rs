@@ -246,11 +246,13 @@ impl Store {
         if paused {
             let _ = std::fs::write(marker, now_ms.to_string());
         } else if marker.exists() {
-            let _ = std::fs::remove_file(marker);
+            // The resume first, then the pause goes: a guard that sees the
+            // pause end already reads this resume, not the one before.
             let _ = std::fs::write(
                 dir.join(format!("{}.resumed", file_name(task))),
                 now_ms.to_string(),
             );
+            let _ = std::fs::remove_file(marker);
         }
     }
 
