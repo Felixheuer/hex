@@ -187,6 +187,8 @@ impl Stream {
             self.session = Some(session.to_owned());
             report(Report::Session(session.to_owned()));
         }
+        // Any event (a step starting too) says OpenCode still works.
+        report(Report::Alive);
         let part = event.get("part").unwrap_or(&Value::Null);
         let kind = event.get("type").and_then(Value::as_str);
         self.between_steps = kind == Some("step_finish");
