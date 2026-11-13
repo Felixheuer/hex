@@ -132,6 +132,30 @@ the main interface.
   - Results land in `bench/results/<version>.json` with a comparison to the previous
     version.
 
+## I. Self-improvement loop ("test yourself")
+
+The goal: "Open Agent-Desk in VS Code and the console, test yourself, find errors and gaps,
+note them, fix them, start your new version, and keep improving."
+
+- **Loop runner outside the app:** a Claude Code session in Ghostty or VS Code, started by
+  Agent-Desk itself as a job or by the person. It works in `~/dev/desktop/ai-desktop` on
+  its own branch and in its own worktree.
+- **Steps:**
+  1. Install the Dev build with `scripts/install-fork.sh`.
+  2. Run `agent-desk bench` against Dev through Dev's local API. No real input on the
+     person's windows, and messages only as drafts or to test recipients.
+  3. Turn each failure into a note in `bench/findings.md`: task, expectation, what
+     happened, logs.
+  4. Fix: filtered tests only (never the full suite, never audio tests; see CLAUDE.md),
+     then a new Dev build.
+  5. Run the benchmark again. If it is better or equal, open a PR and merge. A release to
+     Live only after the run passes without a regression.
+- **Limits:**
+  - Starting Dev quits Live, because they share the shortcut and microphone. So the loop
+    runs when the person isn't using the Mac (at night, or when "testing" is said), or
+    the benchmark drives Dev without the global shortcut.
+  - Every round writes a short changelog of what it found, fixed and measured.
+
 ## H. Product and identity (after the round)
 
 - **Rename Hex to Agent-Desk:**
