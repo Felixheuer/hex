@@ -537,6 +537,38 @@ typed in the Assistant pane. Message text is never logged. Code: `src/assistant/
 
 ## Onboarding
 
+One short flow (`chats::setup::Page`), with a segmented progress bar and
+"Step 2 of 8 · Permissions" over each page:
+
+1. **Welcome**: what Agent-Desk does on one screen (hold to ask, a bigger
+   job, every task, the Assistant stream) and three lines on what leaves
+   the Mac and what never does.
+2. **Permissions** (`sheet/permissions.rs`): one checklist with live state:
+   Accessibility, Screen Recording, Microphone, Automation, Contacts,
+   Reminders and Calendar, and Full Disk Access (optional). One button per
+   row; the row turns into a green check when macOS reports it; "3 of 5
+   allowed" under the card.
+3. **Agent**: who answers, installed and signed in.
+4. **Cua Driver** (`sheet/desktop.rs`): the driver, which display agents
+   work on, and the self-tests ("Making sure it works"), run on arrival.
+5. **Web tasks** (optional): agent-browser; says "Optional" and is skippable.
+6. **Voice**: the Action and dictation shortcuts are free and a press
+   reaches Agent-Desk.
+7. **Try it out**: hold the Action shortcut and ask.
+8. **Done** (`sheet/done.rs`): every step ready or left, Go to for each one
+   left, and Finish.
+
+How freely it acts, the blocked apps, and what it knows about you are no
+longer pages: they live in Assistant settings (the old Privacy and "Tell
+Agent-Desk about you" pages). Saved progress on a removed page resumes on
+its new home (`Page::named`). The repair guide uses the same pages; the
+Permissions checklist then shows only the rows still missing, under a
+notice listing what changed. Scenes: `mac-assistant-setup`,
+`-permissions`, `-agent`, `-desktop`, `-browser`, `-shortcut`, `-try`,
+`-finish`, `-done`, `-repair`.
+
+The details below predate the merge where they name the old page order.
+
 The assistant's onboarding (`chats/setup.rs`, drawn by `chats/sheet.rs` in
 the first run's type, card, and motion over the whole window) opens when
 the assistant is turned on (Settings' switch or the off card's Turn on)
