@@ -73,7 +73,9 @@ pub struct AssistantSettings {
     /// Tasks may also move the real pointer and press real keys
     /// (agent-desktop `--headed`); off keeps every action in the background.
     pub physical_input: bool,
-    /// A quick question sends a screenshot of the screen with it.
+    /// A quick question sends a screenshot of the screen with it. Off by
+    /// default: the agent looks with its desktop tools when it needs to,
+    /// so the fast path encodes and sends no image.
     pub include_screenshot: bool,
     /// A hold within this many seconds of a quick answer continues that
     /// conversation; 0 always starts a new one. A Background task always starts one.
@@ -178,7 +180,7 @@ impl Default for AssistantSettings {
             voice: None,
             control_desktop: true,
             physical_input: false,
-            include_screenshot: true,
+            include_screenshot: false,
             follow_up_seconds: 120,
             max_parallel: crate::assistant::capacity::recommended_parallel(),
             setup_done: false,

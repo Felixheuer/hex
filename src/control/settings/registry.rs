@@ -320,7 +320,8 @@ pub(super) const KEYS: &[Key] = &[
     key(
         "assistant.include_screenshot",
         Kind::Bool,
-        "A quick question sends a screenshot of the screen with it (macOS)",
+        "A quick question sends a screenshot of the screen with it; off by default, \
+         the agent looks with its desktop tools when it needs to (macOS)",
     ),
     key(
         "assistant.follow_up_seconds",

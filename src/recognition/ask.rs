@@ -139,17 +139,16 @@ impl Asker {
             HotkeyAction::Start => {
                 // Reads nothing yet: a chord (⌘C) or a short tap is
                 // discarded before the hold is real (`intend`).
-                let include_screenshot =
-                    crate::app_settings::applied_assistant().include_screenshot;
                 // One gesture: a hold asks, and the assistant decides
                 // whether it answers, works in the background, or starts
                 // several jobs (`agent::ROUTING`). A tap before it changes
                 // nothing.
                 let background = false;
                 let _ = press.after_tap;
-                self.question = Some(Question::press(background, move || {
-                    crate::assistant::computer::context_async(include_screenshot)
-                }));
+                self.question = Some(Question::press(
+                    background,
+                    crate::assistant::shortcut::desktop_read,
+                ));
                 let accepted = handle(action, context, events)?;
                 // Questions and finished jobs wait to be read aloud while
                 // the person speaks.

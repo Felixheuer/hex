@@ -401,15 +401,21 @@ pub(crate) fn unready_release(held_for: Duration) {
     }
 }
 
+/// The desktop read a hold starts, the one place every OS's listener and
+/// conversation mode take it from: the Accessibility part, and a screenshot
+/// only when `assistant.include_screenshot` asks for one (off by default:
+/// the agent looks with its desktop tools when it needs to).
+pub(crate) fn desktop_read() -> ContextHandle {
+    let include_screenshot = crate::app_settings::assistant_runtime()
+        .map(|(_, settings)| settings.include_screenshot)
+        .unwrap_or_default();
+    crate::assistant::computer::context_async(include_screenshot)
+}
+
 /// The question a press of the Action shortcut starts on Linux and Windows,
 /// with the desktop read the settings ask for.
 pub(crate) fn press(after_tap: bool) -> Question {
-    let include_screenshot = crate::app_settings::assistant_runtime()
-        .map(|(_, settings)| settings.include_screenshot)
-        .unwrap_or(true);
-    let mut question = Question::press(after_tap, move || {
-        crate::assistant::computer::context_async(include_screenshot)
-    });
+    let mut question = Question::press(after_tap, desktop_read);
     question.hold = true;
     question
 }
