@@ -15,7 +15,7 @@ pub(super) fn table() -> &'static HashMap<&'static str, &'static str> {
             .iter()
             .chain(super::assistant::RUSSIAN)
             .chain(super::assistant_overlay::RUSSIAN)
-            .chain(super::assistant_stage::RUSSIAN)
+            .chain(super::stage::RUSSIAN)
             .chain(super::window::RUSSIAN)
             .copied()
             .collect()

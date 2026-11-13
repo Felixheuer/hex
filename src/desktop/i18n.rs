@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 mod assistant;
 mod assistant_overlay;
-mod assistant_stage;
+mod stage;
 mod failures;
 mod french;
 mod meetings;
@@ -370,7 +370,7 @@ pub(super) fn all_translations() -> impl Iterator<Item = &'static (&'static str,
         .chain(onboarding::TRANSLATIONS)
         .chain(assistant::TRANSLATIONS)
         .chain(assistant_overlay::TRANSLATIONS)
-        .chain(assistant_stage::TRANSLATIONS)
+        .chain(stage::TRANSLATIONS)
         .chain(window::TRANSLATIONS)
 }
 
