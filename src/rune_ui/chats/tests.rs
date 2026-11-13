@@ -1387,3 +1387,35 @@ fn only_a_click_points_the_composer_at_an_entry() {
         "the running task isn't steered"
     );
 }
+
+#[test]
+fn a_job_answered_by_voice_goes_on_without_doubling_or_its_old_question() {
+    let mut rt = chats();
+    let id = "shopping";
+    rt.state.chats.apply(&Event::Started {
+        conversation: id.into(),
+        origin: Origin::ActionShortcut,
+        question: "Open Notes and write a shopping list".into(),
+    });
+    rt.state.chats.apply(&Event::AnswerDelta {
+        conversation: id.into(),
+        text: "On it.".into(),
+    });
+    rt.state.chats.apply(&Event::Question {
+        conversation: id.into(),
+        text: "What goes on it?".into(),
+    });
+    assert!(rt.state.chats.turns[id].answer.is_empty(), "stored with the question");
+    // Answered by voice: the service starts it again with the answer.
+    rt.state.chats.apply(&Event::Started {
+        conversation: id.into(),
+        origin: Origin::ActionShortcut,
+        question: "Apples, pears and zucchini".into(),
+    });
+    assert!(!rt.state.chats.questions.contains_key(id), "its box goes");
+    rt.state.chats.apply(&Event::AnswerDelta {
+        conversation: id.into(),
+        text: "Done.".into(),
+    });
+    assert_eq!(rt.state.chats.turns[id].answer, "Done.");
+}

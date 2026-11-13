@@ -324,9 +324,11 @@ fn entry_el(ui: &Ui, p: Paint, entry: &Entry, now: u64) -> El {
         }
     }
     if let Some(turn) = turn {
+        // Shown already when any stored request is it (a job that asked
+        // and was answered has the answer last, its request before).
         let asked = messages
-            .last()
-            .is_some_and(|last| last.role == Role::User && last.text().trim() == turn.question);
+            .iter()
+            .any(|message| message.role == Role::User && message.text().trim() == turn.question);
         if !asked {
             body = body.child(transcript::bubble(p, "pending-question", &turn.question));
         }

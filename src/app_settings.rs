@@ -51,7 +51,7 @@ static RECORDING_DUCK_VOLUME: AtomicU32 = AtomicU32::new(0.2_f32.to_bits());
 // Until settings load, "While dictating" is its default, not Mute: the
 // hotkey pre-roll depends on it.
 static RECORDING_AUDIO_BEHAVIOR: AtomicU8 =
-    AtomicU8::new(RecordingAudioBehavior::DoNothing.encoded());
+    AtomicU8::new(RecordingAudioBehavior::Duck.encoded());
 static DOUBLE_TAP_LOCK: AtomicBool = AtomicBool::new(true);
 static DOUBLE_TAP_ONLY: AtomicBool = AtomicBool::new(false);
 static SHORTCUT_TOGGLE: AtomicBool = AtomicBool::new(false);
@@ -198,9 +198,9 @@ pub struct UpdateSettings {
 #[serde(rename_all = "snake_case")]
 pub enum RecordingAudioBehavior {
     Mute,
+    #[default]
     Duck,
     PauseMedia,
-    #[default]
     DoNothing,
 }
 
@@ -427,7 +427,9 @@ impl Default for AppSettings {
             sound_theme: crate::feedback::SoundSet::default(),
             microphone: None,
             avoid_bluetooth_microphone: true,
-            recording_audio_behavior: RecordingAudioBehavior::DoNothing,
+            // This fork: music and videos go quiet while you speak (hold the
+            // shortcut, or dictate) and come back when you let go.
+            recording_audio_behavior: RecordingAudioBehavior::Duck,
             recording_duck_volume: 0.2,
             pause_browser_media: false,
             double_tap_lock: true,
@@ -2157,11 +2159,11 @@ mod tests {
     }
 
     #[test]
-    fn ducking_settings_are_opt_in_bounded_and_round_trip() {
+    fn ducking_is_on_bounded_and_round_trips() {
         let mut settings: AppSettings = serde_json::from_str("{}").unwrap();
         assert_eq!(
             settings.recording_audio_behavior,
-            RecordingAudioBehavior::DoNothing
+            RecordingAudioBehavior::Duck
         );
         assert_eq!(settings.recording_duck_volume, 0.2);
         settings.recording_audio_behavior = RecordingAudioBehavior::Duck;
@@ -2276,7 +2278,7 @@ mod tests {
         assert_eq!(settings.microphone, None);
         assert_eq!(
             settings.recording_audio_behavior,
-            RecordingAudioBehavior::DoNothing
+            RecordingAudioBehavior::Duck
         );
         assert!(!settings.pause_browser_media);
         assert!(settings.double_tap_lock);

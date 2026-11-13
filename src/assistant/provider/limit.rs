@@ -58,7 +58,7 @@ fn is_limit(message: &str) -> bool {
     PATTERN
         .get_or_init(|| {
             Regex::new(
-                r"(?i)usage limit|session limit|weekly limit|hit your (\w+ )?limit|limit reached|rate[ _-]?limit|too many requests|\b429\b|\b529\b|overloaded|quota exceeded|resource_exhausted",
+                r"(?i)usage limit|session limit|weekly limit|hit your (\w+ )?limit|limit reached|rate[ _-]?limit|too many requests|\b429\b|\b529\b|overloaded|quota exceeded|resource_exhausted|attention required|cloudflare|\b50[234]\b|bad gateway|service unavailable|gateway time-?out",
             )
             .expect("valid pattern")
         })
@@ -270,6 +270,17 @@ mod tests {
             seen += 1;
         }
         assert!(seen >= 8);
+    }
+
+    #[test]
+    fn a_cloudflare_block_or_a_gateway_error_waits_and_retries() {
+        for message in [
+            "Claude Code: Failed to authenticate. API Error: 403 Attention Required! | Cloudflare",
+            "API Error: 503 Service Unavailable",
+            "API Error: 502 Bad Gateway",
+        ] {
+            assert!(detect_at(message, NOW, BERLIN).is_some(), "{message}");
+        }
     }
 
     #[test]
