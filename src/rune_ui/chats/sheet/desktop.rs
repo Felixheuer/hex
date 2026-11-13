@@ -133,6 +133,43 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
     )
 }
 
+/// Automation: Hex may control other apps (System Events), asked here so
+/// tasks never stop midway for macOS's prompt. Allow shows the prompt; a
+/// denial opens System Settings › Automation.
+fn automation_row(p: Paint) -> El {
+    use crate::desktop::automation::{self, AutomationState};
+    let control = match automation::last() {
+        AutomationState::Granted => done_pill(p, "allowed", tr("Allowed")),
+        AutomationState::Denied => push(
+            p,
+            "automation-settings",
+            tr("Open System Settings"),
+            true,
+            |_: &mut Ui| automation::open_settings(),
+        ),
+        AutomationState::NotAsked | AutomationState::Unknown => {
+            push(p, "allow", tr("Allow"), true, |_: &mut Ui| {
+                automation::request_async()
+            })
+        }
+    };
+    let detail = match automation::last() {
+        AutomationState::Denied => {
+            tr("Turn on Hex › System Events in System Settings › Automation")
+        }
+        _ => tr("Lets tasks open and operate your apps without stopping to ask"),
+    };
+    row_of(
+        p,
+        "automation",
+        TOOL,
+        tr("Control other apps"),
+        detail,
+        p.muted(),
+        control,
+    )
+}
+
 /// An install that failed: the end of what it printed, and its command to
 /// run in Terminal instead.
 pub(in crate::rune_ui) fn install_failure(p: Paint, error: &str, command: Option<&str>) -> El {
@@ -206,6 +243,9 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         .iter()
         .map(|grant| grant_row(ui, flow, p, *grant, Some(*grant) == first_missing))
         .collect();
+    if cfg!(target_os = "macos") {
+        rows.push(automation_row(p));
+    }
     let (detail, control) = match found {
         _ if flow.fixing == Some(Fix::InstallAgentDesktop) => {
             super::browser::installing(p, flow, tr("Installing… this takes a minute"))

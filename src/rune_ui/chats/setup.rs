@@ -558,6 +558,10 @@ fn recheck(ui: &mut Ui) {
     if permissions {
         ui.chats.jobs.run(Job::Permissions);
     }
+    // Automation for System Events, read where it's asked for.
+    if cfg!(target_os = "macos") && ui.chats.live() {
+        crate::desktop::automation::refresh_async();
+    }
 }
 
 /// Moves to `page`; arriving at Checks runs them.

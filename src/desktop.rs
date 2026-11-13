@@ -1,4 +1,6 @@
 pub(crate) mod activity;
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+pub(crate) mod automation;
 pub(crate) mod background_process;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) mod copies;
@@ -8,7 +10,6 @@ pub(crate) mod file_dialog;
 pub(crate) mod host;
 pub(crate) mod i18n;
 pub(crate) mod instance;
-#[cfg_attr(target_os = "linux", allow(dead_code))]
 pub(crate) mod keep_awake;
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 pub(crate) mod login_item;

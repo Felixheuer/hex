@@ -163,7 +163,8 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
             text: request.text.clone(),
         }];
         if let Some(screenshot) = &request.context.screenshot {
-            match store.save_attachment(id, &screenshot.png) {
+            // The full-resolution capture, so Chats shows it sharp.
+            match store.save_attachment(id, screenshot.full.as_deref().unwrap_or(&screenshot.png)) {
                 Ok(file) => {
                     image = store.attachment_path(id, &file);
                     parts.push(Part::Screenshot { file });
