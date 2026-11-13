@@ -131,7 +131,11 @@ pub(in crate::rune_ui) fn rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<Ca
 
     let (status, ink) = import_status(&accounts, p);
     let importing_from = chosen.is_some();
+    // While the sign-in window is open it saves its own state as it
+    // closes, over whatever an import wrote meanwhile.
+    let signing_in = ui.chats.settings.signing_in;
     let import: El = match chosen {
+        Some(_) if signing_in && !accounts.importing => rune::el().key("none"),
         Some(profile) if !accounts.importing => small_button(
             p,
             "accounts-import",
@@ -211,6 +215,11 @@ pub(in crate::rune_ui) fn rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<Ca
                     "accounts-forget-button",
                     tr("Forget"),
                     |ui: &mut Ui, _| {
+                        // Not taken over again tomorrow: forgotten means
+                        // until the person takes them over again.
+                        ui.update(|settings| settings.assistant.browser_import_profile = None);
+                        // Forgetting closes the sign-in window too.
+                        ui.chats.settings.signing_in = false;
                         ui.chats.jobs.run(Job::ForgetSignIn);
                     },
                 ),

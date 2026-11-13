@@ -44,6 +44,82 @@ pub const WITHHELD_ARGUMENTS: &[&str] = &[
     "idleTimeout",
 ];
 
+/// Arguments that name where agent-browser writes a file (a screenshot's
+/// `path` and `screenshotDir`). agent-browser writes wherever they say,
+/// outside any job's sandbox: a page's words could make an agent
+/// overwrite the person's Chrome cookies or Agent-Desk's sign-in state. So
+/// they may only name an image inside Agent-Desk's own folders
+/// ([`output_roots`]).
+const OUTPUT_ARGUMENTS: &[&str] = &["path", "screenshotDir"];
+
+/// Where a task's browser may write files: Agent-Desk's folder in
+/// Documents (every job's workspace and project lives there) and the temp
+/// folder.
+fn output_roots() -> Vec<std::path::PathBuf> {
+    let mut roots = vec![std::env::temp_dir()];
+    roots.extend(crate::assistant::agent::workspace::root());
+    roots
+        .into_iter()
+        .filter_map(|root| root.canonicalize().ok().or(Some(root)))
+        .collect()
+}
+
+/// Whether a task's browser may write `path` (an image file when `image`,
+/// else a folder): absolute, inside one of `roots` once its folder's links
+/// are followed, not itself a link, and (a file) an image by its name.
+fn safe_output(path: &str, image: bool, roots: &[std::path::PathBuf]) -> Result<(), String> {
+    use std::path::{Component, Path};
+    let refused = || {
+        Err(format!(
+            "The browser saves files only inside the job's folder (in Documents › Agent-Desk) or the temp folder{}: “{path}” isn't allowed. Leave the path out to get the screenshot back.",
+            if image {
+                ", as .png, .jpg or .webp"
+            } else {
+                ""
+            }
+        ))
+    };
+    let wanted = Path::new(path.trim());
+    if !wanted.is_absolute()
+        || wanted
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return refused();
+    }
+    if image {
+        let extension = wanted
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_ascii_lowercase);
+        if !matches!(extension.as_deref(), Some("png" | "jpg" | "jpeg" | "webp")) {
+            return refused();
+        }
+        if wanted
+            .symlink_metadata()
+            .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            return refused();
+        }
+    }
+    // The nearest folder that exists, with its links followed.
+    let mut folder = if image { wanted.parent() } else { Some(wanted) };
+    let real = loop {
+        let Some(candidate) = folder else {
+            return refused();
+        };
+        if let Ok(real) = candidate.canonicalize() {
+            break real;
+        }
+        folder = candidate.parent();
+    };
+    if roots.iter().any(|root| real.starts_with(root)) {
+        Ok(())
+    } else {
+        refused()
+    }
+}
+
 /// The tool that lists a task's browsers, answered by Agent-Desk.
 pub const LIST_TOOL: &str = "hex_browser_sessions";
 
@@ -218,6 +294,12 @@ impl Sessions {
     pub fn pin(&mut self, tool: &str, arguments: &mut Map<String, Value>) -> Result<(), String> {
         for name in WITHHELD_ARGUMENTS {
             arguments.remove(*name);
+        }
+        for name in OUTPUT_ARGUMENTS {
+            if let Some(value) = arguments.get(*name) {
+                let image = *name == "path";
+                safe_output(value.as_str().unwrap_or_default(), image, &output_roots())?;
+            }
         }
         let name = parse_name(arguments.remove("session"))?;
         let signed_in = arguments
@@ -465,6 +547,43 @@ pub fn describe_tools(result: &mut Value) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_browser_writes_files_only_inside_agent_desks_folders() {
+        let base = std::env::temp_dir().join(format!("hex-out-{}", std::process::id()));
+        let root = base.join("Agent-Desk");
+        let job = root.join("2026-11-13 Job");
+        let outside = base.join("Chrome/Default");
+        std::fs::create_dir_all(&job).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let roots = vec![root.canonicalize().unwrap()];
+        let ok = |path: &std::path::Path, image| {
+            super::safe_output(path.to_str().unwrap(), image, &roots).is_ok()
+        };
+        assert!(ok(&job.join("sent.png"), true));
+        assert!(
+            ok(&job.join("new/sub/shot.jpg"), true),
+            "a folder still to be made"
+        );
+        assert!(ok(&job, false));
+        assert!(
+            !ok(&outside.join("Cookies"), true),
+            "not an image, not inside"
+        );
+        assert!(!ok(&outside.join("shot.png"), true));
+        assert!(!ok(&job.join("../../Chrome/Default/x.png"), true));
+        assert!(!ok(&job.join("state.json"), true));
+        assert!(!ok(std::path::Path::new("relative.png"), true));
+        #[cfg(unix)]
+        {
+            // A link inside that points out.
+            std::os::unix::fs::symlink(&outside, job.join("escape")).unwrap();
+            assert!(!ok(&job.join("escape/shot.png"), true));
+            std::os::unix::fs::symlink(outside.join("Cookies"), job.join("cookie.png")).unwrap();
+            assert!(!ok(&job.join("cookie.png"), true));
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     use super::*;
 
     #[test]

@@ -863,6 +863,19 @@ with Google's cookies is cleaned once on launch
 (`accounts::keep_google_out`, recorded as `google_kept_out` in
 `browser-import.json`).
 
+What a task's browser may never do to the person's own: write a file
+outside Agent-Desk's folders (a screenshot's `path`/`screenshotDir` must
+name an image inside Documents › Agent-Desk or the temp folder, links
+followed: `sessions::safe_output`), pass a line the proxy can't read, or
+reach the sign-in session. "Forget all logins" closes the sign-in window
+first (it saves on close) and stops the daily import; the import waits
+while the sign-in window is open; the state folder is private before the
+window first saves. In the person's own Chrome (`desktop_browser_act`),
+text ending in Return, an option, and an address whose path says it sends,
+deletes, pays, shares or publishes need the same yes as such a button, and
+a tab asked for by name that isn't there is an error, never the tab in
+front.
+
 ## Agents on Linux and Windows
 
 The agent backends (Claude Code, Codex, OpenCode, agent-browser) run the

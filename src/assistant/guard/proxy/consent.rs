@@ -151,19 +151,60 @@ impl<D: Desktop> Guard<D> {
                 autonomy::classify(&item)
                     .map(|category| (category, format!("the menu item “{}”", path.join(" › "))))
             }
+            // The person's own, signed-in browser: a click by its label, text
+            // that ends in Return (it submits there, as in a chat or a
+            // compose field), an option by its words, an address by its
+            // path (`/delete`, `?action=send`, as `hex_browser_tab` judges
+            // it).
             "browser_act" => {
                 let action = text(args, "action").unwrap_or_else(|| "click".into());
-                if action != "click" {
-                    return None;
+                let label = || {
+                    text(args, "ref").and_then(|reference| {
+                        self.learned
+                            .elements
+                            .lock()
+                            .get(&reference)
+                            .map(|element| element.label.clone())
+                    })
+                };
+                match action.as_str() {
+                    "click" => {
+                        let label = label()?;
+                        autonomy::classify(&label).map(|category| (category, format!("“{label}”")))
+                    }
+                    "type" => {
+                        let typed = args.get("text").and_then(Value::as_str).unwrap_or_default();
+                        (typed.contains('\n') || typed.contains('\r')).then(|| {
+                            let into = label()
+                                .map(|label| format!(" into “{label}”"))
+                                .unwrap_or_default();
+                            (
+                                Category::Send,
+                                format!("text ending in Return{into} in the person's browser"),
+                            )
+                        })
+                    }
+                    "select" => {
+                        let option = text(args, "label")?;
+                        autonomy::classify(&option)
+                            .map(|category| (category, format!("the option “{option}”")))
+                    }
+                    "navigate" => {
+                        let url = text(args, "url")?;
+                        let path = url
+                            .split_once("://")
+                            .map_or(url.as_str(), |(_, rest)| rest)
+                            .split_once(['/', '?', '#'])
+                            .map_or("", |(_, rest)| rest);
+                        let words: String = path
+                            .chars()
+                            .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+                            .collect();
+                        autonomy::classify(&words)
+                            .map(|category| (category, format!("opening {url}")))
+                    }
+                    _ => None,
                 }
-                let label = text(args, "ref").and_then(|reference| {
-                    self.learned
-                        .elements
-                        .lock()
-                        .get(&reference)
-                        .map(|element| element.label.clone())
-                })?;
-                autonomy::classify(&label).map(|category| (category, format!("“{label}”")))
             }
             "press" => {
                 let combo = text(args, "combo")?;

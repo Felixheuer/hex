@@ -678,6 +678,12 @@ pub fn session(task: &str) -> String {
 /// browser starts with them from then on. Returns once the window is open.
 pub fn sign_in(url: Option<&str>) -> Result<()> {
     let path = executable().ok_or_else(|| eyre!("agent-browser isn't installed"))?;
+    // Private before the window saves anything into it: the person may
+    // never press Done.
+    if let Some(dir) = state_dir() {
+        let _ = std::fs::create_dir_all(&dir);
+    }
+    private_state();
     call(
         &path,
         SIGN_IN,
@@ -811,8 +817,13 @@ pub(crate) fn sign_in_state_file() -> Option<PathBuf> {
     Some(state_dir()?.join(format!("{SIGN_IN}-{SIGN_IN}.json")))
 }
 
-/// Forgets every sign-in: the next tasks start signed out.
+/// Forgets every sign-in: the next tasks start signed out. An open sign-in
+/// window closes first: it saves its state as it closes, which would bring
+/// the logins back.
 pub fn forget_sign_in() -> Result<()> {
+    if let Some(path) = executable() {
+        let _ = call(&path, SIGN_IN, &["close"]);
+    }
     accounts::forget_import();
     let Some(dir) = state_dir() else {
         return Ok(());
