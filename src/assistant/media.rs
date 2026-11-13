@@ -9,17 +9,29 @@
 //! (speech or music, level, loudness, tempo). The frames come back as images
 //! the model sees, plus their paths.
 //!
-//! One tool of Hex's MCP server (`tools`), for every role: it only reads.
+//! Beside it, the media tools that make and change files, each writing
+//! into the task's folder and showing images where there are any:
+//! `hex_document_read` and `hex_document_write` (`document`), `hex_image`
+//! (`image`), `hex_audio` (`audio`), and `hex_video_make` (`make`).
+//!
+//! Tools of Agent-Desk's MCP server (`tools`), for every role.
 //!
 //! OWNER: brain.
 
+mod audio;
 mod captions;
 pub mod codecs;
+pub mod document;
+mod draw;
 mod fetch;
 mod frames;
+mod image;
+mod make;
+mod out;
 mod probe;
 mod sound;
 mod tools;
+mod zip;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -31,8 +43,30 @@ pub use tools::status;
 
 pub const NAME: &str = "hex_watch_video";
 
-/// The prompt's one rule for it (`agent::prompt`).
-pub const RULES: &str = "To judge or describe a video (on any page, in the person's tab, or a file), call hex_watch_video with its URL or path; never play it in a browser.\n";
+/// Every media tool, in the order they are offered.
+pub const NAMES: [&str; 6] = [
+    NAME,
+    document::READ,
+    document::WRITE,
+    image::NAME,
+    audio::NAME,
+    make::NAME,
+];
+
+/// The prompt's rules for them (`agent::prompt`): watching a video, and
+/// one line for the rest.
+pub const RULES: &str = "To judge or describe a video (on any page, in the person's tab, or a file), call hex_watch_video with its URL or path; never play it in a browser.\n\
+Files and media: read any document (PDF and scans, Office, iWork) with hex_document_read and write .docx/.xlsx/.pptx/.pdf/.md with hex_document_write; inspect, crop, annotate, convert, compare, or OCR images with hex_image; transcribe, cut, mix, or speak audio into files with hex_audio; make videos (scenes, titles, voice, music, a recording of your browser) with hex_video_make.\n";
+
+/// Every media tool's definition, in [`NAMES`]' order.
+pub fn definitions() -> Vec<Value> {
+    let mut all = vec![definition()];
+    all.extend(document::definitions());
+    all.push(image::definition());
+    all.push(audio::definition());
+    all.push(make::definition());
+    all
+}
 
 /// Everything it may take: a three-minute video takes well under a minute.
 const BUDGET: Duration = Duration::from_secs(110);
@@ -57,12 +91,34 @@ pub fn definition() -> Value {
 }
 
 pub fn handles(name: &str) -> bool {
-    name == NAME
+    NAMES.contains(&name)
 }
 
-/// The tool's MCP content (text, then images) for `arguments`, for the task
-/// `task` (its folder gets the frames); `progress` hears each step.
+/// The media tool `name`'s MCP content (text, then images) for
+/// `arguments`, for the task `task` (its folder gets the results);
+/// `progress` hears each step.
 pub fn call(
+    name: &str,
+    arguments: &Value,
+    task: Option<&str>,
+    progress: &mut dyn FnMut(&str),
+) -> Result<Vec<Value>, String> {
+    if name == NAME {
+        return watch_call(arguments, task, progress);
+    }
+    let folder = out::folder(task)?;
+    match name {
+        document::READ => document::call_read(arguments, &folder),
+        document::WRITE => document::call_write(arguments, &folder),
+        image::NAME => image::call(arguments, &folder),
+        audio::NAME => audio::call(arguments, &folder, progress),
+        make::NAME => make::call(arguments, &folder, task, progress),
+        other => Err(format!("There is no tool “{other}”.")),
+    }
+}
+
+/// `hex_watch_video`.
+fn watch_call(
     arguments: &Value,
     task: Option<&str>,
     progress: &mut dyn FnMut(&str),
@@ -403,8 +459,56 @@ fn prune(root: &Path, keep: &str) {
     }
 }
 
-/// The overlay's line for a call (`provider::desktop`): what is watched.
-pub fn step(arguments: &Value) -> (String, String) {
+/// The overlay's line for a media call (`provider::desktop`): `name`
+/// without its `hex_`.
+pub fn step(name: &str, arguments: &Value) -> Option<(String, String)> {
+    let file = |key: &str| {
+        arguments
+            .get(key)
+            .and_then(Value::as_str)
+            .and_then(|path| Path::new(path).file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+    };
+    let pair = |doing: String, done: String| Some((doing, done));
+    match name {
+        "watch_video" => Some(watch_step(arguments)),
+        "document_read" => {
+            let what = file("path").unwrap_or_else(|| "a document".into());
+            pair(format!("Reading {what}"), format!("Read {what}"))
+        }
+        "document_write" => {
+            let what = file("path").unwrap_or_else(|| "a document".into());
+            pair(format!("Writing {what}"), format!("Wrote {what}"))
+        }
+        "image" => {
+            let what = file("path").unwrap_or_else(|| "an image".into());
+            pair(format!("Working on {what}"), format!("Worked on {what}"))
+        }
+        "audio" => match arguments.get("op").and_then(Value::as_str) {
+            Some("transcribe") => {
+                let what = file("path").unwrap_or_else(|| "a recording".into());
+                pair(
+                    format!("Transcribing {what}"),
+                    format!("Transcribed {what}"),
+                )
+            }
+            Some("speak") => pair("Recording a voice".into(), "Recorded a voice".into()),
+            _ => pair("Editing sound".into(), "Edited sound".into()),
+        },
+        "video_make" => match arguments.get("record").and_then(Value::as_str) {
+            Some("start") => pair(
+                "Recording the browser".into(),
+                "Recording the browser".into(),
+            ),
+            Some(_) => pair("Saving the recording".into(), "Saved the recording".into()),
+            None => pair("Making a video".into(), "Made a video".into()),
+        },
+        _ => None,
+    }
+}
+
+/// The overlay's line for watching: what is watched.
+fn watch_step(arguments: &Value) -> (String, String) {
     let what = match arguments.get("source").and_then(Value::as_str).map(source) {
         Some(Ok(Source::Url(url))) => format!("the video from {}", host(&url)),
         Some(Ok(Source::File(path))) => path.file_name().map_or_else(
@@ -434,24 +538,42 @@ mod tests {
             source(&format!("file://{}", file.display())),
             Ok(Source::File(file.clone()))
         );
-        let (doing, done) = step(&json!({"source": file.to_string_lossy()}));
+        let (doing, done) =
+            step("watch_video", &json!({"source": file.to_string_lossy()})).unwrap();
         assert!(doing.starts_with("Watching hex-media-src-") && done.starts_with("Watched"));
         let _ = std::fs::remove_file(&file);
         assert_eq!(
-            step(&json!({"source": "https://vimeo.com/1"})).0,
+            step("watch_video", &json!({"source": "https://vimeo.com/1"}))
+                .unwrap()
+                .0,
             "Watching the video from vimeo.com"
         );
+        assert_eq!(
+            step("document_write", &json!({"path": "/w/Bericht.docx"}))
+                .unwrap()
+                .1,
+            "Wrote Bericht.docx"
+        );
+        assert!(step("lookup", &json!({})).is_none());
         assert_eq!(spread(24, 8), [0, 3, 7, 10, 13, 16, 20, 23]);
         assert_eq!(spread(3, 8), [0, 1, 2]);
         assert_eq!(spread(10, 1), [0]);
         assert!(spread(10, 0).is_empty());
         assert!(
-            call(&json!({}), None, &mut |_| {})
+            call(NAME, &json!({}), None, &mut |_| {})
                 .unwrap_err()
                 .contains("needs “source”")
         );
         assert_eq!(definition()["name"], NAME);
-        assert!(handles(NAME) && !handles("hex_lookup"));
+        assert!(handles(NAME) && handles("hex_image") && !handles("hex_lookup"));
+        let names: Vec<Value> = definitions()
+            .iter()
+            .map(|tool| tool["name"].clone())
+            .collect();
+        assert_eq!(names, NAMES.map(|name| json!(name)));
+        for name in NAMES {
+            assert!(RULES.contains(name), "the rules name {name}");
+        }
     }
 
     /// Watches HEX_MEDIA_SOURCE (a file or URL) and prints the report:
@@ -461,7 +583,7 @@ mod tests {
     fn watch_a_given_source() {
         let source = std::env::var("HEX_MEDIA_SOURCE").expect("HEX_MEDIA_SOURCE");
         let started = Instant::now();
-        let content = call(&json!({"source": source}), None, &mut |step| {
+        let content = call(NAME, &json!({"source": source}), None, &mut |step| {
             println!("{:5.1} s  {step}", started.elapsed().as_secs_f64());
         })
         .unwrap();
@@ -522,6 +644,7 @@ mod tests {
         let started = Instant::now();
         let mut steps = Vec::new();
         let content = call(
+            NAME,
             &json!({"source": video.to_string_lossy()}),
             None,
             &mut |step| steps.push(step.to_owned()),

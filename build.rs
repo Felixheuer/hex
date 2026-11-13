@@ -80,6 +80,12 @@ fn main() {
     // The assistant's lookups in Contacts and Reminders (`hex_lookup`).
     compile_swift_bridge("knowledge", "HEXKnowledgeBridge", &[]);
     println!("cargo:rustc-link-lib=framework=Contacts");
+    // The assistant's documents: PDF text and pages (PDFKit), OCR (Vision),
+    // PDFs laid out with Core Text (`assistant::media::document`).
+    compile_swift_bridge("documents", "HEXDocumentsBridge", &[]);
+    println!("cargo:rustc-link-lib=framework=PDFKit");
+    println!("cargo:rustc-link-lib=framework=Vision");
+    println!("cargo:rustc-link-lib=framework=CoreText");
     // The assistant's job notifications (UNUserNotificationCenter; works
     // only inside the bundled app, else `osascript` stands in).
     compile_swift_bridge(
