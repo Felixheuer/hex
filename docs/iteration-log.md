@@ -79,6 +79,13 @@ maintainable, and nothing that isn't possible.
 - [ ] Consent still open: Return in a chat box without a Send button (Messages,
       WhatsApp before typing), icon-only buttons with no name, a browser ref beyond the
       first 400 learned, accepting a page's confirm() dialog in the person's Chrome
+- [x] Runner audit: a steered task stopped before it wound down ends stopped (was left
+      running and resumed after a restart), a new instruction hands a taken-over task
+      back, the watchdog waits while the person has the task, one lock per conversation
+      for save and append, the monitor survives a panic
+- [ ] Runner still open: a pid reused after a crash can keep a task "running" (store the
+      process start time), queued tasks aren't saved before they start, deadlines count
+      the Mac's sleep
 - [ ] Safari tab ids are window id + position: an action can land on a moved tab
 - [ ] Other sites that bind sessions to a device (Microsoft, Meta, X) may react like
       Google to copied cookies; an allow list for the Chrome import would be safer

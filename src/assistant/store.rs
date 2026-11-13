@@ -175,6 +175,14 @@ impl Store {
     /// it ([`Store::append`]) are kept in their place, so a running task that
     /// saves the copy it holds never drops them.
     pub fn save(&self, stored: &Stored) -> Result<()> {
+        let lock = conversation_lock(&stored.conversation.id);
+        let _held = lock.lock().unwrap_or_else(|error| error.into_inner());
+        self.save_held(stored)
+    }
+
+    /// [`Store::save`] for a caller that holds the conversation
+    /// ([`conversation_lock`]).
+    fn save_held(&self, stored: &Stored) -> Result<()> {
         let id = &stored.conversation.id;
         let path = self
             .file(id)
@@ -204,13 +212,18 @@ impl Store {
             crate::app_paths::create_private_dir(dir)
                 .wrap_err("couldn't create the conversation's folder")?;
         }
+        // Held from reading to writing, so a task's own save (its answer)
+        // can't land in between and be overwritten by the older copy read
+        // here.
+        let lock = conversation_lock(id);
+        let _held = lock.lock().unwrap_or_else(|error| error.into_inner());
         let mut side = self.side(id);
         side.push(message);
         write_private(&path, &serde_json::to_vec(&side)?)
             .wrap_err("couldn't save the conversation's note")?;
         // The main file too, so Chats shows it before the task saves again.
         if let Some(stored) = self.load(id) {
-            self.save(&stored)?;
+            self.save_held(&stored)?;
         }
         Ok(())
     }
@@ -475,6 +488,19 @@ fn valid_file(file: &str) -> bool {
 
 /// Writes `data` to a private temporary file beside `path`, then renames it
 /// over `path`.
+/// The lock that holds conversation `id` in this process while it is
+/// read, changed and written ([`Store::save`], [`Store::append`]).
+fn conversation_lock(id: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    static HELD: Mutex<Option<HashMap<String, Arc<Mutex<()>>>>> = Mutex::new(None);
+    let mut held = HELD.lock().unwrap_or_else(|error| error.into_inner());
+    let map = held.get_or_insert_with(HashMap::new);
+    // Forget conversations no one holds, so the map stays small.
+    map.retain(|_, lock| Arc::strong_count(lock) > 1);
+    Arc::clone(map.entry(id.to_owned()).or_default())
+}
+
 pub(crate) fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
     let temporary = path.with_extension(format!("tmp-{}", new_id()));
     let mut options = fs::OpenOptions::new();

@@ -998,7 +998,9 @@ fn run_backend(
         }
     };
     // A quick turn that reports nothing for too long is ended (`watchdog`).
-    watchdog::watch(control, watchdog::limit(run), |touch| {
+    let task = id.to_string();
+    let taken_over = move || crate::assistant::guard::paused(&task);
+    watchdog::watch(control, watchdog::limit(run), &taken_over, |touch| {
         engine.run(run, control, &mut |sign: Report| {
             touch();
             report(sign);

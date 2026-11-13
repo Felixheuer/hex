@@ -946,6 +946,30 @@ fn speaking_into_a_running_task_steers_it_in_the_same_conversation() {
     );
 }
 
+/// Steered, then stopped at once (before the old run wound down): the
+/// conversation ends as stopped, settled and released, never left
+/// running to come back after a restart.
+#[test]
+fn a_task_steered_and_then_stopped_ends_stopped() {
+    let world = World::new(8);
+    let runner = world.runner();
+    let id = runner.submit(request("write to Anna", Origin::Background));
+    world.wait_for("the task", started(&id));
+    world.wait_for("its step", |_| runner.tasks()[0].step.is_some());
+    let mut steer = request("use Friday instead", Origin::ActionShortcut);
+    steer.conversation = Some(id.clone());
+    runner.submit(steer);
+    runner.cancel(&id);
+    world.wait_for("it to stop", ended(&id));
+    world.wait_until("it is settled", || {
+        world.logged(&format!("settle {id} Cancelled Stopped."))
+    });
+    world.wait_until("its windows and browsers go", || {
+        world.logged(&format!("release {id}"))
+    });
+    assert!(runner.tasks().is_empty());
+}
+
 #[test]
 fn a_request_naming_a_running_task_is_routed_to_it() {
     let world = World::new(8);
