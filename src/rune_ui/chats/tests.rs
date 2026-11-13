@@ -1113,8 +1113,60 @@ fn the_shortcut_page_waits_for_a_free_shortcut_and_a_real_press() {
     probed(&mut rt, Probe::Works(std::time::Duration::from_millis(400)));
     assert!(!done(&rt), "a taken shortcut keeps the page unfinished");
     answer(&mut rt, Done::Conflicts(Vec::new()));
+    // The speech model is part of the Voice page: not here yet, the page
+    // waits for it and offers the download.
+    rt.update(|ui, _| ui.picker.installed = Some(Vec::new()));
+    settle(&mut rt);
+    assert!(!done(&rt), "the page waits for the speech model");
+    assert!(rt.find("model-download").is_some(), "model-download");
+    rt.update(|ui, _| {
+        let model = ui.settings.transcription.model;
+        ui.picker.installed = Some(vec![model]);
+    });
+    settle(&mut rt);
     assert!(done(&rt));
+    assert!(rt.find("model-ready").is_some(), "model-ready");
     assert!(shows(&rt, "Agent-Desk received it (held 0.4 s)"));
+}
+
+#[test]
+fn the_voice_page_downloads_the_model_shows_its_progress_and_retries() {
+    let mut rt = onboarding();
+    rt.update(|ui, _| {
+        ui.view =
+            super::super::scenes::fixture(crate::desktop::host::DesktopShortcuts::Registered).view;
+        ui.picker.installed = Some(Vec::new());
+        super::setup::go(ui, Page::Shortcut);
+    });
+    settle(&mut rt);
+    assert!(shows(&rt, "Your voice"));
+    // Download asks the service for the selected model.
+    tap(&mut rt, "model-download");
+    let Service::Fixture(sent) = &rt.state.service else {
+        panic!("a fixture");
+    };
+    assert!(
+        sent.iter()
+            .any(|request| matches!(request, crate::rune_ui::Request::ChooseModel { .. }))
+    );
+    rt.update(|ui, _| crate::rune_ui::onboarding::set_downloaded(ui, 42));
+    settle(&mut rt);
+    assert!(rt.find("download-bar").is_some(), "download-bar");
+    assert!(texts(&rt).iter().any(|words| words.contains("42 %")));
+    // A failed download offers Try again.
+    rt.update(|ui, _| {
+        if let Some(view) = ui.view.as_mut() {
+            view.transcription.preparing = None;
+            view.transcription.error = Some("network".into());
+        }
+    });
+    settle(&mut rt);
+    assert!(rt.find("model-retry").is_some(), "model-retry");
+    // The try's field takes dictated words; "Works" once they land.
+    assert!(rt.find("practice-input").is_some(), "practice-input");
+    rt.update(|ui, _| super::setup::voice::practice(ui).text = "Hallo Welt".into());
+    settle(&mut rt);
+    assert!(rt.find("practice-heard").is_some(), "practice-heard");
 }
 
 #[test]
@@ -1490,4 +1542,56 @@ fn a_stop_is_a_quiet_state_not_an_error() {
     assert_eq!(failed(&rt), before, "{:?}", texts(&rt));
     assert!(!shows(&rt, "Stopped."), "no error row");
     assert!(shows(&rt, "Stopped"), "a quiet line says it stopped");
+}
+
+/// `AGENT_DESK_VOICE_SNAPS=<folder>` writes the setup's Voice page (the
+/// speech model ready, downloading, and failed) beside the voice first run's
+/// old screens it replaces, light and dark, in `AGENT_DESK_RENDER_LANGUAGE`.
+#[test]
+#[ignore = "set AGENT_DESK_VOICE_SNAPS to a folder; needs a GPU"]
+fn voice_setup_snapshots() {
+    let folder = std::path::PathBuf::from(std::env::var("AGENT_DESK_VOICE_SNAPS").unwrap());
+    std::fs::create_dir_all(&folder).unwrap();
+    let language = std::env::var("AGENT_DESK_RENDER_LANGUAGE").unwrap_or_else(|_| "en".into());
+    let gpu = rune::render::Gpu::try_new(rune::render::Gpu::instance(), None).unwrap();
+    let size = (SIZE.0, 980.0);
+    type Setup = fn(&mut Ui);
+    let shots: [(&str, &str, Setup); 6] = [
+        ("voice-ready", "mac-assistant-setup-shortcut", |_| {}),
+        ("voice-downloading", "mac-assistant-setup-shortcut", |ui| {
+            ui.picker.installed = Some(Vec::new());
+            super::super::onboarding::set_downloaded(ui, 62);
+        }),
+        ("voice-failed", "mac-assistant-setup-shortcut", |ui| {
+            ui.picker.installed = Some(Vec::new());
+            if let Some(view) = ui.view.as_mut() {
+                view.transcription.error = Some("network".into());
+            }
+        }),
+        ("old-download", "onboarding", |_| {}),
+        ("old-demo", "onboarding-demo", |_| {}),
+        ("old-try", "onboarding-try", |_| {}),
+    ];
+    for dark in [false, true] {
+        for (name, scene, setup) in shots {
+            let mut state = Ui::with(AppSettings::default(), Service::Fixture(Vec::new()));
+            let (_, apply) = SCENES.iter().find(|(name, _)| *name == scene).unwrap();
+            apply(&mut state);
+            crate::desktop::i18n::apply(Some(&language));
+            setup(&mut state);
+            let env = Env {
+                system_dark: dark,
+                scale: 2.0,
+            };
+            let text = TextSystem::new(rune_theme_opencode::FONTS, rune_theme_opencode::FAMILIES);
+            let mut rt = offscreen::runtime(state, view, size, env, text);
+            rt.poll = Some(poll);
+            settle(&mut rt);
+            let (w, h) = ((size.0 * 2.0) as u32, (size.1 * 2.0) as u32);
+            let pixels = offscreen::draw(&gpu, &mut rt, w, h);
+            let theme = if dark { "dark" } else { "light" };
+            let path = folder.join(format!("{name}-{language}-{theme}.png"));
+            rune::render::write_png(&path, w, h, &pixels).unwrap();
+        }
+    }
 }

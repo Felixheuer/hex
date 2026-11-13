@@ -522,3 +522,52 @@ fn memory_learned_in_a_project_is_tagged_and_stays_out_of_other_projects() {
     assert_eq!(saved.links[1].project.as_deref(), Some("startup"));
     assert_eq!(saved.scope, None);
 }
+
+#[test]
+fn a_request_can_name_its_project_without_switching() {
+    use super::command::scoped;
+    let projects = scratch();
+    let (startup, _) = projects.create("Startup").unwrap();
+    projects.create("Privat").unwrap();
+    for (said, name, rest) in [
+        (
+            "im Projekt Startup: schreib die Mail an Lea",
+            "Startup",
+            "schreib die Mail an Lea",
+        ),
+        (
+            "Für das Projekt Kalibermarkt Relaunch, mach eine Liste",
+            "Kalibermarkt Relaunch",
+            "mach eine Liste",
+        ),
+        (
+            "in project Startup: draft the pitch",
+            "Startup",
+            "draft the pitch",
+        ),
+        (
+            "For project „Privat“ – book a table",
+            "Privat",
+            "book a table",
+        ),
+    ] {
+        assert_eq!(
+            scoped(said),
+            Some((name.to_owned(), rest.to_owned())),
+            "{said}"
+        );
+    }
+    // Only a request that opens with it, and never a whole command.
+    assert_eq!(
+        scoped("mach eine Präsentation für das Projekt Startup"),
+        None
+    );
+    assert_eq!(scoped("im Projekt Startup"), None);
+    // The name is matched against the person's projects, whatever they are.
+    let (name, _) = scoped("im Projekt startup: x").unwrap();
+    assert_eq!(
+        projects.find(&name).map(|project| project.id),
+        Some(startup.id)
+    );
+    assert_eq!(projects.active(), None, "nothing switched");
+}

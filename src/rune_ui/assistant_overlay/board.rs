@@ -54,6 +54,8 @@ pub(crate) struct Asking {
     pub(crate) title: String,
     pub(crate) question: String,
     pub(crate) colour: u8,
+    /// The project its task runs in, by name: the card says so.
+    pub(crate) project: Option<String>,
 }
 
 /// Every task the overlays know of (the shared view, which `Board`
@@ -271,6 +273,7 @@ impl Board {
                     title: task.map_or_else(|| shorten(&active.title), |task| task.title.clone()),
                     question: active.question.trim().to_owned(),
                     colour: task.map_or(0, |task| task.colour),
+                    project: task.and_then(|task| task.project.clone()),
                 }
             }
             None => {
@@ -283,6 +286,7 @@ impl Board {
                     title: task.title.clone(),
                     question: task.question.clone().unwrap_or_default(),
                     colour: task.colour,
+                    project: task.project.clone(),
                 }
             }
         };

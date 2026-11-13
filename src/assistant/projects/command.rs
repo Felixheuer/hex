@@ -175,3 +175,22 @@ fn name_of(said: &str) -> String {
         .trim()
         .to_owned()
 }
+
+/// A request scoped to one project for itself alone, „im Projekt Startup:
+/// schreib die Mail“ or „in project Startup, write the mail“: the name it
+/// names (matched against the projects by the caller, never a list here)
+/// and the request. The active project stays as it is.
+pub fn scoped(said: &str) -> Option<(String, String)> {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    let pattern = PATTERN.get_or_init(|| {
+        Regex::new(
+            r"(?is)^\s*(?:im|in\s+dem|in|für\s+das|für|fürs|for\s+the|for|in\s+the|in)\s+(?:projekt|project)\s+(?P<name>[^:,–—]+?)\s*[:,–—]\s*(?P<rest>\S.*)$",
+        )
+        .expect("valid pattern")
+    });
+    let found = pattern.captures(said.trim())?;
+    let name = name_of(found.name("name")?.as_str());
+    let rest = found.name("rest")?.as_str().trim().to_owned();
+    (!name.is_empty() && name.split_whitespace().count() <= NAME_WORDS && !rest.is_empty())
+        .then_some((name, rest))
+}

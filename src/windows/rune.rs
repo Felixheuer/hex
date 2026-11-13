@@ -647,12 +647,10 @@ fn tray_view_for(published: &Published) -> TrayView {
     }
 }
 
-/// The assistant's tray items while it's on: Stop all tasks can stop
-/// something while a task runs or waits.
+/// The assistant's tray items while it's on: the status line, the project,
+/// and Stop all tasks, which can stop something while a task runs or waits.
 fn assistant_tray(settings: &AppSettings) -> Option<crate::desktop::tray_menu::AssistantTray> {
-    crate::assistant::enabled(settings).then(|| crate::desktop::tray_menu::AssistantTray {
-        running: crate::assistant::busy(),
-    })
+    crate::assistant::enabled(settings).then(crate::desktop::tray_menu::AssistantTray::now)
 }
 
 /// Gives the window the executable's embedded icon (resource 1, see
@@ -893,6 +891,17 @@ fn create_tray(window: rune::AppHandle<Ui>) -> Result<rune::Tray> {
                 });
             }
             Some(TrayCommand::StopAllTasks) => crate::assistant::shortcut::stop_all(),
+            Some(TrayCommand::Settings) => {
+                window.open();
+                window.update(|ui, tx| {
+                    crate::rune_ui::show(ui, crate::rune_ui::Destination::Settings, tx);
+                });
+            }
+            Some(
+                command @ (TrayCommand::UseProject(_)
+                | TrayCommand::NoProject
+                | TrayCommand::NewProject),
+            ) => crate::desktop::tray_menu::perform_project(command),
             Some(
                 command @ (TrayCommand::RecordMeeting
                 | TrayCommand::StopMeeting
@@ -939,7 +948,11 @@ fn create_tray(window: rune::AppHandle<Ui>) -> Result<rune::Tray> {
                     | TrayCommand::StopMeeting
                     | TrayCommand::CopyLastMeeting
                     | TrayCommand::OpenChats
-                    | TrayCommand::StopAllTasks => return,
+                    | TrayCommand::StopAllTasks
+                    | TrayCommand::Settings
+                    | TrayCommand::UseProject(_)
+                    | TrayCommand::NoProject
+                    | TrayCommand::NewProject => return,
                 };
                 let _ = runtime.send(request);
             }

@@ -786,7 +786,7 @@ fn write_index(folder: &Path, index: &Index) -> Result<()> {
 /// The active project and the recent ones as the overlay and the menu
 /// show them, read at most every [`SNAPSHOT_FOR`] (and at once after a
 /// change in this process).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Snapshot {
     /// (id, name)
     pub active: Option<(String, String)>,

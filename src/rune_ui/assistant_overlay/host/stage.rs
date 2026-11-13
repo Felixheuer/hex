@@ -313,6 +313,7 @@ fn saved_result(id: &str) -> Option<Panel> {
             failed: false,
             text,
             at: Instant::now(),
+            project: None,
         },
         steps: Vec::new(),
         log: None,

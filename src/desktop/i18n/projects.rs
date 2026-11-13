@@ -48,6 +48,7 @@ project_strings![
     ("You're in project {name}.", ["Jesteś w projekcie {name}.", "当前项目是 {name}。", "現在のプロジェクトは {name} です。", "Du bist im Projekt {name}.", "Estás en el proyecto {name}.", "Ви в проєкті {name}.", "Você está no projeto {name}.", "Vous êtes dans le projet {name}.", "Вы в проекте {name}."]),
     ("No project is active.", ["Żaden projekt nie jest aktywny.", "当前没有启用项目。", "有効なプロジェクトはありません。", "Kein Projekt ist aktiv.", "No hay ningún proyecto activo.", "Жоден проєкт не активний.", "Nenhum projeto está ativo.", "Aucun projet n'est actif.", "Нет активного проекта."]),
     // The overlay: the rail's chip, its picker, a job's tag, the offer.
+    ("Without a project", ["Bez projektu", "未归入项目", "プロジェクトなし", "Ohne Projekt", "Sin proyecto", "Без проєкту", "Sem projeto", "Hors projet", "Вне проекта"]),
     ("No project", ["Bez projektu", "无项目", "プロジェクトなし", "Kein Projekt", "Sin proyecto", "Без проєкту", "Sem projeto", "Aucun projet", "Без проекта"]),
     ("Project: {}", ["Projekt: {}", "项目：{}", "プロジェクト：{}", "Projekt: {}", "Proyecto: {}", "Проєкт: {}", "Projeto: {}", "Projet : {}", "Проект: {}"]),
     ("New project…", ["Nowy projekt…", "新建项目…", "新しいプロジェクト…", "Neues Projekt…", "Nuevo proyecto…", "Новий проєкт…", "Novo projeto…", "Nouveau projet…", "Новый проект…"]),

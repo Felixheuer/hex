@@ -1,5 +1,6 @@
-//! The onboarding's Shortcut page: what else takes the tested shortcuts,
-//! each with where it's fixed, then a live press of each.
+//! The onboarding's Voice page: the speech model and the dictation try
+//! (`voice`), then what else takes the tested shortcuts, each with where
+//! it's fixed, and a live press of each.
 
 use rune::{El, col, icon, row, text};
 use rune_kit::{Button, ButtonVariant, glyphs};
@@ -9,7 +10,10 @@ use super::super::super::onboarding_kit::keys;
 use super::super::Ui;
 use super::super::setup::{self, Page, ProbeState, SetupFlow, page_done};
 use super::super::shortcut::{ConflictFix, Probe};
-use super::{actions, done_pill, lead, note, page, push, row_of, rows_card, spinner, waiting_pill};
+use super::{
+    actions, done_pill, lead, note, page, push, row_of, rows_card, section_label, spinner,
+    waiting_pill,
+};
 use crate::app_settings::HotkeySlot;
 use crate::desktop::i18n::{tr, tr_fill};
 
@@ -229,17 +233,28 @@ pub(super) fn shortcut(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     for slot in setup::TESTED {
         rows.push(probe_row(ui, flow, p, slot));
     }
+    let card = rune::col()
+        .key("voice-cards")
+        .gap(20.0)
+        .child(super::voice::section(ui, flow, p))
+        .child(
+            col()
+                .key("shortcut-section")
+                .gap(8.0)
+                .child(section_label(p, "shortcut-label", tr("Shortcuts")))
+                .child(rows_card(p, "shortcut-card", rows)),
+        );
     page(
         p,
         "shortcut",
-        tr("Make the shortcuts yours"),
+        tr("Your voice"),
         lead(
             p,
             tr(
-                "Nothing else may take them, and Agent-Desk has to receive them. Test each by pressing it once.",
+                "Agent-Desk understands you right on this Mac: its speech model downloads once. Nothing else may take your shortcuts.",
             ),
         ),
-        Some(rows_card(p, "shortcut-card", rows)),
+        Some(card),
         flow.fix_error.as_ref().map(|error| note(p, error)),
         actions(p, page_done(ui, flow, Page::Shortcut), true),
     )

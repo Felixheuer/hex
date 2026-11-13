@@ -60,6 +60,7 @@ fn result_panel() -> Panel {
                    Files: /tmp/Agent-Desk Jobs/Flour suppliers"
                 .into(),
             at: Instant::now(),
+            project: None,
         },
         steps: vec![
             "Read each price list".into(),

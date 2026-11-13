@@ -785,6 +785,14 @@ fn refresh_keyboard_layout(mtm: MainThreadMarker) {
     }
 }
 
+/// The menu bar's project submenu: `id` becomes the active project (`None`:
+/// none); the rail's chip hears it (`projects::on_change`).
+fn switch_project(id: Option<&str>) {
+    if let Err(error) = crate::assistant::projects::switch(id) {
+        tracing::warn!(%error, "couldn't switch projects from the menu bar");
+    }
+}
+
 /// Whether the window is on screen.
 fn window_visible() -> bool {
     WINDOW.get().is_some_and(rune::AppHandle::is_visible)
@@ -1027,6 +1035,14 @@ impl Pump {
             // The assistant: Chats, and Stop all tasks.
             StatusItemAction::OpenChats => show(&self.window, Destination::Chats(None)),
             StatusItemAction::StopAllTasks => crate::assistant::service::stop_all(),
+            // The project submenu: the chip on the rail follows the switch.
+            StatusItemAction::UseProject(index) => {
+                if let Some(id) = crate::macos_rune::status_item::project_at(index) {
+                    switch_project(Some(&id));
+                }
+            }
+            StatusItemAction::NoProject => switch_project(None),
+            StatusItemAction::NewProject => crate::rune_ui::assistant_overlay::open_projects(true),
             // Pause from menu bar: only keyboard shortcuts stop; the
             // menu's own actions keep working. The row says Resume Agent-Desk while
             // a resume waits, and choosing it again leaves it waiting.

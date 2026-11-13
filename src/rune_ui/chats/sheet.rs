@@ -12,6 +12,7 @@ mod permissions;
 mod privacy;
 mod shortcut;
 mod try_it;
+mod voice;
 
 pub(super) use desktop::install_failure;
 

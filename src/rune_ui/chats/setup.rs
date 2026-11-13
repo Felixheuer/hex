@@ -20,6 +20,7 @@ pub(in crate::rune_ui) mod permissions;
 pub(in crate::rune_ui) mod repair;
 pub(in crate::rune_ui) mod resume;
 pub(in crate::rune_ui) mod tutorial;
+pub(in crate::rune_ui) mod voice;
 
 mod fixture;
 mod grants;
@@ -75,8 +76,9 @@ pub(in crate::rune_ui) enum Page {
     Desktop,
     /// Optional: agent-browser, for web tasks in hidden browsers.
     Browser,
-    /// Your voice: nothing else takes the Action shortcut, and a press of
-    /// it reaches Agent-Desk.
+    /// Your voice: the speech model is on the Mac (downloaded here, with
+    /// an optional dictation try), nothing else takes the Action shortcut,
+    /// and a press of it reaches Agent-Desk.
     Shortcut,
     /// The three gestures, tried for real.
     Try,
@@ -317,6 +319,8 @@ pub(in crate::rune_ui) struct SetupFlow {
     pub(in crate::rune_ui) from_hold: bool,
     /// Set up before, and back for what's missing now: only these pages.
     pub(in crate::rune_ui) repair: Option<repair::Repair>,
+    /// The Voice page's dictation try.
+    pub(in crate::rune_ui) practice: rune::TextEdit,
 }
 
 impl Default for SetupFlow {
@@ -351,6 +355,7 @@ impl Default for SetupFlow {
             fix_command: None,
             from_hold: false,
             repair: None,
+            practice: rune::TextEdit::default(),
         }
     }
 }
@@ -465,17 +470,19 @@ pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bo
         }
         // Off in Settings, web tasks use the person's own browser.
         Page::Browser => flow.browser.done() || !ui.settings.assistant.background_browser,
-        // Nothing takes the Action shortcut for sure, and a press of it
-        // really reached Agent-Desk.
+        // The speech model is here, nothing takes the Action shortcut for
+        // sure, and a press of it really reached Agent-Desk.
         Page::Shortcut => {
-            flow.conflicts.as_ref().is_some_and(|found| {
-                !found
-                    .iter()
-                    .any(|(slot, conflict)| *slot == HotkeySlot::Action && conflict.taken)
-            }) && matches!(
-                probe_state(flow, HotkeySlot::Action),
-                Some(ProbeState::Done(Probe::Works(_)))
-            )
+            voice::model(ui) == voice::Model::Ready
+                && flow.conflicts.as_ref().is_some_and(|found| {
+                    !found
+                        .iter()
+                        .any(|(slot, conflict)| *slot == HotkeySlot::Action && conflict.taken)
+                })
+                && matches!(
+                    probe_state(flow, HotkeySlot::Action),
+                    Some(ProbeState::Done(Probe::Works(_)))
+                )
         }
         Page::Try => flow.tutorial.done(),
         Page::Done => can_finish(ui, flow),
@@ -525,6 +532,10 @@ pub(in crate::rune_ui) fn open_at(ui: &mut Ui, page: Page) {
     detect(ui);
     recheck(ui);
     browser::read(ui);
+    // The speech model downloads while the person reads the first pages.
+    if ui.chats.live() {
+        voice::download(ui);
+    }
     if page != Page::Welcome {
         go(ui, page);
     }
@@ -720,6 +731,7 @@ pub(in crate::rune_ui) fn finish(ui: &mut Ui, tx: &mut rune::Tx) {
         return;
     }
     if ui.update(|settings| settings.assistant.setup_done = true) {
+        voice::finished(ui);
         resume::forget(ui);
         close(ui);
         super::show(ui, None, tx);
