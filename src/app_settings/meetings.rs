@@ -54,10 +54,8 @@ pub struct MeetingSettings {
     pub show_recording_indicator: bool,
     /// Screen corner the floating recording indicator snaps to after dragging.
     pub recording_indicator_corner: MeetingIndicatorCorner,
-    /// What to do when a call from each website or app is detected. Older
-    /// files only had a `never_offer` list, whose entries carry no `policy`
-    /// and so read as Never offer.
-    #[serde(alias = "never_offer")]
+    /// What to do when a call from each website or app is detected. An
+    /// entry without a `policy` reads as Never offer.
     pub providers: Vec<MeetingProviderChoice>,
     /// Reminders before calendar meetings (macOS). Off until the user
     /// connects a calendar.

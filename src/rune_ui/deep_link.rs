@@ -1,7 +1,6 @@
-//! Links that open the window on a page: `hex://settings/<pane>` and
-//! `hex://chats?id=<conversation>` (`hex-test://` in a test build). Labs is
-//! gone; an old `hex://labs` link opens the Dictation pane, where most of
-//! its features now live. Story links live in `story_link`.
+//! Links that open the window on a page: `agent-desk://settings/<pane>` and
+//! `agent-desk://chats?id=<conversation>` (`agent-desk-test://` in a test
+//! build). Story links live in `story_link`.
 
 use rune::Tx;
 
@@ -29,8 +28,7 @@ const PANES: [(&str, Pane); 8] = [
     ("voice-filter", Pane::VoiceFilter),
 ];
 
-/// Reads `scheme://settings/<pane>`, a retired `scheme://labs[…]`, and
-/// `scheme://chats`. `None`
+/// Reads `scheme://settings/<pane>` and `scheme://chats`. `None`
 /// means it is not one of these (a story link, or not ours), for the caller
 /// to read another way.
 pub(crate) fn parse(link: &str, scheme: &str) -> Option<Result<Target, String>> {
@@ -49,7 +47,7 @@ pub(crate) fn parse(link: &str, scheme: &str) -> Option<Result<Target, String>> 
             .map(|(_, value)| value.trim().to_owned());
         return Some(Ok(Target::Chats(id)));
     }
-    if host != "labs" && host != "settings" {
+    if host != "settings" {
         return None;
     }
     let segments: Option<Vec<String>> = url
@@ -63,10 +61,10 @@ pub(crate) fn parse(link: &str, scheme: &str) -> Option<Result<Target, String>> 
         return Some(Err("the link isn't valid UTF-8".into()));
     };
     let name = segments.join("/").to_ascii_lowercase();
-    Some(match (host, name.is_empty()) {
-        ("labs", _) => Ok(Target::Settings("dictation".into())),
-        (_, true) => Err("the link names no settings pane".into()),
-        (_, false) => Ok(Target::Settings(name)),
+    Some(if name.is_empty() {
+        Err("the link names no settings pane".into())
+    } else {
+        Ok(Target::Settings(name))
     })
 }
 
@@ -104,24 +102,13 @@ mod tests {
     }
 
     #[test]
-    fn a_retired_labs_link_opens_dictation() {
-        let dictation = Some(Ok(Target::Settings("dictation".into())));
-        assert_eq!(read("hex://labs"), dictation);
-        assert_eq!(read("hex://labs/live-text?tab=on"), dictation);
-        assert_eq!(
-            parse("hex-test://labs/meetings", "hex-test"),
-            Some(Ok(Target::Settings("dictation".into())))
-        );
-    }
-
-    #[test]
     fn reads_settings_links() {
         assert_eq!(
             read("hex://settings/history"),
             Some(Ok(Target::Settings("history".into())))
         );
         assert!(matches!(read("hex://settings"), Some(Err(_))));
-        assert!(matches!(read("hex://labs/%FF"), Some(Err(_))));
+        assert!(matches!(read("hex://settings/%FF"), Some(Err(_))));
     }
 
     #[test]
@@ -145,12 +132,13 @@ mod tests {
             "hex-test://labs/live-text",
             "https://labs/live-text",
             "hex://elsewhere",
+            "hex://labs/live-text",
             "not a link",
             "",
         ] {
             assert_eq!(read(other), None, "{other}");
         }
-        let long = format!("hex://labs/{}", "a".repeat(MAX_LINK));
+        let long = format!("hex://settings/{}", "a".repeat(MAX_LINK));
         assert_eq!(read(&long), None);
     }
 

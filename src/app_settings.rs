@@ -370,17 +370,17 @@ const STREAMING_ENGLISH_MIGRATION: &str = "streaming-english-model";
 /// Annotate became a default feature: on for everyone once.
 #[cfg(hex_capture)]
 const ANNOTATE_DEFAULT_MIGRATION: &str = "annotate-on-by-default";
-/// Settings saved by an `anomaly.hex` build. Up to 2.3.1 Hex was
-/// `com.kitlangton.hex2` and used the same folder, so a file without this
-/// ID may carry onboarding finished under grants macOS no longer gives the
-/// new identity; the macOS launch checks setup once
-/// (`onboarding::recheck_after_identity_change`).
-const ANOMALY_IDENTITY_MIGRATION: &str = "anomaly-hex-identity";
+/// One-time migration, remove after 2026-12: settings saved by a
+/// `fheuer.agentdesk` build. Until then the app was Hex (`anomaly.hex`) and
+/// its folder moved over, so a file without this ID may carry onboarding
+/// finished under grants macOS does not give the new identity; the macOS
+/// launch checks setup once (`onboarding::recheck_after_identity_change`).
+const IDENTITY_MIGRATION: &str = "fheuer-agentdesk-identity";
 #[cfg(hex_capture)]
 const MIGRATIONS: &[&str] = &[
     STREAMING_ENGLISH_MIGRATION,
     ANNOTATE_DEFAULT_MIGRATION,
-    ANOMALY_IDENTITY_MIGRATION,
+    IDENTITY_MIGRATION,
     MEETING_RETENTION_DEFAULT_MIGRATION,
     MEETING_SUMMARIES_MIGRATION,
     SCREENSHOT_ON_DEMAND_MIGRATION,
@@ -388,7 +388,7 @@ const MIGRATIONS: &[&str] = &[
 #[cfg(not(hex_capture))]
 const MIGRATIONS: &[&str] = &[
     STREAMING_ENGLISH_MIGRATION,
-    ANOMALY_IDENTITY_MIGRATION,
+    IDENTITY_MIGRATION,
     MEETING_RETENTION_DEFAULT_MIGRATION,
     MEETING_SUMMARIES_MIGRATION,
     SCREENSHOT_ON_DEMAND_MIGRATION,
@@ -943,17 +943,18 @@ impl AppSettings {
         self.migrations.iter().any(|applied| applied == id)
     }
 
-    /// Whether these settings come from before the `anomaly.hex` identity.
+    /// Whether these settings come from before the `fheuer.agentdesk`
+    /// identity.
     #[cfg(target_os = "macos")]
-    pub(crate) fn predates_anomaly_identity(&self) -> bool {
-        !self.has_migration(ANOMALY_IDENTITY_MIGRATION)
+    pub(crate) fn predates_current_identity(&self) -> bool {
+        !self.has_migration(IDENTITY_MIGRATION)
     }
 
     /// Records the identity check in the file at `path`, changing nothing else.
     #[cfg(target_os = "macos")]
-    pub(crate) fn record_anomaly_identity(&mut self, path: &std::path::Path) -> Result<()> {
-        if self.predates_anomaly_identity() {
-            self.migrations.push(ANOMALY_IDENTITY_MIGRATION.into());
+    pub(crate) fn record_current_identity(&mut self, path: &std::path::Path) -> Result<()> {
+        if self.predates_current_identity() {
+            self.migrations.push(IDENTITY_MIGRATION.into());
             self.write_to(path)?;
         }
         Ok(())
@@ -1868,27 +1869,6 @@ mod tests {
         assert!(settings.assistant.enabled);
     }
 
-    /// Renamed assistant settings keep their saved values: the old names
-    /// load into the new ones, and only the new names are written.
-    #[test]
-    fn renamed_assistant_settings_load_from_their_old_names() {
-        let settings: AppSettings = serde_json::from_str(
-            r#"{"assistant":{"background_front_window":false,"agent_space":false,"physical_input":true}}"#,
-        )
-        .expect("old assistant names load");
-        assert!(!settings.assistant.full_control);
-        assert!(!settings.assistant.park_windows);
-        assert!(settings.assistant.background_physical_input);
-        let written = serde_json::to_value(&settings).unwrap();
-        let assistant = &written["assistant"];
-        assert_eq!(assistant["full_control"], false);
-        assert_eq!(assistant["park_windows"], false);
-        assert_eq!(assistant["background_physical_input"], true);
-        for old in ["background_front_window", "agent_space", "physical_input"] {
-            assert!(assistant.get(old).is_none(), "{old} is still written");
-        }
-    }
-
     /// The assistant's Stop all tasks: inert while the assistant is off; on,
     /// it is matched and swallowed (⌃⌥Esc by default), the other shortcuts refuse
     /// its keys and it refuses theirs and Force Quit's, and a saved overlap
@@ -2346,7 +2326,7 @@ mod tests {
         assert!(fresh.meetings.providers.is_empty());
 
         let legacy: AppSettings = serde_json::from_str(
-            r#"{"meetings":{"never_offer":[{"key":"example.com","label":"example.com"}]}}"#,
+            r#"{"meetings":{"providers":[{"key":"example.com","label":"example.com"}]}}"#,
         )
         .unwrap();
         assert_eq!(

@@ -311,7 +311,6 @@ mod tests {
             &["hex", "onboarding", "reset"],
             &["hex", "annotate", "status"],
             &["hex", "capture", "draw"],
-            &["hex", "labs"],
             &["hex", "restart", "--force"],
             &["hex", "start"],
         ] {

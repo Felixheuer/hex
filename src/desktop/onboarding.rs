@@ -872,8 +872,9 @@ pub(crate) fn completion_recorded_at(directory: &Path) -> bool {
     true
 }
 
-/// Once per settings file from before `anomaly.hex` (2.3.1 shared the `hex`
-/// folder): macOS gave the new identity none of the old grants, so setup
+/// One-time migration, remove after 2026-12: once per settings file from
+/// before `fheuer.agentdesk` (Hex's folder moved to Agent-Desk's): macOS
+/// gave the new identity none of the old grants, so setup
 /// that is not ready at launch reopens the tour instead of counting the old
 /// completion. Setup that is ready changes nothing.
 #[cfg(target_os = "macos")]
@@ -899,7 +900,7 @@ pub(crate) fn recheck_after_identity_change_at(
     settings: &mut crate::app_settings::AppSettings,
     setup_ready: bool,
 ) -> color_eyre::Result<bool> {
-    if !settings.predates_anomaly_identity() {
+    if !settings.predates_current_identity() {
         return Ok(false);
     }
     let reopen = !setup_ready;
@@ -915,7 +916,7 @@ pub(crate) fn recheck_after_identity_change_at(
         }
         crate::durable::sync_directory(directory)?;
     }
-    settings.record_anomaly_identity(&directory.join("settings.json"))?;
+    settings.record_current_identity(&directory.join("settings.json"))?;
     Ok(reopen)
 }
 
@@ -1383,13 +1384,13 @@ mod tests {
         directory
     }
 
-    /// Settings as 2.3.1 left them: a choice of the user's, an older
+    /// Settings as Hex left them: a choice of the user's, an older
     /// migration, finished onboarding.
     #[cfg(target_os = "macos")]
     fn upgrader(directory: &Path) -> crate::app_settings::AppSettings {
         fs::write(
             directory.join("settings.json"),
-            br#"{"sound_effects":false,"migrations":["streaming-english-model"]}"#,
+            br#"{"sound_effects":false,"migrations":["streaming-english-model","anomaly-hex-identity"]}"#,
         )
         .unwrap();
         record_completion_at(directory).unwrap();
@@ -1426,7 +1427,7 @@ mod tests {
         assert_eq!(saved["sound_effects"], false);
         let migrations = saved["migrations"].as_array().unwrap();
         assert_eq!(migrations[0], "streaming-english-model");
-        assert_eq!(migrations.last().unwrap(), "anomaly-hex-identity");
+        assert_eq!(migrations.last().unwrap(), "fheuer-agentdesk-identity");
 
         // Finishing the tour sticks: the check does not run again.
         record_completion_at(&directory).unwrap();
@@ -1446,10 +1447,10 @@ mod tests {
 
         assert!(!recheck_after_identity_change_at(&directory, &mut settings, true).unwrap());
         assert!(completion_recorded_at(&directory));
-        assert!(!settings.predates_anomaly_identity());
+        assert!(!settings.predates_current_identity());
         let reloaded =
             crate::app_settings::AppSettings::load_from(&directory.join("settings.json")).unwrap();
-        assert!(!reloaded.predates_anomaly_identity());
+        assert!(!reloaded.predates_current_identity());
         assert!(!reloaded.sound_effects);
 
         fs::remove_dir_all(directory).unwrap();

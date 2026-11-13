@@ -336,6 +336,11 @@ enum MeetingCommand {
 #[cfg(target_os = "macos")]
 fn main() -> Result<()> {
     color_eyre::install()?;
+    // One-time migration, remove after 2026-12: the bridge an older Hex
+    // installed as its update puts Agent-Desk.app in place and opens it.
+    if updater::hand_off_from_hex() {
+        return Ok(());
+    }
     let cli = Cli::parse_from(mcp_alias_arguments(std::env::args_os().collect()));
     let executable_name = std::env::current_exe()
         .ok()
@@ -886,20 +891,6 @@ mod tests {
             }))) if output.json
         ));
         assert!(parse(&["hex", "vocabulary", "remove"]).is_err());
-    }
-
-    #[test]
-    fn retired_labs_commands_still_parse() {
-        for args in [
-            &["hex", "labs"][..],
-            &["hex", "labs", "on", "live-text"],
-            &["hex", "experiments", "enable", "live-text"],
-        ] {
-            assert!(matches!(
-                Cli::try_parse_from(args).map(|cli| cli.command),
-                Ok(Some(Command::Control(ControlCli::Labs { .. })))
-            ));
-        }
     }
 
     #[test]

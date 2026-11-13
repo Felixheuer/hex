@@ -180,13 +180,6 @@ pub enum ControlCli {
         #[command(subcommand)]
         command: CommandsCommand,
     },
-    /// Retired: Labs is gone (its features are always on or are
-    /// `preferences.*` settings). `hex experiments` was its older name.
-    #[command(hide = true, alias = "experiments")]
-    Labs {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
     /// The assistant: ask one question here and print what happens, or
     /// list saved conversations.
     #[command(hide = true)]
@@ -583,10 +576,6 @@ pub fn run(command: ControlCli) -> u8 {
                 crate::personal_commands::check_workspace().map(|report| println!("{report}"))
             }
         }),
-        ControlCli::Labs { .. } => report(Err(color_eyre::eyre::eyre!(
-            "Labs is gone: its features are always on now, or are settings \
-             (`hex settings get preferences`)"
-        ))),
         ControlCli::Assistant { command } => crate::assistant::cli::run(command),
         ControlCli::Bench { command } => crate::bench::run(command),
         ControlCli::Annotate { command } => capture(command),

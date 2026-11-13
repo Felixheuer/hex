@@ -74,17 +74,10 @@ impl Scope {
         ("all", Self::All),
     ];
 
-    /// The names they had (kept for one release).
-    const OLD_NAMES: [(&'static str, Scope); 2] = [
-        ("chrome_tabs", Self::BrowserTabs),
-        ("chrome_history", Self::BrowserHistory),
-    ];
-
     pub fn parse(name: &str) -> Option<Self> {
         let name = name.trim().to_lowercase().replace([' ', '-'], "_");
         Self::NAMES
             .iter()
-            .chain(Self::OLD_NAMES.iter())
             .find(|(known, _)| *known == name)
             .map(|(_, scope)| *scope)
     }
@@ -137,7 +130,7 @@ pub fn definitions() -> Vec<Value> {
 }
 
 pub fn handles(name: &str) -> bool {
-    name == LOOKUP || name == BROWSER_TAB || name == tab::OLD_NAME
+    name == LOOKUP || name == BROWSER_TAB
 }
 
 /// Runs one of the knowledge tools for the task `task` (`--task`), for
@@ -181,7 +174,7 @@ pub fn call(
             }
             Ok(lookup(query, scope, limit))
         }
-        BROWSER_TAB | tab::OLD_NAME => tab::call(arguments, task, role),
+        BROWSER_TAB => tab::call(arguments, task, role),
         other => Err(format!("There is no tool “{other}”.")),
     }
 }
@@ -395,8 +388,8 @@ mod tests {
     #[test]
     fn scopes_parse_and_bad_calls_say_why() {
         assert_eq!(Scope::parse("Browser tabs"), Some(Scope::BrowserTabs));
-        assert_eq!(Scope::parse("chrome_tabs"), Some(Scope::BrowserTabs));
-        assert_eq!(Scope::parse("chrome-history"), Some(Scope::BrowserHistory));
+        assert_eq!(Scope::parse("browser-history"), Some(Scope::BrowserHistory));
+        assert_eq!(Scope::parse("chrome_tabs"), None);
         assert_eq!(Scope::parse("recent-files"), Some(Scope::RecentFiles));
         assert_eq!(Scope::parse("x"), None);
         for (name, scope) in Scope::NAMES {
@@ -418,7 +411,7 @@ mod tests {
                 .contains("needs a “query”")
         );
         assert!(handles("hex_lookup") && handles("hex_browser_tab") && !handles("hex_remember"));
-        assert!(handles("hex_chrome_tab"), "the old name, for one release");
+        assert!(!handles("hex_chrome_tab"));
         let tools = definitions();
         let names: Vec<&str> = tools
             .iter()

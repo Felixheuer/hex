@@ -16,7 +16,7 @@ mod registry;
 
 use hotkeys::check_shortcut;
 pub use hotkeys::{format_hotkey, parse_hotkey};
-use registry::{CAPTURE_KEYS, KEYS, Key, Kind, NUMERIC_CHOICES, RETIRED, canonical, needs};
+use registry::{CAPTURE_KEYS, KEYS, Key, Kind, NUMERIC_CHOICES, needs};
 
 /// One setting as `hex settings get` reports it.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -45,7 +45,6 @@ pub fn unavailable(name: &str) -> Option<ControlError> {
 }
 
 fn unavailable_under(name: &str, policy: crate::policy::Policy) -> Option<ControlError> {
-    let name = canonical(name);
     if let Some(lock) = policy.setting_lock(name) {
         return Some(managed(name, lock));
     }
@@ -153,7 +152,6 @@ pub fn list(settings: &AppSettings) -> Vec<SettingValue> {
 
 /// One setting, or every setting under a prefix such as `meetings`.
 pub fn get(settings: &AppSettings, name: &str) -> Result<Vec<SettingValue>, ControlError> {
-    let name = canonical(name);
     if name == RECOGNITION_HINTS {
         return Ok(vec![recognition_hints(settings)]);
     }
@@ -170,21 +168,6 @@ pub fn get(settings: &AppSettings, name: &str) -> Result<Vec<SettingValue>, Cont
 }
 
 fn unknown(name: &str) -> ControlError {
-    if name == "labs" || name.starts_with("labs.") {
-        return ControlError::new(
-            "unknown-setting",
-            format!(
-                "`{name}`: Labs is gone. Its features are always on now, or became \
-                 `preferences.*` settings; run `hex settings get preferences` for those."
-            ),
-        );
-    }
-    if let Some((_, replacement)) = RETIRED.iter().find(|(retired, _)| *retired == name) {
-        return ControlError::new(
-            "unknown-setting",
-            format!("`{name}` was replaced: use `hex settings set {replacement}`"),
-        );
-    }
     let near = keys()
         .map(|key| key.key)
         .find(|key| {
@@ -242,7 +225,6 @@ pub fn apply(
     raw: &str,
     shortcuts: &ShortcutRules,
 ) -> Result<Change, ControlError> {
-    let name = canonical(name);
     if name == RECOGNITION_HINTS {
         let mut candidate = settings.clone();
         crate::dictation::vocabulary::fold_hints(&mut candidate.vocabulary, raw);
@@ -482,7 +464,7 @@ pub fn apply_all(
             continue;
         }
         let key = keys()
-            .find(|key| key.key == canonical(name))
+            .find(|key| key.key == name)
             .ok_or_else(|| unknown(name))?;
         let raw = match (key.kind, value) {
             (Kind::Json, value) => value.to_string(),
@@ -642,13 +624,6 @@ mod tests {
         }
         assert!(unavailable_under("sound_effects", policy).is_none());
         assert!(unavailable_under("preferences.live_text", policy).is_none());
-    }
-
-    #[test]
-    fn a_labs_key_says_labs_is_gone() {
-        let error = apply(&AppSettings::default(), "labs.live_text", "on", &rules()).unwrap_err();
-        assert_eq!(error.code, "unknown-setting");
-        assert!(error.message.contains("Labs is gone"), "{}", error.message);
     }
 
     fn rules() -> ShortcutRules {
@@ -1112,32 +1087,16 @@ mod tests {
             get(&change.settings, "meetings.summaries").unwrap()[0].value,
             "opencode"
         );
-        let retired = apply(
-            &settings,
+        // Old names are unknown: settings.json was renamed once when the
+        // Hex folder moved (`app_paths::rewrite_renamed_settings`).
+        for old in [
             "meetings.summarize_with_opencode",
-            "on",
-            &rules(),
-        )
-        .unwrap_err();
-        assert!(retired.message.contains("meetings.summaries opencode"));
-        // Renamed keys answer to their old names too, as the new key.
-        for (old, new) in [
-            (
-                "assistant.background_front_window",
-                "assistant.full_control",
-            ),
-            ("assistant.agent_space", "assistant.park_windows"),
-            (
-                "assistant.physical_input",
-                "assistant.background_physical_input",
-            ),
+            "assistant.background_front_window",
+            "assistant.agent_space",
+            "assistant.physical_input",
         ] {
-            let change = apply(&settings, old, "off", &rules()).unwrap();
-            assert_eq!(change.message, format!("Set {new}"));
-            let value = &get(&change.settings, old).unwrap()[0];
-            assert_eq!(value.key, new);
-            assert_eq!(value.value, false);
-            assert!(list(&settings).iter().all(|setting| setting.key != old));
+            let error = apply(&settings, old, "off", &rules()).unwrap_err();
+            assert_eq!(error.code, "unknown-setting", "{old}");
         }
         let change = apply(&settings, "assistant.full_control", "off", &rules()).unwrap();
         assert!(!change.settings.assistant.full_control);

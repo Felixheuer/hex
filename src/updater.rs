@@ -40,7 +40,7 @@ use protocol::{Decision, Install};
 
 use platform::Staged;
 #[cfg(target_os = "macos")]
-pub use platform::finish_on_launch;
+pub use platform::{finish_on_launch, hand_off_from_hex};
 
 const APP: &str = "hex";
 const ARTIFACT: &str = "desktop";

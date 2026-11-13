@@ -788,40 +788,6 @@ const SUMMARIES: Kind = Kind::Choice(&["off", "mac", "opencode"]);
 #[cfg(not(target_os = "macos"))]
 const SUMMARIES: Kind = Kind::Choice(&["off", "opencode"]);
 
-/// Keys that were replaced, and what replaced them.
-pub(super) const RETIRED: &[(&str, &str)] = &[
-    (
-        "meetings.summarize_with_apple_intelligence",
-        "meetings.summaries mac",
-    ),
-    (
-        "meetings.summarize_with_opencode",
-        "meetings.summaries opencode",
-    ),
-];
-
-/// Keys that were renamed, and their new names: `hex settings` takes the
-/// old name for the new one, as `settings.json` does (serde aliases).
-pub(super) const ALIASES: &[(&str, &str)] = &[
-    (
-        "assistant.background_front_window",
-        "assistant.full_control",
-    ),
-    ("assistant.agent_space", "assistant.park_windows"),
-    (
-        "assistant.physical_input",
-        "assistant.background_physical_input",
-    ),
-];
-
-/// The current name for `key`: its new name if it was renamed, else itself.
-pub(super) fn canonical(key: &str) -> &str {
-    ALIASES
-        .iter()
-        .find(|(old, _)| *old == key)
-        .map_or(key, |(_, new)| new)
-}
-
 /// Settings that act only where Hex has a capability (by its
 /// `rune_ui::capabilities` name), the same one that shows their row in the
 /// window. The first matching prefix decides.

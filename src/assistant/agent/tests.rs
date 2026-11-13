@@ -760,7 +760,7 @@ fn the_guide_keeps_what_a_task_uses() {
 
 /// Characters of each lane's own rules (agent-desktop's guide aside): what
 /// every request pays for before its first word. Raise only with a reason.
-// 9_300: the knowledge tools (hex_lookup, hex_chrome_tab) add a short rule.
+// 9_300: the knowledge tools (hex_lookup, hex_browser_tab) add a short rule.
 // 9_600: acting by a window's picture when Accessibility fails (BACKGROUND_INPUT_RULES).
 // 9_700: one routing rule per lane (the web, hex_job_result) and letting go of desk windows.
 const HERE_BUDGET: usize = 9_700;

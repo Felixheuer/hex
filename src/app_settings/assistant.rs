@@ -73,8 +73,7 @@ pub struct AssistantSettings {
     /// Real input, one switch per lane (`here_physical_input` is the
     /// other): Background tasks may also move the real pointer and press
     /// real keys (agent-desktop `--headed`); off, the default, keeps every
-    /// action of theirs in the background. Was `physical_input`.
-    #[serde(alias = "physical_input")]
+    /// action of theirs in the background.
     pub background_physical_input: bool,
     /// A quick question sends a screenshot of the screen with it. Off by
     /// default: the agent looks with its desktop tools when it needs to,
@@ -115,8 +114,7 @@ pub struct AssistantSettings {
     /// Full control of this Mac: tasks of either lane may open any app and
     /// operate every window, the one in front of the person too, as the
     /// ChatGPT app's agent does; off keeps the person's windows theirs and
-    /// tasks work in windows of their own. Was `background_front_window`.
-    #[serde(alias = "background_front_window")]
+    /// tasks work in windows of their own.
     pub full_control: bool,
     /// Where coding jobs create their projects (`~` is the home folder).
     pub projects_folder: String,
@@ -130,8 +128,7 @@ pub struct AssistantSettings {
     pub retry_on_limit: bool,
     /// Windows Background tasks open are parked off-screen, out of the
     /// person's way, until brought forward from the task list. On by
-    /// default. Was `agent_space`.
-    #[serde(alias = "agent_space")]
+    /// default.
     pub park_windows: bool,
     /// The display new Background windows go to, by agent-desktop id ("5")
     /// or name ("M27Q"); `None` is the one the person isn't working on
