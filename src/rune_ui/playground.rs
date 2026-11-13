@@ -294,12 +294,12 @@ const PATHS: &[(&str, &str)] = &[
     ("mac-chats-job", "Window/Chats/A job's plan and question"),
     ("mac-chats-new-schedule", "Window/Chats/New schedule"),
     (
-        "mac-assistant-setup-privacy",
-        "Window/Assistant setup/Privacy",
+        "mac-assistant-setup-permissions",
+        "Window/Assistant setup/Permissions",
     ),
     (
-        "mac-assistant-setup-about",
-        "Window/Assistant setup/Tell Agent-Desk about you",
+        "mac-assistant-setup-finish",
+        "Window/Assistant setup/Finish",
     ),
     ("mac-chats-results", "Window/Chats/A job's results"),
     ("mac-chats-escalated", "Window/Chats/Here became a job"),
@@ -363,10 +363,6 @@ const PATHS: &[(&str, &str)] = &[
     (
         "mac-assistant-setup-screen-restart",
         "Window/Assistant setup/Screen permission restart",
-    ),
-    (
-        "mac-assistant-setup-checks",
-        "Window/Assistant setup/Self-tests",
     ),
     (
         "mac-assistant-setup-shortcut",

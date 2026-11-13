@@ -293,6 +293,7 @@ impl<D: Desktop> Guard<D> {
         if kind.acts() {
             result = self.ax_fallback(tool, args, &resolved, result);
             self.count_failure(&resolved, &result);
+            self.note_keys(tool, &resolved, &result);
             self.spot(args, &resolved, &result);
             self.note_step(tool, args, &resolved, &result);
             if kind == Kind::CloseApp

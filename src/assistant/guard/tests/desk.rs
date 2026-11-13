@@ -179,6 +179,16 @@ fn a_full_screen_window_leaves_full_screen_instead_of_a_relaunch() {
     assert_eq!(scratch.store().holder("w-901").unwrap().task, "bg");
 }
 
+/// Keys sent to window `id` by pid (`hex_window_input` key), as the agent
+/// tries before asking for the front.
+fn keys_by_pid(guard: &mut Guard<Fake>, id: &str) {
+    let keys = guard.call(
+        "hex_window_input",
+        args(json!({"window_id": id, "action": "key", "text": "cmd+l"})),
+    );
+    assert_eq!(keys["isError"], false, "{keys}");
+}
+
 #[test]
 fn focusing_waits_for_background_actions_to_fail_first() {
     let scratch = Scratch::new();
@@ -195,7 +205,12 @@ fn focusing_waits_for_background_actions_to_fail_first() {
             .forwarded()
             .contains(&"desktop_focus_window".to_owned())
     );
-    // Asked again, it goes ahead, briefly.
+    // Asked again before any key went by pid: still refused.
+    let again = guard.call("desktop_focus_window", args(json!({"window_id": CITRIX})));
+    assert_eq!(error_code(&again).as_deref(), Some("BACKGROUND_FIRST"));
+    // Keys by pid first; asked after that (they didn't land), it goes
+    // ahead, briefly.
+    keys_by_pid(&mut guard, CITRIX);
     let second = guard.call("desktop_focus_window", args(json!({"window_id": CITRIX})));
     assert_eq!(error_code(&second), None, "{second}");
     assert!(
@@ -248,6 +263,7 @@ fn a_borrow_is_stored_until_the_front_goes_back() {
             scratch.store().borrowed().is_empty(),
             "a refused focus borrows nothing"
         );
+        keys_by_pid(&mut guard, CITRIX);
         guard.call("desktop_focus_window", args(json!({"window_id": CITRIX})));
         let borrowed = scratch.store().borrowed();
         assert_eq!(borrowed.len(), 1, "{borrowed:?}");
@@ -279,6 +295,7 @@ fn a_borrow_is_announced_before_the_window_comes_forward() {
         guard.config.front_window = true;
         guard.call("hex_open_app", args(json!({"name": "Citrix Viewer"})));
         guard.call("desktop_focus_window", args(json!({"window_id": CITRIX})));
+        keys_by_pid(&mut guard, CITRIX);
         let store = scratch.store();
         let task = guard.config.task.clone();
         let announced = Arc::new(Mutex::new(None::<bool>));
@@ -486,4 +503,81 @@ fn a_desk_window_is_one_task_s_at_a_time_and_a_job_must_claim_it() {
     );
     // The window stays the desk's throughout.
     assert_eq!(scratch.store().holder(CITRIX).unwrap().task, "desk");
+}
+
+/// A borrow for keys says so (`BORROW_KEYS`: "Keyboard input in …" on the
+/// frame), and when it ends the front goes back to the app the person was
+/// in before; Citrix (pid 34651) took it while borrowed.
+#[test]
+fn a_borrowed_front_goes_back_to_the_person_s_app() {
+    let scratch = Scratch::new();
+    let fake = Fake::recorded();
+    with_running_apps(&fake);
+    let mut guard = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
+    guard.config.front_window = true;
+    // The person is in their app (pid 81316, the window in front).
+    let front = super::super::proxy::front::fake::Fake::at(81316);
+    guard.front = Box::new(front.clone());
+    guard.call("hex_open_app", args(json!({"name": "Citrix Viewer"})));
+    assert!(
+        front.given().is_empty(),
+        "opening a running app took nothing"
+    );
+    keys_by_pid(&mut guard, CITRIX);
+    let coming = front.clone();
+    fake.state().on_call = Some(Arc::new(move |tool: &str| {
+        if tool == "desktop_focus_window" {
+            coming.set(34651);
+        }
+    }));
+    let focused = guard.call("desktop_focus_window", args(json!({"window_id": CITRIX})));
+    fake.state().on_call = None;
+    assert_eq!(error_code(&focused), None, "{focused}");
+    assert_eq!(front.now(), Some(34651));
+    let borrowed = scratch.store().borrowed();
+    assert_eq!(borrowed[0].why, crate::assistant::guard::BORROW_KEYS);
+    assert_eq!(borrowed[0].app, "Citrix Viewer");
+    // The borrow's steps in the window, then the front goes back.
+    for _ in 0..4 {
+        let pressed = guard.call(
+            "desktop_press",
+            args(json!({"window_id": CITRIX, "combo": "return"})),
+        );
+        assert_eq!(pressed["isError"], false, "{pressed}");
+    }
+    assert_eq!(front.given(), [81316]);
+    assert_eq!(front.now(), Some(81316));
+    assert!(scratch.store().borrowed().is_empty());
+}
+
+/// `hex_open_app` on a running app never leaves it in front: when a step
+/// (here the reopen of an app without a window) brought it forward, the
+/// person's app gets the front back.
+#[test]
+fn opening_a_running_app_keeps_the_person_s_app_in_front() {
+    let scratch = Scratch::new();
+    let fake = Fake::recorded();
+    with_running_apps(&fake);
+    let mut guard = background(&scratch, &fake, "bg", false);
+    let front = super::super::proxy::front::fake::Fake::at(81316);
+    guard.front = Box::new(front.clone());
+    let (screen, coming) = (fake.clone(), front.clone());
+    guard.reopen = Box::new(move |_app| {
+        // Notes shows a window again, and comes forward with it.
+        screen.state().windows.push(json!({
+            "app_name": "Notes", "id": "w-950", "is_focused": false, "pid": 4200,
+            "title": "Notes", "visible": true,
+        }));
+        coming.set(4200);
+    });
+    let opened = guard.call("hex_open_app", args(json!({"name": "Notes"})));
+    assert_eq!(data(&opened)["windows"][0]["id"], "w-950", "{opened}");
+    assert_eq!(front.given(), [81316]);
+    assert_eq!(front.now(), Some(81316));
+    // A running app's window on screen is taken without anything coming
+    // forward, and nothing is given back.
+    let front = super::super::proxy::front::fake::Fake::at(81316);
+    guard.front = Box::new(front.clone());
+    guard.call("hex_open_app", args(json!({"name": "Citrix Viewer"})));
+    assert!(front.given().is_empty());
 }

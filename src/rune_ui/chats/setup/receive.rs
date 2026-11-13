@@ -185,7 +185,7 @@ pub(in crate::rune_ui::chats) fn poll(ui: &mut Ui, tx: &mut rune::Tx) -> bool {
     let Some(flow) = ui.chats.setup.as_ref() else {
         return false;
     };
-    if !ui.chats.live() || !matches!(flow.page, Page::Desktop | Page::Checks) {
+    if !ui.chats.live() || !matches!(flow.page, Page::Permissions | Page::Desktop) {
         return false;
     }
     let due = flow.checked_at.is_none_or(|at| at.elapsed() >= RECHECK);

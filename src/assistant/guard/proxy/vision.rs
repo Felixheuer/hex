@@ -147,7 +147,7 @@ impl<D: Desktop> Guard<D> {
 
     /// What the screen says of window `id` (on screen, or off it: minimized,
     /// parked).
-    fn window_info(&mut self, id: &str) -> Option<Window> {
+    pub(super) fn window_info(&mut self, id: &str) -> Option<Window> {
         let listed = self
             .list(Look::Check)
             .ok()
@@ -551,6 +551,10 @@ impl<D: Desktop> Guard<D> {
             )?;
         }
         let delivered = self.deliver(pid, number, &frame, spot, &gesture)?;
+        if matches!(gesture, Gesture::Text(_) | Gesture::Key(_)) {
+            // Keys went by pid first: a focus for keys may follow (`borrow`).
+            self.keys_tried.insert(window.id.clone());
+        }
         let _ = self.list(Look::AfterAction);
         std::thread::sleep(Duration::from_millis(if cfg!(test) { 0 } else { 300 }));
         let did = json!({
@@ -596,7 +600,7 @@ impl<D: Desktop> Guard<D> {
                 && after == pid
             {
                 // The app took the front after all: the person gets it back.
-                super::front::give_back(before);
+                self.front.give_back(before);
                 tracing::warn!(
                     pid,
                     "background input brought an app forward; gave the front back"

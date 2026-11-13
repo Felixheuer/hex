@@ -14,7 +14,7 @@ mod call;
 mod consent;
 mod desk;
 mod displays;
-mod front;
+pub(crate) mod front;
 mod lookup;
 mod recover;
 mod script;
@@ -164,10 +164,15 @@ pub struct Guard<D: Desktop> {
     pub desk: Option<u32>,
     /// Failed actions in a row per window (background first: `borrow`).
     failures: HashMap<String, u32>,
-    /// Windows a focus was asked for once (and refused).
-    focus_asked: HashSet<String>,
+    /// Windows that pid-targeted keys were sent to (`hex_window_input` key
+    /// or type, `desktop_press`, `desktop_type`): only after that may keys
+    /// borrow the front (`borrow`).
+    keys_tried: HashSet<String>,
     /// The window brought forward briefly, if one is.
     borrowed: Option<borrow::Borrowed>,
+    /// Which app is in front, and giving it back (`front`); a stand-in in
+    /// tests, which never activate the person's apps.
+    pub front: Box<dyn front::Front>,
     /// A reader beside the task's guard: read-only calls only, and none of
     /// the guard's own upkeep (`shared`).
     reader: bool,
@@ -267,8 +272,13 @@ impl<D: Desktop> Guard<D> {
             }),
             desk: None,
             failures: HashMap::new(),
-            focus_asked: HashSet::new(),
+            keys_tried: HashSet::new(),
             borrowed: None,
+            front: if cfg!(test) {
+                Box::new(front::Unknown)
+            } else {
+                Box::new(front::System)
+            },
             reader: false,
             consequential: None,
             recording: None,
@@ -280,6 +290,12 @@ impl<D: Desktop> Guard<D> {
     /// The driver, while the returned guard lives.
     pub fn desktop(&mut self) -> std::sync::MutexGuard<'_, D> {
         self.desktop.lock()
+    }
+
+    /// Gives the front back to `before` whenever the app (`took`, its
+    /// processes) took it, now and for `settle` after (`front::keep`).
+    fn keep_front(&mut self, before: Option<i32>, took: &[i64], settle: Duration) -> bool {
+        front::keep(self.front.as_mut(), before, took, settle)
     }
 
     /// Whether a Here task opens apps and uses them in windows of its own
@@ -501,9 +517,11 @@ impl<D: Desktop> Guard<D> {
             None
         };
         // The person's app keeps the front (`front`): noted before.
-        let before = (self.config.lane == Lane::Background && !activate)
-            .then(front::frontmost)
-            .flatten();
+        let before = if self.config.lane == Lane::Background && !activate {
+            self.front.frontmost()
+        } else {
+            None
+        };
         let result = self.forward(tool, args);
         drop(hands);
         let result = result?;
@@ -518,7 +536,8 @@ impl<D: Desktop> Guard<D> {
         self.watch(&app);
         self.watch(&launched.app);
         let _ = self.list(Look::Launched(&launched));
-        front::keep_front(before, launched.pid);
+        let took: Vec<i64> = launched.pid.into_iter().collect();
+        self.keep_front(before, &took, front::SETTLE);
         // Onto the agents' display now, not after the call.
         self.place_arrivals();
         Ok(result)

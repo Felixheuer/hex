@@ -70,12 +70,14 @@ pub struct Browser {
 /// One open tab of the person's browser.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tab {
-    pub window_id: i64,
+    /// The browser's id for the window, as text (`Id`): Chrome's are text,
+    /// Safari's numbers.
+    pub window_id: String,
     /// The window's place, front first (1 is the front window).
     pub window: usize,
     /// The browser's own id for the tab, or (where tabs have none) one
     /// made of its window's id and its place.
-    pub tab_id: i64,
+    pub tab_id: String,
     /// The tab's place in its window, from 1.
     pub index: usize,
     pub title: String,
@@ -83,14 +85,41 @@ pub struct Tab {
     pub active: bool,
 }
 
+/// A window's or tab's id as a browser's dictionary types it: text in
+/// Chrome's (`"366652649"`), a number in Safari's and older Chromiums'.
+/// Either reads as the same text, which is how it is asked for again.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Id(String);
+
+impl<'de> Deserialize<'de> for Id {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Text(String),
+            Whole(i64),
+            Number(f64),
+        }
+        Ok(Id(match Raw::deserialize(deserializer)? {
+            Raw::Text(text) => text.trim().to_owned(),
+            Raw::Whole(number) => number.to_string(),
+            // JavaScript has one number type: a whole one may read as 7.0.
+            Raw::Number(number) if number.fract() == 0.0 && number.abs() < 9e15 => {
+                (number as i64).to_string()
+            }
+            Raw::Number(number) => number.to_string(),
+        }))
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct Listing {
     running: bool,
-    ids: Vec<i64>,
+    ids: Vec<Id>,
     modes: Vec<String>,
     active: Vec<usize>,
-    tab_ids: Vec<Vec<i64>>,
+    tab_ids: Vec<Vec<Id>>,
     titles: Vec<Vec<String>>,
     urls: Vec<Vec<String>>,
 }
@@ -127,17 +156,25 @@ const SAFARI_LIST: &str = r#"function run(argv) {
 }"#;
 
 /// argv: bundle id, window id, tab id, tab place, operation, payload.
+/// Windows and tabs are found by their ids compared as text (Chrome's are
+/// text, older Chromiums' numbers), never `byId` with one type.
+/// `navigate` sets the tab's URL (`set URL of tab`): an Apple Event of its
+/// own, so it works with JavaScript from Apple Events off and never brings
+/// the browser forward. Only `show` activates it.
 const CHROMIUM_ACT: &str = r#"function run(argv) {
   var app = Application(argv[0]);
   if (!app.running()) throw new Error('the browser isn\'t running');
-  var win = app.windows.byId(Number(argv[1]));
-  var tab = win.tabs.byId(Number(argv[2]));
+  var at = app.windows.id().map(String).indexOf(argv[1]);
+  if (at < 0) throw new Error('that window is closed now');
+  var win = app.windows[at];
+  var place = win.tabs.id().map(String).indexOf(argv[2]);
+  if (place < 0) throw new Error('that tab is closed now');
+  var tab = win.tabs[place];
   var op = argv[4];
   if (op === 'js') { var value = tab.execute({javascript: argv[5]}); return value === undefined || value === null ? '' : String(value); }
   if (op === 'navigate') { tab.url = argv[5]; return 'ok'; }
   if (op === 'show') {
-    var ids = win.tabs.id();
-    win.activeTabIndex = ids.indexOf(Number(argv[2])) + 1;
+    win.activeTabIndex = place + 1;
     win.index = 1;
     app.activate();
     return 'ok';
@@ -145,10 +182,14 @@ const CHROMIUM_ACT: &str = r#"function run(argv) {
   throw new Error('unknown operation ' + op);
 }"#;
 
+/// Safari's: the window by its id compared as text, the tab by its place;
+/// `navigate` sets its URL, which needs no JavaScript and no activation.
 const SAFARI_ACT: &str = r#"function run(argv) {
   var app = Application(argv[0]);
   if (!app.running()) throw new Error('the browser isn\'t running');
-  var win = app.windows.byId(Number(argv[1]));
+  var at = app.windows.id().map(String).indexOf(argv[1]);
+  if (at < 0) throw new Error('that window is closed now');
+  var win = app.windows[at];
   var tab = win.tabs[Number(argv[3]) - 1];
   var op = argv[4];
   if (op === 'js') { var value = app.doJavaScript(argv[5], {in: tab}); return value === undefined || value === null ? '' : String(value); }
@@ -269,9 +310,9 @@ fn parse_listing(text: &str) -> Result<Option<Vec<Tab>>, String> {
         let ids = listing.tab_ids.get(window).cloned().unwrap_or_default();
         for (index, tab_id) in ids.iter().enumerate() {
             tabs.push(Tab {
-                window_id: *id,
+                window_id: id.0.clone(),
                 window: window + 1,
-                tab_id: *tab_id,
+                tab_id: tab_id.0.clone(),
                 index: index + 1,
                 title: titles.get(index).cloned().unwrap_or_default(),
                 url: urls.get(index).cloned().unwrap_or_default(),
@@ -392,7 +433,8 @@ mod tests {
         .to_string();
         let tabs = parse_listing(&text).unwrap().unwrap();
         assert_eq!(tabs.len(), 3);
-        assert_eq!(tabs[1].tab_id, 102);
+        assert_eq!(tabs[1].tab_id, "102");
+        assert_eq!(tabs[1].window_id, "11");
         assert!(tabs[1].active && !tabs[0].active);
         assert_eq!(tabs[2].window, 3);
         assert!(tabs.iter().all(|tab| tab.title != "Secret"));
@@ -413,6 +455,68 @@ mod tests {
         assert_eq!(
             safe_url("https://x.de/reset?token=abc"),
             "https://x.de/reset?…"
+        );
+    }
+
+    /// Chrome types window and tab ids as text; Safari's (and older
+    /// Chromiums') are numbers. Both shapes list, as the same text.
+    #[test]
+    fn ids_read_as_text_or_numbers() {
+        // What Google Chrome answered on this Mac (the audit log, 19:13).
+        let chrome = r#"{"running":true,"ids":["366652649"],"modes":["normal"],"active":[1],"tabIds":[["366652650"]],"titles":[["yes"]],"urls":[["http://yes/"]]}"#;
+        let tabs = parse_listing(chrome).unwrap().unwrap();
+        assert_eq!(tabs.len(), 1);
+        assert_eq!(tabs[0].window_id, "366652649");
+        assert_eq!(tabs[0].tab_id, "366652650");
+        assert!(tabs[0].active);
+        // Safari: window ids are numbers, tab ids made of them.
+        let safari = r#"{"running":true,"ids":[5821,5830],"modes":["normal","normal"],"active":[2,1],"tabIds":[[5821001,5821002],[5830001]],"titles":[["A","B"],["C"]],"urls":[["https://a/","https://b/"],["https://c/"]]}"#;
+        let tabs = parse_listing(safari).unwrap().unwrap();
+        assert_eq!(tabs.len(), 3);
+        assert_eq!(tabs[1].window_id, "5821");
+        assert_eq!(tabs[1].tab_id, "5821002");
+        assert!(tabs[1].active);
+        assert_eq!(tabs[2].window, 2);
+        // Mixed, and a whole number written as a float: the same text.
+        let mixed = r#"{"running":true,"ids":[7.0,"8"],"active":[1,1],"tabIds":[[70.0],["80"]],"titles":[["x"],["y"]],"urls":[["https://x/"],["https://y/"]]}"#;
+        let tabs = parse_listing(mixed).unwrap().unwrap();
+        assert_eq!(
+            tabs.iter()
+                .map(|tab| (tab.window_id.as_str(), tab.tab_id.as_str()))
+                .collect::<Vec<_>>(),
+            [("7", "70"), ("8", "80")]
+        );
+        // Anything else still isn't a tab list.
+        assert!(parse_listing(r#"{"running":true,"ids":[true]}"#).is_err());
+    }
+
+    /// Acting finds windows and tabs by their ids as text, and only `show`
+    /// brings the browser forward: navigating sets the tab's URL, which
+    /// needs no JavaScript from Apple Events.
+    #[test]
+    fn acting_finds_ids_as_text_and_only_show_activates() {
+        for family in [Family::Chromium, Family::Safari] {
+            let script = family.act_script();
+            assert!(!script.contains("byId("), "{family:?}");
+            assert!(
+                script.contains("app.windows.id().map(String).indexOf(argv[1])"),
+                "{family:?}"
+            );
+            let navigate = script
+                .lines()
+                .find(|line| line.contains("op === 'navigate'"))
+                .unwrap();
+            assert!(navigate.contains("tab.url = argv[5]"), "{family:?}");
+            assert!(
+                !navigate.contains("activate") && !navigate.contains("execute"),
+                "{family:?}"
+            );
+            assert_eq!(script.matches("activate()").count(), 1, "{family:?}");
+        }
+        assert!(
+            Family::Chromium
+                .act_script()
+                .contains("win.tabs.id().map(String).indexOf(argv[2])")
         );
     }
 }
