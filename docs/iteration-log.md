@@ -69,8 +69,8 @@ maintainable, and nothing that isn't possible.
 - [x] OpenCode: watchdog fits its whole-part output (120 s), cost per job in the journal,
       a deleted conversation's OpenCode sessions deleted too; teams, checks and workspaces
       verified end to end with DeepSeek
-- [ ] OpenCode answers aren't streamed (it writes whole text parts): a server-based run
-      could stream and save ~1.2 s per quick turn, but needs per-session MCP servers
+- [x] OpenCode quick turns over ACP: started ahead, streamed, kept for the follow-up
+      (first token 1.2–2.2 s instead of 4.5–5 s with DeepSeek Flash)
 - [ ] Linux-only UI tests and goldens drifted from the fork's window (18 failures on Linux;
       the fork ships macOS only)
 

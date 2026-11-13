@@ -54,6 +54,26 @@ pub fn detect_at(message: &str, now_ms: u64, offset_s: i64) -> Option<Limit> {
 
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 
+/// Whether `message` says the backend or its provider refused the sign-in
+/// or key (a wrong or revoked key, a sign-in that expired): the strong
+/// model is refused the same.
+pub fn signed_out(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    [
+        "authentication",
+        "unauthorized",
+        "invalid api key",
+        "api key is invalid",
+        "is invalid (request_id",
+        "(http 401)",
+        "not logged in",
+        "please run /login",
+        "oauth token",
+    ]
+    .iter()
+    .any(|words| lower.contains(words))
+}
+
 /// Whether `message` says the provider account has no credit or quota
 /// left (DeepSeek's 402 "Insufficient Balance", OpenAI's
 /// `insufficient_quota`, Anthropic's "credit balance is too low",
@@ -247,6 +267,19 @@ fn local_offset_seconds() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refused_key_is_told_apart() {
+        assert!(signed_out(
+            "OpenCode: Internal error: Authentication Fails, Your api key: ****cdef is invalid"
+        ));
+        assert!(signed_out(
+            "OpenCode: Authentication required: provider authentication required"
+        ));
+        assert!(signed_out("Claude Code: Not logged in · Please run /login"));
+        assert!(!signed_out("The page asks to log in to GitHub"));
+        assert!(!signed_out("OpenCode: Rate limit exceeded (HTTP 429)"));
+    }
 
     #[test]
     fn an_empty_account_is_no_limit_to_wait_out() {

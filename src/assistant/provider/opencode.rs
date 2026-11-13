@@ -24,13 +24,25 @@ use super::{Control, Finished, Process, Report, Run, Stdin};
 use crate::app_settings::AssistantBackend;
 use crate::assistant::backends::opencode::{self as cli, Generation};
 
-const AGENT: &str = "hex";
+pub(super) const AGENT: &str = "hex";
 
 pub(super) fn run(
     run: &Run,
     control: &Control,
     report: &mut dyn FnMut(Report),
 ) -> Result<Finished> {
+    // A quick turn: started ahead, streamed, kept for the follow-up.
+    if super::opencode_acp::fits(run) {
+        match super::opencode_acp::run(run, control, report) {
+            super::opencode_acp::Start::Ran(result) => return result,
+            super::opencode_acp::Start::Unavailable(why) => {
+                tracing::info!(
+                    why,
+                    "OpenCode's ACP didn't start; the turn runs with `opencode run`"
+                );
+            }
+        }
+    }
     let executable = super::executable(AssistantBackend::OpenCode)?;
     let generation = cli::generation_for(&executable);
     let mut command = super::command(&executable, &run.workdir);
@@ -104,16 +116,7 @@ fn arguments(run: &Run, generation: Generation) -> Vec<String> {
     if let Some(session) = &run.resume {
         args.extend(["--session".into(), session.clone()]);
     }
-    // A private server doesn't know the person's model; without one it
-    // falls back to a free model and its limits.
-    if let Some(model) = run
-        .model
-        .as_deref()
-        .map(str::trim)
-        .filter(|model| !model.is_empty())
-        .map(str::to_owned)
-        .or_else(crate::assistant::backends::opencode_recent_model)
-    {
+    if let Some(model) = model(run) {
         args.extend(["--model".into(), model]);
     }
     if let Some(image) = &run.image {
@@ -123,8 +126,20 @@ fn arguments(run: &Run, generation: Generation) -> Vec<String> {
     args
 }
 
+/// The model `run` asks for: its own, else the one the person used last in
+/// OpenCode (a private server doesn't know it; without one it falls back
+/// to a free model and its limits).
+pub(super) fn model(run: &Run) -> Option<String> {
+    run.model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(str::to_owned)
+        .or_else(crate::assistant::backends::opencode_recent_model)
+}
+
 /// A `.cmd` or `.bat` file (Windows).
-fn is_batch_file(program: &std::path::Path) -> bool {
+pub(super) fn is_batch_file(program: &std::path::Path) -> bool {
     cfg!(windows)
         && program.extension().is_some_and(|extension| {
             extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
@@ -133,7 +148,7 @@ fn is_batch_file(program: &std::path::Path) -> bool {
 
 /// What `OPENCODE_CONFIG_CONTENT` adds to the person's configuration, in
 /// `generation`'s words.
-fn config(run: &Run, generation: Generation) -> Value {
+pub(super) fn config(run: &Run, generation: Generation) -> Value {
     // A job may edit and run commands in its workspace (the working
     // folder); nothing outside it.
     let permission = match run.workspace {
@@ -294,7 +309,7 @@ impl Stream {
 
 /// The desktop tools one tool part called: itself, or, for OpenCode's code
 /// mode (`execute`), each `tools["desktop"].desktop_*` call in its code.
-fn calls(part: &Value) -> Vec<(String, Value)> {
+pub(super) fn calls(part: &Value) -> Vec<(String, Value)> {
     let tool = part.get("tool").and_then(Value::as_str).unwrap_or_default();
     let input = part.pointer("/state/input").cloned().unwrap_or(Value::Null);
     if tool != "execute" {

@@ -234,7 +234,8 @@ real speakers.
   DeepSeek; `assistant.here_model` instead when it is one of that
   provider's) and hands over to the jobs' model (`opencode_model`, DeepSeek
   V4 Pro) after the same number of tool calls, which OpenCode reports once
-  each has ended.
+  each has ended. Like Claude Code it is started ahead and kept warm,
+  over ACP (see "OpenCode and your own API key").
 - **Stuck quick turns.** A Here turn whose backend reports nothing (no
   stream line, no tool call or result) for 45 s is ended
   (`agent::watchdog`, `Control::stall`) instead of showing "Thinking…" up
@@ -819,6 +820,26 @@ as "no credit left" (Fix, never waited out as a limit). Verified end to end
 on 2026-11-13 with DeepSeek on OpenCode 1.19.5 and 2.3.0: quick turns, a
 job with the hidden browser, the own-key path, a wrong key, and a hand-over
 from Flash to V4 Pro.
+
+**Quick turns over ACP** (`provider::opencode_acp`). A quick turn on
+OpenCode doesn't start `opencode run`: it talks to `opencode acp` (the
+Agent Client Protocol, JSON-RPC on stdio), started ahead while the person
+holds the shortcut and kept after an answer (`assistant.follow_up_seconds`,
+`assistant.warm_minutes`) in the same warm pool as Claude Code's, with the
+session it opened. The process gets the config a `run` gets (Agent-Desk's
+agent as `default_agent`, the task's MCP servers, the turn's model, the
+own key), so a turn the fast model hands over goes on in that session
+with the strong one (a new process loads it, `session/load`). Answers stream
+(classic OpenCode token by token, OpenCode 2 in parts); permissions are
+granted once, as `--auto` grants; tool calls show as steps. If ACP doesn't
+start, the turn runs through `opencode run`; when the reason lasts (no
+`acp` command, another protocol) that OpenCode isn't tried over ACP again
+until it changes on disk. A waiting process that died is replaced; one
+started ahead whose reservation went is ended as soon as it is up, and the
+session it opened is deleted, as is the session of one that idled out
+unused. First token with DeepSeek Flash:
+2.2 s (classic) and 1.45 s (OpenCode 2) started ahead, 1.4 s and 1.2 s for
+the follow-up, against 4.5–5 s through `opencode run`.
 
 OpenCode reports each step's size and cost (`step_finish`): the size rolls
 a long job over to a fresh session as on Claude Code, and the cost adds up

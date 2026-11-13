@@ -1128,9 +1128,13 @@ pub fn prepare(
         })?,
     };
     let continued = resume.is_none() && settings.backend != AssistantBackend::ClaudeApi;
-    let keep_warm = (lane == Lane::Here && settings.backend == AssistantBackend::ClaudeCode)
-        .then(|| keep_warm_for(settings))
-        .flatten();
+    let keep_warm = (lane == Lane::Here
+        && matches!(
+            settings.backend,
+            AssistantBackend::ClaudeCode | AssistantBackend::OpenCode
+        ))
+    .then(|| keep_warm_for(settings))
+    .flatten();
     let system = system_for(job, desktop.as_ref(), browser.is_some());
     let tools = tools_server(&job.conversation, tool_role(job), job.workspace.as_deref());
     Ok(Run {

@@ -23,6 +23,9 @@ struct Warm {
     key: String,
     session: Option<String>,
     process: Process,
+    /// What the backend needs besides the process (OpenCode's ACP: the
+    /// session it already opened for the request).
+    extra: Option<String>,
 }
 
 static POOL: Mutex<Vec<Warm>> = Mutex::new(Vec::new());
@@ -35,6 +38,17 @@ fn pool() -> MutexGuard<'static, Vec<Warm>> {
 /// Keeps `process` (started with arguments `key`, on backend `session`) for
 /// `ttl`.
 pub(super) fn put(key: String, session: Option<String>, process: Process, ttl: Duration) {
+    put_with(key, session, process, ttl, None);
+}
+
+/// [`put`], keeping `extra` beside the process ([`take_with`] hands it back).
+pub(super) fn put_with(
+    key: String,
+    session: Option<String>,
+    process: Process,
+    ttl: Duration,
+    extra: Option<String>,
+) {
     let id = NEXT.fetch_add(1, Ordering::Relaxed);
     let evicted: Vec<Warm> = {
         let mut pool = pool();
@@ -52,6 +66,7 @@ pub(super) fn put(key: String, session: Option<String>, process: Process, ttl: D
             key,
             session,
             process,
+            extra,
         });
         while pool.len() > MAX {
             evicted.push(pool.remove(0));
@@ -85,6 +100,11 @@ pub(super) fn has(key: &str, session: Option<&str>) -> bool {
 
 /// The waiting process for `key` and `session`, if one is still alive.
 pub(super) fn take(key: &str, session: Option<&str>) -> Option<Process> {
+    take_with(key, session).map(|(process, _)| process)
+}
+
+/// [`take`], with what [`put_with`] kept beside it.
+pub(super) fn take_with(key: &str, session: Option<&str>) -> Option<(Process, Option<String>)> {
     let mut found = {
         let mut pool = pool();
         let index = pool
@@ -93,7 +113,7 @@ pub(super) fn take(key: &str, session: Option<&str>) -> Option<Process> {
         pool.remove(index)
     };
     match found.process.child.try_wait() {
-        Ok(None) => Some(found.process),
+        Ok(None) => Some((found.process, found.extra)),
         _ => {
             end(found);
             None
@@ -130,6 +150,14 @@ pub(super) fn clear() {
 }
 
 fn end(warm: Warm) {
+    // An ACP session opened ahead for a request that never came: it goes,
+    // so it doesn't stay in the person's own OpenCode. A conversation's
+    // session (`session`) stays for its next turn.
+    if warm.session.is_none()
+        && let Some(opened) = warm.extra
+    {
+        crate::assistant::backends::opencode::forget_sessions(vec![opened]);
+    }
     let mut process = warm.process;
     drop(process.stdin.take());
     end_group(process.tree.clone());
