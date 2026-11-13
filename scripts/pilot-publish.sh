@@ -78,7 +78,7 @@ target_of() {
     esac
   done
   case "$name" in
-    "agent-desk-$v-macos-arm64.zip") printf 'macos-arm64-agent-desk Agent-Desk.zip\n' ;;
+    "agent-desk-$v-macos-arm64.zip") printf 'macos-arm64-agentdesk Agent-Desk.zip\n' ;;
     "agent-desk-$v-macos-arm64.dmg") printf 'macos-arm64-dmg Pilot.dmg\n' ;;
     # One-time migration, remove after 2026-12: the bridge for Hex installs.
     "hex-$v-macos-arm64.zip") printf 'macos-arm64 Hex.zip\n' ;;
