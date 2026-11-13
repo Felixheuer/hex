@@ -240,6 +240,13 @@ impl Stream {
                         context_tokens,
                     }));
                 }
+                if let Some(cost) = part
+                    .get("cost")
+                    .and_then(Value::as_f64)
+                    .filter(|cost| cost.is_finite() && *cost > 0.0)
+                {
+                    report(Report::Cost(cost));
+                }
             }
             Some("error") => {
                 let why = event
@@ -489,6 +496,16 @@ mod tests {
             },
         );
         assert_eq!(classic, [11_137]);
+        let mut cost = 0.0;
+        Stream::default().line(
+            r#"{"type":"step_finish","sessionID":"s","part":{"type":"step-finish","tokens":{"input":9,"cache":{}},"cost":0.0014}}"#,
+            &mut |report| {
+                if let Report::Cost(usd) = report {
+                    cost += usd;
+                }
+            },
+        );
+        assert!((cost - 0.0014).abs() < 1e-9);
     }
 
     #[test]

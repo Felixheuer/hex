@@ -26,6 +26,9 @@ pub struct Long {
     pub due: Option<Why>,
     /// Failures in a row without a step between them.
     pub retries: u32,
+    /// What this run's steps cost, as the backend reports it (OpenCode's
+    /// providers, in USD).
+    pub cost_usd: f64,
 }
 
 impl Long {
@@ -59,7 +62,19 @@ impl Long {
             rollovers: 0,
             due: None,
             retries: 0,
+            cost_usd: 0.0,
         }
+    }
+
+    /// Notes that the run ended (`answered`, `failed`), with what it cost
+    /// when the backend said: `answered · cost 0.0123 USD`.
+    pub fn done(&mut self, now_ms: u64, how: &str) {
+        let words = if self.cost_usd > 0.0 {
+            format!("{how} · cost {:.4} USD", self.cost_usd)
+        } else {
+            how.to_owned()
+        };
+        self.journal.note(now_ms, Kind::Done, &words);
     }
 
     /// Whether the saved session is already past its size: a resumed job

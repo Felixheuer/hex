@@ -596,9 +596,8 @@ pub fn run_with(
             }
             _ => {
                 if let Some(long) = long.as_mut() {
-                    long.journal.note(
+                    long.done(
                         engine.now_ms(),
-                        journal::Kind::Done,
                         if result.is_ok() { "answered" } else { "failed" },
                     );
                 }
@@ -644,8 +643,7 @@ pub fn run_with(
         match next {
             goal::Next::Done => {
                 if let Some(long) = long.as_mut() {
-                    long.journal
-                        .note(engine.now_ms(), journal::Kind::Done, "answered");
+                    long.done(engine.now_ms(), "answered");
                 }
                 return finish(store, &mut stored, actions, result, emit);
             }
@@ -900,6 +898,11 @@ fn run_backend(
         Report::Usage(usage) => {
             if let Some(long) = long.as_deref_mut() {
                 long.step(usage, engine.now_ms(), control);
+            }
+        }
+        Report::Cost(usd) => {
+            if let Some(long) = long.as_deref_mut() {
+                long.cost_usd += usd;
             }
         }
         Report::Thinking => emit(Event::Thinking {
