@@ -1,5 +1,5 @@
 //! One task's guard: every tool call is checked against the task's lane and
-//! leases, then forwarded to agent-desktop or refused with a tool error the
+//! leases, then forwarded to the desktop driver or refused with a tool error the
 //! model can act on. Synchronous; `server` runs it off the MCP runtime.
 
 use std::collections::{HashMap, HashSet};
@@ -135,7 +135,7 @@ pub struct Guard<D: Desktop> {
     note_pending: bool,
     here_ready: bool,
     bundle_ids: Option<Vec<(String, String)>>,
-    /// Time this call spent in agent-desktop.
+    /// Time this call spent in the driver.
     forwarding: Duration,
     /// How long a look at the windows stands for the next check.
     pub fresh_for: Duration,
@@ -727,7 +727,7 @@ fn bundle_ids(data: &Value) -> Vec<(String, String)> {
         .collect()
 }
 
-/// agent-desktop's command name for a tool (`desktop_scroll_to` →
+/// The envelope's command name for a tool (`desktop_scroll_to` →
 /// `scroll-to`).
 fn command(tool: &str) -> String {
     tool.strip_prefix("desktop_")
@@ -735,7 +735,7 @@ fn command(tool: &str) -> String {
         .replace('_', "-")
 }
 
-/// A refused call: an agent-desktop error envelope, never delivered.
+/// A refused call: an error envelope, never delivered.
 pub fn refusal(tool: &str, code: &str, message: &str) -> Value {
     let envelope = json!({
         "version": "hex-guard",

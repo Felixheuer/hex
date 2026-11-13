@@ -59,7 +59,7 @@ pub(super) fn prewarm(run: &Run, ttl: Duration) {
 
 fn spawn(run: &Run, control: &Control) -> Result<Process> {
     let executable = super::executable(AssistantBackend::ClaudeCode)?;
-    let mut command = super::command(&executable, &run.workdir, run.desktop.as_ref());
+    let mut command = super::command(&executable, &run.workdir);
     command.args(arguments(run));
     Process::spawn(command, Stdin::Keep, control)
 }
@@ -71,8 +71,7 @@ fn warm_key(run: &Run) -> String {
     if let Some(index) = args.iter().position(|arg| arg == "--resume") {
         args.drain(index..(index + 2).min(args.len()));
     }
-    let env = run.desktop.as_ref().map(super::Desktop::env);
-    format!("{args:?}{:?}{env:?}", run.workdir)
+    format!("{args:?}{:?}", run.workdir)
 }
 
 /// Sends one question to `process` and reads until its result. `None` when
@@ -570,7 +569,7 @@ mod tests {
     }
 
     #[test]
-    fn arguments_load_only_agent_desktop_and_allow_it_without_prompts() {
+    fn arguments_load_only_the_desktop_tools_and_allow_them_without_prompts() {
         let mut run = Run {
             model: Some("sonnet".into()),
             resume: Some("abc".into()),
@@ -591,13 +590,18 @@ mod tests {
                 .windows(2)
                 .any(|pair| pair == ["--allowedTools", "WebSearch,WebFetch"])
         );
-        run.desktop = Some(Desktop::fixture(Some("s1"), "hex-2"));
+        run.desktop = Some(Desktop::fixture());
         let args = arguments(&run);
         let config = &args[args.iter().position(|arg| arg == "--mcp-config").unwrap() + 1];
         let config: Value = serde_json::from_str(config).unwrap();
         assert_eq!(
             config.pointer("/mcpServers/desktop/args").unwrap(),
-            &json!(["mcp", "--session", "s1", "--agent-id", "hex-2"])
+            &json!([
+                "assistant",
+                "mcp",
+                "--spec",
+                r#"{"task":"t","lane":"background"}"#
+            ])
         );
         assert!(
             args.windows(2)
@@ -729,12 +733,15 @@ mod tests {
     #[test]
     fn a_waiting_process_fits_only_the_same_run() {
         let mut run = Run::fixture(AssistantBackend::ClaudeCode);
-        run.desktop = Some(Desktop::fixture(Some("s1"), "hex-2"));
+        run.desktop = Some(Desktop::fixture());
         let key = warm_key(&run);
         // The session it resumes is matched apart from the arguments.
         run.resume = Some("abc".into());
         assert_eq!(warm_key(&run), key);
-        run.desktop = Some(Desktop::fixture(Some("s1"), "hex-3"));
+        // Another task's guard: another process.
+        let mut other = Desktop::fixture();
+        other.server.args[3] = r#"{"task":"u","lane":"background"}"#.into();
+        run.desktop = Some(other);
         assert_ne!(warm_key(&run), key);
     }
 

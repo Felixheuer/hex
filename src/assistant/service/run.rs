@@ -20,7 +20,7 @@ impl Runner {
     pub(super) fn run_task(self: &Arc<Self>, key: u64) {
         let (_, settings) = (self.hooks.settings)();
         let now = self.now();
-        let Some((request, control, agent_id, colour, kind, new_conversation, voice, said)) = ({
+        let Some((request, control, kind, new_conversation, voice, said)) = ({
             let mut state = self.state();
             state
                 .tasks
@@ -34,8 +34,6 @@ impl Runner {
                     (
                         task.request.clone(),
                         Arc::clone(&task.control),
-                        task.agent_id.clone(),
-                        task.status.colour,
                         task.kind.clone(),
                         task.new_conversation,
                         task.voice,
@@ -54,14 +52,6 @@ impl Runner {
             origin: request.origin,
             question: request.text.clone(),
         });
-        let desktop_session = if settings.control_desktop {
-            self.session_for(lane)
-        } else {
-            None
-        };
-        if let Some(session) = &desktop_session {
-            (self.hooks.style_agent)(session, &agent_id, colour, None);
-        }
         // A helper works in a folder inside its lead's (`agent::team`).
         let parent = self
             .state()
@@ -89,7 +79,6 @@ impl Runner {
         };
         if let Some(task) = self.state().tasks.iter_mut().find(|task| task.key == key) {
             task.workspace = workspace.clone();
-            task.session = desktop_session.clone();
         }
         // A job gets the stream without the turn's tools for it (`tools::Role`).
         let turn = matches!(kind, JobKind::Ask)
@@ -151,8 +140,6 @@ impl Runner {
             conversation: conversation.clone(),
             request: request.clone(),
             settings: settings.clone(),
-            agent_id,
-            desktop_session,
             kind,
             digest,
             workspace: workspace.clone(),
@@ -256,7 +243,7 @@ impl Runner {
         };
         let handed_on = matches!(outcome, Outcome::Steered | Outcome::Escalate { .. });
         let now = self.now();
-        let (paused, hands_off, end_session, orphaned) = {
+        let (paused, hands_off, orphaned) = {
             let mut state = self.state();
             let paused = state
                 .tasks
@@ -283,7 +270,7 @@ impl Runner {
                 && outcome != Outcome::Steered)
                 .then(|| state.hands_off.take())
                 .flatten();
-            (paused, hands_off, self.session_to_end(&mut state), orphaned)
+            (paused, hands_off, orphaned)
         };
         for helper in orphaned {
             self.cancel_task(helper);
@@ -313,9 +300,6 @@ impl Runner {
         // Always warm: the next new quick conversation finds its backend up.
         if lane == Lane::Here && matches!(outcome, Outcome::Answer(_)) {
             self.stand_by();
-        }
-        if let Some(session) = end_session {
-            (self.hooks.end_session)(&session);
         }
         // What it did, call by call, beside what it made: the folder's
         // list in Chats shows it.

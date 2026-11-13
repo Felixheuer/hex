@@ -141,7 +141,7 @@ pub struct Context {
     pub frontmost_app: Option<String>,
     /// The focused window's title.
     pub window_title: Option<String>,
-    /// The window in front, as agent-desktop names it: the Here lane's only
+    /// The window in front (`w-<number>`): the Here lane's only
     /// window.
     pub window: Option<TaskWindow>,
     /// The display the person works on (the one holding the focused window,
@@ -165,7 +165,7 @@ pub struct Request {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TaskWindow {
     pub app: String,
-    /// agent-desktop's window id, when the task named one.
+    /// The window's id (`w-<CoreGraphics number>`), when the task named one.
     pub window_id: Option<String>,
 }
 

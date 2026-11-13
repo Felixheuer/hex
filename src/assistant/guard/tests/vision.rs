@@ -61,7 +61,7 @@ fn the_vision_tools_are_offered_and_classed() {
     );
     assert!(policy::kind("hex_window_input", &Map::new()).acts());
     assert_eq!(
-        super::super::screen_work("mcp__agent-desktop__hex_window_input"),
+        super::super::screen_work("mcp__desktop__hex_window_input"),
         Some(true)
     );
     assert_eq!(super::super::screen_work("hex_window_shot"), Some(false));
@@ -79,7 +79,7 @@ fn input_goes_only_to_the_tasks_own_windows() {
     claim(&mut guard, SETTINGS);
     let done = guard.call("hex_window_input", click);
     assert_eq!(done["isError"], false, "{done}");
-    // Nothing went through agent-desktop's pointer: it was pid input.
+    // Nothing went through a real pointer: it was pid input.
     assert!(!fake.forwarded().iter().any(|tool| tool.contains("mouse")));
     let sent = guard.sent();
     assert_eq!(sent.len(), 1);

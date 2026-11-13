@@ -1,6 +1,5 @@
 //! The task colours, the single source for everything that tells tasks
-//! apart: each running task's agent cursor (agent-desktop's
-//! `cursor-overlay`), its window outline and title chip, its dot in the
+//! apart: each running task's window outline and title chip, its dot in the
 //! orb, and its rows in the list and Chats. `TaskStatus.colour` indexes
 //! [`COLOURS`] (wrapping).
 //!
@@ -11,7 +10,7 @@
 //! Each has a deeper shade over light desktops and a lighter
 //! one over dark desktops, both readable with black or white text on top.
 //!
-//! OWNER: overlays. The brain reads [`cursor_flags`] for each task's cursor.
+//! OWNER: overlays.
 
 /// One task colour, as `#RRGGBB`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -72,24 +71,6 @@ pub fn colour(index: u8) -> &'static TaskColour {
     &COLOURS[usize::from(index) % COLOURS.len()]
 }
 
-/// The flags agent-desktop's `cursor-overlay enable` takes for task
-/// `index`'s cursor: its accent, a lighter fill, and a white rim, so the
-/// cursor matches the task's outline and dot. Add `--label` and `--image`
-/// (`rune_ui::assistant_overlay::cursor_image`) as wanted.
-pub fn cursor_flags(index: u8) -> Vec<String> {
-    let colour = colour(index);
-    [
-        "--accent",
-        colour.light,
-        "--fill",
-        colour.dark,
-        "--rim",
-        "#FFFFFF",
-    ]
-    .map(str::to_owned)
-    .to_vec()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,6 +88,6 @@ mod tests {
             }
         }
         assert_eq!(colour(9), colour(1));
-        assert_eq!(cursor_flags(0)[1], "#2B6FE0");
+        assert_eq!(colour(0).light, "#2B6FE0");
     }
 }

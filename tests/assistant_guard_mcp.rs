@@ -1,6 +1,7 @@
 //! `agent-desk assistant mcp --spec …` (the assistant's desktop guard) over stdio,
-//! in front of a fake agent-desktop that records what reaches it: refused
-//! calls never do, and two guard processes agree on who holds a window.
+//! in front of a fake Cua Driver (its own tool names and shapes) that records
+//! what reaches it: refused calls never do, the guard's adapter speaks Cua's
+//! tools, and two guard processes agree on who holds a window.
 #![cfg(target_os = "macos")]
 
 use std::io::{BufRead, BufReader, Write};
@@ -29,7 +30,7 @@ impl Guard {
     fn start(spec: &Value, log: &Path, support: &Path) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_agent-desk"))
             .args(["assistant", "mcp", "--spec", &spec.to_string()])
-            .env("FAKE_AGENT_DESKTOP_LOG", log)
+            .env("FAKE_CUA_DRIVER_LOG", log)
             .env("AGENT_DESK_APPLICATION_SUPPORT_DIR", support)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -91,15 +92,18 @@ impl Guard {
         }
     }
 
-    /// The tool's result: `(is_error, agent-desktop envelope)`.
+    /// The tool's result: `(is_error, the guard's envelope)`.
     fn call(&mut self, tool: &str, arguments: Value) -> (bool, Value) {
         let response = self.request("tools/call", json!({"name": tool, "arguments": arguments}));
         let result = &response["result"];
+        // A snapshot's text is its outline; the envelope is its structured
+        // content (and the text of everything else).
         let text = result["content"][0]["text"].as_str().unwrap_or_default();
-        (
-            result["isError"] == true,
-            serde_json::from_str(text).unwrap_or(Value::Null),
-        )
+        let envelope = match &result["structuredContent"] {
+            Value::Null => serde_json::from_str(text).unwrap_or(Value::Null),
+            structured => structured.clone(),
+        };
+        (result["isError"] == true, envelope)
     }
 
     fn stop(mut self) {
@@ -120,27 +124,27 @@ fn calls(log: &Path) -> Vec<String> {
     reached(log)
         .iter()
         .filter_map(|entry| entry["call"].as_str().map(str::to_owned))
-        .filter(|call| call != "desktop_list_windows")
+        .filter(|call| call != "list_windows" && call != "list_apps")
         .collect()
 }
 
 #[test]
 fn the_guard_forwards_only_what_the_lane_allows() {
-    let root = std::env::temp_dir().join(format!("hex-guard-mcp-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("agent-desk-guard-mcp-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
-    let fake = fixtures().join("fake-agent-desktop.py");
-    let spec = |task: &str, agent: &str| {
+    let fake = fixtures().join("fake-cua-driver.py");
+    let spec = |task: &str| {
         json!({
-            "task": task, "lane": "background", "agent_id": agent, "session": "s1",
+            "task": task, "lane": "background",
             "physical_input": false, "blocked_apps": ["1Password"],
-            "agent_desktop": fake, "state_dir": root.join("state"),
+            "cua_driver": fake, "state_dir": root.join("state"),
             // The stand-in's recorded windows, not this Mac's.
-            "windows": "agent_desktop",
+            "windows": "driver",
         })
     };
     let log_a = root.join("a.jsonl");
-    let mut a = Guard::start(&spec("task-a", "hex-1"), &log_a, &root.join("support"));
+    let mut a = Guard::start(&spec("task-a"), &log_a, &root.join("support"));
 
     let tools = a.request("tools/list", json!({}));
     let names: Vec<&str> = tools["result"]["tools"]
@@ -153,13 +157,14 @@ fn the_guard_forwards_only_what_the_lane_allows() {
     assert!(names.contains(&"desktop_snapshot"));
     assert!(!names.contains(&"desktop_batch"));
     assert!(!names.contains(&"desktop_mouse_click"));
-    assert!(
-        reached(&log_a)
-            .iter()
-            .any(|entry| entry["argv"] == json!(["mcp", "--session", "s1", "--agent-id", "hex-1"])),
-        "{:?}",
-        reached(&log_a)
-    );
+    // Cua Driver runs as `mcp --direct`, its telemetry and update checks off.
+    let started = reached(&log_a)
+        .into_iter()
+        .find(|entry| entry["argv"] == json!(["mcp", "--direct"]))
+        .expect("Cua Driver started as `mcp --direct`");
+    assert_eq!(started["env"]["CUA_DRIVER_RS_UPDATE_CHECK"], "0");
+    assert_eq!(started["env"]["CUA_DRIVER_RS_TELEMETRY_ENABLED"], "0");
+    assert_eq!(started["env"]["DO_NOT_TRACK"], "1");
 
     // The window in front is the person's: refused, and never forwarded.
     let (refused, envelope) = a.call("desktop_snapshot", json!({"window_id": FRONT}));
@@ -181,14 +186,22 @@ fn the_guard_forwards_only_what_the_lane_allows() {
     assert!(!refused, "{claimed}");
     let (refused, snapshot) = a.call("desktop_snapshot", json!({"window_id": SETTINGS}));
     assert!(!refused, "{snapshot}");
-    let reference = snapshot["data"]["tree"]["children"][0]["ref_id"].clone();
-    let (refused, _) = a.call("desktop_click", json!({"ref_id": reference}));
-    assert!(!refused);
-    assert_eq!(calls(&log_a), ["desktop_snapshot", "desktop_click"]);
+    // The adapter's refs (`@<snapshot>:eN`) are Cua's element tokens.
+    let reference = snapshot["data"]["tree"][1]["ref_id"].clone();
+    assert_eq!(reference, "@s00000001:e1");
+    let (refused, clicked) = a.call("desktop_click", json!({"ref_id": reference}));
+    assert!(!refused, "{clicked}");
+    assert_eq!(calls(&log_a), ["get_window_state", "click"]);
+    let click = reached(&log_a)
+        .into_iter()
+        .find(|entry| entry["call"] == "click")
+        .unwrap();
+    assert_eq!(click["arguments"]["element_token"], "s00000001:1");
+    assert_eq!(click["arguments"]["window_id"], 18628);
 
     // Another task's guard, in its own process, can't have it.
     let log_b = root.join("b.jsonl");
-    let mut b = Guard::start(&spec("task-b", "hex-2"), &log_b, &root.join("support"));
+    let mut b = Guard::start(&spec("task-b"), &log_b, &root.join("support"));
     let (refused, envelope) = b.call("desktop_claim_window", json!({"window_id": SETTINGS}));
     assert!(refused);
     assert!(

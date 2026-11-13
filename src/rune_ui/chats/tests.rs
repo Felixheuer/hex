@@ -781,7 +781,7 @@ fn a_failed_check_shows_its_fix_while_later_checks_still_run() {
     let flow = rt.state.chats.setup.as_ref().unwrap();
     assert!(flow.checks_running);
     assert!(
-        shows(&rt, "Grant permissions…"),
+        shows(&rt, "Open Screen Recording…"),
         "the fix shows at once: {:?}",
         texts(&rt)
     );
@@ -982,7 +982,7 @@ fn the_merged_flow_says_it_continues_and_new_in_hex_says_so() {
 }
 
 #[test]
-fn checks_run_on_arrival_and_finish_waits_for_answers_and_agent_desktop() {
+fn checks_run_on_arrival_and_finish_waits_for_answers_and_the_desktop_tools() {
     let mut rt = onboarding();
     rt.update(|ui, _| super::setup::go(ui, Page::Checks));
     settle(&mut rt);
@@ -1246,7 +1246,7 @@ fn stale_assistant_grants_use_the_running_apps_permission_repair() {
     )));
     assert!(!rt.state.chats.jobs.asked.iter().any(|job| matches!(
         job,
-        Job::Fix(crate::assistant::backends::Fix::GuidePermissions)
+        Job::Fix(crate::assistant::backends::Fix::OpenSettings(_))
     )));
 }
 

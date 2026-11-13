@@ -42,9 +42,11 @@ pub struct Facts {
     pub agent_ready: bool,
     /// Tasks operate apps (`assistant.control_desktop`).
     pub desktop_wanted: bool,
-    pub agent_desktop_installed: bool,
-    /// agent-desktop has Accessibility and Screen Recording.
-    pub agent_desktop_grants: bool,
+    /// Cua Driver, the desktop driver, is installed (it acts with
+    /// Agent-Desk's own grants, which have gaps of their own).
+    pub driver_installed: bool,
+    /// Cua Driver's last update failed (it kept the version it had).
+    pub driver_update_failed: bool,
     /// Web tasks use hidden browsers (`assistant.background_browser`).
     pub browser_wanted: bool,
     pub agent_browser_installed: bool,
@@ -77,8 +79,10 @@ pub enum Gap {
     Agent,
     /// It's installed but not signed in.
     AgentSignIn,
-    AgentDesktop,
-    AgentDesktopGrants,
+    /// Cua Driver, which operates apps, is missing.
+    Driver,
+    /// Its last update failed; it runs the version it had.
+    DriverUpdate,
     AgentBrowser,
     Shortcut,
     /// The selected Agent-Desk voice's files are gone.
@@ -109,8 +113,8 @@ impl Gap {
             | Self::ScreenRecording
             | Self::Automation
             | Self::PersonalData
-            | Self::AgentDesktop
-            | Self::AgentDesktopGrants => Fix::Page("desktop"),
+            | Self::Driver
+            | Self::DriverUpdate => Fix::Page("desktop"),
             Self::TranscriptionModel => Fix::Models,
             Self::Agent | Self::AgentSignIn => Fix::Page("agent"),
             Self::AgentBrowser => Fix::Page("browser"),
@@ -152,10 +156,8 @@ impl Gap {
             }
             Self::Agent => "The assistant's agent isn't installed any more",
             Self::AgentSignIn => "The assistant's agent is signed out",
-            Self::AgentDesktop => "agent-desktop, which operates apps, is missing",
-            Self::AgentDesktopGrants => {
-                "agent-desktop lost its permissions, so tasks can't use apps"
-            }
+            Self::Driver => "Cua Driver, which operates apps, is missing",
+            Self::DriverUpdate => "Cua Driver's update failed; it kept the version it had",
             Self::AgentBrowser => "agent-browser, for web tasks, is missing",
             Self::Shortcut => "Another app took the assistant's shortcut",
             Self::HexVoice => "The Agent-Desk voice's files are missing",
@@ -194,10 +196,10 @@ pub fn setup_gaps(facts: &Facts) -> Vec<Gap> {
         gaps.push(Gap::PersonalData);
     }
     if facts.desktop_wanted {
-        if !facts.agent_desktop_installed {
-            gaps.push(Gap::AgentDesktop);
-        } else if !facts.agent_desktop_grants {
-            gaps.push(Gap::AgentDesktopGrants);
+        if !facts.driver_installed {
+            gaps.push(Gap::Driver);
+        } else if facts.driver_update_failed {
+            gaps.push(Gap::DriverUpdate);
         }
     }
     if facts.browser_wanted && !facts.agent_browser_installed {
@@ -273,8 +275,8 @@ mod tests {
             agent_installed: true,
             agent_ready: true,
             desktop_wanted: true,
-            agent_desktop_installed: true,
-            agent_desktop_grants: true,
+            driver_installed: true,
+            driver_update_failed: false,
             browser_wanted: true,
             agent_browser_installed: true,
             shortcut_taken: false,
@@ -333,13 +335,13 @@ mod tests {
                 Fix::Page("agent"),
             ),
             (
-                |f| f.agent_desktop_installed = false,
-                Gap::AgentDesktop,
+                |f| f.driver_installed = false,
+                Gap::Driver,
                 Fix::Page("desktop"),
             ),
             (
-                |f| f.agent_desktop_grants = false,
-                Gap::AgentDesktopGrants,
+                |f| f.driver_update_failed = true,
+                Gap::DriverUpdate,
                 Fix::Page("desktop"),
             ),
             (
@@ -370,7 +372,7 @@ mod tests {
     fn what_isnt_used_isnt_missing() {
         let mut facts = whole();
         facts.desktop_wanted = false;
-        facts.agent_desktop_installed = false;
+        facts.driver_installed = false;
         facts.browser_wanted = false;
         facts.agent_browser_installed = false;
         facts.hex_voice_selected = false;

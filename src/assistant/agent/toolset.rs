@@ -169,8 +169,6 @@ mod tests {
                 context: Context::default(),
             },
             settings,
-            agent_id: "hex-7".into(),
-            desktop_session: Some("S1".into()),
             kind: JobKind::Ask,
             digest: None,
             workspace: variant.workspace.then(|| "/tmp/job".into()),
@@ -182,8 +180,7 @@ mod tests {
         let spec = task_spec(&job);
         // As `agent::prepare` gives them.
         let desktop = variant.desktop.then(|| {
-            let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
-            desktop.driver = crate::assistant::driver::Driver::Cua;
+            let mut desktop = Desktop::fixture();
             desktop.front_window = spec.full_control;
             desktop.open_apps = spec.open_apps;
             desktop

@@ -310,7 +310,7 @@ pub(super) const KEYS: &[Key] = &[
     key(
         "assistant.control_desktop",
         Kind::Bool,
-        "Assistant tasks may operate apps through agent-desktop (macOS)",
+        "Assistant tasks may operate apps through Cua Driver (macOS)",
     ),
     key(
         "assistant.background_physical_input",
@@ -428,14 +428,8 @@ pub(super) const KEYS: &[Key] = &[
     optional(
         "assistant.agent_display",
         Kind::Text,
-        "The display new Background task windows move to, by agent-desktop id or name; \
+        "The display new Background task windows move to, by display id or name; \
          none is the display the person isn't working on (macOS)",
-    ),
-    key(
-        "assistant.desktop_driver",
-        Kind::Choice(&["cua", "agent_desktop"]),
-        "The desktop driver assistant tasks act through: cua (Cua Driver, the default) \
-         or agent_desktop; the other stands in when it is missing (macOS)",
     ),
     key(
         "assistant.autonomy",

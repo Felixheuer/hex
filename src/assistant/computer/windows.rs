@@ -254,7 +254,7 @@ pub fn quick_context() -> Context {
     }
 }
 
-/// `window`'s frame: the window agent-desktop names (`w-<handle>`), else
+/// `window`'s frame: the window its id names (`w-<handle>`), else
 /// its app's frontmost window.
 pub fn window_frame(window: &TaskWindow) -> Option<Frame> {
     let by_id = window

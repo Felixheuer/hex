@@ -1,6 +1,6 @@
 //! A task's MCP servers in each backend's config format: its desktop tool
-//! (the guard, which forwards the driver's tools under agent-desktop's names
-//! plus Agent-Desk's own), its hidden browser under `agent-browser`, and Agent-Desk's
+//! (the guard, which serves Cua Driver's tools as `desktop_*` plus Agent-Desk's
+//! own), its hidden browser under `agent-browser`, and Agent-Desk's
 //! tools. Each server lists exactly the tools the task may use, so every
 //! backend gets all of them and none keeps an allowlist of its own
 //! (`guard::proxy::tools`, `tools::definitions_for`).
@@ -94,11 +94,11 @@ mod tests {
         let mut run = Run::fixture(AssistantBackend::ClaudeCode);
         assert_eq!(claude_config(&run), None);
         assert!(codex_args(&run).is_empty());
-        run.desktop = Some(Desktop::fixture(Some("s1"), "hex-2"));
+        run.desktop = Some(Desktop::fixture());
         run.browser = Some(browser());
 
         let claude: Value = serde_json::from_str(&claude_config(&run).unwrap()).unwrap();
-        assert_eq!(claude["mcpServers"]["desktop"]["args"][2], "s1");
+        assert_eq!(claude["mcpServers"]["desktop"]["args"][2], "--spec");
         assert_eq!(claude["mcpServers"]["agent-browser"]["args"][2], "t1");
         assert_eq!(claude_tools(&run), ["mcp__desktop", "mcp__agent-browser"]);
 

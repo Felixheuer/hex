@@ -50,8 +50,7 @@ pub enum Fallback {
 
 /// Accessibility's errors that mean "the app didn't answer in time or
 /// couldn't do it now" (`kAXErrorCannotComplete`, `kAXErrorNotImplemented`,
-/// `kAXErrorActionUnsupported`, timeouts), as agent-desktop or Cua Driver
-/// report them.
+/// `kAXErrorActionUnsupported`, timeouts), as Cua Driver reports them.
 const UNREACHABLE: &[&str] = &[
     "-25204",
     "-25205",

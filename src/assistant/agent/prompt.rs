@@ -2,8 +2,6 @@
 //! and tools' rules), the rules only the request decides, and the message
 //! a run sends.
 
-use std::sync::OnceLock;
-
 use super::*;
 
 /// The system prompt of `job`'s run: who the assistant is, its lane's and
@@ -353,24 +351,12 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
     };
     // What the desktop tools are, from the driver behind them.
     prompt.push('\n');
-    prompt.push_str(
-        &desktop
-            .driver
-            .backend()
-            .intro()
-            .replace("{computer}", computer_name()),
-    );
+    prompt.push_str(&crate::assistant::driver::INTRO.replace("{computer}", computer_name()));
     prompt.push_str("Use hex_installed_apps to see what's installed before choosing an app.\n");
     prompt.push_str(
         "Every desktop action passes Agent-Desk's guard, which lets you act only in windows that are yours. A refusal comes back as a tool error with a code: NOT_YOUR_WINDOW (another task's window, or one you haven't opened or claimed), PERSON_IN_WINDOW (the person is working there), TAKEN_OVER (the person took this task over; look again before acting), POLICY_DENIED (a blocked app, or an action tasks may not do). Don't try to get around a refusal: choose another way, or say what you couldn't do.\n",
     );
-    if desktop.driver == crate::assistant::driver::Driver::Cua {
-        prompt.push_str("There are no real-pointer tools: act through refs, or by a window's picture with hex_window_shot and hex_window_input.\n");
-    } else if desktop.headed {
-        prompt.push_str("Physical input (--headed) is allowed, but prefer headless actions; use physical input only when no semantic action exists.\n");
-    } else {
-        prompt.push_str("Use headless actions only: physical input is turned off, so actions that need --headed (hover, drag, mouse clicks at a point, double-click) are refused. Never try to switch to physical input.\n");
-    }
+    prompt.push_str("There are no real-pointer tools: act through refs, or by a window's picture with hex_window_shot and hex_window_input.\n");
     prompt.push_str(
         "Rules:\n\
          - Only do what the person asked, and do it: act instead of describing how or offering to. Never ask back what you can find out yourself (the message's desktop section, a snapshot, hex_installed_apps); if something only the person can tell is missing and there is no sensible default, ask for it (a job: in one message starting with `HEX_QUESTION:`) instead of guessing. Sending, deleting, paying, and posting follow the autonomy rules below.\n\
@@ -394,9 +380,8 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
             "- You may LOOK at any window to answer: list them with desktop_list_windows and read or screenshot the one the person means by its window_id (\"what am I doing in Citrix?\" means the Citrix window, even if it isn't in front; hex_read_window reads one that has no Accessibility tree). ACT only in the window in front, named in the message, and only if asked; don't bring another window forward.\n- If the request needs to act anywhere beyond that window (take over or operate another window such as Citrix, open an app or a browser, the web, files), never say you can't and never tell the person to do it themselves: hand it off at once with hex_start_jobs (see below), however small it is; a background job may open apps and browsers and take over the person's other windows.\n",
         ),
         Lane::Background => prompt.push_str(&format!(
-            "- You run beside the person and other agents, each with its own cursor; yours is agent “{}”. Work only in your own windows: to use any app, even one that already runs, call hex_open_app first; it takes the app's window into this task (never a second instance), parks it out of the person's way, and shows it live on your card. Never only check that an app runs and report that. Or claim a free window that is already open with desktop_claim_window (its window_id from desktop_list_windows). {}Never another task's windows: don't move, close, or type into them. Once you know a window's id, always pass it (--window-id / window_id), and don't bring windows to the front.\n\
+            "- You run beside the person and other agents. Work only in your own windows: to use any app, even one that already runs, call hex_open_app first; it takes the app's window into this task (never a second instance), parks it out of the person's way, and shows it live on your card. Never only check that an app runs and report that. Or claim a free window that is already open with desktop_claim_window (its window_id from desktop_list_windows). {}Never another task's windows: don't move, close, or type into them. Once you know a window's id, always pass it (window_id), and don't bring windows to the front.\n\
              - {}\n",
-            desktop.agent_id,
             if desktop.front_window {
                 "The person allowed you to use the window in front of them too: claim it like any other when the job needs it (for example their browser tab or document), act in it without bringing other windows forward, and leave it as you found it apart from what the job changes. "
             } else {
@@ -419,81 +404,5 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
             "- Background first: act in windows where they are, parked or behind others; never bring one to the front just to act in it. Only an app that doesn't react in the background after one retry gets its window forward for the shortest time (the person sees the frame); check the result, then give the front back to the window the person was in.\n",
         );
     }
-    if desktop.driver == crate::assistant::driver::Driver::AgentDesktop
-        && let Some(guide) = guide(desktop.executable())
-    {
-        prompt.push_str("\nagent-desktop's guide:\n\n");
-        prompt.push_str(guide);
-    }
     prompt
-}
-
-/// agent-desktop's own guide (`skills get desktop` and `platform`), read
-/// once per run of Agent-Desk.
-pub(super) fn guide(executable: &std::path::Path) -> Option<&'static str> {
-    static GUIDE: OnceLock<Option<String>> = OnceLock::new();
-    GUIDE
-        .get_or_init(|| {
-            let read = |args: &[&str]| -> Option<String> {
-                let output = crate::assistant::backends::agent_command(executable)
-                    .args(args)
-                    .stdin(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .output()
-                    .ok()?;
-                let value: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
-                value
-                    .pointer("/data/content")
-                    .and_then(serde_json::Value::as_str)
-                    .map(strip_front_matter)
-            };
-            let desktop = read(&["skills", "get", "desktop"])?;
-            let platform = read(&["skills", "get", "platform"]).unwrap_or_default();
-            Some(trim_guide(&format!("{desktop}\n\n{platform}")))
-        })
-        .as_deref()
-}
-
-/// Sections of agent-desktop's guide written for a person or agent at a
-/// shell, which a task never needs: it calls the tools (no shell, no
-/// `--help`, no `skills get`), and Agent-Desk sets up the permissions.
-pub(super) const GUIDE_SKIPPED: &[&str] = &[
-    "Shell syntax",
-    "First run",
-    "References",
-    "Requirements",
-    "First contact",
-];
-
-/// The guide without [`GUIDE_SKIPPED`]'s `##` sections, every one up to
-/// the next heading. A guide whose headings changed loses nothing.
-pub(super) fn trim_guide(markdown: &str) -> String {
-    let mut kept = String::with_capacity(markdown.len());
-    let mut skipping = false;
-    let mut fenced = false;
-    for line in markdown.lines() {
-        if line.trim_start().starts_with("```") {
-            fenced = !fenced;
-        } else if !fenced && line.starts_with('#') {
-            skipping = line
-                .strip_prefix("## ")
-                .is_some_and(|title| GUIDE_SKIPPED.contains(&title.trim()));
-        }
-        if !skipping {
-            kept.push_str(line);
-            kept.push('\n');
-        }
-    }
-    kept.trim().to_owned()
-}
-
-/// Markdown without its leading `---` front matter.
-pub(super) fn strip_front_matter(markdown: &str) -> String {
-    let trimmed = markdown.trim_start();
-    if let Some(rest) = trimmed.strip_prefix("---")
-        && let Some(end) = rest.find("\n---")
-    {
-        return rest[end + 4..].trim_start().to_owned();
-    }
-    trimmed.to_owned()
 }

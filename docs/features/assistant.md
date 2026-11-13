@@ -39,7 +39,7 @@ Action shortcut (assistant::shortcut, per-OS listeners) ─┐
 Assistant pane composer (rune_ui::chats) ─────────────────┼─ service::submit ── lanes ── agent::run ── provider (backend)
 iPhone replies (assistant::phone), schedules ────────────┘   Here | Background        claude -p | codex exec | opencode | Claude API
                                                                                             │
-                     every desktop action ── guard (agent-desk assistant mcp) ── agent-desktop     │
+                     every desktop action ── guard (agent-desk assistant mcp) ── Cua Driver        │
                      web ── browser (agent-browser, one hidden session per task)  ──────────┤
                      Agent-Desk's own tools (tools: remember, schedule, team) and knowledge ───────┘
 service::subscribe ── Event ── overlays (rune_ui::assistant_overlay): Here bubble, orb, job list, frame, outlines
@@ -54,7 +54,8 @@ service::subscribe ── Event ── overlays (rune_ui::assistant_overlay): He
    `max_parallel` at once (`capacity`). A tap-then-hold or "im Hintergrund"
    starts a job directly.
 2. **Guard** (`assistant::guard`). Every task's agent gets Agent-Desk's MCP server
-   instead of agent-desktop: window leases (Here holds the front window,
+   instead of the desktop driver (Cua Driver, `assistant::driver`, the only
+   one): window leases (Here holds the front window,
    Background only windows it opened or claimed), real input only when
    allowed, blocked apps, take over, and consent before consequential
    actions (`autonomy`). Prompts are never the only safeguard.
@@ -239,9 +240,8 @@ real speakers.
   (`agent::request_rules`). So the process `prewarm` starts with no words
   (and the memory note, as the request has it) is the one the request
   finds, and the model's prompt cache keeps the rules from one request to
-  the next. agent-desktop's guide leaves out the sections written for a
-  shell (`agent::GUIDE_SKIPPED`); `each_lane_s_rules_stay_within_their_budget`
-  guards each lane's size.
+  the next. `each_lane_s_rules_stay_within_their_budget` guards each lane's
+  size.
 - **Kept warm.** Besides the hold's `prewarm` and the follow-up's process,
   a Here answer starts Claude Code for the next new Here conversation
   (`service::stand_by`), kept `assistant.warm_minutes` (15; 0 off). It
@@ -507,8 +507,9 @@ Accessibility, and Screen Recording, each Allow opening its System Settings
 page with Agent-Desk's guide and waiting until macOS reports it on (read every
 1.5 s); Automation for System Events and Finder (one macOS prompt each;
 any other app a task scripts asks on first use, and the task's step says
-so first: `automation::first_use_notice`); agent-desktop, installed with
-Homebrew if missing, and its two permissions; Contacts, Reminders, and the
+so first: `automation::first_use_notice`); Cua Driver, installed with one
+click if missing (a checked download), with its version and update status
+and an Update button (it acts with Agent-Desk's own grants); Contacts, Reminders, and the
 Calendar in one row whose Allow shows macOS's prompt for each never
 answered (`desktop::data_access`; a refusal stays the person's answer and
 only System Settings turns it on), and optional Full Disk Access (Mail and
@@ -524,7 +525,7 @@ adapts both); then the try-it: hold the Action shortcut and ask, waiting
 for one real spoken question, answered. A row shows ✓ only after its check saw
 it work. Continue waits for its page; Later moves on and marks it unfinished
 (amber in the progress marks). Finish waits until the chosen agent answers
-and can use agent-desktop, then sets `assistant.setup_done`. Menu bar: Stop
+and can use the desktop tools, then sets `assistant.setup_done`. Menu bar: Stop
 All Tasks and Assistant… show only while the assistant is on. Checks:
 the tests in [rune_ui/chats/tests.rs](../../src/rune_ui/chats/tests.rs),
 `reads_chats_links` in [deep_link.rs](../../src/rune_ui/deep_link.rs), and
@@ -580,7 +581,7 @@ Microphone, Accessibility and Screen Recording, Automation (System Events
 and Finder), Contacts, Reminders, or the Calendar never asked for (so an
 update that adds an ask shows the permissions page once), a translocated or stray copy
 (`permission_doctor`), the speech model, the chosen agent installed and
-signed in, agent-desktop and its grants, agent-browser, the Action shortcut
+signed in, Cua Driver (installed; its last update didn't fail), agent-browser, the Action shortcut
 still free, the Agent-Desk voice's files, and `assistant.setup_version` against
 `SETUP_VERSION` (pages a release adds go in `setup_gaps::ADDED`). When
 something is missing, the onboarding opens on just the pages that fix it
@@ -592,10 +593,47 @@ copy macOS can't grant, Microphone, Accessibility, the agent), a hold of the
 Action shortcut says what in the HUD instead of asking and opens the guide.
 Scene: `mac-assistant-setup-repair`.
 
+## Cua Driver, the desktop driver
+
+Every desktop action runs through Cua Driver (`cua-driver mcp --direct`,
+MIT, by Cua AI) behind the guard; there is no other driver and no
+fallback. The guard serves its tools as `desktop_*` (`guard/cua.rs`), and
+it runs in Agent-Desk's process tree, so it acts with Agent-Desk's own
+Accessibility and Screen Recording, with its telemetry and its own update
+checks off (`driver::cua::env`). macOS only.
+
+- **Install** (`driver::cua`): the first install takes the pinned release
+  (`cua::PINNED`, checksums compiled in) into
+  `<support>/assistant/cua-driver/<version>/`, checks the archive's
+  SHA-256, the app bundle's and the executable's Developer ID signature
+  (team `YCK386LBJ7`), and the bundle's notarization (`spctl`).
+- **Updates** (`driver::update`): once a day in the app (`start_daily`,
+  from `guard::startup`), from setup's and the repair guide's *Update Cua
+  Driver*, and `agent-desk assistant driver update`, Agent-Desk reads Cua's
+  releases (`trycua/cua`, tags `cua-driver-rs-v<x.y.z>`; nightlies and
+  drafts don't count; GitHub marks them all pre-release). A newer one is
+  downloaded and its SHA-256 checked against the release's `SHA256SUMS`,
+  `checksums.txt`, and GitHub's digest (all must agree); its signature must
+  name the team of the installed, trusted driver, and it must be
+  notarized. It is unpacked beside the current one and self-tested
+  (`guard::driver_self_test`: it starts, answers MCP `initialize` and
+  `tools/list`, and lists Finder's windows). Only when no task acts
+  (`idle_in_app`: no task runs, no window is leased, no real input) does
+  `current` switch, in one rename; it is tested again where tasks run it,
+  and a failure there goes back to the previous version. The previous
+  version is kept for `agent-desk assistant driver rollback`; older ones
+  go. A task keeps the driver it started with (its spec names the path).
+- **Status**: `<support>/assistant/cua-driver/update.json`, shown as
+  "Cua Driver 0.49.3 · up to date / updated from … / update failed (kept
+  …)" on setup's permissions page, in the Checks' detail, and by
+  `agent-desk assistant driver`; a failed update is a repair-guide gap
+  (`Gap::DriverUpdate`).
+
 ## Agents on Linux and Windows
 
-The agent backends (Claude Code, Codex, OpenCode, agent-desktop,
-agent-browser) run the same way on every OS; what differs:
+The agent backends (Claude Code, Codex, OpenCode, agent-browser) run the
+same way on every OS; what differs (Cua Driver, the desktop driver, is
+macOS only: elsewhere tasks answer without using apps):
 
 - **Process trees** (`backends/run.rs` `own_group`/`Tree`): Unix puts each
   agent in its own process group (on Linux a helper Agent-Desk waits for also gets
@@ -621,7 +659,7 @@ agent-browser) run the same way on every OS; what differs:
   (into `~/.local` when npm is the system's), then the project's script,
   then a Linuxbrew formula. Windows uses `winget install
   Anthropic.ClaudeCode`, else npm (`@openai/codex`, `@opencode/cli`,
-  `agent-desktop`, `agent-browser`), else the project's PowerShell script.
+  `agent-browser`), else the project's PowerShell script.
   Lightpanda has no Windows build: its install and self-test are hidden
   there. "Copy install command" quotes for PowerShell on Windows and joins
   with `;`. Sign-in opens Terminal on macOS, the desktop's terminal on Linux

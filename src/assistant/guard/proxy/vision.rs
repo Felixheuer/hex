@@ -742,7 +742,7 @@ fn label_near(lines: &[crate::assistant::actions::ocr::Line], (x, y): (f64, f64)
 }
 
 /// Every `(ref, frame)` in a result's data: elements with a ref and bounds
-/// (agent-desktop's `bounds`, Cua Driver's `frame`), in global points.
+/// (`bounds`, Cua Driver's `frame`), in global points.
 /// A frame: x, y, width, height in global points.
 type Rect = (f64, f64, f64, f64);
 

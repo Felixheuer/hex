@@ -1,6 +1,6 @@
 //! The runner with a fake backend and a fake clock: lanes and queueing,
-//! steering, routing into jobs, plans and questions, the frame and its
-//! desktop session, take over, timeouts, usage limits, cleanup on every
+//! steering, routing into jobs, plans and questions, the frame,
+//! take over, timeouts, usage limits, cleanup on every
 //! end, follow-ups, and speech.
 
 use std::collections::HashSet;
@@ -234,14 +234,7 @@ impl World {
 
     fn runner(self: &Arc<Self>) -> Arc<Runner> {
         let world = |world: &Arc<Self>| Arc::clone(world);
-        let (execute, settings, start, end, style, speak) = (
-            world(self),
-            world(self),
-            world(self),
-            world(self),
-            world(self),
-            world(self),
-        );
+        let (execute, settings, speak) = (world(self), world(self), world(self));
         let (clock, pause, release, hands, forward, settle) = (
             world(self),
             world(self),
@@ -277,14 +270,6 @@ impl World {
                     *settings.lab_on.lock().unwrap(),
                     settings.settings.lock().unwrap().clone(),
                 )
-            }),
-            start_session: Box::new(move || {
-                start.log("start session".into());
-                Some("S1".into())
-            }),
-            end_session: Box::new(move |id| end.log(format!("end session {id}"))),
-            style_agent: Box::new(move |session, agent, colour, label| {
-                style.log(format!("style {session} {agent} {colour} {label:?}"));
             }),
             speak: Box::new(move |text, _| speak.spoken.lock().unwrap().push(text.to_owned())),
             speaking: Box::new(|| false),
@@ -322,8 +307,8 @@ impl World {
             prewarm: Box::new(move |job| {
                 prewarm.prewarmed.lock().unwrap().push(job.clone());
                 prewarm.log(format!(
-                    "prewarm {} {} {:?}",
-                    job.conversation, job.agent_id, job.request.origin
+                    "prewarm {} {:?}",
+                    job.conversation, job.request.origin
                 ));
             }),
             browser_ahead: Box::new(move |task, words| {
@@ -993,50 +978,40 @@ fn a_follow_up_naming_a_running_task_steers_it() {
 }
 
 #[test]
-fn one_desktop_session_runs_around_background_work() {
+fn background_work_needs_no_desktop_session() {
     let world = World::new(1);
     let runner = world.runner();
+    // A Background backend starts ahead at once: no desktop session to
+    // wait for (Cua Driver keeps none).
+    runner.prewarm(Lane::Background, None);
+    world.wait_until("the Background prewarm", || {
+        world
+            .log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|line| line.starts_with("prewarm") && line.ends_with("Background"))
+    });
     let here = runner.submit(request("here", Origin::ActionShortcut));
     world.wait_for("the Here task", started(&here));
-    // A Here question has no desktop session of its own.
-    assert!(!runner.state().background_on);
-
+    assert!(!background_on(&runner));
     let first = runner.submit(request("first", Origin::Background));
-    let queued = runner.submit(request("queued", Origin::Chat));
-    assert!(runner.state().background_on);
-    world.wait_for("the first background task", started(&first));
-    let job = world.job_for("first");
-    assert_eq!(job.desktop_session.as_deref(), Some("S1"));
-    assert!(world.logged(&format!("style S1 {} 1 None", job.agent_id)));
-    // Its cursor's label follows its steps.
-    world.wait_until("the label", || {
-        world.logged(&format!(
-            "style S1 {} 1 Some(\"Working on first\")",
-            job.agent_id
-        ))
-    });
-
+    assert!(background_on(&runner));
+    world.wait_for("the background task", started(&first));
     world.release("first");
-    world.wait_for("the queued task", started(&queued));
-    world.release("queued");
-    world.wait_for("the queued answer", ended(&queued));
-    world.wait_until("the background work to end", || {
-        !runner.state().background_on
-    });
-    // The Here task still runs: the session stays until it ends.
-    assert!(!world.logged("end session S1"));
+    world.wait_for("its answer", ended(&first));
+    world.wait_until("the background work to end", || !background_on(&runner));
     world.release("here");
     world.wait_for("the Here answer", ended(&here));
-    world.wait_until("the session to end", || world.logged("end session S1"));
+}
 
-    // Stopping everything ends the next one's too.
-    let more = runner.submit(request("more", Origin::Background));
-    world.wait_for("another", started(&more));
-    runner.cancel_all();
-    world.wait_for("it to stop", ended(&more));
-    world.wait_until("the background work to end again", || {
-        !runner.state().background_on
-    });
+/// Whether Background work is queued, running, waiting, or paused.
+fn background_on(runner: &Runner) -> bool {
+    runner
+        .state()
+        .tasks
+        .iter()
+        .any(|task| task.lane() == Lane::Background)
 }
 
 #[test]
@@ -1174,7 +1149,7 @@ fn a_usage_limit_waits_for_its_reset_then_retries() {
     world.advance(3_540_000);
     std::thread::sleep(Duration::from_millis(30));
     assert_eq!(world.jobs.lock().unwrap().len(), 1);
-    assert!(runner.state().background_on);
+    assert!(background_on(&runner));
     world.advance(60_000);
     world.wait_until("the retry", || world.jobs.lock().unwrap().len() == 2);
     assert_eq!(world.jobs.lock().unwrap()[1].kind, JobKind::AfterLimit);
@@ -1225,9 +1200,7 @@ fn a_task_that_panics_fails_and_still_cleans_up() {
         }]
     );
     assert!(world.logged(&format!("release {id}")));
-    world.wait_until("the background work to end", || {
-        !runner.state().background_on
-    });
+    world.wait_until("the background work to end", || !background_on(&runner));
 }
 
 #[test]
@@ -1350,7 +1323,7 @@ fn focus_prefers_a_running_here_task_then_a_recent_answer_never_chats() {
 }
 
 #[test]
-fn prewarm_reserves_the_next_requests_conversation_and_agent() {
+fn prewarm_reserves_the_next_requests_conversation() {
     let world = World::new(8);
     world.settings.lock().unwrap().backend = AssistantBackend::ClaudeCode;
     let runner = world.runner();
@@ -1367,19 +1340,15 @@ fn prewarm_reserves_the_next_requests_conversation_and_agent() {
             .iter()
             .any(|line| line.starts_with("prewarm"))
     });
-    let (id, agent) = {
-        let state = runner.state();
-        let warm = state.warm.as_ref().unwrap();
-        (warm.id.clone(), format!("hex-{}", warm.key))
-    };
-    assert!(world.logged(&format!("prewarm {id} {agent} ActionShortcut")));
+    let id = runner.state().warm.as_ref().unwrap().id.clone();
+    assert!(world.logged(&format!("prewarm {id} ActionShortcut")));
     // Calling again for the same window starts nothing more.
     runner.prewarm(Lane::Here, window.clone());
     let mut ask = request("q", Origin::ActionShortcut);
     ask.context.window = window;
     assert_eq!(runner.submit(ask), id);
     world.wait_until("the job", || world.jobs.lock().unwrap().len() == 1);
-    assert_eq!(world.jobs.lock().unwrap()[0].agent_id, agent);
+    assert_eq!(world.jobs.lock().unwrap()[0].conversation, id);
     // Another window doesn't take it.
     runner.prewarm(Lane::Here, None);
     let other = runner.submit(request("q2", Origin::Background));
@@ -1642,7 +1611,7 @@ fn nothing_runs_while_the_assistant_is_off_or_not_set_up() {
         ]
     );
     assert!(runner.tasks().is_empty());
-    assert!(!runner.state().background_on);
+    assert!(!background_on(&runner));
 }
 
 #[test]
@@ -1679,7 +1648,7 @@ fn a_here_request_that_is_a_job_continues_as_a_background_job() {
         ["On it: 50 suppliers and a sheet."]
     );
     assert!(world.finals().is_empty());
-    assert!(runner.state().background_on);
+    assert!(background_on(&runner));
     assert!(world.logged(&format!("release {id}")));
     world.release("research suppliers");
     world.wait_for("the job's answer", ended(&id));

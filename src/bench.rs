@@ -1,7 +1,7 @@
 //! `agent-desk bench`: Agent-Desk's local benchmark (docs/bench.md). About 25
 //! typical tasks as data (`bench/tasks/*.toml`), asked of the running Agent-Desk
 //! Dev (or, only with `--target live`, Agent-Desk) through its owner-only local
-//! API, each checked by machine: the answer, the desktop as agent-desktop
+//! API, each checked by machine: the answer, the desktop as Cua Driver
 //! lists it (read only), files in the run's temp folder under
 //! `~/Documents/Agent-Desk/bench`, the web addresses and tools the task used.
 //! Each run lands in `bench/results/<version>-<timestamp>.json` with a

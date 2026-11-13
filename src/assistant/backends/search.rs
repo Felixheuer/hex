@@ -21,14 +21,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 /// The executables the login shell is asked for.
-pub const NAMES: [&str; 6] = [
-    "claude",
-    "codex",
-    "opencode",
-    "agent-desktop",
-    "node",
-    "brew",
-];
+pub const NAMES: [&str; 5] = ["claude", "codex", "opencode", "node", "brew"];
 
 /// How long the login shell may take to answer.
 const SHELL_LIMIT: Duration = Duration::from_secs(6);
@@ -748,10 +741,10 @@ mod tests {
             Some(r"node_modules\@openai\codex\bin\codex.js")
         );
         let exe =
-            "@ECHO off\r\n\"%~dp0\\node_modules\\agent-desktop\\bin\\agent-desktop.exe\"   %*\r\n";
+            "@ECHO off\r\n\"%~dp0\\node_modules\\agent-browser\\bin\\agent-browser.exe\"   %*\r\n";
         assert_eq!(
             shim_target(exe).as_deref(),
-            Some(r"node_modules\agent-desktop\bin\agent-desktop.exe")
+            Some(r"node_modules\agent-browser\bin\agent-browser.exe")
         );
         assert_eq!(shim_target("@echo off\r\necho hi\r\n"), None);
     }

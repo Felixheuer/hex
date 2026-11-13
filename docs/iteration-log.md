@@ -50,11 +50,16 @@ maintainable, and nothing that isn't possible.
 
 ## Round 6 (after the rename): Cua only, no legacy
 
-- [ ] Remove agent-desktop completely (driver fallback, session/cursor CLI, guide in the
-      prompt, install/check, onboarding strings); Cua Driver is the only driver
-- [ ] Cua Driver updates: daily check for new releases (GitHub trycua/cua), verify the
-      signature/notarization (team ID) and checksum, install in the background, self-test,
-      roll back on failure; status in setup/repair
+- [x] Remove agent-desktop completely (driver fallback, session/cursor CLI, guide in the
+      prompt, install/check, onboarding strings, `assistant.desktop_driver`); Cua Driver is
+      the only driver (macOS only; elsewhere tasks answer without apps)
+- [x] Cua Driver updates (`driver::update`): daily check for new releases (GitHub
+      trycua/cua), checksum (SHA256SUMS, checksums.txt, GitHub digest) and signature
+      (team of the installed driver) and notarization verified, installed beside the
+      current one, self-tested, switched when no task acts, rolled back on failure; status
+      in setup/repair, `agent-desk assistant driver [status|update|rollback]`
+- [ ] Overlay leftovers of agent-desktop (cursor image, failure text) go with the UX
+      redesign (`rune_ui/assistant_overlay`)
 - [ ] No backwards compatibility: no aliases (CLI, URL scheme, env, settings keys, tool
       names); only dated one-time migrations for data, settings, Keychain and the app bundle
 - [ ] UX redesign per docs/ux/redesign.md (overlay as the main surface, the window recedes)

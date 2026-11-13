@@ -129,7 +129,7 @@ pub enum Logged {
     Window(String),
 }
 
-/// Browsers by the names agent-desktop gives their apps.
+/// Browsers by their apps' names.
 const BROWSERS: [&str; 9] = [
     "safari",
     "google chrome",

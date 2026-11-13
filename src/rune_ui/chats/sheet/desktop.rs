@@ -1,8 +1,9 @@
 //! The onboarding's permissions page: what the assistant needs to see and
 //! use the Mac. Screen Recording for Agent-Desk, the Microphone and Accessibility
 //! only when the voice setup didn't already grant them (one ask for both),
-//! then Automation (System Events and Finder), agent-desktop, installed
-//! with one click, and its own grants, then the person's data (Contacts,
+//! then Automation (System Events and Finder), Cua Driver (installed with
+//! one click, kept current, with its version and update status), then the
+//! person's data (Contacts,
 //! Reminders, the Calendar, and optional Full Disk Access). A grant macOS
 //! applies only after a restart gets one button that relaunches Agent-Desk and
 //! reopens this page.
@@ -88,7 +89,7 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
             &glyphs::CURSOR_TEXT,
             tr("Accessibility"),
             if shared {
-                tr("Lets Agent-Desk and agent-desktop read and operate apps")
+                tr("Lets Agent-Desk and Cua Driver read and operate apps")
             } else {
                 tr("Notices the shortcut and reads the text you selected")
             },
@@ -97,7 +98,7 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
             SCREEN,
             tr("Screen Recording"),
             if shared {
-                tr("Lets Agent-Desk and agent-desktop see the screen")
+                tr("Lets Agent-Desk and Cua Driver see the screen")
             } else {
                 tr("Sends the screen you ask about with your question")
             },
@@ -105,12 +106,12 @@ pub(super) fn grant_row(ui: &Ui, flow: &SetupFlow, p: Paint, grant: Grant, prima
         Grant::DesktopAccessibility => (
             &glyphs::CURSOR_TEXT,
             tr("Accessibility"),
-            tr("Lets agent-desktop click, type, and read apps"),
+            tr("Lets Cua Driver click, type, and read apps"),
         ),
         Grant::DesktopScreenRecording => (
             SCREEN,
             tr("Screen Recording"),
-            tr("Lets agent-desktop see windows while a task works"),
+            tr("Lets Cua Driver see windows while a task works"),
         ),
     };
     let state = grant_state(ui, flow, grant);
@@ -298,8 +299,8 @@ pub(in crate::rune_ui) fn install_failure(p: Paint, error: &str, command: Option
         }))
 }
 
-/// Screen Recording (and any voice grant still missing), then agent-desktop
-/// and its grants.
+/// Screen Recording (and any voice grant still missing), then Cua Driver
+/// with its version and update status.
 pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     // The voice setup asked for the Microphone and Accessibility already;
     // they show again only while missing.
@@ -329,30 +330,53 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         rows.push(automation_row(p));
     }
     let (detail, control) = match found {
-        _ if flow.fixing == Some(Fix::InstallAgentDesktop) => {
+        _ if flow.fixing == Some(Fix::InstallDriver) => {
             super::browser::installing(p, flow, tr("Installing… this takes a minute"))
         }
+        _ if flow.fixing == Some(Fix::UpdateDriver) => {
+            super::browser::installing(p, flow, tr("Looking for a newer Cua Driver…"))
+        }
+        _ if !cfg!(target_os = "macos") => (
+            tr("Cua Driver runs on macOS only").to_owned(),
+            row().key("no-driver"),
+        ),
         None => (String::new(), spinner(p, "reading")),
+        // "Cua Driver 0.49.3 · up to date", "… · update failed (kept 0.49.1)".
         Some(found) if found.path.is_some() => (
-            found
-                .version
-                .as_ref()
-                .map(|version| tr_fill("Version {}", version))
-                .unwrap_or_default(),
-            done_pill(p, "installed", tr("Installed")),
+            if found.update.is_empty() {
+                found
+                    .version
+                    .as_ref()
+                    .map(|version| tr_fill("Version {}", version))
+                    .unwrap_or_default()
+            } else {
+                found.update.clone()
+            },
+            row()
+                .key("driver-controls")
+                .gap(8.0)
+                .center_y()
+                .child(done_pill(p, "installed", tr("Installed")))
+                .child(push(
+                    p,
+                    "update",
+                    tr("Update Cua Driver"),
+                    false,
+                    |ui: &mut Ui| setup::apply(ui, Fix::UpdateDriver),
+                )),
         ),
         Some(_) => (
             tr("Operates apps through Accessibility, without your pointer").to_owned(),
             push(p, "install", tr("Install"), true, |ui: &mut Ui| {
-                setup::apply(ui, Fix::InstallAgentDesktop)
+                setup::apply(ui, Fix::InstallDriver)
             }),
         ),
     };
     rows.push(row_of(
         p,
-        "agent-desktop",
+        "cua-driver",
         TOOL,
-        "agent-desktop",
+        crate::assistant::driver::NAME,
         &detail,
         p.muted(),
         control,
@@ -400,21 +424,21 @@ pub(super) fn desktop(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         (
             tr("Let the assistant see and use your Mac"),
             tr(
-                "Each one opens its page in System Settings, and this page waits until macOS turns it on. Agent-Desk starts agent-desktop, so macOS asks for Agent-Desk.",
+                "Each one opens its page in System Settings, and this page waits until macOS turns it on. Agent-Desk starts Cua Driver, so macOS asks for Agent-Desk.",
             ),
         )
     } else if cfg!(target_os = "windows") {
         (
             tr("Let the assistant see and use your PC"),
             tr(
-                "agent-desktop operates apps through UI Automation, without your pointer. Windows asks for no permission.",
+                "The assistant operates apps through Cua Driver, which runs on macOS only, so here it answers without using apps.",
             ),
         )
     } else {
         (
             tr("Let the assistant see and use your computer"),
             tr(
-                "agent-desktop operates apps through AT-SPI, the desktop's accessibility bus, without your pointer.",
+                "The assistant operates apps through Cua Driver, which runs on macOS only, so here it answers without using apps.",
             ),
         )
     };

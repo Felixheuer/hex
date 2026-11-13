@@ -30,8 +30,8 @@ only talks to an already running service (`src/desktop/opencode_service.rs`).
 The one exception is the assistant (on by default, macOS) with OpenCode
 chosen as its agent: each task runs `opencode run --standalone` with its own
 `OPENCODE_CONFIG_CONTENT` (a `agent-desk` agent denied the shell and file edits, and
-agent-desktop as its MCP server), because the running service loads its MCP
-servers once and can't give one session its own agent-desktop agent id. The
+the guard as its MCP server), because the running service loads its MCP
+servers once and can't give one session its own guard (the task's spec). The
 assistant's setup also finds the CLI (`src/assistant/backends`) and can run
 `opencode service start` when the person presses Start OpenCode. Everything
 below describes the dictation integration:

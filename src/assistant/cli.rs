@@ -49,10 +49,10 @@ pub enum AssistantCommand {
         /// Run it as a typed Chats message, not a quick question.
         #[arg(long)]
         chat: bool,
-        /// The Here lane's window: the app in front (agent-desktop's name).
+        /// The Here lane's window: the app in front (its running name).
         #[arg(long)]
         window_app: Option<String>,
-        /// The Here lane's window id (agent-desktop's).
+        /// The Here lane's window id (`w-<CoreGraphics window number>`).
         #[arg(long, requires = "window_app")]
         window_id: Option<String>,
         /// Start the backend this many seconds before asking, as the
@@ -62,7 +62,7 @@ pub enum AssistantCommand {
         /// Then ask this follow-up in the same conversation.
         #[arg(long, value_name = "TEXT")]
         then: Option<String>,
-        /// Don't let it use apps (no agent-desktop).
+        /// Don't let it use apps (no desktop tools).
         #[arg(long)]
         no_desktop: bool,
         /// Read a quick answer aloud.
@@ -88,6 +88,13 @@ pub enum AssistantCommand {
     TakeOver { id: String },
     /// Ask the running Agent-Desk to give a task back after `take-over`.
     HandBack { id: String },
+    /// Cua Driver, the desktop driver: its version and update status
+    /// (`status`, the default), a check for a newer release now (`update`),
+    /// or back to the previous version (`rollback`).
+    Driver {
+        #[command(subcommand)]
+        command: Option<DriverCommand>,
+    },
     /// List, add, remove, or watch scheduled jobs.
     Schedules {
         #[command(subcommand)]
@@ -106,7 +113,7 @@ pub enum AssistantCommand {
         role: String,
     },
     /// The guard's MCP server for one task (Agent-Desk gives it to each task's
-    /// agent in place of agent-desktop): `--spec` is the task's JSON spec or
+    /// agent in place of the desktop driver): `--spec` is the task's JSON spec or
     /// a file holding it.
     #[command(hide = true)]
     Mcp {
@@ -129,6 +136,20 @@ pub enum AssistantCommand {
         #[arg(long)]
         task: String,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum DriverCommand {
+    /// The installed version and how the last update check went.
+    Status,
+    /// Looks for a newer Cua Driver and installs it now: checked, tested,
+    /// switched when no task acts (it waits up to `--wait` seconds).
+    Update {
+        #[arg(long, default_value_t = 120)]
+        wait: u64,
+    },
+    /// Goes back to the version before the current one.
+    Rollback,
 }
 
 #[derive(Subcommand, Debug)]
@@ -158,7 +179,7 @@ pub enum SchedulesCommand {
     Watch {
         #[arg(long, default_value_t = 2.0)]
         minutes: f64,
-        /// Don't let the runs use apps (no agent-desktop).
+        /// Don't let the runs use apps (no desktop tools).
         #[arg(long)]
         no_desktop: bool,
     },
@@ -252,6 +273,7 @@ pub fn run(command: AssistantCommand) -> u8 {
         AssistantCommand::TakeOver { id } => send(&id, remote::Verb::TakeOver),
         AssistantCommand::HandBack { id } => send(&id, remote::Verb::HandBack),
         AssistantCommand::Schedules { command } => schedules(command),
+        AssistantCommand::Driver { command } => driver(command),
         AssistantCommand::ToolsMcp { task, role } => {
             super::tools::serve(&task, super::tools::Role::parse(&role)).map(|()| true)
         }
@@ -276,6 +298,46 @@ pub fn run(command: AssistantCommand) -> u8 {
         Err(error) => {
             eprintln!("agent-desk: {error:#}");
             1
+        }
+    }
+}
+
+/// `agent-desk assistant driver …`.
+fn driver(command: Option<DriverCommand>) -> Result<bool> {
+    use super::driver::update;
+    match command.unwrap_or(DriverCommand::Status) {
+        DriverCommand::Status => {
+            let status = update::status();
+            println!("{}", status.line());
+            if let Some(path) = super::driver::find() {
+                println!("{}", path.display());
+            }
+            if let Some(latest) = &status.latest {
+                println!("latest release: {latest}");
+            }
+            if let Some(error) = &status.error {
+                println!("last error: {error}");
+            }
+            Ok(super::driver::find().is_some())
+        }
+        DriverCommand::Update { wait } => {
+            // Agent-Desk's own tasks run in its process: only what every
+            // process sees (leases, real input) says they act.
+            let status = update::check_now(
+                &update::idle_across,
+                Duration::from_secs(wait),
+                &mut |step| eprintln!("{step}"),
+            )?;
+            println!("{}", status.line());
+            if let Some(error) = &status.error {
+                println!("{error}");
+            }
+            Ok(status.outcome != update::Outcome::Failed)
+        }
+        DriverCommand::Rollback => {
+            let back = update::roll_back()?;
+            println!("Cua Driver {back} runs again.");
+            Ok(true)
         }
     }
 }

@@ -1,12 +1,11 @@
 //! Setup's self-tests: each proves one piece really works from Agent-Desk, and
 //! says what to do when it doesn't. They only read: the agents are asked to
-//! reply "OK" or to call agent-desktop's `desktop_status`, and agent-desktop
-//! lists apps and windows and reads the Dock; nothing is clicked, typed, or
-//! quit.
+//! reply "OK" or to call the guard's `desktop_status`, and Cua Driver lists
+//! apps and windows; nothing is clicked, typed, or quit.
 //!
-//! Run from Agent-Desk, so macOS judges Agent-Desk.app's permissions: agent-desktop
-//! started by Agent-Desk (directly, or by an agent Agent-Desk started) acts with Agent-Desk's
-//! Accessibility and Screen Recording.
+//! Run from Agent-Desk, so macOS judges Agent-Desk.app's permissions: Cua
+//! Driver started by Agent-Desk (directly, or behind the guard of an agent
+//! Agent-Desk started) acts with Agent-Desk's Accessibility and Screen Recording.
 
 mod answer;
 mod browser;
@@ -37,15 +36,14 @@ pub enum Check {
     HexPermissions,
     /// The agent answers a tiny prompt ("Reply with OK"), 30 s at most.
     Answers(AssistantBackend),
-    /// agent-desktop runs from Agent-Desk and has Accessibility and Screen
-    /// Recording there.
+    /// Cua Driver is installed and acts with Agent-Desk's Accessibility and
+    /// Screen Recording.
     DesktopPermissions,
-    /// agent-desktop lists the running apps and windows and reads the Dock,
-    /// and its window ids lead to windows on screen (for task outlines).
+    /// Cua Driver lists the running apps and windows.
     DesktopRoundTrip,
-    /// The agent calls agent-desktop through MCP (`desktop_status`), and
-    /// agent-desktop has Accessibility there too. Not for `ClaudeApi`, whose
-    /// tasks Agent-Desk runs agent-desktop for itself.
+    /// The agent calls the guard's desktop tools through MCP
+    /// (`desktop_status`), with the grants there too. Not for `ClaudeApi`,
+    /// whose tasks Agent-Desk runs the tools for itself.
     DesktopThroughAgent(AssistantBackend),
     /// agent-browser opens a page in a hidden browser of its own, reads its
     /// title, and closes it.
@@ -87,12 +85,10 @@ impl Check {
         match self {
             Self::HexPermissions => "Agent-Desk can read the screen and selected text".into(),
             Self::Answers(backend) => format!("{} answers", name(backend)),
-            Self::DesktopPermissions => {
-                "agent-desktop has Accessibility and Screen Recording".into()
-            }
-            Self::DesktopRoundTrip => "agent-desktop reads apps and windows".into(),
+            Self::DesktopPermissions => "Cua Driver has Accessibility and Screen Recording".into(),
+            Self::DesktopRoundTrip => "Cua Driver reads apps and windows".into(),
             Self::DesktopThroughAgent(backend) => {
-                format!("{} can use agent-desktop", name(backend))
+                format!("{} can use the desktop tools", name(backend))
             }
             Self::BrowserRoundTrip => "agent-browser opens pages in hidden browsers".into(),
             Self::BrowserThroughAgent(backend) => {
@@ -148,7 +144,7 @@ pub struct CheckResult {
     /// `Running` while [`self_tests`] reports one starting; else `Ok` or
     /// `Failed`.
     pub state: CheckState,
-    /// What it found, for a person: "Replied “OK” in 2.1 s", "agent-desktop
+    /// What it found, for a person: "Replied “OK” in 2.1 s", "Cua Driver
     /// has no Accessibility".
     pub detail: String,
     /// What would make it pass, when it failed.
@@ -187,8 +183,10 @@ impl CheckResult {
 pub enum Fix {
     /// Opens the agent's install page.
     Install(AssistantBackend),
-    /// `brew install agent-desktop` (blocks for a minute or so).
-    InstallAgentDesktop,
+    /// Installs Cua Driver (a checked download; a minute or so).
+    InstallDriver,
+    /// Looks for a newer Cua Driver and updates it now (`driver::update`).
+    UpdateDriver,
     /// `brew install agent-browser`, then `agent-browser install` (its
     /// Chrome); a few minutes at most.
     InstallAgentBrowser,
@@ -204,8 +202,6 @@ pub enum Fix {
     StartOpenCode,
     /// The sheet's API key field: nothing for [`apply_fix`] to do.
     AddApiKey,
-    /// agent-desktop's own guide (`permissions --guide`).
-    GuidePermissions,
     /// System Settings at Agent-Desk's own missing permission.
     OpenSettings(Permission),
     /// Run it again (a timeout, a hiccup).
@@ -224,14 +220,14 @@ impl Fix {
     pub fn label(self) -> String {
         match self {
             Self::Install(backend) => format!("Install {}", name(backend)),
-            Self::InstallAgentDesktop => "Install the desktop driver".into(),
+            Self::InstallDriver => "Install Cua Driver".into(),
+            Self::UpdateDriver => "Update Cua Driver".into(),
             Self::InstallAgentBrowser => "Install agent-browser".into(),
             Self::InstallLightpanda => "Install Lightpanda".into(),
             Self::SignIn(_) => "Sign in".into(),
             Self::UseApiKey(_) => "Use an API key".into(),
             Self::StartOpenCode => "Start OpenCode".into(),
             Self::AddApiKey => "Add API key".into(),
-            Self::GuidePermissions => "Grant permissions".into(),
             Self::OpenSettings(permission) => format!("Open {} settings", permission.name()),
             Self::Retry => "Try again".into(),
             Self::RepairHex => "Repair Agent-Desk".into(),
@@ -375,7 +371,7 @@ pub fn recent_model(text: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::driver::{mcp_error, windows_app_by_app};
+    use super::driver::mcp_error;
     use super::*;
 
     fn events(text: &str) -> Vec<Value> {
@@ -416,7 +412,7 @@ mod tests {
 
     #[test]
     fn a_refused_desktop_tool_call_is_named() {
-        let codex = r#"{"type":"item.completed","item":{"id":"item_1","type":"mcp_tool_call","server":"agent-desktop","tool":"desktop_status","arguments":{},"result":null,"error":{"message":"MCP tool call requires approval, but approval policy is never"},"status":"failed"}}"#;
+        let codex = r#"{"type":"item.completed","item":{"id":"item_1","type":"mcp_tool_call","server":"desktop","tool":"desktop_status","arguments":{},"result":null,"error":{"message":"MCP tool call requires approval, but approval policy is never"},"status":"failed"}}"#;
         assert_eq!(
             mcp_error(&events(codex)).as_deref(),
             Some(
@@ -522,24 +518,5 @@ mod tests {
                 (Check::DesktopThroughAgent(api), CheckState::Failed),
             ]
         );
-    }
-
-    #[test]
-    fn windows_are_listed_app_by_app_skipping_apps_that_fail() {
-        let call = |args: &[&str]| -> Result<Value, String> {
-            match args[2] {
-                "Finder" => Ok(serde_json::json!([{"id": "w-1", "app_name": "Finder"}])),
-                _ => Err("APP_UNRESPONSIVE: busy".into()),
-            }
-        };
-        let apps = [
-            "Hidden Bar".to_owned(),
-            "Finder".to_owned(),
-            "Finder".to_owned(),
-        ];
-        let windows = windows_app_by_app(&call, &apps).unwrap();
-        assert_eq!(windows.len(), 1);
-        assert_eq!(windows[0].app, "Finder");
-        assert!(windows_app_by_app(&call, &apps[..1]).is_none());
     }
 }

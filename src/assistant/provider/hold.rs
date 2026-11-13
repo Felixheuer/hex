@@ -158,7 +158,7 @@ mod tests {
                 10,
                 "/Applications/Agent-Desk.app/Contents/MacOS/agent-desk",
             ),
-            process(12, 10, "agent-desktop"),
+            process(12, 11, "cua-driver"),
             // A shell tool's command, with what it started.
             process(20, 10, "/bin/zsh"),
             process(21, 20, "cargo"),

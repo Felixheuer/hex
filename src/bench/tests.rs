@@ -609,14 +609,11 @@ fn a_filter_takes_the_tasks_followed_up_on() {
 // ---------------------------------------------------------------- live parsing
 
 #[test]
-fn agent_desktop_and_lsappinfo_replies_are_read() {
-    let apps = live::envelope(
-        "log line\n{\"version\":\"2.6\",\"ok\":true,\"command\":\"list-apps\",\"data\":{\"apps\":[{\"name\":\"Finder\"},{\"name\":\"Citrix Viewer\"}]}}\n",
-    )
-    .unwrap();
+fn the_drivers_listings_and_lsappinfo_replies_are_read() {
+    let apps = serde_json::json!({"apps": [{"name": "Finder"}, {"name": "Citrix Viewer"}]});
     assert_eq!(live::apps_of(&apps), vec!["Finder", "Citrix Viewer"]);
-    let windows = live::envelope(
-        r#"{"ok":true,"data":[{"id":"w1","app_name":"Finder","title":"bench","visible":false}]}"#,
+    let windows: serde_json::Value = serde_json::from_str(
+        r#"[{"id":"w-1","app_name":"Finder","title":"bench","visible":false}]"#,
     )
     .unwrap();
     assert_eq!(
@@ -627,7 +624,6 @@ fn agent_desktop_and_lsappinfo_replies_are_read() {
             visible: false
         }]
     );
-    assert!(live::envelope(r#"{"ok":false,"error":{"code":"TIMEOUT"}}"#).is_none());
     assert_eq!(
         live::display_name("\"LSDisplayName\"=\"Google Chrome\"\n").as_deref(),
         Some("Google Chrome")

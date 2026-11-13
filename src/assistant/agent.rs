@@ -47,10 +47,6 @@ pub struct Job {
     pub conversation: ConversationId,
     pub request: Request,
     pub settings: AssistantSettings,
-    /// This task's agent id in the desktop session: its own cursor.
-    pub agent_id: String,
-    /// The multi-agent desktop session, when one is running.
-    pub desktop_session: Option<String>,
     pub kind: JobKind,
     /// Other tasks running and recent conversations, for a new
     /// conversation's first prompt (`service::context`).
@@ -784,8 +780,6 @@ pub fn task_spec(job: &Job) -> TaskSpec {
     TaskSpec {
         task: job.conversation.clone(),
         lane,
-        agent_id: job.agent_id.clone(),
-        session: job.desktop_session.clone(),
         here_window: match lane {
             Lane::Here => job.request.context.window.clone(),
             Lane::Background => None,
@@ -815,15 +809,9 @@ pub fn prepare(
     // windows and tools the task has (`guard::proxy::tools`).
     let desktop = if settings.control_desktop {
         let mut desktop = super::guard::mcp_server(&spec)
-            .and_then(|guard| {
-                Desktop::new(
-                    guard,
-                    job.desktop_session.clone(),
-                    job.agent_id.clone(),
-                    spec.physical_input,
-                )
-            })
+            .map(Desktop::new)
             .ok_or(NO_DRIVER)?;
+        desktop.headed = spec.physical_input;
         desktop.front_window = spec.full_control;
         desktop.open_apps = spec.open_apps;
         Some(desktop)
@@ -877,7 +865,7 @@ pub fn prepare(
 }
 
 /// Why a task that may use apps can't.
-const NO_DRIVER: &str = "No desktop driver (Cua Driver or agent-desktop) is installed, so the assistant can't use apps. Install it in Assistant settings, or turn off “Use apps”.";
+const NO_DRIVER: &str = "Cua Driver, the desktop driver, isn't installed, so the assistant can't use apps. Install it in Assistant settings, or turn off “Use apps”.";
 
 /// Whom Agent-Desk's tools serve for `job` (`tools::Role`): a background job
 /// reads pages and files the person never saw, with or without a workspace
