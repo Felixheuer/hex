@@ -1,12 +1,12 @@
-//! The screen frame and the agent-desktop multi-agent session around
-//! Background work: turning the frame on and off as Background tasks come
-//! and go, starting and ending the session, and each task's cursor (its
-//! colour, and a label with its current step).
+//! The agent-desktop multi-agent session around Background work: starting
+//! and ending it as Background tasks come and go, and each task's cursor
+//! (its colour, and a label with its current step). The screen frame is the
+//! overlay's own (`Board::frame_until`).
 
 use std::sync::Arc;
 use std::time::Instant;
 
-use super::{Event, Lane, Runner, SESSION_WAIT, Session, State};
+use super::{Lane, Runner, SESSION_WAIT, Session, State};
 
 impl Runner {
     /// The desktop session a task joins: the Background work's, waiting a
@@ -49,8 +49,8 @@ impl Runner {
         }
     }
 
-    /// Turns the frame on or off as Background work starts or ends, with the
-    /// desktop session around it (`Event::ModeChanged`).
+    /// Starts or ends the desktop session as Background work starts or ends,
+    /// and keeps the computer awake while it works.
     pub(super) fn refresh_mode(self: &Arc<Self>) {
         let (_, settings) = (self.hooks.settings)();
         // Working background jobs keep the computer awake; one waiting for
@@ -69,18 +69,12 @@ impl Runner {
             settings.keep_display_awake,
             working,
         );
-        let (frame, frame_changed, start, end) = {
+        let (start, end) = {
             let mut state = self.state();
             let busy = state
                 .tasks
                 .iter()
                 .any(|task| task.lane() == Lane::Background);
-            let working = state
-                .tasks
-                .iter()
-                .any(|task| task.status.state != crate::assistant::TaskState::NeedsInput);
-            let frame = frame_visible(busy, working);
-            let frame_changed = std::mem::replace(&mut state.frame_on, frame) != frame;
             let mut start = false;
             let mut end = None;
             if busy != state.background_on {
@@ -91,7 +85,7 @@ impl Runner {
                 }
                 end = self.session_to_end(&mut state);
             }
-            (frame, frame_changed, start, end)
+            (start, end)
         };
         if let Some(session) = end {
             (self.hooks.end_session)(&session);
@@ -111,30 +105,6 @@ impl Runner {
                 }
             });
         }
-        if frame_changed {
-            self.emit(&Event::ModeChanged { on: frame });
-        }
-    }
-}
-
-/// Whether the screen frame shows: Background work is queued, running,
-/// waiting, or paused, or any task (a Here question too) is working rather
-/// than waiting for the person's answer. Since one hold does everything, a
-/// question is work the person should see going on, as a job is.
-pub(super) fn frame_visible(background_busy: bool, any_working: bool) -> bool {
-    background_busy || any_working
-}
-
-#[cfg(test)]
-mod frame_tests {
-    use super::frame_visible;
-
-    #[test]
-    fn the_frame_shows_while_anything_works() {
-        assert!(!frame_visible(false, false), "nothing runs");
-        assert!(frame_visible(false, true), "a Here question thinks or acts");
-        assert!(frame_visible(true, false), "a job waits for an answer");
-        assert!(frame_visible(true, true));
     }
 }
 

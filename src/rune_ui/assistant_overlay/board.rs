@@ -557,7 +557,7 @@ impl Board {
                 }
                 set(&mut self.inbox, Some(view))
             }
-            Event::ConversationsChanged | Event::ModeChanged { .. } => false,
+            Event::ConversationsChanged => false,
         }
     }
 

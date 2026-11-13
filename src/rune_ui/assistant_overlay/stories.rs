@@ -35,6 +35,7 @@ fn desktop() -> Story<Desk> {
         .poll(Desk::tick)
         .trigger('r', "Play", |desk, play| {
             *desk = Desk::empty();
+            desk.frame = true;
             play.clear();
             for (at, event) in fixture::script() {
                 play.after(at, move |desk: &mut Desk, _| desk.apply(&event));

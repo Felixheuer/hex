@@ -1,7 +1,7 @@
 //! The assistant's task runner: takes requests, runs them (each through
 //! `agent` on its backend) in their lanes, saves conversations through
-//! `store`, owns the screen frame's state and the agent-desktop multi-agent
-//! session around Background work, and tells every subscriber what happens.
+//! `store`, owns the agent-desktop multi-agent session around Background
+//! work, and tells every subscriber what happens.
 //! Callable from any thread.
 //!
 //! - **Lanes.** At most one Here task (`Origin::ActionShortcut`) runs: a new
@@ -12,8 +12,9 @@
 //!   on in the same conversation with the new instruction.
 //! - **Context.** Every new conversation's first prompt lists the tasks
 //!   running and the conversations just finished (`context::digest`).
-//! - **Frame.** `background_busy` is true while any Background or Chat task
-//!   is queued, running, waiting, or paused (`Event::ModeChanged`).
+//! - **Desktop session.** It runs while any Background task is queued,
+//!   running, waiting, or paused (`session::refresh_mode`). The screen frame
+//!   is the overlay's: it follows screen work (`Event::Acting`).
 //! - **Take over.** `take_over` pauses a task's desktop actions through the
 //!   guard and brings its window forward; `hand_back` resumes it.
 //! - **Durability.** A conversation is `Running` on disk while it runs; one
@@ -411,10 +412,8 @@ pub(crate) struct Runner {
 pub(crate) struct State {
     tasks: Vec<Task>,
     /// Background work is queued, running, waiting, or paused (the desktop
-    /// session runs around it; `background_busy`).
+    /// session runs around it).
     background_on: bool,
-    /// The screen frame shows (`frame_shown`): any task working.
-    frame_on: bool,
     session: Session,
     focus: Option<ConversationId>,
     /// The last Here conversation answered, and when (runner clock).

@@ -458,18 +458,6 @@ impl World {
             .collect()
     }
 
-    fn modes(&self) -> Vec<bool> {
-        self.events
-            .lock()
-            .unwrap()
-            .iter()
-            .filter_map(|event| match event {
-                Event::ModeChanged { on } => Some(*on),
-                _ => None,
-            })
-            .collect()
-    }
-
     fn count(&self, matches: impl Fn(&Event) -> bool) -> usize {
         self.events
             .lock()
@@ -975,19 +963,17 @@ fn a_follow_up_naming_a_running_task_steers_it() {
 }
 
 #[test]
-fn the_frame_shows_while_any_task_works_with_one_desktop_session() {
+fn one_desktop_session_runs_around_background_work() {
     let world = World::new(1);
     let runner = world.runner();
     let here = runner.submit(request("here", Origin::ActionShortcut));
     world.wait_for("the Here task", started(&here));
-    // A Here question working shows the frame too, without a desktop
-    // session of its own.
-    assert_eq!(world.modes(), [true]);
+    // A Here question has no desktop session of its own.
     assert!(!runner.state().background_on);
 
     let first = runner.submit(request("first", Origin::Background));
     let queued = runner.submit(request("queued", Origin::Chat));
-    assert_eq!(world.modes(), [true]);
+    assert!(runner.state().background_on);
     world.wait_for("the first background task", started(&first));
     let job = world.job_for("first");
     assert_eq!(job.desktop_session.as_deref(), Some("S1"));
@@ -1002,28 +988,24 @@ fn the_frame_shows_while_any_task_works_with_one_desktop_session() {
 
     world.release("first");
     world.wait_for("the queued task", started(&queued));
-    // Still on while the queued one runs.
-    assert_eq!(world.modes(), [true]);
     world.release("queued");
     world.wait_for("the queued answer", ended(&queued));
     world.wait_until("the background work to end", || {
         !runner.state().background_on
     });
-    // The Here task still runs: the frame and the session stay until it ends.
-    assert_eq!(world.modes(), [true]);
+    // The Here task still runs: the session stays until it ends.
     assert!(!world.logged("end session S1"));
     world.release("here");
     world.wait_for("the Here answer", ended(&here));
-    world.wait_until("the frame to go off", || world.modes() == [true, false]);
     world.wait_until("the session to end", || world.logged("end session S1"));
 
-    // The old switch: off stops every task.
+    // Stopping everything ends the next one's too.
     let more = runner.submit(request("more", Origin::Background));
     world.wait_for("another", started(&more));
     runner.cancel_all();
     world.wait_for("it to stop", ended(&more));
-    world.wait_until("the frame off again", || {
-        world.modes() == [true, false, true, false]
+    world.wait_until("the background work to end again", || {
+        !runner.state().background_on
     });
 }
 
@@ -1213,7 +1195,9 @@ fn a_task_that_panics_fails_and_still_cleans_up() {
         }]
     );
     assert!(world.logged(&format!("release {id}")));
-    world.wait_until("the frame off", || world.modes() == [true, false]);
+    world.wait_until("the background work to end", || {
+        !runner.state().background_on
+    });
 }
 
 #[test]
@@ -1506,7 +1490,7 @@ fn nothing_runs_while_the_assistant_is_off_or_not_set_up() {
         ]
     );
     assert!(runner.tasks().is_empty());
-    assert!(world.modes().is_empty());
+    assert!(!runner.state().background_on);
 }
 
 #[test]
@@ -1533,13 +1517,14 @@ fn a_here_request_that_is_a_job_continues_as_a_background_job() {
     let workspace = job.workspace.clone().unwrap();
     assert!(workspace.to_string_lossy().ends_with(" Supplier research"));
     assert!(workspace.is_dir());
-    // "On it" is said, the Here run says nothing final, and the frame is on.
+    // "On it" is said, the Here run says nothing final, and it works as
+    // Background work.
     assert_eq!(
         *world.spoken.lock().unwrap(),
         ["On it: 50 suppliers and a sheet."]
     );
     assert!(world.finals().is_empty());
-    assert_eq!(world.modes(), [true]);
+    assert!(runner.state().background_on);
     assert!(world.logged(&format!("release {id}")));
     world.release("research suppliers");
     world.wait_for("the job's answer", ended(&id));

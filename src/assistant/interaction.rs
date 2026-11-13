@@ -17,7 +17,7 @@
 //! | an inbox question waits     | a hold                             | it answers the question (the router decides)                |
 //! | the person holds or dictates| jobs finish                        | their announcements wait their turn (`listening`)           |
 //! | other audio plays           | an answer ends                     | no hands-free listening, no barge-in                        |
-//! | any task works              | —                                  | the screen frame shows (`service::frame_shown`)             |
+//! | a task acts on the screen   | —                                  | the screen frame shows (`Board::frame_until`)               |
 
 pub mod tuning;
 

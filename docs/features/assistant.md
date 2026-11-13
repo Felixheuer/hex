@@ -353,8 +353,8 @@ after History on macOS (`Pane::Chats`, `chats::available`), whether or not
 the assistant is on. While it's off, Conversations shows a calm "The
 assistant is off" card with Turn on (`chats/switch.rs`), the header drops
 New chat and Run setup…, and a running onboarding closes. Its header switches
-Conversations and Settings, and shows the agent's name, Agent mode
-(`assistant::set_agent_mode`), and New chat. Conversations is a list and
+Conversations and Settings, and shows the agent's name and New chat.
+Conversations is a list and
 detail: the conversations grouped Today, Yesterday, Previous 7 days, and
 Older, searchable, each with how it was asked (microphone, Agent mode,
 keyboard) or, while it runs, a dot in its task's colour

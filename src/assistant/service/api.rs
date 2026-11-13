@@ -135,38 +135,11 @@ pub fn busy() -> bool {
     !runner().state().tasks.is_empty()
 }
 
-/// The screen frame's state (Agent mode is gone: the frame follows the
-/// work, `frame_shown`).
-pub fn agent_mode() -> bool {
-    frame_shown()
-}
-
-/// Whether the screen frame shows: any task is working (a Here question
-/// thinking or acting, or Background work), not just waiting for the
-/// person's answer (`session::frame_visible`).
-pub fn frame_shown() -> bool {
-    runner().state().frame_on
-}
-
-/// Kept for callers of the old Agent mode switch: turning it off stops every
-/// task; turning it on does nothing (Background work turns the frame on).
-pub fn set_agent_mode(on: bool) {
-    if !on {
-        stop_all();
-    }
-}
-
 /// Stops every task (the Stop all shortcut, the stack's and Chats' button,
 /// the menu bar), and ends backends started ahead.
 pub fn stop_all() {
     cancel_all();
     provider::cool_down();
-}
-
-/// Whether Background work is running, waiting, paused, or queued: the
-/// screen frame shows while this is true.
-pub fn background_busy() -> bool {
-    runner().state().background_on
 }
 
 /// The person takes `conversation` over: its desktop actions wait (through

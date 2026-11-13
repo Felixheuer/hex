@@ -221,7 +221,7 @@ pub struct PlanStep {
 /// What a running request reports, in order: `Started` (after any
 /// `Queued`), any number of `Thinking`/`Step`/`Window`/`AnswerDelta`, then
 /// exactly one of `Answer`, `Failed`, or `Cancelled`. Every event but
-/// `ConversationsChanged` and `ModeChanged` names its conversation; several
+/// `ConversationsChanged` and `QuestionsChanged` names its conversation; several
 /// conversations' events interleave while tasks run in parallel.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
@@ -321,11 +321,6 @@ pub enum Event {
     },
     /// The stored list changed (a new, renamed, or deleted conversation).
     ConversationsChanged,
-    /// Background work started or ended: the screen frame shows while any
-    /// Background or Chat task runs, waits, or is queued.
-    ModeChanged {
-        on: bool,
-    },
 }
 
 impl Event {
@@ -349,9 +344,7 @@ impl Event {
             | Self::Plan { conversation, .. }
             | Self::Question { conversation, .. }
             | Self::Escalated { conversation } => Some(conversation),
-            Self::ConversationsChanged
-            | Self::ModeChanged { .. }
-            | Self::QuestionsChanged { .. } => None,
+            Self::ConversationsChanged | Self::QuestionsChanged { .. } => None,
         }
     }
 

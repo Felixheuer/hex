@@ -55,10 +55,9 @@ pub mod tools;
 pub mod types;
 
 pub use service::{
-    Inbox, agent_mode, background_busy, busy, cancel, cancel_all, conversation, conversations,
-    defer_question, delete, focus, hand_back, inbox, prewarm, reading_aloud, resume_interrupted,
-    set_agent_mode, set_focus, set_listening, set_spoken_announcements, spoken_announcements,
-    stop_all, submit, subscribe, take_over, tasks,
+    Inbox, busy, cancel, cancel_all, conversation, conversations, defer_question, delete, focus,
+    hand_back, inbox, prewarm, reading_aloud, resume_interrupted, set_focus, set_listening,
+    set_spoken_announcements, spoken_announcements, stop_all, submit, subscribe, take_over, tasks,
 };
 pub use types::*;
 

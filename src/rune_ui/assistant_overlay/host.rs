@@ -4,8 +4,8 @@
 //! draw the same panels above everything, read the displays from X11 or
 //! Win32 ([`displays`]), and leave Escape to the listener.
 //!
-//! - One frame panel per display, shown while Background work runs, waits,
-//!   or is queued (`Event::ModeChanged`), and one outline panel per window
+//! - One frame panel per display, shown while a live task works on the
+//!   screen (`Board::frame_until`), and one outline panel per window
 //!   a live task works in; the [`watcher`] thread places both.
 //! - The orb: Background tasks' rows, questions (answered there by voice or
 //!   typed), results, and list, beside the HUD or where the person dragged
@@ -386,7 +386,7 @@ fn on_event(event: &Event) {
     match event {
         // The frame follows screen work on the board (`Board::frame_until`),
         // not background work in general.
-        Event::ModeChanged { .. } | Event::ConversationsChanged => {}
+        Event::ConversationsChanged => {}
         _ => {
             let for_orb = event.clone();
             overlays

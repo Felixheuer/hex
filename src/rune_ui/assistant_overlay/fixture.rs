@@ -124,7 +124,6 @@ fn opened(id: &str, window_id: &str) -> Event {
 pub(crate) fn script() -> Vec<(f64, Event)> {
     let agent = Origin::Background;
     let mut script: Vec<(f64, Event)> = vec![
-        (0.0, Event::ModeChanged { on: true }),
         (
             0.4,
             started("table", agent, "Find a table for two at Nopa tonight"),
@@ -324,7 +323,6 @@ pub(crate) fn script_to_the_end() -> Vec<(f64, Event)> {
             conversation: "rename".into(),
         },
     ));
-    script.push((end + 18.0, Event::ModeChanged { on: false }));
     script
 }
 
