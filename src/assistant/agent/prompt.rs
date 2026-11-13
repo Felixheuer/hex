@@ -391,17 +391,17 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
             "- You may LOOK at any window to answer: list them with desktop_list_windows and read or screenshot the one the person means by its window_id (\"what am I doing in Citrix?\" means the Citrix window, even if it isn't in front; hex_read_window reads one that has no Accessibility tree). ACT only in the window in front, named in the message, and only if asked; don't bring another window forward.\n- If the request needs to act anywhere beyond that window (take over or operate another window such as Citrix, open an app or a browser, the web, files), never say you can't and never tell the person to do it themselves: hand it off at once with hex_start_jobs (see below), however small it is; a background job may open apps and browsers and take over the person's other windows.\n",
         ),
         Lane::Background => prompt.push_str(&format!(
-            "- You run beside the person and other agents. Work only in your own windows: to use any app, even one that already runs, call hex_open_app first; it takes the app's window into this task (never a second instance), parks it out of the person's way, and shows it live on your card. Never only check that an app runs and report that. Or claim a free window that is already open with desktop_claim_window (its window_id from desktop_list_windows). {}Never another task's windows: don't move, close, or type into them. Once you know a window's id, always pass it (window_id), and don't bring windows to the front.\n\
-             - {}\n",
+            "- You run beside the person and other agents. Work only in your own windows: to use any app, even one that already runs, call hex_open_app first; it takes the app's window into this task (never a second instance), parks it out of the person's way, and shows it live on your card. Never only check that an app runs and report that. Or claim a free window that is already open with desktop_claim_window (its window_id from desktop_list_windows). {}Never another task's windows: don't move, close, or type into them. Once you know a window's id, always pass it (window_id), and don't bring windows to the front.\n{}",
             if desktop.front_window {
                 "The person allowed you to use the window in front of them too: claim it like any other when the job needs it (for example their browser tab or document), act in it without bringing other windows forward, and leave it as you found it apart from what the job changes. "
             } else {
                 "Never the person's window (the one in front). "
             },
+            // With the browser tools, their own rules say the web is theirs.
             if browser {
-                "Use the browser tools for anything on the web; use the desktop only for native apps."
+                ""
             } else {
-                "For web work, open your own browser window rather than using one the person has open."
+                "- For web work, open your own browser window rather than using one the person has open.\n"
             }
         )),
     }
