@@ -113,6 +113,7 @@ pub(in crate::rune_ui) fn read_facts(settings: &AppSettings) -> Facts {
                 AutomationState::NotAsked | AutomationState::Denied
             )
         },
+        personal_data: crate::desktop::data_access::all_answered(crate::desktop::data_access::read),
         transcription_model: status.transcription_model,
         agent_installed: agent.is_some_and(|agent| {
             agent.path.is_some()

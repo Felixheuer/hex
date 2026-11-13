@@ -119,6 +119,10 @@ pub struct Sessions {
     /// Browsers open at once, at most, and real Chrome ones among them.
     max: usize,
     max_chrome: usize,
+    /// Browsers past the task's share of Chrome, run in Lightpanda (no
+    /// picture, but light): only when it's installed.
+    overflow: std::collections::BTreeSet<String>,
+    light_available: bool,
 }
 
 impl Sessions {
@@ -133,6 +137,8 @@ impl Sessions {
             tight: critically_tight,
             max: limits.browsers,
             max_chrome: limits.chrome,
+            overflow: std::collections::BTreeSet::new(),
+            light_available: super::lightpanda().is_some(),
         }
     }
 
@@ -142,6 +148,15 @@ impl Sessions {
         self.max = max;
         self.max_chrome = max_chrome;
         self
+    }
+
+    /// The engine browser `name` (of `kind`) runs in.
+    fn engine_for(&self, name: &str, kind: Kind) -> Engine {
+        if self.overflow.contains(name) {
+            Engine::Lightpanda
+        } else {
+            self.engine_of(kind)
+        }
     }
 
     fn engine_of(&self, kind: Kind) -> Engine {
@@ -157,6 +172,13 @@ impl Sessions {
             .map(|name| shown(name))
             .collect::<Vec<_>>()
             .join(", ")
+    }
+
+    /// Whether Lightpanda is there for the overflow (tests).
+    #[cfg(test)]
+    pub fn with_light(mut self, available: bool) -> Self {
+        self.light_available = available;
+        self
     }
 
     /// How it tells memory is critically tight (tests).
@@ -190,6 +212,7 @@ impl Sessions {
             arguments.insert("session".into(), self.session_of(&name).into());
             self.open.remove(&name);
             self.runs_as.remove(&name);
+            self.overflow.remove(&name);
             return Ok(());
         }
         let wanted = signed_in.map(|on| if on { Kind::SignedIn } else { Kind::Clean });
@@ -233,10 +256,14 @@ impl Sessions {
                 });
                 let chrome = self
                     .open
-                    .values()
-                    .filter(|kind| self.engine_of(**kind) == Engine::Chrome)
+                    .iter()
+                    .filter(|(name, kind)| self.engine_for(name, **kind) == Engine::Chrome)
                     .count();
-                if self.engine_of(kind) == Engine::Chrome && chrome >= self.max_chrome {
+                let at_share = self.engine_of(kind) == Engine::Chrome && chrome >= self.max_chrome;
+                if at_share && kind != Kind::SignedIn && self.light_available {
+                    // Past the share: light, without a picture.
+                    self.overflow.insert(name.clone());
+                } else if at_share {
                     return Err(format!(
                         "This task already has {} real Chrome browsers, the most this computer \
                          runs well for one task. Read pages in light browsers (omit signedIn), \
@@ -254,7 +281,7 @@ impl Sessions {
             }
         };
         arguments.insert("session".into(), self.session_of(&name).into());
-        arguments.extend(launch_arguments(kind, self.engine_of(kind)));
+        arguments.extend(launch_arguments(kind, self.engine_for(&name, kind)));
         Ok(())
     }
 
@@ -294,7 +321,7 @@ impl Sessions {
             .open
             .iter()
             .map(|(name, kind)| {
-                let engine = self.engine_of(*kind);
+                let engine = self.engine_for(name, *kind);
                 json!({
                     "session": shown(name),
                     "signedIn": *kind != Kind::Clean,
@@ -498,6 +525,28 @@ mod tests {
         sessions
             .pin("agent_browser_open", &mut args(json!({"session": "h"})))
             .unwrap();
+    }
+
+    #[test]
+    fn browsers_are_chrome_with_pictures_and_only_the_overflow_is_light() {
+        let mut sessions = Sessions::new("t1", Engine::Chrome)
+            .with_limits(32, 2)
+            .with_light(true);
+        let engine = |sessions: &mut Sessions, name: &str| {
+            let mut call = args(json!({"session": name}));
+            sessions.pin("agent_browser_open", &mut call).unwrap();
+            call["extraArgs"][1].as_str().unwrap().to_owned()
+        };
+        assert_eq!(engine(&mut sessions, "a"), "chrome");
+        assert_eq!(engine(&mut sessions, "b"), "chrome");
+        assert_eq!(engine(&mut sessions, "c"), "lightpanda", "past the share");
+        // Without Lightpanda the share is a hard limit.
+        let mut without = Sessions::new("t2", Engine::Chrome)
+            .with_limits(32, 1)
+            .with_light(false);
+        assert_eq!(engine(&mut without, "a"), "chrome");
+        let mut call = args(json!({"session": "b"}));
+        assert!(without.pin("agent_browser_open", &mut call).is_err());
     }
 
     #[test]
