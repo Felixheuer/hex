@@ -70,7 +70,7 @@ pub(super) fn body(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     }
     let content = if !ready {
         transcript::finish_setup(ui, p)
-    } else if pane.stream.is_empty() && pane.turns.is_empty() && pane.failures.is_empty() {
+    } else if pane.stream.is_empty() && pane.turns.is_empty() && pane.failed().next().is_none() {
         col()
             .key("stream-empty")
             .grow(1.0)
@@ -124,9 +124,8 @@ fn timeline(ui: &Ui, p: Paint) -> El {
     let mut new: Vec<(&String, &Turn)> = pane.turns.iter().filter(|(id, _)| !stored(id)).collect();
     new.sort_by(|a, b| (a.1.started_ms, a.0).cmp(&(b.1.started_ms, b.0)));
     entries.extend(new.into_iter().map(|(id, turn)| Entry::New(id, Some(turn))));
-    let mut failed: Vec<&String> = pane
-        .failures
-        .keys()
+    let mut failed: Vec<&str> = pane
+        .failed()
         .filter(|id| !stored(id) && !pane.turns.contains_key(*id))
         .collect();
     failed.sort();
@@ -232,8 +231,7 @@ fn mark(ui: &Ui, p: Paint, id: &str, origin: Origin, outcome: Option<Outcome>) -
 /// Whether an entry went wrong: a stop (a request moved to the background
 /// settles as one) is not a failure.
 fn failed(pane: &ChatsPane, id: &str, outcome: Option<Outcome>) -> bool {
-    pane.failures
-        .get(id)
+    pane.failure(id)
         .is_some_and(|message| !transcript::is_stop(message))
         || outcome == Some(Outcome::Failed)
 }
@@ -242,9 +240,8 @@ fn failed(pane: &ChatsPane, id: &str, outcome: Option<Outcome>) -> bool {
 /// runs. Anything else (a quick question, a small action, a finished
 /// background request without a plan) is a light exchange.
 fn is_job(ui: &Ui, id: &str, origin: Origin) -> bool {
-    ui.chats.plans.contains_key(id)
-        || (ui.chats.running(id)
-            && (origin == Origin::Background || work::escalated(ui, &id.to_owned())))
+    ui.chats.plan(id).is_some()
+        || (ui.chats.running(id) && (origin == Origin::Background || ui.chats.escalated(id)))
 }
 
 /// One entry: its head (a click points the composer at it), then what was
@@ -347,7 +344,7 @@ fn entry_el(ui: &Ui, p: Paint, entry: &Entry, now: u64) -> El {
         {
             body = body.child(results);
         }
-        if let Some(failure) = pane.failures.get(id)
+        if let Some(failure) = pane.failure(id)
             && !matches!(entry, Entry::Stored(conversation) if transcript::ends_in_error(conversation))
         {
             body = body.child(transcript::error_row(p, "failure", failure));
@@ -415,45 +412,38 @@ fn actions(pane: &ChatsPane, p: Paint, id: &str, selected: bool) -> Vec<El> {
 /// (a browser in the live sheet, a window in the overlay's card).
 fn browsers(p: Paint, id: &str) -> Option<El> {
     use super::super::assistant_overlay::app_live;
-    let apps = app_live::previews(id);
-    let previews = super::super::assistant_overlay::live::previews(id);
+    use super::super::assistant_overlay::pictures::{self, Picture};
     let c = &p.k.c;
-    let tile = |key: String, pixels: &rune::Pixels| {
-        el().key(key)
-            .size(THUMB_W, THUMB_H)
-            .radius(6.0)
-            .fill(c.layer_02)
-            .border(p.hair, p.k.alpha(c.text_base, 0.14))
-            .pixels_fit(pixels, rune::SurfaceFit::Fill)
-            .role("button")
-            .label(tr("Open live"))
-    };
-    let mut tiles: Vec<El> = apps
-        .iter()
-        .filter(|preview| preview.has_frame())
+    let tiles: Vec<El> = pictures::of(id)
+        .into_iter()
+        .filter(Picture::has_frame)
         .take(LIVE_TILES)
-        .map(|preview| {
-            let (task, number) = (id.to_owned(), preview.number);
-            tile(format!("app-{number}"), &preview.pixels).on_press(move |_: &mut Ui| {
-                app_live::show(&task, number);
-            })
+        .map(|picture| {
+            let tile = el()
+                .size(THUMB_W, THUMB_H)
+                .radius(6.0)
+                .fill(c.layer_02)
+                .border(p.hair, p.k.alpha(c.text_base, 0.14))
+                .pixels_fit(picture.pixels(), rune::SurfaceFit::Fill)
+                .role("button")
+                .label(tr("Open live"));
+            let task = id.to_owned();
+            match picture {
+                Picture::App(preview) => {
+                    let number = preview.number;
+                    tile.key(format!("app-{number}"))
+                        .on_press(move |_: &mut Ui| app_live::show(&task, number))
+                }
+                Picture::Browser(preview) => {
+                    let session = preview.session.clone();
+                    tile.key(format!("browser-{session}"))
+                        .on_press(move |ui: &mut Ui| {
+                            super::live_view::open(ui, task.clone(), session.clone());
+                        })
+                }
+            }
         })
         .collect();
-    let room = LIVE_TILES.saturating_sub(tiles.len());
-    tiles.extend(
-        previews
-            .iter()
-            .filter(|preview| preview.has_frame())
-            .take(room)
-            .map(|preview| {
-                let (task, session) = (id.to_owned(), preview.session.clone());
-                tile(format!("browser-{}", preview.session), &preview.pixels).on_press(
-                    move |ui: &mut Ui| {
-                        super::live_view::open(ui, task.clone(), session.clone());
-                    },
-                )
-            }),
-    );
     if tiles.is_empty() {
         return None;
     }

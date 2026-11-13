@@ -1472,7 +1472,7 @@ fn backdrop<S: 'static>(
 /// job's reading or hidden browsers don't, and real input holds it.
 #[test]
 fn the_frame_shows_only_while_a_task_works_on_the_screen() {
-    use super::board::ACTING_FOR;
+    use crate::assistant::view::ACTING_FOR;
     let now = std::time::Instant::now();
     let mut board = Board::default();
     for (id, origin) in [

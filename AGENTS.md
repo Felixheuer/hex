@@ -673,10 +673,15 @@ Who owns what:
 - **Voice**: `shortcut` (the Action shortcut's gestures, shared by every OS's
   listener), `speech` (reading aloud), `interaction` (what wins when they
   overlap).
-- **Surfaces**: `rune_ui::assistant_overlay` (`board`/`quick` turn events into
-  plain state, unit-tested; `host` makes Rune panels of them; `failure`
-  classifies a failed quick turn), `rune_ui::chats` (the Assistant pane and
-  Assistant settings; the module keeps its old name), `notify`, `phone`.
+- **Surfaces**: `view` (one platform-free reducer, `Event` → `view::Task`:
+  phase, activity, steps, hold, question, plan, failure, helpers; both
+  surfaces read it, so a new state is added once), `rune_ui::assistant_overlay`
+  (`board` adds the orb's pops and results over `view`, `quick` the Here
+  bubble; `pictures` is one source for browser and app-window pictures;
+  `host` makes Rune panels of them; `failure` classifies a failed quick turn),
+  `rune_ui::chats` (the Assistant pane and Assistant settings; the module
+  keeps its old name; its turns keep only what the person did there),
+  `notify`, `phone`.
 - **Contract**: `types` (requests, events, lanes, conversations), `store`.
 
 Vocabulary, kept the same in code, copy, and docs:

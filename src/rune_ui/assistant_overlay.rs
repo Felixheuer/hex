@@ -26,7 +26,8 @@
 //!   background task" for a tap+hold, "Here · Mail" for a hold; and the
 //!   "Hands off" pill ([`hands`]) while a task moves the real pointer.
 //!
-//! [`board`] turns `assistant::Event`s into what these show; [`host`] makes
+//! [`board`] adds the orb's bubbles and results over the shared task view
+//! (`assistant::view`, which the Assistant pane reads too); [`host`] makes
 //! them Rune panels and feeds them from `assistant::subscribe`. The service
 //! sends nothing while the assistant is off, so with it off nothing shows
 //! and no panel or thread exists beyond the hidden overlays' bookkeeping.
@@ -62,6 +63,7 @@ mod outline;
 #[cfg(test)]
 mod overview_tests;
 mod palette;
+pub(crate) mod pictures;
 mod place;
 mod pops;
 mod quick;

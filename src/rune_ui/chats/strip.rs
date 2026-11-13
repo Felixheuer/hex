@@ -146,7 +146,7 @@ pub(super) fn doing(ui: &Ui, p: Paint, task: &TaskStatus) -> (String, Option<run
             (words, Some(p.muted()))
         }
         None if task.state == TaskState::Queued => (tr("Queued").to_owned(), None),
-        None if ui.chats.hands_off.as_ref() == Some(&task.conversation) => (
+        None if ui.chats.hands_off(&task.conversation) => (
             tr("Hands off: it's using your pointer").to_owned(),
             Some(p.warning()),
         ),

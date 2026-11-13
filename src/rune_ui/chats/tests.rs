@@ -382,19 +382,19 @@ fn tasks_show_taken_over_waiting_and_queued_and_events_move_them() {
     rt.invalidate();
     settle(&mut rt);
     assert!(
-        !rt.state.chats.holds.contains_key("reply-to-maya"),
+        rt.state.chats.view.hold("reply-to-maya").is_none(),
         "retrying"
     );
     assert_eq!(
-        rt.state.chats.holds.get("coffee"),
-        Some(&super::Hold::Paused)
+        rt.state.chats.view.hold("coffee"),
+        Some(super::Hold::Paused)
     );
     rt.state.chats.deliver(Event::Resumed {
         conversation: "coffee".into(),
     });
     rt.invalidate();
     settle(&mut rt);
-    assert!(!rt.state.chats.holds.contains_key("coffee"));
+    assert!(rt.state.chats.view.hold("coffee").is_none());
 }
 
 #[test]
@@ -462,7 +462,7 @@ fn a_job_shows_its_plan_and_its_question_takes_the_answer() {
     let sent = store.submitted.last().unwrap();
     assert_eq!(sent.conversation.as_deref(), Some("suppliers"));
     assert_eq!(sent.text, "Save drafts as files");
-    assert!(!rt.state.chats.questions.contains_key("suppliers"));
+    assert!(rt.state.chats.question("suppliers").is_none());
     assert!(
         shows(&rt, "Save drafts as files"),
         "the answer shows under it"
@@ -537,7 +537,11 @@ fn a_message_to_a_running_conversation_steers_it() {
         turn.steered,
         vec!["Also ask about the projector".to_owned()]
     );
-    assert_eq!(turn.steps.len(), 4, "the turn goes on");
+    assert_eq!(
+        rt.state.chats.in_flight("reply-to-maya").unwrap().log.len(),
+        4,
+        "the turn goes on"
+    );
     assert!(shows(&rt, "Sent while working"));
 }
 
@@ -1421,7 +1425,7 @@ fn a_job_answered_by_voice_goes_on_without_doubling_or_its_old_question() {
         text: "What goes on it?".into(),
     });
     assert!(
-        rt.state.chats.turns[id].answer.is_empty(),
+        rt.state.chats.in_flight(id).unwrap().answer.is_empty(),
         "stored with the question"
     );
     // Answered by voice: the service starts it again with the answer.
@@ -1430,12 +1434,12 @@ fn a_job_answered_by_voice_goes_on_without_doubling_or_its_old_question() {
         origin: Origin::ActionShortcut,
         question: "Apples, pears and zucchini".into(),
     });
-    assert!(!rt.state.chats.questions.contains_key(id), "its box goes");
+    assert!(rt.state.chats.question(id).is_none(), "its box goes");
     rt.state.chats.apply(&Event::AnswerDelta {
         conversation: id.into(),
         text: "Done.".into(),
     });
-    assert_eq!(rt.state.chats.turns[id].answer, "Done.");
+    assert_eq!(rt.state.chats.in_flight(id).unwrap().answer, "Done.");
 }
 
 /// A request that only stopped (a quick question moved to the background

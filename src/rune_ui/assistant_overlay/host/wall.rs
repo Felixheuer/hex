@@ -13,9 +13,7 @@ use rune::{
     ScreenEdge,
 };
 
-use super::super::app_live;
 use super::super::board::Board;
-use super::super::live;
 use super::super::minis;
 use super::super::wall::{self, Actions, Scope, Wall};
 use super::{FADE, OVERLAYS, leave_out_of_mission_control, options};
@@ -122,8 +120,7 @@ fn close(state: &mut Wall) {
 }
 
 fn stream(tasks: &[String]) {
-    live::wall(tasks);
-    app_live::wall(tasks);
+    super::super::pictures::wall(tasks);
 }
 
 /// The orb's board (or the desk) changed: the wall follows its tasks (a

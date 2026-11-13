@@ -12,7 +12,7 @@ use super::super::list_detail::{FOLDED, UNFOLDED};
 use super::super::lists::small_button;
 use super::super::onboarding_kit::arrives;
 use super::{ChatsPane, Job, Ui};
-use crate::assistant::{Conversation, ConversationId, Origin, PlanStep, Request, Role};
+use crate::assistant::{Conversation, Origin, PlanStep, Request, Role};
 use crate::desktop::i18n::{tr, tr_fill};
 
 static FOLDER_ICON: &rune::Icon = &rune_theme_opencode::icons::FOLDER;
@@ -154,7 +154,7 @@ impl ChatsPane {
     /// Answers the question conversation `id` waits on: sent into it, and
     /// shown under the question.
     pub(super) fn answer_question(&mut self, id: &str, words: String) -> bool {
-        let Some(question) = self.questions.remove(id) else {
+        let Some(question) = self.view.answered(id) else {
             return false;
         };
         let origin = self
@@ -175,7 +175,7 @@ impl ChatsPane {
             .unwrap_or_default();
         self.turns
             .entry(id.to_owned())
-            .or_insert_with(|| super::Turn::new(title, origin, super::Phase::Working))
+            .or_insert_with(|| super::Turn::new(title, origin))
             .answers
             .push((question, words));
         self.answer.clear();
@@ -188,7 +188,7 @@ impl ChatsPane {
 /// time so far, the steps under it unless folded.
 pub(super) fn plan_card(ui: &Ui, p: Paint, id: &str) -> Option<El> {
     let pane = &ui.chats;
-    let steps = pane.plans.get(id).filter(|steps| !steps.is_empty())?;
+    let steps = pane.plan(id)?;
     let done = steps.iter().filter(|step| step.done).count();
     let current = steps.iter().position(|step| !step.done);
     let folded = pane.plan_folded.iter().any(|folded| folded == id);
@@ -345,7 +345,7 @@ fn sign_in_for(question: &str) -> Option<Option<&'static str>> {
 /// Sign in to Google… when that's what it needs).
 pub(super) fn question_block(ui: &Ui, p: Paint, id: &str) -> Option<El> {
     let pane = &ui.chats;
-    let question = pane.questions.get(id)?;
+    let question = pane.question(id)?;
     let k = p.k;
     let answer_id = id.to_owned();
     let submit_id = id.to_owned();
@@ -415,7 +415,7 @@ pub(super) fn question_block(ui: &Ui, p: Paint, id: &str) -> Option<El> {
                             .a11y_hidden(),
                     )
                     .child(
-                        rune_kit::Markdown::new(question.clone())
+                        rune_kit::Markdown::new(question.to_owned())
                             .selectable(true)
                             .build(k)
                             .key("words")
@@ -584,16 +584,12 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) {
     if std::mem::take(&mut ui.chats.focus_answer) {
         tx.focus(ANSWER_FIELD, false);
     }
-    let running_plan = ui.chats.plans.keys().any(|id| ui.chats.running(id));
+    let running_plan = (ui.chats.view.tasks.iter())
+        .any(|task| ui.chats.plan(&task.id).is_some() && ui.chats.running(&task.id));
     if running_plan {
         // The elapsed time ticks.
         tx.wake_after(std::time::Duration::from_secs(1));
     }
-}
-
-/// Which conversations show a "Moved to the background" note.
-pub(super) fn escalated(ui: &Ui, id: &ConversationId) -> bool {
-    ui.chats.escalated.contains(id)
 }
 
 /// A plan step as the person reads it: the tool names an agent writes into

@@ -72,30 +72,14 @@ pub(super) static CHATS_ICON: rune::Icon = rune::Icon {
 /// How long typing pauses before a model name is saved.
 const MODEL_SAVE_DELAY: Duration = Duration::from_millis(400);
 
-/// What a request is doing between its first event and its last.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Phase {
-    /// Sent from the composer; the service hasn't said anything yet.
-    Sending,
-    /// Waiting for a free slot.
-    Queued,
-    Thinking,
-    /// Doing something on the desktop.
-    Working,
-    /// The answer is streaming in.
-    Answering,
-}
-
-/// A request in flight, as the transcript and the list show it.
+/// A request in flight, as the person made it here: what they asked, sent
+/// while it worked, and answered. What it does (its phase, steps, answer
+/// so far, hold, plan, question, failure) is the shared task view's
+/// ([`ChatsPane::view`]); until the service says anything it's sending.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct Turn {
     pub(super) question: String,
     pub(super) origin: Origin,
-    pub(super) phase: Phase,
-    /// Its steps so far, as a person reads them.
-    pub(super) steps: Vec<String>,
-    /// The answer's text so far.
-    pub(super) answer: String,
     /// What the person sent while it worked, in order (steering).
     pub(super) steered: Vec<String>,
     /// Questions it asked while it worked, each with the person's answer.
@@ -105,13 +89,10 @@ pub(super) struct Turn {
 }
 
 impl Turn {
-    fn new(question: String, origin: Origin, phase: Phase) -> Self {
+    pub(super) fn new(question: String, origin: Origin) -> Self {
         Self {
             question,
             origin,
-            phase,
-            steps: Vec::new(),
-            answer: String::new(),
             steered: Vec::new(),
             answers: Vec::new(),
             started_ms: crate::history::now_ms(),
@@ -130,21 +111,9 @@ pub(super) enum SendMode {
     Background,
 }
 
-/// The most steps a turn keeps while it runs; the stored conversation has
-/// them all.
-const MAX_STEPS: usize = 200;
-
-/// Why a running task isn't moving: the person has it, or its agent hit a
-/// usage limit.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) enum Hold {
-    /// Taken over: its desktop actions wait until it's handed back.
-    Paused,
-    /// Retries at `until_ms` (Unix ms).
-    Waiting { until_ms: u64, reason: String },
-    /// It asked the person something and waits for the answer.
-    Asking(String),
-}
+/// Why a running task isn't moving: the person has it, its agent hit a
+/// usage limit, or it asks the person something.
+pub(super) use crate::assistant::view::Hold;
 
 /// The Chats pane's state.
 pub(super) struct ChatsPane {
@@ -164,31 +133,24 @@ pub(super) struct ChatsPane {
     pub(super) shown: Option<Conversation>,
     /// The stream: the latest conversations as stored, oldest first.
     pub(super) stream: Vec<Conversation>,
-    /// Requests in flight, by conversation.
+    /// Requests in flight the person made or answered here, by
+    /// conversation.
     pub(super) turns: HashMap<ConversationId, Turn>,
-    /// Why a conversation's last request failed, until it asks again.
-    pub(super) failures: HashMap<ConversationId, String>,
+    /// Every task as its events left it (`assistant::view`, which the
+    /// overlays read too): phase, steps, answer so far, hold, plan,
+    /// question, Hands off, and a failure until it's asked again. It keeps
+    /// no finished task but a failed one.
+    pub(super) view: crate::assistant::view::Stream,
     pub(super) tasks: Vec<TaskStatus>,
-    /// Tasks taken over or waiting on a usage limit, by conversation, as
-    /// their events said (the reason isn't in `TaskStatus`).
-    pub(super) holds: HashMap<ConversationId, Hold>,
-    /// The Here task moving the real pointer or keys now.
-    pub(super) hands_off: Option<ConversationId>,
     pub(super) composer: TextEdit,
     /// Where the composer sends a new message: Auto, or Here or Background.
     pub(super) lane: SendMode,
-    /// Each running job's plan, by conversation.
-    pub(super) plans: HashMap<ConversationId, Vec<crate::assistant::PlanStep>>,
     /// Plans folded to their one line.
     pub(super) plan_folded: Vec<ConversationId>,
-    /// The question each waiting job asked.
-    pub(super) questions: HashMap<ConversationId, String>,
     /// The answer to the shown conversation's question, as typed.
     pub(super) answer: TextEdit,
     /// A question arrived in the shown conversation: its field takes focus.
     pub(super) focus_answer: bool,
-    /// Here conversations that became Background jobs while shown.
-    pub(super) escalated: Vec<ConversationId>,
     /// The scheduled requests, as last read.
     pub(super) schedules: Vec<bridge::schedules::Schedule>,
     /// The New schedule sheet, while it shows.
@@ -233,18 +195,13 @@ impl Default for ChatsPane {
             shown: None,
             stream: Vec::new(),
             turns: HashMap::new(),
-            failures: HashMap::new(),
+            view: Default::default(),
             tasks: Vec::new(),
-            holds: HashMap::new(),
-            hands_off: None,
             composer: TextEdit::default(),
             lane: SendMode::Auto,
-            plans: HashMap::new(),
             plan_folded: Vec::new(),
-            questions: HashMap::new(),
             answer: TextEdit::default(),
             focus_answer: false,
-            escalated: Vec::new(),
             folders: HashMap::new(),
             schedules: Vec::new(),
             new_schedule: None,
@@ -303,6 +260,7 @@ impl ChatsPane {
         self.refresh_stream();
         self.reload_shown();
         self.tasks = self.source.tasks();
+        self.view.adopt(&self.tasks);
         self.schedules = self.source.schedules();
     }
 
@@ -335,17 +293,7 @@ impl ChatsPane {
         }
         if self.live() {
             for conversation in &stream {
-                let id = &conversation.id;
-                if self.plans.contains_key(id) || !self.running(id) {
-                    continue;
-                }
-                let plan = crate::assistant::service::plan(id);
-                if !plan.is_empty() {
-                    self.plans.insert(id.clone(), plan);
-                }
-                if let Some(question) = crate::assistant::service::question(id) {
-                    self.questions.insert(id.clone(), question);
-                }
+                self.restore(&conversation.id);
             }
         }
         self.stream = stream;
@@ -363,14 +311,26 @@ impl ChatsPane {
         }
         if let Some(id) = self.selected.clone()
             && self.live()
-            && !self.plans.contains_key(&id)
         {
-            let plan = crate::assistant::service::plan(&id);
+            self.restore(&id);
+        }
+    }
+
+    /// Reads running task `id`'s plan and question from the service, once:
+    /// it started before this window listened, so no event said them.
+    fn restore(&mut self, id: &str) {
+        if !self.running(id) || self.plan(id).is_some() {
+            return;
+        }
+        self.view.adopt(&self.tasks);
+        let plan = crate::assistant::service::plan(id);
+        let question = crate::assistant::service::question(id);
+        if let Some(task) = self.view.task_mut(id).filter(|task| task.phase.live()) {
             if !plan.is_empty() {
-                self.plans.insert(id.clone(), plan);
+                task.plan = plan;
             }
-            if let Some(question) = crate::assistant::service::question(&id) {
-                self.questions.insert(id, question);
+            if question.is_some() {
+                task.question = question;
             }
         }
     }
@@ -410,7 +370,7 @@ impl ChatsPane {
         if let Some(id) = self.target.clone()
             && self.running(&id)
         {
-            if self.questions.contains_key(&id) {
+            if self.question(&id).is_some() {
                 self.composer.clear();
                 return self.answer_question(&id, question);
             }
@@ -437,9 +397,8 @@ impl ChatsPane {
         }
         self.error = None;
         self.composer.clear();
-        self.failures.remove(&id);
-        self.turns
-            .insert(id.clone(), Turn::new(question, origin, Phase::Sending));
+        self.view.clear_failure(&id);
+        self.turns.insert(id.clone(), Turn::new(question, origin));
         self.delete_armed = None;
         self.follow.to_end = true;
         if self.selected.as_deref() != Some(id.as_str()) {
@@ -477,7 +436,7 @@ impl ChatsPane {
             .unwrap_or_default();
         self.turns
             .entry(id)
-            .or_insert_with(|| Turn::new(question, origin, Phase::Working))
+            .or_insert_with(|| Turn::new(question, origin))
             .steered
             .push(words);
         self.follow.to_end = true;
@@ -500,15 +459,23 @@ impl ChatsPane {
     /// The person takes task `id` over: it waits while they work.
     pub(super) fn take_over(&mut self, id: &str) {
         self.source.take_over(id, true);
-        self.holds.insert(id.to_owned(), Hold::Paused);
         self.tasks = self.source.tasks();
+        self.view.adopt(&self.tasks);
+        let paused = Event::Paused {
+            conversation: id.to_owned(),
+        };
+        self.view.apply(&paused, None, Instant::now());
     }
 
     /// Gives task `id` back; it looks again before acting.
     pub(super) fn hand_back(&mut self, id: &str) {
         self.source.take_over(id, false);
-        self.holds.remove(id);
         self.tasks = self.source.tasks();
+        self.view.adopt(&self.tasks);
+        let resumed = Event::Resumed {
+            conversation: id.to_owned(),
+        };
+        self.view.apply(&resumed, None, Instant::now());
     }
 
     /// Continues conversation `id` after Hex quit while it ran.
@@ -537,9 +504,8 @@ impl ChatsPane {
             .iter()
             .find(|row| row.id == id)
             .map_or(Origin::Background, |row| row.origin);
-        self.failures.remove(&resumed);
-        self.turns
-            .insert(resumed.clone(), Turn::new(question, origin, Phase::Sending));
+        self.view.clear_failure(&resumed);
+        self.turns.insert(resumed.clone(), Turn::new(question, origin));
         self.follow.to_end = true;
         self.select(resumed);
     }
@@ -547,21 +513,9 @@ impl ChatsPane {
     /// Why `task` isn't moving, if it isn't: what its events said, else its
     /// state as the service lists it.
     pub(super) fn hold(&self, task: &TaskStatus) -> Option<Hold> {
-        if let Some(hold) = self.holds.get(&task.conversation) {
-            return Some(hold.clone());
-        }
-        if let Some(question) = self.questions.get(&task.conversation) {
-            return Some(Hold::Asking(question.clone()));
-        }
-        match task.state {
-            TaskState::NeedsInput => Some(Hold::Asking(String::new())),
-            TaskState::Paused => Some(Hold::Paused),
-            TaskState::Waiting { until_ms } => Some(Hold::Waiting {
-                until_ms,
-                reason: String::new(),
-            }),
-            TaskState::Queued | TaskState::Running => None,
-        }
+        self.view
+            .hold(&task.conversation)
+            .or_else(|| Hold::of(task.state))
     }
 
     /// The task running conversation `id`, if one is.
@@ -576,7 +530,7 @@ impl ChatsPane {
         };
         self.source.delete(&id);
         self.turns.remove(&id);
-        self.failures.remove(&id);
+        self.view.clear_failure(&id);
         if self.selected.as_ref() == Some(&id) {
             self.selected = None;
             self.shown = None;
@@ -729,8 +683,7 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
     } else {
         Vec::new()
     };
-    super::assistant_overlay::live::window(&live);
-    super::assistant_overlay::app_live::window(&live);
+    super::assistant_overlay::pictures::window(&live);
     ui.chats.follow.landed = false;
     if !showing {
         // Read again when it next shows.
@@ -746,11 +699,7 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
     if std::mem::take(&mut ui.chats.follow.to_end) {
         tx.scroll_to_bottom_instant(follow::SCROLL);
     }
-    if ui
-        .chats
-        .holds
-        .values()
-        .any(|hold| matches!(hold, Hold::Waiting { .. }))
+    if ui.chats.view.waiting()
         || ui
             .chats
             .tasks

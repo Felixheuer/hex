@@ -2,12 +2,15 @@
 //! until the window connects (scenes, tests), and the scenes' fake
 //! conversations, tasks, and setup results.
 
+mod in_flight;
+
 use std::collections::HashMap;
 
 use crate::assistant::{
     Conversation, ConversationId, ConversationSummary, Message, Origin, Outcome, Part, Request,
     Role, TaskState, TaskStatus,
 };
+use in_flight::{RUNNING_STEPS, in_flight, running, running_turn};
 
 /// Conversations, tasks, and what the pane asked of them.
 #[derive(Default)]
@@ -481,25 +484,6 @@ fn agent_page(ui: &mut super::Ui, state: AgentPage) {
     }
 }
 
-/// The running task's turn so far, as its events left it.
-pub(in crate::rune_ui) fn running_turn() -> super::Turn {
-    super::Turn {
-        question: "Reply to Maya's last email and say Thursday at 3 works for me".into(),
-        origin: Origin::Background,
-        phase: super::Phase::Working,
-        steps: vec![
-            "Opened Mail".into(),
-            "Found Maya's email “Thursday?”".into(),
-            "Clicked Reply".into(),
-            "Typing the reply in Mail".into(),
-        ],
-        answer: String::new(),
-        steered: Vec::new(),
-        answers: Vec::new(),
-        started_ms: crate::history::now_ms() - 3 * MINUTE,
-    }
-}
-
 /// The agent page's states, for scenes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -607,67 +591,73 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
         | Scene::Repair
         | Scene::Restart
         | Scene::Agent(_) => {
-            pane.turns.insert("reply-to-maya".into(), running_turn());
+            running(&mut pane);
             pane.select("rename-screenshots".into());
         }
         Scene::Running => {
             let mut turn = running_turn();
-            turn.phase = super::Phase::Answering;
             turn.steered = vec!["Also ask if she wants the projector".into()];
-            turn.answer = "I wrote the reply:\n\n> Hi Maya, Thursday at 3 works for me. See you then!\n\nIt's".into();
-            pane.turns.insert("reply-to-maya".into(), turn);
+            in_flight(
+                &mut pane,
+                "reply-to-maya",
+                turn,
+                crate::assistant::view::Activity::Answering,
+                &RUNNING_STEPS,
+                "I wrote the reply:\n\n> Hi Maya, Thursday at 3 works for me. See you then!\n\nIt's",
+            );
             pane.select("reply-to-maya".into());
         }
         Scene::Tasks => {
-            pane.turns.insert("reply-to-maya".into(), running_turn());
-            let mut expenses = super::Turn::new(
-                "File the October expenses".into(),
-                Origin::Background,
-                super::Phase::Working,
+            running(&mut pane);
+            in_flight(
+                &mut pane,
+                "expenses",
+                super::Turn::new("File the October expenses".into(), Origin::Background),
+                crate::assistant::view::Activity::Working,
+                &["Opened Numbers", "Filling in the report in Numbers"],
+                "",
             );
-            expenses.steps = vec![
-                "Opened Numbers".into(),
-                "Filling in the report in Numbers".into(),
-            ];
-            pane.turns.insert("expenses".into(), expenses);
-            pane.holds.insert(
-                "pr-summary".into(),
-                super::Hold::Waiting {
+            if let Some(task) = pane.view.task_mut("pr-summary") {
+                task.phase = crate::assistant::view::Phase::Waiting {
                     until_ms: now + 3 * MINUTE + 12_000,
-                    reason: "Claude Code's usage limit".into(),
-                },
-            );
+                };
+                task.reason = "Claude Code's usage limit".into();
+            }
             pane.select("expenses".into());
         }
         Scene::Interrupted => {
-            pane.turns.insert("reply-to-maya".into(), running_turn());
+            running(&mut pane);
             pane.select("sort-downloads".into());
         }
         Scene::Job => {
             let mut turn = super::Turn::new(
                 "Research 50 specialty coffee suppliers in Europe, draft an email to each in Gmail, put them in a spreadsheet, document everything, and share it with me in Google Sheets".into(),
                 Origin::Background,
-                super::Phase::Working,
             );
             turn.started_ms = now - (4 * MINUTE + 12_000);
-            turn.steps = vec![
-                "Searched for specialty coffee roasters and importers".into(),
-                "Found 31 of 50 suppliers".into(),
-            ];
-            pane.turns.insert("suppliers".into(), turn);
-            pane.turns.insert("reply-to-maya".into(), running_turn());
-            pane.plans.insert("suppliers".into(), job_plan());
-            pane.questions.insert(
-                "suppliers".into(),
-                "I'll draft the emails in your Gmail and share the sheet from your Google account. **Sign in to Google** in Hex's browser so I can, or tell me to save drafts as files instead.".into(),
+            in_flight(
+                &mut pane,
+                "suppliers",
+                turn,
+                crate::assistant::view::Activity::Working,
+                &[
+                    "Searched for specialty coffee roasters and importers",
+                    "Found 31 of 50 suppliers",
+                ],
+                "",
             );
+            running(&mut pane);
+            if let Some(task) = pane.view.task_mut("suppliers") {
+                task.plan = job_plan();
+                task.question = Some("I'll draft the emails in your Gmail and share the sheet from your Google account. **Sign in to Google** in Hex's browser so I can, or tell me to save drafts as files instead.".into());
+            }
             pane.select("suppliers".into());
         }
         Scene::Results => {
             pane.select("q3-report".into());
         }
         Scene::NewSchedule => {
-            pane.turns.insert("reply-to-maya".into(), running_turn());
+            running(&mut pane);
             pane.select("rename-screenshots".into());
             pane.new_schedule = Some(super::schedules::NewSchedule {
                 text: rune::TextEdit::new("Summarize the news about our competitors"),
@@ -677,33 +667,35 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
             });
         }
         Scene::Escalated => {
-            let mut turn = super::Turn::new(
-                "What does this error mean?".into(),
-                Origin::Background,
-                super::Phase::Working,
-            );
+            let mut turn =
+                super::Turn::new("What does this error mean?".into(), Origin::Background);
             turn.started_ms = now - 40_000;
-            turn.steps = vec!["Read the build log in Xcode".into()];
-            turn.answer = "This needs more than a quick answer: I'll fix the signing settings in the background and tell you when it builds.".into();
-            pane.turns.insert("window-question".into(), turn);
-            pane.plans.insert(
-                "window-question".into(),
-                vec![
-                    crate::assistant::PlanStep {
-                        title: "Read the error and the signing settings".into(),
-                        done: true,
-                    },
-                    crate::assistant::PlanStep {
-                        title: "Pick the personal team".into(),
-                        done: false,
-                    },
-                    crate::assistant::PlanStep {
-                        title: "Build again and check it passes".into(),
-                        done: false,
-                    },
-                ],
+            in_flight(
+                &mut pane,
+                "window-question",
+                turn,
+                crate::assistant::view::Activity::Working,
+                &["Read the build log in Xcode"],
+                "This needs more than a quick answer: I'll fix the signing settings in the background and tell you when it builds.",
             );
-            pane.escalated.push("window-question".into());
+            let plan = vec![
+                crate::assistant::PlanStep {
+                    title: "Read the error and the signing settings".into(),
+                    done: true,
+                },
+                crate::assistant::PlanStep {
+                    title: "Pick the personal team".into(),
+                    done: false,
+                },
+                crate::assistant::PlanStep {
+                    title: "Build again and check it passes".into(),
+                    done: false,
+                },
+            ];
+            if let Some(task) = pane.view.task_mut("window-question") {
+                task.plan = plan;
+                task.escalated = true;
+            }
             pane.select("window-question".into());
         }
         Scene::Empty => {
