@@ -16,7 +16,7 @@ use rune::{El, TextEdit};
 use rune_kit::TextInput;
 
 use super::super::Menu;
-use super::super::controls::{CardRow, Paint, described_row, section, setting_row, toggle_row};
+use super::super::controls::{CardRow, Paint, section, setting_row, toggle_row};
 use super::super::general::quiet_select;
 use super::{BACKENDS, Job, Ui};
 use crate::app_settings::{AssistantBackend, AssistantSettings};
@@ -24,7 +24,8 @@ use crate::assistant::backends::Found;
 use crate::assistant::browser::AgentBrowser;
 use crate::desktop::i18n::{tr, tr_fill};
 
-/// Follow-up windows offered, in seconds; 0 always starts a new conversation.
+/// "Continue" follow-up windows offered, in seconds; 0 always starts a new
+/// conversation.
 const FOLLOW_UP: [u32; 6] = [0, 10, 20, 30, 60, 120];
 /// Parallel task limits offered (the saved one and this Mac's
 /// recommendation join them).
@@ -238,18 +239,6 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         .into(),
     );
     works.push(
-        setting_row(
-            p,
-            "assistant-follow-up",
-            tr("Follow-up window"),
-            Some(tr(
-                "A question this soon after an answer continues that chat",
-            )),
-            follow_up_select(ui, p, layer),
-        )
-        .into(),
-    );
-    works.push(
         toggle_row(
             p,
             "assistant-keep-awake",
@@ -277,17 +266,6 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
             .into(),
         );
     }
-    let physical = if assistant.physical_input {
-        Some((
-            tr("Tasks move your pointer and type with your keyboard. Don't use them while a task runs").to_owned(),
-            p.warning(),
-        ))
-    } else {
-        Some((
-            tr("Off keeps every action in the background, without your pointer or keys").to_owned(),
-            p.muted(),
-        ))
-    };
     let mut desktop: Vec<CardRow> = vec![
         toggle_row(
             p,
@@ -302,24 +280,10 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         .into(),
     ];
     if assistant.control_desktop {
+        // Real input, one switch per lane, then full control.
         desktop.push(lanes::here_input_row(ui, p));
-        desktop.push(lanes::front_window_row(ui, p));
-        desktop.push(
-            super::super::controls::pressable_row(
-                described_row(
-                    p,
-                    "assistant-physical-input",
-                    tr("Use the real pointer and keyboard"),
-                    physical,
-                    super::super::controls::row_switch(p, assistant.physical_input),
-                ),
-                assistant.physical_input,
-            )
-            .on_press(|ui: &mut Ui| {
-                ui.update(|settings| settings.assistant.physical_input ^= true);
-            })
-            .into(),
-        );
+        desktop.push(lanes::background_input_row(ui, p));
+        desktop.push(lanes::full_control_row(ui, p));
     }
     desktop.push(
         toggle_row(
@@ -354,7 +318,7 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         voice.push(more::voice_row(ui, p, layer).into());
         voice.extend(more::hex_voice_row(ui, p));
     }
-    voice.extend(more::conversation_rows(ui, p, layer));
+    voice.push(more::follow_up_row(ui, p, layer));
     let mut sections = vec![super::switch::settings_card(ui, p)];
     if crate::assistant::enabled(&ui.settings) && ui.records_shortcuts() {
         sections.push(section(
@@ -452,27 +416,6 @@ fn with_saved(values: &[u32], saved: u32) -> (Vec<u32>, usize) {
     }
     let index = values.iter().position(|value| *value == saved).unwrap_or(0);
     (values, index)
-}
-
-fn follow_up_select(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
-    let (values, selected) = with_saved(&FOLLOW_UP, ui.settings.assistant.follow_up_seconds);
-    quiet_select(
-        ui,
-        p,
-        Menu::Pick("assistant-follow-up"),
-        "assistant-follow-up-control".to_owned(),
-        tr("Follow-up window"),
-        values
-            .iter()
-            .map(|seconds| seconds_label(*seconds))
-            .collect(),
-        selected,
-        move |ui, chosen| {
-            let seconds = values[chosen];
-            ui.update(|settings| settings.assistant.follow_up_seconds = seconds);
-        },
-        layer,
-    )
 }
 
 /// "More wait their turn", and a warning above this Mac's recommendation.

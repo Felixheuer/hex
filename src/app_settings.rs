@@ -1868,6 +1868,27 @@ mod tests {
         assert!(settings.assistant.enabled);
     }
 
+    /// Renamed assistant settings keep their saved values: the old names
+    /// load into the new ones, and only the new names are written.
+    #[test]
+    fn renamed_assistant_settings_load_from_their_old_names() {
+        let settings: AppSettings = serde_json::from_str(
+            r#"{"assistant":{"background_front_window":false,"agent_space":false,"physical_input":true}}"#,
+        )
+        .expect("old assistant names load");
+        assert!(!settings.assistant.full_control);
+        assert!(!settings.assistant.park_windows);
+        assert!(settings.assistant.background_physical_input);
+        let written = serde_json::to_value(&settings).unwrap();
+        let assistant = &written["assistant"];
+        assert_eq!(assistant["full_control"], false);
+        assert_eq!(assistant["park_windows"], false);
+        assert_eq!(assistant["background_physical_input"], true);
+        for old in ["background_front_window", "agent_space", "physical_input"] {
+            assert!(assistant.get(old).is_none(), "{old} is still written");
+        }
+    }
+
     /// The assistant's Stop all tasks: inert while the assistant is off; on,
     /// it is matched and swallowed (⌃⌥Esc by default), the other shortcuts refuse
     /// its keys and it refuses theirs and Force Quit's, and a saved overlap

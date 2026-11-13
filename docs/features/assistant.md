@@ -464,11 +464,18 @@ open it.
 double-tap for your tasks") and Run setup…; Shortcuts (the Action and Stop
 all recorders); Agent & model (the agent picker, its model, the quick
 turns' model); How it works (autonomy, how long a job may run, waiting out
-usage limits, Tasks at once, the follow-up window, keeping the Mac awake);
-Apps & windows (operating apps, real pointer and keyboard, full control of
-the window in front, the screenshot with a quick turn, displays, parking
-job windows); blocked apps; web (the hidden browser and the sites jobs may
-use signed in); Voice; Notifications; On my iPhone; and Memory.
+usage limits, Tasks at once, keeping the Mac awake); Apps & windows
+(operating apps; real input, one switch per lane: `here_physical_input`
+for the window in front, `background_physical_input` for jobs; full
+control of this Mac, `full_control`; the screenshot with a quick turn;
+displays; parking job windows, `park_windows`); blocked apps; web (the
+hidden browser and the sites jobs may use signed in); Voice, with one
+Follow-ups row for both follow-up windows (Listen, `conversation_seconds`:
+answer back without the shortcut; Continue chat, `follow_up_seconds`: a hold
+that soon continues the chat); Notifications; On my iPhone; and Memory.
+Renamed keys still load and `hex settings` still takes them:
+`background_front_window` is `full_control`, `agent_space` is
+`park_windows`, `physical_input` is `background_physical_input`.
 
 ## On my iPhone (away mode)
 

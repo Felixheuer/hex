@@ -33,7 +33,7 @@ impl<D: Desktop> Guard<D> {
 
     /// Moves windows the task just got (`arrived`) onto the agents'
     /// display, cascading; with one display, parks them off the screen
-    /// (`assistant.agent_space`, on by default) so a job works its apps out
+    /// (`assistant.park_windows`, on by default) so a job works its apps out
     /// of the person's way, as Codex does: they stay operable through
     /// Accessibility and show live in the job's card at the orb.
     pub(super) fn place_arrivals(&mut self) {
@@ -201,8 +201,6 @@ pub(super) fn tool() -> Value {
     })
 }
 
-/// Whether windows a job opens may be parked off the screen
-/// (`assistant.agent_space`), read once per guard process.
 /// The display the person picked for the agents (by id or name), if one
 /// is picked and attached; "none" or empty is none.
 fn picked_display(
@@ -221,6 +219,8 @@ fn picked_display(
         .cloned()
 }
 
+/// Whether windows a job opens may be parked off the screen
+/// (`assistant.park_windows`), read once per guard process.
 fn park_allowed() -> bool {
     // Tests never read the person's settings.
     if cfg!(test) {
@@ -229,7 +229,7 @@ fn park_allowed() -> bool {
     static ALLOWED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ALLOWED.get_or_init(|| {
         crate::app_settings::AppSettings::read()
-            .map(|settings| settings.assistant.agent_space)
+            .map(|settings| settings.assistant.park_windows)
             .unwrap_or(true)
     })
 }
