@@ -135,6 +135,8 @@ fn the_guard_learns_each_lanes_window_and_input_policy() {
             here_window: Some(mail()),
             physical_input: true,
             blocked_apps: vec!["1Password".into()],
+            // Full control is the default (`background_front_window`).
+            full_control: true,
         }
     );
     let mut background = here.clone();
@@ -143,6 +145,9 @@ fn the_guard_learns_each_lanes_window_and_input_policy() {
     assert_eq!(spec.lane, Lane::Background);
     assert_eq!(spec.here_window, None);
     assert!(!spec.physical_input);
+    // Asked to stay in the background, a task leaves the person's windows.
+    background.request.text = "Sortier das, aber arbeite nur im Hintergrund".into();
+    assert!(!task_spec(&background).full_control);
 }
 
 #[test]
@@ -165,7 +170,7 @@ fn the_here_lane_runs_on_the_fast_model_where_the_backend_takes_it() {
 fn each_lane_gets_its_own_rules() {
     let desktop = Desktop::fixture(Some("S1"), "hex-7");
     let here = system_prompt(Origin::ActionShortcut, Some(&desktop), false);
-    assert!(here.contains("Work only in the window in front"));
+    assert!(here.contains("ACT only in the window in front"));
     assert!(here.contains("speakable"));
     assert!(!here.contains("desktop_launch"));
     let background = system_prompt(Origin::Background, Some(&desktop), true);

@@ -62,12 +62,12 @@ pub(in crate::rune_ui) fn front_window_row(ui: &Ui, p: Paint) -> CardRow {
     let on = ui.settings.assistant.background_front_window;
     let description = if on {
         (
-            tr("Like the ChatGPT app: a background task may also click and type in the window you're using. If you type there at the same time, your input and its input mix").to_owned(),
+            tr("Hex may open any app and use every window, the one you're in too, without asking. Say “only in the background” to keep a task out of your windows").to_owned(),
             p.warning(),
         )
     } else {
         (
-            tr("Off keeps the window you're using yours: background tasks open their own windows or take other free ones").to_owned(),
+            tr("Off: tasks open their own windows and leave yours alone").to_owned(),
             p.muted(),
         )
     };
@@ -75,7 +75,7 @@ pub(in crate::rune_ui) fn front_window_row(ui: &Ui, p: Paint) -> CardRow {
         described_row(
             p,
             "assistant-front-window",
-            tr("Background tasks may use the window in front"),
+            tr("Full control of this Mac"),
             Some(description),
             row_switch(p, on),
         ),

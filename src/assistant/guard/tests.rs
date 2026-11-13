@@ -651,9 +651,16 @@ fn a_here_task_works_only_in_the_window_that_was_in_front() {
         error_code(&guard.call("desktop_press", args(json!({"combo": "cmd+f"})))),
         None
     );
+    // It may look anywhere ("what am I doing in Citrix?") …
     for (tool, call) in [
         ("desktop_snapshot", json!({"window_id": CITRIX})),
         ("desktop_screenshot", json!({"app": "Ghostty"})),
+    ] {
+        let result = guard.call(tool, args(call));
+        assert!(result["isError"] != true, "{tool}: {result}");
+    }
+    // … but without full control it acts only in the window in front.
+    for (tool, call) in [
         ("desktop_launch", json!({"app": "TextEdit"})),
         ("desktop_claim_window", json!({"window_id": SETTINGS})),
         ("desktop_minimize", json!({"window_id": SETTINGS})),
@@ -661,7 +668,7 @@ fn a_here_task_works_only_in_the_window_that_was_in_front() {
         let result = guard.call(tool, args(call));
         assert!(result["isError"] == true, "{tool}: {result}");
     }
-    let other = guard.call("desktop_snapshot", args(json!({"window_id": CITRIX})));
+    let other = guard.call("desktop_minimize", args(json!({"window_id": CITRIX})));
     assert!(
         message(&other).contains("belongs to the person"),
         "{}",
@@ -674,7 +681,9 @@ fn a_here_task_works_only_in_the_window_that_was_in_front() {
             "desktop_snapshot",
             "desktop_snapshot",
             "desktop_click",
-            "desktop_press"
+            "desktop_press",
+            "desktop_snapshot",
+            "desktop_screenshot"
         ]
     );
     assert_eq!(scratch.store().holder(FRONT).unwrap().task, "here-task");
@@ -745,9 +754,9 @@ fn with_the_persons_leave_a_background_task_uses_the_window_in_front() {
     fake.focus(FRONT);
     let click = guard.call("desktop_click", args(json!({"ref_id": reference})));
     assert_eq!(error_code(&click), None, "acts while it is in front");
-    // Without a window_id it still never guesses the window in front.
+    // With the person's leave, the window in front may be meant unnamed too.
     let unnamed = guard.call("desktop_press", args(json!({"combo": "return"})));
-    assert_eq!(error_code(&unnamed).as_deref(), Some("NOT_YOUR_WINDOW"));
+    assert_eq!(error_code(&unnamed), None);
 }
 
 #[test]
@@ -1057,6 +1066,7 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
         }),
         physical_input: true,
         blocked_apps: vec!["1Password".into()],
+        full_control: false,
     };
     let desktop = McpServer {
         command: "/opt/homebrew/bin/agent-desktop".into(),

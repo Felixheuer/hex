@@ -53,7 +53,7 @@ impl<D: Desktop> Guard<D> {
 
     pub(super) fn open_app(&mut self, args: &Map<String, Value>) -> Result<Value, Value> {
         let tool = OPEN_APP_TOOL;
-        if self.config.lane == Lane::Here {
+        if self.config.lane == Lane::Here && !self.config.front_window {
             return Err(refusal(
                 tool,
                 "POLICY_DENIED",

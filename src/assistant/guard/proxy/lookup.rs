@@ -116,7 +116,7 @@ impl<D: Desktop> Guard<D> {
                             "No window is in front; name one with window_id.",
                         )
                     })?;
-                if self.config.lane == Lane::Background {
+                if self.config.lane == Lane::Background && !self.config.front_window {
                     return Err(refusal(
                         tool,
                         "NOT_YOUR_WINDOW",
@@ -201,6 +201,12 @@ impl<D: Desktop> Guard<D> {
         if self.blocked(&window.app) {
             return Err(self.blocked_refusal(tool, &window.app));
         }
+        // A question about the screen may look at any window ("what am I
+        // doing in Citrix?"); acting stays in the window in front, and
+        // anything else is handed on as a job.
+        if kind == Kind::Observe && self.config.lane == Lane::Here {
+            return Ok(());
+        }
         let Some(id) = &window.id else {
             // An app's surface without a window (its menu bar, a menu).
             if held.iter().any(|lease| same_app(&lease.app, &window.app)) {
@@ -209,7 +215,22 @@ impl<D: Desktop> Guard<D> {
             return Err(self.not_held(tool, None, &window.app));
         };
         if !held.iter().any(|lease| &lease.window_id == id) {
-            return Err(self.not_held(tool, Some(id), &window.app));
+            // Full control: any window not another task's becomes this
+            // task's as it acts in it.
+            let free = self.config.front_window
+                && !matches!(
+                    self.store.acquire(
+                        &self.config.task,
+                        self.pid,
+                        id,
+                        &window.app,
+                        crate::desktop::events::now_ms()
+                    ),
+                    super::super::state::Acquire::Taken(_)
+                );
+            if !free {
+                return Err(self.not_held(tool, Some(id), &window.app));
+            }
         }
         if kind.acts()
             && self.config.lane == Lane::Background
