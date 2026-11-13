@@ -143,6 +143,8 @@ pub(crate) fn view(state: &TwoDisplays, cx: &mut Cx<TwoDisplays>) -> El {
             label,
             look,
             progress,
+            step: None,
+            here: false,
             origin: (0.0, 0.0),
         };
         root = root.child(
@@ -192,7 +194,7 @@ pub(crate) fn view(state: &TwoDisplays, cx: &mut Cx<TwoDisplays>) -> El {
                 .absolute(x, y)
                 .size(w, h)
                 .clip_rounded(0.0)
-                .child(frame::glow_joined(p.k.dark, false, (w, h), &seams)),
+                .child(frame::glow_joined(p.k.dark, (w, h), &seams)),
         );
     }
     root

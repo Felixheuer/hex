@@ -449,6 +449,8 @@ fn outline_of(look: Look) -> Runtime<Outline> {
         label: LabelSide::Above,
         look,
         progress: None,
+        step: Some("checking 8:15 pm".into()),
+        here: false,
         origin: (0.0, 0.0),
     };
     let (rect_global, _) = outline::rect((100.0, 200.0, 600.0, 400.0), 0.0);
@@ -468,15 +470,9 @@ fn an_outline_frames_its_window_with_the_label_above() {
     assert_eq!(lx, outline::PAD);
     let [_, label_y, _, label_h] = rect(&rt, "label").unwrap();
     assert!(label_y + label_h <= ly, "the label sits above the window");
-    for look in [Look::Paused, Look::Waiting { until_ms: 0 }] {
+    for look in [Look::Paused, Look::Waiting { until_ms: 0 }, Look::HandsOff] {
         assert!(rect(&outline_of(look), "label").is_some(), "{look:?}");
     }
-    let soft = outline_of(Look::HandsOff);
-    assert!(rect(&soft, "line").is_some());
-    assert!(
-        rect(&soft, "label").is_none(),
-        "Hands off is just a soft line"
-    );
 }
 
 #[test]
@@ -539,6 +535,8 @@ fn a_frame_alone_is_the_whole_ring_and_a_joined_one_moves_off_its_seam() {
             display: Some(1),
             size: (1800.0, 1169.0),
             seams: Default::default(),
+            glow: true,
+            ..Default::default()
         },
         frame::view,
         (1800.0, 1169.0),
@@ -551,6 +549,8 @@ fn a_frame_alone_is_the_whole_ring_and_a_joined_one_moves_off_its_seam() {
             display: Some(1),
             size: (1800.0, 1169.0),
             seams: super::screens::seams(&all[0], &all),
+            glow: true,
+            ..Default::default()
         },
         frame::view,
         (1800.0, 1169.0),
@@ -1420,13 +1420,6 @@ fn snapshots() {
             hands::SIZE,
             backdrop(&gpu, &mut hands_rt, w, h, dark),
         );
-        #[cfg(target_os = "macos")]
-        if dark {
-            for index in 0..super::palette::COLOURS {
-                let pixels = super::cursor::render(&gpu, index);
-                save(&format!("cursor-{index}"), super::cursor::SIZE, pixels);
-            }
-        }
         for (name, state) in [
             ("hint-background", Hint::Background),
             ("hint-here", Hint::Here("Mail".into())),
@@ -1624,12 +1617,13 @@ fn backdrop<S: 'static>(
     target.read(&gpu.device)
 }
 
-/// The frame shows only while a task works on the screen: a desktop action
-/// keeps it for `ACTING_FOR`, a Here question reading the screen counts, a
-/// job's reading or hidden browsers don't, and real input holds it.
+/// The desk frame shows only while the agent has the person's controls:
+/// clicks in parked windows, reading, and hidden browsers light nothing;
+/// real input ("Hands off") and a window brought in front (a borrow) do,
+/// for as long as they last.
 #[test]
-fn the_frame_shows_only_while_a_task_works_on_the_screen() {
-    use crate::assistant::view::ACTING_FOR;
+fn no_frame_for_work_in_parked_windows() {
+    use crate::assistant::TaskWindow;
     let now = std::time::Instant::now();
     let mut board = Board::default();
     for (id, origin) in [
@@ -1646,49 +1640,61 @@ fn the_frame_shows_only_while_a_task_works_on_the_screen() {
             now,
         );
     }
-    // Working, but not on the screen (thinking, browsers, files): no frame.
     assert_eq!(board.frame_until(now), None);
-    // A job only reading a window: still no frame.
-    board.apply(
-        &Event::Acting {
-            conversation: "job".into(),
-            looking: true,
-        },
-        None,
-        now,
-    );
-    assert_eq!(board.frame_until(now), None);
-    // A job clicking: the frame, for ACTING_FOR.
-    board.apply(
-        &Event::Acting {
-            conversation: "job".into(),
-            looking: false,
-        },
-        None,
-        now,
-    );
-    assert_eq!(board.frame_until(now), Some(now + ACTING_FOR));
-    assert_eq!(board.frame_until(now + ACTING_FOR), None, "it fades after");
-    // A question about the screen reading the window: the frame too.
-    let later = now + ACTING_FOR * 2;
-    board.apply(
-        &Event::Acting {
-            conversation: "here".into(),
-            looking: true,
-        },
-        None,
-        later,
-    );
-    assert_eq!(board.frame_until(later), Some(later + ACTING_FOR));
+    // A job clicking and reading in its parked windows, a Here question
+    // reading the screen: no frame.
+    for (id, looking) in [("job", false), ("job", true), ("here", true)] {
+        board.apply(
+            &Event::Acting {
+                conversation: id.into(),
+                looking,
+            },
+            None,
+            now,
+        );
+        assert_eq!(board.frame_until(now), None, "{id} {looking}");
+    }
     // Real input under "Hands off" holds it while it lasts.
-    let much_later = later + ACTING_FOR * 3;
     board.apply(
         &Event::HandsOff {
-            conversation: "job".into(),
+            conversation: "here".into(),
             on: true,
         },
         None,
-        much_later,
+        now,
     );
-    assert!(board.frame_until(much_later).is_some());
+    assert!(board.frame_until(now).is_some());
+    board.apply(
+        &Event::HandsOff {
+            conversation: "here".into(),
+            on: false,
+        },
+        None,
+        now,
+    );
+    assert_eq!(board.frame_until(now), None);
+    // A window brought in front: the frame until it goes back.
+    board.apply(
+        &Event::Borrowed {
+            conversation: "job".into(),
+            window: TaskWindow {
+                app: "Numbers".into(),
+                window_id: Some("w-7".into()),
+            },
+            why: crate::assistant::guard::BORROW_KEYS.into(),
+            until_ms: 20_000,
+        },
+        None,
+        now,
+    );
+    assert!(board.frame_until(now).is_some());
+    board.apply(
+        &Event::Returned {
+            conversation: "job".into(),
+            to: Some("Mail".into()),
+        },
+        None,
+        now,
+    );
+    assert_eq!(board.frame_until(now), None);
 }

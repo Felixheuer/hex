@@ -272,6 +272,8 @@ pub(super) fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
                     window: lease.window,
                     look: Look::HandsOff,
                     progress: task.progress(),
+                    step: task.step.clone(),
+                    here: task.origin.lane() == crate::assistant::Lane::Here,
                 }),
         );
     }
@@ -305,9 +307,14 @@ pub(super) fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
         )))
         .collect();
     super::super::app_live::track(&windows);
-    // The frame shows only while a task works on the screen right now
-    // (`Board::frame_until`): background work shows its card, not a frame.
-    watcher::set_frame_until(orb.board.frame_until(now));
+    // The desk frame shows only while the agent has the person's controls
+    // (`Board::frame_until`), with its tab; background work shows its
+    // card and its minis' rings, not a frame.
+    watcher::set_frame(
+        orb.board.frame_until(now),
+        super::super::frame::Tab::of(&orb.board, now),
+    );
+    watcher::escape_stops(orb.board.borrowing().map(|task| task.id.clone()));
     watcher::publish(outlined, live);
     enlarged::follow(&orb.board);
     wall::follow(&orb.board);

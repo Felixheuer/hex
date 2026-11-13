@@ -557,6 +557,74 @@ pub fn hands_off() -> Option<ConversationId> {
     state::Store::standard()?.hands_off()
 }
 
+/// Why a window was brought forward: its app ignored actions in the
+/// background (one failed, and its retry).
+pub const BORROW_IGNORED: &str = "ignored-background";
+/// Why a window was brought forward: keys must reach it (the agent asked
+/// for the front again after the background-first refusal).
+pub const BORROW_KEYS: &str = "needs-keys";
+/// Every reason a borrow gives (`Event::Borrowed.why`).
+pub const BORROW_REASONS: [&str; 2] = [BORROW_IGNORED, BORROW_KEYS];
+
+/// A window a task's guard has brought in front of the person for a moment
+/// (`proxy::borrow`), as Agent-Desk reads it to show the desk frame.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Borrow {
+    pub task: ConversationId,
+    pub window: TaskWindow,
+    /// One of [`BORROW_REASONS`].
+    pub why: String,
+    /// When it began, and when it ends at the latest (Unix ms).
+    pub at_ms: u64,
+    pub until_ms: u64,
+    /// The person's app that gets the front back.
+    pub before: Option<String>,
+}
+
+/// Every window brought in front of the person right now.
+pub fn borrowed() -> Vec<Borrow> {
+    let Some(store) = state::Store::standard() else {
+        return Vec::new();
+    };
+    store
+        .borrowed()
+        .into_iter()
+        .map(|file| Borrow {
+            task: file.task,
+            window: TaskWindow {
+                app: file.app,
+                window_id: Some(file.window_id),
+            },
+            why: file.why,
+            at_ms: file.at_ms,
+            until_ms: file.until_ms,
+            before: file.before,
+        })
+        .collect()
+}
+
+/// Whether the person touched the mouse, trackpad, or keyboard since `ms`
+/// (Unix ms): the system's own count of real input (`HIDSystemState`),
+/// which events posted to an app's process don't move.
+#[cfg(target_os = "macos")]
+pub fn touched_since(ms: u64) -> bool {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGEventSourceSecondsSinceLastEventType(state: i32, event_type: u32) -> f64;
+    }
+    // SAFETY: a pure query with constant arguments
+    // (kCGEventSourceStateHIDSystemState, kCGAnyInputEventType).
+    let idle = unsafe { CGEventSourceSecondsSinceLastEventType(1, u32::MAX) };
+    let since = crate::desktop::events::now_ms().saturating_sub(ms) as f64 / 1000.0;
+    idle.is_finite() && idle < since
+}
+
+/// Off macOS nothing is borrowed, so nothing is touched.
+#[cfg(not(target_os = "macos"))]
+pub fn touched_since(_ms: u64) -> bool {
+    false
+}
+
 /// Clears what tasks of an earlier run left behind: leases and hands-off
 /// markers of processes that have ended, and pause markers; windows they
 /// (or the desk of an Agent-Desk that quit, crashed, or was updated) left parked go

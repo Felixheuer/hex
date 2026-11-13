@@ -463,6 +463,12 @@ fn follow(id: &str, events: &mpsc::Receiver<Event>, speak: bool) -> bool {
                 println!("[waiting until {until_ms}] {reason}")
             }
             Event::HandsOff { on, .. } => println!("[hands off] {on}"),
+            Event::Borrowed { window, why, .. } => {
+                println!("[in front] {} · {why}", window.app)
+            }
+            Event::Returned { to, .. } => {
+                println!("[back to you] {}", to.as_deref().unwrap_or_default())
+            }
             Event::Acting { .. } => {}
             Event::Plan { steps, .. } => {
                 for step in steps {

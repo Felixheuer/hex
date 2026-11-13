@@ -40,6 +40,10 @@ pub(crate) struct Outlined {
     pub(crate) look: Look,
     /// Its plan's steps done and in all, for the title chip.
     pub(crate) progress: Option<(usize, usize)>,
+    /// What it does there now, for the title chip.
+    pub(crate) step: Option<String>,
+    /// A Here task's window: outlined in the agent's hue.
+    pub(crate) here: bool,
 }
 
 /// The question the orb's bubble shows: the inbox's active one.
@@ -230,6 +234,8 @@ impl Board {
                     window: window.clone(),
                     look,
                     progress: task.progress(),
+                    step: task.step.clone(),
+                    here: task.origin.lane() == crate::assistant::Lane::Here,
                 })
             })
             .collect()

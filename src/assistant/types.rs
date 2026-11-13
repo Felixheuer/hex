@@ -322,6 +322,25 @@ pub enum Event {
     },
     /// The stored list changed (a new, renamed, or deleted conversation).
     ConversationsChanged,
+    /// The guard brought one of the task's windows in front of the person
+    /// for a moment (an app that refused background work): the desk frame
+    /// and its tab ("Agent-Desk is using Numbers for a moment · why · Esc ·
+    /// back in 2 s") show until `Returned`. `why` is one of the guard's
+    /// fixed reasons (`guard::BORROW_REASONS`); `until_ms` is when the
+    /// borrow ends at the latest (Unix ms).
+    Borrowed {
+        conversation: ConversationId,
+        window: TaskWindow,
+        why: String,
+        until_ms: u64,
+    },
+    /// The borrowed window went back (parked again, or handed to the person
+    /// who touched it) and the person's app `to` is in front again: "Back
+    /// to you · Mail".
+    Returned {
+        conversation: ConversationId,
+        to: Option<String>,
+    },
 }
 
 impl Event {
@@ -344,7 +363,9 @@ impl Event {
             | Self::Acting { conversation, .. }
             | Self::Plan { conversation, .. }
             | Self::Question { conversation, .. }
-            | Self::Escalated { conversation } => Some(conversation),
+            | Self::Escalated { conversation }
+            | Self::Borrowed { conversation, .. }
+            | Self::Returned { conversation, .. } => Some(conversation),
             Self::ConversationsChanged | Self::QuestionsChanged { .. } => None,
         }
     }

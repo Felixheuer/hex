@@ -12,6 +12,9 @@ use crate::assistant::types::Event;
 
 /// How often the monitor looks.
 const TICK: Duration = Duration::from_millis(250);
+/// After a window comes forward, input this soon is still the person's
+/// last move before it, not a touch of the borrowed window.
+const TOUCH_GRACE_MS: u64 = 400;
 
 impl Runner {
     /// Runs until no task is left.
@@ -57,6 +60,7 @@ impl Runner {
             ));
         }
         self.check_hands_off(&here);
+        self.check_borrowed();
         self.check_plans();
         // Jobs asking for helpers (`agent::team`).
         for ask in (self.hooks.team_asks)() {
@@ -190,6 +194,76 @@ impl Runner {
                 on: true,
             });
         }
+    }
+
+    /// Emits `Borrowed` and `Returned` as the guards bring this runner's
+    /// tasks' windows in front of the person and give the front back; a
+    /// borrow of a task the person took over is over (the window is
+    /// theirs). Any touch of the mouse or keys during a borrow takes the
+    /// task over, unless a task drives the real input itself.
+    fn check_borrowed(self: &Arc<Self>) {
+        // Real input from a task ("Hands off") isn't the person's touch.
+        let agent_input = (self.hooks.hands_off)().is_some();
+        let (now, touched) = {
+            let state = self.state();
+            let live = |task: &str| {
+                state.tasks.iter().any(|t| {
+                    t.running
+                        && t.status.conversation == task
+                        && t.status.state != TaskState::Paused
+                })
+            };
+            let now: Vec<_> = (self.hooks.borrowed)()
+                .into_iter()
+                .filter(|borrow| live(&borrow.task))
+                .collect();
+            let touched: Vec<String> = if agent_input {
+                Vec::new()
+            } else {
+                now.iter()
+                    .filter(|borrow| (self.hooks.touched_since)(borrow.at_ms + TOUCH_GRACE_MS))
+                    .map(|borrow| borrow.task.clone())
+                    .collect()
+            };
+            (now, touched)
+        };
+        for task in &touched {
+            self.take_over(task);
+        }
+        let now: Vec<_> = now
+            .into_iter()
+            .filter(|borrow| !touched.contains(&borrow.task))
+            .collect();
+        let before = {
+            let mut state = self.state();
+            if state.borrowed == now {
+                return;
+            }
+            std::mem::replace(&mut state.borrowed, now.clone())
+        };
+        for gone in before.iter().filter(|gone| !now.contains(gone)) {
+            let taken = touched.contains(&gone.task) || self.paused(&gone.task);
+            self.emit(&Event::Returned {
+                conversation: gone.task.clone(),
+                // Taken over: the window is the person's, nothing went back.
+                to: if taken { None } else { gone.before.clone() },
+            });
+        }
+        for came in now.iter().filter(|came| !before.contains(came)) {
+            self.emit(&Event::Borrowed {
+                conversation: came.task.clone(),
+                window: came.window.clone(),
+                why: came.why.clone(),
+                until_ms: came.until_ms,
+            });
+        }
+    }
+
+    /// Whether the person has `conversation` (taken over).
+    fn paused(&self, conversation: &str) -> bool {
+        self.state().tasks.iter().any(|task| {
+            task.status.conversation == conversation && task.status.state == TaskState::Paused
+        })
     }
 
     pub(crate) fn take_over(self: &Arc<Self>, conversation: &str) {

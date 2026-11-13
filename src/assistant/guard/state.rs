@@ -8,6 +8,9 @@
 //!   `<task>.resumed` holds the time it was last handed back.
 //! - `guard/hands-off/<task>.json`: present while `task` moves the real
 //!   pointer or presses real keys.
+//! - `guard/borrowed/<task>.json`: present while `task`'s guard has brought
+//!   one of its windows in front of the person for a moment (`proxy::borrow`),
+//!   with why and until when, so Agent-Desk shows the desk frame and its tab.
 //! - `guard/here/<task>.json`: a Here task's window in front, written by
 //!   Agent-Desk for each request, so a guard started ahead (in another window)
 //!   serves the request's own window without new spawn arguments.
@@ -37,6 +40,35 @@ pub struct LeaseFile {
 
 impl LeaseFile {
     /// Whether its holder is still running.
+    pub fn live(&self) -> bool {
+        running(self.pid, self.started)
+    }
+}
+
+/// A window a task's guard brought in front of the person for a moment,
+/// as stored (`guard/borrowed/<task>.json`).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct BorrowFile {
+    pub task: String,
+    /// The guard's process and when it started: a borrow of a guard that
+    /// ended (a crash) has lapsed.
+    pub pid: u32,
+    #[serde(default)]
+    pub started: Option<u64>,
+    pub window_id: String,
+    pub app: String,
+    /// Why (`guard::BORROW_IGNORED`, `guard::BORROW_KEYS`).
+    pub why: String,
+    /// When it began, and when it ends at the latest (Unix ms).
+    pub at_ms: u64,
+    pub until_ms: u64,
+    /// The person's app in front before, which gets the front back.
+    #[serde(default)]
+    pub before: Option<String>,
+}
+
+impl BorrowFile {
+    /// Whether its guard is still running.
     pub fn live(&self) -> bool {
         running(self.pid, self.started)
     }
@@ -85,6 +117,44 @@ impl Store {
 
     fn hands_dir(&self) -> PathBuf {
         self.root.join("guard").join("hands-off")
+    }
+
+    fn borrowed_dir(&self) -> PathBuf {
+        self.root.join("guard").join("borrowed")
+    }
+
+    fn borrowed_path(&self, task: &str) -> PathBuf {
+        self.borrowed_dir()
+            .join(format!("{}.json", file_name(task)))
+    }
+
+    /// Records `task`'s borrowed window (`None`: the front went back).
+    pub fn set_borrowed(&self, task: &str, borrow: Option<&BorrowFile>) {
+        let path = self.borrowed_path(task);
+        match borrow.and_then(|borrow| serde_json::to_vec(borrow).ok()) {
+            Some(bytes) => {
+                let _ = std::fs::create_dir_all(self.borrowed_dir());
+                // Whole or not at all: a reader never sees half of it.
+                let partial = path.with_extension("partial");
+                if std::fs::write(&partial, bytes).is_ok() {
+                    let _ = std::fs::rename(&partial, &path);
+                }
+            }
+            None => {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+
+    /// Every window brought in front now, by guards still running.
+    pub fn borrowed(&self) -> Vec<BorrowFile> {
+        let mut borrows: Vec<BorrowFile> = json_files(&self.borrowed_dir())
+            .into_iter()
+            .filter_map(|path| serde_json::from_slice(&std::fs::read(path).ok()?).ok())
+            .filter(BorrowFile::live)
+            .collect();
+        borrows.sort_by(|a, b| a.task.cmp(&b.task));
+        borrows
     }
 
     fn here_path(&self, task: &str) -> PathBuf {
@@ -233,6 +303,7 @@ impl Store {
             }
         });
         let _ = std::fs::remove_file(self.hands_dir().join(format!("{}.json", file_name(task))));
+        self.set_borrowed(task, None);
         self.set_here_window(task, None);
     }
 
@@ -251,6 +322,15 @@ impl Store {
         });
         for path in json_files(&self.hands_dir()) {
             if read_hands(&path).is_none_or(|(_, pid, started)| !running(pid, started)) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+        for path in json_files(&self.borrowed_dir()) {
+            let lapsed = std::fs::read(&path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<BorrowFile>(&bytes).ok())
+                .is_none_or(|borrow| !borrow.live());
+            if lapsed {
                 let _ = std::fs::remove_file(path);
             }
         }

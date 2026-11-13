@@ -1,25 +1,19 @@
-//! The watcher thread: shows the screen frame on every display while
-//! Background work runs, waits, or is queued, moves each outline with its
-//! window, and, while a task might hold the real pointer, asks the guard
-//! who does. It sleeps while there's nothing to show, move, or ask.
+//! The watcher thread: shows the desk frame on every display while the
+//! agent has the person's controls (real input, or a window brought in
+//! front), with its tab on the display it's about and "Back to you" after;
+//! moves each outline with its window (only windows on the screen: a
+//! parked one shows as its mini's ring in the rail instead); keeps the
+//! outlined windows' rects for the rail's flip rule (`place::anchor_clear`);
+//! and, while a task might hold the real pointer, asks the guard who does.
+//! It sleeps while there's nothing to show, move, or ask.
 
 use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
-#[cfg(target_os = "macos")]
-use objc2::msg_send;
-#[cfg(target_os = "macos")]
-use objc2::rc::Retained;
-#[cfg(target_os = "macos")]
-use objc2::runtime::{AnyClass, AnyObject};
-#[cfg(target_os = "macos")]
-use objc2_foundation::{NSNumber, NSString};
 use rune::{DisplayTarget, OverlayPlacement};
 
 use super::super::board::Outlined;
-#[cfg(target_os = "macos")]
-use super::super::frame;
-use super::super::frame::Frame;
+use super::super::frame::{Frame, Tab};
 use super::super::outline::{self, LabelSide, Outline};
 use super::super::screens::{self, Screen, Seams};
 #[cfg(target_os = "macos")]
@@ -41,11 +35,19 @@ const OUTLINE_POLL: Duration = Duration::from_millis(100);
 /// asked who holds the pointer while a task runs.
 const DISPLAY_POLL: Duration = Duration::from_secs(1);
 
+/// Of a window, at least this much on the displays for its outline: less
+/// is a parked window hanging off the edge (`space::off_screen`).
+const ON_SCREEN: f64 = 0.5;
+/// The shortest wait while "Back to you" counts down.
+const TAB_TICK: Duration = Duration::from_millis(50);
+
 /// What the watcher thread watches, set from the subscriber and the orb.
 #[derive(Default)]
 struct Watch {
-    /// The screen frame shows until then (`Board::frame_until`).
+    /// The desk frame shows until then (`Board::frame_until`).
     frame: Option<Instant>,
+    /// The frame's tab (or "Back to you" after it).
+    tab: Option<Tab>,
     outlined: Vec<Outlined>,
     /// A task is live, so one might take the real pointer.
     live: bool,
@@ -55,6 +57,7 @@ struct Watch {
 
 static WATCH: Mutex<Watch> = Mutex::new(Watch {
     frame: None,
+    tab: None,
     outlined: Vec::new(),
     live: false,
     generation: 0,
@@ -66,9 +69,25 @@ fn watch() -> MutexGuard<'static, Watch> {
     WATCH.lock().unwrap_or_else(|error| error.into_inner())
 }
 
-/// Shows the screen frame until `until` (`None` hides it).
-pub(super) fn set_frame_until(until: Option<Instant>) {
-    change(|watch| std::mem::replace(&mut watch.frame, until) != until);
+/// Shows the desk frame until `until` (`None` hides it), and its `tab`.
+pub(super) fn set_frame(until: Option<Instant>, tab: Option<Tab>) {
+    change(|watch| {
+        let changed = watch.frame != until || watch.tab != tab;
+        watch.frame = until;
+        watch.tab = tab;
+        changed
+    });
+}
+
+/// The windows outlined now (global points): the rail flips away from them.
+static OUTLINED_AT: Mutex<Vec<[f64; 4]>> = Mutex::new(Vec::new());
+
+/// The windows outlined now, in global points.
+pub(super) fn outlined_rects() -> Vec<[f64; 4]> {
+    OUTLINED_AT
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone()
 }
 
 /// The windows to outline, and whether any task is live.
@@ -112,11 +131,15 @@ fn start() {
 /// goes, and the window's size.
 type Piece<'a> = (&'a Outlined, u32, [f64; 4], [f64; 4], LabelSide, (f64, f64));
 
-/// What one frame panel shows: its display and how it meets the others.
+/// What one frame panel shows: its display, how it meets the others,
+/// whether it glows, and its tab with the seconds left.
 #[derive(Clone, Debug, PartialEq)]
 struct FrameSlot {
     screen: Screen,
     seams: Seams,
+    glow: bool,
+    tab: Option<Tab>,
+    left: Option<u64>,
 }
 
 /// What one outline panel shows: one task window's outline, or its piece
@@ -145,6 +168,8 @@ struct Watcher {
     hands: Option<ConversationId>,
     /// When the HUD-side panels were last asked to follow the person.
     followed: Option<Instant>,
+    /// The display the tab last showed on ("Back to you" stays there).
+    tab_on: Option<u32>,
 }
 
 impl Watcher {
@@ -153,10 +178,14 @@ impl Watcher {
         self.slots = vec![None; MAX_OUTLINES];
         let mut seen = u64::MAX;
         loop {
-            let (frame, outlined, live) = {
+            let (frame, tab, outlined, live) = {
                 let mut watch = watch();
                 // Sleep while there's nothing to show, move, or ask.
                 while watch.frame.is_none_or(|until| until <= Instant::now())
+                    && watch
+                        .tab
+                        .as_ref()
+                        .is_none_or(|tab| !tab.shows(Instant::now()))
                     && watch.outlined.is_empty()
                     && !watch.live
                     && watch.generation == seen
@@ -167,8 +196,10 @@ impl Watcher {
                         .unwrap_or_else(|error| error.into_inner());
                 }
                 seen = watch.generation;
+                let now = Instant::now();
                 (
-                    watch.frame.is_some_and(|until| until > Instant::now()),
+                    watch.frame.is_some_and(|until| until > now),
+                    watch.tab.clone().filter(|tab| tab.shows(now)),
                     watch.outlined.clone(),
                     watch.live,
                 )
@@ -177,7 +208,7 @@ impl Watcher {
                 // Read them again now, not within the second.
                 self.displays_read = None;
             }
-            self.frames(frame);
+            self.frames(frame, tab.as_ref());
             self.outlines(&outlined, frame);
             self.ask_guard(live);
             if (frame || live) && self.followed.is_none_or(|at| at.elapsed() >= DISPLAY_POLL) {
@@ -185,13 +216,22 @@ impl Watcher {
                 // The orb and bubble move to the display the person works on.
                 super::follow::follow(false);
             }
+            let back = match &tab {
+                Some(Tab::Back { until, .. }) => Some(
+                    until
+                        .saturating_duration_since(Instant::now())
+                        .max(TAB_TICK),
+                ),
+                _ => None,
+            };
             let pause = if !outlined.is_empty() {
                 OUTLINE_POLL
-            } else if frame || live {
+            } else if frame || live || tab.is_some() {
                 DISPLAY_POLL
             } else {
                 continue;
             };
+            let pause = back.map_or(pause, |back| back.min(pause));
             let watch = watch();
             if watch.generation == seen {
                 let _ = WATCH_CHANGED.wait_timeout(watch, pause);
@@ -253,27 +293,39 @@ impl Watcher {
         due
     }
 
-    /// Shows a frame on every display while Background work runs, each
-    /// joined to its neighbours, follows displays coming, going, moving,
-    /// and resizing (a panel stays with its display), and keeps each
-    /// breathing.
-    fn frames(&mut self, on: bool) {
+    /// Shows the desk frame on every display while the agent has the
+    /// controls (`glow`), each joined to its neighbours, with the `tab` on
+    /// the display it's about (its window's, else where it showed last,
+    /// else the main one); "Back to you" alone keeps only that display's
+    /// panel. Follows displays coming, going, moving, and resizing (a panel
+    /// stays with its display). The frame is still: nothing breathes while
+    /// the agent is in front.
+    fn frames(&mut self, glow: bool, tab: Option<&Tab>) {
         let Some(overlays) = OVERLAYS.get() else {
             return;
         };
-        let read = on && self.read_displays();
-        let wanted: Vec<FrameSlot> = if on {
-            self.displays
-                .iter()
-                .map(|screen| FrameSlot {
+        if glow || tab.is_some() {
+            self.read_displays();
+        }
+        let tab_on = tab.and_then(|tab| self.tab_display(tab));
+        self.tab_on = tab_on.or(self.tab_on);
+        let left = tab.and_then(|tab| tab.left(super::super::when::now_ms()));
+        let wanted: Vec<FrameSlot> = self
+            .displays
+            .iter()
+            .filter(|screen| glow || Some(screen.id) == tab_on)
+            .map(|screen| {
+                let here = Some(screen.id) == tab_on;
+                FrameSlot {
                     screen: screen.clone(),
                     seams: screens::seams(screen, &self.displays),
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-        // Displays that went: their panels go.
+                    glow,
+                    tab: tab.filter(|_| here).cloned(),
+                    left: left.filter(|_| here),
+                }
+            })
+            .collect();
+        // Displays that went (or no longer show it): their panels go.
         for (index, slot) in self.frames.iter_mut().enumerate() {
             let gone = slot
                 .as_ref()
@@ -302,31 +354,45 @@ impl Watcher {
                     display: Some(want.screen.id),
                     size: (width, height),
                     seams: want.seams.clone(),
+                    glow: want.glow,
+                    tab: want.tab.clone(),
+                    left: want.left,
                 };
                 handle.update(move |frame, _| *frame = state);
-                handle.set_display(DisplayTarget::Primary);
-                handle.set_placement(Some(OverlayPlacement::Rect {
-                    x,
-                    y,
-                    width,
-                    height,
-                }));
+                let moved = have
+                    .as_ref()
+                    .is_none_or(|have| have.screen.frame != want.screen.frame);
+                if moved {
+                    handle.set_display(DisplayTarget::Primary);
+                    handle.set_placement(Some(OverlayPlacement::Rect {
+                        x,
+                        y,
+                        width,
+                        height,
+                    }));
+                }
                 if have.is_none() {
                     handle.fade_in(FRAME_IN);
                 }
             }
-            let moved = have.as_ref() != Some(&want);
             self.frames[index] = Some(want);
-            // Checked with each read of the displays, not each outline poll.
-            if read || moved {
-                let breathing = handle.clone();
-                // On the main thread; no redraw.
-                handle.update_if(move |_, _| {
-                    ensure_breathing(breathing.window_number());
-                    false
-                });
-            }
         }
+    }
+
+    /// The display the tab goes on: its window's, else the one it showed
+    /// on last, else the main display.
+    fn tab_display(&self, tab: &Tab) -> Option<u32> {
+        let window = tab
+            .window()
+            .and_then(|window| super::window_frame(window, &self.displays))
+            .map(|(x, y, w, h)| [x, y, w, h]);
+        window
+            .and_then(|rect| screens::under(&self.displays, rect))
+            .map(|screen| screen.id)
+            .or(self
+                .tab_on
+                .filter(|id| self.displays.iter().any(|screen| screen.id == *id)))
+            .or(self.displays.first().map(|screen| screen.id))
     }
 
     /// Moves each live task window's outline to where its window is now: in
@@ -351,11 +417,8 @@ impl Watcher {
                 continue;
             };
             let window_rect = [window.0, window.1, window.2, window.3];
-            if !self
-                .displays
-                .iter()
-                .any(|screen| screens::intersect(screen.frame, window_rect).is_some())
-            {
+            if !on_screen(window_rect, &screens) {
+                // Parked off the screen: its mini's ring says it instead.
                 continue;
             }
             if outline::redundant(window_rect, &drawn, &screens, frame_on) {
@@ -369,6 +432,9 @@ impl Watcher {
                 wanted.push((item, display, full, piece, label, (window.2, window.3)));
             }
         }
+        *OUTLINED_AT
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = drawn.clone();
         let keys: Vec<_> = wanted
             .iter()
             .map(|(item, display, ..)| (item.task.clone(), item.window.clone(), *display))
@@ -415,6 +481,8 @@ impl Watcher {
                 label,
                 look: item.look,
                 progress: item.progress,
+                step: item.step.clone(),
+                here: item.here,
                 origin: ((full[0] - piece[0]) as f32, (full[1] - piece[1]) as f32),
             };
             if drawn != slot.outline {
@@ -465,6 +533,76 @@ impl Watcher {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Esc while a window is in front
+
+/// `kVK_Escape`.
+#[cfg(target_os = "macos")]
+const ESCAPE: u16 = 53;
+
+/// The task whose window is in front, while the tab shows: Esc stops it.
+static IN_FRONT: Mutex<Option<ConversationId>> = Mutex::new(None);
+
+#[cfg(target_os = "macos")]
+thread_local! {
+    /// The global Esc monitor while a window is borrowed.
+    static IN_FRONT_MONITOR: std::cell::RefCell<Option<objc2::rc::Retained<objc2::runtime::AnyObject>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Esc (pressed by the person, in any app) stops `task` while its window
+/// is in front, as the tab says; `None` stops watching. Main thread.
+pub(super) fn escape_stops(task: Option<ConversationId>) {
+    let on = task.is_some();
+    *IN_FRONT.lock().unwrap_or_else(|error| error.into_inner()) = task;
+    watch_in_front_escape(on);
+}
+
+/// Linux and Windows: the listener takes Escape while the assistant is busy
+/// (`assistant::shortcut::claims_escape`).
+#[cfg(not(target_os = "macos"))]
+fn watch_in_front_escape(_on: bool) {}
+
+/// A passive monitor (the key still reaches the app in front).
+#[cfg(target_os = "macos")]
+fn watch_in_front_escape(on: bool) {
+    use objc2_app_kit::{NSEvent, NSEventMask};
+    if objc2::MainThreadMarker::new().is_none() {
+        return;
+    }
+    IN_FRONT_MONITOR.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        match (on, slot.take()) {
+            (true, Some(monitor)) => *slot = Some(monitor),
+            (true, None) => {
+                let block = block2::RcBlock::new(|event: std::ptr::NonNull<NSEvent>| {
+                    // SAFETY: AppKit passes a live event for the handler's duration.
+                    let event = unsafe { event.as_ref() };
+                    if event.keyCode() != ESCAPE || !super::answer::pressed_by_person(event) {
+                        return;
+                    }
+                    let task = IN_FRONT
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .clone();
+                    if let Some(task) = task {
+                        crate::assistant::cancel(&task);
+                    }
+                });
+                *slot = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(
+                    NSEventMask::KeyDown,
+                    &block,
+                );
+            }
+            (false, Some(monitor)) => {
+                // SAFETY: the monitor came from addGlobalMonitor on this thread.
+                unsafe { NSEvent::removeMonitor(&monitor) };
+            }
+            (false, None) => {}
+        }
+    });
+}
+
 /// `NSNormalWindowLevel`: ordinary app windows.
 const NORMAL_LEVEL: isize = 0;
 /// `NSStatusWindowLevel`, Rune's default for overlays.
@@ -493,81 +631,37 @@ fn display_top(displays: &[Screen], (x, y, w, _): (f64, f64, f64, f64)) -> f64 {
     screens::at(displays, (x + w / 2.0, y)).map_or(0.0, |screen| screen.frame[1])
 }
 
-/// Whether macOS asks for less motion (Accessibility › Display › Reduce
-/// motion).
-#[cfg(target_os = "macos")]
-fn reduce_motion() -> bool {
-    objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
-}
-
-#[cfg(target_os = "macos")]
-const BREATHE_KEY: &str = "hex-breathe";
-
-/// Linux and Windows: the frame stays still (no window server animates it).
-#[cfg(not(target_os = "macos"))]
-fn ensure_breathing(_number: Option<u32>) {}
-
-/// Breathes the frame panel's layer in Core Animation (none with Reduce
-/// motion on): the window server animates it, so Agent-Desk draws nothing for it.
-/// Added again if the layer was remade.
-#[cfg(target_os = "macos")]
-fn ensure_breathing(number: Option<u32>) {
-    let Some(panel) = panel(number) else {
-        return;
-    };
-    let Some(view) = panel.contentView() else {
-        return;
-    };
-    let key = NSString::from_str(BREATHE_KEY);
-    // SAFETY: Core Animation calls on the main thread, on the panel's own
-    // layer, with objects that live through each call.
-    unsafe {
-        let layer: *mut AnyObject = msg_send![&*view, layer];
-        let Some(layer) = layer.as_ref() else {
-            return;
-        };
-        let existing: *mut AnyObject = msg_send![layer, animationForKey: &*key];
-        if reduce_motion() {
-            if !existing.is_null() {
-                let _: () = msg_send![layer, removeAnimationForKey: &*key];
-            }
-            return;
-        }
-        if !existing.is_null() {
-            return;
-        }
-        let (Some(animation_class), Some(timing_class)) = (
-            AnyClass::get(c"CABasicAnimation"),
-            AnyClass::get(c"CAMediaTimingFunction"),
-        ) else {
-            return;
-        };
-        let path = NSString::from_str("opacity");
-        let animation: Option<Retained<AnyObject>> =
-            msg_send![animation_class, animationWithKeyPath: &*path];
-        let Some(animation) = animation else {
-            return;
-        };
-        let from = NSNumber::new_f32(1.0);
-        let to = NSNumber::new_f32(frame::BREATH_LOW);
-        let ease = NSString::from_str("easeInEaseOut");
-        let timing: Option<Retained<AnyObject>> = msg_send![timing_class, functionWithName: &*ease];
-        let _: () = msg_send![&*animation, setFromValue: &*from];
-        let _: () = msg_send![&*animation, setToValue: &*to];
-        let _: () = msg_send![&*animation, setDuration: frame::BREATH / 2.0];
-        let _: () = msg_send![&*animation, setAutoreverses: true];
-        let _: () = msg_send![&*animation, setRepeatCount: f32::INFINITY];
-        let _: () = msg_send![&*animation, setRemovedOnCompletion: false];
-        if let Some(timing) = &timing {
-            let _: () = msg_send![&*animation, setTimingFunction: &**timing];
-        }
-        let _: () = msg_send![layer, addAnimation: &*animation, forKey: &*key];
+/// Whether most of `window` is on the displays (`ON_SCREEN`): a window
+/// parked off the edge, with only a sliver showing, isn't.
+fn on_screen(window: [f64; 4], displays: &[[f64; 4]]) -> bool {
+    let area = window[2] * window[3];
+    if area <= 0.0 {
+        return false;
     }
+    let shown: f64 = displays
+        .iter()
+        .filter_map(|display| screens::intersect(*display, window))
+        .map(|[_, _, w, h]| w * h)
+        .sum();
+    shown / area >= ON_SCREEN
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_parked_window_gets_no_outline_and_one_on_the_screen_does() {
+        let display = [[0.0, 0.0, 1800.0, 1169.0]];
+        assert!(on_screen([100.0, 80.0, 900.0, 700.0], &display));
+        // Parked: hanging off the bottom-right corner but a sliver.
+        assert!(!on_screen([1799.0, 1168.0, 900.0, 600.0], &display));
+        // Mostly off the right edge.
+        assert!(!on_screen([1500.0, 100.0, 900.0, 600.0], &display));
+        // Across two displays side by side: whole.
+        let two = [[0.0, 0.0, 1800.0, 1169.0], [1800.0, 0.0, 2560.0, 1440.0]];
+        assert!(on_screen([1500.0, 100.0, 900.0, 600.0], &two));
+    }
 
     #[test]
     fn an_outlines_label_measures_from_its_own_displays_top() {

@@ -291,6 +291,8 @@ impl<D: Desktop> Guard<D> {
     /// after a resume, is not sent: the window may have changed.
     pub(super) fn gate(&mut self, tool: &str) -> Result<(), Value> {
         if self.store.paused(&self.config.task) {
+            // Taken over: a window brought forward is the person's now.
+            self.hand_over_borrowed();
             while self.store.paused(&self.config.task) {
                 std::thread::sleep(self.poll);
             }

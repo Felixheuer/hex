@@ -362,9 +362,9 @@ unsafe extern "C" {
 }
 
 /// Whether a key came from the person rather than from the agent pressing
-/// keys for its task (agent-desktop, or Agent-Desk itself).
+/// keys for its task (Cua Driver, or Agent-Desk itself).
 #[cfg(target_os = "macos")]
-fn pressed_by_person(event: &NSEvent) -> bool {
+pub(super) fn pressed_by_person(event: &NSEvent) -> bool {
     // SAFETY: `CGEvent` returns the event's own CGEventRef (or null), alive
     // while the event is; reading a field doesn't retain or change it.
     let pid = unsafe {
@@ -385,5 +385,5 @@ fn pressed_by_person(event: &NSEvent) -> bool {
     let written =
         unsafe { libc::proc_name(pid as i32, name.as_mut_ptr().cast(), name.len() as u32) };
     let name = std::str::from_utf8(&name[..written.max(0) as usize]).unwrap_or_default();
-    !name.starts_with("agent-desktop")
+    !name.starts_with("cua-driver")
 }
