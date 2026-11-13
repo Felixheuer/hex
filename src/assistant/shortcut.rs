@@ -12,7 +12,7 @@
 
 mod barge_in;
 mod latin;
-mod spoken_stop;
+pub(crate) mod spoken_stop;
 use std::sync::Mutex;
 use std::time::Duration;
 

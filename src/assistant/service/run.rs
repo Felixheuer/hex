@@ -112,6 +112,10 @@ impl Runner {
             .then(|| crate::assistant::memory::for_prompt(&(self.hooks.memory)()))
             .flatten();
         let notify = |event: &Event| {
+            // Away from the Mac: questions and results reach the phone.
+            if parent.is_none() {
+                crate::assistant::phone::on_event(event, &request.text);
+            }
             // A helper is quiet: its lead answers for the team.
             if parent.is_none()
                 && crate::assistant::notify::wanted(

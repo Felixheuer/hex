@@ -342,6 +342,11 @@ pub(super) const KEYS: &[Key] = &[
         "Background assistant tasks may also operate the window in front, like the ChatGPT app (macOS)",
     ),
     key(
+        "assistant.projects_folder",
+        Kind::Text,
+        "Where the assistant's coding jobs create their projects; ~/dev by default (macOS)",
+    ),
+    key(
         "assistant.keep_awake",
         Kind::Bool,
         "The computer doesn't sleep while a background assistant task works (the display may)",
@@ -350,6 +355,21 @@ pub(super) const KEYS: &[Key] = &[
         "assistant.keep_display_awake",
         Kind::Bool,
         "With assistant.keep_awake, the display stays on too",
+    ),
+    key(
+        "assistant.phone_enabled",
+        Kind::Bool,
+        "While you're away, questions, approvals and results go to your iPhone by iMessage, and your replies come back (macOS)",
+    ),
+    optional(
+        "assistant.phone_handle",
+        Kind::Text,
+        "Your own phone number or Apple ID for assistant.phone_enabled; nothing else is read or written (macOS)",
+    ),
+    key(
+        "assistant.phone_away_minutes",
+        Kind::Integer { min: 0, max: 240 },
+        "Away after this many minutes without input, or when the screen locks; 0 only when you say so (macOS)",
     ),
     key(
         "assistant.browser_signed_in_by_default",

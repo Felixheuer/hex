@@ -1,8 +1,14 @@
-//! `hex_compare_images`: how alike two screenshots look, for a job's own
-//! check ("does my page look like the reference?"). Both images (PNG or
-//! JPEG) are scaled to the same small grid of the first one's shape; the
-//! answer is a similarity from 0 to 100 and the regions that differ most, as
-//! fractions of the image, so the job knows where to look.
+//! `hex_compare_images`: how alike two screenshots are, for a job's own
+//! check ("is my page pixel-identical to the reference?"). Besides a quick
+//! similarity on a small grid, the comparison runs at full resolution: the
+//! second image is scaled to the first's size when their shapes match (a
+//! Retina and a normal capture of the same viewport), else the shared
+//! top-left area is compared and the size mismatch reported. A pixel differs
+//! when any channel differs by more than `tolerance`; the answer is the
+//! share of differing pixels, whether that is within the job's `threshold`,
+//! the regions that differ most (fractions of the image), and, with `diff`,
+//! a PNG written there showing the reference dimmed and every differing
+//! pixel in red.
 
 use serde_json::{Value, json};
 
@@ -20,11 +26,157 @@ struct Image {
     rgba: Vec<u8>,
 }
 
-/// The tool's answer for the files at `a` and `b`.
-pub fn compare(a: &str, b: &str) -> Result<String, String> {
+/// How a comparison is judged.
+#[derive(Clone, Copy, Debug)]
+pub struct Options {
+    /// Per-channel difference (0..255) a pixel may have and still match.
+    pub tolerance: u8,
+    /// The share of differing pixels (percent) still called identical.
+    pub threshold: f64,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            tolerance: 16,
+            threshold: 0.5,
+        }
+    }
+}
+
+/// The tool's answer for the files at `a` and `b`; with `diff`, the diff
+/// image is written there.
+pub fn compare(a: &str, b: &str, options: Options, diff: Option<&str>) -> Result<String, String> {
     let first = load(a)?;
     let second = load(b)?;
-    Ok(report(&first, &second).to_string())
+    let mut answer = report(&first, &second);
+    let exact = pixel_diff(&first, &second, options);
+    if let Some(path) = diff {
+        let png = encode_png(&exact.image).ok_or("Couldn't encode the diff image.")?;
+        std::fs::write(path, png).map_err(|error| format!("Couldn't write {path}: {error}"))?;
+        answer["diff_image"] = json!(path);
+    }
+    answer["pixels"] = exact.summary;
+    Ok(answer.to_string())
+}
+
+/// What the full-resolution comparison found.
+struct PixelDiff {
+    summary: Value,
+    image: Image,
+}
+
+/// The cells the full-resolution regions are told in, per side.
+const DIFF_CELLS: usize = 16;
+
+/// Compares `a` and `b` pixel by pixel at `a`'s resolution.
+fn pixel_diff(a: &Image, b: &Image, options: Options) -> PixelDiff {
+    let aspect = |image: &Image| image.width as f64 / image.height.max(1) as f64;
+    let same_shape = (aspect(a) - aspect(b)).abs() < 0.02;
+    // Same shape: `b` scaled to `a`'s size. Else the shared top-left area.
+    let (width, height) = if same_shape {
+        (a.width, a.height)
+    } else {
+        (a.width.min(b.width), a.height.min(b.height))
+    };
+    let at_b = |x: usize, y: usize| -> usize {
+        let (bx, by) = if same_shape {
+            (
+                (x * b.width / a.width.max(1)).min(b.width.saturating_sub(1)),
+                (y * b.height / a.height.max(1)).min(b.height.saturating_sub(1)),
+            )
+        } else {
+            (x, y)
+        };
+        (by * b.width + bx) * 4
+    };
+    let mut rgba = Vec::with_capacity(width * height * 4);
+    let mut differing = 0usize;
+    let mut cells = vec![0usize; DIFF_CELLS * DIFF_CELLS];
+    let mut cell_sizes = vec![0usize; DIFF_CELLS * DIFF_CELLS];
+    for y in 0..height {
+        for x in 0..width {
+            let ia = (y * a.width + x) * 4;
+            let ib = at_b(x, y);
+            let over = (0..3).any(|c| a.rgba[ia + c].abs_diff(b.rgba[ib + c]) > options.tolerance);
+            let cell =
+                (y * DIFF_CELLS / height.max(1)) * DIFF_CELLS + x * DIFF_CELLS / width.max(1);
+            cell_sizes[cell] += 1;
+            if over {
+                differing += 1;
+                cells[cell] += 1;
+                rgba.extend([255, 0, 0, 255]);
+            } else {
+                // The reference, dimmed toward white so the red stands out.
+                rgba.extend((0..3).map(|c| 170 + a.rgba[ia + c] / 3));
+                rgba.push(255);
+            }
+        }
+    }
+    let total = (width * height).max(1);
+    let percent = differing as f64 * 100.0 / total as f64;
+    let step = 1.0 / DIFF_CELLS as f64;
+    let mut regions: Vec<(usize, f64)> = cells
+        .iter()
+        .zip(&cell_sizes)
+        .enumerate()
+        .filter(|(_, (count, size))| **count > 0 && **size > 0)
+        .map(|(index, (count, size))| (index, *count as f64 * 100.0 / *size as f64))
+        .collect();
+    regions.sort_by(|x, y| y.1.total_cmp(&x.1));
+    let regions: Vec<Value> = regions
+        .iter()
+        .take(12)
+        .map(|(index, share)| {
+            json!({
+                "x": (index % DIFF_CELLS) as f64 * step,
+                "y": (index / DIFF_CELLS) as f64 * step,
+                "width": step,
+                "height": step,
+                "differing_percent": (share * 10.0).round() / 10.0,
+            })
+        })
+        .collect();
+    let mut summary = json!({
+        "compared_at": [width, height],
+        "differing_pixels": differing,
+        "differing_percent": (percent * 1000.0).round() / 1000.0,
+        "tolerance": options.tolerance,
+        "threshold_percent": options.threshold,
+        "identical": same_shape && percent <= options.threshold,
+        "differing_regions": regions,
+    });
+    if !same_shape {
+        summary["size_mismatch"] = json!(format!(
+            "{}x{} vs {}x{}: only the shared top-left area was compared; capture both at the same viewport size",
+            a.width, a.height, b.width, b.height
+        ));
+    }
+    PixelDiff {
+        summary,
+        image: Image {
+            width,
+            height,
+            rgba,
+        },
+    }
+}
+
+fn encode_png(image: &Image) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(
+            &mut bytes,
+            u32::try_from(image.width).ok()?,
+            u32::try_from(image.height).ok()?,
+        );
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.set_compression(png::Compression::Fast);
+        let mut writer = encoder.write_header().ok()?;
+        writer.write_image_data(&image.rgba).ok()?;
+    }
+    Some(bytes)
 }
 
 fn load(path: &str) -> Result<Image, String> {
@@ -218,6 +370,64 @@ mod tests {
         assert_eq!((image.width, image.height), (2, 1));
         assert_eq!(&image.rgba[..4], [255, 0, 0, 255]);
         assert!(decode(b"GIF89a").is_none());
-        assert!(compare("/nonexistent/a.png", "/nonexistent/b.png").is_err());
+        assert!(
+            compare(
+                "/nonexistent/a.png",
+                "/nonexistent/b.png",
+                Options::default(),
+                None
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn full_resolution_diff_counts_pixels_and_draws_them_red() {
+        let white = image(200, 100, |_, _| [255, 255, 255, 255]);
+        // Identical, and a Retina capture of the same viewport too.
+        let retina = image(400, 200, |_, _| [255, 255, 255, 255]);
+        let same = pixel_diff(&white, &retina, Options::default());
+        assert_eq!(same.summary["differing_pixels"], 0);
+        assert_eq!(same.summary["identical"], true);
+        // Ten pixels off: 0.05 %, within the default threshold; a strict one says no.
+        let dots = image(200, 100, |x, y| {
+            if y == 0 && x < 10 {
+                [0, 0, 0, 255]
+            } else {
+                [255, 255, 255, 255]
+            }
+        });
+        let few = pixel_diff(&white, &dots, Options::default());
+        assert_eq!(few.summary["differing_pixels"], 10);
+        assert_eq!(few.summary["identical"], true);
+        let strict = pixel_diff(
+            &white,
+            &dots,
+            Options {
+                tolerance: 16,
+                threshold: 0.0,
+            },
+        );
+        assert_eq!(strict.summary["identical"], false);
+        assert_eq!(
+            &strict.image.rgba[..4],
+            [255, 0, 0, 255],
+            "a differing pixel is red"
+        );
+        assert_ne!(
+            &strict.image.rgba[40..44],
+            [255, 0, 0, 255],
+            "a matching one isn't"
+        );
+        // Within tolerance (a slightly different white) counts as the same.
+        let off_white = image(200, 100, |_, _| [250, 250, 250, 255]);
+        let close = pixel_diff(&white, &off_white, Options::default());
+        assert_eq!(close.summary["differing_pixels"], 0);
+        // Different shapes: the shared area, never "identical".
+        let tall = image(200, 300, |_, _| [255, 255, 255, 255]);
+        let mismatch = pixel_diff(&white, &tall, Options::default());
+        assert_eq!(mismatch.summary["identical"], false);
+        assert!(mismatch.summary["size_mismatch"].is_string());
+        assert!(encode_png(&strict.image).unwrap().starts_with(b"\x89PNG"));
     }
 }

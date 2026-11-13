@@ -387,3 +387,23 @@ fn the_routing_rule_hands_jobs_on_with_the_tool() {
     );
     assert!(here.contains("hex_start_jobs"));
 }
+
+#[test]
+fn an_unattended_job_asks_everything_up_front_and_proves_its_work() {
+    let rules = job_rules(std::path::Path::new("/tmp/job"), true, true);
+    assert!(rules.contains("ask ALL of it in ONE message"), "{rules}");
+    assert!(rules.contains("never ask for something you could have asked now"));
+    assert!(rules.contains("Nachweis.md"), "the evidence file is named");
+    assert!(
+        rules.contains("SCREEN_LOCKED"),
+        "a locked screen is explained"
+    );
+    let projects = project_rules("~/dev");
+    assert!(projects.contains("under ~/dev"), "{projects}");
+    assert!(projects.contains("--private") && projects.contains("unless the person said public"));
+    assert!(projects.contains("Visual Studio Code"));
+    assert!(projects.contains("placeholder images"));
+    assert!(APPS_RULES.contains("screenshot the sent message"));
+    assert!(APPS_RULES.contains("1440×900") && APPS_RULES.contains("390×844"));
+    assert!(APPS_RULES.contains("a QR code or login form means not"));
+}

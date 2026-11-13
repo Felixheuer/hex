@@ -25,6 +25,13 @@ pub enum Want {
     SystemAndDisplay,
 }
 
+/// What `jobs` working background jobs need, as the settings allow. Jobs
+/// that may operate the desktop (`desktop`) keep the display awake too: a
+/// sleeping display stops their clicks while the person is away.
+pub fn want_for(keep_awake: bool, keep_display_awake: bool, desktop: bool, jobs: usize) -> Want {
+    want(keep_awake, keep_display_awake || desktop, jobs)
+}
+
 /// What `jobs` working background jobs need, as the settings allow.
 pub fn want(keep_awake: bool, keep_display_awake: bool, jobs: usize) -> Want {
     match (keep_awake && jobs > 0, keep_display_awake) {
@@ -45,13 +52,21 @@ static HELD: Mutex<Option<Held>> = Mutex::new(None);
 /// Holds or lets go as `jobs` working background jobs need. Cheap to call
 /// on every change: nothing happens while the need stays the same.
 pub fn update(keep_awake: bool, keep_display_awake: bool, jobs: usize) {
-    update_in(&HELD, keep_awake, keep_display_awake, jobs);
+    let desktop = crate::app_settings::assistant_runtime()
+        .is_some_and(|(on, settings)| on && settings.control_desktop);
+    update_in(&HELD, keep_awake, keep_display_awake, desktop, jobs);
 }
 
 // Off macOS the platform's handle is `()`.
 #[cfg_attr(not(target_os = "macos"), allow(clippy::unit_arg))]
-fn update_in(state: &Mutex<Option<Held>>, keep_awake: bool, keep_display_awake: bool, jobs: usize) {
-    let next = want(keep_awake, keep_display_awake, jobs);
+fn update_in(
+    state: &Mutex<Option<Held>>,
+    keep_awake: bool,
+    keep_display_awake: bool,
+    desktop: bool,
+    jobs: usize,
+) {
+    let next = want_for(keep_awake, keep_display_awake, desktop, jobs);
     let mut held = state.lock().unwrap_or_else(|error| error.into_inner());
     let current = held.as_ref().map_or(Want::Nothing, |held| held.want);
     let same_count = held.as_ref().is_some_and(|held| held.jobs == jobs);
@@ -197,15 +212,23 @@ mod tests {
     }
 
     #[test]
+    fn jobs_that_may_use_the_desktop_keep_the_display_awake() {
+        assert_eq!(want_for(true, false, true, 1), Want::SystemAndDisplay);
+        assert_eq!(want_for(true, false, false, 1), Want::System);
+        assert_eq!(want_for(true, false, true, 0), Want::Nothing);
+        assert_eq!(want_for(false, false, true, 2), Want::Nothing, "turned off");
+    }
+
+    #[test]
     fn holding_follows_the_need() {
         let state = Mutex::new(None);
         let held =
             |state: &Mutex<Option<Held>>| state.lock().unwrap().as_ref().map(|held| held.want);
-        update_in(&state, true, false, 2);
+        update_in(&state, true, false, false, 2);
         assert_eq!(held(&state), Some(Want::System));
-        update_in(&state, true, true, 2);
+        update_in(&state, true, true, false, 2);
         assert_eq!(held(&state), Some(Want::SystemAndDisplay));
-        update_in(&state, true, true, 0);
+        update_in(&state, true, true, false, 0);
         assert_eq!(held(&state), None);
     }
 }

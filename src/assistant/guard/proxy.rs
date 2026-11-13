@@ -278,6 +278,18 @@ impl<D: Desktop> Guard<D> {
         {
             return Err(self.blocked_refusal(tool, &app));
         }
+        // A locked screen stops every desktop step; say so instead of
+        // failing silently (a sleeping display is woken on the way).
+        if kind.needs_desktop()
+            && crate::desktop::screen_lock::desktop_state()
+                == crate::desktop::screen_lock::DesktopState::Locked
+        {
+            return Err(refusal(
+                tool,
+                "SCREEN_LOCKED",
+                "The Mac's screen is locked, so no desktop step can run until the person unlocks it. Do every part that needs no desktop now (browser tools, files, shell); if desktop steps are still left, ask the person once: start your reply with `HEX_QUESTION:` and say the screen is locked and what is waiting for it.",
+            ));
+        }
         if self.config.lane == Lane::Here {
             self.ensure_here();
         }

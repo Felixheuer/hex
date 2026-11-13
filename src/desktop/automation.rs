@@ -24,6 +24,9 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 /// System Events, the app tasks script to operate other apps.
 pub const SYSTEM_EVENTS: &str = "com.apple.systemevents";
+/// Messages, which sends the person's iMessages while they're away
+/// (`assistant::phone`).
+pub const MESSAGES: &str = "com.apple.MobileSMS";
 
 /// Whether Hex may control System Events.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -127,6 +130,23 @@ pub fn open_settings() {
     }
 }
 
+/// Whether Hex may control Messages (asked only when the phone channel is
+/// turned on); `ask` shows the prompt. Blocks; off the main thread.
+pub fn messages(ask: bool) -> AutomationState {
+    #[cfg(target_os = "macos")]
+    {
+        start_app(MESSAGES, "Messages");
+        let state = state_of(permission(MESSAGES, ask));
+        tracing::info!(?state, ask, "automation for Messages");
+        state
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = ask;
+        AutomationState::Granted
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn determine(ask: bool) -> AutomationState {
     start_system_events();
@@ -145,9 +165,16 @@ fn determine(_ask: bool) -> AutomationState {
 /// can only tell, and ask, for a running app), waiting up to 3 s.
 #[cfg(target_os = "macos")]
 fn start_system_events() {
+    start_app(SYSTEM_EVENTS, "System Events");
+}
+
+/// Starts `bundle_id` (process `process`) in the background when it isn't
+/// running, waiting up to 3 s.
+#[cfg(target_os = "macos")]
+fn start_app(bundle_id: &str, process: &str) {
     let running = || {
         std::process::Command::new("/usr/bin/pgrep")
-            .args(["-x", "System Events"])
+            .args(["-x", process])
             .stdout(std::process::Stdio::null())
             .status()
             .is_ok_and(|status| status.success())
@@ -156,7 +183,7 @@ fn start_system_events() {
         return;
     }
     let _ = std::process::Command::new("/usr/bin/open")
-        .args(["-g", "-j", "-b", SYSTEM_EVENTS])
+        .args(["-g", "-j", "-b", bundle_id])
         .status();
     for _ in 0..30 {
         if running() {
