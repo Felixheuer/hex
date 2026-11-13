@@ -247,10 +247,13 @@ pub fn meeting_notes_vocabulary() -> bool {
     true
 }
 
-/// The HUD grows out of the notch on a screen that has one (macOS).
+/// The HUD grows out of the notch on a screen that has one (macOS). Off:
+/// the speech bubble shows at its own place at the top, as it always did
+/// (the notch variant was a Lab few had on; turning it on for everyone hid
+/// the bubble the person relies on).
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn notch_indicator() -> bool {
-    cfg!(target_os = "macos")
+    false
 }
 
 /// A paste on GNOME restores the clipboard through XWayland (Linux).
