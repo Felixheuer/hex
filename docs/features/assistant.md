@@ -154,10 +154,15 @@ real speakers.
   shell (`agent::GUIDE_SKIPPED`); `each_lane_s_rules_stay_within_their_budget`
   guards each lane's size.
 - **Kept warm.** Besides the hold's `prewarm` and the follow-up's process,
-  a Here answer starts Claude Code for the next new Here conversation in
-  the window in front then (`service::stand_by`), kept
-  `assistant.warm_minutes` (15; 0 off). It idles without tokens; a hold in
-  another window starts its own.
+  a Here answer starts Claude Code for the next new Here conversation
+  (`service::stand_by`), kept `assistant.warm_minutes` (15; 0 off). It
+  idles without tokens and serves a hold in any window: a Here task's
+  window reaches its guard through the guard's state
+  (`guard/here/<task>.json`, written for each request by
+  `guard::mcp_server`), not the process's arguments. A reservation is
+  matched before it is taken; one a Here request doesn't fit, or one
+  replaced by another, ends its process (`provider::end_ahead`) instead of
+  idling out its time.
 - **Speculative start.** The live transcript of a hold
   (`dictation::audio`, `service::speculate`) starts the reserved
   conversation's own browser once its words ask for the web

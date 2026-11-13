@@ -31,8 +31,8 @@ pub fn tell_job(to: &str, text: &str) -> bool {
 /// the next `lane` request while the person is still speaking. Returns at
 /// once; for the Here lane it reads the window in front itself (a few
 /// milliseconds, off the caller's thread). The next matching `submit` (same
-/// lane, same window, same follow-up conversation) finds the process and its
-/// MCP servers up. Cheap to call again; does nothing for backends that can't
+/// lane, same follow-up conversation, in any window) finds the process and
+/// its MCP servers up. Cheap to call again; does nothing for backends that can't
 /// start ahead (only Claude Code can) or while the assistant is off.
 pub fn prewarm(lane: Lane) {
     std::thread::Builder::new()

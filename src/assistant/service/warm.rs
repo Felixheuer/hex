@@ -17,9 +17,9 @@ impl Runner {
 
     /// After a quick answer: Claude Code started for the next *new* Here
     /// conversation in the window in front now, so a hold after the
-    /// follow-up window still finds it up. It idles (no tokens) until then,
-    /// at most `assistant.warm_minutes`, and a hold in another window
-    /// starts its own instead.
+    /// follow-up window still finds it up, in whichever window (the window
+    /// goes through the guard's state, not the process's arguments). It
+    /// idles (no tokens) until then, at most `assistant.warm_minutes`.
     pub(super) fn stand_by(self: &Arc<Self>) {
         let (enabled, settings) = (self.hooks.settings)();
         if !enabled
@@ -77,11 +77,13 @@ impl Runner {
         let (enabled, settings) = (self.hooks.settings)();
         if !enabled || !settings.setup_done || settings.backend != AssistantBackend::ClaudeCode {
             // What was reserved for a backend that can't start ahead is void.
-            self.state().warm = None;
+            if let Some(void) = self.state().warm.take() {
+                (self.hooks.end_ahead)(&void.id);
+            }
             return;
         }
         let now = self.now();
-        let (conversation, id, key, session) = {
+        let (conversation, id, key, session, replaced) = {
             let mut state = self.state();
             let conversation: Option<ConversationId> = match lane {
                 Lane::Here if !new => focus_in(&state, settings.follow_up_seconds, now),
@@ -104,9 +106,10 @@ impl Runner {
             if state.warm.as_ref().is_some_and(|warm| {
                 warm.lane == lane
                     && warm.conversation == conversation
-                    && warm.window == window
                     && now.saturating_sub(warm.at_ms) < warm.for_ms
             }) {
+                // The same reservation serves any window: the request's own
+                // goes to the guard when it runs.
                 return;
             }
             let session = match &state.session {
@@ -120,18 +123,30 @@ impl Runner {
             }
             let key = self.next.fetch_add(1, Ordering::Relaxed);
             let id = conversation.clone().unwrap_or_else(store::new_id);
-            state.warm = Some(Warm {
-                lane,
-                conversation: conversation.clone(),
-                id: id.clone(),
-                key,
-                window: window.clone(),
-                at_ms: now,
-                for_ms: crate::assistant::agent::ahead_for(&settings, lane, conversation.is_none())
+            // The reservation this one replaces won't be taken: its process
+            // ends instead of idling out its time.
+            let replaced = state
+                .warm
+                .replace(Warm {
+                    lane,
+                    conversation: conversation.clone(),
+                    id: id.clone(),
+                    key,
+                    at_ms: now,
+                    for_ms: crate::assistant::agent::ahead_for(
+                        &settings,
+                        lane,
+                        conversation.is_none(),
+                    )
                     .as_millis() as u64,
-            });
-            (conversation, id, key, session)
+                })
+                .map(|old| old.id)
+                .filter(|old| *old != id);
+            (conversation, id, key, session, replaced)
         };
+        if let Some(old) = replaced {
+            (self.hooks.end_ahead)(&old);
+        }
         // Everything the system prompt is made of as the real request will
         // have it (`agent::system_for`), so the process started now is the
         // one it finds: the memory note too.

@@ -471,6 +471,13 @@ pub fn cool_down() {
     warm::clear();
 }
 
+/// Ends the backend processes started ahead for `task` (a reservation the
+/// request it was made for didn't take), instead of letting them idle
+/// until their time is up.
+pub fn end_ahead(task: &str) {
+    warm::end_for(task);
+}
+
 /// Runs `run` on its backend until it answers, fails, or is cancelled.
 pub fn run(run: &Run, control: &Control, report: &mut dyn FnMut(Report)) -> Result<Finished> {
     match run.backend {

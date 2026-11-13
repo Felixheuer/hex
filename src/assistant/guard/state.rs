@@ -8,6 +8,9 @@
 //!   `<task>.resumed` holds the time it was last handed back.
 //! - `guard/hands-off/<task>.json`: present while `task` moves the real
 //!   pointer or presses real keys.
+//! - `guard/here/<task>.json`: a Here task's window in front, written by
+//!   Hex for each request, so a guard started ahead (in another window)
+//!   serves the request's own window without new spawn arguments.
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -80,6 +83,34 @@ impl Store {
 
     fn hands_dir(&self) -> PathBuf {
         self.root.join("guard").join("hands-off")
+    }
+
+    fn here_path(&self, task: &str) -> PathBuf {
+        self.root
+            .join("guard")
+            .join("here")
+            .join(format!("{}.json", file_name(task)))
+    }
+
+    /// Records `task`'s Here window (`None` forgets it).
+    pub fn set_here_window(&self, task: &str, window: Option<&super::WireWindow>) {
+        let path = self.here_path(task);
+        match window.and_then(|window| serde_json::to_vec(window).ok()) {
+            Some(bytes) => {
+                if let Some(dir) = path.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                let _ = std::fs::write(path, bytes);
+            }
+            None => {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+
+    /// `task`'s Here window as Hex last recorded it.
+    pub fn here_window(&self, task: &str) -> Option<super::WireWindow> {
+        serde_json::from_slice(&std::fs::read(self.here_path(task)).ok()?).ok()
     }
 
     fn lease_path(&self, window_id: &str) -> PathBuf {
@@ -212,6 +243,7 @@ impl Store {
             }
         });
         let _ = std::fs::remove_file(self.hands_dir().join(format!("{}.json", file_name(task))));
+        self.set_here_window(task, None);
     }
 
     /// Removes lapsed leases and hands-off markers (their process is gone).

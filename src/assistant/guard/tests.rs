@@ -698,6 +698,30 @@ fn a_here_task_works_only_in_the_window_that_was_in_front() {
     assert_eq!(scratch.store().holder(FRONT).unwrap().task, "here-task");
 }
 
+/// A guard started ahead in one window (a backend kept warm) serves the
+/// request asked in another: Hex records the request's window in the state
+/// dir, and the guard takes it before its next call.
+#[test]
+fn a_here_window_travels_through_the_state_not_the_arguments() {
+    let scratch = Scratch::new();
+    let fake = Fake::recorded();
+    let store = scratch.store();
+    let mut guard = here(&scratch, &fake, FRONT, "Hex Test", false);
+    let citrix = super::WireWindow {
+        app: "Citrix Viewer".into(),
+        window_id: Some(CITRIX.into()),
+    };
+    store.set_here_window("here-task", Some(&citrix));
+    assert_eq!(store.here_window("here-task"), Some(citrix));
+    let moved = guard.call("desktop_minimize", args(json!({"window_id": CITRIX})));
+    assert_eq!(error_code(&moved), None, "{moved}");
+    let front = guard.call("desktop_minimize", args(json!({"window_id": FRONT})));
+    assert!(front["isError"] == true, "{front}");
+    // The task's end forgets it.
+    store.release_all("here-task");
+    assert_eq!(store.here_window("here-task"), None);
+}
+
 #[test]
 fn a_background_task_never_acts_in_the_window_in_front() {
     let scratch = Scratch::new();
@@ -1101,8 +1125,10 @@ fn a_task_gets_hex_itself_as_its_desktop_server() {
     assert_eq!(
         serde_json::to_value(&wire).unwrap(),
         json!({
+            // The Here window goes through the state dir, not the arguments
+            // (`a_here_window_travels_through_the_state_not_the_arguments`).
             "task": "c1", "lane": "here", "agent_id": "hex-1", "session": "s1",
-            "here_window": {"app": "Mail", "window_id": "w-7"},
+            "here_window": null,
             "physical_input": true, "blocked_apps": ["1Password"],
             "agent_desktop": "/opt/homebrew/bin/agent-desktop",
             "autonomy": "smart",

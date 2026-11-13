@@ -258,6 +258,7 @@ impl World {
             world(self),
         );
         let notes = world(self);
+        let ended_ahead = world(self);
         let browser = world(self);
         let pressure = world(self);
         let (team_asks, team_answer) = (world(self), world(self));
@@ -309,6 +310,7 @@ impl World {
                     .find(|(found, _, _)| found == id)
                     .map(|(_, origin, text)| (*origin, text.clone()))
             }),
+            end_ahead: Box::new(move |task| ended_ahead.log(format!("end ahead {task}"))),
             prewarm: Box::new(move |job| {
                 prewarm.prewarmed.lock().unwrap().push(job.clone());
                 prewarm.log(format!(
@@ -1372,6 +1374,58 @@ fn prewarm_reserves_the_next_requests_conversation_and_agent() {
     world.settings.lock().unwrap().backend = AssistantBackend::Codex;
     runner.prewarm(Lane::Here, None);
     assert!(runner.state().warm.is_none());
+}
+
+#[test]
+fn a_reservation_fits_any_window_and_one_left_unused_ends() {
+    let world = World::new(8);
+    world.settings.lock().unwrap().backend = AssistantBackend::ClaudeCode;
+    let runner = world.runner();
+    let reserved = |runner: &Runner| runner.state().warm.as_ref().unwrap().id.clone();
+    runner.prewarm(
+        Lane::Here,
+        Some(TaskWindow {
+            app: "Mail".into(),
+            window_id: Some("w-9".into()),
+        }),
+    );
+    let first = reserved(&runner);
+    // Asked in another window: it still takes what was started ahead (the
+    // window reaches the guard through its state).
+    let mut ask = request("q", Origin::ActionShortcut);
+    ask.context.window = Some(TaskWindow {
+        app: "Notes".into(),
+        window_id: Some("w-1".into()),
+    });
+    assert_eq!(runner.submit(ask), first);
+    world.release("q");
+    world.wait_for("the answer", ended(&first));
+    assert!(!world.logged(&format!("end ahead {first}")));
+
+    // Past the follow-up window: one for a new conversation.
+    world.advance(10 * 60_000);
+    runner.prewarm(Lane::Here, None);
+    let fresh = reserved(&runner);
+    assert_ne!(fresh, first);
+    // Then the follow-up is open again: its reservation replaces that one,
+    // whose process ends rather than idling.
+    runner.state().last_quick = Some((first.clone(), world.clock.load(Ordering::SeqCst)));
+    runner.prewarm(Lane::Here, None);
+    assert_eq!(reserved(&runner), first);
+    assert!(world.logged(&format!("end ahead {fresh}")));
+    // A Background request leaves a Here reservation alone.
+    let job = runner.submit(request("job", Origin::Background));
+    assert_eq!(reserved(&runner), first);
+    // A Here request it doesn't fit (a new conversation) ends it.
+    let other = runner.submit(request("q2", Origin::ActionShortcut));
+    assert_ne!(other, first);
+    assert!(world.logged(&format!("end ahead {first}")));
+    assert!(runner.state().warm.is_none());
+    world.release("q2");
+    world.release("job");
+    world.wait_for("both", |events| {
+        ended(&other)(events) && ended(&job)(events)
+    });
 }
 
 #[test]

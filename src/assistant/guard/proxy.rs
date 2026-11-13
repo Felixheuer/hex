@@ -339,6 +339,7 @@ impl<D: Desktop> Guard<D> {
         self.notes.clear();
         self.forwarding = Duration::ZERO;
         self.notice_resume();
+        self.refresh_here_window();
         let mut args = args;
         if self.config.lane == Lane::Background {
             self.return_orphans();
@@ -584,6 +585,26 @@ impl<D: Desktop> Guard<D> {
             .map_err(|why| failure(&format!("agent-desktop: {why}")));
         self.forwarding += started.elapsed();
         result
+    }
+
+    /// A Here task's window as Hex last recorded it for this request
+    /// (`guard::mcp_server`): a guard started ahead in another window takes
+    /// the request's own window before its first call.
+    fn refresh_here_window(&mut self) {
+        if self.config.lane != Lane::Here {
+            return;
+        }
+        let Some(window) = self.store.here_window(&self.config.task) else {
+            return;
+        };
+        let window = TaskWindow {
+            app: window.app,
+            window_id: window.window_id,
+        };
+        if self.config.here_window.as_ref() != Some(&window) {
+            self.config.here_window = Some(window);
+            self.here_ready = false;
+        }
     }
 
     /// The Here lane takes its window once.

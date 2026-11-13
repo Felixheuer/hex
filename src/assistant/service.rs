@@ -213,6 +213,9 @@ pub(crate) struct Hooks {
     pub interrupted: OnTask<Option<(Origin, String)>>,
     /// Starts a job's backend ahead of its question.
     pub prewarm: Box<dyn Fn(&Job) + Send + Sync>,
+    /// Ends what was started ahead for a reservation no request will take
+    /// (`provider::end_ahead`).
+    pub end_ahead: TaskHook,
     /// The window in front now (`computer::quick_context`), for a backend
     /// kept ready after a quick answer (`stand_by`).
     pub front_window: Hook<Option<TaskWindow>>,
@@ -300,6 +303,7 @@ impl Hooks {
                 Some((stored.conversation.origin, stored.last_question()?))
             }),
             prewarm: Box::new(agent::prewarm),
+            end_ahead: Box::new(provider::end_ahead),
             front_window: Box::new(|| super::computer::quick_context().window),
             browser_ahead: Box::new(super::browser::prewarm_for),
             requests: Box::new(move || {
@@ -456,7 +460,6 @@ struct Warm {
     /// The id the new conversation gets, and its task key (agent id).
     id: ConversationId,
     key: u64,
-    window: Option<TaskWindow>,
     at_ms: u64,
     /// How long it is kept for its request (`agent::ahead_for`).
     for_ms: u64,
@@ -688,6 +691,7 @@ impl Runner {
         let voice = request.origin != Origin::Chat;
         let mut stop = Vec::new();
         let mut steer_note = None;
+        let mut unused = None;
         let id = {
             let mut state = self.state();
             // The answer to a job's question.
@@ -721,17 +725,27 @@ impl Runner {
             let mut key = None;
             let mut steered_parent: Option<ConversationId> = None;
             let mut steered_title: Option<String> = None;
-            if let Some(warm) = state.warm.take()
-                && kind == JobKind::Ask
-                && warm.lane == request.origin.lane()
-                && warm.conversation == request.conversation
-                && warm.window == request.context.window
-                && now.saturating_sub(warm.at_ms) < warm.for_ms
+            // What `prewarm` reserved: taken when it fits (its lane, its
+            // conversation, in time; the window goes through the guard's
+            // state), matched before it is taken. A Here request it doesn't
+            // fit leaves it unusable: its process ends now instead of idling.
+            if kind == JobKind::Ask
+                && let Some(warm) = state.warm.take()
             {
-                if new_conversation {
-                    id = warm.id;
+                let lane = request.origin.lane();
+                if warm.lane == lane
+                    && warm.conversation == request.conversation
+                    && now.saturating_sub(warm.at_ms) < warm.for_ms
+                {
+                    if new_conversation {
+                        id = warm.id;
+                    }
+                    key = Some(warm.key);
+                } else if warm.lane == lane {
+                    unused = Some(warm.id);
+                } else {
+                    state.warm = Some(warm);
                 }
-                key = Some(warm.key);
             }
             if kind == JobKind::Ask
                 && let Some(target) = state.tasks.iter_mut().find(|task| {
@@ -803,6 +817,9 @@ impl Runner {
         };
         for key in stop {
             self.cancel_task(key);
+        }
+        if let Some(reserved) = unused {
+            (self.hooks.end_ahead)(&reserved);
         }
         if let Some((conversation, said)) = steer_note {
             self.note(&conversation, super::types::Role::User, &said);

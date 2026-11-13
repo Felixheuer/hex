@@ -2,9 +2,12 @@
 //! speaks (`prewarm`), or kept after a Here answer for the follow-up. Each
 //! waits for its next message on stdin; a process is only reused for a run
 //! with exactly the same arguments (system prompt, MCP servers with the
-//! task's id and window, model) and the same backend session, so it can't
-//! carry one task's tools into another. Each ends after its time to live,
-//! when evicted, or when Hex ends (its input closes).
+//! task's id, model) and the same backend session, so it can't carry one
+//! task's tools into another. A Here task's window isn't among them: it goes
+//! through the guard's state (`guard::mcp_server`), so a process started in
+//! one window serves a request asked in another. Each ends after its time
+//! to live, when evicted, when the reservation it was started for goes
+//! unused (`end_for`), or when Hex ends (its input closes).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
@@ -96,6 +99,28 @@ pub(super) fn take(key: &str, session: Option<&str>) -> Option<Process> {
             None
         }
     }
+}
+
+/// Ends the waiting processes started for `task` (a conversation id,
+/// which its arguments name: its tools' and guard's `--task`).
+pub(super) fn end_for(task: &str) {
+    if task.is_empty() {
+        return;
+    }
+    let ended: Vec<Warm> = {
+        let mut pool = pool();
+        let mut ended = Vec::new();
+        let mut index = 0;
+        while index < pool.len() {
+            if pool[index].key.contains(task) {
+                ended.push(pool.remove(index));
+            } else {
+                index += 1;
+            }
+        }
+        ended
+    };
+    ended.into_iter().for_each(end);
 }
 
 /// Ends every waiting process.
