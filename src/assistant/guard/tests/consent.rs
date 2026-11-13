@@ -311,3 +311,54 @@ fn a_password_fields_value_is_never_read() {
     assert_eq!(error_code(&bounds), None);
     assert_eq!(fake.forwarded(), ["desktop_snapshot", "desktop_get"]);
 }
+
+/// The person's own, signed-in browser: text that ends in Return submits
+/// there, and an address whose path says it deletes or sends is gated like
+/// a button with those words; plain text and pages go through.
+#[test]
+fn acting_in_the_persons_browser_asks_before_it_submits_or_opens_a_delete_link() {
+    let scratch = Scratch::new();
+    let fake = Fake::recorded();
+    compose(&fake, SETTINGS, "Google Chrome");
+    let mut guard = guard_with(&scratch, &fake, Autonomy::Smart);
+    guard.call("desktop_claim_window", args(json!({"window_id": SETTINGS})));
+    let act = |guard: &mut Guard<Fake>, extra: Value| {
+        let mut call = json!({"window_id": SETTINGS});
+        for (key, value) in extra.as_object().unwrap() {
+            call[key] = value.clone();
+        }
+        error_code(&guard.call("desktop_browser_act", args(call)))
+    };
+    assert_eq!(
+        act(
+            &mut guard,
+            json!({"action": "type", "ref": "e5", "text": "Bin gleich da\n"})
+        )
+        .as_deref(),
+        Some("NEEDS_CONFIRMATION")
+    );
+    assert_eq!(
+        act(
+            &mut guard,
+            json!({"action": "navigate", "url": "https://myaccount.example.com/account/delete"})
+        )
+        .as_deref(),
+        Some("NEEDS_CONFIRMATION")
+    );
+    assert_ne!(
+        act(
+            &mut guard,
+            json!({"action": "type", "ref": "e5", "text": "Bin gleich da"})
+        )
+        .as_deref(),
+        Some("NEEDS_CONFIRMATION")
+    );
+    assert_ne!(
+        act(
+            &mut guard,
+            json!({"action": "navigate", "url": "https://news.example.com/today"})
+        )
+        .as_deref(),
+        Some("NEEDS_CONFIRMATION")
+    );
+}

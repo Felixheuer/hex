@@ -255,8 +255,17 @@ fn rewrite_request(
     running: &dyn Fn() -> Vec<String>,
     pending: &Pending,
 ) -> Forward {
+    // A line this proxy can't read isn't passed on unchecked: agent-browser
+    // might read it differently and skip the pinning above.
     let Ok(mut message) = serde_json::from_str::<Value>(line) else {
-        return Forward::Server(line.to_owned());
+        if line.trim().is_empty() {
+            return Forward::Server(line.to_owned());
+        }
+        return Forward::Agent(
+            json!({"jsonrpc": "2.0", "id": null,
+                "error": {"code": -32700, "message": "Agent-Desk couldn't read that request"}})
+            .to_string(),
+        );
     };
     // Batches went away in MCP 2025-06-18; one is passed on only once
     // every call in it is pinned and allowed.

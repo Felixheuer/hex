@@ -239,7 +239,13 @@ pub fn keep_google_out() {
         return;
     }
     if let Some(program) = super::executable()
-        && let Err(error) = super::call(&program, super::SIGN_IN, &["close", "--all"])
+        && let Err(error) = super::call(
+            &program,
+            super::SIGN_IN,
+            // The namespace as a flag too: some agent-browser versions
+            // ignore it from the environment for commands over every session.
+            &["--namespace", super::NAMESPACE, "close", "--all"],
+        )
     {
         tracing::debug!(%error, "no Agent-Desk browser to close before the cleanup");
     }

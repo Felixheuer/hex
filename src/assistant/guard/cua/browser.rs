@@ -64,18 +64,31 @@ impl<I: Desktop> Cua<I> {
         let target = bound["target_id"].as_str().unwrap_or_default().to_owned();
         let tabs = bound["tabs"].as_array().cloned().unwrap_or_default();
         let wanted = text(args, "tab");
-        let tab = tabs
-            .iter()
-            .find(|tab| {
-                wanted.as_deref().is_some_and(|wanted| {
-                    tab["tab_id"] == wanted
-                        || ["title", "url"].iter().any(|key| {
-                            tab[*key].as_str().is_some_and(|text| {
-                                text.to_lowercase().contains(&wanted.to_lowercase())
-                            })
+        let found = tabs.iter().find(|tab| {
+            wanted.as_deref().is_some_and(|wanted| {
+                tab["tab_id"] == wanted
+                    || ["title", "url"].iter().any(|key| {
+                        tab[*key].as_str().is_some_and(|text| {
+                            text.to_lowercase().contains(&wanted.to_lowercase())
                         })
-                })
+                    })
             })
+        });
+        // A tab asked for by name that isn't there is an error, never the
+        // tab the person is looking at (a navigate would replace it).
+        if let Some(wanted) = &wanted
+            && found.is_none()
+            && !tabs.is_empty()
+        {
+            return Err(error(
+                command,
+                "TAB_NOT_FOUND",
+                &format!(
+                    "No tab matches “{wanted}” in that window; list its tabs with desktop_browser and pass one's tab_id."
+                ),
+            ));
+        }
+        let tab = found
             .or_else(|| {
                 tabs.iter()
                     .find(|tab| tab["selected"] == true || tab["active"] == true)
