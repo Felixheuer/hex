@@ -349,6 +349,20 @@ pub enum Event {
         conversation: ConversationId,
         to: Option<String>,
     },
+    /// The task runs in a project (`assistant::projects`): its name, for
+    /// the job rows' tag. Sent after `Started`.
+    InProject {
+        conversation: ConversationId,
+        name: String,
+    },
+    /// A new request seems to be about a project while none is active
+    /// (`projects::Projects::suggest`): the island offers it with one tap;
+    /// nothing switches on its own.
+    ProjectSuggested {
+        conversation: ConversationId,
+        id: String,
+        name: String,
+    },
 }
 
 impl Event {
@@ -374,7 +388,9 @@ impl Event {
             | Self::Escalated { conversation }
             | Self::Understood { conversation, .. }
             | Self::Borrowed { conversation, .. }
-            | Self::Returned { conversation, .. } => Some(conversation),
+            | Self::Returned { conversation, .. }
+            | Self::InProject { conversation, .. }
+            | Self::ProjectSuggested { conversation, .. } => Some(conversation),
             Self::ConversationsChanged | Self::QuestionsChanged { .. } => None,
         }
     }

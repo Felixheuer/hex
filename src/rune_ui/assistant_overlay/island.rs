@@ -79,10 +79,19 @@ pub(crate) fn line_with(
     bubble: Option<&Bubble>,
 ) -> Option<Line> {
     if let Some(held) = held {
+        // Which app is in front, and the project the words go to.
+        let trail = [
+            held.app.as_deref().map(|app| tr_fill("{} in front", app)),
+            held.project.as_deref().map(|name| format!("● {name}")),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ");
         return Some(Line {
             state: State::Listening,
             words: tr("Listening…").to_owned(),
-            trail: held.app.as_deref().map(|app| tr_fill("{} in front", app)),
+            trail: (!trail.is_empty()).then_some(trail),
         });
     }
     if let Some(front) = front.and_then(front_line) {

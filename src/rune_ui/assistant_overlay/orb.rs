@@ -42,7 +42,7 @@ use super::board::{Board, Phase, Task};
 use super::minis::{self, Desk};
 use super::pops::MAX_POPS;
 use super::results::{self, Outcome};
-use super::{frame, jobs, palette, stack, wall, when};
+use super::{frame, jobs, palette, project, stack, wall, when};
 use crate::desktop::i18n::{tr, tr_fill};
 use bubbles::{all_waiting, anchor, pop_in, standing_bubble, unfold};
 use cluster::orb;
@@ -102,6 +102,8 @@ pub(crate) struct Actions<S> {
     pub(crate) drag: fn(&mut S, &rune::Drag),
     /// A job's row: its live wall.
     pub(crate) jobs: jobs::LineActions<S>,
+    /// The project chip and its picker.
+    pub(crate) project: project::Actions<S>,
 }
 
 impl<S> Clone for Actions<S> {
@@ -148,6 +150,7 @@ impl<S: 'static> Actions<S> {
                 wall: |_, _| {},
                 all: |_| {},
             },
+            project: project::Actions::inert(),
         }
     }
 }
@@ -181,6 +184,8 @@ pub(crate) struct Orb {
     pub(crate) desk: Desk,
     /// The rail's share of the floating cards now ([`rail_cards`]).
     pub(crate) cards: usize,
+    /// The project chip at the head and its picker.
+    pub(crate) project: project::Picker,
     pub(crate) actions: Actions<Orb>,
 }
 
@@ -201,6 +206,7 @@ impl Orb {
             room: SIZE.1,
             desk: Desk::default(),
             cards: MAX_CARDS,
+            project: project::Picker::default(),
             actions,
         }
     }
@@ -231,6 +237,8 @@ pub(crate) struct Look {
     /// job rows, and result), the island's card and the stage counted
     /// out of [`MAX_CARDS`]; `None`: all of them.
     pub(crate) cards: Option<usize>,
+    /// The project chip and its picker.
+    pub(crate) project: project::Picker,
 }
 
 /// Floating cards on the screen at once, at most (`docs/ux/redesign.md`
@@ -264,6 +272,7 @@ pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
         room: Some(orb.room),
         desk: orb.desk.clone(),
         cards: Some(orb.cards),
+        project: orb.project.clone(),
     };
     el().key("orb-root")
         .w_full()
@@ -338,26 +347,46 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
     let mut parts: Vec<El> = Vec::new();
     let desk = !look.desk.is_empty();
     let inner_h = look.inner_h();
-    if !tasks.is_empty() || !board.pops.items.is_empty() || !done.is_empty() || desk {
-        // The orb, and beside it "All N live": every live picture on the
-        // wall, one press away.
-        let mut head = vec![orb(
-            p,
-            &tasks,
-            done.len(),
-            board.open_questions(),
-            look,
-            actions,
-        )];
-        head.extend(wall::all_live_chip(
-            p,
-            wall::count_all(board, &look.desk),
-            actions.jobs.all,
-        ));
+    let busy = !tasks.is_empty() || !board.pops.items.is_empty() || !done.is_empty() || desk;
+    if busy || look.project.shows() {
+        // The orb, the project chip ("● Startup"), and "All N live": every
+        // live picture on the wall, one press away. With nothing at work,
+        // an active project's chip alone.
+        let mut head: Vec<El> = Vec::new();
+        if busy {
+            head.push(orb(
+                p,
+                &tasks,
+                done.len(),
+                board.open_questions(),
+                look,
+                actions,
+            ));
+        }
+        head.push(project::chip(p, &look.project, busy, actions.project));
+        if busy {
+            head.extend(wall::all_live_chip(
+                p,
+                wall::count_all(board, &look.desk),
+                actions.jobs.all,
+            ));
+        }
         if !grow.right {
             head.reverse();
         }
-        parts.push(row().key("orb-head").gap(GAP).center_y().children(head));
+        // The head never runs past the panel: the project chip gives way.
+        parts.push(
+            row()
+                .key("orb-head")
+                .max_w(SIZE.0 - 2.0 * INSET)
+                .gap(GAP)
+                .center_y()
+                .children(head),
+        );
+    }
+    if look.project.open {
+        // The picker unfolds under the chip, before anything else.
+        parts.push(project::picker(p, &look.project, actions.project).transition(pop_in(grow)));
     }
     if look.open && (!tasks.is_empty() || !done.is_empty()) {
         let max_h = inner_h - ORB_H - GAP;
@@ -476,6 +505,7 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
             max_h: (inner_h - taken).max(jobs::LINE_H + 2.0 * GAP),
             appear: pop_in(grow),
             still: look.still,
+            active_project: look.project.active().map(str::to_owned),
         };
         // The job rows and the person's desk (what quick turns opened,
         // live, until let go) in one column that scrolls inside the panel.

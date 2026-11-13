@@ -70,6 +70,7 @@ pub fn system_for(job: &Job, desktop: Option<&Desktop>, browser: bool) -> String
     }
     system.push_str(crate::assistant::knowledge::RULES);
     system.push_str(crate::assistant::media::RULES);
+    system.push_str(crate::assistant::projects::RULES);
     if desktop.is_some() {
         system.push_str(super::rules::BACKGROUND_INPUT_RULES);
     }
@@ -82,8 +83,9 @@ pub fn system_for(job: &Job, desktop: Option<&Desktop>, browser: bool) -> String
 /// What only this request decides, sent at the top of its message: the
 /// person's language (pages, tools, and Agent-Desk's notes are mostly English, so
 /// it is named), when their words or a yes allowed more than the mode's
-/// baseline in the system prompt, what they allowed, and what the memory
-/// graph knows about what their words name (`Job::recall`).
+/// baseline in the system prompt, what they allowed, what the memory
+/// graph knows about what their words name (`Job::recall`), and the
+/// project it runs in with its soul's relevant part (`Job::project`).
 pub fn request_rules(job: &Job) -> String {
     let mode = job.settings.autonomy;
     let mut rules = language_rule(&job.request.text).trim().to_owned();
@@ -100,6 +102,10 @@ pub fn request_rules(job: &Job) -> String {
     {
         rules.push('\n');
         rules.push_str(recall);
+    }
+    if let Some(project) = &job.project {
+        rules.push('\n');
+        rules.push_str(project.context.trim());
     }
     rules
 }

@@ -93,6 +93,7 @@ fn scene_view(scene: &Scene, cx: &mut Cx<Scene>) -> El {
         setup: |_| {},
         settings: |_| {},
         retry: |_, _, _| {},
+        take_project: |_, _| {},
     };
     let card = match (&scene.held, &scene.bubble) {
         (Some(held), _) => Some(held_card(p, held, fixture::ANSWER_KEY)),
@@ -393,6 +394,7 @@ fn the_bubble_panel_carries_the_island_line_above_its_card() {
             setup: |_| {},
             settings: |_| {},
             retry: |_, _, _| {},
+            take_project: |_, _| {},
         },
     };
     let rt = runtime(

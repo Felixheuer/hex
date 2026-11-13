@@ -12,6 +12,8 @@ use super::hint::{self, Hint};
 use super::orb::{self, Orb};
 use super::outline::{self, LabelSide, Outline};
 use super::stack;
+
+mod project;
 use crate::assistant::{Event, Origin};
 
 fn runtime<S: 'static>(
@@ -93,6 +95,7 @@ fn bubble_state(bubble: Option<super::board::Bubble>) -> BubbleOverlay {
             setup: |_| {},
             settings: |_| {},
             retry: |_, _, _| {},
+            take_project: |_, _| {},
         },
     }
 }

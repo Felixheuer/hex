@@ -37,6 +37,7 @@ mod context;
 mod inbox;
 mod mode;
 mod monitor;
+mod project;
 pub mod remote;
 mod run;
 mod status;
@@ -169,6 +170,8 @@ type Authorize = dyn Fn(&str, &Authorized) + Send + Sync;
 type DueSchedules = dyn Fn(u64) -> Vec<Schedule> + Send + Sync;
 type WriteNote = dyn Fn(&str, super::types::Message) + Send + Sync;
 type Learn = dyn Fn(&str, &str, &str) + Send + Sync;
+/// A request's words and its project's id → what the graph knows.
+type Recall = dyn Fn(&str, Option<&str>) -> Option<String> + Send + Sync;
 /// (question, task title, what the person said) → whether it answers the
 /// question; `None` when it can't tell in time.
 type ClassifyReply = dyn Fn(&str, &str, &str) -> Option<bool> + Send + Sync;
@@ -246,8 +249,13 @@ pub(crate) struct Hooks {
     /// The person's memory note.
     pub memory: Hook<String>,
     /// What the memory graph knows about what a request's words name
-    /// (`knowledge::recall`), asked only while memory is on.
-    pub recall: OnTask<Option<String>>,
+    /// (`knowledge::recall`), asked only while memory is on; in a project
+    /// (its id), other projects' links stay out.
+    pub recall: Box<Recall>,
+    /// The person's projects (`projects`); `None`: no folder for them.
+    pub projects: Hook<Option<super::projects::Projects>>,
+    /// The project a stored conversation runs in, its id.
+    pub project_of: OnTask<Option<String>>,
     /// Learns from a finished task's answer while memory is on
     /// (`knowledge::learn_from_task`): conversation, request, answer.
     pub learn: Box<Learn>,
@@ -343,7 +351,9 @@ impl Hooks {
             authorized: Box::new(super::autonomy::read),
             authorize: Box::new(super::autonomy::write),
             memory: Box::new(super::memory::read),
-            recall: Box::new(|words| super::knowledge::recall(words, true)),
+            recall: Box::new(|words, project| super::knowledge::recall(words, true, project)),
+            projects: Box::new(super::projects::Projects::system),
+            project_of: Box::new(super::knowledge::project_of),
             learn: Box::new(super::knowledge::learn_from_task),
             notify: Box::new(super::notify::show),
             due_schedules: Box::new(super::schedules::take_due),
@@ -659,6 +669,13 @@ impl Runner {
                 "Finish setting up the assistant first ({}).",
                 super::lines::ASSISTANT_SETTINGS
             ));
+        }
+        // „Wechsle zu Projekt Startup“: switched here, never asked of an
+        // agent (`projects::command`).
+        if kind == JobKind::Ask
+            && let Some(told) = self.project_command(&request)
+        {
+            return told;
         }
         // "Wie weit ist der Shop?": told from the jobs' plans, never asked
         // of an agent; jobs don't announce their steps on their own.

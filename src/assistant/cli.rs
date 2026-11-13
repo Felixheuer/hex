@@ -519,6 +519,8 @@ fn follow(id: &str, events: &mpsc::Receiver<Event>, speak: bool) -> bool {
                 println!("[back to you] {}", to.as_deref().unwrap_or_default())
             }
             Event::Acting { .. } => {}
+            Event::InProject { name, .. } => println!("[project] {name}"),
+            Event::ProjectSuggested { name, .. } => println!("[project?] {name}"),
             Event::Plan { steps, .. } => {
                 for step in steps {
                     println!(

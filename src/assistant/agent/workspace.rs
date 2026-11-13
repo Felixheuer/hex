@@ -48,7 +48,7 @@ pub fn create(root: &Path, title: &str, now_ms: u64) -> Result<PathBuf> {
 /// dots, or characters Windows refuses (`< > " | ? *`), no trailing dots or
 /// spaces, not a name Windows reserves (`CON`, `NUL`, `COM1`…), at most 60
 /// characters.
-fn clean(title: &str) -> String {
+pub(crate) fn clean(title: &str) -> String {
     let cleaned: String = title
         .chars()
         .map(|c| {

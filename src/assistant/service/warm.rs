@@ -166,6 +166,7 @@ impl Runner {
             authorized: Default::default(),
             memory,
             recall: None,
+            project: None,
             helps: None,
         };
         let runner = Arc::clone(self);

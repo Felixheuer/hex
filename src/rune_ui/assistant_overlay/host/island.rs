@@ -41,7 +41,11 @@ pub(super) fn hold(app: Option<String>) {
         return;
     };
     overlays.bubble.update(move |state, _| {
-        state.held = Some(Held::new(app));
+        let mut held = Held::new(app);
+        held.project = crate::assistant::projects::snapshot()
+            .active
+            .map(|(_, name)| name);
+        state.held = Some(held);
         state.setup = None;
         // A finished answer gives way; a question waiting stays for the
         // turn this hold continues.
