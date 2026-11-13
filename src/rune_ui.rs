@@ -405,8 +405,10 @@ pub(crate) enum Destination {
     Models,
     /// The Meetings pane, with a meeting selected when given.
     Meetings(Option<String>),
-    /// Chats, on a conversation or a new chat.
+    /// The Assistant pane, on a conversation or a new chat.
     Chats(Option<String>),
+    /// Assistant settings (a failed quick turn's Fix).
+    AssistantSettings,
     Modes,
     History,
 }
@@ -451,6 +453,7 @@ pub(crate) fn show(ui: &mut Ui, destination: Destination, tx: &mut Tx) {
         Destination::Meetings(_) => Pane::Meetings,
         Destination::Modes => Pane::Output,
         Destination::History => Pane::History,
+        Destination::AssistantSettings => Pane::Assistant,
         Destination::Chats(conversation) => {
             ui.close_dialogs();
             return chats::show(ui, conversation.clone(), tx);

@@ -256,7 +256,6 @@ const TRANSLATIONS: &[(&str, &str)] = &[
     ("Open {}", "Ouvrir {}"),
     ("Choose another shortcut", "Choisir un autre raccourci"),
     ("Action shortcut", "Raccourci d'action"),
-    ("Hold to ask the assistant; double-tap for Agent mode", "Maintenez pour interroger l'assistant ; touchez deux fois pour le mode agent"),
     ("Dictates like the shortcut above", "Dicte comme le raccourci ci-dessus"),
     ("Discards the recording", "Abandonne l'enregistrement"),
     ("Bind hex dictation cancel to a key in your desktop's keyboard shortcuts", "Associez hex dictation cancel à une touche dans les raccourcis clavier de votre bureau"),

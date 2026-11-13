@@ -1,6 +1,6 @@
 //! Notifications for Background jobs (`assistant.notifications`): a job
-//! finished, failed, or asks something, and clicking one opens Chats on its
-//! conversation ([`set_open`]).
+//! finished, failed, or asks something, and clicking one opens the
+//! Assistant pane on its conversation ([`set_open`]).
 //!
 //! ```ts
 //! macOS    UNUserNotificationCenter (the `assistant_notifications` Swift bridge) inside
@@ -163,7 +163,11 @@ mod linux {
         let mut command = crate::desktop::background_process::command(&program);
         command.args(["--app-name=Hex", "--icon=dialog-information"]);
         if actions {
-            command.args(["--action=default=Open in Chats", "--wait"]);
+            command.arg(format!(
+                "--action=default={}",
+                crate::desktop::i18n::tr("Show in Assistant")
+            ));
+            command.arg("--wait");
         }
         // "--" keeps a title or body that starts with "-" from being an
         // option.

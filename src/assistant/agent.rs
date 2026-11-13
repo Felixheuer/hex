@@ -878,7 +878,7 @@ pub fn prepare(
                 spec.physical_input,
             )
             .ok_or(
-                "agent-desktop isn't installed, so the assistant can't use apps. Install it in Chats › Settings, or turn off “Use apps”.",
+                "agent-desktop isn't installed, so the assistant can't use apps. Install it in Assistant settings, or turn off “Use apps”.",
             )
             .map(|mut desktop| {
                 desktop.front_window = spec.full_control;

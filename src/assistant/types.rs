@@ -2,7 +2,8 @@
 //! request to answer, and the events a running request reports.
 //!
 //! This file is the contract between the Action shortcut, the agent, the
-//! desktop tools, and the Chats pane. Change it only with all four in mind.
+//! desktop tools, and what shows it (the overlays and the Assistant pane).
+//! Change it only with all four in mind.
 
 use std::path::PathBuf;
 

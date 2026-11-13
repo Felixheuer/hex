@@ -48,6 +48,13 @@ pub(super) fn bubble_event(state: &mut BubbleOverlay, event: &Event, tx: &mut Tx
             hide_bubble(state);
         }
         Some(bubble) => {
+            let failed_now = bubble.failure.is_some()
+                && before.as_ref().is_none_or(|old| {
+                    old.conversation != bubble.conversation || old.failure.is_none()
+                });
+            if failed_now {
+                say_failure(bubble);
+            }
             let fresh = before
                 .as_ref()
                 .is_none_or(|old| old.conversation != bubble.conversation);
@@ -65,6 +72,24 @@ pub(super) fn bubble_event(state: &mut BubbleOverlay, event: &Event, tx: &mut Tx
         }
     }
     true
+}
+
+/// A failed quick turn says why, in the language it was asked in, so a
+/// person who isn't looking hears it too (when answers are read aloud).
+fn say_failure(bubble: &Bubble) {
+    let Some(failure) = bubble.failure else {
+        return;
+    };
+    let speaks = crate::app_settings::assistant_runtime()
+        .is_some_and(|(on, settings)| on && settings.speak_answers);
+    if !speaks {
+        return;
+    }
+    let line = crate::desktop::i18n::tr_in(bubble.language, failure.line());
+    let voice = crate::app_settings::assistant_runtime()
+        .and_then(|(_, settings)| settings.voice)
+        .or_else(|| crate::assistant::speech::automatic_voice(line));
+    crate::assistant::speech::speak(line, voice.as_deref());
 }
 
 fn show_bubble(state: &mut BubbleOverlay, handle: &OverlayHandle<BubbleOverlay>) {

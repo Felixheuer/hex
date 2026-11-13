@@ -533,7 +533,7 @@ fn assistant_submit(
     if !crate::assistant::enabled(&load()?) {
         return Err(ControlError::new(
             "feature-off",
-            "the assistant is off (Settings › Assistant)",
+            "the assistant is off (Assistant settings)",
         ));
     }
     if text.trim().is_empty() {
@@ -594,13 +594,6 @@ fn listener_command(
         } => background(reply, move || {
             let action = control::check_flags(action, true, raw)?;
             let printing_start = action == control::CaptureAction::Start;
-            if printing_start && !crate::features::print_start() {
-                return Err(control::ControlError::new(
-                    "disabled",
-                    "Labs › Print-only CLI dictation is off; turn it on with \
-                     `hex labs on print-start`",
-                ));
-            }
             listener_ready(&runtime)?;
             let (print, printed) = control::PrintReply::channel();
             // A printing start answers only when its dictation ends; a

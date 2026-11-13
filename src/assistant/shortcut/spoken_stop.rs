@@ -59,6 +59,10 @@ const ALL: &[&str] = &[
     "alles stoppen",
     "alle aufgaben stoppen",
     "alle aufgaben abbrechen",
+    // The glossary's word for a job, as the window says it.
+    "stopp alle aufträge",
+    "alle aufträge stoppen",
+    "alle aufträge abbrechen",
     "brich alles ab",
     "stop all tasks",
     "stop all",
@@ -199,6 +203,7 @@ mod tests {
         // A plain stop, everything, or a request that isn't a stop.
         assert_eq!(named_stop("Stopp"), None);
         assert_eq!(named_stop("Stopp alle Aufgaben"), None);
+        assert_eq!(named_stop("Stopp alle Aufträge"), None);
         assert_eq!(named_stop("Stoppuhr auf fünf Minuten"), None);
         assert_eq!(named_stop("Halte mir den Termin frei"), None);
         // A stop of something else, even with a job's word in it, is no
@@ -238,6 +243,7 @@ mod tests {
     fn stopping_everything_is_its_own_phrase() {
         for said in [
             "Stopp alle Aufgaben.",
+            "Stopp alle Aufträge.",
             "Bitte alles stoppen",
             "Brich alles ab!",
             "Stop all tasks",

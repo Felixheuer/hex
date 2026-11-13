@@ -1,7 +1,7 @@
 //! Live previews of a task's browsers: while the pointer rests on a task in
 //! the orb's list, each of its agent-browser sessions streams its viewport
 //! into a small picture ([`hover`]); pressing one opens it large right in
-//! the overlay, and "Open in Chats" there opens it large in Chats
+//! the overlay, and "Show in Assistant" there opens it large in the Assistant pane
 //! ([`request_view`], [`view`]); in either, Take over lets the person
 //! drive it ([`send`]).
 //!

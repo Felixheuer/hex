@@ -86,7 +86,7 @@ pub(super) fn open(board: &Board, task: &str, session: &str) {
     overlays.enlarged.request_keys();
 }
 
-/// × , Escape, or Open in Chats: closes the card, stops its large stream,
+/// × , Escape, or Show in Assistant: closes the card, stops its large stream,
 /// and hides the panel (which gives the keyboard back).
 fn close(state: &mut Enlarged) {
     if enlarged::close(state) {

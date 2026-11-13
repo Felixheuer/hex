@@ -59,10 +59,10 @@ Agents can [read retained transcripts](transcript-cli.md) and
 [control the running app](control-cli.md) with the release CLI.
 [Labs](labs.md) is retired: each former lab graduated, became a setting, or
 was removed.
-The [Assistant](assistant.md) (macOS, on by default in this fork, graduated
-from Labs) answers, acts, or starts a background job when you hold the
-Action shortcut and speak; Chats lists its conversations, and its switch is
-`assistant.enabled`.
+The [Assistant](assistant.md) (on by default in this fork) answers a quick
+turn, acts, or starts a job when you hold the Action shortcut and speak; the
+Assistant pane is one stream of all of it, Assistant settings hold its
+switch (`assistant.enabled`) and shortcuts.
 Its Restore shortcut default toggle (off by default) puts a Restore default
 button beside Paste last dictation's shortcut (#613); its Sort and filter
 models toggle (off by default) adds a sort and a saved-language filter to the

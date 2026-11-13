@@ -1,4 +1,5 @@
-//! Chats (the assistant, macOS): one assistant, one stream. Every request,
+//! The Assistant pane (`Pane::Chats`, named "Assistant" in the sidebar; the
+//! module keeps its old name): one assistant, one stream. Every request,
 //! answer, and job in one timeline, oldest at the top (`stream`), jobs as
 //! live cards with their plan, question, and results; one composer that
 //! asks anything new (the assistant knows the whole stream and routes it),

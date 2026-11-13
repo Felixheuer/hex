@@ -1,9 +1,12 @@
 //! The quick question's bubble, just past the dictation HUD where Live
 //! text and Failure notices show: the question as heard, "Thinking…", the
 //! latest steps, then the answer as it streams. A long answer is cut with
-//! "…" and the footer's "Open in Chats" shows the rest. It stays while the
-//! answer is read aloud, then a few seconds more (`board::Bubble::due`);
-//! a press, or Esc, dismisses it.
+//! "…" and the footer's "Show in Assistant" shows the rest. A failed one
+//! says why in a short line, in the language it was asked in
+//! ([`super::failure`]), with its one action: Fix (the settings or the
+//! setup page that repairs it) or Try again. It stays while the answer is
+//! read aloud, then a few seconds more (`board::Bubble::due`); a press, or
+//! Esc, dismisses it.
 //!
 //! It grows out of the HUD on a spring and shrinks back into it when it
 //! goes; while its answer is read aloud a small glow beside the question
@@ -15,8 +18,9 @@ use rune_motion::{LoopSpec, Spring};
 
 use super::super::controls::Paint;
 use super::board::{Bubble, BubblePhase};
+use super::failure::{Failure, Remedy};
 use super::palette;
-use crate::desktop::i18n::tr;
+use crate::desktop::i18n::{tr, tr_in};
 
 /// One speaking pulse, in seconds: about a syllable pair.
 const VOICE_PULSE: f64 = 0.9;
@@ -24,12 +28,14 @@ const VOICE_PULSE: f64 = 0.9;
 /// The overlay: a readable measure, and room for about ten lines.
 pub(crate) const SIZE: (f32, f32) = (440.0, 340.0);
 /// About ten lines of answer; past it the answer is cut with "…" and the
-/// rest is in Chats.
+/// rest is in the Assistant pane.
 const ANSWER_CHARS: usize = 560;
 /// The answer's tallest, should a short answer still run long (a list).
 const ANSWER_MAX_H: f32 = 236.0;
-/// The error's most lines.
-const ERROR_LINES: usize = 4;
+/// The failure line's most lines.
+const ERROR_LINES: usize = 3;
+/// The brain's own words beneath it, at most.
+const DETAIL_LINES: usize = 2;
 /// Room around the card inside the overlay.
 pub(crate) const INSET: f32 = 6.0;
 
@@ -37,10 +43,15 @@ pub(crate) const INSET: f32 = 6.0;
 pub(crate) struct Actions<S> {
     /// The card: dismiss it.
     pub(crate) dismiss: fn(&mut S),
-    /// "Open in Chats": open this conversation there.
+    /// "Show in Assistant": open this conversation there.
     pub(crate) open: fn(&mut S, &str),
-    /// "Continue setup": open the assistant's setup.
+    /// "Continue setup", or Fix on what the setup repairs: open the
+    /// assistant's setup where it fixes it.
     pub(crate) setup: fn(&mut S),
+    /// Fix on a switched-off assistant: Assistant settings.
+    pub(crate) settings: fn(&mut S),
+    /// Try again: the question (in full) once more, in its conversation.
+    pub(crate) retry: fn(&mut S, &str, &str),
 }
 
 impl<S> Clone for Actions<S> {
@@ -293,41 +304,23 @@ pub(crate) fn card<S: 'static>(
                     &clip_answer(bubble.answer.trim(), ANSWER_CHARS),
                 )),
         ],
-        BubblePhase::Failed => vec![
-            row()
-                .key("failure")
-                .gap(8.0)
-                .items_start()
-                .child(
-                    icon(p.k.glyph.circle_x, 16.0)
-                        .key("failure-icon")
-                        .color(p.danger())
-                        .mt(2.0)
-                        .a11y_hidden(),
-                )
-                .child(
-                    text(bubble.error.clone().unwrap_or_default())
-                        .key("error")
-                        .wrap()
-                        .max_lines(ERROR_LINES)
-                        .font(p.k.ty.ui)
-                        .color(p.danger())
-                        .grow(1.0)
-                        .min_w(0.0),
-                ),
-        ],
+        BubblePhase::Failed => vec![failed(p, bubble)],
     };
-    let open = actions.open;
-    let id = bubble.conversation.clone();
     let footer = bubble.over().then(|| {
-        row().key("footer").w_full().justify_end().child(
-            Button::new(tr("Open in Chats"))
-                .variant(ButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
-                .on_press(move |s: &mut S| open(s, &id))
-                .build(p.k)
-                .key("open-chats"),
-        )
+        let action = match bubble.failure {
+            Some(failure) => remedy(p, bubble, failure.remedy(), actions),
+            None => {
+                let open = actions.open;
+                let id = bubble.conversation.clone();
+                Button::new(tr("Show in Assistant"))
+                    .variant(ButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .on_press(move |s: &mut S| open(s, &id))
+                    .build(p.k)
+                    .key("open-chats")
+            }
+        };
+        row().key("footer").w_full().justify_end().child(action)
     });
     let dismiss = actions.dismiss;
     let live = matches!(
@@ -372,6 +365,80 @@ pub(crate) fn card<S: 'static>(
         .children(body)
         .children(bubble.asks.as_ref().map(|asks| asking(p, asks, answer_key)))
         .children(footer)
+}
+
+/// Why the question failed: its line in the language it was asked in, and
+/// beneath it, small, the brain's own words when they say more (which
+/// agent, which tool).
+fn failed(p: Paint, bubble: &Bubble) -> El {
+    let failure = bubble.failure.unwrap_or(Failure::Crash);
+    let detail = bubble
+        .error
+        .as_deref()
+        .map(str::trim)
+        .filter(|error| failure.shows_detail() && !error.is_empty());
+    row()
+        .key("failure")
+        .w_full()
+        .gap(8.0)
+        .items_start()
+        .child(
+            icon(p.k.glyph.circle_x, 16.0)
+                .key("failure-icon")
+                .color(p.danger())
+                .mt(2.0)
+                .a11y_hidden(),
+        )
+        .child(
+            col()
+                .key("failure-lines")
+                .gap(2.0)
+                .grow(1.0)
+                .min_w(0.0)
+                .child(
+                    text(tr_in(bubble.language, failure.line()).to_owned())
+                        .key("error")
+                        .wrap()
+                        .max_lines(ERROR_LINES)
+                        .font(p.k.ty.ui_medium)
+                        .color(p.danger()),
+                )
+                .children(detail.map(|detail| {
+                    text(detail.to_owned())
+                        .key("error-detail")
+                        .wrap()
+                        .max_lines(DETAIL_LINES)
+                        .font(p.k.ty.small)
+                        .color(p.faint())
+                })),
+        )
+}
+
+/// A failure's one action: Fix (Assistant settings, or the setup where it
+/// repairs it) or Try again.
+fn remedy<S: 'static>(p: Paint, bubble: &Bubble, remedy: Remedy, actions: Actions<S>) -> El {
+    let button = Button::new(tr(remedy.label()))
+        .variant(ButtonVariant::Submit)
+        .control_size(ControlSize::Small);
+    let button = match remedy {
+        Remedy::Settings => {
+            let settings = actions.settings;
+            button.on_press(move |s: &mut S| settings(s))
+        }
+        Remedy::Repair => {
+            let setup = actions.setup;
+            button.on_press(move |s: &mut S| setup(s))
+        }
+        Remedy::Retry => {
+            let retry = actions.retry;
+            let (id, asked) = (bubble.conversation.clone(), bubble.asked.clone());
+            button.on_press(move |s: &mut S| retry(s, &id, &asked))
+        }
+    };
+    button.build(p.k).key(match remedy {
+        Remedy::Retry => "failure-retry",
+        Remedy::Settings | Remedy::Repair => "failure-fix",
+    })
 }
 
 /// What the task asks the person, with how to answer.

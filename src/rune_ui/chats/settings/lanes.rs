@@ -1,4 +1,4 @@
-//! Chats › Settings for the lanes: Stop all's shortcut, real input in the
+//! Assistant settings for the lanes: Stop all's shortcut, real input in the
 //! window in front, the hidden browser for web tasks, the apps no task may
 //! touch, how long a task may run and whether it waits out a usage limit,
 //! and the agents' own Space (experimental).
@@ -56,8 +56,7 @@ pub(in crate::rune_ui) fn here_input_row(ui: &Ui, p: Paint) -> CardRow {
     .into()
 }
 
-/// Whether Background tasks may operate the window in front, as the
-/// ChatGPT app's agent does.
+/// Whether Background jobs may operate the window in front (full control).
 pub(in crate::rune_ui) fn front_window_row(ui: &Ui, p: Paint) -> CardRow {
     let on = ui.settings.assistant.background_front_window;
     let description = if on {

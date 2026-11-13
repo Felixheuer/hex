@@ -81,6 +81,8 @@ fn bubble_state(bubble: Option<super::board::Bubble>) -> BubbleOverlay {
             dismiss: |_| {},
             open: |_, _| {},
             setup: |_| {},
+            settings: |_| {},
+            retry: |_, _, _| {},
         },
     }
 }
@@ -1080,6 +1082,70 @@ fn the_orb_recalls_results_after_their_bubbles_left() {
     );
 }
 
+static RETRIED_QUICK: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+/// A failed quick question says why in the language it was asked in, with
+/// its one action: Fix for what settings or the setup repair, Try again
+/// (the same words, in full) for the rest.
+#[test]
+fn a_failed_quick_question_says_why_and_offers_one_action() {
+    let text_of = |rt: &Runtime<BubbleOverlay>, key: &str| {
+        rt.elements()
+            .into_iter()
+            .find(|e| !e.exiting && e.key.as_deref() == Some(key))
+            .and_then(|e| e.text)
+    };
+    let signed_out = fixture::bubble_ended(
+        "What's on my calendar today?",
+        None,
+        Some("Claude Code isn't signed in. Open Terminal and run “claude” to sign in."),
+    );
+    let mut rt = runtime(
+        bubble_state(Some(signed_out)),
+        bubble::view,
+        bubble::SIZE,
+        true,
+    );
+    rt.settle_all();
+    rt.frame(0.0);
+    assert_eq!(
+        text_of(&rt, "error").as_deref(),
+        Some("Your agent isn't signed in.")
+    );
+    assert!(text_of(&rt, "error-detail").is_some_and(|d| d.contains("Claude Code")));
+    assert_eq!(count(&rt, "failure-fix"), 1);
+    assert_eq!(count(&rt, "failure-retry"), 0);
+    assert_eq!(count(&rt, "open-chats"), 0, "one action");
+
+    let question = "Wie viele Termine habe ich heute noch, und wann ist der nächste?";
+    let crashed = fixture::bubble_ended(question, None, Some("The task stopped unexpectedly."));
+    let mut state = bubble_state(Some(crashed));
+    state.actions.retry = |_, id, asked| {
+        RETRIED_QUICK
+            .lock()
+            .unwrap()
+            .push((id.to_owned(), asked.to_owned()));
+    };
+    let mut rt = runtime(state, bubble::view, bubble::SIZE, true);
+    rt.settle_all();
+    rt.frame(0.0);
+    assert_eq!(
+        text_of(&rt, "error").as_deref(),
+        Some("Das hat nicht geklappt."),
+        "in the language it was asked in"
+    );
+    state_press(&mut rt, "failure-retry");
+    assert_eq!(
+        RETRIED_QUICK
+            .lock()
+            .unwrap()
+            .last()
+            .map(|(_, asked)| asked.as_str()),
+        Some(question),
+        "the whole question again"
+    );
+}
+
 /// Renders the overlays to `HEX_ASSISTANT_SNAPS/assistant-*.png` in both
 /// appearances, to look at: the pretend desktop in each state, the orb, the
 /// list, the bubble in each state, the hints, and the Hands off pill.
@@ -1334,6 +1400,42 @@ fn snapshots() {
             let (w, h) = px(bubble::SIZE);
             save(name, bubble::SIZE, backdrop(&gpu, &mut rt, w, h, dark));
         }
+        // A failed quick question, in English and in German (the window
+        // and the question both).
+        let failures = [
+            (
+                "en",
+                "bubble-failed-signin-en",
+                "What's on my calendar today?",
+                "Claude Code isn't signed in. Open Terminal and run “claude” to sign in.",
+            ),
+            (
+                "en",
+                "bubble-failed-crash-en",
+                "Summarize the PDF in front of me",
+                "The task stopped unexpectedly.",
+            ),
+            (
+                "de",
+                "bubble-failed-signin-de",
+                "Was steht heute noch in meinem Kalender?",
+                "Claude Code isn't signed in. Open Terminal and run “claude” to sign in.",
+            ),
+            (
+                "de",
+                "bubble-failed-limit-de",
+                "Fasse mir bitte das PDF zusammen, das gerade offen ist",
+                "Claude Code hit its usage limit: Claude AI usage limit reached|1760000000",
+            ),
+        ];
+        for (language, name, question, message) in failures {
+            crate::desktop::i18n::apply(Some(language));
+            let state = bubble_state(Some(fixture::bubble_ended(question, None, Some(message))));
+            let mut rt = runtime(state, bubble::view, bubble::SIZE, dark);
+            let (w, h) = px(bubble::SIZE);
+            save(name, bubble::SIZE, backdrop(&gpu, &mut rt, w, h, dark));
+        }
+        crate::desktop::i18n::apply(Some("en"));
     }
 }
 
