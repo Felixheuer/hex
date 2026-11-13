@@ -54,6 +54,8 @@ pub(crate) struct Outcome {
     /// The whole answer (Markdown), or the error.
     pub(crate) text: String,
     pub(crate) at: Instant,
+    /// The project its job ran in, by name: the card says so.
+    pub(crate) project: Option<String>,
 }
 
 impl Outcome {
@@ -70,6 +72,7 @@ impl Outcome {
                 task.answer.clone()
             },
             at: now,
+            project: task.project.clone(),
         }
     }
 
@@ -349,7 +352,11 @@ pub(crate) fn bubble<S: 'static>(
         );
     }
     let mut card = Card::named("result");
-    card.lead = Some(look::dot(colour, 9.0));
+    card.lead = Some(super::project::with_dot(
+        p,
+        look::dot(colour, 9.0),
+        outcome.project.as_deref(),
+    ));
     card.title = outcome.title.clone();
     card.chip = Some(look::chip(p, state).key(state.key()));
     card.body = body;
@@ -388,10 +395,15 @@ pub(crate) fn bubble<S: 'static>(
             .key(format!("result-{key}"))
             .role("status")
             .label(format!(
-                "{}: {} · {}",
+                "{}: {} · {}{}",
                 state.word(),
                 outcome.title,
-                outcome.summary()
+                outcome.summary(),
+                outcome
+                    .project
+                    .as_deref()
+                    .map(|name| format!(" · {}", tr_fill("Project: {}", name)))
+                    .unwrap_or_default()
             ))
             .live_region(rune::LiveRegion::Polite)
             // The whole card takes the pointer, so its buttons, the wheel
@@ -499,10 +511,15 @@ pub(crate) fn list_row<S: 'static>(p: Paint, outcome: &Outcome, actions: Actions
             .radius(12.0)
             .role("listitem")
             .label(format!(
-                "{}: {} · {}",
+                "{}: {} · {}{}",
                 state.word(),
                 outcome.title,
-                outcome.summary()
+                outcome.summary(),
+                outcome
+                    .project
+                    .as_deref()
+                    .map(|name| format!(" · {}", tr_fill("Project: {}", name)))
+                    .unwrap_or_default()
             ))
             .hit()
             .on_press(move |s: &mut S| recall(s, &id))

@@ -560,6 +560,16 @@ everything runs exactly as before; questions and jobs never need one.
   `hex_project` (action learn: people and roles, sites, accounts, goals,
   decisions); a background job may only learn and read, the person's own
   turn may also update a section, switch, and create.
+- **Several at once**: a job keeps the project it started in; switching
+  only changes the default for the next request. „im Projekt Startup: …“
+  / „in project Startup: …“ names the project for that request alone,
+  matched against the person's projects by name (`command::scoped`), the
+  active one unchanged. Each project has its own colour from its name
+  (`project::hue`). With jobs of more than one project running, the rail
+  groups them under a small header per project (dot, name, count; „Ohne
+  Projekt“ for jobs in none); one group shows no header, as before. Job
+  cards, questions, and results wear their project's dot (VoiceOver says
+  the name), and the picker counts each project's running jobs.
 - **Offer, never a silent switch**: with no project active, a request that
   names a project's site, repository, address, a person's full name from
   its People, or its name gets „In project Startup?“ on the Here bubble;

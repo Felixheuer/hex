@@ -178,15 +178,36 @@ fn a_press_picks_a_project_and_new_project_asks_for_its_name() {
 
 #[test]
 fn a_job_in_another_project_wears_a_tag_and_the_busy_head_keeps_the_chip() {
+    // One project's jobs, another active: no header, the other's tag.
+    let privat_rail = || {
+        let mut board = fixture::many_jobs_board(2);
+        for id in ["job0", "job1"] {
+            board.apply(
+                &Event::InProject {
+                    conversation: id.into(),
+                    name: "Privat".into(),
+                },
+                None,
+                std::time::Instant::now(),
+            );
+        }
+        let mut state = orb_state(board, false);
+        state.project.snapshot = snapshot(Some("Startup"));
+        state
+    };
     for dark in [false, true] {
-        let rt = runtime(busy_rail(), orb::view, orb::SIZE, dark);
+        let rt = runtime(privat_rail(), orb::view, orb::SIZE, dark);
         assert_eq!(count(&rt, "orb"), 1);
         assert_eq!(
             text_of(&rt, "project-chip-name").as_deref(),
             Some("Startup")
         );
-        // job1 is in Privat, job2 in the active Startup, job0 in none.
-        assert_eq!(count(&rt, "job-project"), 1, "only the other project's job");
+        assert_eq!(
+            count_prefix(&rt, "project-group-"),
+            0,
+            "one group: no header"
+        );
+        assert_eq!(count(&rt, "job-project"), 2, "both wear Privat's tag");
         let tag = rect(&rt, "job-project").unwrap();
         let row = rect(&rt, "job-job1").unwrap();
         assert!(tag[1] >= row[1] && tag[1] < row[1] + 40.0, "on job1's head");
@@ -194,6 +215,117 @@ fn a_job_in_another_project_wears_a_tag_and_the_busy_head_keeps_the_chip() {
             assert!(inside(rect(&rt, key).unwrap(), orb::SIZE), "{key}");
         }
     }
+}
+
+#[test]
+fn jobs_of_several_projects_run_in_groups_under_their_headers() {
+    for dark in [false, true] {
+        let rt = runtime(busy_rail(), orb::view, orb::SIZE, dark);
+        // job2 in Startup, job1 in Privat, job0 in none: three groups.
+        for key in [
+            "project-group-Startup",
+            "project-group-Privat",
+            "project-group-none",
+        ] {
+            assert_eq!(count(&rt, key), 1, "{key}");
+        }
+        assert!(
+            rt.elements()
+                .iter()
+                .any(|e| e.text.as_deref() == Some("Without a project"))
+        );
+        // Each header sits right over its own jobs.
+        let y = |key: &str| rect(&rt, key).unwrap()[1];
+        for (header, job) in [
+            ("project-group-Startup", "job-job2"),
+            ("project-group-Privat", "job-job1"),
+            ("project-group-none", "job-job0"),
+        ] {
+            assert!(y(header) < y(job), "{header} over {job}");
+            assert!(y(job) - y(header) < 40.0, "{header} next to {job}");
+        }
+        // The headers name the projects: no tag; each project job its dot.
+        assert_eq!(count(&rt, "job-project"), 0);
+        assert_eq!(count(&rt, "job-project-dot"), 2);
+        assert!(inside(rect(&rt, "jobs").unwrap(), orb::SIZE));
+    }
+}
+
+#[test]
+fn one_project_s_jobs_look_as_they_always_did() {
+    let mut board = fixture::many_jobs_board(3);
+    for id in ["job0", "job1", "job2"] {
+        board.apply(
+            &Event::InProject {
+                conversation: id.into(),
+                name: "Startup".into(),
+            },
+            None,
+            std::time::Instant::now(),
+        );
+    }
+    let mut state = orb_state(board, false);
+    state.project.snapshot = snapshot(Some("Startup"));
+    let rt = runtime(state, orb::view, orb::SIZE, false);
+    assert_eq!(count_prefix(&rt, "project-group-"), 0);
+    assert_eq!(count(&rt, "job-project"), 0, "the active project: no tag");
+    assert_eq!(count(&rt, "job-project-dot"), 3, "but each card its dot");
+}
+
+#[test]
+fn the_picker_counts_each_project_s_running_jobs() {
+    let mut state = busy_rail();
+    state.project.open = true;
+    let rt = runtime(state, orb::view, orb::SIZE, false);
+    assert_eq!(text_of(&rt, "project-running-Startup").as_deref(), None);
+    assert_eq!(count(&rt, "project-running-Startup"), 1);
+    assert_eq!(count(&rt, "project-running-Privat"), 1);
+    assert_eq!(count(&rt, "project-running-Kalibermarkt"), 0, "none run");
+}
+
+#[test]
+fn questions_and_results_carry_their_project_s_dot() {
+    let now = std::time::Instant::now();
+    let mut board = fixture::inbox_board();
+    board.apply(
+        &Event::InProject {
+            conversation: "invoices".into(),
+            name: "Privat".into(),
+        },
+        None,
+        now,
+    );
+    assert_eq!(
+        board.active_question().and_then(|asking| asking.project),
+        Some("Privat".into())
+    );
+    let rt = runtime(orb_state(board, false), orb::view, orb::SIZE, false);
+    assert!(count(&rt, "card-project-dot") >= 1, "the question's");
+    let mut board = super::super::board::Board::default();
+    for event in [
+        fixture::started(
+            "suppliers",
+            crate::assistant::Origin::Background,
+            "Lieferanten",
+        ),
+        Event::InProject {
+            conversation: "suppliers".into(),
+            name: "Startup".into(),
+        },
+        Event::Answer {
+            conversation: "suppliers".into(),
+            origin: crate::assistant::Origin::Background,
+            text: "Agrar Süd ist am günstigsten.".into(),
+        },
+    ] {
+        board.apply(&event, None, now);
+    }
+    assert_eq!(
+        board
+            .outcome("suppliers")
+            .and_then(|outcome| outcome.project.clone()),
+        Some("Startup".into())
+    );
 }
 
 #[test]
@@ -296,6 +428,9 @@ fn while_held_the_island_names_the_project_the_words_go_to() {
 fn project_snapshots() {
     let folder = std::path::PathBuf::from(std::env::var("AGENT_DESK_PROJECT_SNAPS").unwrap());
     std::fs::create_dir_all(&folder).unwrap();
+    if let Ok(language) = std::env::var("AGENT_DESK_RENDER_LANGUAGE") {
+        crate::desktop::i18n::apply(Some(&language));
+    }
     let gpu = rune::render::Gpu::try_new(rune::render::Gpu::instance(), None).unwrap();
     let px = |size: (f32, f32)| ((size.0 * 2.0) as u32, (size.1 * 2.0) as u32);
     for dark in [false, true] {
@@ -326,13 +461,36 @@ fn project_snapshots() {
                 crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h),
             );
         }
-        let mut rt = runtime(busy_rail(), orb::view, orb::SIZE, dark);
-        let (w, h) = px(orb::SIZE);
-        save(
-            "rail-jobs",
-            orb::SIZE,
-            crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h),
-        );
+        // Jobs of several projects at once, grouped; one project's alone,
+        // as always; the picker with each project's running jobs.
+        let mut one = fixture::many_jobs_board(3);
+        for id in ["job0", "job1", "job2"] {
+            one.apply(
+                &Event::InProject {
+                    conversation: id.into(),
+                    name: "Startup".into(),
+                },
+                None,
+                std::time::Instant::now(),
+            );
+        }
+        let mut one = orb_state(one, false);
+        one.project.snapshot = snapshot(Some("Startup"));
+        let mut counted = busy_rail();
+        counted.project.open = true;
+        for (name, state) in [
+            ("rail-jobs", busy_rail()),
+            ("rail-one-project", one),
+            ("picker-running", counted),
+        ] {
+            let mut rt = runtime(state, orb::view, orb::SIZE, dark);
+            let (w, h) = px(orb::SIZE);
+            save(
+                name,
+                orb::SIZE,
+                crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h),
+            );
+        }
         let mut board = fixture::crowd_board(12, 5);
         fixture::crowd_question(&mut board);
         let mut crowded = orb_state(board, false);

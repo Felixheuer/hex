@@ -95,7 +95,7 @@ pub(crate) fn frame(window: &TaskWindow, size: (f64, f64)) -> Option<(f64, f64, 
     Some((x * sx, y * sy, w * sx, h * sy))
 }
 
-fn started(id: &str, origin: Origin, question: &str) -> Event {
+pub(crate) fn started(id: &str, origin: Origin, question: &str) -> Event {
     Event::Started {
         conversation: id.into(),
         origin,

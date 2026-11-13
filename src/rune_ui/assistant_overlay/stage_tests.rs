@@ -52,6 +52,7 @@ fn outcome(failed: bool) -> Outcome {
             SUPPLIERS.into()
         },
         at: Instant::now(),
+        project: None,
     }
 }
 

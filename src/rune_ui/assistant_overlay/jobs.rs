@@ -198,27 +198,52 @@ pub(crate) fn view<S: 'static>(
     if layout.rows.is_empty() && layout.more == 0 && desk.is_none() {
         return None;
     }
-    let mut rows: Vec<El> = layout
+    let shown: Vec<&Task> = layout
         .rows
         .iter()
-        .filter_map(|id| jobs.iter().find(|task| &task.id == id))
-        .map(|task| {
-            card(
-                p,
-                task,
-                &app_live::previews(&task.id),
-                &live::previews(&task.id),
-                &helpers_of(team, &task.id),
-                actions,
-                line_actions.wall,
-                room.still,
-                task.project
-                    .as_deref()
-                    .filter(|name| Some(*name) != room.active_project.as_deref()),
-            )
-            .transition(room.appear)
+        .filter_map(|id| jobs.iter().find(|task| &task.id == id).copied())
+        .collect();
+    // Jobs of more than one project: a group per project, under its
+    // header; one group looks as it always did.
+    let groups = groups(&shown);
+    let grouped = groups.len() > 1;
+    let mut units: Vec<(Option<El>, Vec<El>)> = groups
+        .into_iter()
+        .map(|(name, tasks)| {
+            let header = grouped.then(|| {
+                let count = jobs
+                    .iter()
+                    .filter(|task| task.project.as_deref() == name)
+                    .count();
+                super::project::header(p, name, count).transition(room.appear)
+            });
+            let cards = tasks
+                .into_iter()
+                .map(|task| {
+                    // Alone, a job in another project than the active one
+                    // wears its tag; grouped, the header names it.
+                    let tag = task
+                        .project
+                        .as_deref()
+                        .filter(|name| !grouped && Some(*name) != room.active_project.as_deref());
+                    card(
+                        p,
+                        task,
+                        &app_live::previews(&task.id),
+                        &live::previews(&task.id),
+                        &helpers_of(team, &task.id),
+                        actions,
+                        line_actions.wall,
+                        room.still,
+                        tag,
+                    )
+                    .transition(room.appear)
+                })
+                .collect();
+            (header, cards)
         })
         .collect();
+    let mut rows: Vec<El> = Vec::new();
     if layout.more > 0 {
         let shown: Vec<&str> = layout.rows.iter().map(String::as_str).collect();
         let led = |task: &Task| {
@@ -235,9 +260,25 @@ pub(crate) fn view<S: 'static>(
         rows.push(line(p, &rest, layout.more, actions).transition(room.appear));
     }
     rows.extend(desk.map(|desk| desk.transition(room.appear)));
+    // Top to bottom: downward, the groups then the rest; upward (the newest
+    // nearest the orb at the bottom), all reversed, each header still over
+    // its group.
     if !room.down {
         rows.reverse();
+        units.reverse();
+        for (_, cards) in &mut units {
+            cards.reverse();
+        }
     }
+    let groups: Vec<El> = units
+        .into_iter()
+        .flat_map(|(header, cards)| header.into_iter().chain(cards))
+        .collect();
+    let rows: Vec<El> = if room.down {
+        groups.into_iter().chain(rows).collect()
+    } else {
+        rows.into_iter().chain(groups).collect()
+    };
     Some(
         col()
             .key("jobs")
@@ -264,6 +305,19 @@ pub(crate) fn view<S: 'static>(
             .animate_layout()
             .children(rows),
     )
+}
+
+/// `jobs` by project, in the order each project first shows.
+pub(crate) fn groups<'a>(jobs: &[&'a Task]) -> Vec<(Option<&'a str>, Vec<&'a Task>)> {
+    let mut groups: Vec<(Option<&str>, Vec<&Task>)> = Vec::new();
+    for task in jobs {
+        let name = task.project.as_deref();
+        match groups.iter_mut().find(|(group, _)| *group == name) {
+            Some((_, tasks)) => tasks.push(task),
+            None => groups.push((name, vec![task])),
+        }
+    }
+    groups
 }
 
 /// One job's row in the rail, in the card material: its dot (with its
@@ -339,6 +393,17 @@ fn card<S: 'static>(
                 .grow(1.0),
         )
         .children(project.map(|name| super::project::tag(p, name)))
+        .children(
+            // Its project's dot, where no tag says it.
+            task.project
+                .as_deref()
+                .filter(|_| project.is_none())
+                .map(|name| {
+                    super::project::mark(p, Some(name), 6.0)
+                        .key("job-project-dot")
+                        .a11y_hidden()
+                }),
+        )
         .children(wall)
         .children(when);
     let step = doing(task).map(|words| {

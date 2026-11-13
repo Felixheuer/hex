@@ -158,3 +158,32 @@ fn a_request_about_a_project_while_none_is_active_is_offered_to_it_not_moved() {
     assert_eq!(projects.active(), None);
     runner.cancel_all();
 }
+
+#[test]
+fn jobs_run_in_two_projects_at_once_and_a_request_can_name_its_own() {
+    let world = World::new(8);
+    let projects = with_projects(&world);
+    let shop = projects.find("Kalibermarkt").unwrap();
+    projects.set_active(Some(&shop.id)).unwrap();
+    let runner = world.runner();
+    // „im Projekt Startup: …“ runs in Startup for this request alone.
+    let scoped = "im Projekt Startup: bau die Preisseite";
+    runner.submit(request(scoped, Origin::Background));
+    let job = world.job_for(scoped);
+    assert_eq!(job.project.map(|project| project.name).as_deref(), Some("Startup"));
+    assert_eq!(
+        projects.active().map(|project| project.id),
+        Some(shop.id.clone()),
+        "the active project stays"
+    );
+    // The next request, said plainly, goes to the active one, while the
+    // first still runs in its own.
+    let plain = "Prüfe die Bestellungen von heute";
+    runner.submit(request(plain, Origin::Background));
+    let other = world.job_for(plain);
+    assert_eq!(
+        other.project.map(|project| project.name).as_deref(),
+        Some("Kalibermarkt")
+    );
+    runner.cancel_all();
+}

@@ -7,6 +7,11 @@
 //! Startup?") when a request seems to be about a project while none is
 //! active. Nothing here switches on its own.
 //!
+//! Several projects at once: each project has its own colour ([`hue`],
+//! from its name), its dot on every job's card, question, and result; the
+//! rail groups running jobs under a header per project ([`header`]) once
+//! more than one group runs; and the picker counts each one's jobs.
+//!
 //! Plain state and drawing; the host does the switching
 //! (`host::orb_panel`).
 
@@ -106,15 +111,61 @@ fn cut(name: &str, max: usize) -> String {
     cut
 }
 
-/// The project's dot: the agent's hue while active, a ring for none.
-fn mark(p: Paint, active: bool, size: f32) -> El {
-    let hue = palette::agent(p.k.dark);
+/// A project's own colour, the same everywhere it shows (chip, picker,
+/// group header, a job's dot), from its name: one of the task colours.
+pub(crate) fn hue(p: Paint, name: &str) -> rune::Color {
+    let index = name
+        .to_lowercase()
+        .bytes()
+        .fold(2166136261u32, |hash, byte| {
+            (hash ^ u32::from(byte)).wrapping_mul(16777619)
+        });
+    palette::task((index % 8) as u8, p.k.dark)
+}
+
+/// The project's dot in its colour (`name`), or a ring for none.
+pub(crate) fn mark(p: Paint, name: Option<&str>, size: f32) -> El {
     let base = el().size(size, size).radius(size / 2.0).a11y_hidden();
-    if active {
-        base.fill(hue)
-    } else {
-        base.border(1.25, p.faint())
+    match name {
+        Some(name) => base.fill(hue(p, name)),
+        None => base.border(1.25, p.faint()),
     }
+}
+
+/// A group's header in the rail, while jobs of more than one project run:
+/// the project's dot and name ("Without a project" for jobs in none) and
+/// how many run.
+pub(crate) fn header(p: Paint, name: Option<&str>, count: usize) -> El {
+    let words = name.map_or_else(|| tr("Without a project").to_owned(), |name| cut(name, 26));
+    let pill = row()
+        .key(format!("project-group-{}", name.unwrap_or("none")))
+        .h(20.0)
+        .px(8.0)
+        .gap(6.0)
+        .center_y()
+        .radius(10.0)
+        // Its own quiet material, so it reads over any wallpaper.
+        .fill(p.k.c.bg_base.alpha(0.9))
+        .border(p.hair, p.k.c.border_base)
+        .role("heading")
+        .label(words.clone())
+        .child(mark(p, name, 7.0))
+        .child(
+            text(words)
+                .font(look::meta(p))
+                .color(p.muted())
+                .truncate()
+                .min_w(0.0)
+                .shrink()
+                .a11y_hidden(),
+        )
+        .child(
+            text(count.to_string())
+                .font(look::meta(p))
+                .color(p.faint())
+                .a11y_hidden(),
+        );
+    row().key("project-group").w_full().pt(2.0).child(pill)
 }
 
 /// The chip at the rail's head: "● Startup ▾", or "○ No project ▾".
@@ -163,7 +214,7 @@ pub(crate) fn chip<S: 'static>(p: Paint, picker: &Picker, beside: bool, actions:
             .label(label)
             .hit()
             .on_press(move |s: &mut S| toggle(s))
-            .child(mark(p, active.is_some(), 7.0))
+            .child(mark(p, active, 7.0))
             .children(words.map(|words| {
                 text(words)
                     .key("project-chip-name")
@@ -233,7 +284,13 @@ fn choice<S: 'static>(
 /// The picker under the chip: the recent projects (the active one
 /// ticked), "No project", and "New project…", whose name is typed in
 /// place (Return makes it and makes it active; Esc cancels).
-pub(crate) fn picker<S: 'static>(p: Paint, picker: &Picker, actions: Actions<S>) -> El {
+/// `running`: each project's running jobs, by name, shown beside it.
+pub(crate) fn picker<S: 'static>(
+    p: Paint,
+    picker: &Picker,
+    running: &[(String, usize)],
+    actions: Actions<S>,
+) -> El {
     let active = picker.snapshot.active.as_ref().map(|(id, _)| id.clone());
     let pick = actions.pick;
     let mut rows: Vec<El> = picker
@@ -242,14 +299,19 @@ pub(crate) fn picker<S: 'static>(p: Paint, picker: &Picker, actions: Actions<S>)
         .iter()
         .map(|(id, name)| {
             let chosen = id.clone();
+            let jobs = running
+                .iter()
+                .find(|(running, _)| running == name)
+                .map_or(0, |(_, count)| *count);
             choice(
                 p,
                 format!("project-{name}"),
-                mark(p, true, 7.0),
+                mark(p, Some(name), 7.0),
                 cut(name, 30),
                 active.as_deref() == Some(id.as_str()),
                 move |s: &mut S| pick(s, Some(&chosen)),
             )
+            .children((jobs > 0).then(|| count_badge(p, name, jobs)))
         })
         .collect();
     if !rows.is_empty() {
@@ -265,7 +327,7 @@ pub(crate) fn picker<S: 'static>(p: Paint, picker: &Picker, actions: Actions<S>)
     rows.push(choice(
         p,
         "project-none".to_owned(),
-        mark(p, false, 7.0),
+        mark(p, None, 7.0),
         tr("No project").to_owned(),
         active.is_none(),
         move |s: &mut S| pick(s, None),
@@ -309,6 +371,31 @@ pub(crate) fn picker<S: 'static>(p: Paint, picker: &Picker, actions: Actions<S>)
     )
     .radius(14.0)
     .children(rows)
+}
+
+/// How many of a project's jobs run, at its picker row's end: "2".
+fn count_badge(p: Paint, name: &str, jobs: usize) -> El {
+    let label = if jobs == 1 {
+        tr("1 job running").to_owned()
+    } else {
+        tr_fill("{} jobs running", &jobs.to_string())
+    };
+    row()
+        .key(format!("project-running-{name}"))
+        .h(18.0)
+        .min_w(18.0)
+        .px(6.0)
+        .center()
+        .radius(9.0)
+        .fill(p.k.c.layer_02)
+        .role("status")
+        .label(label)
+        .child(
+            text(jobs.to_string())
+                .font(look::meta(p))
+                .color(p.muted())
+                .a11y_hidden(),
+        )
 }
 
 /// A picker row's words: 13 pt, between the card's body and its labels.
@@ -386,7 +473,7 @@ pub(crate) fn tag(p: Paint, name: &str) -> El {
         .fill(p.k.c.layer_02)
         .role("status")
         .label(tr_fill("Project: {}", name))
-        .child(mark(p, true, 5.0))
+        .child(mark(p, Some(name), 5.0))
         .child(
             text(cut(name, 16))
                 .font(look::meta(p))
@@ -406,4 +493,20 @@ pub(crate) fn offer<S: 'static>(p: Paint, id: &str, name: &str, take: fn(&mut S,
         move |s: &mut S| take(s, &id),
     )
     .key("project-offer")
+}
+
+/// A card's lead with its project: the task's `dot`, then the project's
+/// dot beside it (a question's and a result's), so which project asks or
+/// answered shows at a glance; alone without one.
+pub(crate) fn with_dot(p: Paint, dot: El, project: Option<&str>) -> El {
+    match project {
+        Some(name) => row()
+            .key("card-project")
+            .gap(4.0)
+            .center_y()
+            .label(tr_fill("Project: {}", name))
+            .child(dot)
+            .child(mark(p, Some(name), 6.0).key("card-project-dot")),
+        None => dot,
+    }
 }

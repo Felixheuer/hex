@@ -101,7 +101,11 @@ pub(crate) fn question<S: 'static>(
     let start = actions.reply.start;
     let (pressed, later, replies) = (asking.id.clone(), asking.id.clone(), asking.id.clone());
     let mut card = Card::named("question");
-    card.lead = Some(look::dot(colour, 9.0));
+    card.lead = Some(super::project::with_dot(
+        p,
+        look::dot(colour, 9.0),
+        asking.project.as_deref(),
+    ));
     card.title = asking.title.clone();
     card.chip = Some(look::chip(p, State::NeedsYou));
     card.body = vec![
@@ -133,10 +137,15 @@ pub(crate) fn question<S: 'static>(
         .key(format!("question-{}", asking.id))
         .role("alert")
         .label(format!(
-            "{}: {} · {}",
+            "{}: {} · {}{}",
             State::NeedsYou.word(),
             asking.title,
-            asking.question
+            asking.question,
+            asking
+                .project
+                .as_deref()
+                .map(|name| format!(" · {}", tr_fill("Project: {}", name)))
+                .unwrap_or_default()
         ))
         .live_region(rune::LiveRegion::Polite)
         .hit();
