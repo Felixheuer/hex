@@ -318,3 +318,26 @@ fn the_agent_s_tool_reads_learns_and_only_the_person_s_turn_switches() {
     let none = tool::call(&projects, None, false, &json!({"action": "show"})).unwrap_err();
     assert!(none.contains("isn't in a project"), "{none}");
 }
+
+#[test]
+fn memory_learned_in_a_project_is_tagged_and_stays_out_of_other_projects() {
+    use crate::assistant::knowledge::graph::{Graph, extract};
+    let mut graph = Graph::default();
+    graph.learn(&extract("Max Weber's email is max@weber.de", None, "DE"), "remember", 1);
+    graph.scope = Some("startup".into());
+    graph.learn(&extract("Max Weber works at Rocket GmbH", None, "DE"), "remember", 2);
+    let tagged: Vec<Option<&str>> = graph.links.iter().map(|link| link.project.as_deref()).collect();
+    assert_eq!(tagged, [None, Some("startup")], "global stays global");
+    let in_startup = graph.context("Schreib Max Weber").unwrap();
+    assert!(in_startup.contains("max@weber.de") && in_startup.contains("Rocket GmbH"), "{in_startup}");
+    graph.scope = Some("privat".into());
+    let elsewhere = graph.context("Schreib Max Weber").unwrap();
+    assert!(elsewhere.contains("max@weber.de"), "{elsewhere}");
+    assert!(!elsewhere.contains("Rocket"), "another project's link stays out: {elsewhere}");
+    graph.scope = None;
+    assert!(graph.context("Schreib Max Weber").unwrap().contains("Rocket GmbH"), "no project: everything, as before");
+    // The tag survives the file; the scope doesn't.
+    let saved: Graph = serde_json::from_slice(&serde_json::to_vec(&graph).unwrap()).unwrap();
+    assert_eq!(saved.links[1].project.as_deref(), Some("startup"));
+    assert_eq!(saved.scope, None);
+}

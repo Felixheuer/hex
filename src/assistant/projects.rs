@@ -39,6 +39,11 @@ use serde::{Deserialize, Serialize};
 use crate::assistant::knowledge::{graph, rank};
 pub use soul::Part;
 
+/// What every task's system prompt says about projects: the same whatever
+/// the request, so a backend started ahead keeps it; the project itself
+/// comes with the request's message ([`ForTask::context`]).
+pub const RULES: &str = "\n\nProjects: when the message names the person's project, save what you make in its folder; hex_project reads its soul and files and adds what you learn (action learn). Switch or make projects only when asked.";
+
 /// A project's soul file.
 pub const SOUL: &str = "soul.md";
 /// A project's machine index.

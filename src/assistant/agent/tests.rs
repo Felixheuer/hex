@@ -20,6 +20,7 @@ fn job(text: &str, origin: Origin, context: Context) -> Job {
         memory: None,
         recall: None,
         helps: None,
+        project: None,
     }
 }
 
@@ -731,7 +732,8 @@ fn quick_turns_run_fast_and_hand_hard_ones_to_the_strong_model() {
 // 9_950: watching a video is hex_watch_video's (media::RULES).
 // 10_250: the understood line the island shows first (markers::UNDERSTOOD_RULE).
 // 10_400: web pages the person didn't ask to see in their browser stay in the hidden one; their tab navigates in the background.
-const HERE_BUDGET: usize = 10_400;
+// 10_600: projects (projects::RULES): their folder and hex_project.
+const HERE_BUDGET: usize = 10_600;
 // 15_900: the knowledge tools add a short rule; every app's ways, scripting first (APP_METHODS).
 // 16_200: acting by a window's picture (BACKGROUND_INPUT_RULES).
 // 16_500: the work-fast rules reach jobs too (speed_rules).
@@ -740,7 +742,8 @@ const HERE_BUDGET: usize = 10_400;
 // 17_700: long jobs: the journal, a check per plan step, time, and what to
 // do when an app or a browser dies (journal::rules).
 // 18_000: the background-first browser rules (pilot.59) and the journal rules together.
-const JOB_BUDGET: usize = 18_000;
+// 18_200: projects (projects::RULES): their folder and hex_project.
+const JOB_BUDGET: usize = 18_200;
 
 #[test]
 fn each_lane_s_rules_stay_within_their_budget() {

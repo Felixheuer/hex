@@ -102,6 +102,7 @@ impl Role {
         }
         names.extend(crate::assistant::knowledge::NAMES);
         names.push(crate::assistant::media::NAME);
+        names.push(crate::assistant::projects::tool::NAME);
         if self == Self::Job {
             names.extend(TEAM_TOOLS);
         }
@@ -254,6 +255,7 @@ fn definitions() -> Vec<Value> {
     ];
     tools.extend(crate::assistant::knowledge::definitions());
     tools.push(crate::assistant::media::definition());
+    tools.push(crate::assistant::projects::tool::definition());
     tools
 }
 
@@ -392,7 +394,10 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             }
             let line = memory::remember(&text("fact")?).map_err(|error| format!("{error:#}"))?;
             let about = arguments.get("about").and_then(Value::as_str);
-            crate::assistant::knowledge::learn_fact(&line, about);
+            let project = TASK
+                .get()
+                .and_then(|task| crate::assistant::knowledge::project_of(task));
+            crate::assistant::knowledge::learn_fact(&line, about, project.as_deref());
             Ok(format!("Remembered: {line}"))
         }
         "hex_schedule" => {
@@ -440,6 +445,19 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             } else {
                 Err(format!("There is no schedule {id}."))
             }
+        }
+        crate::assistant::projects::tool::NAME => {
+            let projects = crate::assistant::projects::Projects::system()
+                .ok_or("Agent-Desk has no folder for projects")?;
+            let project = TASK
+                .get()
+                .and_then(|task| crate::assistant::knowledge::project_of(task));
+            crate::assistant::projects::tool::call(
+                &projects,
+                project.as_deref(),
+                role().is_job(),
+                arguments,
+            )
         }
         name if crate::assistant::knowledge::handles(name) => crate::assistant::knowledge::call(
             name,
@@ -656,7 +674,8 @@ mod tests {
                 "hex_unschedule",
                 "hex_lookup",
                 "hex_browser_tab",
-                "hex_watch_video"
+                "hex_watch_video",
+                "hex_project"
             ]
         );
         let secret = answer(&json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -688,6 +707,7 @@ mod tests {
                 "hex_lookup",
                 "hex_browser_tab",
                 "hex_watch_video",
+                "hex_project",
                 "hex_team_start",
                 "hex_team_tell",
                 "hex_team_status"
@@ -700,7 +720,8 @@ mod tests {
                 "hex_compare_images",
                 "hex_lookup",
                 "hex_browser_tab",
-                "hex_watch_video"
+                "hex_watch_video",
+                "hex_project"
             ]
         );
         // Every name has its definition; memory off offers no hex_remember.

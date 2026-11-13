@@ -84,12 +84,21 @@ pub struct Link {
     /// "note", "remember", or "task:<id>".
     pub source: String,
     pub at_ms: u64,
+    /// The project (`assistant::projects`, its id) it was learned in;
+    /// `None`: the person's, everywhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Graph {
     pub entities: Vec<Entity>,
     pub links: Vec<Link>,
+    /// The project it is read and added to for now (`assistant::projects`,
+    /// its id): what is learned is tagged with it, and another project's
+    /// links stay out of what is read. `None`: no project, every link.
+    #[serde(skip)]
+    pub scope: Option<String>,
 }
 
 /// What one fact says: about whom, which values, and related names.
@@ -582,6 +591,7 @@ impl Graph {
             to,
             source: source.to_owned(),
             at_ms: now_ms,
+            project: self.scope.clone(),
         });
         true
     }
@@ -635,6 +645,12 @@ impl Graph {
         }
     }
 
+    /// Whether `link` is read in the graph's scope: the person's own, or
+    /// the scope's project's (without a scope, every link).
+    fn in_scope(&self, link: &Link) -> bool {
+        self.scope.is_none() || link.project.is_none() || link.project == self.scope
+    }
+
     fn entity(&self, id: u64) -> Option<&Entity> {
         self.entities.iter().find(|entity| entity.id == id)
     }
@@ -645,7 +661,11 @@ impl Graph {
     pub fn describe(&self, id: u64) -> Option<String> {
         let entity = self.entity(id)?;
         let mut parts = Vec::new();
-        for link in self.links.iter().filter(|link| link.from == id) {
+        for link in self
+            .links
+            .iter()
+            .filter(|link| link.from == id && self.in_scope(link))
+        {
             let Some(to) = self.entity(link.to) else {
                 continue;
             };
@@ -654,7 +674,7 @@ impl Graph {
                 let further: Vec<String> = self
                     .links
                     .iter()
-                    .filter(|next| next.from == to.id)
+                    .filter(|next| next.from == to.id && self.in_scope(next))
                     .filter_map(|next| {
                         self.entity(next.to)
                             .map(|other| format!("{} {}", next.rel, other.name))
@@ -670,7 +690,11 @@ impl Graph {
             }
             parts.push(part);
         }
-        for link in self.links.iter().filter(|link| link.to == id) {
+        for link in self
+            .links
+            .iter()
+            .filter(|link| link.to == id && self.in_scope(link))
+        {
             if let Some(from) = self.entity(link.from)
                 && !from.kind.is_value()
             {

@@ -175,6 +175,7 @@ mod tests {
             authorized: Default::default(),
             memory: Some("- Company: blabla.com".into()),
             recall: None,
+            project: None,
             helps: variant.helps.then(|| "Lead".into()),
         };
         let spec = task_spec(&job);
