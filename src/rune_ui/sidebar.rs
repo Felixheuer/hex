@@ -251,13 +251,27 @@ pub(super) fn onboarding_back_x(os: super::platform::Os) -> f32 {
     }
 }
 
+/// The pane header's height: room for the title and a toolbar button.
+pub(super) const PANE_HEADER_H: f32 = 56.0;
+
+/// A pane's title: the overlay's title size (17/22 medium,
+/// `docs/ux/redesign.md` §3.3), so the window's hierarchy matches the
+/// cards on the desktop.
+pub(super) fn pane_title_font(p: Paint) -> rune::TextStyle {
+    rune::TextStyle {
+        size: 17.0,
+        line_height: 22.0,
+        ..p.k.ty.body_medium
+    }
+}
+
 /// The title bar of the content panel: the title, a view switch that stays
 /// beside it, and the pane's actions on the right. The title is the pane's
 /// level 1 heading.
 pub(super) fn pane_header(p: Paint, title: &str, switch: Option<El>, actions: Vec<El>) -> El {
     title_bar(row())
         .key("pane-header")
-        .h(52.0)
+        .h(PANE_HEADER_H)
         .px(METRICS.gutter)
         .gap(8.0)
         .center_y()
@@ -266,7 +280,7 @@ pub(super) fn pane_header(p: Paint, title: &str, switch: Option<El>, actions: Ve
                 .key("pane-title")
                 .role("heading")
                 .level(1)
-                .font(p.k.ty.body_medium)
+                .font(pane_title_font(p))
                 .color(p.text())
                 .shrink()
                 .truncate(),
@@ -316,7 +330,7 @@ fn group_gap(p: Paint, index: usize, heading: Option<&'static str>) -> El {
     let gap = col()
         .key(format!("nav-group-{index}"))
         .role("none")
-        .pt(10.0)
+        .pt(14.0)
         .pb(2.0);
     match heading {
         Some(heading) => gap.child(
@@ -324,8 +338,9 @@ fn group_gap(p: Paint, index: usize, heading: Option<&'static str>) -> El {
                 .key("heading")
                 .role("heading")
                 .level(2)
-                .font(p.k.ty.small)
+                .font(p.k.ty.small_medium)
                 .color(p.faint())
+                .pb(2.0)
                 .px(6.0)
                 .truncate(),
         ),
@@ -632,7 +647,7 @@ fn nav_item(p: Paint, pane: Pane, on: bool) -> El {
         .child(
             text(pane.title())
                 .key("label")
-                .font(p.k.ty.ui)
+                .font(if on { p.k.ty.ui_medium } else { p.k.ty.ui })
                 .color(if on { c.text_base } else { c.text_muted })
                 .truncate()
                 .a11y_hidden(),

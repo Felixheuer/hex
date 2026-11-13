@@ -7,6 +7,8 @@
 mod browser;
 mod checks;
 mod desktop;
+mod done;
+mod permissions;
 mod privacy;
 mod shortcut;
 mod try_it;
@@ -27,7 +29,7 @@ use crate::desktop::i18n::{tr, tr_fill};
 const TOP_BAR: f32 = 48.0;
 const ACTION_H: f32 = 32.0;
 /// The column the card fills, as wide as the first run's.
-const COL_W: f32 = 480.0;
+const COL_W: f32 = 520.0;
 const ROW_H: f32 = 56.0;
 
 static PASSED: &rune::Icon = &rune_theme_opencode::icons::CIRCLE_CHECK;
@@ -43,15 +45,20 @@ pub(in crate::rune_ui) fn overlay(ui: &Ui, p: Paint) -> Option<El> {
     let flow = ui.chats.setup.as_ref()?;
     let page = match flow.page {
         Page::Welcome => welcome(ui, p),
-        Page::Privacy => privacy::privacy(ui, flow, p),
-        Page::About => privacy::about(ui, flow, p),
+        Page::Permissions => permissions::permissions(ui, flow, p),
         Page::Agent => agent(ui, flow, p),
         Page::Desktop => desktop::desktop(ui, flow, p),
         Page::Browser => browser::browser(ui, flow, p),
-        Page::Checks => checks::checks(ui, flow, p),
         Page::Shortcut => shortcut::shortcut(ui, flow, p),
         Page::Try => try_it::try_it(ui, flow, p),
+        Page::Done => done::done(ui, flow, p),
     };
+    let page = col()
+        .key("step")
+        .gap(10.0)
+        .items_center()
+        .child(step_line(flow, p))
+        .child(page);
     Some(
         col()
             .key("assistant-setup")
@@ -102,29 +109,52 @@ fn repair_banner(flow: &SetupFlow, p: Paint) -> Option<El> {
             said.push(line);
         }
     }
+    let k = p.k;
+    let notice = col()
+        .key("repair-notice")
+        .w(COL_W)
+        .px(16.0)
+        .py(12.0)
+        .gap(6.0)
+        .radius(super::super::controls::CARD_RADIUS)
+        .fill(k.alpha(p.warning(), 0.10))
+        .border(p.hair, k.alpha(p.warning(), 0.35))
+        .child(
+            text(tr("Agent-Desk needs your help for a moment"))
+                .key("repair-title")
+                .font(k.ty.ui_medium)
+                .color(p.text()),
+        )
+        .children(said.into_iter().enumerate().map(|(index, line)| {
+            row()
+                .key(format!("repair-gap{index}"))
+                .gap(8.0)
+                .items_start()
+                .child(
+                    el().size(5.0, 5.0)
+                        .mt(6.0)
+                        .radius(2.5)
+                        .fill(p.warning())
+                        .a11y_hidden(),
+                )
+                .child(
+                    text(tr(line))
+                        .key("words")
+                        .font(k.ty.small)
+                        .color(p.muted())
+                        .wrap()
+                        .grow(1.0)
+                        .shrink(),
+                )
+        }));
     Some(
         col()
             .key("repair-banner")
             .role("status")
             .w_full()
             .items_center()
-            .gap(4.0)
-            .pt(4.0)
-            .child(
-                text(tr("Agent-Desk needs your help for a moment"))
-                    .key("repair-title")
-                    .font(p.k.ty.ui_medium)
-                    .color(p.accent()),
-            )
-            .children(said.into_iter().enumerate().map(|(index, line)| {
-                text(tr(line))
-                    .key(format!("repair-gap{index}"))
-                    .font(p.k.ty.small)
-                    .color(p.muted())
-                    .align(rune::Align::Center)
-                    .wrap()
-                    .max_w(560.0)
-            })),
+            .pt(8.0)
+            .child(notice),
     )
 }
 
@@ -172,8 +202,8 @@ fn top_bar(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         .children(back)
 }
 
-/// One mark per page: the current one long, finished ones green, ones left
-/// with Later amber.
+/// One segment per page, as a bar: finished ones green, the current one in
+/// full ink, ones left with Later amber, the rest a faint track.
 fn progress(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     let c = &p.k.c;
     let pages = setup::repair::pages(flow);
@@ -189,8 +219,9 @@ fn progress(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             "Step {}",
             &format!("{} / {}", current + 1, pages.len()),
         ))
-        .gap(6.0)
+        .gap(4.0)
         .center_y();
+    let width = (SEGMENTS_W / pages.len().max(1) as f32).clamp(14.0, 40.0);
     for (index, page) in pages.iter().enumerate() {
         let here = index == current;
         let fill = if here {
@@ -199,19 +230,53 @@ fn progress(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
             p.warning()
         } else if index < current && page_done(ui, flow, *page) {
             p.success()
+        } else if index < current {
+            c.text_faint
         } else {
-            c.border_strong
+            c.border_base
         };
         marks = marks.child(
             el().key(format!("mark{index}"))
-                .size(if here { 18.0 } else { 6.0 }, 6.0)
-                .radius(3.0)
+                .size(width, 4.0)
+                .radius(2.0)
                 .fill(fill)
                 .motion(rune::Spring::new(0.3, 0.0))
                 .a11y_hidden(),
         );
     }
     marks
+}
+
+/// How wide the progress bar's segments are together.
+const SEGMENTS_W: f32 = 240.0;
+
+/// "Step 2 of 8 · Permissions" over the page's title; back for what's
+/// missing, "1 of 2 to fix".
+fn step_line(flow: &SetupFlow, p: Paint) -> El {
+    let pages = setup::repair::pages(flow);
+    let current = pages
+        .iter()
+        .position(|page| *page == flow.page)
+        .unwrap_or(0);
+    let count = [
+        ("n", (current + 1).to_string()),
+        ("of", pages.len().to_string()),
+    ];
+    let count: Vec<(&str, &str)> = count.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let words = if flow.repair.is_some() {
+        crate::desktop::i18n::tr_named("{n} of {of} to fix", &count)
+    } else {
+        crate::desktop::i18n::tr_named("Step {n} of {of}", &count)
+    };
+    let mut words = format!("{words} · {}", flow.page.step_name());
+    if flow.page.optional() {
+        words = format!("{words} · {}", tr("Optional"));
+    }
+    text(words)
+        .key("step-line")
+        .font(p.k.ty.small_medium)
+        .color(p.faint())
+        .align(Align::Center)
 }
 
 /// A page: its heading, its card, a note, and its actions, arriving as
@@ -246,14 +311,23 @@ fn page(
     );
     col()
         .key(key.to_owned())
-        .gap(22.0)
+        .gap(24.0)
         .items_center()
         .child(heading)
-        .children(
-            card.map(|card| motion.staggered(p.k.elevate(card, &p.k.elevation.raised), 1.0, 8.0)),
-        )
+        .children(card.map(|card| motion.staggered(card, 1.0, 8.0)))
         .children(note)
         .child(actions)
+}
+
+/// A small muted heading over a card ("Making sure it works").
+fn section_label(p: Paint, key: &str, label: &str) -> El {
+    text(label.to_owned())
+        .key(key.to_owned())
+        .role("heading")
+        .level(2)
+        .font(p.k.ty.small_medium)
+        .color(p.muted())
+        .px(4.0)
 }
 
 fn lead(p: Paint, copy: &str) -> El {
@@ -266,15 +340,10 @@ fn lead(p: Paint, copy: &str) -> El {
         .max_w(COL_W)
 }
 
-/// The first run's setup card.
+/// The setup's card: the window's card material (the overlay's anatomy:
+/// hairline, one soft shadow), a column wide.
 fn card(p: Paint, key: &str) -> El {
-    col()
-        .key(key.to_owned())
-        .w(COL_W)
-        .py(4.0)
-        .radius(p.k.radius.lg)
-        .fill(p.k.c.bg_base)
-        .border(p.hair, p.k.c.border_weak)
+    super::super::controls::material(p, col().key(key.to_owned()).w(COL_W).py(4.0))
 }
 
 fn separator(p: Paint, key: String) -> El {
@@ -307,22 +376,70 @@ fn row_of(
     ink: rune::Color,
     control: El,
 ) -> El {
+    let lead = el()
+        .key("icon")
+        .size(28.0, 28.0)
+        .center()
+        .radius(8.0)
+        .fill(p.k.c.surface_raised)
+        .child(icon(glyph, 15.0).color(p.k.c.icon_base))
+        .a11y_hidden();
+    row_led(p, key, lead, title, detail, ink, control)
+}
+
+/// A checklist row: its glyph on a quiet tile, a green check on a green
+/// tint once it's done, then its title over what it found, and a control.
+fn status_row(
+    p: Paint,
+    key: &str,
+    glyph: &'static rune::Icon,
+    done: bool,
+    title: &str,
+    detail: &str,
+    control: El,
+) -> El {
+    let k = p.k;
+    let lead = if done {
+        el().key("icon")
+            .size(28.0, 28.0)
+            .center()
+            .radius(14.0)
+            .fill(k.alpha(p.success(), 0.14))
+            .child(icon(k.glyph.check_small, 16.0).color(p.success()))
+            .transition(arrives())
+    } else {
+        el().key("icon")
+            .size(28.0, 28.0)
+            .center()
+            .radius(14.0)
+            .fill(k.c.surface_raised)
+            .border(p.hair, k.c.border_weak)
+            .child(icon(glyph, 14.0).color(k.c.icon_base))
+    }
+    .a11y_hidden();
+    row_led(p, key, lead, title, detail, p.muted(), control)
+}
+
+fn row_led(
+    p: Paint,
+    key: &str,
+    lead: El,
+    title: &str,
+    detail: &str,
+    ink: rune::Color,
+    control: El,
+) -> El {
     row()
         .key(key.to_owned())
         .role("group")
         .label(title.to_owned())
         .description(detail.to_owned())
         .min_h(ROW_H)
-        .py(8.0)
+        .py(10.0)
         .px(16.0)
         .gap(12.0)
         .center_y()
-        .child(
-            icon(glyph, 16.0)
-                .key("icon")
-                .color(p.k.c.icon_base)
-                .a11y_hidden(),
-        )
+        .child(lead)
         .child(
             col()
                 .key("copy")
@@ -577,7 +694,7 @@ fn welcome(ui: &Ui, p: Paint) -> El {
         title,
         lead(p, copy),
         Some(rows_card(p, "welcome-card", rows)),
-        None,
+        Some(privacy::facts(p).w(COL_W).px(20.0)),
         actions(p, true, false),
     )
 }
