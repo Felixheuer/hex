@@ -829,11 +829,15 @@ holds the shortcut and kept after an answer (`assistant.follow_up_seconds`,
 session it opened. The process gets the config a `run` gets (Agent-Desk's
 agent as `default_agent`, the task's MCP servers, the turn's model, the
 own key), so a turn the fast model hands over goes on in that session
-through `opencode run --session` with the strong one. Answers stream
+with the strong one (a new process loads it, `session/load`). Answers stream
 (classic OpenCode token by token, OpenCode 2 in parts); permissions are
 granted once, as `--auto` grants; tool calls show as steps. If ACP doesn't
-start, the turn runs through `opencode run`, and that OpenCode isn't tried
-over ACP again until it changes on disk. First token with DeepSeek Flash:
+start, the turn runs through `opencode run`; when the reason lasts (no
+`acp` command, another protocol) that OpenCode isn't tried over ACP again
+until it changes on disk. A waiting process that died is replaced; one
+started ahead whose reservation went is ended as soon as it is up, and the
+session it opened is deleted, as is the session of one that idled out
+unused. First token with DeepSeek Flash:
 2.2 s (classic) and 1.45 s (OpenCode 2) started ahead, 1.4 s and 1.2 s for
 the follow-up, against 4.5–5 s through `opencode run`.
 

@@ -48,6 +48,7 @@ pub(super) fn fits(run: &Run) -> bool {
 /// else on a new one.
 pub(super) fn run(run: &Run, control: &Control, report: &mut dyn FnMut(Report)) -> Start {
     let key = warm_key(run);
+    wait_for_start(&key);
     let waiting = match warm::take_with(&key, run.resume.as_deref()) {
         Some((process, Some(session))) => {
             tracing::debug!("the assistant uses an OpenCode that is already running");
@@ -72,30 +73,74 @@ pub(super) fn run(run: &Run, control: &Control, report: &mut dyn FnMut(Report)) 
         }
         None => None,
     };
-    let mut acp = match waiting {
-        Some(acp) => acp,
-        None => {
-            if unavailable() {
-                return Start::Unavailable("ACP didn't start before".into());
-            }
-            match start(run, control) {
-                Ok(acp) => acp,
-                Err(why) => {
-                    if !control.cancelled() {
-                        mark_unavailable();
-                    }
-                    return Start::Unavailable(format!("{why:#}"));
-                }
-            }
+    let fresh = || -> std::result::Result<Acp, Start> {
+        if unavailable() {
+            return Err(Start::Unavailable("ACP didn't start before".into()));
         }
+        start(run, control).map_err(|failed| {
+            if failed.lasting && !control.cancelled() {
+                mark_unavailable();
+            }
+            Start::Unavailable(format!("{:#}", failed.why))
+        })
+    };
+    let (mut acp, reused) = match waiting {
+        Some(acp) => (acp, true),
+        None => match fresh() {
+            Ok(acp) => (acp, false),
+            Err(start) => return start,
+        },
     };
     report(Report::Session(acp.session.clone()));
-    let result = turn(&mut acp, run, control, report);
+    let result = match turn(&mut acp, run, control, report, reused) {
+        Some(result) => result,
+        None => {
+            // The waiting process had ended before it read the question.
+            tracing::info!("the waiting OpenCode had ended; starting a new one");
+            end(acp, control);
+            acp = match fresh() {
+                Ok(acp) => acp,
+                Err(start) => return start,
+            };
+            report(Report::Session(acp.session.clone()));
+            turn(&mut acp, run, control, report, false)
+                .unwrap_or_else(|| Err(eyre!("OpenCode stopped before it answered")))
+        }
+    };
     match result {
         Ok(_) => keep_or_end(acp, run, &key, control),
         Err(_) => end(acp, control),
     }
     Start::Ran(result)
+}
+
+/// Processes being started ahead, by key: a request for one waits for it
+/// instead of starting a second, and one whose reservation went void
+/// (`void`) ends as soon as it is up.
+static STARTING: std::sync::Mutex<Vec<(String, bool)>> = std::sync::Mutex::new(Vec::new());
+
+fn starting() -> std::sync::MutexGuard<'static, Vec<(String, bool)>> {
+    STARTING.lock().unwrap_or_else(|error| error.into_inner())
+}
+
+/// Waits (a few seconds at most) for a process still being started ahead
+/// for `key`.
+fn wait_for_start(key: &str) {
+    let until = std::time::Instant::now() + Duration::from_secs(15);
+    while std::time::Instant::now() < until && starting().iter().any(|(started, _)| started == key)
+    {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Voids the processes being started ahead for `task` (every one when
+/// `task` is empty): the reservation they were for won't be taken.
+pub(super) fn void(task: &str) {
+    for (key, void) in starting().iter_mut() {
+        if task.is_empty() || key.contains(task) {
+            *void = true;
+        }
+    }
 }
 
 /// The OpenCode ACP didn't start for, until it changes on disk or
@@ -129,13 +174,53 @@ fn mark_unavailable() {
 /// waiting for the question, at most `ttl`.
 pub(super) fn prewarm(run: &Run, ttl: Duration) {
     let key = warm_key(run);
-    if unavailable() || warm::has(&key, run.resume.as_deref()) {
-        return;
+    {
+        let mut starting = starting();
+        if unavailable()
+            || warm::has(&key, run.resume.as_deref())
+            || starting.iter().any(|(started, _)| *started == key)
+        {
+            return;
+        }
+        starting.push((key.clone(), false));
     }
-    match start(run, &Control::default()) {
+    let control = Control::default();
+    let started = start(run, &control);
+    let void = {
+        let mut starting = starting();
+        let at = starting.iter().position(|(started, _)| *started == key);
+        at.map(|at| starting.remove(at).1).unwrap_or(true)
+    };
+    match started {
+        Ok(acp) if void => {
+            // Its reservation went while it started: no one takes it.
+            if run.resume.is_none() {
+                cli::forget_sessions(vec![acp.session.clone()]);
+            }
+            end(acp, &control);
+        }
         Ok(acp) => warm::put_with(key, run.resume.clone(), acp.process, ttl, Some(acp.session)),
-        Err(error) => {
-            tracing::debug!(error = %format!("{error:#}"), "couldn't start OpenCode ahead")
+        Err(failed) => {
+            if failed.lasting {
+                mark_unavailable();
+            }
+            tracing::debug!(error = %format!("{:#}", failed.why), "couldn't start OpenCode ahead");
+        }
+    }
+}
+
+/// Why ACP didn't start, and whether that lasts (this OpenCode has no ACP
+/// Agent-Desk can use) or was this once (slow, a session it couldn't load).
+struct Failed {
+    why: color_eyre::Report,
+    lasting: bool,
+}
+
+impl Failed {
+    fn once(why: color_eyre::Report) -> Self {
+        Self {
+            why,
+            lasting: false,
         }
     }
 }
@@ -150,11 +235,14 @@ struct Acp {
 /// How long OpenCode may take to come up and open a session.
 const START_LIMIT: Duration = Duration::from_secs(30);
 
-fn start(run: &Run, control: &Control) -> Result<Acp> {
-    let executable = super::executable(AssistantBackend::OpenCode)?;
+fn start(run: &Run, control: &Control) -> std::result::Result<Acp, Failed> {
+    let executable = super::executable(AssistantBackend::OpenCode).map_err(Failed::once)?;
     let generation = cli::generation_for(&executable);
     if super::opencode::is_batch_file(&crate::assistant::backends::search::launch(&executable).0) {
-        return Err(eyre!("OpenCode is a batch file here"));
+        return Err(Failed {
+            why: eyre!("OpenCode is a batch file here"),
+            lasting: true,
+        });
     }
     let mut command = super::command(&executable, &run.workdir);
     if let Some(env) = &run.backend_env {
@@ -167,7 +255,7 @@ fn start(run: &Run, control: &Control) -> Result<Acp> {
         config(run, generation).to_string(),
     );
     command.arg("acp");
-    let process = Process::spawn(command, Stdin::Keep, control)?;
+    let process = Process::spawn(command, Stdin::Keep, control).map_err(Failed::once)?;
     let mut acp = Acp {
         process,
         next: 1,
@@ -176,44 +264,58 @@ fn start(run: &Run, control: &Control) -> Result<Acp> {
     // The process must answer in time; a stuck start is ended.
     let deadline = std::time::Instant::now() + START_LIMIT;
     let tree = acp.process.tree.clone();
-    let started = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let watching = std::sync::Arc::clone(&started);
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let started = Arc::new(AtomicBool::new(false));
+    let timed_out = Arc::new(AtomicBool::new(false));
+    let (watching, late) = (Arc::clone(&started), Arc::clone(&timed_out));
     std::thread::spawn(move || {
         while std::time::Instant::now() < deadline {
-            if watching.load(std::sync::atomic::Ordering::Acquire) {
+            if watching.load(Ordering::Acquire) {
                 return;
             }
             std::thread::sleep(Duration::from_millis(200));
         }
-        if !watching.load(std::sync::atomic::Ordering::Acquire) {
+        if !watching.load(Ordering::Acquire) {
+            late.store(true, Ordering::Release);
             super::end_group(tree);
         }
     });
     let opened = open(&mut acp, run);
-    started.store(true, std::sync::atomic::Ordering::Release);
+    started.store(true, Ordering::Release);
     match opened {
         Ok(session) => {
             acp.session = session;
             Ok(acp)
         }
-        Err(error) => {
+        Err(mut failed) => {
+            // Slow is no lasting reason.
+            failed.lasting &= !timed_out.load(Ordering::Acquire);
             super::end_group(acp.process.tree.clone());
             let _ = acp.process.finish(control);
-            Err(error)
+            Err(failed)
         }
     }
 }
 
-/// `initialize`, then a new session (or the conversation's, loaded).
-fn open(acp: &mut Acp, run: &Run) -> Result<String> {
-    let init = acp.request(
-        "initialize",
-        json!({"protocolVersion": 1, "clientCapabilities": {
-            "fs": {"readTextFile": false, "writeTextFile": false}, "terminal": false}}),
-        &mut |_| {},
-    )?;
+/// `initialize`, then a new session (or the conversation's, loaded). An
+/// OpenCode that ends before it answers `initialize` (no `acp` command), or
+/// answers in another protocol, won't do later either; anything after is
+/// this once.
+fn open(acp: &mut Acp, run: &Run) -> std::result::Result<String, Failed> {
+    let init = acp
+        .request(
+            "initialize",
+            json!({"protocolVersion": 1, "clientCapabilities": {
+                "fs": {"readTextFile": false, "writeTextFile": false}, "terminal": false}}),
+            &mut |_| {},
+        )
+        .map_err(|why| Failed { why, lasting: true })?;
     if init.get("protocolVersion").and_then(Value::as_u64) != Some(1) {
-        return Err(eyre!("OpenCode speaks another ACP: {init}"));
+        return Err(Failed {
+            why: eyre!("OpenCode speaks another ACP: {init}"),
+            lasting: true,
+        });
     }
     let cwd = run.workdir.display().to_string();
     let session = match &run.resume {
@@ -223,7 +325,9 @@ fn open(acp: &mut Acp, run: &Run) -> Result<String> {
                 .and_then(Value::as_bool)
                 == Some(true);
             if !can_load {
-                return Err(eyre!("this OpenCode can't load a session over ACP"));
+                return Err(Failed::once(eyre!(
+                    "this OpenCode can't load a session over ACP"
+                )));
             }
             // Its history comes back as updates first; they were shown
             // when they happened.
@@ -231,7 +335,8 @@ fn open(acp: &mut Acp, run: &Run) -> Result<String> {
                 "session/load",
                 json!({"sessionId": session, "cwd": cwd, "mcpServers": []}),
                 &mut |_| {},
-            )?;
+            )
+            .map_err(Failed::once)?;
             session.clone()
         }
         None => acp
@@ -239,11 +344,12 @@ fn open(acp: &mut Acp, run: &Run) -> Result<String> {
                 "session/new",
                 json!({"cwd": cwd, "mcpServers": []}),
                 &mut |_| {},
-            )?
+            )
+            .map_err(Failed::once)?
             .get("sessionId")
             .and_then(Value::as_str)
             .map(str::to_owned)
-            .ok_or_else(|| eyre!("OpenCode opened no session"))?,
+            .ok_or_else(|| Failed::once(eyre!("OpenCode opened no session")))?,
     };
     Ok(session)
 }
@@ -350,12 +456,31 @@ fn error_words(error: &Value) -> String {
 }
 
 /// Asks `run`'s question in the session and reads the answer as it comes.
+/// `None` when a waiting process (`reused`) turned out to have ended before
+/// it read the question. OpenCode answers the prompt only after its last
+/// update (checked with both OpenCodes), so nothing of one turn is left
+/// for the next on a kept process.
 fn turn(
     acp: &mut Acp,
     run: &Run,
     control: &Control,
     report: &mut dyn FnMut(Report),
-) -> Result<Finished> {
+    reused: bool,
+) -> Option<Result<Finished>> {
+    turn_in(acp, run, control, report, reused).ok()
+}
+
+/// A waiting process that had ended.
+struct Dead;
+
+fn turn_in(
+    acp: &mut Acp,
+    run: &Run,
+    control: &Control,
+    report: &mut dyn FnMut(Report),
+    reused: bool,
+) -> std::result::Result<Result<Finished>, Dead> {
+    let mut lines = 0usize;
     let mut prompt = vec![json!({"type": "text", "text": run.prompt})];
     if let Some(image) = &run.image
         && let Ok(png) = std::fs::read(image)
@@ -367,17 +492,23 @@ fn turn(
     let after = run.escalate_after;
     let id = acp.next;
     acp.next += 1;
-    acp.send(
+    if let Err(error) = acp.send(
         &json!({"jsonrpc": "2.0", "id": id, "method": "session/prompt",
         "params": {"sessionId": session, "prompt": prompt}}),
-    )?;
+    ) {
+        return if reused { Err(Dead) } else { Ok(Err(error)) };
+    }
     loop {
         let Some(line) = acp.process.next_line() else {
             if control.cancelled() {
-                return Err(eyre!("cancelled"));
+                return Ok(Err(eyre!("cancelled")));
             }
-            return Err(eyre!("OpenCode stopped before it answered"));
+            if reused && lines == 0 {
+                return Err(Dead);
+            }
+            return Ok(Err(eyre!("OpenCode stopped before it answered")));
         };
+        lines += 1;
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
@@ -385,7 +516,9 @@ fn turn(
         if message.get("method").is_some() {
             if message.get("id").is_some() {
                 let answer = answer_request(&message);
-                acp.send(&answer)?;
+                if let Err(error) = acp.send(&answer) {
+                    return Ok(Err(error));
+                }
             } else if message.get("method").and_then(Value::as_str) == Some("session/update")
                 && message.pointer("/params/sessionId").and_then(Value::as_str)
                     == Some(session.as_str())
@@ -398,10 +531,10 @@ fn turn(
                         tools = stream.tools,
                         "the fast model hands the turn to the strong one"
                     );
-                    return Err(super::Escalate {
+                    return Ok(Err(super::Escalate {
                         tools: stream.tools,
                     }
-                    .into());
+                    .into()));
                 }
             }
             continue;
@@ -410,13 +543,13 @@ fn turn(
             continue;
         }
         if let Some(error) = message.get("error") {
-            return Err(eyre!("OpenCode: {}", error_words(error)));
+            return Ok(Err(eyre!("OpenCode: {}", error_words(error))));
         }
         let reason = message
             .pointer("/result/stopReason")
             .and_then(Value::as_str)
             .unwrap_or("end_turn");
-        return match reason {
+        return Ok(match reason {
             "cancelled" => Err(eyre!("cancelled")),
             "refusal" => Err(eyre!("OpenCode: the model refused to answer")),
             _ if stream.answer.trim().is_empty() => {
@@ -425,7 +558,7 @@ fn turn(
             _ => Ok(Finished {
                 text: stream.answer.trim().to_owned(),
             }),
-        };
+        });
     }
 }
 
@@ -549,8 +682,12 @@ impl Stream {
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_owned();
+                // The tool's name, as its call started (a later title may
+                // be a label for people).
                 if let Some(title) = update.get("title").and_then(Value::as_str) {
-                    self.titles.insert(id.clone(), title.to_owned());
+                    self.titles
+                        .entry(id.clone())
+                        .or_insert_with(|| title.to_owned());
                 }
                 let tool = self.titles.get(&id).cloned().unwrap_or_default();
                 let input = update.get("rawInput").cloned().unwrap_or(Value::Null);
@@ -629,6 +766,23 @@ mod tests {
             report,
             Report::Tool { name, .. } if name == "agent-browser_agent_browser_open"
         )));
+    }
+
+    #[test]
+    fn a_tool_keeps_the_name_its_call_started_with() {
+        let mut stream = Stream::default();
+        let reports = feed(
+            &mut stream,
+            &[
+                json!({"sessionUpdate": "tool_call", "toolCallId": "c", "title": "agent-browser_agent_browser_get_title", "rawInput": {}}),
+                json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "completed", "title": "Example Domain", "rawOutput": {"output": "Example Domain"}}),
+            ],
+        );
+        assert!(reports.iter().any(|report| matches!(
+            report,
+            Report::Tool { name, .. } if name == "agent-browser_agent_browser_get_title"
+        )));
+        assert_eq!(stream.tools, 1);
     }
 
     #[test]

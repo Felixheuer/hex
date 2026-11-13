@@ -405,6 +405,7 @@ pub fn prewarm(run: &Run, ttl: Duration) {
 
 /// Ends every backend process started ahead.
 pub fn cool_down() {
+    opencode_acp::void("");
     warm::clear();
 }
 
@@ -412,6 +413,7 @@ pub fn cool_down() {
 /// request it was made for didn't take), instead of letting them idle
 /// until their time is up.
 pub fn end_ahead(task: &str) {
+    opencode_acp::void(task);
     warm::end_for(task);
 }
 

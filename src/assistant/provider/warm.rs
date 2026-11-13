@@ -150,6 +150,14 @@ pub(super) fn clear() {
 }
 
 fn end(warm: Warm) {
+    // An ACP session opened ahead for a request that never came: it goes,
+    // so it doesn't stay in the person's own OpenCode. A conversation's
+    // session (`session`) stays for its next turn.
+    if warm.session.is_none()
+        && let Some(opened) = warm.extra
+    {
+        crate::assistant::backends::opencode::forget_sessions(vec![opened]);
+    }
     let mut process = warm.process;
     drop(process.stdin.take());
     end_group(process.tree.clone());
