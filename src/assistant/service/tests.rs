@@ -292,7 +292,10 @@ impl World {
             now_ms: Box::new(move || clock.clock.load(Ordering::SeqCst)),
             sleep: Box::new(|_| std::thread::sleep(Duration::from_millis(1))),
             pause: Box::new(move |task, paused| pause.log(format!("pause {task} {paused}"))),
-            release: Box::new(move |task| release.log(format!("release {task}"))),
+            release: Box::new(move |task, lane| {
+                release.log(format!("release {task}"));
+                release.log(format!("release {task} {lane:?}"));
+            }),
             hands_off: Box::new(move || hands.hands_off.lock().unwrap().clone()),
             bring_forward: Box::new(move |task, windows| {
                 forward.log(format!("forward {task} {}", windows.len()));
@@ -1626,6 +1629,12 @@ fn a_here_request_that_is_a_job_continues_as_a_background_job() {
         text.ends_with(&format!("Files: {}", workspace.display())),
         "{text}"
     );
+    // The hold's turn handed on as Here; the job ends as Background, so its
+    // research browsers close instead of staying on the desk.
+    assert!(world.logged(&format!("release {id} Here")));
+    world.wait_until("the job's release", || {
+        world.logged(&format!("release {id} Background"))
+    });
 }
 
 #[test]

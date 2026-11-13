@@ -403,41 +403,33 @@ pub(crate) fn wait_for_warmup(session: &str) {
     }
 }
 
-/// Closes every browser of `task` (nothing is saved), unless it was a quick
-/// (Here) turn's: those stay open on the person's desk, live at the orb,
-/// until they let them go ([`close_now`]). Blocks for a moment; quick when
-/// it never opened one.
-pub fn close(task: &str) {
-    if keeps_on_desk(task) {
+/// Closes every browser of `task` (nothing is saved), which ended in
+/// `lane`, unless that was a quick (Here) turn: its browsers stay open on
+/// the person's desk, live at the orb, until they let them go
+/// ([`close_now`]). Decided by the lane the task ended in, never by the
+/// conversation's first origin: a job escalated from a hold closes its
+/// research browsers. Blocks for a moment; quick when it never opened one.
+pub fn close(task: &str, lane: crate::assistant::types::Lane) {
+    if stays_on_desk(lane, || has_open(task)) {
+        crate::assistant::guard::desk_keep_browser(task);
+        tracing::info!(task, "a quick turn's browser stays on the desk");
         return;
     }
     close_now(task);
 }
 
-/// Whether `task`, which ended, was a quick turn with browsers open: they
-/// go on the desk instead of closing.
-fn keeps_on_desk(task: &str) -> bool {
+/// Whether a task that ended in `lane` keeps its browsers on the desk:
+/// only a quick turn's, and only when one is open (`open`, asked last).
+fn stays_on_desk(lane: crate::assistant::types::Lane, open: impl FnOnce() -> bool) -> bool {
+    lane == crate::assistant::types::Lane::Here && open()
+}
+
+/// Whether `task` has a browser open now.
+fn has_open(task: &str) -> bool {
     if cfg!(test) {
         return false;
     }
-    let quick = crate::assistant::store::Store::open()
-        .ok()
-        .and_then(|store| store.load(task))
-        .is_some_and(|stored| {
-            stored.conversation.origin.lane() == crate::assistant::types::Lane::Here
-        });
-    if !quick {
-        return false;
-    }
-    let Some(path) = executable() else {
-        return false;
-    };
-    if running(&path, task).is_empty() {
-        return false;
-    }
-    crate::assistant::guard::desk_keep_browser(task);
-    tracing::info!(task, "a quick turn's browser stays on the desk");
-    true
+    executable().is_some_and(|path| !running(&path, task).is_empty())
 }
 
 /// Closes every browser of `task` now, desk or not.
@@ -869,6 +861,16 @@ fn last_json(output: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_quick_turn_s_open_browsers_stay_on_the_desk() {
+        use crate::assistant::types::Lane;
+        assert!(stays_on_desk(Lane::Here, || true));
+        assert!(!stays_on_desk(Lane::Here, || false));
+        // A job (escalated from a hold or not) closes its research
+        // browsers, and never even asks which are open.
+        assert!(!stays_on_desk(Lane::Background, || panic!("not asked")));
+    }
 
     #[test]
     fn a_browser_started_ahead_is_the_one_its_first_call_would_start() {

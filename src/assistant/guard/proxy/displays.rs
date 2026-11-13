@@ -6,6 +6,7 @@
 use serde_json::{Map, Value, json};
 
 use super::super::child::{Desktop, Window};
+use super::super::parking;
 use super::super::policy::DISPLAYS_TOOL;
 use super::super::screen::Display;
 use super::Guard;
@@ -52,6 +53,8 @@ impl<D: Desktop> Guard<D> {
             if park_allowed() {
                 for window in &arrived {
                     if let Some(spot) = park_spot(&displays) {
+                        // Where it was first, so it always goes back.
+                        self.note_parked(window, parking::How::OffScreen);
                         self.move_window(window, spot);
                         // Off the screen only where it still renders there.
                         self.measure_parked(window);
@@ -133,6 +136,43 @@ impl<D: Desktop> Guard<D> {
         }
     }
 
+    /// Notes in the parking store (`guard::parking`) that `window` waits
+    /// `how` for this task, from where it is now (kept if it was parked
+    /// before), so Hex puts it back when nobody holds it any more.
+    pub(super) fn note_parked(&self, window: &Window, how: parking::How) {
+        let now = crate::desktop::events::now_ms();
+        parking::park(
+            &self.store,
+            &window.id,
+            &window.app,
+            window.bounds,
+            how,
+            &self.config.task,
+            now,
+        );
+    }
+
+    /// Where `window`, parked, comes on the screen when it's needed there:
+    /// where it was before it was parked when that still shows, else
+    /// `fallback`.
+    pub(super) fn unparked_spot(&mut self, window: &Window, fallback: (f64, f64)) -> (f64, f64) {
+        let Some(from) = parking::parked(&self.store, &window.id).and_then(|record| record.from)
+        else {
+            return fallback;
+        };
+        let displays: Vec<crate::assistant::space::Display> = self
+            .screen
+            .displays()
+            .iter()
+            .map(crate::assistant::space::Display::from)
+            .collect();
+        if crate::assistant::space::off_screen(from, &displays) {
+            fallback
+        } else {
+            (from.0, from.1)
+        }
+    }
+
     pub(super) fn move_window(&mut self, window: &Window, (x, y): (f64, f64)) {
         let mut args = Map::new();
         args.insert("app".into(), json!(window.app));
@@ -200,14 +240,7 @@ fn park_allowed() -> bool {
 pub(super) fn park_spot(displays: &[crate::assistant::computer::Display]) -> Option<(f64, f64)> {
     let spaced: Vec<crate::assistant::space::Display> = displays
         .iter()
-        .map(|display| crate::assistant::space::Display {
-            id: display.id.clone(),
-            x: display.frame.0,
-            y: display.frame.1,
-            width: display.frame.2,
-            height: display.frame.3,
-            primary: display.is_primary,
-        })
+        .map(crate::assistant::space::Display::from)
         .collect();
     crate::assistant::space::parking_spot(&spaced, None)
 }

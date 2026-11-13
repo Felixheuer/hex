@@ -5,7 +5,7 @@
 use serde_json::{Map, Value, json};
 
 use super::super::child::Desktop;
-use super::super::desk::DESK;
+use super::super::desk::{DESK, Lend, borrow, borrower};
 use super::super::policy::RELEASE_TOOL;
 use super::super::state::{Acquire, LeaseFile};
 use super::apps::success;
@@ -24,30 +24,112 @@ impl<D: Desktop> Guard<D> {
         self.config.lane == Lane::Background || self.opens_apps()
     }
 
-    /// The desk's windows, for `held` (when this task reaches them).
+    /// The desk's windows this task may use now, for `held`: every one for
+    /// a quick turn that reaches the desk (it borrows each as it acts,
+    /// `borrow_desk`); for a job, only those it has borrowed by claiming.
     pub(super) fn desk_leases(&self) -> Vec<LeaseFile> {
-        if self.reaches_desk() {
-            self.store.held_by(DESK)
-        } else {
-            Vec::new()
+        if !self.reaches_desk() {
+            return Vec::new();
         }
+        let mut leases = self.store.held_by(DESK);
+        if self.config.lane == Lane::Background {
+            let now = crate::desktop::events::now_ms();
+            leases.retain(|lease| {
+                borrower(&self.store, &lease.window_id, now)
+                    .is_some_and(|held| held.task == self.config.task)
+            });
+        }
+        leases
     }
 
-    /// Whether asking for a window came to one this task may use: its own,
-    /// or the desk's.
-    pub(super) fn usable(&self, acquired: &Acquire) -> bool {
+    /// Borrows desk window `id` for this task (`guard::desk::borrow`).
+    fn lend(&self, id: &str) -> Lend {
+        let now = crate::desktop::events::now_ms();
+        let here = self.config.lane == Lane::Here;
+        borrow(&self.store, id, &self.config.task, self.pid, here, now)
+    }
+
+    /// Whether asking for window `id` came to one this task may use: its
+    /// own, or a desk window it could borrow (an explicit claim or opening
+    /// its app; refused while another task has it, a job's while a quick
+    /// turn has it).
+    pub(super) fn usable(&mut self, id: &str, acquired: &Acquire) -> bool {
         match acquired {
             Acquire::Acquired | Acquire::Held => true,
-            Acquire::Taken(task) => task == DESK && self.reaches_desk(),
+            Acquire::Taken(task) => {
+                task == DESK && self.reaches_desk() && self.lend(id) == Lend::Lent
+            }
         }
     }
 
-    /// Whether window `id` is free for this task: nobody's, its own, or
-    /// the desk's.
+    /// Whether window `id` is free for this task: nobody's, its own, or a
+    /// desk window no other task has borrowed (a quick turn's always is).
     pub(super) fn free_for_this_task(&self, id: &str) -> bool {
         self.store.holder(id).is_none_or(|lease| {
-            lease.task == self.config.task || (lease.task == DESK && self.reaches_desk())
+            if lease.task == self.config.task {
+                return true;
+            }
+            if lease.task != DESK || !self.reaches_desk() {
+                return false;
+            }
+            self.config.lane == Lane::Here
+                || borrower(&self.store, id, crate::desktop::events::now_ms())
+                    .is_none_or(|held| held.task == self.config.task)
         })
+    }
+
+    /// Before an action: each desk window it acts in is borrowed for this
+    /// task (renewed when it has it), so two tasks never act in one at the
+    /// same time; refused when another has it.
+    pub(super) fn borrow_desk(
+        &mut self,
+        tool: &str,
+        kind: super::Kind,
+        resolved: &[super::Resolved],
+    ) -> Result<(), Value> {
+        if !kind.acts() || !self.reaches_desk() {
+            return Ok(());
+        }
+        for window in resolved {
+            let Some(id) = &window.id else {
+                continue;
+            };
+            if self.store.holder(id).is_none_or(|lease| lease.task != DESK) {
+                continue;
+            }
+            if let Lend::Busy { .. } = self.lend(id)
+                && let Some(refused) = self.desk_refusal(tool, id)
+            {
+                return Err(refused);
+            }
+        }
+        Ok(())
+    }
+
+    /// Why this task can't use desk window `id` now, if that's why: another
+    /// task has it borrowed, or a job hasn't claimed it.
+    pub(super) fn desk_refusal(&self, tool: &str, id: &str) -> Option<Value> {
+        if !self.reaches_desk() || self.store.holder(id)?.task != DESK {
+            return None;
+        }
+        let now = crate::desktop::events::now_ms();
+        let message = match borrower(&self.store, id, now) {
+            Some(held) if held.task == self.config.task => return None,
+            Some(held) if held.here => format!(
+                "The person's quick turn is using {id} on their desk right now. Work in another \
+                 window, or wait with desktop_wait and claim it again with desktop_claim_window."
+            ),
+            Some(_) => format!(
+                "Another task is using {id} on the person's desk right now. Work in another \
+                 window, or wait with desktop_wait and claim it again with desktop_claim_window."
+            ),
+            None if self.config.lane == Lane::Here => return None,
+            None => format!(
+                "{id} is on the person's desk: claim it with desktop_claim_window before using \
+                 it (one task at a time; refused while their quick turn uses it)."
+            ),
+        };
+        Some(refusal(tool, "DESK_BUSY", &message))
     }
 
     /// Hands window `id` (this task's) to the desk, in a quick turn with a
@@ -107,6 +189,7 @@ impl<D: Desktop> Guard<D> {
                 || app.as_deref().is_some_and(|app| same_app(app, &lease.app));
             if named {
                 self.store.release(DESK, &lease.window_id);
+                super::super::desk::return_borrow(&self.store, &lease.window_id);
                 released.push(json!({"id": lease.window_id, "app_name": lease.app}));
             }
         }

@@ -277,6 +277,10 @@ impl<D: Desktop> Guard<D> {
     }
 
     pub(super) fn not_held(&self, tool: &str, id: Option<&String>, app: &str) -> Value {
+        // A desk window another task has borrowed, or a job hasn't claimed.
+        if let Some(refused) = id.and_then(|id| self.desk_refusal(tool, id)) {
+            return refused;
+        }
         let other = id
             .and_then(|id| self.store.holder(id))
             .filter(|lease| lease.task != self.config.task);

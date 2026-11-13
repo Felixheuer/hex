@@ -249,7 +249,7 @@ impl<D: Desktop> Guard<D> {
             let taken =
                 self.store
                     .acquire(&self.config.task, self.pid, &window.id, &window.app, now);
-            if !self.usable(&taken) {
+            if !self.usable(&window.id, &taken) {
                 continue;
             }
             if taken == Acquire::Acquired && window.visible && !window.focused {

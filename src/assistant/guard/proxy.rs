@@ -556,6 +556,7 @@ impl<D: Desktop> Guard<D> {
         for window in &resolved {
             self.check(tool, kind, window, &held)?;
         }
+        self.borrow_desk(tool, kind, &resolved)?;
         self.secure_read(tool, args)?;
         if kind.acts() {
             self.consent(tool, args, &resolved)?;
@@ -928,12 +929,16 @@ impl<D: Desktop> Guard<D> {
             .store
             .acquire(&self.config.task, self.pid, &window.id, &window.app, now)
         {
-            Acquire::Taken(task) if !self.usable(&Acquire::Taken(task.clone())) => Err(refusal(
-                tool,
-                "NOT_YOUR_WINDOW",
-                "That window belongs to another task. Open your own window with desktop_launch, \
-                 or claim a free one.",
-            )),
+            Acquire::Taken(task) if !self.usable(&window.id, &Acquire::Taken(task.clone())) => {
+                Err(self.desk_refusal(tool, &window.id).unwrap_or_else(|| {
+                    refusal(
+                        tool,
+                        "NOT_YOUR_WINDOW",
+                        "That window belongs to another task. Open your own window with \
+                         desktop_launch, or claim a free one.",
+                    )
+                }))
+            }
             Acquire::Taken(_) => {
                 self.watch(&window.app);
                 let envelope = json!({

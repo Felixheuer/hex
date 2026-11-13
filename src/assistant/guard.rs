@@ -33,6 +33,7 @@
 mod child;
 mod cua;
 mod desk;
+mod parking;
 mod policy;
 mod proxy;
 mod screen;
@@ -53,6 +54,7 @@ pub use desk::{
     DESK, desk, desk_browsers, desk_keep_browser, desk_release, desk_release_app,
     desk_release_browser,
 };
+pub use parking::{How as ParkedHow, Mover as ParkingMover, ParkedWindow, Rect, back_to};
 pub use policy::{CLAIM_TOOL, OPEN_APP_TOOL, app_key};
 
 /// What the guard needs to know about one task; passed to its MCP server.
@@ -391,12 +393,14 @@ pub fn serve(spec: &str) -> Result<()> {
     let mut guard = proxy::Guard::new(config, store.clone(), pid, desktop, screen);
     guard.desk = wire.desk_pid.filter(|pid| state::alive(*pid));
     let served = server::serve(guard);
-    // This process's leases lapse when it ends; free them now.
+    // This process's leases and desk borrows lapse when it ends; free them
+    // now.
     for lease in store.held_by(&wire.task) {
         if lease.pid == pid {
             store.release(&wire.task, &lease.window_id);
         }
     }
+    desk::return_borrows(&store, &wire.task);
     served
 }
 
@@ -518,10 +522,78 @@ fn leases_in(store: &state::Store) -> Vec<Lease> {
         .collect()
 }
 
-/// Gives up every lease `task` holds (it ended).
+/// Gives up every lease `task` holds (it ended); its parked windows nobody
+/// else holds go back where they were.
 pub fn release_all(task: &str) {
     if let Some(store) = state::Store::standard() {
         store.release_all(task);
+        desk::return_borrows(&store, task);
+        // Accessibility may wait on a slow app; the task has ended.
+        let _ = std::thread::Builder::new()
+            .name("hex-put-back".into())
+            .spawn(move || put_back_lapsed_in(&store));
+    }
+}
+
+/// Notes that the person's Hand back (or Hex) parked window `window_id` of
+/// `app`, which was at `from` (`parking`).
+pub fn note_parked(window_id: &str, app: &str, from: Option<Rect>, how: ParkedHow) {
+    if cfg!(test) {
+        return;
+    }
+    if let Some(store) = state::Store::standard() {
+        let owner = store
+            .holder(window_id)
+            .map(|lease| lease.task)
+            .unwrap_or_default();
+        let now = crate::desktop::events::now_ms();
+        parking::park(&store, window_id, app, from, how, &owner, now);
+    }
+}
+
+/// Takes window `window_id`'s parking record: it's going back to the
+/// person (Take over, or it left its task).
+pub fn take_parked(window_id: &str) -> Option<ParkedWindow> {
+    if cfg!(test) {
+        return None;
+    }
+    parking::unpark(&state::Store::standard()?, window_id)
+}
+
+fn put_back_lapsed_in(store: &state::Store) {
+    if cfg!(test) {
+        return;
+    }
+    let lapsed = parking::lapsed(store);
+    if !lapsed.is_empty() {
+        parking::put_back(store, &mut crate::assistant::space::Native, lapsed);
+    }
+}
+
+/// Hex is quitting (an update, the person's Quit): every window it parked
+/// goes back where it was, the desk's too. Waits at most `wait` for apps
+/// that are slow to answer Accessibility; what's left goes back at the next
+/// start.
+pub fn put_back_all(wait: std::time::Duration) {
+    if cfg!(test) {
+        return;
+    }
+    let Some(store) = state::Store::standard() else {
+        return;
+    };
+    let records = parking::all(&store);
+    if records.is_empty() {
+        return;
+    }
+    let (done, finished) = std::sync::mpsc::channel();
+    let spawned = std::thread::Builder::new()
+        .name("hex-put-back".into())
+        .spawn(move || {
+            parking::put_back(&store, &mut crate::assistant::space::Native, records);
+            let _ = done.send(());
+        });
+    if spawned.is_ok() && finished.recv_timeout(wait).is_err() {
+        tracing::warn!("parked windows are still going back as Hex quits");
     }
 }
 
@@ -551,12 +623,15 @@ pub fn hands_off() -> Option<ConversationId> {
 }
 
 /// Clears what tasks of an earlier run left behind: leases and hands-off
-/// markers of processes that have ended, and pause markers. Call once when
-/// the assistant starts (only while `assistant::enabled`).
+/// markers of processes that have ended, and pause markers; windows they
+/// (or the desk of a Hex that quit, crashed, or was updated) left parked go
+/// back where they were. Call once when the assistant starts (only while
+/// `assistant::enabled`).
 pub fn startup() {
     if let Some(store) = state::Store::standard() {
         store.sweep();
         store.clear_paused();
+        put_back_lapsed_in(&store);
     }
     install_driver_in_background();
 }
