@@ -406,8 +406,15 @@ agents `backends::detect` found, Claude Code by default, each with its fix:
 install, sign in, start OpenCode, or the API key); Hex's Microphone,
 Accessibility, and Screen Recording, each Allow opening its System Settings
 page with Hex's guide and waiting until macOS reports it on (read every
-1.5 s); agent-desktop, installed with Homebrew if missing, and its two
-permissions; the self-tests (`backends::self_tests`), run on arrival, with
+1.5 s); Automation for System Events and Finder (one macOS prompt each;
+any other app a task scripts asks on first use, and the task's step says
+so first: `automation::first_use_notice`); agent-desktop, installed with
+Homebrew if missing, and its two permissions; Contacts, Reminders, and the
+Calendar in one row whose Allow shows macOS's prompt for each never
+answered (`desktop::data_access`; a refusal stays the person's answer and
+only System Settings turns it on), and optional Full Disk Access (Mail and
+Messages; System Settings only). The page waits until each of macOS's
+prompts was answered, yes or no; the self-tests (`backends::self_tests`), run on arrival, with
 each failure's fix; the Action and dictation shortcuts, with what else takes
 them (`shortcut_conflicts::conflicts`, read again every 3 s, each with where
 it's fixed and, for the Action shortcut, Choose another…) and a live press
@@ -470,7 +477,9 @@ authoritative and are never forced green by the window.
 
 After setup was finished, Hex checks at launch and every five minutes
 (`desktop::setup_gaps`, read off the window's thread by `Job::Gaps`):
-Microphone, Accessibility and Screen Recording, a translocated or stray copy
+Microphone, Accessibility and Screen Recording, Automation (System Events
+and Finder), Contacts, Reminders, or the Calendar never asked for (so an
+update that adds an ask shows the permissions page once), a translocated or stray copy
 (`permission_doctor`), the speech model, the chosen agent installed and
 signed in, agent-desktop and its grants, agent-browser, the Action shortcut
 still free, the Hex voice's files, and `assistant.setup_version` against

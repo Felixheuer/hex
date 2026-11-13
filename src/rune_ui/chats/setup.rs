@@ -483,6 +483,7 @@ pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bo
                 && Grant::desktop()
                     .iter()
                     .all(|grant| grant_state(ui, flow, *grant) == State::Passed)
+                && macos_asks_answered()
         }
         // Off in Settings, web tasks use the person's own browser.
         Page::Browser => flow.browser.done() || !ui.settings.assistant.background_browser,
@@ -505,6 +506,19 @@ pub(in crate::rune_ui) fn page_done(ui: &Ui, flow: &SetupFlow, page: Page) -> bo
         }
         Page::Try => flow.tutorial.done(),
     }
+}
+
+/// macOS's own prompts on the permissions page (Automation for System
+/// Events and Finder; Contacts, Reminders, and the Calendar) were each
+/// answered, yes or no: a refusal is the person's answer, and only one
+/// never asked holds the page. Not read yet counts as answered, so a
+/// slow read never holds it either.
+fn macos_asks_answered() -> bool {
+    use crate::desktop::automation::{self, AutomationState};
+    use crate::desktop::data_access;
+    !cfg!(target_os = "macos")
+        || (automation::last() != AutomationState::NotAsked
+            && data_access::all_answered(data_access::last))
 }
 
 /// Whether Finish may finish: the chosen agent answers and can use
@@ -558,9 +572,11 @@ fn recheck(ui: &mut Ui) {
     if permissions {
         ui.chats.jobs.run(Job::Permissions);
     }
-    // Automation for System Events, read where it's asked for.
+    // Automation for System Events and Finder, and the person's data, read
+    // where they're asked for.
     if cfg!(target_os = "macos") && ui.chats.live() {
         crate::desktop::automation::refresh_async();
+        crate::desktop::data_access::refresh_async();
     }
 }
 

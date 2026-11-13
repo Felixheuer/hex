@@ -4,7 +4,8 @@ import Foundation
 
 // The assistant's lookups in Contacts and Reminders (`hex_lookup`). Both
 // read only when macOS already granted access, and never ask: a read without
-// access would show the system prompt from a tool call.
+// access would show the system prompt from a tool call. Onboarding asks
+// (`hex_knowledge_*_request`, at the end).
 
 private struct BridgePhone: Codable {
     let label: String
@@ -152,4 +153,45 @@ public func hexKnowledgeReminders(_ query: UnsafePointer<CChar>?, _ limit: Int32
             )
         }
     return encode(Array(found))
+}
+
+// Asking for access: only from onboarding and its repair guide, never from
+// a tool call. Each shows macOS's prompt when it was never answered and
+// blocks the calling (background) thread until the person answers.
+// Returns the framework's status code, a grant as authorized (3) even
+// while the status still reads "not determined" in this process, and a
+// refusal as denied (2).
+
+private final class Granted: @unchecked Sendable {
+    var value = false
+}
+
+private let reminderStore = EKEventStore()
+
+@_cdecl("hex_knowledge_contacts_request")
+public func hexKnowledgeContactsRequest() -> Int32 {
+    let done = DispatchSemaphore(value: 0)
+    let granted = Granted()
+    CNContactStore().requestAccess(for: .contacts) { allowed, _ in
+        granted.value = allowed
+        done.signal()
+    }
+    done.wait()
+    if granted.value { return 3 }
+    let status = CNContactStore.authorizationStatus(for: .contacts).rawValue
+    return status == 0 ? 2 : Int32(status)
+}
+
+@_cdecl("hex_knowledge_reminders_request")
+public func hexKnowledgeRemindersRequest() -> Int32 {
+    let done = DispatchSemaphore(value: 0)
+    let granted = Granted()
+    reminderStore.requestFullAccessToReminders { allowed, _ in
+        granted.value = allowed
+        done.signal()
+    }
+    done.wait()
+    if granted.value { return 3 }
+    let status = EKEventStore.authorizationStatus(for: .reminder).rawValue
+    return status == 0 ? 2 : Int32(status)
 }
