@@ -176,35 +176,12 @@ pub(crate) fn view(state: &TwoDisplays, cx: &mut Cx<TwoDisplays>) -> El {
                 p,
                 &state.board,
                 &orb::Look {
-                    open: false,
                     grow,
                     still: true,
                     answer_key: fixture::ANSWER_KEY.into(),
-                    voice: None,
-                    hovered: None,
-                    jobs_open: false,
+                    ..Default::default()
                 },
-                orb::Actions {
-                    list: super::stack::Actions {
-                        stop: |_: &mut TwoDisplays, _| {},
-                        open: |_, _| {},
-                        take_over: |_, _| {},
-                        hand_back: |_, _| {},
-                        stop_all: |_| {},
-                        toggle: |_| {},
-                        dismiss: |_, _| {},
-                        hover: |_, _, _| {},
-                        open_preview: |_, _, _| {},
-                        defer: |_, _| {},
-                    },
-                    hover: |_, _| {},
-                    drag: |_, _| {},
-                    jobs: super::jobs::LineActions {
-                        hover: |_, _| {},
-                        pin: |_| {},
-                        wall: |_, _| {},
-                    },
-                },
+                orb::Actions::<TwoDisplays>::inert(),
             )),
     );
     for screen in &all {

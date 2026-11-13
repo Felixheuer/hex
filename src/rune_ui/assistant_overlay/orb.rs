@@ -3,31 +3,41 @@
 //! that display), breathing, with one tiny dot per task in its colour: full
 //! while it runs, a ring while the person has it, faint while it waits.
 //!
-//! Things pop out of it and settle back: a new task's title, its latest
-//! step as a brief toast, ✓ or ✗ when it ends ([`super::pops`]). A task the
-//! person took over keeps a small "You have it" bubble with Hand back; one
-//! waiting out a usage limit keeps "Waiting for limit · resumes 14:05".
-//! The question to answer now (the inbox's active one,
-//! `Event::QuestionsChanged`) stays in a bubble in its task's colour,
-//! nearest the orb: who asks ("Einstein research asks"), the question, how
-//! to answer ("Hold ⌘ to answer"), and Later, which puts it behind the
-//! others. The orb wears a small count of every open question. A task with a plan wears a
-//! small progress ring around its dot. A Here question that turns into a
-//! long job (`Event::Escalated`) flies into the cluster as a new dot.
+//! Beside it, one calm column, nearest the orb first, so nothing overlaps
+//! or jumps:
+//!
+//! - The question to answer now (the inbox's active one,
+//!   `Event::QuestionsChanged`), in its task's colour: who asks, the
+//!   question, and how to answer, by voice ("Hold ⌘ to answer") or typed
+//!   right there ([`super::ask`]); Later puts it behind the others. The orb
+//!   wears a small count of every open question.
+//! - A task the person took over keeps "You have it" with Hand back; one
+//!   waiting out a usage limit keeps "Waiting for limit · resumes 14:05".
+//! - The running jobs as a few compact rows with their step and live
+//!   pictures, the rest summed up in one line ([`super::jobs`]).
+//! - A finished job's result, which fades, with what it names to open and
+//!   Try again on a failure ([`super::results`]).
+//!
+//! A task with a plan wears a small progress ring around its dot. A Here
+//! question that turns into a long job (`Event::Escalated`) flies into the
+//! cluster as a new dot. After the last job ends the orb stays, quieter,
+//! while it can recall a result.
 //!
 //! The full list ([`super::stack`]) unfolds from the orb on a press, a
-//! double-tap of the Action shortcut, or while the pointer rests on it, and
-//! folds back. Everything grows from the orb's side of the panel with
-//! springs, and nothing but the orb and its bubbles takes clicks.
+//! double-tap of the Action shortcut, or a press on a job's row, and folds
+//! back on ×, Escape, a click outside, or another press. Everything grows
+//! from the orb's side of the panel with springs, and nothing but the orb
+//! and its bubbles takes clicks.
 
 use rune::{Cx, El, LineCap, Shape, Transition, Vec2, canvas, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant};
+use rune_kit::{Button, ButtonVariant, ControlSize};
 use rune_motion::{LoopSpec, Spring};
 
 use super::super::controls::Paint;
-use super::super::icons::SPARKLES;
-use super::board::{Asking, Board, Phase, Task};
-use super::pops::{Pop, PopKind};
+use super::ask::{self, Reply};
+use super::board::{Board, Phase, Task};
+use super::pops::MAX_POPS;
+use super::results::{self, Outcome};
 use super::{frame, jobs, palette, stack, when};
 use crate::desktop::i18n::{tr, tr_fill};
 
@@ -47,11 +57,8 @@ const GAP: f32 = 8.0;
 /// A bubble's widest.
 const BUBBLE_MAX_W: f32 = 320.0;
 const BUBBLE_H: f32 = 30.0;
-/// A question's most lines.
-const QUESTION_LINES: usize = 3;
-/// The room a question's bubble takes at most (who asks, three lines, how
-/// to answer).
-const QUESTION_ROOM: f32 = 118.0;
+/// A job row's height without pictures: its head and step.
+const ROW_MIN: f32 = 54.0;
 /// A progress ring around a dot: its size and stroke.
 const RING: f32 = 13.0;
 const RING_W: f32 = 1.75;
@@ -78,12 +85,12 @@ impl Default for Grow {
 /// What a press or gesture asks of the host.
 pub(crate) struct Actions<S> {
     pub(crate) list: stack::Actions<S>,
-    /// The pointer rests on the orb or its list (`true`), or left.
+    /// The pointer left the orb and what unfolds from it (`false`), or came
+    /// onto it.
     pub(crate) hover: fn(&mut S, bool),
     /// The orb is dragged somewhere else.
     pub(crate) drag: fn(&mut S, &rune::Drag),
-    /// The jobs' count line: resting on it or pressing it unfolds every
-    /// card.
+    /// A job's row: its live wall.
     pub(crate) jobs: jobs::LineActions<S>,
 }
 
@@ -95,9 +102,46 @@ impl<S> Clone for Actions<S> {
 
 impl<S> Copy for Actions<S> {}
 
+impl<S: 'static> Actions<S> {
+    /// Presses that do nothing, for drawings of the orb (the playground's
+    /// scenes and the render tests); a scene that types an answer brings
+    /// its own `list.reply`.
+    pub(crate) fn inert() -> Self {
+        Self {
+            list: stack::Actions {
+                stop: |_, _| {},
+                take_over: |_, _| {},
+                hand_back: |_, _| {},
+                stop_all: |_| {},
+                toggle: |_| {},
+                dismiss: |_, _| {},
+                hover: |_, _, _| {},
+                open_preview: |_, _, _| {},
+                defer: |_, _| {},
+                reply: ask::ReplyActions {
+                    start: |_, _| {},
+                    cancel: |_| {},
+                    send: |_| {},
+                    edit: |_| unreachable!("a drawing without an answer field"),
+                },
+                results: results::Actions {
+                    open: |_, _| {},
+                    retry: |_, _| {},
+                    dismiss: |_, _| {},
+                    expand: |_, _| {},
+                    recall: |_, _| {},
+                },
+            },
+            hover: |_, _| {},
+            drag: |_, _| {},
+            jobs: jobs::LineActions { wall: |_, _| {} },
+        }
+    }
+}
+
 /// The orb panel's state.
 pub(crate) struct Orb {
-    /// Every task (the outlines read it too) and the bubbles.
+    /// Every task (the outlines read it too), the bubbles, and the results.
     pub(crate) board: Board,
     /// Whether the panel shows.
     pub(crate) shown: bool,
@@ -106,14 +150,12 @@ pub(crate) struct Orb {
     pub(crate) armed: Option<std::time::Instant>,
     /// The list is unfolded (a press, or `toggle_tasks`).
     pub(crate) expanded: bool,
-    /// The pointer rests on the orb: the list peeks open.
-    pub(crate) peek: bool,
     /// The task whose row the pointer rests on: its browsers stream live.
     pub(crate) hovered: Option<String>,
-    /// The pointer rests on the jobs' count line or their unfolded cards.
-    pub(crate) jobs_hovered: bool,
-    /// A press on the count line keeps every card unfolded.
-    pub(crate) jobs_pinned: bool,
+    /// A typed answer to the question, while its field shows.
+    pub(crate) reply: Option<Reply>,
+    /// The result bubble unfolded to its whole answer (its key).
+    pub(crate) open_result: Option<u64>,
     pub(crate) grow: Grow,
     /// The Action shortcut's keys, for "Hold ⌘ to answer".
     pub(crate) answer_key: String,
@@ -123,8 +165,27 @@ pub(crate) struct Orb {
     pub(crate) actions: Actions<Orb>,
 }
 
+impl Orb {
+    /// A hidden, folded orb over `board`.
+    pub(crate) fn new(board: Board, answer_key: String, actions: Actions<Orb>) -> Self {
+        Self {
+            board,
+            shown: false,
+            armed: None,
+            expanded: false,
+            hovered: None,
+            reply: None,
+            open_result: None,
+            grow: Grow::default(),
+            answer_key,
+            voice: None,
+            actions,
+        }
+    }
+}
+
 /// What the view needs besides the board.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct Look {
     pub(crate) open: bool,
     pub(crate) grow: Grow,
@@ -136,20 +197,23 @@ pub(crate) struct Look {
     pub(crate) voice: Option<f32>,
     /// The task whose row the pointer rests on.
     pub(crate) hovered: Option<String>,
-    /// Every job's card unfolds past the count line.
-    pub(crate) jobs_open: bool,
+    /// A typed answer under way.
+    pub(crate) reply: Option<Reply>,
+    /// The result bubble unfolded (its key).
+    pub(crate) open_result: Option<u64>,
 }
 
 pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
     let p = Paint::new(cx.system_dark(), cx.env().scale);
     let look = Look {
-        open: orb.expanded || orb.peek,
+        open: orb.expanded,
         grow: orb.grow,
         still: cx.system_reduced_motion(),
         answer_key: orb.answer_key.clone(),
         voice: orb.voice,
         hovered: orb.hovered.clone(),
-        jobs_open: orb.jobs_hovered || orb.jobs_pinned,
+        reply: orb.reply.clone(),
+        open_result: orb.open_result,
     };
     el().key("orb-root")
         .w_full()
@@ -159,34 +223,80 @@ pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
         .child(content(p, &orb.board, &look, orb.actions))
 }
 
-/// The jobs whose cards show at the orb with the list folded (`open`
-/// false) and the count line unfolded or not: their browsers stream.
-pub(crate) fn carded(board: &Board, open: bool, jobs_open: bool) -> Vec<String> {
-    if open && !board.stack().is_empty() {
+/// The jobs whose rows show at the orb with the list folded (`open`
+/// false): their browsers and windows stream.
+pub(crate) fn carded(board: &Board, open: bool) -> Vec<String> {
+    if open {
         return Vec::new();
     }
     let running = jobs::running(&board.tasks);
-    match jobs::layout(&running, board.active_question().is_some(), jobs_open) {
-        jobs::Layout::Cards(ids) | jobs::Layout::All(ids) => ids,
-        jobs::Layout::None | jobs::Layout::Line(_) => Vec::new(),
+    jobs::layout(&running, board.active_question().is_some()).rows
+}
+
+/// Whether the list has anything to show: a job, or a result.
+pub(crate) fn listable(board: &Board) -> bool {
+    !board.stack().is_empty() || !board.recent.is_empty()
+}
+
+/// The result bubbles up now, newest first: the unfolded one alone while
+/// one is, else the newest [`MAX_POPS`], each with its result.
+pub(crate) fn result_bubbles(board: &Board, open: Option<u64>) -> Vec<(u64, Outcome)> {
+    let mut items: Vec<(u64, Outcome)> = board
+        .pops
+        .items
+        .iter()
+        .rev()
+        .take(MAX_POPS)
+        .map(|pop| {
+            let outcome = board
+                .outcome(&pop.task)
+                .cloned()
+                .unwrap_or_else(|| Outcome {
+                    id: pop.task.clone(),
+                    title: board
+                        .task(&pop.task)
+                        .map(|task| task.title.clone())
+                        .unwrap_or_default(),
+                    colour: pop.colour,
+                    failed: pop.kind == super::pops::PopKind::Failed,
+                    text: pop.text.clone(),
+                    at: std::time::Instant::now(),
+                });
+            (pop.key, outcome)
+        })
+        .collect();
+    if let Some(open) = open
+        && items.iter().any(|(key, _)| *key == open)
+    {
+        items.retain(|(key, _)| *key == open);
     }
+    items
 }
 
 /// The orb and what unfolds from it, filling its parent from the orb's
 /// corner.
 pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions: Actions<S>) -> El {
     let tasks = board.stack();
+    let done = board.results();
     let grow = look.grow;
     let mut parts: Vec<El> = Vec::new();
-    if !tasks.is_empty() || !board.pops.items.is_empty() {
-        parts.push(orb(p, &tasks, board.open_questions(), look, actions));
+    if !tasks.is_empty() || !board.pops.items.is_empty() || !done.is_empty() {
+        parts.push(orb(
+            p,
+            &tasks,
+            done.len(),
+            board.open_questions(),
+            look,
+            actions,
+        ));
     }
-    if look.open && !tasks.is_empty() {
+    if look.open && (!tasks.is_empty() || !done.is_empty()) {
         let max_h = SIZE.1 - 2.0 * INSET - ORB_H - GAP;
         parts.push(
             stack::sheet(
                 p,
                 &tasks,
+                &done,
                 grow.down,
                 max_h,
                 look.hovered.as_deref(),
@@ -195,13 +305,23 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
             .transition(unfold(grow)),
         );
     } else {
-        // One order, nearest the orb first, so nothing overlaps: the
-        // question, a held or waiting task, the jobs, then the pops.
         let asking = board.active_question();
+        let replying = asking.as_ref().is_some_and(|asking| {
+            look.reply
+                .as_ref()
+                .is_some_and(|reply| reply.id == asking.id)
+        });
         let mut bubbles: Vec<El> = asking
             .as_ref()
             .map(|asking| {
-                question(p, asking, &look.answer_key, actions.list).transition(pop_in(grow))
+                ask::question(
+                    p,
+                    asking,
+                    &look.answer_key,
+                    look.reply.as_ref(),
+                    actions.list,
+                )
+                .transition(pop_in(grow))
             })
             .into_iter()
             .collect();
@@ -212,45 +332,69 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
             .iter()
             .filter(|task| matches!(task.phase, Phase::Waiting { .. }))
             .collect();
+        let mut standing: Vec<El> = Vec::new();
         if waiting.len() > 1 {
-            bubbles.extend(
+            standing.extend(
                 tasks
                     .iter()
                     .filter(|task| !matches!(task.phase, Phase::Waiting { .. }))
-                    .filter_map(|task| standing(p, task, grow, actions.list)),
+                    .filter_map(|task| standing_bubble(p, task, grow, actions.list)),
             );
-            bubbles.push(all_waiting(p, &waiting).transition(pop_in(grow)));
+            standing.push(all_waiting(p, &waiting).transition(pop_in(grow)));
         } else {
-            bubbles.extend(
+            standing.extend(
                 tasks
                     .iter()
-                    .filter_map(|task| standing(p, task, grow, actions.list)),
+                    .filter_map(|task| standing_bubble(p, task, grow, actions.list)),
             );
         }
         let running = jobs::running(&board.tasks);
-        let layout = jobs::layout(&running, asking.is_some(), look.jobs_open);
-        let carded: Vec<&str> = match &layout {
-            jobs::Layout::Cards(ids) | jobs::Layout::All(ids) => {
-                ids.iter().map(String::as_str).collect()
-            }
-            _ => Vec::new(),
-        };
-        let unfolded = matches!(layout, jobs::Layout::All(_));
-        // What sits nearer the orb than the jobs, so the unfolded cards
-        // take the rest of the panel and scroll past it.
-        let above = ORB_H
-            + GAP
-            + jobs::LINE_H
+        let layout = jobs::layout(&running, asking.is_some());
+        let mut results = result_bubbles(board, look.open_result);
+        // What else takes room in the panel, so the job rows take the rest
+        // and scroll past it instead of pushing the results off the panel.
+        let fixed = ORB_H
             + GAP
             + if asking.is_some() {
-                QUESTION_ROOM + GAP
+                ask::ROOM + GAP + if replying { ask::FIELD_ROOM } else { 0.0 }
             } else {
                 0.0
             }
-            + (bubbles.len() - usize::from(asking.is_some())) as f32 * (BUBBLE_H + GAP);
+            + standing.len() as f32 * (BUBBLE_H + GAP);
+        let results_room = |results: &[(u64, Outcome)]| {
+            results
+                .iter()
+                .map(|(key, _)| {
+                    GAP + if look.open_result == Some(*key) {
+                        results::OPEN_ROOM
+                    } else {
+                        results::ROOM
+                    }
+                })
+                .sum::<f32>()
+        };
+        // The rows keep room for two of them (and the "more" line): an
+        // older result gives way first (the list still recalls it).
+        let rows_need = layout.rows.len().min(2) as f32 * (ROW_MIN + GAP)
+            + if layout.more > 0 {
+                jobs::LINE_H + GAP
+            } else {
+                0.0
+            };
+        while results.len() > 1 && SIZE.1 - 2.0 * INSET - fixed - results_room(&results) < rows_need
+        {
+            // The oldest done one; a failure is the last to go.
+            let at = results
+                .iter()
+                .rposition(|(_, outcome)| !outcome.failed)
+                .unwrap_or(results.len() - 1);
+            results.remove(at);
+        }
+        let taken = fixed + results_room(&results);
+        bubbles.extend(standing);
         let room = jobs::Room {
             down: grow.down,
-            max_h: (SIZE.1 - 2.0 * INSET - above).max(jobs::LINE_H * 4.0),
+            max_h: (SIZE.1 - 2.0 * INSET - taken).max(jobs::LINE_H + 2.0 * GAP),
             appear: pop_in(grow),
         };
         bubbles.extend(
@@ -267,24 +411,18 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
                 actions.list,
                 actions.jobs,
             )
-            .into_iter()
-            .map(|card| card.transition(pop_in(grow))),
+            .map(|rows| rows.transition(pop_in(grow))),
         );
-        // Unfolded, the cards take every bit of room; the pops wait.
-        bubbles.extend(
-            board
-                .pops
-                .items
-                .iter()
-                .rev()
-                .filter(|_| !unfolded)
-                // A job with a card shows its start and steps there.
-                .filter(|item| {
-                    !(matches!(item.kind, PopKind::New | PopKind::Step)
-                        && carded.contains(&item.task.as_str()))
-                })
-                .map(|item| pop(p, item, actions.list).transition(pop_in(grow))),
-        );
+        bubbles.extend(results.iter().map(|(key, outcome)| {
+            results::bubble(
+                p,
+                *key,
+                outcome,
+                look.open_result == Some(*key),
+                actions.list.results,
+            )
+            .transition(pop_in(grow))
+        }));
         parts.extend(bubbles);
     }
     if !grow.down {
@@ -319,11 +457,12 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
     }
 }
 
-/// The orb: its glowing core, a dot per live task, and how many questions
-/// wait on the person.
+/// The orb: its glowing core, a dot per live task, how many questions wait
+/// on the person, and, with nothing live, how many results it recalls.
 fn orb<S: 'static>(
     p: Paint,
     tasks: &[Task],
+    done: usize,
     questions: usize,
     look: &Look,
     actions: Actions<S>,
@@ -344,13 +483,14 @@ fn orb<S: 'static>(
             inset: false,
         })
         .a11y_hidden();
+    let live_tasks: Vec<&Task> = tasks.iter().filter(|task| task.phase.live()).collect();
     let core = match look.voice {
         // With the voice reading an answer aloud.
         Some(level) => core.opacity(0.5 + 0.5 * super::bubble::pulse(level)),
-        None if look.still => core,
+        // Nothing at work: still, and quieter.
+        None if look.still || live_tasks.is_empty() => core,
         None => core.looping(LoopSpec::opacity(frame::BREATH, 0.0, 0.62, 1.0)),
     };
-    let live_tasks: Vec<&Task> = tasks.iter().filter(|task| task.phase.live()).collect();
     // The newest few as dots; the rest as a count, so fifty jobs keep the
     // orb small.
     let hidden = live_tasks.len().saturating_sub(MAX_DOTS);
@@ -368,23 +508,45 @@ fn orb<S: 'static>(
             .color(p.faint())
     }));
     items.extend(dots);
+    // Nothing live: what it can recall, a press away.
+    let recalling = live_tasks.is_empty() && done > 0;
+    items.extend(recalling.then(|| {
+        row()
+            .key("orb-recent")
+            .gap(3.0)
+            .center_y()
+            .child(
+                icon(p.k.glyph.check_small, 12.0)
+                    .color(p.muted())
+                    .a11y_hidden(),
+            )
+            .child(
+                text(done.to_string())
+                    .font(p.k.ty.small_medium)
+                    .color(p.muted()),
+            )
+    }));
     items.extend((questions > 0).then(|| badge(p, questions, look.grow)));
     if !look.grow.right {
         items.reverse();
     }
     let toggle = actions.list.toggle;
     let drag = actions.drag;
-    let live = tasks.iter().filter(|task| task.phase.live()).count();
-    let label = if questions > 0 {
-        format!(
-            "{} · {}",
-            tr_fill("Assistant tasks: {}", &live.to_string()),
+    let live = live_tasks.len();
+    let mut label = tr_fill("Assistant tasks: {}", &live.to_string());
+    if questions > 0 {
+        label = format!(
+            "{label} · {}",
             tr_fill("Open questions: {}", &questions.to_string())
-        )
-    } else {
-        tr_fill("Assistant tasks: {}", &live.to_string())
-    };
-    row()
+        );
+    }
+    if recalling {
+        label = format!(
+            "{label} · {}",
+            tr_fill("Recent results: {}", &done.to_string())
+        );
+    }
+    let pill = row()
         .key("orb")
         .h(ORB_H)
         .px(8.0)
@@ -407,7 +569,12 @@ fn orb<S: 'static>(
         .on_press(move |s: &mut S| toggle(s))
         .drag_threshold(4.0)
         .on_drag(move |s: &mut S, d: &mut rune::Drag, _| drag(s, d))
-        .children(items)
+        .children(items);
+    if live == 0 && questions == 0 {
+        pill.opacity(0.72)
+    } else {
+        pill
+    }
 }
 
 /// A task's dot in `colour`: full while it runs, a ring while the person
@@ -508,116 +675,9 @@ fn badge(p: Paint, count: usize, grow: Grow) -> El {
         )
 }
 
-/// The question to answer now, in its task's colour: who asks, the
-/// question, how to answer it, Later (behind the others), and × to put the
-/// bubble away (it still waits for the answer). A press opens it in Chats.
-fn question<S: 'static>(
-    p: Paint,
-    asking: &Asking,
-    answer_key: &str,
-    actions: stack::Actions<S>,
-) -> El {
-    let c = &p.k.c;
-    let colour = palette::task(asking.colour, p.k.dark);
-    let open = actions.open;
-    let dismiss = actions.dismiss;
-    let defer = actions.defer;
-    let (id, put_away, later) = (asking.id.clone(), asking.id.clone(), asking.id.clone());
-    let dot = el()
-        .size(8.0, 8.0)
-        .radius(4.0)
-        .fill(colour.alpha(0.3))
-        .border(1.5, colour)
-        .a11y_hidden()
-        .mt(5.0);
-    row()
-        .key(format!("question-{}", asking.id))
-        .w(BUBBLE_MAX_W)
-        .pl(12.0)
-        .pr(4.0)
-        .py(8.0)
-        .gap(8.0)
-        .items_start()
-        .radius(16.0)
-        .fill(c.bg_base)
-        .border(1.0, colour.alpha(0.7))
-        .outline(3.0, 0.0, colour.alpha(0.16))
-        .box_shadow(rune::Shadow {
-            x: 0.0,
-            y: 3.0,
-            blur: 14.0,
-            spread: 0.0,
-            color: colour.alpha(if p.k.dark { 0.3 } else { 0.18 }),
-            inset: false,
-        })
-        .role("alert")
-        .live_region(rune::LiveRegion::Polite)
-        .hit()
-        .on_press(move |s: &mut S| open(s, &id))
-        .child(dot)
-        .child(
-            col()
-                .key("question-lines")
-                .gap(3.0)
-                .grow(1.0)
-                .min_w(0.0)
-                .shrink()
-                .child(
-                    // Short enough that "asks" stays on the line.
-                    text(tr_fill(
-                        "{} asks",
-                        &crate::assistant::store::shorten(&asking.title, 34),
-                    ))
-                    .key("question-who")
-                    .truncate()
-                    .font(p.k.ty.small_medium)
-                    .color(colour),
-                )
-                .child(
-                    text(asking.question.clone())
-                        .key("question-text")
-                        .wrap()
-                        .max_lines(QUESTION_LINES)
-                        .font(p.k.ty.ui_medium)
-                        .color(p.text()),
-                )
-                .child(
-                    row()
-                        .key("question-foot")
-                        .gap(6.0)
-                        .center_y()
-                        .child(
-                            text(tr_fill("Hold {} to answer", answer_key))
-                                .key("question-hint")
-                                .font(p.k.ty.small)
-                                .color(p.muted())
-                                .grow(1.0)
-                                .min_w(0.0),
-                        )
-                        .child(
-                            Button::new(tr("Later"))
-                                .variant(ButtonVariant::GhostMuted)
-                                .control_size(ControlSize::Small)
-                                .on_press(move |s: &mut S| defer(s, &later))
-                                .build(p.k)
-                                .key("later"),
-                        ),
-                ),
-        )
-        .child(
-            IconButton::new(p.k.glyph.close)
-                .variant(IconButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
-                .label(tr("Hide question"))
-                .on_press(move |s: &mut S| dismiss(s, &put_away))
-                .build(p.k)
-                .key("put-away"),
-        )
-}
-
 /// The bubble a task keeps while the person has it, or while it waits out
 /// a usage limit.
-fn standing<S: 'static>(
+fn standing_bubble<S: 'static>(
     p: Paint,
     task: &Task,
     grow: Grow,
@@ -704,54 +764,6 @@ fn all_waiting(p: Paint, waiting: &[&Task]) -> El {
                 .shrink(),
         )
         .opacity(0.75)
-}
-
-/// A bubble popped about a task: what it says, with a press opening it in
-/// Chats.
-fn pop<S: 'static>(p: Paint, item: &Pop, actions: stack::Actions<S>) -> El {
-    let colour = palette::task(item.colour, p.k.dark);
-    let (lead, color, font): (El, _, _) = match item.kind {
-        PopKind::New => (
-            icon(&SPARKLES, 13.0).color(colour).a11y_hidden(),
-            p.text(),
-            p.k.ty.small_medium,
-        ),
-        PopKind::Step => (
-            el().size(6.0, 6.0).radius(3.0).fill(colour).a11y_hidden(),
-            p.muted(),
-            p.k.ty.small,
-        ),
-        PopKind::Done => (
-            icon(p.k.glyph.check, 14.0)
-                .color(p.success())
-                .label(tr("Done")),
-            p.text(),
-            p.k.ty.small_medium,
-        ),
-        PopKind::Failed => (
-            icon(p.k.glyph.circle_x, 14.0)
-                .color(p.danger())
-                .label(tr("Failed")),
-            p.danger(),
-            p.k.ty.small_medium,
-        ),
-    };
-    let open = actions.open;
-    let id = item.task.clone();
-    shell(p, format!("pop-{}", item.key))
-        .pr(12.0)
-        .role("status")
-        .on_press(move |s: &mut S| open(s, &id))
-        .child(lead.key("pop-lead"))
-        .child(
-            text(item.text.clone())
-                .key("pop-text")
-                .truncate()
-                .font(font)
-                .color(color)
-                .min_w(0.0)
-                .shrink(),
-        )
 }
 
 /// A bubble's capsule.
