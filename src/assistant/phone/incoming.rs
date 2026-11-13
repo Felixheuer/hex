@@ -90,7 +90,52 @@ pub fn clean_handle(handle: &str) -> Option<String> {
             .chars()
             .enumerate()
             .all(|(index, c)| c.is_ascii_digit() || (index == 0 && c == '+'));
-    ok.then_some(digits)
+    ok.then(|| international(&digits, &region()))
+}
+
+/// A national number („0162 …“, „0049 …“) in the international form
+/// iMessage needs („+49162 …“): a national one stays undeliverable, and
+/// Messages stores the sender's number that way too. `region` is this
+/// Mac's country („DE“); a number already international, or from a region
+/// not known here, stays as it is.
+pub fn international(digits: &str, region: &str) -> String {
+    if digits.starts_with('+') {
+        return digits.to_owned();
+    }
+    if let Some(rest) = digits.strip_prefix("00") {
+        return format!("+{rest}");
+    }
+    let code = match region.to_ascii_uppercase().as_str() {
+        "DE" => "49",
+        "AT" => "43",
+        "CH" => "41",
+        "GB" => "44",
+        "FR" => "33",
+        "IT" => "39",
+        "ES" => "34",
+        "NL" => "31",
+        "BE" => "32",
+        "PL" => "48",
+        "DK" => "45",
+        "SE" => "46",
+        "NO" => "47",
+        _ => return digits.to_owned(),
+    };
+    match digits.strip_prefix('0') {
+        Some(rest) => format!("+{code}{rest}"),
+        None => digits.to_owned(),
+    }
+}
+
+/// This Mac's country, from its preferred language („de-DE“ → „DE“).
+fn region() -> String {
+    let locale = crate::assistant::speech::system_locale();
+    locale
+        .rsplit(['-', '_'])
+        .next()
+        .filter(|part| part.len() == 2 && part.chars().all(|c| c.is_ascii_alphabetic()))
+        .map(str::to_uppercase)
+        .unwrap_or_else(|| "DE".into())
 }
 
 /// The query for `handle`'s replies after row `after` (the handle is
@@ -221,6 +266,15 @@ pub fn attributed_text(body: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_national_number_becomes_international() {
+        assert_eq!(international("01621575563", "DE"), "+491621575563");
+        assert_eq!(international("00491621575563", "DE"), "+491621575563");
+        assert_eq!(international("+491621575563", "US"), "+491621575563");
+        assert_eq!(international("06641234567", "AT"), "+436641234567");
+        assert_eq!(international("4155551234", "US"), "4155551234");
+    }
 
     #[test]
     fn only_numbers_and_addresses_are_handles() {
