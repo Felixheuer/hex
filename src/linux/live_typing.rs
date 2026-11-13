@@ -1,4 +1,4 @@
-//! Labs' Live typing on Wayland: a dictation's provisional words sit in the
+//! the Live typing on Wayland: a dictation's provisional words sit in the
 //! focused text field as an input-method preedit, underlined and replaced on
 //! each update, and its final text is committed through the input method
 //! instead of pasted.

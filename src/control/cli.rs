@@ -69,7 +69,7 @@ pub enum ControlCli {
     Dictation {
         #[arg(value_enum)]
         action: CaptureAction,
-        /// With `start` (Labs › Print-only CLI dictation, macOS) or `stop`:
+        /// With `start` (macOS) or `stop`:
         /// answer with the transcript instead of pasting it. A printing start
         /// waits for its recording to end. Exits 4, printing nothing, when no
         /// speech was heard.
@@ -89,15 +89,14 @@ pub enum ControlCli {
         output: Output,
     },
     /// Run the focused field's text through its Output steps and replace it
-    /// (Labs › Transform typed text, Linux).
+    /// (Linux).
     ///
     /// Sends Ctrl+A and Ctrl+C, so it is not meant for terminals.
     TypedText {
         #[command(flatten)]
         output: Output,
     },
-    /// Transcribe a WAV file with the selected model and print it
-    /// (Labs › Transcribe files).
+    /// Transcribe a WAV file with the selected model and print it.
     ///
     /// Nothing is pasted, saved to History, or processed.
     Transcribe {
@@ -112,8 +111,8 @@ pub enum ControlCli {
         #[command(flatten)]
         output: Output,
     },
-    /// Take a screenshot of the display under the pointer and print its
-    /// path (Labs › Screenshots, macOS).
+    /// Retired with the Screenshots feature; answers that it is gone.
+    #[command(hide = true)]
     Screenshot {
         /// Open the area and window picker instead, as its shortcut does.
         #[arg(long)]
@@ -181,10 +180,12 @@ pub enum ControlCli {
         #[command(subcommand)]
         command: CommandsCommand,
     },
-    /// List the Labs features, or turn one on or off.
+    /// Retired: Labs is gone (its features are always on or are
+    /// `preferences.*` settings). `hex experiments` was its older name.
+    #[command(hide = true, alias = "experiments")]
     Labs {
-        #[command(subcommand)]
-        command: Option<crate::labs::LabsCommand>,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
     /// The assistant: ask one question here and print what happens, or
     /// list saved conversations.
@@ -199,12 +200,6 @@ pub enum ControlCli {
     Bench {
         #[command(subcommand)]
         command: crate::bench::BenchCommand,
-    },
-    /// Replaced by `hex labs`.
-    #[command(hide = true)]
-    Experiments {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
     },
     /// Annotate: record your screen with drawing and narration in the
     /// running Hex, then list and send what you recorded (`hex capture`
@@ -375,7 +370,7 @@ pub enum WindowCommand {
         #[command(flatten)]
         output: Output,
     },
-    /// Labs: open the window on a playground story by its path, name, or
+    /// Dev builds: open the window on a playground story by its path, name, or
     /// slug (`Prototypes/HUD/Processing`, `prototypes-hud-processing`).
     Story {
         story: String,
@@ -588,10 +583,12 @@ pub fn run(command: ControlCli) -> u8 {
                 crate::personal_commands::check_workspace().map(|report| println!("{report}"))
             }
         }),
-        ControlCli::Labs { command } => report(crate::labs::run(command.as_ref())),
+        ControlCli::Labs { .. } => report(Err(color_eyre::eyre::eyre!(
+            "Labs is gone: its features are always on now, or are settings \
+             (`hex settings get preferences`)"
+        ))),
         ControlCli::Assistant { command } => crate::assistant::cli::run(command),
         ControlCli::Bench { command } => crate::bench::run(command),
-        ControlCli::Experiments { .. } => report(crate::labs::run_retired_experiments()),
         ControlCli::Annotate { command } => capture(command),
     }
 }
@@ -1171,18 +1168,6 @@ fn running() -> bool {
     crate::local_api::running_pid().is_some()
 }
 
-/// `hex settings set key value` in the running Hex, which saves and applies
-/// it; `None` when no Hex runs.
-pub(crate) fn set_in_running_hex(key: &str, value: &str) -> Option<ControlReply> {
-    running().then(|| {
-        call(ControlRequest::new(ControlCommand::SettingsSet {
-            key: key.into(),
-            value: value.into(),
-        }))
-        .map_or_else(|reply| reply, |response| response.reply)
-    })
-}
-
 fn call(request: ControlRequest) -> Result<ControlResponse, ControlReply> {
     if !running() {
         return Err(absent());
@@ -1600,21 +1585,16 @@ mod tests {
         let text = human_status(&report);
         assert!(text.starts_with("Hex 2.3.1 (pid 42, 412 MB)\n"));
         assert!(text.contains("Meeting      recording “Design sync” for 1:02:03\n"));
-        assert!(text.ends_with("Labs         none\n"));
-        report.labs = vec!["live-text".into(), "meetings".into()];
-        assert!(human_status(&report).ends_with("Labs         live-text, meetings\n"));
+        assert!(!text.contains("Labs"));
     }
 
     #[test]
-    fn status_reports_labs_and_reads_older_replies_without_it() {
-        let report = StatusReport {
-            labs: vec!["live-text".into()],
-            ..Default::default()
-        };
-        let mut json = serde_json::to_value(&report).unwrap();
-        assert_eq!(json["labs"], serde_json::json!(["live-text"]));
-        json.as_object_mut().unwrap().remove("labs");
-        let older: StatusReport = serde_json::from_value(json).unwrap();
-        assert!(older.labs.is_empty());
+    fn status_reads_older_replies_that_still_list_labs() {
+        let mut json = serde_json::to_value(StatusReport::default()).unwrap();
+        assert!(json.get("labs").is_none());
+        json.as_object_mut()
+            .unwrap()
+            .insert("labs".into(), serde_json::json!(["live-text"]));
+        let _older: StatusReport = serde_json::from_value(json).unwrap();
     }
 }

@@ -1,4 +1,4 @@
-//! An entry's earlier transcripts (Labs › Keep recordings): Replace after
+//! An entry's earlier transcripts (Keep recordings): Replace after
 //! Transcribe again keeps the text it replaces, with the model and forced
 //! language that made it, newest first and at most [`MAX_VERSIONS`].
 //! Versions live in the entry, so they count toward History's text cap and

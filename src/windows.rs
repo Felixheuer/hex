@@ -183,7 +183,7 @@ pub fn run(shutdown: &'static AtomicBool) -> Result<()> {
         Command::Listen { device, selection } => {
             shutdown.store(false, Ordering::Relaxed);
             let _instance = crate::desktop::instance::acquire("windows-listener")?;
-            crate::labs::log_launch();
+            crate::features::log_launch();
             let settings = crate::app_settings::AppSettings::load()?;
             let history = crate::history::History::open_default(settings.history_retention)?;
             let config = crate::windows::dictation::WindowsDictationConfig {

@@ -36,7 +36,7 @@ pub(super) fn install_main_menu(target: &MenuTarget, mtm: MainThreadMarker) {
     ];
     // Rune's own View › Playground item, which this menu bar replaces. A
     // capital letter adds Shift: ⇧⌘D. It opens the playground only while
-    // Labs › Playground is on.
+    // Playground is on.
     menus.push((
         "View",
         vec![Some(("Playground", sel!(togglePlayground:), "D"))],

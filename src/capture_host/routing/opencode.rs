@@ -1,4 +1,4 @@
-//! OpenCode in WSL for Annotate's sends: with Labs › OpenCode in WSL on,
+//! OpenCode in WSL for Annotate's sends: with OpenCode in WSL on,
 //! the router asks the host's service discovery, so a capture goes to a
 //! service whose registration Windows can't read itself. A native Windows
 //! service, or a discovery that found none, answers `None`, leaving the
@@ -21,7 +21,7 @@ use crate::desktop::opencode_service;
 #[cfg(target_os = "windows")]
 const DIRECTORY_DEADLINE: Duration = Duration::from_secs(3);
 
-/// The default WSL distribution's OpenCode service, when Labs › OpenCode in
+/// The default WSL distribution's OpenCode service, when OpenCode in
 /// WSL is on.
 #[cfg(target_os = "windows")]
 pub(super) struct Wsl;
@@ -35,7 +35,7 @@ impl OpenCode for Wsl {
         body: Option<&[u8]>,
         timeout: Duration,
     ) -> Option<anyhow::Result<Reply>> {
-        if !crate::labs::opencode_in_wsl() {
+        if !crate::features::opencode_in_wsl() {
             return None;
         }
         let started = Instant::now();
@@ -62,7 +62,7 @@ impl OpenCode for Wsl {
     }
 
     fn directory(&self, host: &Path) -> Option<String> {
-        if !crate::labs::opencode_in_wsl() {
+        if !crate::features::opencode_in_wsl() {
             return None;
         }
         let service =

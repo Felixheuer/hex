@@ -332,11 +332,11 @@ pub(super) fn recorded_binding(event: &KeyEvent) -> Result<HotkeyBinding, &'stat
         command: held(event.mods.logo),
         function: false,
     };
-    // The § key alone, and Menu, Pause, or Scroll Lock, are checked against
-    // their Labs toggles in `validate` (Linux).
-    let lone_labs_key = cfg!(target_os = "linux")
+    // The § key alone, and Menu, Pause, or Scroll Lock, may be shortcuts on
+    // their own (Linux).
+    let lone_key = cfg!(target_os = "linux")
         && (HotkeyKey::section_name(&name) || HotkeyKey::special_name(&name));
-    if modifiers.is_empty() && !matches!(event.key, Key::Function(_)) && !lone_labs_key {
+    if modifiers.is_empty() && !matches!(event.key, Key::Function(_)) && !lone_key {
         return Err(tr("Add a modifier"));
     }
     Ok(HotkeyBinding {
@@ -352,32 +352,6 @@ pub(super) fn validate(
 ) -> Result<(), &'static str> {
     // A bare left click would swallow every click, this window's included.
     if binding.is_bare_primary_click() {
-        return Err(tr("Add a modifier"));
-    }
-    // Menu, Pause, and Scroll Lock need Labs › Special keys alone (Linux).
-    if cfg!(target_os = "linux")
-        && binding.key.as_ref().is_some_and(HotkeyKey::is_special)
-        && !settings.special_keys_allowed()
-    {
-        return Err(if binding.modifiers.is_empty() {
-            tr("Add a modifier")
-        } else {
-            tr("Unsupported key")
-        });
-    }
-    // The ISO section key alone needs Labs › Section key alone (Linux,
-    // macOS).
-    if cfg!(any(target_os = "linux", target_os = "macos"))
-        && binding.is_lone_section_key()
-        && !settings.section_key_allowed()
-    {
-        return Err(tr("Add a modifier"));
-    }
-    // A navigation key alone needs Labs › Special keys alone (Windows).
-    if cfg!(target_os = "windows")
-        && binding.is_lone_navigation_key()
-        && !settings.special_keys_allowed()
-    {
         return Err(tr("Add a modifier"));
     }
     host::validate_hotkey(target, binding)?;
@@ -502,7 +476,7 @@ pub(super) fn set_binding(
     }
 }
 
-/// Labs › Restore shortcut default: puts `default` back as `target`'s
+/// Restore shortcut default: puts `default` back as `target`'s
 /// shortcut under the rules a recorded one meets. A default another
 /// shortcut already uses changes nothing and opens the recorder with the
 /// usual conflict, so another can be recorded.
@@ -901,7 +875,7 @@ pub(super) fn poll_input_sources(ui: &mut Ui, clock: f64) -> bool {
         ui.platform.input_sources.clear();
         return changed;
     }
-    if ui.pane != super::Pane::General
+    if ui.pane != super::Pane::Dictation
         || !ui.live()
         || !ui.window.as_ref().is_some_and(rune::AppHandle::is_visible)
         || clock < ui.input_sources_listed_at + 2.0
@@ -1020,7 +994,7 @@ const RECORDER_CAP_INSET: f32 = 3.0;
 const HELD_FADE: f32 = 8.0;
 const HELD_SHADOW_ROOM: f32 = (RECORDER_HEIGHT - KeySize::Small.height()) / 2.0;
 
-/// The recorders' keys for Labs › More dictation shortcuts' rows (macOS):
+/// The recorders' keys for More dictation shortcuts' rows (macOS):
 /// one static key per row, in the rows' order.
 #[cfg(target_os = "macos")]
 const EXTRA_HOTKEY_KEYS: [&str; crate::app_settings::MAX_EXTRA_DICTATION_SHORTCUTS] = [
@@ -1221,35 +1195,14 @@ pub(super) fn updates_itself(ui: &Ui) -> bool {
     })
 }
 
-/// Issue 767: the window takes Menu alone only with Labs › Special keys
-/// alone on.
+/// Issue 767 and 1187: Linux takes Menu, Pause, and Scroll Lock alone.
 #[cfg(all(test, target_os = "linux"))]
 mod special_keys_tests {
     use super::*;
 
     #[test]
-    fn menu_alone_needs_its_labs_toggle() {
-        let menu = HotkeyBinding {
-            modifiers: HotkeyModifiers::default(),
-            key: Some(HotkeyKey::named("menu")),
-        };
-        let mut settings = AppSettings::default();
-        assert_eq!(
-            validate(&settings, ShortcutTarget::Dictation, &menu),
-            Err(tr("Add a modifier"))
-        );
-        settings.labs.standalone_special_keys = true;
-        assert_eq!(
-            validate(&settings, ShortcutTarget::Dictation, &menu),
-            Ok(())
-        );
-    }
-
-    /// Issue 1187: the recorder takes Scroll Lock, Pause, and Menu alone.
-    #[test]
     fn recorder_takes_special_keys_alone() {
-        let mut settings = AppSettings::default();
-        settings.labs.standalone_special_keys = true;
+        let settings = AppSettings::default();
         for (key, name) in [
             (Key::ScrollLock, "scroll lock"),
             (Key::Pause, "pause"),
@@ -1269,17 +1222,13 @@ mod special_keys_tests {
     }
 }
 
-/// Issue 1050: the ISO section key alone needs Labs › Section key alone on
-/// Linux and macOS; with a modifier it records as before. Linux's recorder
-/// checks the lab itself; macOS's recorder records the chord and `validate`
-/// refuses it here, before saving.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod section_key_tests {
     use super::*;
     use crate::app_settings::ISO_SECTION_KEY_CODE;
 
     #[test]
-    fn section_alone_needs_its_labs_toggle() {
+    fn section_alone_is_a_shortcut() {
         let section = HotkeyBinding {
             modifiers: HotkeyModifiers::default(),
             key: Some(HotkeyKey::named("§")),
@@ -1288,16 +1237,11 @@ mod section_key_tests {
             modifiers: HotkeyModifiers::control_option(),
             key: Some(HotkeyKey::named("§")),
         };
-        let mut settings = AppSettings::default();
-        assert_eq!(
-            validate(&settings, ShortcutTarget::Dictation, &section),
-            Err(tr("Add a modifier"))
-        );
+        let settings = AppSettings::default();
         assert_eq!(
             validate(&settings, ShortcutTarget::Dictation, &with_control),
             Ok(())
         );
-        settings.labs.section_key_alone = true;
         assert_eq!(
             validate(&settings, ShortcutTarget::Dictation, &section),
             Ok(())
@@ -1309,7 +1253,7 @@ mod section_key_tests {
     /// `{code: 10, label: "^"}`; validation still knows it is the section
     /// key.
     #[test]
-    fn a_dead_key_section_binding_needs_its_labs_toggle_on_macos() {
+    fn a_dead_key_section_binding_is_the_section_key_on_macos() {
         if !cfg!(target_os = "macos") {
             return;
         }
@@ -1321,12 +1265,7 @@ mod section_key_tests {
             }),
         };
         assert!(dead_key.is_lone_section_key());
-        let mut settings = AppSettings::default();
-        assert_eq!(
-            validate(&settings, ShortcutTarget::Dictation, &dead_key),
-            Err(tr("Add a modifier"))
-        );
-        settings.labs.section_key_alone = true;
+        let settings = AppSettings::default();
         assert_eq!(
             validate(&settings, ShortcutTarget::Dictation, &dead_key),
             Ok(())

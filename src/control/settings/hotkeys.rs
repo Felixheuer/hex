@@ -1,5 +1,5 @@
 //! Shortcut text for `hex settings`: reading and writing the modifier-plus-key
-//! form, and why a bare special key still needs its Labs toggle.
+//! form, and why a bare special key still needs its setting.
 
 use crate::app_settings::{
     AppSettings, HotkeyBinding, HotkeyKey, HotkeyModifiers, HotkeySlot, ModifierSide,
@@ -7,7 +7,7 @@ use crate::app_settings::{
 
 use super::{ShortcutRules, invalid};
 
-/// Applies the checks a recorded shortcut meets: Labs › Mouse shortcuts
+/// Applies the checks a recorded shortcut meets: Mouse shortcuts
 /// where mouse buttons are recorded, the special-key rules, the OS's own
 /// rule for `slot`, and no key shared with another active shortcut.
 pub(super) fn check_shortcut(
@@ -18,15 +18,6 @@ pub(super) fn check_shortcut(
     binding: &HotkeyBinding,
     shortcuts: &ShortcutRules,
 ) -> Result<(), crate::control::ControlError> {
-    if cfg!(target_os = "macos")
-        && !candidate.labs.mouse_shortcuts
-        && binding.key.as_ref().is_some_and(HotkeyKey::is_mouse)
-    {
-        return Err(invalid(
-            name,
-            "mouse buttons need Labs › Mouse shortcuts: hex labs on mouse-shortcuts",
-        ));
-    }
     if let Some(why) = special_key_refusal(candidate, binding) {
         return Err(invalid(name, &why));
     }
@@ -118,7 +109,7 @@ pub fn parse_hotkey(
             return Err("mouse1 (left click) needs a modifier, such as option+mouse1".into());
         }
         // Menu, Pause, and Scroll Lock alone, and on Windows the navigation
-        // keys alone, are checked against their Labs toggle when set
+        // keys alone, are checked against their setting when set
         // (`special_key_refusal`).
         if modifiers.is_empty()
             && !is_function_key(&key.label)
@@ -135,41 +126,18 @@ pub fn parse_hotkey(
     Ok(binding)
 }
 
-/// Why `binding` can't be saved for its Menu, Pause, or Scroll Lock key: on
-/// Linux they need Labs › Special keys alone; Windows takes them alone, and
-/// a navigation key alone needs the toggle there; elsewhere one alone still
-/// needs a modifier.
+/// Why `binding` can't be saved for its Menu, Pause, or Scroll Lock key:
+/// Linux and Windows take one alone; elsewhere one alone still needs a
+/// modifier.
 pub(super) fn special_key_refusal(
     settings: &AppSettings,
     binding: &HotkeyBinding,
 ) -> Option<String> {
-    // The ISO section key alone needs Labs › Section key alone (Linux,
-    // macOS).
-    if cfg!(any(target_os = "linux", target_os = "macos"))
-        && binding.is_lone_section_key()
-        && !settings.section_key_allowed()
-    {
-        return Some("section needs Labs › Section key alone: hex labs on section-key".into());
-    }
-    if cfg!(target_os = "windows") {
-        let key = binding.key.as_ref()?;
-        return (binding.is_lone_navigation_key() && !settings.special_keys_allowed()).then(|| {
-            format!(
-                "{} alone needs Labs › Special keys alone: hex labs on special-keys",
-                key.label.to_lowercase().replace(' ', "")
-            )
-        });
-    }
     let key = binding.key.as_ref().filter(|key| key.is_special())?;
     if settings.special_keys_allowed() {
         return None;
     }
     let name = key.label.to_lowercase().replace(' ', "");
-    if cfg!(target_os = "linux") {
-        return Some(format!(
-            "{name} needs Labs › Special keys alone: hex labs on special-keys"
-        ));
-    }
     binding
         .modifiers
         .is_empty()

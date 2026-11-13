@@ -171,8 +171,8 @@ pub(super) fn update_shown_permissions(ui: &mut Ui) {
     let visible = ui.window.as_ref().is_none_or(rune::AppHandle::is_visible);
     let mut shown = Vec::new();
     if visible && ui.platform.caps.permissions {
-        let setup_showing = ui.first_run.is_some()
-            || (ui.tour.is_none() && !ui.labs_open && ui.pane == Pane::General);
+        let setup_showing =
+            ui.first_run.is_some() || (ui.tour.is_none() && ui.pane == Pane::Dictation);
         if setup_showing
             && matches!(
                 ui.platform.permissions.accessibility,
@@ -181,7 +181,7 @@ pub(super) fn update_shown_permissions(ui: &mut Ui) {
         {
             shown.push(PermissionKind::Accessibility);
         }
-        if ui.tour.is_none() && !ui.labs_open {
+        if ui.tour.is_none() {
             if ui.pane == Pane::Meetings
                 && super::meetings::available(ui)
                 && ui.meetings.view == super::meetings::View::Settings
@@ -420,7 +420,7 @@ pub(super) fn opencode_managed() -> bool {
 /// The Meetings (beta) switch: the opt-in card's only row, and the first row
 /// of Meetings › Settings.
 pub(super) fn meetings_toggle(ui: &Ui, p: Paint) -> El {
-    if crate::labs::Feature::Meetings.managed().is_some() {
+    if crate::policy::Policy::meetings_lock().is_some() {
         return super::controls::managed_row(
             p,
             "meetings-enabled",
@@ -509,9 +509,7 @@ pub(super) fn meetings_settings(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<E
         ));
         after.extend(summaries_rows(ui, p, layer));
         after.push(retention_row(ui, p, layer).into());
-        if ui.settings.labs.expire_meeting_audio {
-            after.push(audio_retention_row(ui, p, layer).into());
-        }
+        after.push(audio_retention_row(ui, p, layer).into());
         after.push(
             icon_row(
                 p,
@@ -602,7 +600,7 @@ fn retention_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
 }
 
 /// How long finished meetings keep their audio, apart from their text
-/// (Labs › Expire meeting audio separately). Unchosen follows Keep meetings.
+/// (Expire meeting audio separately). Unchosen follows Keep meetings.
 fn audio_retention_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     let chosen = ui.settings.meetings.audio_retention;
     let mut labels = vec![tr("Follow Keep meetings").to_owned()];
@@ -659,7 +657,6 @@ fn audio_retention_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
 /// while it does.
 pub(super) fn summary_model_shown(ui: &Ui) -> bool {
     ui.pane == Pane::Meetings
-        && !ui.labs_open
         && super::meetings::available(ui)
         && ui.meetings.view == super::meetings::View::Settings
         && ui.settings.meetings.enabled
@@ -916,7 +913,7 @@ fn calendars_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
 /// each with Ask / Always record / Never offer.
 fn detected_calls_section(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     let choices = &ui.settings.meetings.providers;
-    let providers = crate::app_settings::known_meeting_providers(crate::labs::more_call_apps())
+    let providers = crate::app_settings::known_meeting_providers(crate::features::more_call_apps())
         .collect::<Vec<_>>();
     let known = providers
         .iter()

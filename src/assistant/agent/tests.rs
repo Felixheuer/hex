@@ -279,7 +279,7 @@ fn the_guard_learns_each_lanes_window_and_input_policy() {
 fn the_here_lane_runs_on_the_fast_model_where_the_backend_takes_it() {
     let mut here = job("q", Origin::ActionShortcut, Context::default());
     here.settings.claude_code_model = Some("opus".into());
-    assert_eq!(model(&here).as_deref(), Some("claude-haiku-5-5"));
+    assert_eq!(model(&here).as_deref(), Some("claude-sonnet-5-5"));
     let mut background = here.clone();
     background.request.origin = Origin::Background;
     assert_eq!(model(&background).as_deref(), Some("opus"));
@@ -542,4 +542,183 @@ fn a_job_is_told_the_person_s_language() {
     assert!(rule.contains("speaks German"), "{rule}");
     let rule = super::language_rule("Find ten suppliers and put them in a sheet for me");
     assert!(rule.contains("speaks English"), "{rule}");
+}
+
+#[test]
+fn a_backend_started_ahead_has_the_requests_own_system_prompt() {
+    use crate::assistant::autonomy::{Authorized, Category};
+    let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
+    desktop.front_window = true;
+    // As `service::prewarm` builds it: no words yet, nothing authorized.
+    let mut ahead = job("", Origin::ActionShortcut, Context::default());
+    ahead.memory = Some("- Company: blabla.com".into());
+    // The request: English words on any Mac, and its words allow a send.
+    let mut asked = ahead.clone();
+    asked.request.text = "Send the offer to max@example.com".into();
+    asked.authorized = Authorized {
+        categories: [Category::Send].into(),
+        notes: vec!["only to max@example.com".into()],
+        ..Authorized::default()
+    };
+    assert_eq!(
+        system_for(&ahead, Some(&desktop), true),
+        system_for(&asked, Some(&desktop), true),
+        "the started process must be the one the request finds"
+    );
+    // What only the request decides goes with its message.
+    let rules = request_rules(&asked);
+    assert!(rules.contains("speaks English"), "{rules}");
+    assert!(
+        rules.contains("For this request: Autonomy (Smart): you may only send"),
+        "{rules}"
+    );
+    assert!(!request_rules(&ahead).contains("For this request"));
+    // (Without the desktop, so the test reads nothing of this computer.)
+    asked.settings.control_desktop = false;
+    let message = message(&asked, &[], false);
+    assert!(message.starts_with(&rules), "{message}");
+    assert!(message.ends_with("Send the offer to max@example.com"));
+}
+
+#[test]
+fn quick_turns_run_fast_and_hand_hard_ones_to_the_strong_model() {
+    let mut here = job("q", Origin::ActionShortcut, Context::default());
+    here.settings.here_model = Some("claude-sonnet-5-5".into());
+    here.settings.claude_code_model = Some("opus".into());
+    assert_eq!(effort(&here).as_deref(), Some("low"));
+    assert_eq!(escalate_after(&here), Some(8));
+    let mut background = here.clone();
+    background.request.origin = Origin::Background;
+    assert_eq!(effort(&background), None, "a job thinks as its model does");
+    assert_eq!(escalate_after(&background), None);
+    // Nothing to hand over to when the fast model is the strong one.
+    let mut same = here.clone();
+    same.settings.here_model = Some("opus".into());
+    assert_eq!(escalate_after(&same), None);
+    let mut never = here.clone();
+    never.settings.escalate_after_tools = 0;
+    assert_eq!(escalate_after(&never), None);
+    let mut api = here.clone();
+    api.settings.backend = AssistantBackend::ClaudeApi;
+    assert_eq!(escalate_after(&api), None);
+    assert_eq!(effort(&api), None);
+    // The hand-over: the same session, the strong model, a note to go on.
+    let run = Run {
+        model: model(&here),
+        effort: effort(&here),
+        escalate_after: escalate_after(&here),
+        keep_warm: Some(Duration::from_secs(120)),
+        image: Some("/tmp/shot.png".into()),
+        ..Run::fixture(AssistantBackend::ClaudeCode)
+    };
+    let strong = escalated(&run, &here, Some("sess-1".into()));
+    assert_eq!(strong.model.as_deref(), Some("opus"));
+    assert_eq!(strong.effort, None);
+    assert_eq!(strong.escalate_after, None);
+    assert_eq!(strong.keep_warm, None);
+    assert_eq!(strong.image, None);
+    assert_eq!(strong.resume.as_deref(), Some("sess-1"));
+    assert_eq!(strong.prompt, ESCALATED_NOTE);
+    assert!(ESCALATED_NOTE.contains("never repeat a send"));
+    // Which failures hand over.
+    let handed: color_eyre::Report = provider::Escalate { tools: 8 }.into();
+    assert!(should_escalate(&handed));
+    assert!(should_escalate(&color_eyre::eyre::eyre!(
+        "Claude Code: it stopped without an answer"
+    )));
+    assert!(!should_escalate(&color_eyre::eyre::eyre!("cancelled")));
+    assert!(!should_escalate(&color_eyre::eyre::eyre!(
+        "Claude Code: You've hit your session limit · resets 2am (Europe/Berlin)"
+    )));
+}
+
+#[test]
+fn the_guide_keeps_what_a_task_uses() {
+    let guide = "# agent-desktop\n\nIntro.\n\n## Shell syntax\n\nPowerShell.\n\n## The loop\n\n```\n# not a heading\nagent-desktop snapshot\n```\n\n## First run\n\n1. status\n\n## Refs\n\nRefs.\n\n# agent-desktop on macOS\n\n## Requirements\n\nmacOS 13.\n\n## What differs on macOS\n\nKeys.";
+    let kept = trim_guide(guide);
+    for gone in ["PowerShell", "1. status", "macOS 13"] {
+        assert!(!kept.contains(gone), "{gone}: {kept}");
+    }
+    for stays in [
+        "Intro.",
+        "## The loop",
+        "# not a heading",
+        "Refs.",
+        "# agent-desktop on macOS",
+        "Keys.",
+    ] {
+        assert!(kept.contains(stays), "{stays}: {kept}");
+    }
+}
+
+/// Characters of each lane's own rules (agent-desktop's guide aside): what
+/// every request pays for before its first word. Raise only with a reason.
+// 9_300: the knowledge tools (hex_lookup, hex_chrome_tab) add a short rule.
+const HERE_BUDGET: usize = 9_300;
+// 15_800: the knowledge tools add a short rule.
+const JOB_BUDGET: usize = 15_800;
+
+#[test]
+fn each_lane_s_rules_stay_within_their_budget() {
+    let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
+    desktop.guarded = true;
+    desktop.front_window = true;
+    desktop.open_apps = true;
+    // The guide is agent-desktop's: measured apart, where it is installed.
+    let without_guide = |system: String| match system.find("\nagent-desktop's guide:") {
+        Some(start) => {
+            let end = system[start..]
+                .find("\nYou decide how")
+                .or_else(|| system[start..].find("\nThis is a job"))
+                .map_or(system.len(), |end| start + end);
+            format!("{}{}", &system[..start], &system[end..])
+        }
+        None => system,
+    };
+    let mut here = job("q", Origin::ActionShortcut, Context::default());
+    here.memory = Some("- Company: blabla.com".into());
+    let quick = without_guide(system_for(&here, Some(&desktop), true));
+    assert!(
+        quick.len() <= HERE_BUDGET,
+        "the Here lane's rules grew to {} characters",
+        quick.len()
+    );
+    let mut background = here.clone();
+    background.request.origin = Origin::Background;
+    background.workspace = Some("/tmp/job".into());
+    let job_rules = without_guide(system_for(&background, Some(&desktop), true));
+    assert!(
+        job_rules.len() <= JOB_BUDGET,
+        "a job's rules grew to {} characters",
+        job_rules.len()
+    );
+}
+
+#[test]
+#[ignore = "prints the prompt sizes per lane; run with --ignored --nocapture"]
+fn print_prompt_sizes() {
+    let mut desktop = Desktop::fixture(Some("S1"), "hex-7");
+    desktop.guarded = true;
+    desktop.front_window = true;
+    desktop.open_apps = true;
+    let here = job(
+        "Was steht in dieser Mail?",
+        Origin::ActionShortcut,
+        Context::default(),
+    );
+    let system = system_for(&here, Some(&desktop), true);
+    let guide = system
+        .find("\nagent-desktop's guide:")
+        .unwrap_or(system.len());
+    println!("here: {} chars ({} without the guide)", system.len(), guide);
+    std::fs::write(std::env::temp_dir().join("hex-here-system.txt"), &system).unwrap();
+    let mut background = here.clone();
+    background.request.origin = Origin::Background;
+    background.workspace = Some("/tmp/job".into());
+    let system = system_for(&background, Some(&desktop), true);
+    let guide = system
+        .find("\nagent-desktop's guide:")
+        .unwrap_or(system.len());
+    println!("job: {} chars ({} without the guide)", system.len(), guide);
+    std::fs::write(std::env::temp_dir().join("hex-job-system.txt"), &system).unwrap();
 }

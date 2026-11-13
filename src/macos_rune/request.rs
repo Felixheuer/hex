@@ -44,13 +44,13 @@ pub(crate) enum ShortcutTarget {
     PasteLast,
     #[cfg(hex_capture)]
     Capture,
-    /// Labs › Annotate 15 s replay shortcut.
+    /// Annotate 15 s replay shortcut.
     #[cfg(hex_capture)]
     CaptureReplay,
     RawDictation,
-    /// Labs › Second dictation shortcut.
+    /// Second dictation shortcut.
     SecondDictation,
-    /// Labs › More dictation shortcuts (macOS): row `index`.
+    /// More dictation shortcuts (macOS): row `index`.
     ExtraDictation(usize),
     /// The assistant's Action shortcut.
     Action,
@@ -58,8 +58,8 @@ pub(crate) enum ShortcutTarget {
     StopAll,
     /// Toggle mode's cancel shortcut.
     Cancel,
-    /// Labs › Screenshots.
+    /// Screenshots.
     Screenshot,
-    /// Labs › Screenshots' record shortcut.
+    /// Screenshots' record shortcut.
     ScreenshotRecord,
 }

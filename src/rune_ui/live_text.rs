@@ -1,8 +1,8 @@
-//! The live text plate (Labs): one click-through line
+//! The live text plate: one click-through line
 //! beside the recording HUD with what the dictation has said so far, on
 //! every OS. It shows while a recording has text and hides when the
 //! recording ends ([`crate::dictation::live_text`]); `rune_hud` says where the HUD is,
-//! so the plate sits just past it, on the HUD's screen. Labs › Failure
+//! so the plate sits just past it, on the HUD's screen. Failure
 //! notices reuses the same plate for one line saying why a dictation failed,
 //! for a few seconds or until the next capture.
 //!
@@ -36,7 +36,7 @@ const FAILURE_VISIBLE: Duration = Duration::from_secs(6);
 pub(crate) struct Plate {
     stable: String,
     tentative: String,
-    /// Labs › Failure notices: why the last dictation failed, shown instead
+    /// Failure notices: why the last dictation failed, shown instead
     /// of the live words while it lasts.
     failure: Option<String>,
     /// Whether live words are being published (a recording is showing text).
@@ -198,8 +198,8 @@ pub(crate) fn refollow_pointer() {
 pub(crate) type Place = fn() -> Spot;
 
 /// Adds the plate to the app. It shows while a dictation publishes its text
-/// (Labs › Live text) or while a failure notice explains a failed dictation
-/// (Labs › Failure notices), applied at once. On macOS it's always prewarmed,
+/// (Live text) or while a failure notice explains a failed dictation
+/// (Failure notices), applied at once. On macOS it's always prewarmed,
 /// since either lab may be turned on after launch and an unprewarmed plate
 /// reappears for a frame with the last dictation's words (#1075); elsewhere
 /// when either is on at launch.
@@ -217,8 +217,8 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>, place: Place) {
     }
     .options(OverlayOptions {
         prewarm: cfg!(target_os = "macos")
-            || crate::labs::live_text()
-            || crate::labs::failure_notices(),
+            || crate::features::live_text()
+            || crate::features::failure_notices(),
         #[cfg(not(target_os = "macos"))]
         display: crate::rune_hud::display(),
         ..Default::default()
@@ -236,7 +236,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>, place: Place) {
             // this is a no-op, and skipping it keeps a dictation that never
             // showed text off the update queue.
             let words = WORDS.swap(false, Ordering::AcqRel);
-            let notice_up = crate::labs::failure_notices() && notice().message.is_some();
+            let notice_up = crate::features::failure_notices() && notice().message.is_some();
             if !words && !notice_up {
                 return;
             }
@@ -271,10 +271,10 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>, place: Place) {
 }
 
 /// Shows `message` as a one-line notice beside the HUD for
-/// [`FAILURE_VISIBLE`] (Labs › Failure notices), replacing any live words
+/// [`FAILURE_VISIBLE`] (Failure notices), replacing any live words
 /// until it leaves or a new capture starts.
 pub(crate) fn show_failure(message: &str) {
-    if !crate::labs::failure_notices() {
+    if !crate::features::failure_notices() {
         return;
     }
     let (Some(overlay), Some(place)) = (LIVE.get(), PLACE.get().copied()) else {
@@ -298,11 +298,6 @@ pub(crate) fn show_failure(message: &str) {
 /// Hides a failure notice at once when a new capture starts; live words
 /// already on the plate stay.
 pub(crate) fn capture_started() {
-    dismiss_notice();
-}
-
-/// Hides a failure notice when Labs › Failure notices is turned off.
-pub(crate) fn dismiss_failure() {
     dismiss_notice();
 }
 

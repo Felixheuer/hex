@@ -1,4 +1,4 @@
-//! Labs › Pause from menu bar (macOS): the runtime-only pause behind the
+//! Pause from menu bar (macOS): the runtime-only pause behind the
 //! menu bar's Pause Hex row. While paused every capture shortcut is inert
 //! and the event tap passes key events through unmodified, exactly as while
 //! a shortcut binding is recorded ([`crate::app_settings`]'s

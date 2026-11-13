@@ -467,7 +467,7 @@ fn mouse_events_reach_the_filtering_tap_only_while_a_mouse_shortcut_is_bound() {
         assert_eq!(observation & OBSERVATION_MASK, OBSERVATION_MASK);
     }
 
-    // Labs › More dictation shortcuts' mouse buttons filter clicks too.
+    // More dictation shortcuts' mouse buttons filter clicks too.
     let mut extra_mouse = RuntimeHotkeys::default();
     extra_mouse.extra_dictation[0] = Some(
         HotkeyBinding {
@@ -4680,7 +4680,7 @@ fn caps_lock_press_starts_and_finishes_its_own_hands_free_capture() {
     assert!(!hotkey.is_recording());
 }
 
-// Labs › Pause from menu bar's resume waits on `neutral_with`, which runs on
+// Pause from menu bar's resume waits on `neutral_with`, which runs on
 // the real keyboard only in macOS builds; these pin its rules.
 #[test]
 fn a_toggled_caps_lock_still_reads_neutral() {

@@ -119,7 +119,7 @@ static HELD: AtomicU16 = AtomicU16::new(0);
 static OWNER: AtomicU64 = AtomicU64::new(0);
 static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
 
-/// Labs › Caps Lock dictation's listener, called on the tracker thread for
+/// Caps Lock dictation's listener, called on the tracker thread for
 /// each physical Caps Lock key-down with its press timestamp.
 static CAPS_LOCK_PRESSED: Mutex<Option<fn(CaptureInstant)>> = Mutex::new(None);
 

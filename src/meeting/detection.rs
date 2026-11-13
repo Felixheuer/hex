@@ -41,7 +41,7 @@ const CALL_SITES: [(&str, MeetingSource); 4] = [
     ("app.gather.town", MeetingSource::Gather),
 ];
 
-/// The websites Labs › More call apps names, with the label an offer's "…"
+/// The websites More call apps names, with the label an offer's "…"
 /// saves as that site's provider. Teams and FaceTime pages have their own
 /// choice, shown apart from the apps' names.
 const MORE_CALL_SITES: [(&str, MeetingSource, &str); 5] = [
@@ -121,7 +121,7 @@ fn known_provider_label(key: &str, more_call_apps: bool) -> Option<&'static str>
                 .map(|(_, source)| source.label())
         })
         .or_else(|| {
-            // Labs › More call apps' app and page names, off, leave their keys
+            // More call apps' app and page names, off, leave their keys
             // labelled by the raw bundle id or host, exactly as before.
             if !more_call_apps {
                 return None;
@@ -235,7 +235,7 @@ impl MeetingCandidate {
 
     /// Whose call this is, for the user's Ask / Always record / Never offer
     /// choice: the website when known, else the app. Known services use the
-    /// name Settings lists them under; `more_call_apps` is Labs › More call
+    /// name Settings lists them under; `more_call_apps` is More call
     /// apps, whose names are unknown while it is off.
     pub fn provider(&self, more_call_apps: bool) -> Option<MeetingProvider> {
         let key = self.site.clone().or_else(|| self.application.clone())?;
@@ -273,7 +273,7 @@ impl MeetingCandidate {
         match self.source {
             // WhatsApp also takes the microphone for voice notes (#835), and
             // Gather can hold it while you sit in a space (#855). So can the
-            // messaging apps Labs › More call apps adds, and Messenger and
+            // messaging apps More call apps adds, and Messenger and
             // GroupMe send voice clips too.
             MeetingSource::BrowserCall
             | MeetingSource::WhatsApp
@@ -320,10 +320,10 @@ impl CallPresence {
 }
 
 /// How long an automatic recording keeps going after its call ended, under
-/// Labs › Stop when the call ends (#835).
+/// Stop when the call ends (#835).
 pub const AUTO_STOP_GRACE: Duration = Duration::from_secs(30);
 
-/// Labs › Stop when the call ends: the deadline at which a recording Hex
+/// Stop when the call ends: the deadline at which a recording Hex
 /// started on its own stops, armed when [`CallPresence`] reports the call
 /// ended and dropped when the call app comes back or the user keeps
 /// recording.
@@ -376,7 +376,7 @@ pub enum MeetingSource {
     Gather,
     Discord,
     BrowserCall,
-    // Labs › More call apps; after `BrowserCall` so its generated key stays
+    // More call apps; after `BrowserCall` so its generated key stays
     // the same as before the lab existed.
     Signal,
     Telegram,
@@ -688,7 +688,7 @@ impl MeetingDetector {
     }
 }
 
-/// The call `context` describes. `more_call_apps` is Labs › More call apps:
+/// The call `context` describes. `more_call_apps` is More call apps:
 /// off, the extra websites are unknown pages.
 pub fn candidate_from_context(
     context: &ContextSnapshot,
@@ -800,7 +800,7 @@ pub fn candidate_from_microphone(
     Some(candidate)
 }
 
-/// The apps Labs › More call apps adds, and the title each call gets.
+/// The apps More call apps adds, and the title each call gets.
 fn more_call_app(canonical_bundle: &str) -> Option<(MeetingSource, &'static str)> {
     Some(match canonical_bundle {
         "org.whispersystems.signal-desktop" => (MeetingSource::Signal, "Signal call"),
@@ -815,7 +815,7 @@ fn more_call_app(canonical_bundle: &str) -> Option<(MeetingSource, &'static str)
 }
 
 /// A website host as a site key: lowercase, without `www.`, and a Webex
-/// subdomain as `webex.com` while Labs › More call apps is on, so one choice
+/// subdomain as `webex.com` while More call apps is on, so one choice
 /// covers every Webex page.
 fn call_site_host(host: &str, more_call_apps: bool) -> String {
     let host = site_host(host);
@@ -839,7 +839,7 @@ fn site_host(host: &str) -> String {
 }
 
 /// The call service a browser page on `host` belongs to, if it is a known
-/// call site and, for the extra sites, Labs › More call apps is on.
+/// call site and, for the extra sites, More call apps is on.
 fn call_site_source(host: &str, more_call_apps: bool) -> Option<MeetingSource> {
     let host = site_host(host);
     if let Some((_, source)) = CALL_SITES.iter().find(|(known, _)| *known == host) {
@@ -1086,7 +1086,7 @@ fn clean_title<'a>(title: &'a str, suffixes: &[&str]) -> &'a str {
 mod tests {
     use super::*;
 
-    /// These tests judge calls with Labs › More call apps off; the lab's own
+    /// These tests judge calls with More call apps off; the lab's own
     /// tests call `super::candidate_from_*` with the switch on.
     fn candidate_from_context(context: &ContextSnapshot) -> Option<MeetingCandidate> {
         super::candidate_from_context(context, false)

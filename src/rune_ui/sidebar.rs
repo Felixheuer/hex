@@ -50,38 +50,41 @@ pub(super) static SCRAWL_ICON: Icon = Icon {
     body: include_str!("../../assets/icons/scrawl.svg"),
 };
 
-/// Every pane, in navigation order. Which ones show depends on the OS's
-/// [`platform::Capabilities`] and opt-ins ([`Pane::shown`]).
+/// Every pane. The sidebar shows them in groups ([`order`]): the assistant
+/// first (its stream, then its settings), then voice to text (Dictation,
+/// History, Output, Meetings), then the tools a build may have, then
+/// General. Which ones show depends on the OS's [`platform::Capabilities`]
+/// ([`Pane::shown`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(super) enum Pane {
-    /// Dictation, output, and application basics.
+    /// The assistant's one stream: every request, answer, and job (macOS;
+    /// off, it offers to turn the assistant on). The window opens here.
+    Chats,
+    /// The assistant's settings: its agent and model, how freely it acts,
+    /// apps and windows, accounts, the phone, its voice, its shortcuts.
+    Assistant,
+    /// Dictation: the shortcut, speech model, language, vocabulary,
+    /// microphone, what happens to the text, and the rest behind Advanced.
     #[default]
-    General,
+    Dictation,
+    History,
     /// What Hex does to every dictation and in some apps, read-only: the
     /// person's agent edits it.
     Output,
+    /// Recorded calls and their settings (macOS).
+    Meetings,
+    /// The app itself: permissions, appearance, language, launch at login,
+    /// the menu bar and Dock, sounds, and updates.
+    General,
     /// The old per-app editor, kept for its scenes until it is removed.
     Modes,
-    /// Recorded calls and their settings, or the opt-in (macOS beta).
-    Meetings,
-    History,
-    /// The assistant's conversations and transcript (macOS; off, it offers
-    /// to turn the assistant on).
-    Chats,
-    /// The assistant's settings: its agent and model, how freely it acts,
-    /// how long jobs run, apps and windows, the web, its voice, memory.
-    Assistant,
-    /// The shots and recordings Labs › Screenshots saved (macOS, while
-    /// it's on).
-    #[cfg(hex_capture)]
-    Captures,
     /// Annotate (Scrawl's captures inside Hex): the switch, shortcuts,
     /// permission, transcriber, folder, retention, and Scrawl's own app.
     /// Dev builds, macOS and Linux only.
     #[cfg(hex_capture)]
     Annotate,
-    /// The Hex Microphone's driver, tuning, and try-it demo (macOS, while
-    /// its Labs toggle is on).
+    /// The Hex Microphone's driver: only its Uninstall, while it is
+    /// installed.
     VoiceFilter,
     /// The dictation indicator's tuning scene (Playground only).
     HudLab,
@@ -92,15 +95,14 @@ pub(super) enum Pane {
 impl Pane {
     #[cfg(all(test, target_os = "linux"))]
     pub(super) const ALL: &[Pane] = &[
-        Pane::General,
-        Pane::Output,
-        Pane::Modes,
-        Pane::Meetings,
-        Pane::History,
         Pane::Chats,
         Pane::Assistant,
-        #[cfg(hex_capture)]
-        Pane::Captures,
+        Pane::Dictation,
+        Pane::History,
+        Pane::Output,
+        Pane::Meetings,
+        Pane::General,
+        Pane::Modes,
         #[cfg(hex_capture)]
         Pane::Annotate,
         Pane::VoiceFilter,
@@ -112,31 +114,29 @@ impl Pane {
         let caps = ui.platform.caps;
         match self {
             Pane::Modes | Pane::HudLab | Pane::Activity => false,
-            Pane::Meetings => caps.meetings && meetings::available(ui),
+            // Off, its pane is the opt-in card; only an organization's lock
+            // hides it.
+            Pane::Meetings => caps.meetings && crate::policy::Policy::meetings_lock().is_none(),
             Pane::Chats | Pane::Assistant => chats::available(ui),
-            // On from Labs (dev builds), or while its driver is installed.
+            // Only while its driver is installed (or a dev build's switch).
             Pane::VoiceFilter => caps.fun && fun::running(ui),
             #[cfg(hex_capture)]
             Pane::Annotate => ui.platform.scrawl.is_some(),
-            // The Lab turns on only on macOS.
-            #[cfg(hex_capture)]
-            Pane::Captures => ui.settings.labs.screenshots,
             _ => true,
         }
     }
 
     pub(super) fn title(self) -> &'static str {
         match self {
-            Pane::General => tr("General"),
-            Pane::Output => tr("Output"),
-            Pane::Modes => tr("Modes"),
-            Pane::History => tr("History"),
-            #[cfg(hex_capture)]
-            Pane::Captures => tr("Captures"),
-            Pane::Meetings => tr("Meetings"),
             // One assistant, one stream: no "chats".
             Pane::Chats => tr("Assistant"),
             Pane::Assistant => tr("Assistant settings"),
+            Pane::Dictation => tr("Dictation"),
+            Pane::History => tr("History"),
+            Pane::Output => tr("Output"),
+            Pane::Meetings => tr("Meetings"),
+            Pane::General => tr("General"),
+            Pane::Modes => tr("Modes"),
             #[cfg(hex_capture)]
             Pane::Annotate => tr("Annotate"),
             Pane::VoiceFilter => tr("Voice Filter"),
@@ -147,15 +147,14 @@ impl Pane {
 
     pub(super) fn key(self) -> &'static str {
         match self {
-            Pane::General => "nav-general",
-            Pane::Output => "nav-output",
-            Pane::Modes => "nav-modes",
-            Pane::History => "nav-history",
-            #[cfg(hex_capture)]
-            Pane::Captures => "nav-captures",
-            Pane::Meetings => "nav-meetings",
             Pane::Chats => "nav-chats",
             Pane::Assistant => "nav-assistant",
+            Pane::Dictation => "nav-dictation",
+            Pane::History => "nav-history",
+            Pane::Output => "nav-output",
+            Pane::Meetings => "nav-meetings",
+            Pane::General => "nav-general",
+            Pane::Modes => "nav-modes",
             #[cfg(hex_capture)]
             Pane::Annotate => "nav-annotate",
             Pane::VoiceFilter => "nav-voice-filter",
@@ -166,15 +165,14 @@ impl Pane {
 
     pub(super) fn icon(self) -> &'static Icon {
         match self {
-            Pane::General => &SETTINGS_ICON,
-            Pane::Output => &OUTPUT_ICON,
-            Pane::Modes => &MODES_ICON,
-            Pane::History => &HISTORY_ICON,
-            #[cfg(hex_capture)]
-            Pane::Captures => &captures::CAPTURES_ICON,
-            Pane::Meetings => &MEETINGS_ICON,
             Pane::Chats => &chats::CHATS_ICON,
             Pane::Assistant => &super::icons::SPARKLES,
+            Pane::Dictation => &super::icons::MIC,
+            Pane::History => &HISTORY_ICON,
+            Pane::Output => &OUTPUT_ICON,
+            Pane::Meetings => &MEETINGS_ICON,
+            Pane::General => &SETTINGS_ICON,
+            Pane::Modes => &MODES_ICON,
             #[cfg(hex_capture)]
             Pane::Annotate => &SCRAWL_ICON,
             Pane::VoiceFilter => &VOICE_FILTER_ICON,
@@ -182,6 +180,43 @@ impl Pane {
             Pane::Activity => &ACTIVITY_ICON,
         }
     }
+}
+
+/// The sidebar's groups, each a run of panes; a group with a heading names
+/// it above its panes. Empty groups are left out.
+fn groups(ui: &Ui) -> Vec<(Option<&'static str>, Vec<Pane>)> {
+    let shown = |panes: &[Pane]| -> Vec<Pane> {
+        panes
+            .iter()
+            .copied()
+            .filter(|pane| pane.shown(ui))
+            .collect()
+    };
+    let tools = [
+        #[cfg(hex_capture)]
+        Pane::Annotate,
+        Pane::VoiceFilter,
+    ];
+    [
+        (None, shown(&[Pane::Chats, Pane::Assistant])),
+        (
+            Some(tr("Voice to text")),
+            shown(&[Pane::Dictation, Pane::History, Pane::Output, Pane::Meetings]),
+        ),
+        (None, shown(&tools)),
+        (None, shown(&[Pane::General])),
+    ]
+    .into_iter()
+    .filter(|(_, panes)| !panes.is_empty())
+    .collect()
+}
+
+/// Every pane the sidebar shows, in its order, for Command-1 through 9.
+pub(super) fn order(ui: &Ui) -> Vec<Pane> {
+    groups(ui)
+        .into_iter()
+        .flat_map(|(_, panes)| panes)
+        .collect()
 }
 
 /// macOS draws the traffic lights over the sidebar (Rune's window has a
@@ -243,17 +278,20 @@ pub(super) fn pane_header(p: Paint, title: &str, switch: Option<El>, actions: Ve
 
 pub(super) fn sidebar(ui: &Ui, p: Paint) -> El {
     let mut nav = lists::source_list(col().key("nav"));
-    for pane in labs::main_panes(ui) {
-        nav = nav.child(nav_slot(
-            p,
-            pane,
-            ui.pane == pane && !ui.labs_open,
-            NAV_ROW_GAP / 2.0,
-            NAV_ROW_GAP / 2.0,
-        ));
+    for (index, (heading, panes)) in groups(ui).into_iter().enumerate() {
+        if index > 0 {
+            nav = nav.child(group_gap(p, index, heading));
+        }
+        for pane in panes {
+            nav = nav.child(nav_slot(
+                p,
+                pane,
+                ui.pane == pane,
+                NAV_ROW_GAP / 2.0,
+                NAV_ROW_GAP / 2.0,
+            ));
+        }
     }
-    nav = nav.children(labs::playground_nav(ui, p));
-    nav = nav.child(labs::nav(ui, p));
     title_bar(col())
         .key("sidebar")
         .role("navigation")
@@ -270,6 +308,29 @@ pub(super) fn sidebar(ui: &Ui, p: Paint) -> El {
         .children(sidebar_update::blocked(ui, p))
         .children(host::QUIT_IN_WINDOW.then(|| quit_item(p)))
         .child(footer(ui, p))
+}
+
+/// The space between two sidebar groups, with the next group's heading
+/// when it has one.
+fn group_gap(p: Paint, index: usize, heading: Option<&'static str>) -> El {
+    let gap = col()
+        .key(format!("nav-group-{index}"))
+        .role("none")
+        .pt(10.0)
+        .pb(2.0);
+    match heading {
+        Some(heading) => gap.child(
+            text(heading)
+                .key("heading")
+                .role("heading")
+                .level(2)
+                .font(p.k.ty.small)
+                .color(p.faint())
+                .px(6.0)
+                .truncate(),
+        ),
+        None => gap,
+    }
 }
 
 /// The version and, under it, a manual check or what the updater is doing.
@@ -383,12 +444,9 @@ fn footer(ui: &Ui, p: Paint) -> El {
         .children(release_notes_link(ui, p))
 }
 
-/// This build's release notes, under the version and status while Labs ›
-/// Release notes link is on. Unlike What's new, it needs no staged update.
+/// This build's release notes, under the version and status. Unlike
+/// What's new, it needs no staged update.
 fn release_notes_link(ui: &Ui, p: Paint) -> Option<El> {
-    if !crate::labs::Feature::ReleaseNotesLink.on(&ui.settings) {
-        return None;
-    }
     // A source or test build has no published notes for its code.
     if ui.build_preview.unwrap_or_else(build_kind) != BuildKind::Release {
         return None;

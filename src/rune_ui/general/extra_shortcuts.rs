@@ -1,4 +1,4 @@
-//! Labs › More dictation shortcuts (macOS): General's numbered rows for up
+//! More dictation shortcuts (macOS): General's numbered rows for up
 //! to four extra dictation shortcuts, each with its recorder, its own
 //! shortcut mode, and a Remove button, then the row that adds another.
 
@@ -67,7 +67,7 @@ fn extra_row(ui: &Ui, p: Paint, index: usize, layer: &mut Vec<El>) -> CardRow {
 }
 
 /// Row `index`'s shortcut mode: the choices its binding can trigger, in the
-/// dictation shortcut's order. Double-tap needs a key, or Labs › Double-tap
+/// dictation shortcut's order. Double-tap needs a key, or Double-tap
 /// on a lone modifier, as it does there.
 fn mode_select(
     ui: &Ui,

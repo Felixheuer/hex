@@ -169,9 +169,9 @@ impl ChordWatch {
     fn start(wake: Arc<dyn Fn() + Send + Sync>) -> Result<Self> {
         crate::app_settings::set_hotkey_capture_active(true);
         let (sender, results) = mpsc::channel();
-        // Labs › Sided modifier chords is read once, as recording starts.
+        // Sided modifier chords is read once, as recording starts.
         let capture = RefCell::new(ChordCapture::with_sides(
-            crate::labs::sided_modifier_chords(),
+            crate::features::sided_modifier_chords(),
         ));
         let block = RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
             // SAFETY: AppKit passes a live event for the handler's duration.
@@ -195,12 +195,12 @@ impl ChordWatch {
                     )
                 }
                 NSEventType::FlagsChanged => capture.borrow_mut().flags_changed(flags),
-                // Mouse buttons record only with Labs › Mouse shortcuts on;
+                // Mouse buttons record only with Mouse shortcuts on;
                 // otherwise the click reaches the window as usual.
                 NSEventType::LeftMouseDown
                 | NSEventType::RightMouseDown
                 | NSEventType::OtherMouseDown
-                    if crate::labs::mouse_shortcuts() =>
+                    if crate::features::mouse_shortcuts() =>
                 {
                     capture
                         .borrow_mut()
@@ -250,7 +250,7 @@ impl Drop for ChordWatch {
 /// Turns key and modifier events into a chord: a key with its held
 /// modifiers, or the most modifier keys held at once when they are all
 /// released without a key, with the sides `recorded_sides` keeps (or,
-/// with Labs › Sided modifier chords on, the side each was pressed on).
+/// with Sided modifier chords on, the side each was pressed on).
 struct ChordCapture {
     peak: HotkeyModifiers,
     /// A key went down with these modifiers; their release records nothing.
@@ -320,7 +320,7 @@ impl ChordCapture {
         };
         // Function and navigation keys type nothing, so one may be a shortcut
         // alone. The section key does type something, but the recorder takes it
-        // alone too: `settings::validate` refuses it while Labs › Section key
+        // alone too: `settings::validate` refuses it while Section key
         // alone is off, as Linux's recorder does.
         let stands_alone =
             is_function_key(&key.label) || is_navigation_key(code) || key.is_section();

@@ -1,9 +1,9 @@
 //! Feature locks an organization sets through managed preferences (macOS
 //! configuration profiles) in the `anomaly.hex` domain: `DisableMeetings`,
-//! `DisableAnnotate`, `DisableOpenCodeProcessing`, `DisableTransforms`, and
-//! `DisableLabs`, plus `RestrictTransformsToLoopback`, which keeps
+//! `DisableAnnotate`, `DisableOpenCodeProcessing`, and `DisableTransforms`, plus `RestrictTransformsToLoopback`, which keeps
 //! transformations on but holds their `fetch` to this computer and runs no
-//! programs. Only a value the profile forces counts, so a key a person
+//! programs. (`DisableLabs` locked the Labs features; Labs is gone, so it
+//! locks nothing now.) Only a value the profile forces counts, so a key a person
 //! wrote with `defaults write` locks nothing. Other OSes have no locks.
 //!
 //! The policy is read once per process. A locked feature reads as off
@@ -29,8 +29,6 @@ pub enum Lock {
     OpenCodeProcessing,
     /// No transformations at all, built in or from `hex.config.ts`.
     Transforms,
-    /// Every Labs feature off.
-    Labs,
     /// Transformations stay on, but `fetch` reaches only loopback addresses
     /// (after DNS, on every redirect) and no program runs
     /// (`personal_commands::script`).
@@ -38,12 +36,11 @@ pub enum Lock {
 }
 
 impl Lock {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 5] = [
         Self::Meetings,
         Self::Annotate,
         Self::OpenCodeProcessing,
         Self::Transforms,
-        Self::Labs,
         Self::LoopbackTransforms,
     ];
 
@@ -54,7 +51,6 @@ impl Lock {
             Self::Annotate => "DisableAnnotate",
             Self::OpenCodeProcessing => "DisableOpenCodeProcessing",
             Self::Transforms => "DisableTransforms",
-            Self::Labs => "DisableLabs",
             Self::LoopbackTransforms => "RestrictTransformsToLoopback",
         }
     }
@@ -70,7 +66,6 @@ impl Lock {
             Self::Annotate => "Annotate is managed by your organization",
             Self::OpenCodeProcessing => "OpenCode processing is managed by your organization",
             Self::Transforms => "Transformations are managed by your organization",
-            Self::Labs => "Labs features are managed by your organization",
             Self::LoopbackTransforms => {
                 "Transformations may only reach this computer, by your organization's policy"
             }
@@ -122,24 +117,17 @@ impl Policy {
         self.0 != 0
     }
 
-    /// The lock on a Labs feature: Labs, Meetings for Meetings, or Annotate
-    /// for Annotate replay.
-    pub fn labs_lock(self, feature: crate::labs::Feature) -> Option<Lock> {
-        if feature == crate::labs::Feature::Meetings && self.locks(Lock::Meetings) {
-            return Some(Lock::Meetings);
-        }
-        if feature == crate::labs::Feature::AnnotateReplay && self.locks(Lock::Annotate) {
-            return Some(Lock::Annotate);
-        }
-        self.locks(Lock::Labs).then_some(Lock::Labs)
+    /// This process's Meetings lock, if an organization set one.
+    pub fn meetings_lock() -> Option<Lock> {
+        Self::current()
+            .locks(Lock::Meetings)
+            .then_some(Lock::Meetings)
     }
 
     /// The lock on `hex settings` key `name`, if any.
     pub fn setting_lock(self, name: &str) -> Option<Lock> {
-        if let Some(feature) = crate::labs::Feature::for_settings_key(name) {
-            return self.labs_lock(feature);
-        }
         let lock = match name {
+            "meetings.enabled" => Lock::Meetings,
             "capture.enabled" => Lock::Annotate,
             _ => return None,
         };
@@ -151,16 +139,12 @@ impl Policy {
         match lock {
             Lock::Meetings => vec![&mut settings.meetings.enabled],
             #[cfg(hex_capture)]
-            Lock::Annotate => vec![
-                &mut settings.capture.enabled,
-                &mut settings.labs.annotate_replay,
-            ],
+            Lock::Annotate => vec![&mut settings.capture.enabled],
             #[cfg(not(hex_capture))]
             Lock::Annotate => Vec::new(),
             // `meetings.summaries` is a choice, not a switch; see `enforce`.
             Lock::OpenCodeProcessing => Vec::new(),
             Lock::Transforms | Lock::LoopbackTransforms => Vec::new(),
-            Lock::Labs => crate::labs::Feature::switches(settings),
         }
     }
 
@@ -233,9 +217,9 @@ mod tests {
 
     #[test]
     fn only_forced_keys_lock() {
+        // `DisableLabs` is retired: forced, it locks nothing.
         let policy = Policy::from_forced(|key| key == "DisableMeetings" || key == "DisableLabs");
         assert!(policy.locks(Lock::Meetings));
-        assert!(policy.locks(Lock::Labs));
         assert!(!policy.locks(Lock::Annotate));
         assert!(!policy.locks(Lock::OpenCodeProcessing));
         assert!(!policy.locks(Lock::Transforms));
@@ -248,7 +232,6 @@ mod tests {
                 "DisableAnnotate",
                 "DisableOpenCodeProcessing",
                 "DisableTransforms",
-                "DisableLabs",
                 "RestrictTransformsToLoopback"
             ]
         );
@@ -259,21 +242,16 @@ mod tests {
         let mut saved = AppSettings::default();
         saved.meetings.enabled = true;
         saved.meetings.summaries = MeetingSummaries::OpenCode;
-        saved.labs.live_text = true;
-        saved.pause_browser_media = true;
+        saved.preferences.live_text = true;
         let policy = Policy::default()
             .with(Lock::Meetings)
-            .with(Lock::OpenCodeProcessing)
-            .with(Lock::Labs);
+            .with(Lock::OpenCodeProcessing);
         let mut loaded = saved.clone();
         policy.enforce(&mut loaded);
         assert!(!loaded.meetings.enabled);
         assert_eq!(loaded.meetings.summaries, MeetingSummaries::Off);
-        assert!(!loaded.labs.live_text);
-        assert!(!loaded.pause_browser_media);
-        for feature in crate::labs::Feature::ALL {
-            assert!(!feature.on(&loaded), "{} reads on", feature.name());
-        }
+        // No lock reaches the former Labs preferences.
+        assert!(loaded.preferences.live_text);
 
         // An unrelated edit saves with the user's own values kept.
         loaded.sound_effects = !saved.sound_effects;
@@ -281,8 +259,7 @@ mod tests {
         policy.keep_saved(&mut written, &saved);
         assert!(written.meetings.enabled);
         assert_eq!(written.meetings.summaries, MeetingSummaries::OpenCode);
-        assert!(written.labs.live_text);
-        assert!(written.pause_browser_media);
+        assert!(written.preferences.live_text);
         assert_eq!(written.sound_effects, loaded.sound_effects);
     }
 
@@ -318,12 +295,8 @@ mod tests {
             meetings.setting_lock("meetings.enabled"),
             Some(Lock::Meetings)
         );
-        assert_eq!(meetings.setting_lock("labs.live_text"), None);
-        let labs = Policy::default().with(Lock::Labs);
-        assert_eq!(labs.setting_lock("labs.live_text"), Some(Lock::Labs));
-        assert_eq!(labs.setting_lock("meetings.enabled"), Some(Lock::Labs));
-        assert_eq!(labs.setting_lock("pause_browser_media"), Some(Lock::Labs));
-        assert_eq!(labs.setting_lock("sound_effects"), None);
+        assert_eq!(meetings.setting_lock("preferences.live_text"), None);
+        assert_eq!(meetings.setting_lock("sound_effects"), None);
         // A choice that is only partly locked: `hex settings` refuses
         // `opencode` itself.
         let opencode = Policy::default().with(Lock::OpenCodeProcessing);

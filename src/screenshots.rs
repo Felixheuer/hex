@@ -1,4 +1,4 @@
-//! Labs › Screenshots (macOS): ⌘⇧4 picks an area (Space for a window), as
+//! Screenshots (macOS): ⌘⇧4 picks an area (Space for a window), as
 //! CleanShot does, and the shot lands on the clipboard, in the folder, and
 //! in a thumbnail in the corner.
 //!
@@ -15,6 +15,10 @@
 pub(crate) mod narration;
 mod recording;
 pub(crate) mod save;
+#[allow(
+    dead_code,
+    reason = "Screenshots left with Labs; its code goes with it"
+)]
 pub(crate) mod system_shortcut;
 
 use std::sync::OnceLock;
@@ -52,7 +56,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             name: "Hex screenshot picker",
             screen_label: crate::desktop::i18n::tr("Full screen · Click to capture"),
             exclude_from_capture: true,
-            prewarm: crate::labs::screenshots(),
+            prewarm: crate::features::screenshots(),
             created: |window| PICKER_WINDOW.store(window, Ordering::Release),
         },
     );
@@ -92,7 +96,7 @@ pub(crate) fn record() -> bool {
 /// Opens the picker to shoot or, with `record`, to record. The picker's own
 /// permission helper calls this again once its grant is made.
 pub(crate) fn open(record: bool) -> bool {
-    if !crate::labs::screenshots() || OVERLAYS.get().is_none() {
+    if !crate::features::screenshots() || OVERLAYS.get().is_none() {
         return false;
     }
     if PICKING.swap(true, Ordering::AcqRel) {
@@ -133,7 +137,7 @@ pub(crate) fn open(record: bool) -> bool {
 /// Restore Last Capture: brings back the card closed last. Safe from any
 /// thread.
 pub(crate) fn restore_last() {
-    if crate::labs::screenshots()
+    if crate::features::screenshots()
         && let Some(overlays) = OVERLAYS.get()
     {
         overlays.thumbnail.restore();
@@ -142,7 +146,7 @@ pub(crate) fn restore_last() {
 
 /// Whether Restore Last Capture has a card to bring back.
 pub(crate) fn can_restore() -> bool {
-    crate::labs::screenshots() && crate::rune_ui::screenshot_thumbnail::restorable()
+    crate::features::screenshots() && crate::rune_ui::screenshot_thumbnail::restorable()
 }
 
 /// Closes the picker without a shot.
@@ -194,7 +198,10 @@ fn picked(action: Action) {
 
 /// `hex screenshot`: the whole display under the pointer, at once.
 pub(crate) fn shoot_display() -> anyhow::Result<std::path::PathBuf> {
-    anyhow::ensure!(crate::labs::screenshots(), "Labs › Screenshots is off");
+    anyhow::ensure!(
+        crate::features::screenshots(),
+        "Screenshots are no longer part of Hex"
+    );
     let at = scrawl_capture::screens::pointer().unwrap_or_default();
     take(CaptureTarget::Display { at })
 }
@@ -553,7 +560,7 @@ pub(crate) fn key(key: Key) -> Take {
     static TAKEN: std::sync::Mutex<Taken> = std::sync::Mutex::new(Taken(0));
     let mut taken = TAKEN.lock().unwrap_or_else(|error| error.into_inner());
     let picking = picking();
-    if taken.0 == 0 && !picking && !crate::labs::screenshots() {
+    if taken.0 == 0 && !picking && !crate::features::screenshots() {
         return Take::No;
     }
     let shortcuts = Shortcuts {
@@ -587,6 +594,10 @@ pub(crate) fn key(key: Key) -> Take {
     take
 }
 
+#[allow(
+    dead_code,
+    reason = "Screenshots left with Labs; its code goes with it"
+)]
 /// Whether macOS's own screenshot shortcut takes Hex's now: it's matched
 /// in the window server before any app's tap, so Hex never sees the press.
 /// Read again at most every 2 s, since Settings draws it each frame.

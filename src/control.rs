@@ -100,10 +100,10 @@ pub enum ControlCommand {
         raw: bool,
     },
     PasteLast,
-    /// Labs › Transform typed text (Linux): runs the focused field's text
+    /// Transform typed text (Linux): runs the focused field's text
     /// through its Output steps and replaces it, as its shortcut does.
     TypedText,
-    /// Labs › Screenshots (macOS): the display under the pointer, or with
+    /// Screenshots (macOS): the display under the pointer, or with
     /// `pick` the picker its shortcut opens.
     Screenshot {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -147,7 +147,7 @@ pub enum ControlCommand {
     /// Replay the first-run onboarding in the window (dev, test, and local
     /// builds); settings, history, models, and permissions stay.
     OnboardingReset,
-    /// Open the window on a playground story (Labs).
+    /// Open the window on a playground story.
     WindowStory {
         story: String,
         #[serde(default)]
@@ -575,9 +575,6 @@ pub struct StatusReport {
     pub window: WindowReport,
     /// current, checking, available, or unavailable.
     pub update: String,
-    /// The Labs features turned on (`crate::labs`), by `hex labs` name.
-    #[serde(default)]
-    pub labs: Vec<String>,
     /// What this OS's Hex can do, by capability name (`rune_ui::platform`).
     /// A command for one it can't do answers `unsupported`.
     #[serde(default)]
@@ -725,7 +722,7 @@ pub struct ModelInfo {
     pub selected: bool,
     pub streams: bool,
     /// How transcription takes the vocabulary: `prompt` (Whisper,
-    /// Qwen3-ASR), `bias` (Parakeet, with Labs › Vocabulary biasing), or
+    /// Qwen3-ASR), `bias` (Parakeet, with Vocabulary biasing), or
     /// `none`.
     pub vocabulary: String,
     /// Deprecated: whether the model reads the vocabulary as its prompt,
@@ -875,14 +872,6 @@ pub fn model_selection(
                 format!("`{model}` can't be used: {why}"),
             ));
         }
-    }
-    if parsed == Some(TranscriptionModelId::ParakeetUltra) && !crate::labs::parakeet_ultra() {
-        return Err(ControlError::new(
-            "model-unavailable",
-            format!(
-                "`{model}` can't be used: turn on Labs › Parakeet Ultra: hex labs on parakeet-ultra"
-            ),
-        ));
     }
     let id = parsed
         .filter(|id| crate::transcription::models::definition(*id).available())

@@ -657,10 +657,10 @@ pub(in crate::rune_ui) fn clear_conflict(ui: &mut Ui, fix: &ConflictFix) {
     }
 }
 
-/// Another shortcut, in General.
+/// Another shortcut, in Assistant settings.
 pub(in crate::rune_ui) fn choose_another(ui: &mut Ui, tx: &mut rune::Tx) {
     close(ui);
-    ui.select_pane(super::super::Pane::General, tx);
+    ui.select_pane(super::super::Pane::Assistant, tx);
 }
 
 /// The press test's state for `slot`.

@@ -288,7 +288,7 @@ fn act(tool: &str, arguments: &Map<String, Value>) -> Option<Act> {
 }
 
 /// Whether a script acts on the page rather than reading it.
-fn acts(script: &str) -> bool {
+pub(crate) fn acts(script: &str) -> bool {
     [
         ".click(",
         ".submit(",

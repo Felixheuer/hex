@@ -300,7 +300,7 @@ pub fn data_dir() -> Option<PathBuf> {
     dirs::data_dir()
 }
 
-/// The Desktop folder (Labs › Screenshots saves there by default):
+/// The Desktop folder (Screenshots saves there by default):
 /// `dirs::desktop_dir`, else `Desktop` in the home folder.
 pub fn desktop_dir() -> PathBuf {
     dirs::desktop_dir()

@@ -123,12 +123,12 @@ struct InferenceJob {
     prepare_ms: u128,
     target: TranscriptionTarget,
     context: ContextSnapshot,
-    /// Labs › Return to app: the app the capture started in, which the
+    /// Return to app: the app the capture started in, which the
     /// paste returns to (macOS).
     return_to: Option<i32>,
     /// The language the model was asked for at submission.
     language: String,
-    /// The clip, kept for History while Labs › Keep recordings is on.
+    /// The clip, kept for History while Keep recordings is on.
     recording: Option<crate::history::Recording>,
 }
 
@@ -159,7 +159,7 @@ struct CompletedTranscript {
     /// Corrected local transcript before mode processing.
     raw: String,
     application: Option<String>,
-    /// Labs › Return to app: the app the capture started in, which the
+    /// Return to app: the app the capture started in, which the
     /// paste returns to (macOS).
     return_to: Option<i32>,
     timings: JobTimings,
@@ -269,7 +269,7 @@ struct WorkerState {
     next_sequence: u64,
     jobs: BTreeMap<DictationJobId, Arc<JobControl>>,
     pending_pastes: usize,
-    /// Labs › Return to app: the app in front when the capture started,
+    /// Return to app: the app in front when the capture started,
     /// which its output returns to (macOS).
     return_to: Option<i32>,
 }
@@ -305,10 +305,10 @@ impl DictationWorker {
         }));
 
         let (_, selection) = crate::app_settings::transcription_selection();
-        // Labs › Unload model when idle parks a GGUF model at launch too:
+        // Unload model when idle parks a GGUF model at launch too:
         // the first dictation reloads it, so memory stays free until then.
         // Apple Speech holds no model of Hex's and stays loaded.
-        let parked = crate::labs::unload_idle().is_some()
+        let parked = crate::features::unload_idle().is_some()
             && matches!(
                 validate(&selection).map(|definition| definition.runtime),
                 Ok(crate::transcription::models::ModelRuntime::Gguf(_))
@@ -383,7 +383,7 @@ impl DictationWorker {
         }
     }
 
-    /// Labs › Return to app (macOS): remembers the app in front as this
+    /// Return to app (macOS): remembers the app in front as this
     /// capture starts, so its paste can bring it back. Read only while the
     /// lab is on, and never Hex itself.
     pub fn remember_return_to_app(&self) {
@@ -440,7 +440,7 @@ impl DictationWorker {
     ) -> Result<DictationJobId, &'static str> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         let job_id = DictationJobId(state.next_output_sequence()?);
-        // Labs › Return to app: only a paste returns to an app; a printing
+        // Return to app: only a paste returns to an app; a printing
         // stop and the service never paste.
         let return_to = matches!(
             target,
@@ -1069,12 +1069,12 @@ fn finish_output(
                         | TranscriptionTarget::CopyOnlyPaste
                         | TranscriptionTarget::RawCopyOnlyPaste
                         | TranscriptionTarget::RawPaste => {
-                            // Labs › Copy dictation only, read as the output
+                            // Copy dictation only, read as the output
                             // commits: dictations go to the clipboard
                             // unpasted; Paste last dictation still pastes.
                             // A rescued microphone-loss dictation is always
                             // copied: the disruption may have taken focus.
-                            let mode = if crate::labs::copy_only()
+                            let mode = if crate::features::copy_only()
                                 || matches!(
                                     target,
                                     TranscriptionTarget::CopyOnlyPaste
@@ -1085,7 +1085,7 @@ fn finish_output(
                             } else {
                                 PasteMode::Continue
                             };
-                            // Labs › Return to app: the app the capture
+                            // Return to app: the app the capture
                             // started in comes back first. When it can't,
                             // nothing is pasted; the text stays for Paste
                             // last dictation, and History keeps only pasted

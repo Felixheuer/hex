@@ -183,7 +183,7 @@ pub(crate) fn run(shutdown: &'static AtomicBool) -> Result<()> {
         }
         Command::Dictate { device } => {
             let _instance = crate::desktop::instance::acquire("listener")?;
-            crate::labs::log_launch();
+            crate::features::log_launch();
             let settings = crate::app_settings::AppSettings::load()?;
             crate::linux::dictation::initialize_feedback(&settings);
             crate::linux::dictation::run(
