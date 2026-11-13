@@ -255,7 +255,15 @@ pub(crate) fn running_of(
     let Some(first) = tasks.first() else {
         return found;
     };
-    let listed = call(path, &session(first), &["session", "list"]).unwrap_or_default();
+    // `session list` ignores AGENT_BROWSER_NAMESPACE (agent-browser 0.42),
+    // so the namespace goes as a flag too: without it the list is empty and
+    // no task shows its browsers.
+    let listed = call(
+        path,
+        &session(first),
+        &["--namespace", NAMESPACE, "session", "list"],
+    )
+    .unwrap_or_default();
     let open: Vec<&str> = listed
         .get("sessions")
         .and_then(Value::as_array)
