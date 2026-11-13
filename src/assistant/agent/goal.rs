@@ -124,7 +124,7 @@ impl Progress {
         }
         let mut prompt = format!(
             "An independent check of your work against the plan's “Done when” found these gaps:\n{gaps}\n\
-             Keep working until every criterion is met, with real evidence (open it, run it, look at it). Update plan.md and Nachweis.md as you go. Don't ask the person about anything you can decide: choose the sensible default and note it. When everything is met, answer as before with your short summary. Don't mention the check to the person."
+             Keep working until every criterion is met, with real evidence (open it, run it, look at it). Update plan.md (and Nachweis.md, when the job needs one) as you go. Don't ask the person about anything you can decide: choose the sensible default and note it. When everything is met, answer as before with your short summary. Don't mention the check to the person."
         );
         if self.stale >= STALE_RETHINK {
             prompt.push_str(
@@ -149,7 +149,7 @@ fn normal(gaps: &str) -> String {
 }
 
 /// What a job writes about its goal, appended to its rules.
-pub const DONE_WHEN_RULES: &str = "Goal: in plan.md, under the checklist, add a section `## Done when` with three to eight concrete criteria that prove the request is fulfilled, each checkable with real evidence (a URL that answers and shows X, a file with Y, a message visible in the sent folder, a page that looks like the reference by hex_compare_images on screenshots at the same window size, tests that pass). Derive them from the person's own words, including every deliverable they named (links to give, people to send to, where to publish). The last criterion is always: Nachweis.md proves each of the others (links, screenshots, diff images, sent-message screenshots). Keep working until each one is met, check them yourself before you answer, and never answer with \"done\" while one is open. Long jobs are fine: you may work for hours or days, unattended: the person may be away.\n";
+pub const DONE_WHEN_RULES: &str = "Goal: in plan.md, under the checklist, add a section `## Done when` with three to eight concrete criteria that prove the request is fulfilled, each checkable with real evidence (a URL that answers and shows X, a file with Y, a message visible in the sent folder, a page that looks like the reference by hex_compare_images on screenshots at the same window size, tests that pass). Derive them from the person's own words, including every deliverable they named (links to give, people to send to, where to publish). When the job sends, posts, publishes, deploys, shares, pays, or rebuilds something visual, the last criterion is: Nachweis.md proves each of the others (links, screenshots, diff images, sent-message screenshots); otherwise no evidence file is needed. Keep working until each one is met, check them yourself before you answer, and never answer with \"done\" while one is open. Long jobs are fine: you may work for hours or days, unattended: the person may be away.\n";
 
 /// What the check is told, as its message.
 pub fn check_prompt(request: &str, answer: &str) -> String {
@@ -157,7 +157,7 @@ pub fn check_prompt(request: &str, answer: &str) -> String {
         "You are now an independent checker, not the worker: ignore the rules about planning, asking, and answering the person. Change nothing (no edits, sends, posts, or deploys); only look.\n\
          The person's request was: “{request}”\n\
          The worker says it is done: “{answer}”\n\
-         Read plan.md in your current folder, especially `## Done when` (if it is missing, derive the criteria from the request yourself). Check every criterion with real evidence using your tools: open URLs and pages, run builds or tests, list files, take screenshots and compare them (hex_compare_images compares two screenshots at the same viewport size pixel by pixel; pass the threshold the request implies, 0.5 for pixel-identical), look at the sent message in its conversation or the published result, and read Nachweis.md and check that its proofs exist and show what they claim. Don't trust the worker's word.\n\
+         Read plan.md in your current folder, especially `## Done when` (if it is missing, derive the criteria from the request yourself). Check every criterion with real evidence using your tools: open URLs and pages, run builds or tests, list files, take screenshots and compare them (hex_compare_images compares two screenshots at the same viewport size pixel by pixel; pass the threshold the request implies, 0.5 for pixel-identical), look at the sent message in its conversation or the published result, and, when there is a Nachweis.md, read it and check that its proofs exist and show what they claim. Don't trust the worker's word.\n\
          Then reply with exactly one verdict as your last line(s): `{VERIFIED}` when every criterion is met, or `{NOT_DONE}` followed by each unmet criterion and what you saw, one per line, concrete enough to act on."
     )
 }
@@ -264,7 +264,11 @@ mod tests {
     fn the_goal_and_its_check_ask_for_proof_in_the_evidence_file() {
         assert!(DONE_WHEN_RULES.contains("Nachweis.md proves each of the others"));
         let check = check_prompt("Rebuild xyz.com pixel-perfect", "Done.");
-        assert!(check.contains("read Nachweis.md"), "{check}");
+        assert!(
+            check.contains("when there is a Nachweis.md, read it"),
+            "{check}"
+        );
+        assert!(DONE_WHEN_RULES.contains("otherwise no evidence file is needed"));
         assert!(check.contains("threshold"), "{check}");
         let mut progress = Progress::default();
         let Next::Continue(prompt) = progress.next(Verdict::NotDone("no repo".into())) else {

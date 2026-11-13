@@ -1,15 +1,17 @@
-//! Background jobs at the orb, seen without hovering or opening Chats: a
-//! calm card per running job (its colour, title, step, how long it runs)
-//! with every browser it has live and small, a press on one opening it
-//! large. More jobs than there's room for fold into one line with their
-//! count; resting the pointer on it unfolds every job's full card below it
-//! (scrolling past the panel's height), and leaving folds them back. A
-//! press on the line keeps them open; its list button opens the task list.
+//! Background jobs at the orb, seen without opening anything: a calm,
+//! compact row per running job (its colour and plan ring, title, how long
+//! it runs, the step it's on, live as it changes) with every browser and
+//! app window it works in live and small, a press on one opening it large.
+//! At most [`MAX_ROWS`] rows show (one fewer while a question waits), the
+//! newest first, in the order the jobs started, so nothing jumps; the rest
+//! fold into one line ("3 more tasks") whose press opens the task list,
+//! where every job is, scrolling. "All N live" on a row opens the live wall
+//! with every picture of the job and its helpers.
 //!
 //! The orb's cluster has one order, nearest the orb first, so nothing
 //! overlaps: the question waiting on the person, a task the person holds
-//! or that waits out a limit, the job cards (or their line), then the pops
-//! (done, failed). A question takes a card's room.
+//! or that waits out a limit, the job rows (and their line), then the
+//! results ([`super::results`]).
 
 use std::time::Instant;
 
@@ -24,32 +26,21 @@ use super::{orb, palette, stack};
 use crate::assistant::Origin;
 use crate::desktop::i18n::{tr, tr_fill};
 
-/// Job cards shown, with no question waiting; one fewer with one.
-pub(crate) const MAX_CARDS: usize = 3;
-/// Browsers shown on a card; more show as "+N".
+/// Job rows shown, with no question waiting; one fewer with one.
+pub(crate) const MAX_ROWS: usize = 3;
+/// Browsers shown on a row; more show as "+N".
 pub(crate) const MAX_THUMBS: usize = 4;
-/// A card's width, as the orb's bubbles.
+/// A row's width, as the orb's bubbles.
 pub(crate) const CARD_W: f32 = 320.0;
-/// A browser's thumbnail on a card.
+/// A browser's thumbnail on a row.
 const THUMB_W: f32 = 70.0;
 const THUMB_H: f32 = 44.0;
-/// The count line's height.
+/// The "more" line's height.
 pub(crate) const LINE_H: f32 = 30.0;
-/// How far a helper's card is set in under its lead's.
-const HELPER_INSET: f32 = 16.0;
-/// How long the pointer rests on the count line before every card unfolds,
-/// and how long it stays away before they fold back.
-pub(crate) const UNFOLD_AFTER: std::time::Duration = std::time::Duration::from_millis(60);
-pub(crate) const FOLD_AFTER: std::time::Duration = std::time::Duration::from_millis(350);
 
-/// What the count line asks of the host, beside the list's actions.
+/// What a job row asks of the host, beside the list's actions.
 pub(crate) struct LineActions<S> {
-    /// The pointer came onto the line or its unfolded cards (`true`), or
-    /// left them.
-    pub(crate) hover: fn(&mut S, bool),
-    /// A press on the line: keep every card unfolded, or fold them again.
-    pub(crate) pin: fn(&mut S),
-    /// "All N live" on a job's card: every browser and window of it and its
+    /// "All N live" on a job's row: every browser and window of it and its
     /// helpers on the live wall (the job's id).
     pub(crate) wall: fn(&mut S, &str),
 }
@@ -63,16 +54,12 @@ impl<S> Clone for LineActions<S> {
 impl<S> Copy for LineActions<S> {}
 
 /// How the jobs show at the orb.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum Layout {
-    /// No job runs.
-    None,
-    /// A card each, newest first (task ids).
-    Cards(Vec<String>),
-    /// Too many for cards: one line saying how many run.
-    Line(usize),
-    /// The line, unfolded: every job's card below it, newest first.
-    All(Vec<String>),
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Layout {
+    /// A row each, newest first (task ids).
+    pub(crate) rows: Vec<String>,
+    /// Jobs (leads) beyond the rows, summed up in one line.
+    pub(crate) more: usize,
 }
 
 /// The jobs at the orb: Background (or Chat) tasks queued or running.
@@ -82,19 +69,19 @@ pub(crate) fn running(tasks: &[Task]) -> Vec<&Task> {
     tasks
         .iter()
         // Jobs: a Chats request that became one was escalated (Background
-        // here); a plain Chats reply gets no card.
+        // here); a plain Chats reply gets no row.
         .filter(|task| task.origin == Origin::Background)
         .filter(|task| matches!(task.phase, Phase::Queued | Phase::Running))
         .collect()
 }
 
 /// How `jobs` (in the board's order, oldest first) show, with a question
-/// waiting or not, and with the count line unfolded (`all`) or not.
+/// waiting or not.
 ///
-/// A job's helpers (`assistant::agent::team`) fold into their lead's card;
-/// unfolded, each comes right under its lead's.
-pub(crate) fn layout(jobs: &[&Task], question: bool, all: bool) -> Layout {
-    let room = if question { MAX_CARDS - 1 } else { MAX_CARDS };
+/// A job's helpers (`assistant::agent::team`) fold into their lead's row
+/// (and count in its "N helpers"); the list shows each.
+pub(crate) fn layout(jobs: &[&Task], question: bool) -> Layout {
+    let room = if question { MAX_ROWS - 1 } else { MAX_ROWS };
     let led = |task: &Task| {
         task.lead
             .as_ref()
@@ -106,30 +93,16 @@ pub(crate) fn layout(jobs: &[&Task], question: bool, all: bool) -> Layout {
         .copied()
         .filter(|task| !led(task))
         .collect();
-    let helpers = jobs.len() > leads.len();
-    let newest_first = || leads.iter().map(|task| task.id.clone()).collect();
-    // Each lead, then its helpers, newest first.
-    let with_helpers = || {
-        leads
-            .iter()
-            .flat_map(|lead| {
-                std::iter::once(lead.id.clone()).chain(
-                    jobs.iter()
-                        .rev()
-                        .filter(|task| task.lead.as_ref() == Some(&lead.id))
-                        .map(|task| task.id.clone()),
-                )
-            })
-            .collect()
-    };
-    match leads.len() {
-        0 => Layout::None,
-        n if all && (n > room || helpers) => Layout::All(with_helpers()),
-        n if n > room => Layout::Line(jobs.len()),
-        _ => Layout::Cards(newest_first()),
+    let rows: Vec<String> = leads
+        .iter()
+        .take(room)
+        .map(|task| task.id.clone())
+        .collect();
+    Layout {
+        more: leads.len() - rows.len(),
+        rows,
     }
 }
-
 /// A lead's helpers as its card sums them up: how many, how many ended.
 fn helpers_of<'a>(team: &[&'a Task], lead: &str) -> Vec<&'a Task> {
     team.iter()
@@ -172,21 +145,22 @@ pub(crate) fn running_for(minutes: u64) -> String {
     }
 }
 
-/// Where the jobs unfold and how tall the unfolded cards may get.
+/// Where the job rows sit and how tall they may get.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Room {
-    /// Downward from the orb (else upward: the line sits at the bottom,
-    /// nearest the orb).
+    /// Downward from the orb (else upward: the newest row sits at the
+    /// bottom, nearest the orb).
     pub(crate) down: bool,
-    /// The unfolded cards' greatest height; they scroll past it.
+    /// The rows' greatest height; they scroll past it.
     pub(crate) max_h: f32,
-    /// How a card comes and goes.
+    /// How a row comes and goes.
     pub(crate) appear: rune::Transition,
 }
 
-/// The cards (or the line) for `jobs`, as laid out. `team` is every helper
-/// on the board (any phase), for its lead's card.
-#[allow(clippy::too_many_arguments)]
+/// The rows (and the "more" line) for `jobs`, as laid out: one column that
+/// takes the pointer, so the wheel and the gaps between rows answer, and
+/// scrolls should it outgrow its room. `team` is every helper on the board
+/// (any phase), for its lead's row.
 pub(crate) fn view<S: 'static>(
     p: Paint,
     jobs: &[&Task],
@@ -195,156 +169,131 @@ pub(crate) fn view<S: 'static>(
     room: Room,
     actions: stack::Actions<S>,
     line_actions: LineActions<S>,
-) -> Vec<El> {
-    let cards = |ids: &[String]| -> Vec<El> {
-        ids.iter()
-            .filter_map(|id| jobs.iter().find(|task| &task.id == id))
-            .map(|task| {
-                let helping = task.lead.as_ref().is_some_and(|lead| ids.contains(lead));
-                let card = card(
-                    p,
-                    task,
-                    &app_live::previews(&task.id),
-                    &live::previews(&task.id),
-                    &helpers_of(team, &task.id),
-                    helping,
-                    actions,
-                    line_actions.wall,
-                );
-                if helping {
-                    // Under its lead's card, set in.
-                    el().key(format!("helper-{}", task.id))
-                        .pl(HELPER_INSET)
-                        .child(card)
-                } else {
-                    card
-                }
-            })
-            .collect()
-    };
-    match layout {
-        Layout::None => Vec::new(),
-        // One hover target for every card, as for the unfolded ones: the
-        // pointer resting on a card (to press a browser) keeps the cards,
-        // instead of the list peeking open over them.
-        Layout::Cards(ids) => {
-            let hover = line_actions.hover;
-            let mut cards: Vec<El> = cards(ids)
-                .into_iter()
-                .map(|card| card.transition(room.appear))
-                .collect();
-            if !room.down {
-                cards.reverse();
-            }
-            // Taller than the room (big cards, helpers, the wall's button):
-            // they scroll, and the whole column takes the pointer so the
-            // wheel and the gaps between cards answer.
-            vec![
-                col()
-                    .key("jobs-hover")
-                    .w(CARD_W)
-                    .max_h(room.max_h)
-                    .min_h(0.0)
-                    .shrink()
-                    .gap(8.0)
-                    .scroll(rune::ScrollSpec {
-                        stick_bottom: !room.down,
-                    })
-                    .scroll_edge_fade(16.0)
-                    .hit()
-                    .hover_delays(UNFOLD_AFTER, FOLD_AFTER)
-                    .on_hover_change(move |s: &mut S, inside, _| hover(s, inside))
-                    .animate_layout()
-                    .children(cards),
-            ]
-        }
-        Layout::Line(count) => vec![unfolding(
-            p,
-            line(p, jobs, *count, false, actions, line_actions),
-            None,
-            room,
-            line_actions,
-        )],
-        Layout::All(ids) => {
-            let mut cards = cards(ids);
-            if !room.down {
-                // Newest nearest the orb, which is below.
-                cards.reverse();
-            }
-            let list = col()
-                .key("jobs-all")
-                .w(CARD_W)
-                .max_h(room.max_h)
-                .min_h(0.0)
-                .shrink()
-                .gap(8.0)
-                .scroll(rune::ScrollSpec {
-                    stick_bottom: !room.down,
-                })
-                .scroll_edge_fade(16.0)
-                .hit()
-                .role("list")
-                .label(tr_fill("{} jobs running", &ids.len().to_string()))
-                .children(cards);
-            vec![unfolding(
+) -> Option<El> {
+    if layout.rows.is_empty() {
+        return None;
+    }
+    let mut rows: Vec<El> = layout
+        .rows
+        .iter()
+        .filter_map(|id| jobs.iter().find(|task| &task.id == id))
+        .map(|task| {
+            card(
                 p,
-                line(p, jobs, ids.len(), true, actions, line_actions),
-                Some(list),
-                room,
-                line_actions,
-            )]
-        }
+                task,
+                &app_live::previews(&task.id),
+                &live::previews(&task.id),
+                &helpers_of(team, &task.id),
+                actions,
+                line_actions.wall,
+            )
+            .transition(room.appear)
+        })
+        .collect();
+    if layout.more > 0 {
+        let shown: Vec<&str> = layout.rows.iter().map(String::as_str).collect();
+        let led = |task: &Task| {
+            task.lead
+                .as_ref()
+                .is_some_and(|lead| jobs.iter().any(|job| &job.id == lead))
+        };
+        let rest: Vec<&Task> = jobs
+            .iter()
+            .rev()
+            .copied()
+            .filter(|task| !shown.contains(&task.id.as_str()) && !led(task))
+            .collect();
+        rows.push(line(p, &rest, layout.more, actions).transition(room.appear));
     }
-}
-
-/// The count line and, unfolded, every card past it, as one hover target:
-/// moving from the line onto the cards keeps them open.
-fn unfolding<S: 'static>(
-    _p: Paint,
-    line: El,
-    cards: Option<El>,
-    room: Room,
-    line_actions: LineActions<S>,
-) -> El {
-    let hover = line_actions.hover;
-    let mut parts: Vec<El> = vec![line];
-    parts.extend(cards);
     if !room.down {
-        parts.reverse();
+        rows.reverse();
     }
-    col()
-        .key("jobs-hover")
-        .gap(8.0)
-        .min_h(0.0)
-        .shrink()
-        .hover_delays(UNFOLD_AFTER, FOLD_AFTER)
-        .on_hover_change(move |s: &mut S, inside, _| hover(s, inside))
-        .animate_layout()
-        .children(parts)
+    Some(
+        col()
+            .key("jobs")
+            .w(CARD_W)
+            .max_h(room.max_h)
+            .min_h(0.0)
+            .shrink()
+            .gap(6.0)
+            .scroll(rune::ScrollSpec {
+                stick_bottom: !room.down,
+            })
+            .scroll_edge_fade(16.0)
+            .hit()
+            .role("list")
+            .label(tr_fill(
+                "{} jobs running",
+                &(layout.rows.len() + layout.more).to_string(),
+            ))
+            .animate_layout()
+            .children(rows),
+    )
 }
 
-/// One job: dot, title and how long; its step; its browsers.
-#[allow(clippy::too_many_arguments)]
+/// One job: its dot (with its plan's ring), title, "All N live", and how
+/// long it runs; the step it's on; its browsers and windows, live; its
+/// helpers. A press opens the task list with its plan, Take over, and Stop.
 fn card<S: 'static>(
     p: Paint,
     task: &Task,
     apps: &[std::sync::Arc<AppPreview>],
     previews: &[std::sync::Arc<Preview>],
     helpers: &[&Task],
-    helping: bool,
     actions: stack::Actions<S>,
     open_wall: fn(&mut S, &str),
 ) -> El {
     let c = &p.k.c;
     let colour = palette::task(task.colour, p.k.dark);
-    let open = actions.open;
-    let id = task.id.clone();
-    let mut head = row()
+    let toggle = actions.toggle;
+    let (apps_shown, shown, more) = strip(apps.len(), previews.len());
+    // Every picture of the job and its helpers, when the row can't show
+    // them all: "All 20 live" opens the wall.
+    let all = apps.len()
+        + previews.len()
+        + helpers
+            .iter()
+            .map(|helper| live::previews(&helper.id).len() + app_live::previews(&helper.id).len())
+            .sum::<usize>();
+    let wall = wants_wall(all, apps_shown + shown).then(|| {
+        let id = task.id.clone();
+        let label = tr_fill("All {} live", &all.to_string());
+        p.k.interactive(
+            el().key("job-wall")
+                .h(20.0)
+                .px(8.0)
+                .radius(10.0)
+                .fill(c.layer_02)
+                .center()
+                .role("button")
+                .label(label.clone())
+                .hit()
+                .on_press(move |s: &mut S| open_wall(s, &id))
+                .child(text(label).font(p.k.ty.small_medium).color(p.text())),
+        )
+    });
+    let when = if task.phase == Phase::Queued {
+        // Not only the faint dot: waiting is said.
+        Some(
+            text(tr("Queued"))
+                .key("job-queued")
+                .font(p.k.ty.small)
+                .color(p.faint()),
+        )
+    } else {
+        minutes(task.since, Instant::now()).map(|minutes| {
+            text(running_for(minutes))
+                .key("job-time")
+                .font(p.k.ty.small)
+                .color(p.faint())
+        })
+    };
+    let head = row()
         .key("job-head")
         .w_full()
         .gap(7.0)
         .center_y()
-        .child(orb::dot(task, colour, 8.0))
+        .child(orb::marker(p, task, colour, 8.0))
         .child(
             text(task.title.clone())
                 .key("job-title")
@@ -353,37 +302,26 @@ fn card<S: 'static>(
                 .color(p.text())
                 .min_w(0.0)
                 .grow(1.0),
-        );
-    if task.phase == Phase::Queued {
-        // Not only the faint dot: waiting is said.
-        head = head.child(
-            text(tr("Queued"))
-                .key("job-queued")
+        )
+        .children(wall)
+        .children(when);
+    let step = card_step(task)
+        .or_else(|| (task.phase == Phase::Running).then(|| tr("Thinking…").to_owned()))
+        .map(|step| {
+            text(step)
+                .key("job-step")
+                .truncate()
                 .font(p.k.ty.small)
-                .color(p.faint()),
-        );
-    } else if let Some(minutes) = minutes(task.since, Instant::now()) {
-        head = head.child(
-            text(running_for(minutes))
-                .key("job-time")
-                .font(p.k.ty.small)
-                .color(p.faint()),
-        );
-    }
-    let step = card_step(task).map(|step| {
-        text(step)
-            .key("job-step")
-            .truncate()
-            .font(p.k.ty.small)
-            .color(p.muted())
-            .min_w(0.0)
-    });
-    let (apps_shown, shown, more) = strip(apps.len(), previews.len());
+                .color(p.muted())
+                .min_w(0.0)
+                .pl(STEP_INSET)
+        });
     let browsers = (apps_shown + shown > 0).then(|| {
         row()
             .key("job-browsers")
             .gap(6.0)
             .pt(2.0)
+            .pl(STEP_INSET)
             .role("list")
             .label(tr("Live windows"))
             .children(
@@ -409,41 +347,13 @@ fn card<S: 'static>(
                     )
             }))
     });
-    let team = (!helpers.is_empty()).then(|| team_row(p, helpers));
-    // Every picture of the job and its helpers, when the card can't show
-    // them all: "All 20 live" opens the wall.
-    let all = apps.len()
-        + previews.len()
-        + helpers
-            .iter()
-            .map(|helper| live::previews(&helper.id).len() + app_live::previews(&helper.id).len())
-            .sum::<usize>();
-    let wall = (!helping && wants_wall(all, apps_shown + shown)).then(|| {
-        let id = task.id.clone();
-        let label = tr_fill("All {} live", &all.to_string());
-        p.k.interactive(
-            el().key("job-wall")
-                .h(22.0)
-                .px(9.0)
-                .radius(11.0)
-                .fill(c.layer_02)
-                .center()
-                .role("button")
-                .label(label.clone())
-                .hit()
-                .on_press(move |s: &mut S| open_wall(s, &id))
-                .child(text(label).font(p.k.ty.small_medium).color(p.text())),
-        )
-    });
+    let team = (!helpers.is_empty()).then(|| team_row(p, helpers).pl(STEP_INSET));
     let card = col()
         .key(format!("job-{}", task.id))
-        .w(if helping {
-            CARD_W - HELPER_INSET
-        } else {
-            CARD_W
-        })
-        .padding(10.0)
-        .gap(4.0)
+        .w(CARD_W)
+        .px(10.0)
+        .py(8.0)
+        .gap(3.0)
         .radius(14.0)
         .fill(c.bg_base)
         .border(p.hair, c.border_base)
@@ -458,15 +368,16 @@ fn card<S: 'static>(
         .role("button")
         .label(card_label(task))
         .hit()
-        .on_press(move |s: &mut S| open(s, &id))
+        .on_press(move |s: &mut S| toggle(s))
         .child(head)
         .children(step)
         .children(browsers)
-        .children(team)
-        .children(wall.map(|wall| row().key("job-wall-row").pt(2.0).child(wall)));
+        .children(team);
     p.k.interactive(card)
 }
 
+/// How far a row's step, pictures, and helpers are set in: past its dot.
+const STEP_INSET: f32 = 15.0;
 /// Whether a card offers the live wall: `all` pictures of the job and its
 /// helpers, of which it shows `shown` itself; two or more it can't all
 /// show.
@@ -615,28 +526,19 @@ fn app_thumb<S: 'static>(
     )
 }
 
-/// More jobs than room: one line with each job's dot and how many run.
-/// Resting on it unfolds every card (`open`); a press keeps them; the list
-/// button opens the task list with Stop and Take over.
-fn line<S: 'static>(
-    p: Paint,
-    jobs: &[&Task],
-    count: usize,
-    open: bool,
-    actions: stack::Actions<S>,
-    line_actions: LineActions<S>,
-) -> El {
+/// The jobs past the rows: one line with each one's dot and how many; a
+/// press (or its list button) opens the task list, where every job is.
+fn line<S: 'static>(p: Paint, rest: &[&Task], count: usize, actions: stack::Actions<S>) -> El {
     let c = &p.k.c;
-    let pin = line_actions.pin;
     let toggle = actions.toggle;
     let shown_dots = 6;
-    let more_dots = count.saturating_sub(shown_dots);
-    let label = tr_fill("{} jobs running", &count.to_string());
+    let more_dots = rest.len().saturating_sub(shown_dots);
+    let label = tr_fill("{} more tasks", &count.to_string());
     row()
         .key("jobs-line")
+        .w(CARD_W)
         .h(LINE_H)
-        .max_w(CARD_W)
-        .pl(10.0)
+        .pl(12.0)
         .pr(3.0)
         .gap(6.0)
         .center_y()
@@ -644,16 +546,11 @@ fn line<S: 'static>(
         .fill(c.bg_base)
         .border(p.hair, c.border_base)
         .role("button")
-        .label(if open {
-            tr_fill("{}: hide the cards", &label)
-        } else {
-            tr_fill("{}: show every card", &label)
-        })
+        .label(format!("{label}: {}", tr("Open the task list")))
         .hit()
-        .on_press(move |s: &mut S| pin(s))
+        .on_press(move |s: &mut S| toggle(s))
         .children(
-            jobs.iter()
-                .rev()
+            rest.iter()
                 .take(shown_dots)
                 .map(|task| orb::dot(task, palette::task(task.colour, p.k.dark), 7.0)),
         )
@@ -667,7 +564,9 @@ fn line<S: 'static>(
             text(label)
                 .key("jobs-line-text")
                 .font(p.k.ty.small_medium)
-                .color(p.text()),
+                .color(p.text())
+                .grow(1.0)
+                .min_w(0.0),
         )
         .child(
             rune_kit::IconButton::new(&PANEL)
@@ -713,47 +612,55 @@ mod tests {
         board
     }
 
+    fn rows(ids: &[&str], more: usize) -> Layout {
+        Layout {
+            rows: ids.iter().map(|id| (*id).to_owned()).collect(),
+            more,
+        }
+    }
+
     #[test]
-    fn jobs_get_a_card_each_newest_first_and_a_question_takes_one_s_room() {
+    fn jobs_get_a_row_each_newest_first_and_a_question_takes_one_s_room() {
         let board = board_with(3, true);
         let jobs = running(&board.tasks);
         assert_eq!(jobs.len(), 3, "a Here question is no job");
-        assert_eq!(
-            layout(&jobs, false, false),
-            Layout::Cards(vec!["job2".into(), "job1".into(), "job0".into()])
-        );
-        assert_eq!(layout(&jobs, true, false), Layout::Line(3));
-        assert_eq!(
-            layout(&jobs[..2], true, false),
-            Layout::Cards(vec!["job1".into(), "job0".into()])
-        );
-        assert_eq!(layout(&[], false, false), Layout::None);
+        assert_eq!(layout(&jobs, false), rows(&["job2", "job1", "job0"], 0));
+        assert_eq!(layout(&jobs, true), rows(&["job2", "job1"], 1));
+        assert_eq!(layout(&jobs[..2], true), rows(&["job1", "job0"], 0));
+        assert_eq!(layout(&[], false), Layout::default());
     }
 
     #[test]
-    fn many_jobs_fold_into_one_line() {
-        let board = board_with(7, false);
-        assert_eq!(
-            layout(&running(&board.tasks), false, false),
-            Layout::Line(7)
-        );
-    }
-
-    #[test]
-    fn resting_on_the_line_unfolds_every_job_newest_first() {
-        let board = board_with(50, true);
+    fn many_jobs_keep_three_rows_and_count_the_rest() {
+        let board = board_with(50, false);
         let jobs = running(&board.tasks);
-        let Layout::All(ids) = layout(&jobs, true, true) else {
-            panic!("the line unfolds into every card");
-        };
-        assert_eq!(ids.len(), 50, "every job, none summarised away");
-        assert_eq!(ids.first().map(String::as_str), Some("job49"));
-        assert_eq!(ids.last().map(String::as_str), Some("job0"));
-        // Few enough jobs are cards anyway; unfolding changes nothing.
         assert_eq!(
-            layout(&jobs[..2], false, true),
-            Layout::Cards(vec!["job1".into(), "job0".into()])
+            layout(&jobs, false),
+            rows(&["job49", "job48", "job47"], 47),
+            "the newest three, none jumping as others work"
         );
+        // A step on an older job doesn't move it into the rows.
+        let mut board = board;
+        board.apply(
+            &Event::Step {
+                conversation: "job3".into(),
+                description: "Busy".into(),
+            },
+            None,
+            Instant::now(),
+        );
+        assert_eq!(layout(&running(&board.tasks), false).rows[0], "job49");
+    }
+
+    #[test]
+    fn helpers_fold_into_their_lead_s_row() {
+        let mut board = board_with(4, false);
+        for task in &mut board.tasks {
+            if task.id != "job0" {
+                task.lead = Some("job0".into());
+            }
+        }
+        assert_eq!(layout(&running(&board.tasks), false), rows(&["job0"], 0));
     }
 
     #[test]

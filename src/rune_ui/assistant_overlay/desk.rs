@@ -10,11 +10,12 @@ use std::time::Instant;
 use rune::{Cx, El, el, row, text};
 
 use super::super::controls::Paint;
+use super::ask::Reply;
 use super::board::{Board, Bubble, Due};
 use super::hint::Hint;
 use super::listening::{self, Listening};
 use super::outline::{self, Outline};
-use super::{bubble, fixture, frame, hands, hint, orb, place, stack};
+use super::{bubble, fixture, frame, hands, hint, orb, place};
 use crate::assistant::Event;
 
 /// The pretend desktop's size, in points.
@@ -39,6 +40,10 @@ pub(crate) struct Desk {
     pub(crate) setup: bool,
     /// Conversation mode listens for a follow-up past the HUD.
     pub(crate) listening: Option<Listening>,
+    /// A typed answer to the question, while its field shows.
+    pub(crate) reply: Option<Reply>,
+    /// The result bubble unfolded (its key).
+    pub(crate) open_result: Option<u64>,
     /// What the last press asked for, for the stage's caption.
     pub(crate) note: String,
 }
@@ -55,6 +60,8 @@ impl Desk {
             speaking: false,
             setup: false,
             listening: None,
+            reply: None,
+            open_result: None,
             note: String::new(),
         }
     }
@@ -118,6 +125,26 @@ impl Desk {
         self.note = format!("Would open “{id}” in Chats");
     }
 
+    /// Return on the answer field: the answer goes to its job (here, the
+    /// note says so, and the job runs on).
+    fn send(&mut self) {
+        let Some(reply) = self.reply.take() else {
+            return;
+        };
+        let Some(text) = reply.answer() else {
+            self.reply = Some(reply);
+            return;
+        };
+        self.event(
+            Event::Started {
+                conversation: reply.id.clone(),
+                origin: crate::assistant::Origin::Chat,
+                question: text.clone(),
+            },
+            format!("Answered {}: {text}", reply.id),
+        );
+    }
+
     fn take_over(&mut self, id: &str) {
         self.event(
             Event::Paused {
@@ -151,31 +178,38 @@ impl Desk {
     }
 
     fn actions() -> orb::Actions<Desk> {
-        orb::Actions {
-            list: stack::Actions {
-                stop: Desk::stop,
-                open: Desk::open,
-                take_over: Desk::take_over,
-                hand_back: Desk::hand_back,
-                stop_all: Desk::stop_all,
-                toggle: |desk| desk.expanded = !desk.expanded,
-                dismiss: |desk, id| {
-                    desk.board.dismiss_question(id);
-                },
-                hover: |_, _, _| {},
-                open_preview: |desk, task, session| {
-                    desk.note = format!("Would open {session} of {task} live");
-                },
-                defer: |desk, id| desk.note = format!("Would ask {id} later"),
-            },
-            hover: |_, _| {},
-            drag: |_, _| {},
-            jobs: super::jobs::LineActions {
-                hover: |_, _| {},
-                pin: |_| {},
-                wall: |_, _| {},
-            },
-        }
+        let mut actions = orb::Actions::<Desk>::inert();
+        let list = &mut actions.list;
+        list.stop = Desk::stop;
+        list.take_over = Desk::take_over;
+        list.hand_back = Desk::hand_back;
+        list.stop_all = Desk::stop_all;
+        list.toggle = |desk| desk.expanded = !desk.expanded;
+        list.dismiss = |desk, id| {
+            desk.board.dismiss_question(id);
+        };
+        list.open_preview = |desk, task, session| {
+            desk.note = format!("Would open {session} of {task} live");
+        };
+        list.defer = |desk, id| desk.note = format!("Would ask {id} later");
+        list.reply.start = |desk, id| desk.reply = Some(Reply::new(id));
+        list.reply.cancel = |desk| desk.reply = None;
+        list.reply.send = Desk::send;
+        list.reply.edit = |desk| &mut desk.reply.get_or_insert_with(Reply::default).edit;
+        list.results.open = |desk, target| desk.note = format!("Would open {target}");
+        list.results.retry = |desk, id| desk.note = format!("Would try {id} again");
+        list.results.dismiss = |desk, key| {
+            desk.board.pops.dismiss(key);
+        };
+        list.results.expand = |desk, key| {
+            desk.open_result = (desk.open_result != Some(key)).then_some(key);
+        };
+        list.results.recall = |desk, id| {
+            desk.open_result = desk.board.recall(id, Instant::now());
+            desk.expanded = false;
+        };
+        actions.jobs.wall = |desk, id| desk.note = format!("Would show every picture of {id}");
+        actions
     }
 }
 
@@ -332,9 +366,9 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
                     grow,
                     still,
                     answer_key: fixture::ANSWER_KEY.into(),
-                    voice: None,
-                    hovered: None,
-                    jobs_open: false,
+                    reply: desk.reply.clone(),
+                    open_result: desk.open_result,
+                    ..Default::default()
                 },
                 Desk::actions(),
             )),

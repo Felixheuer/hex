@@ -115,6 +115,41 @@ fn a_background_tasks_new_window_moves_to_the_agents_display() {
 }
 
 #[test]
+fn a_window_a_task_takes_goes_out_of_the_persons_way_too() {
+    let scratch = Scratch::new();
+    let fake = Fake::recorded();
+    this_mac(&fake);
+    // WhatsApp and Notes already run, on the person's display.
+    for (id, app) in [("w-600", "WhatsApp"), ("w-601", "Notes")] {
+        let mut window = textedit_window(id, (100.0, 100.0, 500.0, 400.0));
+        window["app_name"] = json!(app);
+        fake.state().windows.push(window);
+    }
+    let mut guard = background(&scratch, &fake, "bg", false);
+    guard.config.agent_display = Some("M27Q".into());
+    guard.call("desktop_claim_window", args(json!({"window_id": "w-600"})));
+    assert_eq!(
+        moves(&fake).len(),
+        1,
+        "a claimed window moves like an opened one"
+    );
+    assert_eq!(moves(&fake)[0]["window_id"], "w-600");
+    // With full control a window becomes the task's as it acts in it, and
+    // goes the same way; the window in front stays where the person is.
+    let mut here = here(&scratch, &fake, FRONT, "Hex Test", false);
+    here.config.front_window = true;
+    here.config.agent_display = Some("M27Q".into());
+    let clicked = here.call("desktop_minimize", args(json!({"window_id": "w-601"})));
+    assert_eq!(error_code(&clicked), None, "{clicked}");
+    assert_eq!(scratch.store().holder("w-601").unwrap().task, "here-task");
+    let moved = moves(&fake);
+    assert_eq!(moved.len(), 2, "{moved:?}");
+    assert_eq!(moved[1]["window_id"], "w-601");
+    here.call("desktop_minimize", args(json!({"window_id": FRONT})));
+    assert_eq!(moves(&fake).len(), 2, "the person's own window stays");
+}
+
+#[test]
 fn with_no_display_picked_a_second_display_isn_t_taken() {
     let scratch = Scratch::new();
     let fake = Fake::recorded();
@@ -154,6 +189,7 @@ fn with_one_display_or_in_the_here_lane_windows_stay_put() {
             agent_display: Some("Built-in Retina Display".into()),
             autonomy: Default::default(),
             front_window: false,
+            open_apps: false,
             observe_only: false,
         },
         scratch.store(),

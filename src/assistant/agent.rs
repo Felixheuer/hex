@@ -209,7 +209,7 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
         resume = None;
         stored.sessions.remove(key);
         run.resume = None;
-        run.prompt = prompt(job, &history, true);
+        run.prompt = prompt_now(job, &history, true);
     }
     stored.sessions.insert(rules_key, rules);
 
@@ -241,7 +241,7 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
             tracing::info!(error = %format!("{error:#}"), "the saved session didn't continue; starting a new one");
             run.resume = None;
             stored.sessions.remove(key);
-            run.prompt = prompt(job, &history, true);
+            run.prompt = prompt_now(job, &history, true);
             result = run_backend(&run, key, control, id, emit, &mut seen, store, &mut stored);
         }
         first = false;
@@ -286,7 +286,7 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
         // to start are below.
         let handoff = handoff::take(&job.conversation).and_then(|mut handoff| {
             for (to, text) in std::mem::take(&mut handoff.tells) {
-                crate::assistant::service::tell_job(&to, &text);
+                crate::assistant::service::tell_job(&to, &told_words(job, &text));
             }
             (!handoff.jobs.is_empty()).then_some(handoff)
         });
@@ -519,6 +519,23 @@ fn handed_on(job: &Job, text: &str, handoff: Option<handoff::Handoff>) -> Option
     None
 }
 
+/// What a running job is told when the person's turn passes something on
+/// with `hex_tell_job`: the person's own words, which the job's conversation
+/// keeps and shows as theirs, never the agent's paraphrase of them ("The
+/// person asks: …"). A job telling its helpers passes its own `text`.
+fn told_words(job: &Job, text: &str) -> String {
+    let said = job.request.text.trim();
+    let persons_turn = job.workspace.is_none()
+        && job.request.origin != Origin::Background
+        && job.kind == JobKind::Ask
+        && !said.is_empty();
+    if persons_turn {
+        said.to_owned()
+    } else {
+        text.to_owned()
+    }
+}
+
 /// What a backend run reported that the conversation keeps.
 #[derive(Default)]
 struct Seen {
@@ -718,6 +735,9 @@ pub fn task_spec(job: &Job) -> TaskSpec {
             job.settings.background_front_window,
             &job.request.text,
         ),
+        // "Only in the background" keeps the person's windows theirs, not
+        // the apps out of reach: they open in windows of the task's own.
+        open_apps: job.settings.background_front_window,
     }
 }
 
@@ -766,6 +786,7 @@ pub fn prepare(
             )
             .map(|mut desktop| {
                 desktop.front_window = spec.full_control;
+                desktop.open_apps = spec.open_apps;
                 desktop
             })?,
         )
@@ -773,7 +794,10 @@ pub fn prepare(
         None
     };
     let lane = spec.lane;
-    let browser = (settings.background_browser && lane == Lane::Background)
+    // Both lanes: a quick "open a browser and go to …" runs in Hex's own
+    // browser (a live picture on the overlay), never in the person's Chrome.
+    let browser = (settings.background_browser
+        && (lane == Lane::Background || spec.full_control))
         .then(|| super::browser::mcp_server(&job.conversation))
         .flatten();
     let workdir = match &job.workspace {
@@ -831,7 +855,7 @@ pub fn prepare(
         backend: settings.backend,
         model: model(job),
         system,
-        prompt: prompt(job, history, continued),
+        prompt: prompt_now(job, history, continued),
         image,
         resume,
         history: history.to_vec(),
@@ -945,7 +969,7 @@ pub fn autonomy_rules(
 }
 
 /// How a Here or Chat agent hands a job to Hex instead of doing it.
-pub const ROUTING: &str = "\nYou decide how to handle each request; the person only holds a key and speaks. Answer a quick question or do a small action in the window in front yourself, right away. Anything else is a job: several steps, many items, other apps, a browser or websites, research, documents, files, or more than a minute or two. Never start a job yourself and never only say it runs in the background: call the hex_start_jobs tool once with every job, then end with one or two short, speakable sentences in the person's language saying you're on it and what it covers, such as \u{201c}On it: 50 suppliers, Gmail drafts, and a sheet. I'll ask what I need.\u{201d} Hex then runs each job in the background with every tool it needs, and each job asks the person what it needs to know. One job per independent request (unrelated things run in parallel as separate jobs); a request whose parts build on each other (research, then a sheet of it, then a message with the link; build, compare, push, send the link) is ONE job with the whole request, every detail and the order of the parts in its task: a job leads its own helpers for the parts that can run in parallel and does the rest in order. Only if the tool is missing, start your reply with `HEX_JOB: <a short title>` instead (one more `HEX_JOB: <title> | <job>` line per further job) and then that sentence.\n";
+pub const ROUTING: &str = "\nYou decide how to handle each request; the person only holds a key and speaks. Answer a quick question or do a small action yourself, right away: in the window in front, and with full control in any app (open or switch to it, a few clicks or keystrokes, a short message). Anything else is a job: many steps, many items, a browser or websites, research, documents, files, or more than a minute or two. Never start a job yourself and never only say it runs in the background: call the hex_start_jobs tool once with every job, then end with one or two short, speakable sentences in the person's language saying you're on it and what it covers, such as \u{201c}On it: 50 suppliers, Gmail drafts, and a sheet. I'll ask what I need.\u{201d} Hex then runs each job in the background with every tool it needs, and each job asks the person what it needs to know. One job per independent request (unrelated things run in parallel as separate jobs); a request whose parts build on each other (research, then a sheet of it, then a message with the link; build, compare, push, send the link) is ONE job with the whole request, every detail and the order of the parts in its task: a job leads its own helpers for the parts that can run in parallel and does the rest in order. Only if the tool is missing, start your reply with `HEX_JOB: <a short title>` instead (one more `HEX_JOB: <title> | <job>` line per further job) and then that sentence.\nNever a job: opening, switching to, or using one app for a moment (\u{201c}open WhatsApp\u{201d}: hex_open_app takes its window into this task, out of the person's way, live on your card); and a question about what you can do (\u{201c}can you …?\u{201d}), which you answer at once in a sentence, doing it too when it is something small you can do now. When a request concerns a job that is already running (adds to it, changes it, or asks for the same thing again), pass it to that job with hex_tell_job instead of starting another.\n";
 
 /// A job's rules: its workspace, plan, one batched question, files, and
 /// what it may never do on its own.
@@ -955,12 +979,13 @@ pub fn job_rules(workspace: &std::path::Path, browser: bool, unrestricted: bool)
     let mut rules = format!(
         "\nThis is a job, running in the background while the person does other things. Find the fastest way to do all of it, then do it fully on your own.\n\
          Your workspace is {ws} (your current folder). Keep every file of this job there: data, spreadsheets, documents, scripts. Use absolute paths inside it.\n\
+         A job that turns out to be one or two quick steps (open or switch to an app, one small action, a short answer) skips the paperwork below: no plan, report, or evidence file; do it and answer in a sentence or two.\n\
          1. Plan first: write {plan} in the workspace. Its first line says which consequential actions the person's own request explicitly asked for: `HEX_AUTHORIZED: <send, delete, pay, share, publish, or none> (<limits they gave, such as only to max@example.com>)`; Hex checks it against their words. Then a checklist (`- [ ] step`), each step naming its tool: the hidden browser for research and web apps (Gmail, Google Sheets, and other accounts through the browser's signed-in session), the desktop only for native apps (check which apps are installed with hex_installed_apps before choosing one), and files and scripts in the workspace for spreadsheets, CSV, and documents. Say what runs in parallel, and run it in parallel: subagents (Task) for independent batches{parallel}. Tick each step (`- [x]`) in {plan} the moment it finishes, before you start the next one: the person watches this plan live on the job's card and sees nothing else of your progress. Before your final answer every finished step is ticked.\n\
          2. Ask everything up front, once, before the real work starts: the person often leaves right after giving the job (\u{201c}I'm going to the hairdresser\u{201d}) and won't be there to answer later. Go through the whole plan and list every detail any step will need: recipients and the channel to reach them (which contact, WhatsApp or Slack, which channel or thread), repository name and whether it is public or private, accounts and logins, wording, tone and language of messages, deadlines, where to publish. Find out yourself whatever you can (contacts, installed apps, signed-in accounts, files). If anything essential is still missing, ask ALL of it in ONE message, together with your plan in one sentence so their answer confirms it too, and stop: start your reply with the line `HEX_QUESTION:`, then the question in two or three speakable sentences. If nothing is missing, don't ask; start. After that, never ask for something you could have asked now: for anything unforeseen, choose the sensible default, note it in {report}, and go on; ask again only when you are truly blocked (a login only the person has, a payment they didn't approve).\n\
          3. Spreadsheets: write .xlsx with Python and openpyxl (if it's missing: `python3 -m venv .venv && .venv/bin/pip install openpyxl` in the workspace); if that fails, write CSV. {shell}\n\
          4. {consequential}\n\
          5. Keep {report} in the workspace up to date: what you did, the results, file names, and links.\n\
-         6. At the end, write {evidence} in the workspace: what was done step by step, every link (repository, deployed site, sheet), the screenshots and diff images that prove visual work, and proof of every message sent (a screenshot of it in the sent conversation). Then answer with a short summary: what you did, the numbers (such as drafts saved), the links, and the path of {evidence}.\n\
+         6. Only when the job sent, posted, published, deployed, shared, or paid something, or rebuilt something visual, write {evidence} at the end in the workspace (else skip it): what was done step by step, every link (repository, deployed site, sheet), the screenshots and diff images that prove visual work, and proof of every message sent (a screenshot of it in the sent conversation). Then answer with a short summary: what you did, the numbers (such as drafts saved), the links, and the path of {evidence} when you wrote it.\n\
          {goal}",
         ws = workspace.display(),
         plan = workspace::PLAN,
@@ -1042,6 +1067,28 @@ fn workdir() -> color_eyre::Result<PathBuf> {
 /// conversation, the Here lane's window and what was on screen, then the
 /// question, the new instruction (steering), or the note to go on.
 pub fn prompt(job: &Job, history: &[Message], with_history: bool) -> String {
+    prompt_with(job, history, with_history, None)
+}
+
+/// [`prompt`] with the desktop as it is now (`computer::now`), read fresh
+/// for each run of a task that may use the desktop.
+fn prompt_now(job: &Job, history: &[Message], with_history: bool) -> String {
+    let now = job
+        .settings
+        .control_desktop
+        .then(|| super::computer::now::for_prompt(&job.settings.blocked_apps))
+        .flatten();
+    prompt_with(job, history, with_history, now.as_deref())
+}
+
+/// [`prompt`], with `desktop_now` (the running apps and their windows)
+/// before what was on screen and the question.
+pub fn prompt_with(
+    job: &Job,
+    history: &[Message],
+    with_history: bool,
+    desktop_now: Option<&str>,
+) -> String {
     let request = &job.request;
     let mut prompt = String::new();
     if with_history && !history.is_empty() {
@@ -1064,6 +1111,10 @@ pub fn prompt(job: &Job, history: &[Message], with_history: bool) -> String {
         && let Some(digest) = job.digest.as_deref().filter(|digest| !digest.is_empty())
     {
         prompt.push_str(digest.trim_end());
+        prompt.push_str("\n\n");
+    }
+    if let Some(now) = desktop_now.filter(|now| !now.trim().is_empty()) {
+        prompt.push_str(now.trim_end());
         prompt.push_str("\n\n");
     }
     let context = &request.context;
@@ -1090,10 +1141,15 @@ pub fn prompt(job: &Job, history: &[Message], with_history: bool) -> String {
             .as_deref()
             .map(|id| format!(" (window id {id})"))
             .unwrap_or_default();
-        seen.push(format!(
-            "Your only window, the one in front: {}{id}",
-            window.app
-        ));
+        // With full control every window is in reach; without it, only
+        // the one in front.
+        let full =
+            crate::assistant::full_control(job.settings.background_front_window, &request.text);
+        seen.push(if full {
+            format!("The window in front: {}{id}", window.app)
+        } else {
+            format!("Your only window, the one in front: {}{id}", window.app)
+        });
     }
     if let Some(display) = context
         .display
@@ -1217,7 +1273,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
     );
     prompt.push_str(match origin {
         Origin::ActionShortcut => {
-            "This is a quick spoken question about the window in front of the person. Your answer is shown in a small bubble and read aloud, so keep it short (one to three sentences), plain, and speakable: no markdown, lists, tables, code blocks, links, or emoji. The question was transcribed from speech, so read past small transcription errors.\n"
+            "This is a quick spoken request, often about the window in front of the person: do it or answer it right away. Your answer is shown in a small bubble and read aloud, so keep it short (one to three sentences), plain, and speakable: no markdown, lists, tables, code blocks, links, or emoji. The question was transcribed from speech, so read past small transcription errors.\n"
         }
         Origin::Background => {
             "This is a background task, running beside the person and other tasks while they keep working. Do it, then end with one or two plain sentences saying what you did; no markdown.\n"
@@ -1255,19 +1311,25 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
     }
     prompt.push_str(
         "Rules:\n\
-         - Only do what the person asked. Never ask back what you can find out yourself; if something only the person can tell is missing or the request is ambiguous, ask for it (a job: in one message starting with `HEX_QUESTION:`) instead of guessing. Sending, deleting, paying, and posting follow the autonomy rules below.\n\
+         - Only do what the person asked, and do it: act instead of describing how or offering to. Never ask back what you can find out yourself (the message's desktop section, a snapshot, hex_installed_apps); if something only the person can tell is missing and there is no sensible default, ask for it (a job: in one message starting with `HEX_QUESTION:`) instead of guessing. Sending, deleting, paying, and posting follow the autonomy rules below.\n\
+         - Which apps run and which windows are open: the message's \u{201c}desktop right now\u{201d} section is read fresh for this message; trust it over anything said earlier in the conversation or in other tasks' results (an app said to be open earlier may have been closed since). Use its window ids directly; list windows again only after something changed.\n\
          - Never quit or close an app you didn't open in this task.\n\
-         - Read before acting: snapshot or find, act on a ref, then verify.\n",
+         - Read before acting: one snapshot of the window (interactive refs), act on a ref, then check only what matters.\n",
     );
     match origin.lane() {
         Lane::Here if desktop.front_window => prompt.push_str(
-            "- The person gave you full control of this Mac: look at and act in any window (claim it with desktop_claim_window by its window_id from desktop_list_windows, the one in front included) and open any app (hex_open_app). Do what was asked right here; hand a long job (many steps, minutes of work) to the background with hex_start_jobs. Never say you can't reach a window or app.\n",
+            "- The person gave you full control of this Mac: look at and act in any window no other task holds, the one in front included, by its window_id (it becomes yours as you act in it; no need to claim it first) and open or switch to any app with hex_open_app (it takes a running app's window into this task, reopens one that has no window, and never starts a second instance). Do small things right here, at once: open or switch to an app, read, click, or type something, write a short message. Never say you can't open, reach, or use an app or window, and never offer a background job for something you can do now; hand only work of many steps or minutes (research, many items, documents) to the background with hex_start_jobs.\n\
+             - Asked only to open an app (\u{201c}open WhatsApp\u{201d}) without saying what to do there: open it with hex_open_app, then say in one short sentence that it's open and ask what to do in it.\n",
+        ),
+        Lane::Here if desktop.open_apps => prompt.push_str(
+            "- The person wants their own windows left alone: act in the window in front only if asked about it, and never in other windows they use. But open or switch to any app with hex_open_app: its window becomes yours, parked out of their way and live on your card, and you act there right away (a running app is never started twice). Do small things right here; never say you can't open or use an app, and never offer a background job for something you can do now.\n\
+             - Asked only to open an app without saying what to do there: open it with hex_open_app, then say in one short sentence that it's open and ask what to do in it.\n",
         ),
         Lane::Here => prompt.push_str(
             "- You may LOOK at any window to answer: list them with desktop_list_windows and read or screenshot the one the person means by its window_id (\"what am I doing in Citrix?\" means the Citrix window, even if it isn't in front). ACT only in the window in front, named in the message, and only if asked; don't bring another window forward.\n- If the request needs to act anywhere beyond that window (take over or operate another window such as Citrix, open an app or a browser, the web, files), never say you can't and never tell the person to do it themselves: hand it off at once with `HEX_JOB:` with the hex_start_jobs tool (see below), however small it is; a background job may open apps and browsers and take over the person's other windows.\n",
         ),
         Lane::Background => prompt.push_str(&format!(
-            "- You run beside the person and other agents, each with its own cursor; yours is agent “{}”. Work only in your own windows: open apps with hex_open_app, which gives you your own window, or claim a free window that is already open with desktop_claim_window (its window_id from desktop_list_windows). {}Never another task's windows: don't move, close, or type into them. The clipboard is Here-only: don't use it. Once you know a window's id, always pass it (--window-id / window_id), and don't bring windows to the front.\n\
+            "- You run beside the person and other agents, each with its own cursor; yours is agent “{}”. Work only in your own windows: to use any app, even one that already runs, call hex_open_app first; it takes the app's window into this task (never a second instance), parks it out of the person's way, and shows it live on your card. Never only check that an app runs and report that. Or claim a free window that is already open with desktop_claim_window (its window_id from desktop_list_windows). {}Never another task's windows: don't move, close, or type into them. The clipboard is Here-only: don't use it. Once you know a window's id, always pass it (--window-id / window_id), and don't bring windows to the front.\n\
              - {}\n",
             desktop.agent_id,
             if desktop.front_window {
@@ -1281,6 +1343,11 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
                 "For web work, open your own browser window rather than using one the person has open."
             }
         )),
+    }
+    if desktop.open_apps || desktop.front_window {
+        prompt.push_str(
+            "- Background first: act in windows where they are, parked or behind others; never bring one to the front just to act in it. Only an app that doesn't react in the background after one retry gets its window forward for the shortest time (the person sees the frame); check the result, then give the front back to the window the person was in.\n",
+        );
     }
     if let Some(guide) = guide(desktop.executable()) {
         prompt.push_str("\nagent-desktop's guide:\n\n");

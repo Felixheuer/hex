@@ -36,7 +36,11 @@ impl<D: Desktop> Guard<D> {
     /// of the person's way, as Codex does: they stay operable through
     /// Accessibility and show live in the job's card at the orb.
     pub(super) fn place_arrivals(&mut self) {
-        if self.config.lane != Lane::Background || self.arrived.is_empty() {
+        // The Here lane gets windows here only from apps it opens with full
+        // control (`adopt`, `take_running`).
+        let reaches = self.config.lane == Lane::Background || self.opens_apps();
+        if !reaches || self.arrived.is_empty() {
+            self.arrived.clear();
             return;
         }
         let arrived = std::mem::take(&mut self.arrived);

@@ -217,19 +217,42 @@ impl<D: Desktop> Guard<D> {
         if !held.iter().any(|lease| &lease.window_id == id) {
             // Full control: any window not another task's becomes this
             // task's as it acts in it.
-            let free = self.config.front_window
-                && !matches!(
-                    self.store.acquire(
-                        &self.config.task,
-                        self.pid,
-                        id,
-                        &window.app,
-                        crate::desktop::events::now_ms()
-                    ),
-                    super::super::state::Acquire::Taken(_)
-                );
-            if !free {
-                return Err(self.not_held(tool, Some(id), &window.app));
+            let acquired = self.config.front_window.then(|| {
+                self.store.acquire(
+                    &self.config.task,
+                    self.pid,
+                    id,
+                    &window.app,
+                    crate::desktop::events::now_ms(),
+                )
+            });
+            match acquired {
+                None | Some(super::super::state::Acquire::Taken(_)) => {
+                    return Err(self.not_held(tool, Some(id), &window.app));
+                }
+                // Taken into the task as it acts: out of the person's way
+                // and live on its card, unless it's the one they're in.
+                Some(super::super::state::Acquire::Acquired) if !window.focused => {
+                    let listed = self
+                        .list(Look::Check)
+                        .ok()
+                        .and_then(|windows| windows.into_iter().find(|on| &on.id == id));
+                    match listed {
+                        Some(listed) if listed.focused => {}
+                        Some(listed) => self.arrived.push(listed),
+                        None => self.arrived.push(super::super::child::Window {
+                            id: id.clone(),
+                            app: window.app.clone(),
+                            title: String::new(),
+                            pid: None,
+                            focused: false,
+                            visible: true,
+                            minimized: false,
+                            bounds: None,
+                        }),
+                    }
+                }
+                Some(_) => {}
             }
         }
         if kind.acts()
