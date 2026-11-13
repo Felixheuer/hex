@@ -449,7 +449,11 @@ fn listed_tasks_are_adopted_with_their_states() {
     ]);
     assert_eq!(stream.tasks[0].phase, Phase::Paused);
     assert_eq!(stream.tasks[1].phase, Phase::Waiting { until_ms: 5 });
-    assert_eq!(stream.tasks[0].colour, 9 % crate::assistant::view::COLOURS, "wraps");
+    assert_eq!(
+        stream.tasks[0].colour,
+        9 % crate::assistant::view::COLOURS,
+        "wraps"
+    );
     assert_eq!(stream.tasks[0].steps, ["Opened Mail"]);
     assert_eq!(stream.tasks[0].activity, Activity::Working);
     stream.apply(

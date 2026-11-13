@@ -13,7 +13,13 @@
 //! pulses with a speaking rhythm.
 //!
 //! Its drawing is the one card anatomy (`super::look`, owned with the
-//! rail's cards); where it hangs (under the island) is the island's.
+//! rail's cards); where it hangs (under the island) is the island's: the
+//! panel carries the black island's line at its top (`super::island`) once
+//! the HUD has gone, the card under it. While the Action shortcut is still
+//! held the HUD is the island, and the card shows the live words instead
+//! (`island::held_card`). While the question thinks and works, the card
+//! shows the agent's reasoning: Understood, Plan, Now, Next, each ticked as
+//! it passes (`quick::Bubble::reasoning`); nothing spins.
 
 use rune::{Cx, El, Transition, Vec2, col, el, icon, row, text};
 use rune_motion::{LoopSpec, Spring};
@@ -21,15 +27,23 @@ use rune_motion::{LoopSpec, Spring};
 use super::super::controls::Paint;
 use super::board::{Bubble, BubblePhase};
 use super::failure::{Failure, Remedy};
+use super::island;
 use super::look::{self, Card, Kind, State, Step};
 use super::palette;
+use super::quick::{Held, Mark, Tag};
 use crate::desktop::i18n::{tr, tr_fill, tr_in};
 
 /// One speaking pulse, in seconds: about a syllable pair.
 const VOICE_PULSE: f64 = 0.9;
 
-/// The overlay: a readable measure, and room for about ten lines.
-pub(crate) const SIZE: (f32, f32) = (440.0, 340.0);
+/// Between the island and the card under it.
+pub(crate) const ISLAND_GAP: f32 = 8.0;
+/// The overlay: the island's card width, room for about ten lines, and the
+/// island's line above them.
+pub(crate) const SIZE: (f32, f32) = (
+    look::ISLAND_W + 2.0 * INSET,
+    340.0 + island::HEIGHT + ISLAND_GAP,
+);
 /// About ten lines of answer; past it the answer is cut with "…" and the
 /// rest is in the Assistant pane.
 const ANSWER_CHARS: usize = 560;
@@ -82,6 +96,8 @@ pub(crate) struct BubbleOverlay {
     pub(crate) setup: Option<std::time::Instant>,
     /// The Action shortcut's keys, for "Hold ⌘ to answer".
     pub(crate) answer_key: String,
+    /// The shortcut is held: the live words show instead of the bubble.
+    pub(crate) held: Option<Held>,
     pub(crate) actions: Actions<BubbleOverlay>,
 }
 
@@ -109,18 +125,31 @@ pub(crate) fn view(state: &BubbleOverlay, cx: &mut Cx<BubbleOverlay>) -> El {
         None
     } else if state.setup.is_some() {
         Some(setup_card(p, state.actions))
+    } else if let Some(held) = &state.held {
+        Some(island::held_card(p, held, &state.answer_key))
     } else {
         state
             .bubble
             .as_ref()
             .map(|bubble| card(p, bubble, voice_now, &state.answer_key, state.actions))
     };
+    // The island's line once the HUD has gone (while held, the HUD is the
+    // island); hanging from the top only, as the island does.
+    let line = (state.shown && state.below && state.held.is_none() && state.setup.is_none())
+        .then(|| island::line(None, state.bubble.as_ref()))
+        .flatten();
+    let island = line.map(|line| {
+        island::capsule(p, &line, island::width(&line), 0.0)
+            .mb(ISLAND_GAP)
+            .transition(Transition::opacity())
+    });
     let motion = if flying {
         fly(state.below)
     } else {
         grow(state.below)
     };
-    root.children(shown.map(|card| card.transition(motion)))
+    root.children(island)
+        .children(shown.map(|card| card.transition(motion)))
 }
 
 /// A Here question that became a Background task: the card shrinks to a dot
@@ -283,7 +312,11 @@ pub(crate) fn card<S: 'static>(
             BubblePhase::Failed => State::Failed,
         }
     };
+    let reasoning = bubble.reasoning();
     let mut body: Vec<El> = match bubble.phase {
+        // Asking while it worked: the question alone, nothing seems to run.
+        BubblePhase::Thinking | BubblePhase::Working if bubble.asks.is_some() => Vec::new(),
+        _ if !reasoning.is_empty() => reasoning_lines(p, &reasoning),
         BubblePhase::Thinking => {
             vec![look::step_line(p, None, tr("Thinking…"), Step::Now).key("thinking")]
         }
@@ -319,6 +352,10 @@ pub(crate) fn card<S: 'static>(
     card.title = bubble.question.clone();
     card.chip = Some(look::chip(p, state));
     card.body = body;
+    if !bubble.over() && bubble.asks.is_none() {
+        // Still thinking or working: the person may steer it or stop it.
+        card.hint = Some(tr_fill("Hold {} to change it · Esc stops", answer_key));
+    }
     if bubble.over() {
         match bubble.failure {
             Some(failure) => card.primary = Some(remedy(p, bubble, failure.remedy(), actions)),
@@ -327,12 +364,9 @@ pub(crate) fn card<S: 'static>(
                 let id = bubble.conversation.clone();
                 card.hint = Some(tr_fill("Hold {} to ask more", answer_key));
                 card.secondary.push(
-                    look::button(
-                        p,
-                        Kind::Secondary,
-                        tr("More"),
-                        move |s: &mut S| open(s, &id),
-                    )
+                    look::button(p, Kind::Secondary, tr("More"), move |s: &mut S| {
+                        open(s, &id)
+                    })
                     .key("open-chats"),
                 );
             }
@@ -368,6 +402,34 @@ pub(crate) fn card<S: 'static>(
     } else {
         card
     }
+}
+
+/// The reasoning lines: a small tag (Understood, Plan, Doing now, Up next)
+/// and the words, ✓ once passed, the agent's dot on the one now, an empty
+/// ring for what comes. Reduce motion changes nothing: no line moves.
+fn reasoning_lines(p: Paint, reasoning: &[super::quick::Reason]) -> Vec<El> {
+    let mut earlier = 0;
+    reasoning
+        .iter()
+        .map(|reason| {
+            let step = match reason.mark {
+                Mark::Done => Step::Done,
+                Mark::Now => Step::Now,
+                Mark::Next => Step::Next,
+            };
+            let (tag, key) = match reason.tag {
+                Tag::Understood => (tr("Understood"), "understood".to_owned()),
+                Tag::Plan => (tr("Plan"), "plan".to_owned()),
+                Tag::Earlier => {
+                    earlier += 1;
+                    ("", format!("done-{}", earlier - 1))
+                }
+                Tag::Now => (tr("Doing now"), "step".to_owned()),
+                Tag::Next => (tr("Up next"), "next".to_owned()),
+            };
+            look::step_line(p, Some(tag), &reason.words, step).key(key)
+        })
+        .collect()
 }
 
 /// Why the question failed: its line in the language it was asked in, and

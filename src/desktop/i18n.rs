@@ -11,15 +11,15 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 mod assistant;
 mod assistant_overlay;
-mod island;
-mod stage;
 mod failures;
 mod french;
+mod island;
 mod meetings;
 mod onboarding;
 mod portuguese;
 mod preferences;
 mod russian;
+mod stage;
 mod text_language;
 mod traditional_chinese;
 mod window;
@@ -1769,6 +1769,7 @@ mod tests {
         include_str!("../rune_hud.rs"),
         include_str!("../rune_ui/assistant_overlay/bubble.rs"),
         include_str!("../rune_ui/assistant_overlay/hint.rs"),
+        include_str!("../rune_ui/assistant_overlay/island.rs"),
         include_str!("../rune_ui/assistant_overlay/stack.rs"),
         include_str!("../rune_ui/assistant_overlay/orb.rs"),
         include_str!("../rune_ui/assistant_overlay/outline.rs"),

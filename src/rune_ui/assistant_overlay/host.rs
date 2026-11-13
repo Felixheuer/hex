@@ -30,6 +30,7 @@ mod answer;
 mod displays;
 mod enlarged;
 mod follow;
+mod island;
 mod orb_panel;
 mod stage;
 mod wall;
@@ -351,6 +352,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             speaking: false,
             setup: None,
             answer_key: answer_key(),
+            held: None,
             level: None,
             actions: bubble::Actions {
                 dismiss: dismiss_bubble,
@@ -416,6 +418,8 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             .update(|orb, tx| board_changed(orb, tx, Instant::now()));
     }
     crate::assistant::subscribe(Box::new(on_event));
+    // The words heard while the Action shortcut is held, under the island.
+    island::install();
     // The desk changed (a quick turn left an app or a browser on it, or one
     // was let go): the orb shows it.
     super::minis::watch(|| {
@@ -530,9 +534,14 @@ pub(crate) fn ask_hint(asking: Option<bool>) {
     let Some(overlays) = OVERLAYS.get() else {
         return;
     };
+    // A quick turn: the card under the island listens, with the live words
+    // (`host::island`); only a Background task's hold keeps the pill.
+    match asking {
+        Some(false) if ready() => island::hold(frontmost_app()),
+        _ => island::release(),
+    }
     let hint = match asking {
         Some(true) if ready() => Some(Hint::Background),
-        Some(false) if ready() => frontmost_app().map(Hint::Here),
         _ => None,
     };
     *shown = asking;

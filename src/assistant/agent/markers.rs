@@ -167,8 +167,7 @@ impl Gate {
                 self.held = after.to_owned();
                 continue;
             }
-            if start.starts_with(JOB) || start.starts_with(QUESTION) || start.starts_with(CONFIRM)
-            {
+            if start.starts_with(JOB) || start.starts_with(QUESTION) || start.starts_with(CONFIRM) {
                 self.marker = true;
                 self.held.clear();
                 return None;

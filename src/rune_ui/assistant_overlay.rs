@@ -19,6 +19,10 @@
 //! - The agents' cursors ([`cursor`]): a soft arrow per task colour, for
 //!   agent-desktop's `--image`. The colours themselves are
 //!   `assistant::palette`, shared with the brain.
+//! - The island ([`island`]): the conversation's black capsule, one line of
+//!   state (Listening, Understood, the step now, Needs you, ✓, ✗), with the
+//!   live words under it while the Action shortcut is held and the
+//!   reasoning lines (Understood, Plan, Now, Next) while it thinks.
 //! - The Here question's bubble ([`bubble`]) just past the dictation HUD,
 //!   growing out of it and pulsing while the answer is read aloud; the
 //!   "Finish setting up" bubble in its place before setup.
@@ -50,6 +54,7 @@ mod frame;
 mod hands;
 mod hint;
 mod host;
+mod island;
 mod jobs;
 mod listening;
 pub(crate) mod live;
@@ -79,12 +84,12 @@ mod tests;
 mod wall;
 mod when;
 
-pub(crate) use host::{
-    Repair, ask_hint, install, listening, needs_repair, set_open_chats, set_open_setup,
-    set_repair, set_turn_on, setup_needed, show_result, stage_takes,
-};
 #[cfg(test)]
 pub(crate) use host::projected;
+pub(crate) use host::{
+    Repair, ask_hint, install, listening, needs_repair, set_open_chats, set_open_setup, set_repair,
+    set_turn_on, setup_needed, show_result, stage_takes,
+};
 
 /// A task's colour, for Chats' running tasks.
 pub(super) use palette::task as task_colour;

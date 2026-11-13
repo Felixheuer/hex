@@ -170,6 +170,37 @@ static WORDS: AtomicBool = AtomicBool::new(false);
 /// installation.
 static PLACE: OnceLock<Place> = OnceLock::new();
 
+/// How many [`IslandWords`] are held: the island's card shows the words,
+/// so the plate stays away.
+static ISLAND: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The assistant's island takes the live words of the capture in progress
+/// (the Action shortcut held for a quick turn): the capture publishes them
+/// even without Live text, and they show under the island instead of on
+/// this plate. Held from before the capture starts until it ended.
+pub(crate) struct IslandWords {
+    _demand: crate::dictation::live_text::Demand,
+}
+
+/// Takes the live words for the island (see [`IslandWords`]).
+pub(crate) fn island_words() -> IslandWords {
+    ISLAND.fetch_add(1, Ordering::AcqRel);
+    IslandWords {
+        _demand: crate::dictation::live_text::demand(),
+    }
+}
+
+impl Drop for IslandWords {
+    fn drop(&mut self) {
+        ISLAND.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Whether the island has the words now.
+fn island_has_words() -> bool {
+    ISLAND.load(Ordering::Acquire) > 0
+}
+
 /// The current failure notice, which a timer thread dismisses.
 static NOTICE: Mutex<FailureNotice> = Mutex::new(FailureNotice {
     message: None,
@@ -254,6 +285,10 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>, place: Place) {
             });
             return;
         };
+        // The island shows them (a quick turn held): not the plate too.
+        if island_has_words() {
+            return;
+        }
         WORDS.store(true, Ordering::Release);
         let handle = overlay.clone();
         overlay.update(move |plate, tx| {

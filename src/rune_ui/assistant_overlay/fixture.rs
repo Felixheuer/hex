@@ -260,6 +260,13 @@ pub(crate) fn script() -> Vec<(f64, Event)> {
                 conversation: QUICK.into(),
             },
         ),
+        (
+            7.9,
+            Event::Understood {
+                conversation: QUICK.into(),
+                text: "Your calendar, today from 12 pm on".into(),
+            },
+        ),
         (8.4, step(QUICK, "Opened Calendar")),
         (9.0, step(QUICK, "Read this afternoon's events")),
     ];

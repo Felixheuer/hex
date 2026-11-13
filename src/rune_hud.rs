@@ -742,9 +742,15 @@ const DOT_UNIFORM_BINDING: &str = "@group(0) @binding(0) var<uniform> u: DotUnif
 impl DotUniforms {
     fn new(frame: &DotFrame, layout: Layout, target: Target) -> Self {
         let pose = &frame.pose;
-        // An island is black in either appearance and draws no plate.
-        let dark = target.dark || layout.island.is_some();
+        // An island is black in either appearance and draws no plate. A
+        // capture that asks the assistant is its island too: the dark
+        // plate in light mode as well (`docs/ux/redesign.md` §3.1), never
+        // a light capsule beside the black notch.
+        let dark = target.dark || layout.island.is_some() || pose.ask > 0.0;
         let mut colors = dot_scope::palette(dark, pose, frame.tuning.saturation);
+        if pose.ask > 0.0 {
+            colors.plate = [0.0, 0.0, 0.0, 0.96];
+        }
         if layout.island.is_some() {
             for color in [&mut colors.plate, &mut colors.rim, &mut colors.shadow] {
                 color[3] = 0.0;
