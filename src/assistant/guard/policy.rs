@@ -341,3 +341,42 @@ pub fn app_key(name: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
+
+/// A snapshot that names none of agent-desktop's shape options gets
+/// `compact`: single-child unnamed containers collapse, so the tree the
+/// model reads (and pays for in tokens and time) is smaller, with every
+/// named element kept. Jobs' snapshots took 7.9 s at the median.
+pub fn lean_snapshot(tool: &str, args: &mut Map<String, Value>) {
+    if tool != "desktop_snapshot" {
+        return;
+    }
+    let shaped = ["compact", "skeleton", "interactive_only", "root"]
+        .iter()
+        .any(|key| args.contains_key(*key));
+    if !shaped {
+        args.insert("compact".into(), Value::Bool(true));
+    }
+}
+
+#[cfg(test)]
+mod lean_tests {
+    use super::*;
+
+    #[test]
+    fn an_unshaped_snapshot_is_compact_and_a_shaped_one_is_left_alone() {
+        let mut plain = Map::new();
+        lean_snapshot("desktop_snapshot", &mut plain);
+        assert_eq!(plain.get("compact"), Some(&Value::Bool(true)));
+        let mut skeleton = Map::new();
+        skeleton.insert("skeleton".into(), Value::Bool(true));
+        lean_snapshot("desktop_snapshot", &mut skeleton);
+        assert!(!skeleton.contains_key("compact"));
+        let mut full = Map::new();
+        full.insert("compact".into(), Value::Bool(false));
+        lean_snapshot("desktop_snapshot", &mut full);
+        assert_eq!(full.get("compact"), Some(&Value::Bool(false)));
+        let mut find = Map::new();
+        lean_snapshot("desktop_find", &mut find);
+        assert!(find.is_empty());
+    }
+}
