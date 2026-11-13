@@ -5,9 +5,15 @@ use color_eyre::eyre::{Result, bail};
 
 /// The AppleScript that sends `text` to `handle` over the iMessage account.
 pub fn script(handle: &str, text: &str) -> String {
+    script_over("iMessage", handle, text)
+}
+
+/// The same over `service`: "iMessage", or "SMS" through the iPhone's text
+/// message forwarding.
+pub fn script_over(service: &str, handle: &str, text: &str) -> String {
     format!(
         "tell application \"Messages\"\n\
-         \tset theAccount to 1st account whose service type = iMessage\n\
+         \tset theAccount to 1st account whose service type = {service}\n\
          \tsend {} to participant {} of theAccount\n\
          end tell",
         quoted(text),
@@ -33,16 +39,21 @@ fn quoted(text: &str) -> String {
 
 /// Sends `text` to `handle`; blocks until Messages took it.
 pub fn send(handle: &str, text: &str) -> Result<()> {
+    send_over("iMessage", handle, text)
+}
+
+/// Sends `text` to `handle` over `service`; blocks until Messages took it.
+pub fn send_over(service: &str, handle: &str, text: &str) -> Result<()> {
     #[cfg(test)]
     {
-        let _ = (handle, text);
+        let _ = (service, handle, text);
         bail!("tests never send iMessages");
     }
     #[cfg(not(test))]
     {
         let output = std::process::Command::new("/usr/bin/osascript")
             .arg("-e")
-            .arg(script(handle, text))
+            .arg(script_over(service, handle, text))
             .stdin(std::process::Stdio::null())
             .output()?;
         if !output.status.success() {

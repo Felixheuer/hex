@@ -119,8 +119,35 @@ fn send_async(handle: String, message: String) {
         .spawn(move || {
             if let Err(error) = send::send(&handle, &message) {
                 tracing::warn!(%error, "couldn't send to the person's phone");
+                return;
             }
+            // "Nicht zugestellt": Messages marks the row failed. Once more
+            // as SMS (the iPhone forwards text messages for this Mac).
+            std::thread::sleep(DELIVERY_WAIT);
+            let failed = match incoming::last_send_failed(&handle) {
+                Ok(true) => {
+                    tracing::warn!("the iMessage to the phone wasn't delivered; sending as SMS");
+                    send::send_over("SMS", &handle, &message).is_err()
+                }
+                Ok(false) => false,
+                Err(error) => {
+                    tracing::debug!(%error, "couldn't check the delivery");
+                    return;
+                }
+            };
+            *LAST_FAILED.lock().unwrap_or_else(|error| error.into_inner()) = failed;
         });
+}
+
+/// How long an iMessage gets to be delivered before it's sent as SMS.
+const DELIVERY_WAIT: Duration = Duration::from_secs(15);
+
+/// Whether the last message to the phone couldn't be sent even as SMS.
+static LAST_FAILED: Mutex<bool> = Mutex::new(false);
+
+/// Whether the last message to the phone couldn't be delivered.
+pub fn last_delivery_failed() -> bool {
+    *LAST_FAILED.lock().unwrap_or_else(|error| error.into_inner())
 }
 
 static STARTED: AtomicBool = AtomicBool::new(false);
