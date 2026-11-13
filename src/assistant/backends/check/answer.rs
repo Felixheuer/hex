@@ -60,14 +60,13 @@ pub(super) fn answers(
             command.arg(ANSWER_PROMPT);
         }
         AssistantBackend::OpenCode => {
-            // Standalone, as tasks run it, with the person's own key when
-            // one is chosen.
+            // As tasks run it, with the person's own key when one is
+            // chosen.
             let model = super::super::providers::opencode_check(
                 &mut command,
                 settings,
                 serde_json::json!({}),
             );
-            command.args(["run", "--standalone", "--format", "json", "--archived"]);
             if let Some(model) = &model {
                 command.args(["--model", model]);
             }
@@ -112,8 +111,11 @@ pub(super) fn answers(
     });
     let fix = if signed_out(&problem) {
         Some(sign_in_fix(backend))
-    } else if backend == AssistantBackend::OpenCode && !crate::desktop::opencode_service::running()
+    } else if backend == AssistantBackend::OpenCode
+        && super::super::opencode::generation() == super::super::opencode::Generation::Two
+        && !crate::desktop::opencode_service::running()
     {
+        // Only OpenCode 2 has `opencode service start`.
         Some(Fix::StartOpenCode)
     } else {
         Some(Fix::Retry)

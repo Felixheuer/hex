@@ -662,8 +662,14 @@ fn a_job_leads_helpers_that_work_in_its_folder_and_stop_with_it() {
         .push(ask("n3", &lead, limit + 3));
     world.wait_until("the cut", || !world.team_answers.lock().unwrap().is_empty());
     let (_, cut) = world.team_answers.lock().unwrap().remove(0);
-    let more = cut.expect("the room left starts");
-    assert_eq!(more.len(), limit - working);
+    if working < limit {
+        let more = cut.expect("the room left starts");
+        assert_eq!(more.len(), limit - working);
+    } else {
+        // A small computer (`capacity::limits`): the helpers already at
+        // work are all it runs, so even the first ask is refused.
+        assert!(cut.unwrap_err().contains(&format!("At most {limit}")));
+    }
     world.team_asks.lock().unwrap().push(ask("n4", &lead, 1));
     world.wait_until("the cap", || !world.team_answers.lock().unwrap().is_empty());
     let (_, capped) = world.team_answers.lock().unwrap().remove(0);

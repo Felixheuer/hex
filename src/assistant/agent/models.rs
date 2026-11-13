@@ -23,6 +23,9 @@ pub fn model(job: &Job) -> Option<String> {
     match settings.backend {
         AssistantBackend::ClaudeCode => fast.or_else(|| settings.claude_code_model.clone()),
         AssistantBackend::Codex => settings.codex_model.clone(),
+        AssistantBackend::OpenCode if here => {
+            crate::assistant::backends::opencode_here_model(settings)
+        }
         AssistantBackend::OpenCode => crate::assistant::backends::opencode_model(settings),
         AssistantBackend::ClaudeApi => fast.or_else(|| Some(settings.claude_api_model.clone())),
     }
@@ -30,28 +33,38 @@ pub fn model(job: &Job) -> Option<String> {
 
 /// Whether a fast model's failed turn goes on with the strong one: it
 /// handed over ([`provider::Escalate`]) or failed, but not on a usage
-/// limit (the strong model shares it) nor when it was stopped.
+/// limit or an empty account (the strong model shares them) nor when it
+/// was stopped.
 pub(super) fn should_escalate(error: &color_eyre::Report) -> bool {
+    let message = format!("{error:#}");
     provider::escalated(error).is_some()
-        || (limit::detect(&format!("{error:#}")).is_none() && format!("{error:#}") != "cancelled")
+        || (limit::detect(&message).is_none()
+            && !limit::out_of_credit(&message)
+            && message != "cancelled")
 }
 
 /// The model a Here turn on the fast one goes on with when it hands over
-/// ([`provider::Escalate`]): Claude Code's own (`None`: its default).
+/// ([`provider::Escalate`]): Claude Code's own (`None`: its default), or
+/// OpenCode's jobs' model.
 pub fn strong_model(settings: &AssistantSettings) -> Option<String> {
-    settings
-        .claude_code_model
-        .as_deref()
-        .map(str::trim)
-        .filter(|model| !model.is_empty())
-        .map(str::to_owned)
+    match settings.backend {
+        AssistantBackend::OpenCode => crate::assistant::backends::opencode_model(settings),
+        _ => settings
+            .claude_code_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .map(str::to_owned),
+    }
 }
 
-/// Whether `job` runs on the Here lane's fast model on Claude Code, where
-/// a hard turn can hand over to the strong one.
+/// Whether `job` runs on the Here lane's fast model on Claude Code or
+/// OpenCode, where a hard turn can hand over to the strong one.
 pub(super) fn on_fast_model(job: &Job) -> bool {
-    job.settings.backend == AssistantBackend::ClaudeCode
-        && job.request.origin.lane() == Lane::Here
+    matches!(
+        job.settings.backend,
+        AssistantBackend::ClaudeCode | AssistantBackend::OpenCode
+    ) && job.request.origin.lane() == Lane::Here
         && model(job).is_some_and(|fast| Some(&fast) != strong_model(&job.settings).as_ref())
 }
 

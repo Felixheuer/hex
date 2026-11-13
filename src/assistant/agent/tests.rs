@@ -316,7 +316,7 @@ fn each_lane_gets_its_own_rules() {
         "the guard offers it where allowed"
     );
     assert!(background.contains("Never the person's window"));
-    assert!(background.contains("Use the browser tools for anything on the web"));
+    assert!(background.contains("use them for anything on the web"));
     assert!(background.contains("You run beside the person and other agents"));
     assert!(
         !background.contains("cursor"),

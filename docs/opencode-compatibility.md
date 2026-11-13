@@ -28,7 +28,9 @@ restarts the service, and never searches for or probes an installed CLI. It
 only talks to an already running service (`src/desktop/opencode_service.rs`).
 
 The one exception is the assistant (on by default, macOS) with OpenCode
-chosen as its agent: each task runs `opencode run --standalone` with its own
+chosen as its agent: each task runs `opencode run` (OpenCode 2 with
+`--standalone`; classic OpenCode 1.x, which has no such flag, runs in its
+own process anyway, `backends::opencode`) with its own
 `OPENCODE_CONFIG_CONTENT` (a `agent-desk` agent denied the shell and file edits, and
 the guard as its MCP server), because the running service loads its MCP
 servers once and can't give one session its own guard (the task's spec). The

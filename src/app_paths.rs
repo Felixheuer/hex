@@ -128,8 +128,7 @@ pub fn is_macos_dev_build() -> bool {
 }
 
 /// The name menus show, so a Dev or Test build running beside Agent-Desk
-/// reads as itself.
-#[cfg(target_os = "macos")]
+/// reads as itself (the tray's menu on every OS).
 pub fn app_name() -> &'static str {
     variant().name()
 }

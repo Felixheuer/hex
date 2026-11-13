@@ -222,7 +222,7 @@ pub fn job_rules(workspace: &std::path::Path, tools: JobTools, unrestricted: boo
     }
     rules.push_str(&apps_rules(tools.desktop, browser));
     if browser && !crate::assistant::browser::signed_in() {
-        rules.push_str("The hidden browser isn't signed in to any account. If the job needs one of the person's web accounts, include in your one question that the person should take their logins over from their browser or sign in by hand in Agent-Desk's settings (Accounts) and answer when done.\n");
+        rules.push_str("The hidden browser has none of the person's accounts. If the job needs one, include in your one question that they take their logins over from Chrome or sign in by hand in Agent-Desk's settings (Accounts; Google and YouTube only by hand), and answer when done.\n");
     }
     rules
 }

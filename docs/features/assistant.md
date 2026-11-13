@@ -98,7 +98,9 @@ A refused request (assistant off, setup unfinished) emits `Started` before
 its `Failed`, so the Here bubble has its question. The bubble reads the
 brain's message (`assistant_overlay::failure::Failure::of`) into one of:
 off, setup unfinished, not signed in, not installed, missing permission,
-usage limit, or anything else. It shows a short line in the language the
+usage limit, no credit left (an own-key provider's empty account, which no
+wait fixes: `limit::out_of_credit`, never treated as a limit), or anything
+else. It shows a short line in the language the
 question was asked in, the brain's own words small beneath it when they say
 more, and one action: **Fix** (Assistant settings for "off"; the setup's
 repair pages, `chats::setup::repair`, for the rest it can fix) or **Try
@@ -227,7 +229,12 @@ real speakers.
   and the strong model goes on in the same session, told
   `agent::ESCALATED_NOTE`; so does one that failed (not on a usage limit,
   not when stopped). Handing work to a job (`hex_start_jobs`) puts it on the
-  strong model anyway.
+  strong model anyway. OpenCode does the same: a Here turn runs on the
+  provider's fast model (`Provider::fast_model`, DeepSeek Flash for
+  DeepSeek; `assistant.here_model` instead when it is one of that
+  provider's) and hands over to the jobs' model (`opencode_model`, DeepSeek
+  V4 Pro) after the same number of tool calls, which OpenCode reports once
+  each has ended.
 - **Stuck quick turns.** A Here turn whose backend reports nothing (no
   stream line, no tool call or result) for 45 s is ended
   (`agent::watchdog`, `Control::stall`) instead of showing "Thinking…" up
@@ -778,6 +785,56 @@ checks off (`driver::cua::env`). macOS only.
   …)" on setup's permissions page, in the Checks' detail, and by
   `agent-desk assistant driver`; a failed update is a repair-guide gap
   (`Gap::DriverUpdate`).
+
+## OpenCode and your own API key
+
+Two programs answer to `opencode`, and `backends::opencode` tells them
+apart by `--version` (remembered per executable until it changes on disk):
+
+- **OpenCode 2** (`@opencode/cli`, `anomalyco/tap/opencode-v2`, the
+  `opencode.ai/v2` installer; `0.0.0-dev/beta` builds too), which Agent-Desk
+  installs: `opencode run --standalone --format json --auto --archived`,
+  providers in the config as `providers.<id>.settings`.
+- **Classic OpenCode** (1.x and the 0.x before it: `opencode-ai`,
+  `~/.opencode/bin`, Homebrew's `opencode`): no `--standalone` or
+  `--archived` (it prints its help and fails), and it rejects a config
+  with `providers`; it gets `opencode run --format json --auto --title
+  Agent-Desk` and `provider.<id>.options`. Its sessions show in the
+  person's own list, titled Agent-Desk.
+
+Tasks, the three self-tests (`check::answer`, `check::browser`,
+`check::driver`, through `providers::opencode_check`) and the readiness
+check's `opencode models` all build their arguments there.
+
+**Bring your own key.** `backends::providers` lists the providers OpenCode
+knows (DeepSeek first) with their key page, default and fast model, and a
+tiny request that proves a key (DeepSeek's `/user/balance` also says the
+balance). The key is kept in the Keychain (`provider:<id>`), handed to the
+task's process only, by environment, and named by reference in the config
+(`{env:DEEPSEEK_API_KEY}`). Setup's agent page saves it; so does
+`agent-desk assistant provider-key deepseek` (the key on stdin; `--list`,
+`--check`), and `agent-desk assistant ask --provider deepseek "…"` runs one
+task with it. A wrong key fails as "not signed in" (Fix), an empty account
+as "no credit left" (Fix, never waited out as a limit). Verified end to end
+on 2026-11-13 with DeepSeek on OpenCode 1.19.5 and 2.3.0: quick turns, a
+job with the hidden browser, the own-key path, a wrong key, and a hand-over
+from Flash to V4 Pro.
+
+## Web accounts in the hidden browsers
+
+Every task's hidden browser starts from a read-only copy of one sign-in
+state (`browser::accounts`): the cookies of a Chrome profile, taken over
+in Assistant settings › Accounts and again every day, or sign-ins made by
+hand in Agent-Desk's own window. **Google and YouTube never come over from
+Chrome** (`accounts::kept_in_chrome`; only their consent cookies do):
+Google binds a session to its browser and ends it everywhere once it sees
+it used from a second one, so twenty hidden Chromes with a copy of the
+person's Google session signed them out of Google and YouTube in their own
+Chrome when agents started. A sign-in by hand in Agent-Desk's window is a
+session of its own and leaves Chrome's alone. A state an older import left
+with Google's cookies is cleaned once on launch
+(`accounts::keep_google_out`, recorded as `google_kept_out` in
+`browser-import.json`).
 
 ## Agents on Linux and Windows
 

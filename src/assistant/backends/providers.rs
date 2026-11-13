@@ -40,6 +40,8 @@ pub struct Provider {
     pub default_model: &'static str,
     /// Models offered first (all tool-capable), the default first.
     pub models: &'static [&'static str],
+    /// The quick one of them for quick turns (`None`: the default).
+    pub fast_model: Option<&'static str>,
     /// The variable OpenCode reads the key from.
     pub env: &'static str,
     /// The API to verify a key against, and the path asked.
@@ -55,6 +57,7 @@ const PROVIDERS: &[Provider] = &[
         key_url: "https://platform.deepseek.com/api_keys",
         default_model: "deepseek-v4-pro",
         models: &["deepseek-v4-pro", "deepseek-flash"],
+        fast_model: Some("deepseek-flash"),
         env: "DEEPSEEK_API_KEY",
         api: "https://api.deepseek.com",
         // Also says whether the account has credit.
@@ -74,6 +77,7 @@ const PROVIDERS: &[Provider] = &[
             "moonshotai/kimi-k3.1-pro",
             "z-ai/glm-5.3",
         ],
+        fast_model: None,
         env: "OPENROUTER_API_KEY",
         api: "https://openrouter.ai/api/v1",
         // The key itself: its limit and what's left.
@@ -86,6 +90,7 @@ const PROVIDERS: &[Provider] = &[
         key_url: "https://platform.openai.com/api-keys",
         default_model: "gpt-6.1-sol",
         models: &["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"],
+        fast_model: None,
         env: "OPENAI_API_KEY",
         api: "https://api.openai.com/v1",
         check_path: "/models",
@@ -97,6 +102,7 @@ const PROVIDERS: &[Provider] = &[
         key_url: "https://platform.claude.com/settings/keys",
         default_model: "claude-sonnet-5-5",
         models: &["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"],
+        fast_model: Some("claude-haiku-5-5"),
         env: "ANTHROPIC_API_KEY",
         api: "https://api.anthropic.com/v1",
         check_path: "/models",
@@ -108,6 +114,7 @@ const PROVIDERS: &[Provider] = &[
         key_url: "https://aistudio.google.com/apikey",
         default_model: "gemini-4-carbon",
         models: &["gemini-4-carbon", "gemini-4-argon", "gemini-3.8-flash"],
+        fast_model: Some("gemini-3.8-flash"),
         env: "GOOGLE_GENERATIVE_AI_API_KEY",
         api: "https://generativelanguage.googleapis.com/v1beta",
         check_path: "/models",
@@ -119,6 +126,7 @@ const PROVIDERS: &[Provider] = &[
         key_url: "https://console.groq.com/keys",
         default_model: "qwen/qwen3.8-27b",
         models: &["qwen/qwen3.8-27b", "openai/gpt-oss-120b"],
+        fast_model: None,
         env: "GROQ_API_KEY",
         api: "https://api.groq.com/openai/v1",
         check_path: "/models",
@@ -130,6 +138,7 @@ const PROVIDERS: &[Provider] = &[
         key_url: "https://console.mistral.ai/api-keys",
         default_model: "mistral-large-4",
         models: &["mistral-large-4"],
+        fast_model: None,
         env: "MISTRAL_API_KEY",
         api: "https://api.mistral.ai/v1",
         check_path: "/models",
@@ -141,6 +150,7 @@ const PROVIDERS: &[Provider] = &[
         key_url: "https://console.x.ai/team/default/api-keys",
         default_model: "grok-4.7",
         models: &["grok-4.7", "grok-4.6"],
+        fast_model: None,
         env: "XAI_API_KEY",
         api: "https://api.x.ai/v1",
         check_path: "/models",
@@ -152,6 +162,7 @@ const PROVIDERS: &[Provider] = &[
         key_url: "https://platform.kimi.ai/console/api-keys",
         default_model: "kimi-k3.1-pro",
         models: &["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed", "kimi-k3"],
+        fast_model: Some("kimi-k3.1-pro-highspeed"),
         env: "MOONSHOT_API_KEY",
         api: "https://api.moonshot.ai/v1",
         check_path: "/models",
@@ -163,6 +174,7 @@ const PROVIDERS: &[Provider] = &[
         key_url: "https://z.ai/manage-apikey/apikey-list",
         default_model: "glm-5.3",
         models: &["glm-5.3", "glm-5.3-flash"],
+        fast_model: Some("glm-5.3-flash"),
         env: "ZHIPU_API_KEY",
         api: "https://api.z.ai/api/paas/v4",
         check_path: "/models",
@@ -365,6 +377,38 @@ pub fn opencode_model(settings: &AssistantSettings) -> Option<String> {
     )
 }
 
+/// The `provider/model` a quick turn uses on OpenCode: the quick-question
+/// model when it is one of the task's provider's (`assistant.here_model`;
+/// its default is a Claude Code model, which OpenCode doesn't take), else
+/// that provider's fast model ([`Provider::fast_model`]), else the jobs'.
+pub fn opencode_here_model(settings: &AssistantSettings) -> Option<String> {
+    let strong = opencode_model(settings);
+    let provider_id = strong
+        .as_deref()
+        .and_then(|model| model.split_once('/'))
+        .map(|(provider, _)| provider.to_owned());
+    if let Some(here) = settings
+        .here_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| model.contains('/'))
+        && provider_id
+            .as_deref()
+            .is_none_or(|id| here.starts_with(&format!("{id}/")))
+    {
+        return Some(here.to_owned());
+    }
+    provider_id
+        .as_deref()
+        .and_then(provider)
+        .and_then(|provider| {
+            provider
+                .fast_model
+                .map(|fast| format!("{}/{fast}", provider.id))
+        })
+        .or(strong)
+}
+
 /// The OpenCode config fragment for the chosen provider: its model, and
 /// its key by reference to the variable [`agent_env_for`] sets. `None`
 /// without a chosen provider. Merge it into `OPENCODE_CONFIG_CONTENT`.
@@ -424,16 +468,21 @@ pub fn merge_config(base: &mut Value, fragment: &Value) {
     }
 }
 
-/// An `opencode run` for a self-test, with the chosen provider's config
-/// merged into `config` and its key in the environment; the model to pass.
+/// An `opencode run` for a self-test, as tasks run it: its `run`
+/// arguments for the installed OpenCode, the chosen provider's config
+/// merged into `config` and its key in the environment. Returns the model
+/// to pass; the caller adds it and the prompt.
 pub(super) fn opencode_check(
     command: &mut std::process::Command,
     settings: &AssistantSettings,
     mut config: Value,
 ) -> Option<String> {
+    let generation = super::opencode::generation();
     if let Some(fragment) = opencode_provider_config(settings) {
         merge_config(&mut config, &fragment);
     }
+    super::opencode::adapt_config(&mut config, generation);
+    command.args(super::opencode::run_args(generation));
     if config.as_object().is_some_and(|config| !config.is_empty()) {
         command.env("OPENCODE_CONFIG_CONTENT", config.to_string());
     }
@@ -610,7 +659,49 @@ mod tests {
             );
             assert!(provider.key_url.starts_with("https://"));
             assert!(provider.env.ends_with("_API_KEY"));
+            if let Some(fast) = provider.fast_model {
+                assert!(provider.models.contains(&fast), "{}", provider.id);
+            }
         }
+    }
+
+    #[test]
+    fn quick_turns_take_the_providers_fast_model() {
+        let with = |provider: Option<&str>, model: Option<&str>, here: Option<&str>| {
+            opencode_here_model(&AssistantSettings {
+                here_model: here.map(str::to_owned),
+                ..settings(provider, model)
+            })
+        };
+        // The default quick-question model is Claude Code's: not OpenCode's.
+        assert_eq!(
+            with(Some("deepseek"), None, Some("claude-sonnet-5-5")).as_deref(),
+            Some("deepseek/deepseek-flash")
+        );
+        // The person's own sign-in: the saved model's provider.
+        assert_eq!(
+            with(None, Some("deepseek/deepseek-v4-pro"), None).as_deref(),
+            Some("deepseek/deepseek-flash")
+        );
+        // A quick-question model of that provider wins; another's doesn't.
+        assert_eq!(
+            with(Some("deepseek"), None, Some("deepseek/deepseek-v4-pro")).as_deref(),
+            Some("deepseek/deepseek-v4-pro")
+        );
+        assert_eq!(
+            with(Some("deepseek"), None, Some("openai/gpt-6-luna")).as_deref(),
+            Some("deepseek/deepseek-flash")
+        );
+        // No fast model known: the jobs' one.
+        assert_eq!(
+            with(Some("openai"), None, None).as_deref(),
+            Some("openai/gpt-6.1-sol")
+        );
+        assert_eq!(
+            with(None, Some("opencode/big-pickle"), None).as_deref(),
+            Some("opencode/big-pickle")
+        );
+        assert_eq!(with(None, None, None), None);
     }
 
     fn settings(provider: Option<&str>, model: Option<&str>) -> AssistantSettings {

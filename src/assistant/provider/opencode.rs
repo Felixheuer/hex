@@ -1,5 +1,7 @@
-//! OpenCode: `opencode run --standalone --format json`, with the person's
-//! own OpenCode configuration and sign-ins.
+//! OpenCode: `opencode run --format json` (OpenCode 2 with `--standalone`),
+//! with the person's own OpenCode configuration and sign-ins. Classic
+//! OpenCode (1.x) and OpenCode 2 take different flags and config words
+//! ([`backends::opencode`](crate::assistant::backends::opencode)).
 //!
 //! Why the CLI and not the running service: Agent-Desk's other features only talk
 //! to an already running OpenCode service, but that service loads its MCP
@@ -9,7 +11,8 @@
 //! `OPENCODE_CONFIG_CONTENT` adds to the person's configuration an agent
 //! `agent-desk` (Agent-Desk's instructions; shell and file edits denied) and the
 //! guard as a local MCP server. `--auto` approves the rest, so nothing waits on a
-//! prompt; `--archived` keeps these sessions out of the person's list.
+//! prompt; `--archived` keeps these sessions out of the person's list
+//! (OpenCode 2; Classic OpenCode titles them "Agent-Desk" instead).
 //! A conversation continues with `--session <id>`.
 
 use color_eyre::{Result, eyre::eyre};
@@ -19,6 +22,7 @@ use serde_json::{Map, Value, json};
 use super::desktop::Describer;
 use super::{Control, Finished, Process, Report, Run, Stdin};
 use crate::app_settings::AssistantBackend;
+use crate::assistant::backends::opencode::{self as cli, Generation};
 
 const AGENT: &str = "hex";
 
@@ -28,6 +32,7 @@ pub(super) fn run(
     report: &mut dyn FnMut(Report),
 ) -> Result<Finished> {
     let executable = super::executable(AssistantBackend::OpenCode)?;
+    let generation = cli::generation_for(&executable);
     let mut command = super::command(&executable, &run.workdir);
     // A bring-your-own-key provider's key travels in the environment only;
     // the config names it by reference.
@@ -36,12 +41,15 @@ pub(super) fn run(
             .env_clear()
             .envs(env.iter().map(|(key, value)| (key, value)));
     }
-    command.env("OPENCODE_CONFIG_CONTENT", config(run).to_string());
+    command.env(
+        "OPENCODE_CONFIG_CONTENT",
+        config(run, generation).to_string(),
+    );
     // A Windows batch file can't take the prompt's newlines and quotes as
     // an argument; when OpenCode is one Agent-Desk couldn't unwrap, the prompt goes
     // on its input, which `opencode run` reads as the message.
     let batch = is_batch_file(&crate::assistant::backends::search::launch(&executable).0);
-    let mut args = arguments(run);
+    let mut args = arguments(run, generation);
     let stdin = if batch {
         args.truncate(args.len() - 2);
         Stdin::Write(run.prompt.clone().into_bytes())
@@ -53,6 +61,26 @@ pub(super) fn run(
     let mut stream = Stream::default();
     while let Some(line) = process.next_line() {
         stream.line(&line, report);
+        // A quick turn on the fast model that needs many tools: the strong
+        // model goes on in this session. Only between two steps, once the
+        // step's every tool (several may run at once) has its result, so
+        // the session it resumes has no call left open.
+        if stream.between_steps
+            && run
+                .escalate_after
+                .is_some_and(|after| stream.error.is_none() && stream.tools >= after)
+        {
+            tracing::info!(
+                tools = stream.tools,
+                "the fast model hands the turn to the strong one"
+            );
+            super::end_group(process.tree.clone());
+            let _ = process.finish(control);
+            return Err(super::Escalate {
+                tools: stream.tools,
+            }
+            .into());
+        }
     }
     let (status, stderr) = process.finish(control);
     if control.cancelled() {
@@ -67,19 +95,12 @@ pub(super) fn run(
     })
 }
 
-fn arguments(run: &Run) -> Vec<String> {
-    let mut args: Vec<String> = [
-        "run",
-        "--standalone",
-        "--format",
-        "json",
-        "--auto",
-        "--archived",
-        "--agent",
-        AGENT,
-    ]
-    .map(str::to_owned)
-    .into();
+fn arguments(run: &Run, generation: Generation) -> Vec<String> {
+    let mut args: Vec<String> = cli::run_args(generation)
+        .into_iter()
+        .chain(["--agent", AGENT])
+        .map(str::to_owned)
+        .collect();
     if let Some(session) = &run.resume {
         args.extend(["--session".into(), session.clone()]);
     }
@@ -110,8 +131,9 @@ fn is_batch_file(program: &std::path::Path) -> bool {
         })
 }
 
-/// What `OPENCODE_CONFIG_CONTENT` adds to the person's configuration.
-fn config(run: &Run) -> Value {
+/// What `OPENCODE_CONFIG_CONTENT` adds to the person's configuration, in
+/// `generation`'s words.
+fn config(run: &Run, generation: Generation) -> Value {
     // A job may edit and run commands in its workspace (the working
     // folder); nothing outside it.
     let permission = match run.workspace {
@@ -134,6 +156,7 @@ fn config(run: &Run) -> Value {
     if let Some(provider) = &run.provider_config {
         crate::assistant::backends::merge_config(&mut config, provider);
     }
+    cli::adapt_config(&mut config, generation);
     config
 }
 
@@ -147,6 +170,10 @@ pub(super) struct Stream {
     wrote: bool,
     tool_after_text: bool,
     error: Option<String>,
+    /// The tool calls made so far.
+    tools: usize,
+    /// The last event ended a step (`step_finish`): no tool runs now.
+    between_steps: bool,
 }
 
 impl Stream {
@@ -161,7 +188,9 @@ impl Stream {
             report(Report::Session(session.to_owned()));
         }
         let part = event.get("part").unwrap_or(&Value::Null);
-        match event.get("type").and_then(Value::as_str) {
+        let kind = event.get("type").and_then(Value::as_str);
+        self.between_steps = kind == Some("step_finish");
+        match kind {
             Some("text") => {
                 let text = part.get("text").and_then(Value::as_str).unwrap_or_default();
                 if text.trim().is_empty() {
@@ -179,6 +208,7 @@ impl Stream {
                 report(Report::Delta(text.trim().to_owned()));
             }
             Some("tool_use") => {
+                self.tools += 1;
                 self.answer.clear();
                 if self.wrote {
                     self.tool_after_text = true;
@@ -193,6 +223,20 @@ impl Stream {
                             report(item);
                         }
                     }
+                }
+            }
+            // Between two steps: the session's size (what its last request
+            // carried), so a long job starts a fresh session in time
+            // (`agent::rollover`), as on Claude Code.
+            Some("step_finish") => {
+                let tokens = |path: &str| part.pointer(path).and_then(Value::as_u64).unwrap_or(0);
+                let context_tokens = tokens("/tokens/input")
+                    + tokens("/tokens/cache/read")
+                    + tokens("/tokens/cache/write");
+                if context_tokens > 0 {
+                    report(Report::Usage(crate::assistant::agent::rollover::Usage {
+                        context_tokens,
+                    }));
                 }
             }
             Some("error") => {
@@ -341,7 +385,8 @@ mod tests {
             workspace: Some("/tmp/job".into()),
             ..Run::fixture(AssistantBackend::OpenCode)
         };
-        let permission = |run: &Run| config(run)["agent"][AGENT]["permission"].clone();
+        let permission =
+            |run: &Run| config(run, Generation::Two)["agent"][AGENT]["permission"].clone();
         assert_eq!(permission(&run)["external_directory"], "deny");
         run.unrestricted = true;
         assert_eq!(permission(&run)["external_directory"], "allow");
@@ -366,17 +411,103 @@ mod tests {
     fn a_bring_your_own_key_provider_is_merged_into_the_config() {
         let mut run = Run::fixture(AssistantBackend::OpenCode);
         run.provider_config = Some(json!({
-            "model": "deepseek/deepseek-chat",
-            "provider": {"deepseek": {"options": {"apiKey": "{env:DEEPSEEK_API_KEY}"}}},
+            "model": "deepseek/deepseek-v4-pro",
+            "providers": {"deepseek": {"settings": {"apiKey": "{env:DEEPSEEK_API_KEY}"}}},
         }));
-        let config = config(&run);
-        assert_eq!(config["model"], "deepseek/deepseek-chat");
+        let two = config(&run, Generation::Two);
+        assert_eq!(two["model"], "deepseek/deepseek-v4-pro");
         assert_eq!(
-            config["provider"]["deepseek"]["options"]["apiKey"],
+            two["providers"]["deepseek"]["settings"]["apiKey"],
             "{env:DEEPSEEK_API_KEY}"
         );
         // Agent-Desk's own agent stays.
-        assert_eq!(config["agent"]["hex"]["mode"], "primary");
+        assert_eq!(two["agent"]["hex"]["mode"], "primary");
+        // Classic OpenCode rejects `providers`: its own words instead.
+        let classic = config(&run, Generation::Classic);
+        assert!(classic.get("providers").is_none());
+        assert_eq!(
+            classic["provider"]["deepseek"]["options"]["apiKey"],
+            "{env:DEEPSEEK_API_KEY}"
+        );
+        assert_eq!(classic["agent"]["hex"]["mode"], "primary");
+    }
+
+    #[test]
+    fn each_opencode_gets_only_the_flags_it_knows() {
+        let mut run = Run::fixture(AssistantBackend::OpenCode);
+        run.resume = Some("ses_1".into());
+        run.model = Some("deepseek/deepseek-v4-pro".into());
+        let classic = arguments(&run, Generation::Classic);
+        assert!(
+            !classic
+                .iter()
+                .any(|arg| arg == "--standalone" || arg == "--archived")
+        );
+        let two = arguments(&run, Generation::Two);
+        assert!(two.iter().any(|arg| arg == "--standalone"));
+        for args in [classic, two] {
+            assert_eq!(args[0], "run");
+            let after = |flag: &str| {
+                args.iter()
+                    .position(|arg| arg == flag)
+                    .map(|at| args[at + 1].clone())
+            };
+            assert_eq!(after("--agent").as_deref(), Some(AGENT));
+            assert_eq!(after("--session").as_deref(), Some("ses_1"));
+            assert_eq!(
+                after("--model").as_deref(),
+                Some("deepseek/deepseek-v4-pro")
+            );
+            assert_eq!(args[args.len() - 2..], ["--".to_owned(), "hi".to_owned()]);
+        }
+    }
+
+    #[test]
+    fn each_step_reports_the_sessions_size() {
+        let mut stream = Stream::default();
+        let mut sizes = Vec::new();
+        for line in include_str!("../../../tests/fixtures/assistant/opencode-desktop.jsonl").lines()
+        {
+            stream.line(line, &mut |report| {
+                if let Report::Usage(usage) = report {
+                    sizes.push(usage.context_tokens);
+                }
+            });
+        }
+        // input + cache read + cache write of each step.
+        assert_eq!(sizes[..3], [10_768, 11_853, 15_991]);
+        // Classic OpenCode's shape (a `total` beside them) counts the same.
+        let mut classic = Vec::new();
+        Stream::default().line(
+            r#"{"type":"step_finish","sessionID":"s","part":{"type":"step-finish","tokens":{"total":11139,"input":9473,"output":2,"reasoning":0,"cache":{"write":0,"read":1664}},"cost":0.0014}}"#,
+            &mut |report| {
+                if let Report::Usage(usage) = report {
+                    classic.push(usage.context_tokens);
+                }
+            },
+        );
+        assert_eq!(classic, [11_137]);
+    }
+
+    #[test]
+    fn tool_calls_are_counted_for_the_hand_over_between_steps() {
+        let mut stream = Stream::default();
+        let mut boundaries = Vec::new();
+        for line in include_str!("../../../tests/fixtures/assistant/opencode-desktop.jsonl").lines()
+        {
+            stream.line(line, &mut |_| {});
+            if stream.between_steps {
+                boundaries.push(stream.tools);
+            }
+        }
+        assert!(stream.tools > 0);
+        // A hand-over waits for the step's end, never right after a tool.
+        assert!(!boundaries.is_empty());
+        stream.line(
+            r#"{"type":"tool_use","sessionID":"s","part":{"tool":"x","state":{"status":"completed","input":{}}}}"#,
+            &mut |_| {},
+        );
+        assert!(!stream.between_steps);
     }
 
     #[test]

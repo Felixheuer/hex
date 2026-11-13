@@ -17,6 +17,7 @@ pub(in crate::assistant) mod desktop;
 pub mod doctor;
 mod install;
 mod keys;
+pub(in crate::assistant) mod opencode;
 mod providers;
 mod recommend;
 pub(in crate::assistant) mod run;
@@ -37,7 +38,7 @@ pub use install::{
     Installers, Os, Plan, Step, Tool, apply_fix, apply_fix_with, install_command, plan,
 };
 pub use providers::{
-    Provider, agent_env_for, has_provider_key, merge_config, opencode_model,
+    Provider, agent_env_for, has_provider_key, merge_config, opencode_here_model, opencode_model,
     opencode_provider_config, parse_models, provider, providers, set_provider_key,
     signed_in_providers, verify_provider_key,
 };
@@ -165,8 +166,9 @@ fn find(backend: AssistantBackend) -> Found {
 
 /// OpenCode is ready with a saved key for the chosen provider (any
 /// provider's while none is chosen), or with a provider of its own: one it
-/// lists models for (`opencode models --standalone`), its free `opencode`
-/// models aside. Tasks run it standalone, so its service needn't run.
+/// lists models for (`opencode models`, OpenCode 2 `--standalone`), its free
+/// `opencode` models aside. Tasks run it on its own, so its service needn't
+/// run.
 fn opencode_signed_in(path: &Path) -> (bool, Option<String>) {
     let chosen = crate::app_settings::assistant_runtime()
         .and_then(|(_, settings)| settings.opencode_provider);
@@ -174,7 +176,7 @@ fn opencode_signed_in(path: &Path) -> (bool, Option<String>) {
         return (true, None);
     }
     let mut command = agent_command(path);
-    command.args(["models", "--standalone"]);
+    command.args(opencode::models_args(opencode::generation_for(path)));
     let own = run::bounded(command, QUICK)
         .map(|ran| providers::signed_in_providers(&ran.stdout))
         .unwrap_or_default();

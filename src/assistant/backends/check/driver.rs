@@ -163,8 +163,6 @@ pub(super) fn through_agent(
                 "tools": { "*": false, tool.as_str(): true },
             });
             let model = super::super::providers::opencode_check(&mut command, settings, config);
-            // A private server, so the config above is its own.
-            command.args(["run", "--standalone", "--format", "json", "--archived"]);
             if let Some(model) = &model {
                 command.args(["--model", model]);
             }

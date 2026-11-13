@@ -61,6 +61,11 @@ maintainable, and nothing that isn't possible.
 - [ ] Compact the rules (Here ~11.2k, jobs ~18.8k characters), menu-bar menu, first-run voice
       screens into the new flow
 - [ ] F: real bench against Dev + full suite once (with the user's OK)
+- [x] OpenCode 1.x and 2 both run tasks (classic had failed on `--standalone`); DeepSeek by
+      own key end to end; Flash for quick turns with hand-over to V4 Pro; "no credit left"
+- [x] Google/YouTube no longer copied from Chrome into hidden browsers (signed the person
+      out of Google in Chrome when agents started); old copies cleaned once
+- [x] Job rules back within budget
 
 ## Round 6 (after the rename): Cua only, no legacy
 

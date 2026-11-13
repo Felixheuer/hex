@@ -237,7 +237,6 @@ fn through(
                 settings,
                 config,
             );
-            command.args(["run", "--standalone", "--format", "json", "--archived"]);
             if let Some(model) = &model {
                 command.args(["--model", model]);
             }
