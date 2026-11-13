@@ -36,7 +36,7 @@ const TIMEOUT: Duration = Duration::from_secs(8);
 pub fn definition() -> Value {
     json!({
         "name": NAME,
-        "description": "The person's OWN browser, whichever is their default (what they see, signed in): read or act in a tab that is already open, without a hidden copy, the mouse, or the keyboard. Use it when the person means a tab they have open (\u{201c}my open tab\u{201d}, \u{201c}the page I'm on\u{201d}, \u{201c}in my browser\u{201d}); use the agent browser for anything else. `tab` picks the tab: its id (from hex_lookup scope browser_tabs or an earlier call), or words of its title or URL; empty means the tab showing in the front window. Actions: read (title, URL, page text), click (a CSS `selector` or the visible `text` of a button or link), fill (a field by `selector` or its label/placeholder `text`, with `value`), navigate (`url`, in that same tab), run (a JavaScript expression `script` that only reads the page: names of the document, elements, arrays, and strings; its value comes back), show (bring the tab to the front, only when the person wants to see it). Clicks, fills, and navigations that send, delete, buy, share, or publish follow the person's autonomy setting; a background job only reads.",
+        "description": "The person's OWN browser, whichever is their default (what they see, signed in): read or act in a tab that is already open, without a hidden copy, the mouse, or the keyboard. Use it when the person means a tab they have open (\u{201c}my open tab\u{201d}, \u{201c}the page I'm on\u{201d}, \u{201c}in my browser\u{201d}); use the agent browser for anything else. `tab` picks the tab: its id (from hex_lookup scope browser_tabs or an earlier call), or words of its title or URL; empty means the tab showing in the front window. Actions: read (title, URL, page text), click (a CSS `selector` or the visible `text` of a button or link), fill (a field by `selector` or its label/placeholder `text`, with `value`), navigate (`url`, in that same tab, in the background: the browser doesn't come forward; never open the browser app or type into its address bar instead), run (a JavaScript expression `script` that only reads the page: names of the document, elements, arrays, and strings; its value comes back), show (bring the tab to the front, only when the person wants to see it). Clicks, fills, and navigations that send, delete, buy, share, or publish follow the person's autonomy setting; a background job only reads.",
         "inputSchema": {"type": "object", "properties": {
             "action": {"type": "string", "enum": ["read", "click", "fill", "navigate", "run", "show"], "description": "Default read."},
             "tab": {"type": "string", "description": "Tab id, or words of its title or URL; empty: the showing tab of the front window."},
@@ -65,8 +65,8 @@ pub fn choose<'a>(tabs: &'a [Tab], wanted: &str) -> Result<&'a Tab, String> {
         .trim_start_matches("tab")
         .trim_start_matches(" id")
         .trim()
-        .parse::<i64>();
-    if let Ok(id) = id
+        .trim_matches('"');
+    if !id.is_empty()
         && let Some(tab) = tabs.iter().find(|tab| tab.tab_id == id)
     {
         return Ok(tab);
@@ -91,8 +91,8 @@ fn act(browser: &Browser, tab: &Tab, op: &str, payload: &str) -> Result<String, 
         browser,
         browser.family.act_script(),
         &[
-            &tab.window_id.to_string(),
-            &tab.tab_id.to_string(),
+            &tab.window_id,
+            &tab.tab_id,
             &tab.index.to_string(),
             op,
             payload,
@@ -444,8 +444,14 @@ pub fn call(arguments: &Value, task: Option<&str>, role: Role) -> Result<String,
                 return Err("navigate needs an http(s) “url”".into());
             }
             check_navigate(url, &gate)?;
+            // The tab's URL set by Apple Event: no JavaScript needed, and
+            // the browser stays where it is (behind the person's app).
             act(&browser, tab, "navigate", url)?;
-            Ok(format!("Tab id {} now opens {url}.", tab.tab_id))
+            Ok(format!(
+                "Tab id {} now opens {url}, in the background (the person's browser didn't come \
+                 forward; read the tab to see the page).",
+                tab.tab_id
+            ))
         }
         "run" => {
             let script = text("script");
@@ -470,10 +476,10 @@ mod tests {
     use crate::assistant::autonomy::{Authorized, Category};
 
     fn tabs() -> Vec<Tab> {
-        let tab = |tab_id, window, active, title: &str, url: &str| Tab {
-            window_id: window as i64 * 10,
+        let tab = |tab_id: u64, window: usize, active, title: &str, url: &str| Tab {
+            window_id: (window * 10).to_string(),
             window,
-            tab_id,
+            tab_id: tab_id.to_string(),
             index: 1,
             title: title.into(),
             url: url.into(),
@@ -513,14 +519,29 @@ mod tests {
     #[test]
     fn the_tab_is_found_by_id_words_or_what_shows() {
         let tabs = tabs();
-        assert_eq!(choose(&tabs, "").unwrap().tab_id, 2);
-        assert_eq!(choose(&tabs, "3").unwrap().tab_id, 3);
-        assert_eq!(choose(&tabs, "tab id 1").unwrap().tab_id, 1);
-        assert_eq!(choose(&tabs, "gmail").unwrap().tab_id, 1);
-        assert_eq!(choose(&tabs, "github hex").unwrap().tab_id, 3);
+        assert_eq!(choose(&tabs, "").unwrap().tab_id, "2");
+        assert_eq!(choose(&tabs, "3").unwrap().tab_id, "3");
+        assert_eq!(choose(&tabs, "tab id 1").unwrap().tab_id, "1");
+        assert_eq!(choose(&tabs, "gmail").unwrap().tab_id, "1");
+        assert_eq!(choose(&tabs, "github hex").unwrap().tab_id, "3");
         assert!(choose(&tabs, "99").unwrap_err().contains("No open"));
         assert!(choose(&tabs, "ebay").is_err());
         assert!(choose(&[], "").is_err());
+    }
+
+    /// Chrome's tab ids are text (`"366652650"`), as the model passes them
+    /// back from a listing; a quoted one is the same id.
+    #[test]
+    fn chrome_s_text_ids_pick_their_tab() {
+        let mut tabs = tabs();
+        tabs[2].tab_id = "366652650".into();
+        tabs[2].window_id = "366652649".into();
+        assert_eq!(choose(&tabs, "366652650").unwrap().title, tabs[2].title);
+        assert_eq!(choose(&tabs, "\"366652650\"").unwrap().tab_id, "366652650");
+        assert_eq!(
+            choose(&tabs, "tab id 366652650").unwrap().window_id,
+            "366652649"
+        );
     }
 
     #[test]

@@ -730,7 +730,8 @@ fn quick_turns_run_fast_and_hand_hard_ones_to_the_strong_model() {
 // 9_800: the product name is Agent-Desk (ten letters, not three).
 // 9_950: watching a video is hex_watch_video's (media::RULES).
 // 10_250: the understood line the island shows first (markers::UNDERSTOOD_RULE).
-const HERE_BUDGET: usize = 10_250;
+// 10_400: web pages the person didn't ask to see in their browser stay in the hidden one; their tab navigates in the background.
+const HERE_BUDGET: usize = 10_400;
 // 15_900: the knowledge tools add a short rule; every app's ways, scripting first (APP_METHODS).
 // 16_200: acting by a window's picture (BACKGROUND_INPUT_RULES).
 // 16_500: the work-fast rules reach jobs too (speed_rules).

@@ -207,7 +207,7 @@ pub(crate) fn why_words(why: &str, app: &str) -> String {
     if why == crate::assistant::guard::BORROW_IGNORED {
         tr_fill("{} didn't respond in the background", app)
     } else {
-        tr_fill("{} needs keys typed in front", app)
+        tr_fill("Keyboard input in {}", app)
     }
 }
 

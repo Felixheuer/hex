@@ -97,7 +97,7 @@ impl<D: Desktop> Guard<D> {
             .map(|lease| lease.window_id)
             .collect();
         let _ = self.list(Look::Check);
-        let before = super::front::frontmost();
+        let before = self.front.frontmost();
         let output = (self.run_action)(&command).map_err(|why| {
             failure(&format!(
                 "{} {} didn't work: {}",
@@ -122,8 +122,10 @@ impl<D: Desktop> Guard<D> {
             self.notes.clear();
         }
         if let Some(app) = &installed {
-            let pid = self.screen.app_pids(&app.path).first().copied();
-            super::front::keep_front(before, pid);
+            // An app action may open a URL or a document in the app, which
+            // brings many apps forward: the person keeps the front.
+            let took = self.screen.app_pids(&app.path);
+            self.keep_front(before, &took, super::front::SETTLE);
         }
         self.watch(&recipe.app);
         let mut note = "Done.".to_owned();

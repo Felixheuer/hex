@@ -506,7 +506,10 @@ fn the_pretend_desktop_shows_every_overlay() {
     // Hands off is the frame's tab under the island: one surface, no pill.
     let hands = runtime(hands_off_desk(), desk::view, desk::SIZE, false);
     assert!(rect(&hands, "frame-tab").is_some());
-    assert!(rect(&hands, "frame").is_some(), "the agent has the controls");
+    assert!(
+        rect(&hands, "frame").is_some(),
+        "the agent has the controls"
+    );
     assert!(rect(&hands, "hands-off").is_none());
     assert!(rect(&hands, "outline-quick").is_some(), "its soft outline");
 }
