@@ -2,10 +2,10 @@
 //! job's tag, and the Here bubble's one-tap offer; rendered (ignored, with
 //! a GPU) in both appearances.
 
-use super::*;
-use crate::assistant::projects::Snapshot;
-use crate::assistant::Event;
 use super::super::project::Picker;
+use super::*;
+use crate::assistant::Event;
+use crate::assistant::projects::Snapshot;
 
 fn snapshot(active: Option<&str>) -> Snapshot {
     let recent: Vec<(String, String)> = ["Startup", "Privat", "Kalibermarkt"]
@@ -66,9 +66,21 @@ fn offered_bubble() -> BubbleOverlay {
 #[test]
 fn an_idle_rail_shows_only_the_active_project_s_chip() {
     for dark in [false, true] {
-        let rt = runtime(idle_rail(Some("Startup"), false), orb::view, orb::SIZE, dark);
-        assert_eq!(text_of(&rt, "project-chip-name").as_deref(), Some("Startup"));
-        assert_eq!(count(&rt, "orb"), 0, "nothing at work: no orb, the chip alone");
+        let rt = runtime(
+            idle_rail(Some("Startup"), false),
+            orb::view,
+            orb::SIZE,
+            dark,
+        );
+        assert_eq!(
+            text_of(&rt, "project-chip-name").as_deref(),
+            Some("Startup")
+        );
+        assert_eq!(
+            count(&rt, "orb"),
+            0,
+            "nothing at work: no orb, the chip alone"
+        );
         assert_eq!(count(&rt, "project-picker"), 0);
         assert!(inside(rect(&rt, "project-chip").unwrap(), orb::SIZE));
     }
@@ -83,7 +95,13 @@ fn an_idle_rail_shows_only_the_active_project_s_chip() {
 fn the_picker_offers_the_recent_projects_no_project_and_a_new_one() {
     for dark in [false, true] {
         let rt = runtime(idle_rail(Some("Startup"), true), orb::view, orb::SIZE, dark);
-        for key in ["project-Startup", "project-Privat", "project-Kalibermarkt", "project-none", "project-new"] {
+        for key in [
+            "project-Startup",
+            "project-Privat",
+            "project-Kalibermarkt",
+            "project-none",
+            "project-new",
+        ] {
             assert_eq!(count(&rt, key), 1, "{key}");
         }
         let picker = rect(&rt, "project-picker").unwrap();
@@ -98,7 +116,10 @@ fn the_picker_offers_the_recent_projects_no_project_and_a_new_one() {
     }
     // Opened with no project: the chip says so, "No project" is ticked.
     let rt = runtime(idle_rail(None, true), orb::view, orb::SIZE, false);
-    assert_eq!(text_of(&rt, "project-chip-name").as_deref(), Some("No project"));
+    assert_eq!(
+        text_of(&rt, "project-chip-name").as_deref(),
+        Some("No project")
+    );
     assert_eq!(count(&rt, "project-picker"), 1);
 }
 
@@ -119,7 +140,11 @@ fn a_press_picks_a_project_and_new_project_asks_for_its_name() {
     state.actions.project.edit = |orb| orb.project.naming.get_or_insert_with(Default::default);
     let mut rt = runtime(state, orb::view, orb::SIZE, false);
     state_press(&mut rt, "project-new");
-    assert_eq!(count(&rt, "project-name-input"), 1, "the name is typed in place");
+    assert_eq!(
+        count(&rt, "project-name-input"),
+        1,
+        "the name is typed in place"
+    );
     assert_eq!(count(&rt, "project-new"), 0);
     state_press(&mut rt, "project-Privat");
     assert_eq!(
@@ -134,7 +159,10 @@ fn a_job_in_another_project_wears_a_tag_and_the_busy_head_keeps_the_chip() {
     for dark in [false, true] {
         let rt = runtime(busy_rail(), orb::view, orb::SIZE, dark);
         assert_eq!(count(&rt, "orb"), 1);
-        assert_eq!(text_of(&rt, "project-chip-name").as_deref(), Some("Startup"));
+        assert_eq!(
+            text_of(&rt, "project-chip-name").as_deref(),
+            Some("Startup")
+        );
         // job1 is in Privat, job2 in the active Startup, job0 in none.
         assert_eq!(count(&rt, "job-project"), 1, "only the other project's job");
         let tag = rect(&rt, "job-project").unwrap();
@@ -160,8 +188,15 @@ fn a_crowded_head_keeps_the_chip_short_and_inside_the_panel() {
             assert!(inside(r, orb::SIZE), "{key} {r:?} with {active:?}");
         }
         match active {
-            Some(_) => assert_eq!(text_of(&rt, "project-chip-name").as_deref(), Some("Kalibermark…")),
-            None => assert_eq!(count(&rt, "project-chip-name"), 0, "no project: the dot alone"),
+            Some(_) => assert_eq!(
+                text_of(&rt, "project-chip-name").as_deref(),
+                Some("Kalibermark…")
+            ),
+            None => assert_eq!(
+                count(&rt, "project-chip-name"),
+                0,
+                "no project: the dot alone"
+            ),
         }
     }
 }
@@ -221,7 +256,14 @@ fn while_held_the_island_names_the_project_the_words_go_to() {
     held.project = Some("Startup".into());
     let line = island::line(Some(&held), None).unwrap();
     assert_eq!(line.trail.as_deref(), Some("Mail in front · ● Startup"));
-    let line = island::line(Some(&Held { project: Some("Startup".into()), ..Held::default() }), None).unwrap();
+    let line = island::line(
+        Some(&Held {
+            project: Some("Startup".into()),
+            ..Held::default()
+        }),
+        None,
+    )
+    .unwrap();
     assert_eq!(line.trail.as_deref(), Some("● Startup"));
 }
 
@@ -247,8 +289,7 @@ fn project_snapshots() {
         let mut edit = rune::TextEdit::new("Kalibermarkt Relaunch");
         edit.focused = true;
         naming.project.naming = Some(edit);
-        naming.actions.project.edit =
-            |orb| orb.project.naming.get_or_insert_with(Default::default);
+        naming.actions.project.edit = |orb| orb.project.naming.get_or_insert_with(Default::default);
         for (name, state) in [
             ("chip", idle_rail(Some("Startup"), false)),
             ("picker", idle_rail(Some("Startup"), true)),
@@ -257,20 +298,36 @@ fn project_snapshots() {
         ] {
             let mut rt = runtime(state, orb::view, rail, dark);
             let (w, h) = px(rail);
-            save(name, rail, crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h));
+            save(
+                name,
+                rail,
+                crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h),
+            );
         }
         let mut rt = runtime(busy_rail(), orb::view, orb::SIZE, dark);
         let (w, h) = px(orb::SIZE);
-        save("rail-jobs", orb::SIZE, crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h));
+        save(
+            "rail-jobs",
+            orb::SIZE,
+            crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h),
+        );
         let mut board = fixture::crowd_board(12, 5);
         fixture::crowd_question(&mut board);
         let mut crowded = orb_state(board, false);
         crowded.project.snapshot = snapshot(Some("Kalibermarkt Relaunch 2027"));
         let mut rt = runtime(crowded, orb::view, rail, dark);
         let (w, h) = px(rail);
-        save("rail-crowded", rail, crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h));
+        save(
+            "rail-crowded",
+            rail,
+            crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h),
+        );
         let mut rt = runtime(offered_bubble(), bubble::view, bubble::SIZE, dark);
         let (w, h) = px(bubble::SIZE);
-        save("offer", bubble::SIZE, crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h));
+        save(
+            "offer",
+            bubble::SIZE,
+            crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h),
+        );
     }
 }

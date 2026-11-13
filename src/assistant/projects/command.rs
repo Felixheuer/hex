@@ -25,14 +25,17 @@ pub enum Command {
 /// The most words a project's name may have in a command.
 const NAME_WORDS: usize = 4;
 
-fn patterns() -> &'static [(Regex, fn(String) -> Command)] {
-    static PATTERNS: OnceLock<Vec<(Regex, fn(String) -> Command)>> = OnceLock::new();
+/// Makes the command from the name it captured.
+type Make = fn(String) -> Command;
+
+fn patterns() -> &'static [(Regex, Make)] {
+    static PATTERNS: OnceLock<Vec<(Regex, Make)>> = OnceLock::new();
     PATTERNS.get_or_init(|| {
         let leave = |_| Command::Leave;
         let which = |_| Command::Which;
-        let switch: fn(String) -> Command = Command::Switch;
-        let create: fn(String) -> Command = Command::Create;
-        let table: [(&str, fn(String) -> Command); 16] = [
+        let switch: Make = Command::Switch;
+        let create: Make = Command::Create;
+        let table: [(&str, Make); 16] = [
             // German.
             (r"(?:ohne|kein(?:e)?)\s+projekt(?:\s+mehr)?", leave),
             (
@@ -163,7 +166,12 @@ fn clean(said: &str) -> String {
 /// A spoken name without its quotes and the punctuation around it.
 fn name_of(said: &str) -> String {
     said.trim()
-        .trim_matches(|c: char| matches!(c, '"' | '\'' | '„' | '“' | '”' | '‚' | '‘' | '’' | '«' | '»' | ',' | ':'))
+        .trim_matches(|c: char| {
+            matches!(
+                c,
+                '"' | '\'' | '„' | '“' | '”' | '‚' | '‘' | '’' | '«' | '»' | ',' | ':'
+            )
+        })
         .trim()
         .to_owned()
 }

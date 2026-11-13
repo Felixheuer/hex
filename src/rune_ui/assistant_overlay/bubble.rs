@@ -444,12 +444,8 @@ pub(crate) fn card<S: 'static>(
     // A request about a project while none is active: one tap makes it
     // the active one (`assistant::projects`); nothing moves on its own.
     if let Some((id, name)) = &bubble.suggested {
-        card.secondary.push(super::project::offer(
-            p,
-            id,
-            name,
-            actions.take_project,
-        ));
+        card.secondary
+            .push(super::project::offer(p, id, name, actions.take_project));
     }
     if bubble.over() {
         match bubble.failure {

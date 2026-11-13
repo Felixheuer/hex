@@ -669,7 +669,10 @@ Who owns what:
 - **Web**: `browser` (agent-browser sessions, accounts, the live pictures).
 - **Knowledge**: `knowledge` (`hex_lookup`: files, contacts, calendar, mail,
   Chrome; the memory graph), `memory` (the note every task reads), `tools`
-  (Agent-Desk's own MCP tools).
+  (Agent-Desk's own MCP tools), `projects` (optional workspaces: a folder
+  with `soul.md` under `~/Documents/Agent-Desk/Projects`, the active one's
+  soul in the request's message, `hex_project`, spoken switching in
+  `service::project`; see "Projects" in `docs/features/assistant.md`).
 - **Voice**: `shortcut` (the Action shortcut's gestures, shared by every OS's
   listener), `speech` (reading aloud), `interaction` (what wins when they
   overlap).

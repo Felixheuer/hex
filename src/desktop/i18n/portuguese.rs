@@ -19,6 +19,7 @@ pub(super) fn table() -> &'static HashMap<&'static str, &'static str> {
             .chain(super::island::PORTUGUESE)
             .chain(super::frames::PORTUGUESE)
             .chain(super::window::PORTUGUESE)
+            .chain(super::projects::PORTUGUESE)
             .copied()
             .collect()
     })

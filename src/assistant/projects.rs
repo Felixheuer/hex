@@ -327,7 +327,9 @@ impl Projects {
         if name.is_empty() {
             return Err(eyre!("a project needs a name"));
         }
-        let project = self.get(id).ok_or_else(|| eyre!("there is no project {id}"))?;
+        let project = self
+            .get(id)
+            .ok_or_else(|| eyre!("there is no project {id}"))?;
         let target = self
             .root
             .join(crate::assistant::agent::workspace::clean(&name));
@@ -361,7 +363,9 @@ impl Projects {
     /// Archives a project (or brings it back): it leaves the picker, and
     /// stops being active. Its folder stays as it is.
     pub fn set_archived(&self, id: &str, archived: bool) -> Result<()> {
-        let project = self.get(id).ok_or_else(|| eyre!("there is no project {id}"))?;
+        let project = self
+            .get(id)
+            .ok_or_else(|| eyre!("there is no project {id}"))?;
         let mut index = read_index(&project.folder).unwrap_or_default();
         index.archived = archived;
         write_index(&project.folder, &index)?;
@@ -821,9 +825,7 @@ impl Projects {
     /// [`Snapshot`] of these projects, read now.
     pub fn snapshot_now(&self) -> Snapshot {
         Snapshot {
-            active: self
-                .active()
-                .map(|project| (project.id, project.name)),
+            active: self.active().map(|project| (project.id, project.name)),
             recent: self
                 .list()
                 .into_iter()

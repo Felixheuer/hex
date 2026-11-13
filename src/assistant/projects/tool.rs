@@ -48,9 +48,12 @@ pub fn call(
     // The project the call is about: the one named, else the task's.
     let about = || -> Result<Project, String> {
         match &named {
-            Some(name) => projects
-                .find(name)
-                .ok_or_else(|| format!("There is no project “{name}”. Projects: {}.", names(projects))),
+            Some(name) => projects.find(name).ok_or_else(|| {
+                format!(
+                    "There is no project “{name}”. Projects: {}.",
+                    names(projects)
+                )
+            }),
             None => project_id
                 .and_then(|id| projects.get(id))
                 .ok_or_else(|| "This task isn't in a project; name one with `project`.".to_owned()),
@@ -81,13 +84,21 @@ pub fn call(
             let project = about()?;
             let files = projects.files(&project, 40);
             if files.is_empty() {
-                return Ok(format!("“{}” has no files yet ({}).", project.name, project.folder.display()));
+                return Ok(format!(
+                    "“{}” has no files yet ({}).",
+                    project.name,
+                    project.folder.display()
+                ));
             }
             let lines: Vec<String> = files
                 .iter()
                 .map(|(path, _)| format!("- {}", path.display()))
                 .collect();
-            Ok(format!("“{}”'s newest files:\n{}", project.name, lines.join("\n")))
+            Ok(format!(
+                "“{}”'s newest files:\n{}",
+                project.name,
+                lines.join("\n")
+            ))
         }
         "learn" => {
             let project = about()?;
@@ -96,7 +107,10 @@ pub fn call(
                 .and_then(|section| Part::parse(&section))
                 .unwrap_or(Part::Learned);
             match projects.learn(&project, part, &fact) {
-                Ok(true) => Ok(format!("Added to “{}”'s soul under Recently learned.", project.name)),
+                Ok(true) => Ok(format!(
+                    "Added to “{}”'s soul under Recently learned.",
+                    project.name
+                )),
                 Ok(false) => Ok(format!("“{}”'s soul already has that.", project.name)),
                 Err(error) => Err(format!("{error:#}")),
             }
@@ -146,7 +160,9 @@ pub fn call(
                 )
             });
             if none {
-                projects.set_active(None).map_err(|error| format!("{error:#}"))?;
+                projects
+                    .set_active(None)
+                    .map_err(|error| format!("{error:#}"))?;
                 return Ok("No project is active now; later requests are in none.".into());
             }
             let project = about()?;
@@ -161,7 +177,9 @@ pub fn call(
         "create" => {
             personal("make projects")?;
             let name = named.ok_or("create needs “project”, its name")?;
-            let (project, made) = projects.create(&name).map_err(|error| format!("{error:#}"))?;
+            let (project, made) = projects
+                .create(&name)
+                .map_err(|error| format!("{error:#}"))?;
             Ok(format!(
                 "{} “{}” at {}. It isn't active until the person switches to it (action switch).",
                 if made { "Made" } else { "There already is" },
@@ -174,7 +192,11 @@ pub fn call(
 }
 
 fn names(projects: &Projects) -> String {
-    let list: Vec<String> = projects.list().into_iter().map(|project| project.name).collect();
+    let list: Vec<String> = projects
+        .list()
+        .into_iter()
+        .map(|project| project.name)
+        .collect();
     if list.is_empty() {
         "none yet".into()
     } else {

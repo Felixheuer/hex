@@ -119,7 +119,10 @@ fn saying_a_project_command_switches_without_asking_an_agent() {
     let projects = with_projects(&world);
     let runner = world.runner();
     let active = || projects.active().map(|project| project.name);
-    runner.submit(request("Wechsle zu Projekt Startup", Origin::ActionShortcut));
+    runner.submit(request(
+        "Wechsle zu Projekt Startup",
+        Origin::ActionShortcut,
+    ));
     assert_eq!(active().as_deref(), Some("Startup"));
     runner.submit(request("Neues Projekt Garten", Origin::ActionShortcut));
     assert_eq!(active().as_deref(), Some("Garten"));

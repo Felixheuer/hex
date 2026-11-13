@@ -19,6 +19,7 @@ mod meetings;
 mod onboarding;
 mod portuguese;
 mod preferences;
+mod projects;
 mod russian;
 mod stage;
 mod text_language;
@@ -376,6 +377,7 @@ pub(super) fn all_translations() -> impl Iterator<Item = &'static (&'static str,
         .chain(island::TRANSLATIONS)
         .chain(frames::TRANSLATIONS)
         .chain(window::TRANSLATIONS)
+        .chain(projects::TRANSLATIONS)
 }
 
 /// Columns: Polish, Chinese (Simplified), Japanese, German, Spanish, Ukrainian.
@@ -1779,6 +1781,9 @@ mod tests {
         include_str!("../rune_ui/assistant_overlay/host/stage.rs"),
         include_str!("../rune_ui/assistant_overlay/frame.rs"),
         include_str!("../rune_ui/assistant_overlay/pictures.rs"),
+        include_str!("../rune_ui/assistant_overlay/project.rs"),
+        include_str!("../rune_ui/chats/settings/projects.rs"),
+        include_str!("../assistant/projects/soul.rs"),
     ];
 
     /// The string literals passed to `tr`, `tr_fill`, and `tr_named`.

@@ -69,7 +69,10 @@ impl Runner {
         if let Some(project) = projects.get(id) {
             let added = projects.collect(&project, words, answer, workspace);
             if !added.is_empty() {
-                tracing::info!(count = added.len(), "added what a task learned to its project");
+                tracing::info!(
+                    count = added.len(),
+                    "added what a task learned to its project"
+                );
             }
         }
     }
@@ -93,9 +96,8 @@ impl Runner {
         }
         let projects = (self.hooks.projects)()?;
         let language = crate::assistant::lines::language(&request.text);
-        let line = |template: &'static str, name: &str| {
-            tr_named_in(language, template, &[("name", name)])
-        };
+        let line =
+            |template: &'static str, name: &str| tr_named_in(language, template, &[("name", name)]);
         let text = match command {
             Command::Switch(name) => match projects.find(&name) {
                 Some(project) => match projects.set_active(Some(&project.id)) {

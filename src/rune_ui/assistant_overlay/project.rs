@@ -123,7 +123,11 @@ fn mark(p: Paint, active: bool, size: f32) -> El {
 pub(crate) fn chip<S: 'static>(p: Paint, picker: &Picker, beside: bool, actions: Actions<S>) -> El {
     let c = &p.k.c;
     let active = picker.active();
-    let most = if beside { CHIP_CHARS_BESIDE } else { CHIP_CHARS };
+    let most = if beside {
+        CHIP_CHARS_BESIDE
+    } else {
+        CHIP_CHARS
+    };
     let words = match active {
         Some(name) => Some(cut(name, most)),
         None if beside => None,
@@ -164,7 +168,11 @@ pub(crate) fn chip<S: 'static>(p: Paint, picker: &Picker, beside: bool, actions:
                 text(words)
                     .key("project-chip-name")
                     .font(look::label(p))
-                    .color(if active.is_some() { p.text() } else { p.muted() })
+                    .color(if active.is_some() {
+                        p.text()
+                    } else {
+                        p.muted()
+                    })
                     .truncate()
                     .min_w(0.0)
                     .shrink()
@@ -195,11 +203,7 @@ fn choice<S: 'static>(
     let check = el()
         .w(14.0)
         .center()
-        .children(checked.then(|| {
-            icon(&look::CHECK, 13.0)
-                .color(p.text())
-                .a11y_hidden()
-        }));
+        .children(checked.then(|| icon(&look::CHECK, 13.0).color(p.text()).a11y_hidden()));
     p.k.interactive(
         row()
             .key(key)
@@ -393,12 +397,7 @@ pub(crate) fn tag(p: Paint, name: &str) -> El {
 
 /// The Here bubble's offer: "In project Startup?", one tap makes it the
 /// active project.
-pub(crate) fn offer<S: 'static>(
-    p: Paint,
-    id: &str,
-    name: &str,
-    take: fn(&mut S, &str),
-) -> El {
+pub(crate) fn offer<S: 'static>(p: Paint, id: &str, name: &str, take: fn(&mut S, &str)) -> El {
     let id = id.to_owned();
     look::button(
         p,

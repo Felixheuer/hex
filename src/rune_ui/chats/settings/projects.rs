@@ -64,7 +64,8 @@ fn open(path: std::path::PathBuf, text: bool) {
                 return;
             }
             let _ = text;
-            if let Err(error) = crate::desktop::opencode_catalog::open_url(&path.to_string_lossy()) {
+            if let Err(error) = crate::desktop::opencode_catalog::open_url(&path.to_string_lossy())
+            {
                 tracing::warn!(%error, "couldn't open a project's folder");
             }
         });
@@ -72,13 +73,21 @@ fn open(path: std::path::PathBuf, text: bool) {
 
 /// `~/…` for a folder in the home folder.
 fn shown(path: &std::path::Path) -> String {
-    match crate::app_paths::home_dir().and_then(|home| path.strip_prefix(home).ok().map(|rest| rest.to_path_buf())) {
+    match crate::app_paths::home_dir()
+        .and_then(|home| path.strip_prefix(home).ok().map(|rest| rest.to_path_buf()))
+    {
         Some(rest) => format!("~/{}", rest.display()),
         None => path.display().to_string(),
     }
 }
 
-fn small(p: Paint, key: String, words: &str, variant: ButtonVariant, on_press: impl Fn(&mut Ui) + 'static) -> El {
+fn small(
+    p: Paint,
+    key: String,
+    words: &str,
+    variant: ButtonVariant,
+    on_press: impl Fn(&mut Ui) + 'static,
+) -> El {
     Button::new(words)
         .variant(variant)
         .on_press(on_press)
@@ -93,13 +102,25 @@ fn project_row(p: Paint, project: &Project, active: bool) -> El {
     let use_it = {
         let id = id.clone();
         if active {
-            small(p, format!("project-leave-{id}"), tr("Leave"), ButtonVariant::Neutral, |ui: &mut Ui| {
-                change(ui, |projects| projects.set_active(None).map(|_| ()));
-            })
+            small(
+                p,
+                format!("project-leave-{id}"),
+                tr("Leave"),
+                ButtonVariant::Neutral,
+                |ui: &mut Ui| {
+                    change(ui, |projects| projects.set_active(None).map(|_| ()));
+                },
+            )
         } else {
-            small(p, format!("project-use-{id}"), tr("Use"), ButtonVariant::Neutral, move |ui: &mut Ui| {
-                change(ui, |projects| projects.set_active(Some(&id)).map(|_| ()));
-            })
+            small(
+                p,
+                format!("project-use-{id}"),
+                tr("Use"),
+                ButtonVariant::Neutral,
+                move |ui: &mut Ui| {
+                    change(ui, |projects| projects.set_active(Some(&id)).map(|_| ()));
+                },
+            )
         }
     };
     let folder = project.folder.clone();
@@ -109,16 +130,30 @@ fn project_row(p: Paint, project: &Project, active: bool) -> El {
         .gap(6.0)
         .center_y()
         .child(use_it)
-        .child(small(p, format!("project-folder-{id}"), tr("Open folder"), ButtonVariant::Ghost, move |_| {
-            open(folder.clone(), false)
-        }))
-        .child(small(p, format!("project-soul-{id}"), tr("Edit soul"), ButtonVariant::Ghost, move |_| {
-            open(soul.clone(), true)
-        }))
-        .child(small(p, format!("project-archive-{id}"), tr("Archive"), ButtonVariant::Ghost, move |ui: &mut Ui| {
-            let id = archive.clone();
-            change(ui, |projects| projects.set_archived(&id, true));
-        }));
+        .child(small(
+            p,
+            format!("project-folder-{id}"),
+            tr("Open folder"),
+            ButtonVariant::Ghost,
+            move |_| open(folder.clone(), false),
+        ))
+        .child(small(
+            p,
+            format!("project-soul-{id}"),
+            tr("Edit soul"),
+            ButtonVariant::Ghost,
+            move |_| open(soul.clone(), true),
+        ))
+        .child(small(
+            p,
+            format!("project-archive-{id}"),
+            tr("Archive"),
+            ButtonVariant::Ghost,
+            move |ui: &mut Ui| {
+                let id = archive.clone();
+                change(ui, |projects| projects.set_archived(&id, true));
+            },
+        ));
     let title = if active {
         format!("● {} · {}", project.name, tr("Active"))
     } else {
@@ -138,7 +173,14 @@ pub(in crate::rune_ui) fn section_for(ui: &Ui, p: Paint) -> El {
     let state = &ui.chats.settings.projects;
     let mut rows: Vec<CardRow> = Vec::new();
     for project in state.all.iter().filter(|project| !project.archived) {
-        rows.push(project_row(p, project, state.active.as_deref() == Some(project.id.as_str())).into());
+        rows.push(
+            project_row(
+                p,
+                project,
+                state.active.as_deref() == Some(project.id.as_str()),
+            )
+            .into(),
+        );
     }
     let typed = state.name.text.trim().to_owned();
     let create = move |ui: &mut Ui| {
@@ -189,10 +231,16 @@ pub(in crate::rune_ui) fn section_for(ui: &Ui, p: Paint) -> El {
                 &format!("project-archived-{}", project.id),
                 &project.name,
                 Some(tr("Archived")),
-                small(p, format!("project-restore-{id}"), tr("Restore"), ButtonVariant::Ghost, move |ui: &mut Ui| {
-                    let id = id.clone();
-                    change(ui, |projects| projects.set_archived(&id, false));
-                }),
+                small(
+                    p,
+                    format!("project-restore-{id}"),
+                    tr("Restore"),
+                    ButtonVariant::Ghost,
+                    move |ui: &mut Ui| {
+                        let id = id.clone();
+                        change(ui, |projects| projects.set_archived(&id, false));
+                    },
+                ),
             )
             .into(),
         );
@@ -214,7 +262,9 @@ mod tests {
         Project {
             id: format!("id-{name}"),
             name: name.into(),
-            folder: std::path::PathBuf::from(format!("/Users/person/Documents/Agent-Desk/Projects/{name}")),
+            folder: std::path::PathBuf::from(format!(
+                "/Users/person/Documents/Agent-Desk/Projects/{name}"
+            )),
             archived,
             created_ms: 1,
         }
@@ -242,7 +292,10 @@ mod tests {
         ];
         state.active = Some("id-Startup".into());
         state.name = TextEdit::new("Garten");
-        let env = Env { system_dark: dark, scale: 2.0 };
+        let env = Env {
+            system_dark: dark,
+            scale: 2.0,
+        };
         let text = TextSystem::new(rune_theme_opencode::FONTS, rune_theme_opencode::FAMILIES);
         let mut rt = offscreen::runtime(ui, page, SIZE, env, text);
         rt.settle_all();
@@ -251,7 +304,9 @@ mod tests {
     }
 
     fn has(rt: &Runtime<Ui>, key: &str) -> bool {
-        rt.elements().iter().any(|e| !e.exiting && e.key.as_deref() == Some(key))
+        rt.elements()
+            .iter()
+            .any(|e| !e.exiting && e.key.as_deref() == Some(key))
     }
 
     #[test]
@@ -260,14 +315,23 @@ mod tests {
             let rt = runtime(dark);
             for name in ["Kalibermarkt", "Privat", "Startup"] {
                 for button in ["folder", "soul", "archive"] {
-                    assert!(has(&rt, &format!("project-{button}-id-{name}")), "{button} {name}");
+                    assert!(
+                        has(&rt, &format!("project-{button}-id-{name}")),
+                        "{button} {name}"
+                    );
                 }
             }
-            assert!(has(&rt, "project-leave-id-Startup"), "the active one can be left");
+            assert!(
+                has(&rt, "project-leave-id-Startup"),
+                "the active one can be left"
+            );
             assert!(has(&rt, "project-use-id-Privat"));
             assert!(!has(&rt, "project-use-id-Startup"));
             assert!(has(&rt, "project-restore-id-Steuer 2024"));
-            assert!(!has(&rt, "project-use-id-Steuer 2024"), "archived: only Restore");
+            assert!(
+                !has(&rt, "project-use-id-Steuer 2024"),
+                "archived: only Restore"
+            );
             assert!(has(&rt, "project-create") && has(&rt, "project-name-field"));
         }
     }
@@ -284,7 +348,13 @@ mod tests {
             let (w, h) = ((SIZE.0 * 2.0) as u32, (SIZE.1 * 2.0) as u32);
             let pixels = offscreen::draw(&gpu, &mut rt, w, h);
             let theme = if dark { "dark" } else { "light" };
-            rune::render::write_png(&folder.join(format!("project-settings-{theme}.png")), w, h, &pixels).unwrap();
+            rune::render::write_png(
+                &folder.join(format!("project-settings-{theme}.png")),
+                w,
+                h,
+                &pixels,
+            )
+            .unwrap();
         }
     }
 }
