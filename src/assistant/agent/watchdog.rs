@@ -20,13 +20,25 @@ pub const HERE_INACTIVITY: Duration = Duration::from_secs(45);
 /// What a quick turn that stalled, and stalled again with the strong
 /// model, ends with.
 pub const STALLED: &str =
-    "It got stuck: nothing happened for 45 seconds, so Agent-Desk stopped it. Try again.";
+    "It got stuck: nothing happened for too long, so Agent-Desk stopped it. Try again.";
+
+/// How long an OpenCode quick turn may report nothing: OpenCode writes a
+/// text part only once it is complete (an answer of 900 words on DeepSeek
+/// V4 Pro is 19 s of silence), not token by token as Claude Code does.
+pub const OPENCODE_INACTIVITY: Duration = Duration::from_secs(120);
 
 /// The inactivity limit of `run`: a quick turn on a backend Agent-Desk runs as a
 /// process (the Claude API's requests have their own timeouts); `None`
 /// for anything else.
 pub fn limit(run: &Run) -> Option<Duration> {
-    (run.quick && run.backend != AssistantBackend::ClaudeApi).then_some(HERE_INACTIVITY)
+    if !run.quick {
+        return None;
+    }
+    match run.backend {
+        AssistantBackend::ClaudeApi => None,
+        AssistantBackend::OpenCode => Some(OPENCODE_INACTIVITY),
+        AssistantBackend::ClaudeCode | AssistantBackend::Codex => Some(HERE_INACTIVITY),
+    }
 }
 
 /// Runs `body`, handing it a `touch` to call on every sign of progress;

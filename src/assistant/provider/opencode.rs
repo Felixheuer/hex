@@ -187,6 +187,8 @@ impl Stream {
             self.session = Some(session.to_owned());
             report(Report::Session(session.to_owned()));
         }
+        // Any event (a step starting too) says OpenCode still works.
+        report(Report::Alive);
         let part = event.get("part").unwrap_or(&Value::Null);
         let kind = event.get("type").and_then(Value::as_str);
         self.between_steps = kind == Some("step_finish");
@@ -237,6 +239,13 @@ impl Stream {
                     report(Report::Usage(crate::assistant::agent::rollover::Usage {
                         context_tokens,
                     }));
+                }
+                if let Some(cost) = part
+                    .get("cost")
+                    .and_then(Value::as_f64)
+                    .filter(|cost| cost.is_finite() && *cost > 0.0)
+                {
+                    report(Report::Cost(cost));
                 }
             }
             Some("error") => {
@@ -487,6 +496,16 @@ mod tests {
             },
         );
         assert_eq!(classic, [11_137]);
+        let mut cost = 0.0;
+        Stream::default().line(
+            r#"{"type":"step_finish","sessionID":"s","part":{"type":"step-finish","tokens":{"input":9,"cache":{}},"cost":0.0014}}"#,
+            &mut |report| {
+                if let Report::Cost(usd) = report {
+                    cost += usd;
+                }
+            },
+        );
+        assert!((cost - 0.0014).abs() < 1e-9);
     }
 
     #[test]

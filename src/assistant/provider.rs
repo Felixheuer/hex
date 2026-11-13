@@ -200,6 +200,9 @@ pub enum Report {
     /// A step ended with no tool running: the session's size now, for a
     /// long job's fresh session (`agent::rollover`).
     Usage(crate::assistant::agent::rollover::Usage),
+    /// What a step cost in USD, as the backend reports it (OpenCode's
+    /// providers), for the job's journal.
+    Cost(f64),
 }
 
 impl Report {

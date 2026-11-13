@@ -820,6 +820,12 @@ on 2026-11-13 with DeepSeek on OpenCode 1.19.5 and 2.3.0: quick turns, a
 job with the hidden browser, the own-key path, a wrong key, and a hand-over
 from Flash to V4 Pro.
 
+OpenCode reports each step's size and cost (`step_finish`): the size rolls
+a long job over to a fresh session as on Claude Code, and the cost adds up
+into the journal's last line (`done: answered · cost 0.0309 USD`). Its
+quick turns get 120 s of silence before the watchdog ends them (45 s
+elsewhere): OpenCode writes a text part only once it is complete.
+
 ## Web accounts in the hidden browsers
 
 Every task's hidden browser starts from a read-only copy of one sign-in

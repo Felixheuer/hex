@@ -62,6 +62,18 @@ impl Long {
         }
     }
 
+    /// Notes that the run ended (`answered`, `failed`), with what the job
+    /// cost so far when the backend said: `answered · cost 0.0123 USD`.
+    pub fn done(&mut self, now_ms: u64, how: &str) {
+        let cost = self.journal.state.cost_micro_usd;
+        let words = if cost > 0 {
+            format!("{how} · cost {:.4} USD", cost as f64 / 1_000_000.0)
+        } else {
+            how.to_owned()
+        };
+        self.journal.note(now_ms, Kind::Done, &words);
+    }
+
     /// Whether the saved session is already past its size: a resumed job
     /// then starts fresh instead of resuming it.
     pub fn saved_too_large(&self) -> Option<String> {
