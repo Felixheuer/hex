@@ -128,6 +128,16 @@ pub struct AssistantSettings {
     pub keep_awake: bool,
     /// With `keep_awake`, the display stays on too.
     pub keep_display_awake: bool,
+    /// While the person is away, questions, approvals, failures and results
+    /// go to their iPhone by iMessage, and their replies come back
+    /// (`assistant::phone`).
+    pub phone_enabled: bool,
+    /// The person's own phone number or Apple ID that iMessages go to and
+    /// are read from; nothing else is.
+    pub phone_handle: Option<String>,
+    /// Away after this many minutes without input (or the screen locked, or
+    /// „ich gehe jetzt …“); 0 only by saying so or the manual switch.
+    pub phone_away_minutes: u32,
 }
 
 /// The longest a job may run: seven days.
@@ -185,6 +195,9 @@ impl Default for AssistantSettings {
             notifications: true,
             keep_awake: true,
             keep_display_awake: false,
+            phone_enabled: false,
+            phone_handle: None,
+            phone_away_minutes: 10,
         }
     }
 }

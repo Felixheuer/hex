@@ -338,6 +338,23 @@ API key (Keychain only), Read answers aloud with its voice and Test voice,
 Operate apps, the real pointer and keyboard (with its warning), Send a
 screenshot, the follow-up window, Tasks at once (1 to 64), and Run setup….
 
+## On my iPhone (away mode)
+
+Settings › On my iPhone (`assistant.phone_enabled`, off by default) sends a
+task's questions and approvals, its failures, and Background jobs' results as
+an iMessage to the person's own number or Apple ID (`assistant.phone_handle`)
+while they're away: the "I'm away now" switch, the screen locked, no input for
+`assistant.phone_away_minutes` (0: never by idle), or a request that says
+„ich gehe jetzt …“ (until input comes back). Sending scripts Messages
+(Automation permission for Messages, asked when the switch turns on).
+
+Replies are read from `~/Library/Messages/chat.db` (read-only, Full Disk
+Access; the row offers System Settings) every 4 s while away: only incoming
+rows from that handle, only after away mode began. „stopp alle“ stops every
+task, „stopp“ the one whose question waits, „status“ sends the tasks' state
+back, anything else answers the waiting question or starts a request as if
+typed in Chats. Message text is never logged. Code: `src/assistant/phone/`.
+
 ## Onboarding
 
 The assistant's onboarding (`chats/setup.rs`, drawn by `chats/sheet.rs` in
