@@ -19,6 +19,16 @@ mod images;
 
 use std::io::{BufRead, Write};
 
+/// What a lead hears when fewer of the helpers it `asked` for started than
+/// it asked for (`started`): which wait, and that it starts them later.
+fn not_started(asked: &[String], started: usize) -> Option<String> {
+    let waiting = asked.get(started..).filter(|rest| !rest.is_empty())?;
+    Some(format!(
+        "\nNot started, since {started} is as many as this computer runs well beside the others: {}. Start them with hex_team_start as these finish.",
+        waiting.join("; ")
+    ))
+}
+
 use color_eyre::Result;
 use serde_json::{Value, json};
 
@@ -101,7 +111,7 @@ fn team_definitions() -> Vec<Value> {
     vec![
         json!({
             "name": "hex_team_start",
-            "description": "Start helpers: background jobs that work beside you on parts of this job, each with its own browsers, apps, and a folder inside yours that you can read. Use it for parts that can run in parallel (many sites to research, several deliverables); at most 12 at once. Returns their ids. Follow them with hex_team_status.",
+            "description": "Start helpers: background jobs that work beside you on parts of this job, each with its own browsers, apps, and a folder inside yours that you can read. Use it for parts that can run in parallel (many sites to research, several deliverables); pass every helper in one call and they all start at once (as many as this computer runs well; it says if some must wait). Returns their ids. Follow them with hex_team_status.",
             "inputSchema": {"type": "object", "properties": {
                 "jobs": {"type": "array", "items": {"type": "object", "properties": {
                     "title": {"type": "string", "description": "A short title, at most six words."},
@@ -208,16 +218,21 @@ pub fn call(name: &str, arguments: &Value) -> Result<String, String> {
             let root =
                 crate::assistant::agent::team::root().ok_or("Hex has no folder for teams")?;
             let jobs = crate::assistant::agent::handoff::parse(arguments)?.jobs;
+            let asked: Vec<String> = jobs.iter().map(|job| job.title.clone()).collect();
             let members = crate::assistant::agent::team::start(&root, lead, jobs)?;
             let lines: Vec<String> = members
                 .iter()
                 .map(|member| format!("- {} (id {})", member.title, member.id))
                 .collect();
-            Ok(format!(
+            let mut text = format!(
                 "Started {} helper(s):\n{}\nFollow them with hex_team_status (wait_seconds waits for the next to finish).",
                 members.len(),
                 lines.join("\n")
-            ))
+            );
+            if let Some(waiting) = not_started(&asked, members.len()) {
+                text.push_str(&waiting);
+            }
+            Ok(text)
         }
         "hex_team_tell" => {
             let lead = TASK
@@ -471,5 +486,14 @@ mod tests {
         );
         assert_eq!(definitions_for(Role::Turn), definitions());
         assert_eq!(Role::Job.arg(), "job");
+    }
+
+    #[test]
+    fn a_lead_hears_which_helpers_wait_for_room() {
+        let asked: Vec<String> = ["A", "B", "C"].map(str::to_owned).to_vec();
+        assert_eq!(not_started(&asked, 3), None);
+        assert_eq!(not_started(&asked, 5), None);
+        let waiting = not_started(&asked, 1).unwrap();
+        assert!(waiting.contains("B; C"), "{waiting}");
     }
 }

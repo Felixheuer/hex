@@ -1,7 +1,8 @@
-//! A task's browsers: its main one and up to seven more it names ("a", "b",
+//! A task's browsers: its main one and more it names ("a", "b",
 //! "suppliers-2"), each an agent-browser session of its own in Hex's
 //! namespace (`hex-<task>`, `hex-<task>_<name>`), so one job can read many
-//! pages at once.
+//! pages at once. How many is the computer's (`capacity::limits`): up to
+//! 32 on a big Mac, fewer of them real Chrome.
 //!
 //! Each starts as one of two kinds and stays that way:
 //! - **clean** (the default) for reading and research: a light Lightpanda
@@ -17,8 +18,11 @@ use serde_json::{Map, Value, json};
 
 use super::SIGN_IN;
 
-/// Browsers one task may have open at once, its main one included.
-pub const MAX_SESSIONS: usize = 12;
+/// Browsers one task may have open at once on this computer, its main one
+/// included.
+pub fn max_sessions() -> usize {
+    crate::assistant::capacity::limits().browsers
+}
 
 /// Arguments no task passes through to agent-browser: they would show a
 /// window, reach another task's browsers, keep state, or pass raw flags.
@@ -104,17 +108,46 @@ pub struct Sessions {
     /// Whether memory is critically tight now: no browser beyond the first
     /// opens (`capacity::pressure`).
     tight: fn() -> bool,
+    /// Browsers open at once, at most, and real Chrome ones among them.
+    max: usize,
+    max_chrome: usize,
 }
 
 impl Sessions {
     pub fn new(task: &str, clean: Engine) -> Self {
+        let limits = crate::assistant::capacity::limits();
         Self {
             task: task.to_owned(),
             clean,
             accounts: false,
             open: BTreeMap::new(),
             tight: critically_tight,
+            max: limits.browsers,
+            max_chrome: limits.chrome,
         }
+    }
+
+    /// Other limits than this computer's (tests).
+    #[cfg(test)]
+    pub fn with_limits(mut self, max: usize, max_chrome: usize) -> Self {
+        self.max = max;
+        self.max_chrome = max_chrome;
+        self
+    }
+
+    fn engine_of(&self, kind: Kind) -> Engine {
+        match kind {
+            Kind::SignedIn => Engine::Chrome,
+            Kind::Clean | Kind::Accounts => self.clean,
+        }
+    }
+
+    fn names(&self) -> String {
+        self.open
+            .keys()
+            .map(|name| shown(name))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     /// How it tells memory is critically tight (tests).
@@ -164,15 +197,13 @@ impl Sessions {
             }
             (Some(kind), _) => *kind,
             (None, wanted) => {
-                if self.open.len() >= MAX_SESSIONS {
+                if self.open.len() >= self.max {
                     return Err(format!(
-                        "This task already has {MAX_SESSIONS} browsers ({}). Close one \
-                         (agent_browser_close with its session) before opening another",
-                        self.open
-                            .keys()
-                            .map(|name| shown(name))
-                            .collect::<Vec<_>>()
-                            .join(", ")
+                        "This task already has {} browsers, the most this computer runs \
+                         well for one task ({}). Close one (agent_browser_close with its \
+                         session) before opening another",
+                        self.max,
+                        self.names()
                     ));
                 }
                 // Fifty jobs' browsers can run a computer out of memory:
@@ -182,11 +213,7 @@ impl Sessions {
                         "Memory on this computer is critically tight, so no more browsers open \
                          now. Go on with the ones you have ({}), close one you're done with \
                          (agent_browser_close), or wait a minute and try again",
-                        self.open
-                            .keys()
-                            .map(|name| shown(name))
-                            .collect::<Vec<_>>()
-                            .join(", ")
+                        self.names()
                     ));
                 }
                 let kind = wanted.unwrap_or(if self.accounts {
@@ -194,20 +221,37 @@ impl Sessions {
                 } else {
                     Kind::Clean
                 });
+                let chrome = self
+                    .open
+                    .values()
+                    .filter(|kind| self.engine_of(**kind) == Engine::Chrome)
+                    .count();
+                if self.engine_of(kind) == Engine::Chrome && chrome >= self.max_chrome {
+                    return Err(format!(
+                        "This task already has {} real Chrome browsers, the most this computer \
+                         runs well for one task. Read pages in light browsers (omit signedIn), \
+                         or close a Chrome one you're done with (agent_browser_close)",
+                        self.max_chrome
+                    ));
+                }
                 self.open.insert(name.clone(), kind);
                 kind
             }
         };
-        if kind != Kind::Clean {
-            arguments.insert("restore".into(), SIGN_IN.into());
-            arguments.insert("restoreSave".into(), "never".into());
-        }
-        let engine = match kind {
-            Kind::SignedIn => Engine::Chrome,
-            Kind::Clean | Kind::Accounts => self.clean,
-        };
-        arguments.insert("extraArgs".into(), json!(["--engine", engine.name()]));
+        arguments.extend(launch_arguments(kind, self.engine_of(kind)));
         Ok(())
+    }
+
+    /// The `restore` and engine arguments a browser that asks for nothing
+    /// would start with (`browser::prewarm`, which starts a helper's main
+    /// browser before it asks, the same way).
+    pub fn default_launch(&self) -> Map<String, Value> {
+        let kind = if self.accounts {
+            Kind::Accounts
+        } else {
+            Kind::Clean
+        };
+        launch_arguments(kind, self.engine_of(kind))
     }
 
     /// The task's browsers for [`LIST_TOOL`]; `running` are the sessions
@@ -217,10 +261,7 @@ impl Sessions {
             .open
             .iter()
             .map(|(name, kind)| {
-                let engine = match kind {
-                    Kind::SignedIn => Engine::Chrome,
-                    Kind::Clean | Kind::Accounts => self.clean,
-                };
+                let engine = self.engine_of(*kind);
                 json!({
                     "session": shown(name),
                     "signedIn": *kind != Kind::Clean,
@@ -229,8 +270,20 @@ impl Sessions {
                 })
             })
             .collect();
-        json!({ "browsers": browsers, "max": MAX_SESSIONS })
+        json!({ "browsers": browsers, "max": self.max, "maxChrome": self.max_chrome })
     }
+}
+
+/// What a browser of `kind` on `engine` starts with: the person's accounts
+/// (never saved back) unless it's clean, and its engine.
+fn launch_arguments(kind: Kind, engine: Engine) -> Map<String, Value> {
+    let mut arguments = Map::new();
+    if kind != Kind::Clean {
+        arguments.insert("restore".into(), SIGN_IN.into());
+        arguments.insert("restoreSave".into(), "never".into());
+    }
+    arguments.insert("extraArgs".into(), json!(["--engine", engine.name()]));
+    arguments
 }
 
 fn shown(name: &str) -> &str {
@@ -293,7 +346,7 @@ pub fn describe_tools(result: &mut Value) {
                 json!({"type": "string", "description": format!(
                     "Which of this task's browsers: omit for the main one, or a short name \
                      (a, b, … or up to 16 letters, digits, - and _) for another one that runs \
-                     beside it. Up to {MAX_SESSIONS} per task.")}),
+                     beside it. Up to {} per task.", max_sessions())}),
             );
             if opens {
                 properties.insert(
@@ -392,8 +445,8 @@ mod tests {
     }
 
     #[test]
-    fn a_task_has_at_most_twelve_browsers_and_closing_frees_one() {
-        let mut sessions = Sessions::new("t1", Engine::Chrome);
+    fn a_task_has_at_most_its_computer_s_browsers_and_closing_frees_one() {
+        let mut sessions = Sessions::new("t1", Engine::Chrome).with_limits(12, 12);
         for name in [
             "main", "a", "b", "c", "d", "e", "f", "g", "i", "j", "k", "l",
         ] {
@@ -412,6 +465,37 @@ mod tests {
     }
 
     #[test]
+    fn twenty_light_browsers_open_but_real_chrome_is_held_to_its_share() {
+        // This Mac's limits: 32 browsers, 16 of them Chrome.
+        let mut sessions = Sessions::new("t1", Engine::Lightpanda).with_limits(32, 16);
+        for n in 0..20 {
+            let mut call = args(json!({"session": format!("s{n}")}));
+            sessions.pin("agent_browser_open", &mut call).unwrap();
+            assert_eq!(call["extraArgs"], json!(["--engine", "lightpanda"]));
+        }
+        let mut sessions = Sessions::new("t1", Engine::Lightpanda).with_limits(32, 2);
+        for name in ["a", "b"] {
+            let mut call = args(json!({"session": name, "signedIn": true}));
+            sessions.pin("agent_browser_open", &mut call).unwrap();
+        }
+        let mut third = args(json!({"session": "c", "signedIn": true}));
+        let refused = sessions.pin("agent_browser_open", &mut third).unwrap_err();
+        assert!(refused.contains("2 real Chrome browsers"), "{refused}");
+        // A light one still opens.
+        sessions
+            .pin("agent_browser_open", &mut args(json!({"session": "c"})))
+            .unwrap();
+        // A helper's main browser is started ahead the way its first call
+        // would start it.
+        let light = Sessions::new("t2", Engine::Lightpanda).with_accounts(true);
+        let ahead = light.default_launch();
+        assert_eq!(ahead["restore"], SIGN_IN);
+        assert_eq!(ahead["extraArgs"], json!(["--engine", "lightpanda"]));
+        let clean = Sessions::new("t2", Engine::Lightpanda).default_launch();
+        assert!(clean.get("restore").is_none());
+    }
+
+    #[test]
     fn session_names_stay_inside_the_task() {
         let mut sessions = Sessions::new("t1", Engine::Chrome);
         for bad in [json!("../x"), json!("a b"), json!("x".repeat(17)), json!(3)] {
@@ -426,7 +510,7 @@ mod tests {
 
     #[test]
     fn the_list_says_what_each_browser_is() {
-        let mut sessions = Sessions::new("t1", Engine::Lightpanda);
+        let mut sessions = Sessions::new("t1", Engine::Lightpanda).with_limits(12, 4);
         sessions
             .pin("agent_browser_open", &mut args(json!({})))
             .unwrap();
@@ -441,7 +525,7 @@ mod tests {
             json!({"browsers": [
                 {"session": "main", "signedIn": false, "engine": "lightpanda", "running": true},
                 {"session": "a", "signedIn": true, "engine": "chrome", "running": false},
-            ], "max": 12})
+            ], "max": 12, "maxChrome": 4})
         );
     }
 

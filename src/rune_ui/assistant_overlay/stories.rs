@@ -169,6 +169,7 @@ fn orb_view(state: &OrbStory, cx: &mut Cx<OrbStory>) -> El {
                     jobs: super::jobs::LineActions {
                         hover: |_, _| {},
                         pin: |_| {},
+                        wall: |_, _| {},
                     },
                 },
             )),

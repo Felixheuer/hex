@@ -41,7 +41,7 @@ use serde_json::Value;
 use crate::assistant::backends::{self, McpServer, run, search};
 
 pub use proxy::serve;
-pub use sessions::{Engine, MAX_SESSIONS};
+pub use sessions::{Engine, max_sessions};
 
 /// The server's name in each agent's config: its tools are then
 /// `mcp__agent-browser__agent_browser_*` (Claude Code), `agent_browser_*`
@@ -165,6 +165,81 @@ fn server(hex: PathBuf, task: &str, browser: &Path) -> McpServer {
             .to_vec(),
         path_env: search::path_value(&[browser.to_owned()]),
     }
+}
+
+/// Starts `task`'s main browser now, on a blank page, exactly as its first
+/// browser call would start it (`Sessions::default_launch`): a job's first
+/// page then opens in a warm browser while its agent is still starting
+/// (twenty helpers' at once measured 0.36 s, against about 4 s for twenty
+/// cold first pages). Only a light Lightpanda browser is started ahead,
+/// and only while memory is fine: a Chrome nobody uses would cost hundreds
+/// of megabytes. The task's end closes it like any other ([`close`]), and
+/// it closes itself when unused for half an hour. Runs on its own thread.
+pub fn prewarm(task: &str) {
+    if cfg!(test) {
+        return;
+    }
+    let enabled = crate::app_settings::assistant_runtime()
+        .is_none_or(|(_, settings)| settings.background_browser);
+    if !enabled
+        || clean_engine() != Engine::Lightpanda
+        || crate::assistant::capacity::pressure() != crate::assistant::capacity::Pressure::Normal
+    {
+        return;
+    }
+    let Some(path) = executable() else {
+        return;
+    };
+    let launch = sessions::Sessions::new(task, Engine::Lightpanda)
+        .with_accounts(accounts_by_default())
+        .default_launch();
+    let session = session(task);
+    let spawned = std::thread::Builder::new()
+        .name("hex-browser-prewarm".into())
+        .spawn(move || {
+            let (args, env) = prewarm_command(&launch);
+            let mut command = command(&path, &session);
+            command.envs(env).arg("--json").args(&args);
+            match run::bounded(command, COMMAND_LIMIT) {
+                Ok(ran) if !ran.timed_out() => {
+                    tracing::debug!(session, "started a job's browser ahead");
+                }
+                Ok(_) | Err(_) => tracing::debug!(session, "couldn't start a job's browser ahead"),
+            }
+        });
+    if let Err(error) = spawned {
+        tracing::debug!(%error, "couldn't start a browser ahead");
+    }
+}
+
+/// The agent-browser arguments and environment that open a blank page in a
+/// browser started with `launch` (`Sessions::default_launch`'s `restore`,
+/// `restoreSave`, and `extraArgs`).
+fn prewarm_command(
+    launch: &serde_json::Map<String, Value>,
+) -> (Vec<String>, Vec<(String, String)>) {
+    let mut args: Vec<String> = launch
+        .get("extraArgs")
+        .and_then(Value::as_array)
+        .map(|extra| {
+            extra
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    args.extend(["open".to_owned(), "about:blank".to_owned()]);
+    let mut env = Vec::new();
+    for (key, name) in [
+        ("restore", "AGENT_BROWSER_RESTORE"),
+        ("restoreSave", "AGENT_BROWSER_RESTORE_SAVE"),
+    ] {
+        if let Some(value) = launch.get(key).and_then(Value::as_str) {
+            env.push((name.to_owned(), value.to_owned()));
+        }
+    }
+    (args, env)
 }
 
 /// Closes every browser of `task` (nothing is saved). Blocks for a moment;
@@ -573,6 +648,26 @@ fn last_json(output: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_browser_started_ahead_is_the_one_its_first_call_would_start() {
+        let with_accounts = sessions::Sessions::new("t", Engine::Lightpanda)
+            .with_accounts(true)
+            .default_launch();
+        let (args, env) = prewarm_command(&with_accounts);
+        assert_eq!(args, ["--engine", "lightpanda", "open", "about:blank"]);
+        assert_eq!(
+            env,
+            [
+                ("AGENT_BROWSER_RESTORE".to_owned(), SIGN_IN.to_owned()),
+                ("AGENT_BROWSER_RESTORE_SAVE".to_owned(), "never".to_owned()),
+            ]
+        );
+        let clean = sessions::Sessions::new("t", Engine::Lightpanda).default_launch();
+        let (args, env) = prewarm_command(&clean);
+        assert_eq!(args, ["--engine", "lightpanda", "open", "about:blank"]);
+        assert!(env.is_empty(), "a clean browser restores nothing");
+    }
 
     #[test]
     fn sign_in_addresses_open_the_selected_website_only() {

@@ -24,6 +24,7 @@ mod answer;
 mod displays;
 mod enlarged;
 mod follow;
+mod wall;
 mod watcher;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -65,6 +66,8 @@ struct Overlays {
     listening: OverlayHandle<Listening>,
     /// A task's browser, live and large (`enlarged`).
     enlarged: OverlayHandle<super::enlarged::Enlarged>,
+    /// Every browser of a job and its helpers, live (`wall`).
+    wall: OverlayHandle<super::wall::Wall>,
 }
 
 static OVERLAYS: OnceLock<Overlays> = OnceLock::new();
@@ -212,6 +215,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
                         orb.peek = false;
                         show_cards(orb);
                     },
+                    wall: |orb, id| wall::open(&orb.board, id),
                 },
             },
         },
@@ -259,6 +263,8 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         passive("Hex listening", listening::SIZE, listening::view).poll(listening_poll),
         Listening::default(),
     );
+    // The wall first: a tile pressed opens the enlarged card above it.
+    let wall = wall::install(app);
     let enlarged = enlarged::install(app);
     let _ = OVERLAYS.set(Overlays {
         frames,
@@ -269,6 +275,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         hands,
         listening,
         enlarged,
+        wall,
     });
     // Tasks already running when Hex started listening.
     if let Some(overlays) = OVERLAYS.get() {
@@ -283,6 +290,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
             overlays.orb.update(|_, _| {});
         }
         enlarged::redraw();
+        wall::redraw();
     });
     // The Action shortcut's double tap unfolds the list.
     crate::assistant::shortcut::set_toggle_tasks(toggle_tasks);
@@ -518,6 +526,7 @@ fn board_changed(orb: &mut Orb, tx: &mut Tx, now: Instant) {
     watcher::set_frame_until(orb.board.frame_until(now));
     watcher::publish(outlined, live);
     enlarged::follow(&orb.board);
+    wall::follow(&orb.board);
     set_hands(hands.map(|task| task.id));
     let Some(overlays) = OVERLAYS.get() else {
         return;

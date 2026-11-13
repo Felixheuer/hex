@@ -582,11 +582,28 @@ fn a_job_leads_helpers_that_work_in_its_folder_and_stop_with_it() {
         "{:?}",
         steered.authorized
     );
-    // At most twelve at once.
-    world.team_asks.lock().unwrap().push(ask("n3", &lead, 11));
+    // As many as this computer runs well start at once; the rest are cut,
+    // and with no room left a request is refused.
+    let limit = crate::assistant::agent::team::max_at_once();
+    let working = runner
+        .state()
+        .tasks
+        .iter()
+        .filter(|task| task.parent.as_deref() == Some(lead.as_str()))
+        .count();
+    world
+        .team_asks
+        .lock()
+        .unwrap()
+        .push(ask("n3", &lead, limit + 3));
+    world.wait_until("the cut", || !world.team_answers.lock().unwrap().is_empty());
+    let (_, cut) = world.team_answers.lock().unwrap().remove(0);
+    let more = cut.expect("the room left starts");
+    assert_eq!(more.len(), limit - working);
+    world.team_asks.lock().unwrap().push(ask("n4", &lead, 1));
     world.wait_until("the cap", || !world.team_answers.lock().unwrap().is_empty());
     let (_, capped) = world.team_answers.lock().unwrap().remove(0);
-    assert!(capped.unwrap_err().contains("At most 12"));
+    assert!(capped.unwrap_err().contains(&format!("At most {limit}")));
     // Stopping the lead stops its helpers.
     runner.cancel(&lead);
     world.wait_for("the lead and its helpers to stop", |events| {

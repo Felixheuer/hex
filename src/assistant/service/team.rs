@@ -50,14 +50,17 @@ impl Runner {
             .iter()
             .filter(|task| task.parent.as_deref() == Some(ask.lead.as_str()))
             .count();
-        if working + ask.jobs.len() > agent::team::MAX_AT_ONCE {
+        // As many as this computer runs well at once start now, all in one
+        // go; the lead hears which didn't and starts them as these finish.
+        let limit = agent::team::max_at_once();
+        let room = crate::assistant::capacity::room_for(ask.jobs.len(), working, limit);
+        if room == 0 {
             return Err(format!(
-                "At most {} helpers work at once and {working} still do: wait for some (hex_team_status with wait_seconds) or start fewer.",
-                agent::team::MAX_AT_ONCE
+                "At most {limit} helpers work at once on this computer and {working} still do: wait for some (hex_team_status with wait_seconds) or start fewer."
             ));
         }
         let mut members = Vec::new();
-        for job in &ask.jobs {
+        for job in ask.jobs.iter().take(room) {
             let id = store::new_id();
             let request = Request {
                 conversation: Some(id.clone()),
@@ -81,6 +84,8 @@ impl Runner {
             if let Some(task) = state.tasks.last_mut() {
                 task.parent = Some(ask.lead.clone());
             }
+            // Its main browser starts now, while its agent does.
+            crate::assistant::browser::prewarm(&id);
             members.push(agent::team::Member {
                 id,
                 title: job.title.clone(),

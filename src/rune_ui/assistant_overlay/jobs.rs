@@ -17,8 +17,8 @@ use rune::{El, col, el, icon, row, text};
 
 use super::super::controls::Paint;
 use super::super::icons::{GLOBE, PANEL};
-use super::board::{Phase, Task};
 use super::app_live::{self, AppPreview};
+use super::board::{Phase, Task};
 use super::live::{self, Preview};
 use super::{orb, palette, stack};
 use crate::assistant::Origin;
@@ -49,6 +49,9 @@ pub(crate) struct LineActions<S> {
     pub(crate) hover: fn(&mut S, bool),
     /// A press on the line: keep every card unfolded, or fold them again.
     pub(crate) pin: fn(&mut S),
+    /// "All N live" on a job's card: every browser and window of it and its
+    /// helpers on the live wall (the job's id).
+    pub(crate) wall: fn(&mut S, &str),
 }
 
 impl<S> Clone for LineActions<S> {
@@ -206,6 +209,7 @@ pub(crate) fn view<S: 'static>(
                     &helpers_of(team, &task.id),
                     helping,
                     actions,
+                    line_actions.wall,
                 );
                 if helping {
                     // Under its lead's card, set in.
@@ -316,6 +320,7 @@ fn card<S: 'static>(
     helpers: &[&Task],
     helping: bool,
     actions: stack::Actions<S>,
+    open_wall: fn(&mut S, &str),
 ) -> El {
     let c = &p.k.c;
     let colour = palette::task(task.colour, p.k.dark);
@@ -392,6 +397,31 @@ fn card<S: 'static>(
             }))
     });
     let team = (!helpers.is_empty()).then(|| team_row(p, helpers));
+    // Every picture of the job and its helpers, when the card can't show
+    // them all: "All 20 live" opens the wall.
+    let all = apps.len()
+        + previews.len()
+        + helpers
+            .iter()
+            .map(|helper| live::previews(&helper.id).len() + app_live::previews(&helper.id).len())
+            .sum::<usize>();
+    let wall = (!helping && wants_wall(all, apps_shown + shown)).then(|| {
+        let id = task.id.clone();
+        let label = tr_fill("All {} live", &all.to_string());
+        p.k.interactive(
+            el().key("job-wall")
+                .h(22.0)
+                .px(9.0)
+                .radius(11.0)
+                .fill(c.layer_02)
+                .center()
+                .role("button")
+                .label(label.clone())
+                .hit()
+                .on_press(move |s: &mut S| open_wall(s, &id))
+                .child(text(label).font(p.k.ty.small_medium).color(p.text())),
+        )
+    });
     let card = col()
         .key(format!("job-{}", task.id))
         .w(if helping {
@@ -419,8 +449,16 @@ fn card<S: 'static>(
         .child(head)
         .children(step)
         .children(browsers)
-        .children(team);
+        .children(team)
+        .children(wall.map(|wall| row().key("job-wall-row").pt(2.0).child(wall)));
     p.k.interactive(card)
+}
+
+/// Whether a card offers the live wall: `all` pictures of the job and its
+/// helpers, of which it shows `shown` itself; two or more it can't all
+/// show.
+pub(crate) fn wants_wall(all: usize, shown: usize) -> bool {
+    all >= 2 && all > shown
 }
 
 /// A lead's helpers on its card: a dot each and how many ended ("4 Helfer
@@ -715,6 +753,18 @@ mod tests {
         assert_eq!(strip(1, 2), (1, 2, 0));
         assert_eq!(strip(2, 5), (2, 2, 3));
         assert_eq!(strip(6, 1), (4, 0, 3));
+    }
+
+    #[test]
+    fn a_card_offers_the_wall_when_it_can_t_show_every_picture() {
+        // Twenty helpers with a browser each, the lead's card shows none.
+        assert!(wants_wall(20, 0));
+        // Twelve browsers, four on the card.
+        assert!(wants_wall(12, 4));
+        // All on the card already, or a single one: no wall.
+        assert!(!wants_wall(3, 3));
+        assert!(!wants_wall(1, 0));
+        assert!(!wants_wall(0, 0));
     }
 
     #[test]
