@@ -386,6 +386,7 @@ fn the_bubble_panel_carries_the_island_line_above_its_card() {
         level: None,
         held,
         front: None,
+        hang: None,
         actions: bubble::Actions {
             dismiss: |_| {},
             open: |_, _| {},

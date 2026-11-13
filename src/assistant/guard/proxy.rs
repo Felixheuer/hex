@@ -143,6 +143,9 @@ pub struct Guard<D: Desktop> {
     pub window_wait: Duration,
     /// How often a paused action looks again.
     pub poll: Duration,
+    /// How long a borrow is announced before its window comes forward
+    /// (`borrow::ANNOUNCE`).
+    pub announce: Duration,
     /// Asks a running app to show a window again (`open -g`); a stand-in in
     /// tests, which never open the person's apps.
     pub reopen: Box<dyn Fn(&super::screen::App) + Send>,
@@ -219,6 +222,7 @@ impl<D: Desktop> Guard<D> {
             fresh_for: FRESH,
             window_wait: apps::WINDOW_WAIT,
             poll: Duration::from_millis(250),
+            announce: borrow::ANNOUNCE,
             // Tests never open the person's apps.
             reopen: Box::new(|app| {
                 if !cfg!(test) {

@@ -2,7 +2,7 @@
 //! Assistant), fed by the made-up activity in `fixture`: the whole desktop
 //! playing the script, then the orb in each state (its job rows, a
 //! question answered by typing, results to open or try again, the recall), the Here bubble in each
-//! state, the Hands off pill, and the frame on their own.
+//! state, the Hands off tab, and the frame on their own.
 
 use rune::{Cx, El, Playground, Stage, Story, el};
 
@@ -14,7 +14,7 @@ use super::hint::Hint;
 use super::listening::{self, Listening};
 use super::minis::Desk as DeskMinis;
 use super::wall::{self, Scope, Wall};
-use super::{bubble, fixture, frame, hands, orb};
+use super::{bubble, fixture, frame, orb};
 
 /// Adds the assistant's stories to `playground`.
 pub(crate) fn add<S: 'static>(playground: Playground<S>) -> Playground<S> {
@@ -391,11 +391,15 @@ fn hands_story() -> Story<()> {
         || (),
         |_: &(), cx: &mut Cx<()>| {
             let p = Paint::new(cx.system_dark(), cx.env().scale);
-            let (w, h) = hands::SIZE;
+            // Hands off is the desk frame's tab (one surface per meaning).
+            let tab = frame::Tab::Hands {
+                app: Some("Numbers".into()),
+                window: None,
+            };
             el().key("hands-stage")
-                .size(w, h)
+                .size(560.0, 80.0)
                 .center()
-                .child(hands::pill(p))
+                .child(frame::tab_view(p, &tab, None))
         },
     )
 }

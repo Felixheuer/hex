@@ -76,7 +76,15 @@ pub(crate) struct Frame {
     pub(crate) tab: Option<Tab>,
     /// Seconds left of a borrow, for the tab's countdown.
     pub(crate) left: Option<u64>,
+    /// From the display's top to the tab: just under the island there
+    /// (`island::hang` + [`TAB_GAP`]); `None`: [`TAB_TOP`].
+    pub(crate) tab_top: Option<f32>,
 }
+
+/// Between the island and the tab hanging under it.
+pub(crate) const TAB_GAP: f32 = 6.0;
+/// About how tall the tab stands (two lines), for what hangs under it.
+pub(crate) const TAB_H: f32 = 52.0;
 
 /// What the desk frame's tab says.
 #[derive(Clone, Debug, PartialEq)]
@@ -216,7 +224,7 @@ pub(crate) fn drawn(p: Paint, frame: &Frame) -> El {
     let tab = frame.tab.as_ref().map(|tab| {
         row()
             .key("frame-tab-row")
-            .absolute(0.0, TAB_TOP)
+            .absolute(0.0, frame.tab_top.unwrap_or(TAB_TOP))
             .w(frame.size.0)
             .justify_center()
             .child(tab_view(p, tab, frame.left))
@@ -226,6 +234,18 @@ pub(crate) fn drawn(p: Paint, frame: &Frame) -> El {
         .h_full()
         .children(glow)
         .children(tab)
+}
+
+/// About how wide the tab draws for `tab` (its words in the person's
+/// language), for what keeps clear of it before it is laid out.
+pub(crate) fn tab_width(tab: &Tab, left: Option<u64>) -> f32 {
+    let (line, detail) = match (tab, tab.detail(left)) {
+        (Tab::InFront { .. }, Some(detail)) => (detail, None),
+        (_, detail) => (tab.line(), detail),
+    };
+    let words = (line.chars().count() as f32 * 7.6)
+        .max(detail.map_or(0.0, |detail| detail.chars().count() as f32 * 6.3));
+    (2.0 * 16.0 + 16.0 + 10.0 + words).min(TAB_MAX_W)
 }
 
 /// The tab: a black capsule (the island's black, in both appearances)

@@ -16,8 +16,7 @@ use rune::{OverlayHandle, Tx};
 
 use super::super::board::{Bubble, Due};
 use super::super::bubble::{self, BubbleOverlay};
-use super::super::hands;
-use super::super::screens;
+use super::super::{frame, outline, place, screens};
 use super::follow;
 use super::{FADE, OVERLAYS, answer_key, hands_task};
 use crate::assistant::Event;
@@ -93,9 +92,10 @@ fn say_failure(bubble: &Bubble) {
 }
 
 pub(super) fn show_bubble(state: &mut BubbleOverlay, handle: &OverlayHandle<BubbleOverlay>) {
-    state.below = place_bubble(handle);
+    place_bubble(state, handle);
     handle.fade_in(FADE);
     state.shown = true;
+    super::cards_shown(Some(true), None);
     want_escape(Some(true), None);
 }
 
@@ -182,6 +182,8 @@ pub(super) fn hide_bubble(state: &mut BubbleOverlay) {
     }
     state.shown = false;
     state.speaking = false;
+    super::cards_shown(Some(false), None);
+    *CARD_AT.lock().unwrap_or_else(|error| error.into_inner()) = None;
     want_escape(Some(false), None);
     if let Some(overlays) = OVERLAYS.get() {
         overlays.bubble.fade_out(BUBBLE_OUT);
@@ -197,28 +199,94 @@ pub(super) fn dismiss_bubble(state: &mut BubbleOverlay) {
     hide_bubble(state);
 }
 
-/// Places the bubble where Live text would show on the display the person
-/// works on, just past the HUD's plate (and past the Hands off pill while
-/// it shows); whether it hangs below that spot.
-pub(super) fn place_bubble(handle: &OverlayHandle<BubbleOverlay>) -> bool {
+/// Places the panel on the display the person works on. While the Action
+/// shortcut is held (or the setup card shows) the HUD is the island: the
+/// card hangs just past the HUD's plate, where Live text would show. Else
+/// the panel hangs from the island (`docs/ux/redesign.md` §3.1): the
+/// capsule grown out of the notch (or under the menu bar's centre), the
+/// card under it, under the frame's tab while one shows, and clear of the
+/// front window's title bar, the rail, and every outlined window's label
+/// (`place::clear_spot`).
+pub(super) fn place_bubble(state: &mut BubbleOverlay, handle: &OverlayHandle<BubbleOverlay>) {
     let Some((screen, all)) = follow::working() else {
-        return true;
+        state.below = true;
+        return;
     };
+    if state.held.is_some() || state.setup.is_some() {
+        state.hang = None;
+        *CARD_AT.lock().unwrap_or_else(|error| error.into_inner()) = None;
+        state.below = place_past_hud(handle, &screen, &all);
+        return;
+    }
+    state.below = true;
+    let (mid, top, notch, bottom) = follow::island_hang(&screen);
+    let (cw, ch) = (f64::from(bubble::SIZE.0), f64::from(bubble::SIZE.1));
+    let inset = f64::from(bubble::INSET);
+    let tab = hands_task().is_some()
+        || state
+            .front
+            .as_ref()
+            .is_some_and(|tab| matches!(tab, frame::Tab::InFront { .. }));
+    let mut keep: Vec<place::Keep> = Vec::new();
+    let mut under = bottom + f64::from(bubble::ISLAND_GAP);
+    if tab {
+        let tab_top = bottom + f64::from(frame::TAB_GAP);
+        let tab_h = f64::from(frame::TAB_H);
+        keep.push(place::Keep::Hard([mid - 280.0, tab_top, 560.0, tab_h]));
+        under = tab_top + tab_h + f64::from(bubble::ISLAND_GAP);
+    }
+    keep.extend(follow::rail_area().map(place::Keep::Hard));
+    keep.extend(follow::front_title_bar().map(place::Keep::Hard));
+    for window in super::watcher::outlined_rects() {
+        let rect = (window[0], window[1], window[2], window[3]);
+        let (whole, least) = outline::label_rects(rect, screen.frame[1], 300.0);
+        keep.push(place::Keep::Label { whole, least });
+    }
+    // The card's height as it stands now, not the panel's.
+    let card_h = f64::from(bubble::about_h(state.bubble.as_ref(), false)) + 2.0 * inset;
+    let want = (mid - cw / 2.0, under - inset);
+    let (cx, cy) = place::clear_spot(want, (cw, card_h), screen.visible, &keep);
+    // The panel: the island at its top middle, room for the card wherever
+    // it went (half a card aside at most, a little down).
+    let (pw, ph) = (f64::from(bubble::HUNG_W), f64::from(bubble::HUNG_H));
+    let px = (mid - pw / 2.0).clamp(screen.frame[0], screen.frame[0] + screen.frame[2] - pw);
+    let cx = cx.clamp(px, px + pw - cw);
+    let cy = cy.min(top + ph - ch);
+    *CARD_AT.lock().unwrap_or_else(|error| error.into_inner()) = Some([cx, cy, cw, card_h]);
+    state.hang = Some(bubble::Hang {
+        island: ((mid - px) as f32, 0.0),
+        notch: notch as f32,
+        card: ((cx - px) as f32, (cy - top) as f32),
+    });
+    let rect = screens::snap([px, top, pw, ph], screen.scale);
+    follow::set_rect(handle, rect.map(|v| v as f32));
+}
+
+/// What the island's card covers now (global points), for the outlines'
+/// labels to shorten beside; `None` while it's hidden or past the HUD.
+static CARD_AT: std::sync::Mutex<Option<[f64; 4]>> = std::sync::Mutex::new(None);
+
+pub(super) fn card_area() -> Option<[f64; 4]> {
+    *CARD_AT.lock().unwrap_or_else(|error| error.into_inner())
+}
+
+/// The panel just past the HUD's plate (and Live text's), the card at its
+/// top (below a HUD at the top) or bottom; whether it hangs below.
+fn place_past_hud(
+    handle: &OverlayHandle<BubbleOverlay>,
+    screen: &screens::Screen,
+    all: &[screens::Screen],
+) -> bool {
     let (width, height) = (f64::from(bubble::SIZE.0), f64::from(bubble::SIZE.1));
     let inset = f64::from(bubble::INSET);
-    let room = if hands_task().is_some() {
-        f64::from(hands::SIZE.1)
-    } else {
-        0.0
-    };
-    let (x, y, below) = follow::hud_spot(&screen, &all);
+    let (x, y, below) = follow::hud_spot(screen, all);
     let past = if crate::features::live_text() {
         f64::from(crate::rune_ui::live_text::SIZE.1)
     } else {
         0.0
     };
-    let top = bubble_top(y, below, height, inset, room + past);
-    let rect = screens::snap([x - width / 2.0, top, width, height], screen.scale);
+    let spot = bubble_top(y, below, height, inset, past);
+    let rect = screens::snap([x - width / 2.0, spot, width, height], screen.scale);
     follow::set_rect(handle, rect.map(|v| v as f32));
     below
 }
@@ -228,8 +296,8 @@ pub(super) fn place_bubble(handle: &OverlayHandle<BubbleOverlay>) -> bool {
 const LISTEN_SLOT: f64 = super::super::listening::SIZE.1 as f64 + 4.0;
 
 /// The bubble's top (global points) for a HUD spot at `y`, below it or
-/// above it, `room` taken by what sits between (the Hands off pill, Live
-/// text's plate), past the listening glow's slot.
+/// above it, `room` taken by what sits between (Live text's plate), past
+/// the listening glow's slot.
 fn bubble_top(y: f64, below: bool, height: f64, inset: f64, room: f64) -> f64 {
     let skip = room + LISTEN_SLOT;
     if below {
@@ -255,7 +323,7 @@ mod layout_tests {
         let glow_top = y - super::super::super::listening::SIZE.1 as f64;
         let card_bottom = bubble_top(y, false, height, inset, 0.0) + height - inset;
         assert!(card_bottom <= glow_top, "{card_bottom} before {glow_top}");
-        // The Hands off pill pushes it further.
+        // Live text's plate pushes it further.
         assert!(bubble_top(y, true, height, inset, 30.0) > bubble_top(y, true, height, inset, 0.0));
         const { assert!(LISTEN_SLOT > 0.0) };
     }

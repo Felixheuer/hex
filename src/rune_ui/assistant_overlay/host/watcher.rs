@@ -170,6 +170,9 @@ struct Watcher {
     followed: Option<Instant>,
     /// The display the tab last showed on ("Back to you" stays there).
     tab_on: Option<u32>,
+    /// About where the tab hangs now (global points), for the outlines'
+    /// labels to shorten beside.
+    tab_area: Option<[f64; 4]>,
 }
 
 impl Watcher {
@@ -309,6 +312,23 @@ impl Watcher {
         }
         let tab_on = tab.and_then(|tab| self.tab_display(tab));
         self.tab_on = tab_on.or(self.tab_on);
+        self.tab_area = tab_on
+            .and_then(|id| self.displays.iter().find(|screen| screen.id == id))
+            .zip(tab)
+            .map(|(screen, tab)| {
+                let (mid, _, _, bottom) = super::follow::island_hang(screen);
+                let tab_top = bottom + f64::from(super::super::frame::TAB_GAP);
+                let width = f64::from(super::super::frame::tab_width(
+                    tab,
+                    tab.left(super::super::when::now_ms()),
+                ));
+                [
+                    mid - width / 2.0,
+                    tab_top,
+                    width,
+                    f64::from(super::super::frame::TAB_H),
+                ]
+            });
         let left = tab.and_then(|tab| tab.left(super::super::when::now_ms()));
         let wanted: Vec<FrameSlot> = self
             .displays
@@ -357,6 +377,11 @@ impl Watcher {
                     glow: want.glow,
                     tab: want.tab.clone(),
                     left: want.left,
+                    // Just under the island on this display.
+                    tab_top: Some(
+                        (super::follow::island_hang(&want.screen).3 - want.screen.frame[1]) as f32
+                            + super::super::frame::TAB_GAP,
+                    ),
                 };
                 handle.update(move |frame, _| *frame = state);
                 let moved = have
@@ -484,6 +509,30 @@ impl Watcher {
                 step: item.step.clone(),
                 here: item.here,
                 origin: ((full[0] - piece[0]) as f32, (full[1] - piece[1]) as f32),
+                room: None,
+            };
+            // Its label shortens beside the rail or the island's card
+            // rather than hide under one (`docs/ux/redesign.md` §3.1).
+            let (lx, ly) = match label {
+                LabelSide::Above => (2.0, 0.0),
+                LabelSide::Inside => (8.0, 8.0),
+            };
+            let pad = f64::from(outline::PAD);
+            let whole = [
+                full[0] + pad + lx,
+                full[1] + pad + ly,
+                f64::from(outline::label_width(&drawn, size.0 as f32)),
+                f64::from(outline::LABEL_H),
+            ];
+            let cards: Vec<[f64; 4]> = super::follow::rail_area()
+                .into_iter()
+                .chain(super::answer::card_area())
+                .chain(self.tab_area)
+                .chain(super::stage::stage_area())
+                .collect();
+            let drawn = Outline {
+                room: super::super::place::label_room(whole, &cards).map(|room| room as f32),
+                ..drawn
             };
             if drawn != slot.outline {
                 slot.outline = drawn.clone();

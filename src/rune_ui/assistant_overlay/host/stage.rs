@@ -151,10 +151,46 @@ pub(crate) fn show(panel: Panel) {
         state.show(panel);
         tx.wake_after(LOOK_EVERY);
     });
+    place(&overlays.stage);
     overlays.stage.fade_in(FADE);
+    super::cards_shown(None, Some(true));
     if keys {
         overlays.stage.request_keys();
     }
+}
+
+/// Under the island on the display the person works on (under the
+/// frame's tab while one shows), moved aside off the rail
+/// (`place::beside_rail`); where it was installed when the displays
+/// can't be read.
+fn place(handle: &OverlayHandle<Stage>) {
+    let Some((screen, _)) = super::follow::working() else {
+        return;
+    };
+    let (mid, _, _, bottom) = super::follow::island_hang(&screen);
+    let mut top = bottom + f64::from(super::super::bubble::ISLAND_GAP);
+    if super::hands_task().is_some() {
+        top += f64::from(super::super::frame::TAB_GAP + super::super::frame::TAB_H);
+    }
+    let (w, h) = (f64::from(stage::SIZE.0), f64::from(stage::SIZE.1));
+    let inset = f64::from(stage::INSET);
+    let mut want = [mid - w / 2.0, top - inset, w, h];
+    if let Some(rail) = super::follow::rail_area() {
+        want = super::super::place::beside_rail(want, inset, rail, screen.visible);
+    }
+    let rect = super::super::screens::snap(want, screen.scale);
+    // Its card's top, which shows whatever it projects: the outlines'
+    // labels shorten beside it.
+    *STAGE_AT.lock().unwrap_or_else(|error| error.into_inner()) =
+        Some([want[0] + inset, want[1] + inset, w - 2.0 * inset, 200.0]);
+    super::follow::set_rect(handle, rect.map(|v| v as f32));
+}
+
+/// Where the stage's card's top is while it shows (global points).
+static STAGE_AT: Mutex<Option<[f64; 4]>> = Mutex::new(None);
+
+pub(super) fn stage_area() -> Option<[f64; 4]> {
+    *STAGE_AT.lock().unwrap_or_else(|error| error.into_inner())
 }
 
 /// ×, Esc, or folding away: the panel goes.
@@ -169,6 +205,8 @@ fn close(state: &mut Stage) {
     if let Some(overlays) = OVERLAYS.get() {
         overlays.stage.fade_out(FADE);
     }
+    *STAGE_AT.lock().unwrap_or_else(|error| error.into_inner()) = None;
+    super::cards_shown(None, Some(false));
 }
 
 /// The Here bubble's More: the whole answer on the stage.

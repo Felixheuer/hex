@@ -44,6 +44,53 @@ pub(crate) fn default_anchor(visible: Area, hud: Option<(f64, bool)>) -> (f64, f
     clamp((x + w - RAIL_EDGE - inward, y + RAIL_TOP + down), visible)
 }
 
+/// About how tall the rail stands for `board` (the list unfolded: all of
+/// `room`), with at most `cards` floating cards (`orb::rail_cards`): its
+/// head, its question, the tasks the person holds, the result, the job
+/// rows, and the "N more" line.
+pub(crate) fn rail_height(
+    board: &super::board::Board,
+    expanded: bool,
+    room: f64,
+    cards: usize,
+) -> f64 {
+    use super::board::Phase;
+    const HEAD: f64 = 52.0;
+    const QUESTION: f64 = 178.0;
+    const STANDING: f64 = 44.0;
+    const RESULT: f64 = 136.0;
+    const ROW: f64 = 104.0;
+    const MORE: f64 = 34.0;
+    if expanded {
+        return room;
+    }
+    let mut left = cards;
+    let mut take = |n: usize| {
+        let n = n.min(left);
+        left -= n;
+        n as f64
+    };
+    let question = take(usize::from(board.active_question().is_some()));
+    let standing = take(
+        board
+            .stack()
+            .iter()
+            .filter(|task| matches!(task.phase, Phase::Paused | Phase::Waiting { .. }))
+            .count(),
+    );
+    let results = take(board.pops.items.len().min(orb::RAIL_RESULTS));
+    let running = super::jobs::running(&board.tasks);
+    let layout = super::jobs::layout_at_most(&running, question > 0.0, left);
+    let more = if layout.more > 0 { MORE } else { 0.0 };
+    (HEAD
+        + question * QUESTION
+        + standing * STANDING
+        + results * RESULT
+        + layout.rows.len() as f64 * ROW
+        + more)
+        .min(room)
+}
+
 /// What the rail's cards cover for an anchor unfolding `grow`, `height`
 /// tall below its head's top: x, y, width, height (global points).
 pub(crate) fn footprint((ax, ay): (f64, f64), grow: Grow, height: f64) -> Area {
@@ -63,8 +110,139 @@ pub(crate) fn footprint((ax, ay): (f64, f64), grow: Grow, height: f64) -> Area {
     [x, y, width, height]
 }
 
-fn overlaps([ax, ay, aw, ah]: Area, [bx, by, bw, bh]: Area) -> bool {
+pub(crate) fn overlaps([ax, ay, aw, ah]: Area, [bx, by, bw, bh]: Area) -> bool {
     ax < bx + bw && bx < ax + aw && ay < by + bh && by < ay + ah
+}
+
+/// How much of `a` lies over `b`, in square points.
+fn overlap_area([ax, ay, aw, ah]: Area, [bx, by, bw, bh]: Area) -> f64 {
+    let w = (ax + aw).min(bx + bw) - ax.max(bx);
+    let h = (ay + ah).min(by + bh) - ay.max(by);
+    w.max(0.0) * h.max(0.0)
+}
+
+/// Something a card keeps clear of (`docs/ux/redesign.md` §3.1): the
+/// focus window's title bar and the other cards are `Hard`; an outlined
+/// window's label is `Label`, whole if it can be, else at least its dot
+/// and the start of its title (the label then shortens beside the card,
+/// [`label_room`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Keep {
+    Hard(Area),
+    Label { whole: Area, least: Area },
+}
+
+/// A panel at `want` (its card `inset` in from each side) moved sideways
+/// just clear of the rail (`rail`) when its card would run under it,
+/// kept on `within` (the stage stays under the island where it can).
+pub(crate) fn beside_rail(want: Area, inset: f64, rail: Area, within: Area) -> Area {
+    const GAP: f64 = 12.0;
+    let [x, y, w, h] = want;
+    let card = [x + inset, y + inset, w - 2.0 * inset, h - 2.0 * inset];
+    if !overlaps(card, rail) {
+        return want;
+    }
+    let rail_mid = rail[0] + rail[2] / 2.0;
+    let x = if rail_mid > card[0] + card[2] / 2.0 {
+        // The rail is to the right: end just before it.
+        rail[0] - GAP - card[2] - inset
+    } else {
+        rail[0] + rail[2] + GAP - inset
+    };
+    [
+        x.clamp(
+            within[0] - inset,
+            (within[0] + within[2] - w + inset).max(within[0] - inset),
+        ),
+        y,
+        w,
+        h,
+    ]
+}
+
+/// How far a card may move down from where it wants to be before a label
+/// may shorten for it instead.
+const NEAR: f64 = 96.0;
+/// The steps a card moves in, looking for room.
+const STEP: f64 = 8.0;
+
+/// Where a card `size` big goes (its top-left): `want` if that covers
+/// nothing in `keep`, else the nearest spot within `within` that doesn't,
+/// sliding sideways first, then down (a card hangs under the island; it
+/// never rises over it). A label stays whole when a spot within [`NEAR`]
+/// allows it; past that, a label may shorten to its least. With no clear
+/// spot at all, the one covering least.
+pub(crate) fn clear_spot(
+    want: (f64, f64),
+    size: (f64, f64),
+    within: Area,
+    keep: &[Keep],
+) -> (f64, f64) {
+    let [wx, wy, ww, wh] = within;
+    let (w, h) = size;
+    let x_lo = wx;
+    let x_hi = (wx + ww - w).max(wx);
+    let y_hi = (wy + wh - h).max(want.1);
+    let at = |dx: f64, dy: f64| ((want.0 + dx).clamp(x_lo, x_hi), want.1 + dy);
+    let card = |(x, y): (f64, f64)| [x, y, w, h];
+    let covers = |spot: (f64, f64), whole: bool| -> f64 {
+        keep.iter()
+            .map(|keep| match keep {
+                Keep::Hard(area) => overlap_area(card(spot), *area),
+                Keep::Label { whole: all, least } => {
+                    overlap_area(card(spot), if whole { *all } else { *least })
+                }
+            })
+            .sum()
+    };
+    // Candidates nearest first: a step down costs as much as two sideways.
+    let mut spots: Vec<(f64, (f64, f64))> = Vec::new();
+    let mut dy = 0.0;
+    while want.1 + dy <= y_hi + 0.01 {
+        let mut dx = 0.0;
+        while dx <= ww {
+            for sign in [1.0, -1.0] {
+                let spot = at(sign * dx, dy);
+                spots.push((dx + 2.0 * dy, spot));
+                if dx == 0.0 {
+                    break;
+                }
+            }
+            dx += STEP;
+        }
+        dy += STEP;
+    }
+    spots.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let near = |spot: &(f64, f64)| spot.1 - want.1 <= NEAR;
+    if let Some((_, spot)) = spots
+        .iter()
+        .find(|(_, spot)| near(spot) && covers(*spot, true) == 0.0)
+    {
+        return *spot;
+    }
+    if let Some((_, spot)) = spots.iter().find(|(_, spot)| covers(*spot, false) == 0.0) {
+        return *spot;
+    }
+    spots
+        .iter()
+        .min_by(|a, b| covers(a.1, false).total_cmp(&covers(b.1, false)))
+        .map_or(want, |(_, spot)| *spot)
+}
+
+/// How wide a label starting at `label` (its whole rect) may draw so that
+/// none of `cards` covers it: up to the first card that sits over its
+/// line to its right; `None` when no card is in the way (or one covers
+/// its start: shortening wouldn't show it).
+pub(crate) fn label_room(label: Area, cards: &[Area]) -> Option<f64> {
+    let [lx, _, _, _] = label;
+    cards
+        .iter()
+        .filter(|card| overlaps(label, **card) && card[0] > lx + 24.0)
+        .map(|card| card[0] - lx - 6.0)
+        .fold(None, |room: Option<f64>, each| {
+            Some(room.map_or(each, |room| room.min(each)))
+        })
+        .map(|room| room.max(0.0))
 }
 
 /// `anchor`, flipped to the display's other side when the rail there
@@ -86,7 +264,24 @@ pub(crate) fn clear_of(
     }
     let [x, _, w, _] = visible;
     let mirrored = clamp((x + (x + w - anchor.0), anchor.1), visible);
-    if covers(mirrored) { anchor } else { mirrored }
+    if !covers(mirrored) {
+        return mirrored;
+    }
+    // Outlined windows on both sides: the side covering fewer of their
+    // labels (the strip above each window's top), else where it is. The
+    // labels it still lies over shorten beside it (`label_room`).
+    let labels = |at: (f64, f64)| {
+        let rail = footprint(at, grow(at, visible), height);
+        outlines
+            .iter()
+            .filter(|[ox, oy, ow, _]| overlaps(rail, [*ox, oy - 30.0, ow.min(240.0), 30.0]))
+            .count()
+    };
+    if labels(mirrored) < labels(anchor) {
+        mirrored
+    } else {
+        anchor
+    }
 }
 
 /// The rail's anchor on the display keyed `key`, with the flip rule: where
@@ -295,6 +490,60 @@ mod tests {
         // jump between them.
         let both = [[900.0, 60.0, 600.0, 700.0], [0.0, 60.0, 600.0, 700.0]];
         assert_eq!(clear_of(anchor, VISIBLE, &both, height), anchor);
+    }
+
+    #[test]
+    fn a_card_slides_off_a_label_and_a_title_bar_and_labels_shorten_last() {
+        let within = [0.0, 24.0, 1280.0, 776.0];
+        let size = (482.0, 200.0);
+        let want = (399.0, 60.0);
+        // Nothing in the way: where it wants to be.
+        assert_eq!(clear_spot(want, size, within, &[]), want);
+        // A label under it: it slides aside (or down) until clear.
+        let label = [300.0, 230.0, 380.0, 22.0];
+        let keep = [Keep::Label {
+            whole: label,
+            least: [300.0, 230.0, 120.0, 22.0],
+        }];
+        let (x, y) = clear_spot(want, size, within, &keep);
+        assert!(!overlaps([x, y, size.0, size.1], label), "{x} {y}");
+        // The focus window's title bar right under the island, and labels
+        // either side: it goes down past the bar, never up over the island.
+        let bar = [0.0, 100.0, 1280.0, 30.0];
+        let (x, y) = clear_spot(want, size, within, &[Keep::Hard(bar)]);
+        assert!(y >= 130.0, "{x} {y}");
+        // No clear spot near: a label may shorten to its least.
+        let wide = [0.0, 60.0, 1280.0, 22.0];
+        let keep = [
+            Keep::Label {
+                whole: wide,
+                least: [0.0, 60.0, 120.0, 22.0],
+            },
+            Keep::Hard([0.0, 82.0, 1280.0, 700.0]),
+        ];
+        let (x, y) = clear_spot((399.0, 60.0), (482.0, 20.0), within, &keep);
+        assert!(x >= 120.0 && y < 82.0, "{x} {y}");
+        // A label shortens beside a card to its right, not one over its start.
+        assert_eq!(
+            label_room(label, &[[600.0, 0.0, 300.0, 400.0]]),
+            Some(294.0)
+        );
+        assert_eq!(label_room(label, &[[200.0, 0.0, 300.0, 400.0]]), None);
+        assert_eq!(label_room(label, &[[900.0, 0.0, 300.0, 400.0]]), None);
+    }
+
+    #[test]
+    fn the_stage_moves_aside_off_the_rail() {
+        let within = [0.0, 24.0, 1280.0, 776.0];
+        let rail = [914.0, 36.0, 348.0, 500.0];
+        let want = [296.0, 44.0, 688.0, 660.0];
+        let [x, ..] = beside_rail(want, 24.0, rail, within);
+        assert!(x + 688.0 - 24.0 <= 914.0 - 12.0 + 0.01, "{x}");
+        // Clear of it already: it stays.
+        assert_eq!(
+            beside_rail(want, 24.0, [1000.0, 36.0, 200.0, 100.0], within),
+            want
+        );
     }
 
     #[test]

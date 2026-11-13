@@ -179,6 +179,8 @@ pub(crate) struct Orb {
     pub(crate) room: f32,
     /// The person's desk as last read.
     pub(crate) desk: Desk,
+    /// The rail's share of the floating cards now ([`rail_cards`]).
+    pub(crate) cards: usize,
     pub(crate) actions: Actions<Orb>,
 }
 
@@ -198,6 +200,7 @@ impl Orb {
             voice: None,
             room: SIZE.1,
             desk: Desk::default(),
+            cards: MAX_CARDS,
             actions,
         }
     }
@@ -224,6 +227,20 @@ pub(crate) struct Look {
     pub(crate) room: Option<f32>,
     /// The person's desk: its pictures follow the job rows.
     pub(crate) desk: Desk,
+    /// How many cards the rail may float now (its question, held tasks,
+    /// job rows, and result), the island's card and the stage counted
+    /// out of [`MAX_CARDS`]; `None`: all of them.
+    pub(crate) cards: Option<usize>,
+}
+
+/// Floating cards on the screen at once, at most (`docs/ux/redesign.md`
+/// §3.6): the island's card, the rail's, and the stage.
+pub(crate) const MAX_CARDS: usize = 5;
+
+/// The rail's share of [`MAX_CARDS`] while the island shows a card
+/// (`island`) and the stage a panel (`stage`).
+pub(crate) fn rail_cards(island: bool, stage: bool) -> usize {
+    MAX_CARDS - usize::from(island) - usize::from(stage)
 }
 
 impl Look {
@@ -246,6 +263,7 @@ pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
         open_result: orb.open_result,
         room: Some(orb.room),
         desk: orb.desk.clone(),
+        cards: Some(orb.cards),
     };
     el().key("orb-root")
         .w_full()
@@ -399,9 +417,20 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
                     .filter_map(|task| standing_bubble(p, task, grow, actions.list)),
             );
         }
-        let running = jobs::running(&board.tasks);
-        let layout = jobs::layout(&running, asking.is_some());
+        // At most the rail's share of the floating cards: the question
+        // first, then the held tasks, the result, and the job rows; the
+        // rows beyond go to the "N more" line.
+        let mut left = look
+            .cards
+            .unwrap_or(usize::MAX)
+            .saturating_sub(usize::from(asking.is_some()));
+        standing.truncate(left);
+        left -= standing.len();
         let mut results = result_bubbles(board, look.open_result);
+        results.truncate(left);
+        left -= results.len();
+        let running = jobs::running(&board.tasks);
+        let layout = jobs::layout_at_most(&running, asking.is_some(), left);
         // What else takes room in the panel, so the job rows take the rest
         // and scroll past it instead of pushing the results off the panel.
         let fixed = ORB_H

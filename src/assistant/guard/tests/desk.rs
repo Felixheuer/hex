@@ -266,6 +266,61 @@ fn a_borrow_is_stored_until_the_front_goes_back() {
     }
 }
 
+/// The island announces a borrow before the window comes forward: the
+/// borrow is stored before the focus reaches the desktop; a take-over
+/// during the announce brings nothing forward and borrows nothing.
+#[test]
+fn a_borrow_is_announced_before_the_window_comes_forward() {
+    for taken_over in [false, true] {
+        let scratch = Scratch::new();
+        let fake = Fake::recorded();
+        with_running_apps(&fake);
+        let mut guard = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
+        guard.config.front_window = true;
+        guard.call("hex_open_app", args(json!({"name": "Citrix Viewer"})));
+        guard.call("desktop_focus_window", args(json!({"window_id": CITRIX})));
+        let store = scratch.store();
+        let task = guard.config.task.clone();
+        let announced = Arc::new(Mutex::new(None::<bool>));
+        let seen = announced.clone();
+        let looking = store.clone();
+        fake.state().on_call = Some(Arc::new(move |tool: &str| {
+            if tool == "desktop_focus_window" {
+                *seen.lock().unwrap() = Some(!looking.borrowed().is_empty());
+            }
+        }));
+        guard.announce = Duration::from_millis(300);
+        // The person takes over while the island announces it.
+        let pauser = taken_over.then(|| {
+            let (store, task) = (store.clone(), task.clone());
+            std::thread::spawn(move || {
+                while store.borrowed().is_empty() {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                store.set_paused(&task, true, 1);
+            })
+        });
+        let result = guard.call("desktop_focus_window", args(json!({"window_id": CITRIX})));
+        if let Some(pauser) = pauser {
+            pauser.join().unwrap();
+        }
+        fake.state().on_call = None;
+        if taken_over {
+            assert!(result.to_string().contains("TAKEN_OVER"), "{result}");
+            assert_eq!(*announced.lock().unwrap(), None, "nothing came forward");
+            assert!(scratch.store().borrowed().is_empty(), "nothing borrowed");
+            scratch.store().set_paused(&task, false, 2);
+        } else {
+            assert_eq!(
+                *announced.lock().unwrap(),
+                Some(true),
+                "the borrow was stored (and announced) first"
+            );
+            assert_eq!(scratch.store().borrowed().len(), 1);
+        }
+    }
+}
+
 #[test]
 fn any_app_takes_a_url_or_a_script_and_blocked_apps_and_sends_are_checked() {
     let scratch = Scratch::new();

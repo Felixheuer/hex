@@ -87,18 +87,29 @@ pub(crate) fn running(tasks: &[Task]) -> Vec<&Task> {
 /// A job's helpers (`assistant::agent::team`) fold into their lead's row
 /// (and count in its "N helpers"); the list shows each.
 pub(crate) fn layout(jobs: &[&Task], question: bool) -> Layout {
-    let room = if question { MAX_ROWS - 1 } else { MAX_ROWS };
+    layout_at_most(jobs, question, usize::MAX)
+}
+
+/// [`layout`] with at most `most` rows: the rail's share of the floating
+/// cards (`docs/ux/redesign.md` §3.6, five on the screen at once) once
+/// the island's card, the stage, the question, the held tasks, and the
+/// result have theirs; the rest go to the "N more" line.
+pub(crate) fn layout_at_most(jobs: &[&Task], question: bool, most: usize) -> Layout {
+    let room = if question { MAX_ROWS - 1 } else { MAX_ROWS }.min(most);
     let led = |task: &Task| {
         task.lead
             .as_ref()
             .is_some_and(|lead| jobs.iter().any(|job| &job.id == lead))
     };
-    let leads: Vec<&Task> = jobs
+    let mut leads: Vec<&Task> = jobs
         .iter()
         .rev()
         .copied()
         .filter(|task| !led(task))
         .collect();
+    // Working jobs before queued ones (newest first within each): with
+    // few rows to give, the ones doing something get them.
+    leads.sort_by_key(|task| task.phase == Phase::Queued);
     let rows: Vec<String> = leads
         .iter()
         .take(room)
@@ -182,7 +193,7 @@ pub(crate) fn view<S: 'static>(
     actions: stack::Actions<S>,
     line_actions: LineActions<S>,
 ) -> Option<El> {
-    if layout.rows.is_empty() && desk.is_none() {
+    if layout.rows.is_empty() && layout.more == 0 && desk.is_none() {
         return None;
     }
     let mut rows: Vec<El> = layout
