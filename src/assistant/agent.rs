@@ -320,8 +320,14 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
                 }
             }
         }
+        let steps = job
+            .workspace
+            .as_deref()
+            .map_or(0, |workspace| workspace::plan(workspace).len());
         let answer = match &result {
-            Ok(answer) if supervised && !wrapping_up => answer.clone(),
+            Ok(answer) if supervised && !wrapping_up && goal::worth_checking(steps) => {
+                answer.clone()
+            }
             _ => return finish(store, &mut stored, actions, result, emit),
         };
         let verdict = check(&run, job, &answer, control, store, &mut stored, key);
@@ -847,7 +853,7 @@ fn tools_server(
 }
 
 /// How Hex's own tools are used.
-pub const TOOLS_RULES: &str = "\nWhen the person asks for something to happen later or repeatedly (\"every morning at 8 …\"), schedule it with hex_schedule (a cron line or an RRULE, local time) instead of doing it now, and say the schedule and its next runs in your answer. hex_schedules lists schedules; hex_unschedule removes one.\n";
+pub const TOOLS_RULES: &str = "\nWork fast, as a skilled person would: make independent tool calls together in one turn (several browsers, searches, or reads at once); read pages as text (the browser's read or get-text tools, WebFetch for a known URL) rather than screenshots; never wait a fixed time, wait for an element, a URL, or a text instead; snapshot a window once by its window_id and drill in with root (or desktop_find) instead of snapshotting it again; don't re-check what a tool already confirmed.\nWhen the person asks for something to happen later or repeatedly (\"every morning at 8 …\"), schedule it with hex_schedule (a cron line or an RRULE, local time) instead of doing it now, and say the schedule and its next runs in your answer. hex_schedules lists schedules; hex_unschedule removes one.\n";
 
 /// What the person's memory note says, and when to add to it.
 pub fn memory_rules(note: Option<&str>, may_remember: bool) -> String {

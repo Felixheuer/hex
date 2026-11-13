@@ -271,6 +271,7 @@ impl<D: Desktop> Guard<D> {
     }
 
     fn run(&mut self, tool: &str, args: &mut Map<String, Value>) -> Result<Value, Value> {
+        policy::lean_snapshot(tool, args);
         let kind = policy::kind(tool, args);
         if let Some(app) = text(args, "app")
             && self.blocked(&app)

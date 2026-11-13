@@ -15,6 +15,17 @@
 //!
 //! OWNER: brain.
 
+/// Plan steps up to which a job counts as trivial: its own answer stands
+/// without an independent check (one check took 16 s at the median).
+pub const TRIVIAL_STEPS: usize = 2;
+
+/// Whether a job with `steps` plan steps is worth an independent check: a
+/// real piece of work is; a one- or two-step job (or one without a plan)
+/// isn't.
+pub fn worth_checking(steps: usize) -> bool {
+    steps > TRIVIAL_STEPS
+}
+
 /// The check's verdict line when every criterion is met.
 pub const VERIFIED: &str = "HEX_VERIFIED";
 /// The check's verdict when something is missing; the gaps follow.
@@ -240,5 +251,12 @@ mod tests {
             progress.next(Verdict::NotDone("gap last".into())),
             Next::WrapUp(_)
         ));
+    }
+
+    #[test]
+    fn only_real_work_is_checked() {
+        assert!(!super::worth_checking(0));
+        assert!(!super::worth_checking(2));
+        assert!(super::worth_checking(3));
     }
 }
