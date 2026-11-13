@@ -17,6 +17,8 @@
 //!
 //! OWNER: guard.
 
+pub mod browser;
+pub mod capabilities;
 pub mod cua;
 pub mod update;
 
@@ -35,6 +37,16 @@ pub fn find() -> Option<PathBuf> {
 /// daemon, no app of its own to grant.
 pub fn mcp_args() -> Vec<String> {
     vec!["mcp".into(), "--direct".into()]
+}
+
+/// [`mcp_args`] with what the person allowed in setup: their browser's
+/// profile (`browser`).
+pub fn task_args() -> Vec<String> {
+    let mut args = mcp_args();
+    if !cfg!(test) {
+        args.extend(browser::grants(cua::standard().as_ref()));
+    }
+    args
 }
 
 /// Environment its process gets beside Agent-Desk's agent environment.

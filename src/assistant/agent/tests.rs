@@ -730,13 +730,15 @@ fn quick_turns_run_fast_and_hand_hard_ones_to_the_strong_model() {
 // 9_800: the product name is Agent-Desk (ten letters, not three).
 // 9_950: watching a video is hex_watch_video's (media::RULES).
 // 10_250: the understood line the island shows first (markers::UNDERSTOOD_RULE).
-const HERE_BUDGET: usize = 10_250;
+// 10_850: Cua Driver used fully: batches, scripts, menus, checks, skills (BACKGROUND_INPUT_RULES).
+const HERE_BUDGET: usize = 10_850;
 // 15_900: the knowledge tools add a short rule; every app's ways, scripting first (APP_METHODS).
 // 16_200: acting by a window's picture (BACKGROUND_INPUT_RULES).
 // 16_500: the work-fast rules reach jobs too (speed_rules).
 // 16_600: the product name is Agent-Desk.
 // 16_750: watching a video is hex_watch_video's (media::RULES).
-const JOB_BUDGET: usize = 16_750;
+// 17_350: Cua Driver used fully: batches, scripts, menus, checks, skills (BACKGROUND_INPUT_RULES).
+const JOB_BUDGET: usize = 17_350;
 
 #[test]
 fn each_lane_s_rules_stay_within_their_budget() {

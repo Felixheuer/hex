@@ -19,6 +19,11 @@ use serde_json::{Map, Value, json};
 
 use super::child::Desktop;
 
+mod browser;
+mod more;
+
+pub use more::{STEP_ACTIONS, USES};
+
 /// The Cua Driver version tasks run, for `desktop_status`.
 fn driver_version() -> String {
     crate::assistant::driver::cua::version()
@@ -37,6 +42,9 @@ pub struct Cua<I: Desktop> {
     pids: HashMap<u32, i64>,
     /// Snapshot id → (pid, window number, its elements), newest last.
     snapshots: VecDeque<(String, i64, u32, Vec<Value>)>,
+    /// Browser window number → the (target, tab) its page was read from
+    /// (`browser`).
+    browsers: HashMap<u32, (String, String)>,
 }
 
 impl<I: Desktop> Cua<I> {
@@ -45,6 +53,7 @@ impl<I: Desktop> Cua<I> {
             inner,
             pids: HashMap::new(),
             snapshots: VecDeque::new(),
+            browsers: HashMap::new(),
         }
     }
 
@@ -488,20 +497,31 @@ impl<I: Desktop> Cua<I> {
                         "press needs combo (cmd+s, return, …).",
                     )
                 })?;
-                let (pid, number) = self.target(command, args)?;
-                let keys = keys(&combo);
-                let data = match keys.as_slice() {
-                    [only] => self.data(
-                        command,
-                        "press_key",
-                        json!({"pid": pid, "window_id": number, "key": only}),
-                    )?,
-                    _ => self.data(
-                        command,
-                        "hotkey",
-                        json!({"pid": pid, "window_id": number, "keys": keys}),
-                    )?,
+                // With a ref the keys go to that element (focused first).
+                let (pid, number, focus) = match text(args, "ref_id") {
+                    Some(reference) => {
+                        let (token, pid, number, _) = self.element(command, &reference)?;
+                        (pid, number, Some(token))
+                    }
+                    None => {
+                        let (pid, number) = self.target(command, args)?;
+                        (pid, number, None)
+                    }
                 };
+                let keys = keys(&combo);
+                let mut ask = match keys.as_slice() {
+                    [only] => json!({"pid": pid, "window_id": number, "key": only}),
+                    _ => json!({"pid": pid, "window_id": number, "keys": keys}),
+                };
+                if let Some(token) = focus {
+                    ask["element_token"] = json!(token);
+                }
+                let tool = if keys.len() == 1 {
+                    "press_key"
+                } else {
+                    "hotkey"
+                };
+                let data = self.data(command, tool, ask)?;
                 Ok(result_ok(command, outcome(&data)))
             }
             "desktop_launch" => {
@@ -585,6 +605,27 @@ impl<I: Desktop> Cua<I> {
                     args.get("x").and_then(Value::as_f64).unwrap_or_default(),
                     args.get("y").and_then(Value::as_f64).unwrap_or_default(),
                 );
+                // On screen, Cua Driver's frame with its read-back; off it
+                // (parking), which Cua refuses, Agent-Desk's own call.
+                let bounds = self
+                    .windows(None)?
+                    .into_iter()
+                    .find(|window| window["window_id"].as_u64() == Some(u64::from(number)))
+                    .map(|window| window["bounds"].clone());
+                if let Some(bounds) = bounds.filter(|bounds| bounds["width"].is_number())
+                    && let Ok(data) = self.data(
+                        command,
+                        "set_window_frame",
+                        json!({"pid": pid, "window_id": number, "x": at.0, "y": at.1,
+                               "width": bounds["width"], "height": bounds["height"]}),
+                    )
+                    && data["effect"] == "confirmed"
+                {
+                    return Ok(result_ok(
+                        command,
+                        json!({"window": format!("w-{number}"), "x": at.0, "y": at.1, "verified": true}),
+                    ));
+                }
                 if cfg!(test) {
                     return Ok(result_ok(command, json!({"window": format!("w-{number}")})));
                 }
@@ -644,11 +685,13 @@ impl<I: Desktop> Cua<I> {
                 Ok(result_ok(command, json!({"window": format!("w-{number}")})))
             }
             "desktop_wait" => self.wait(command, args),
-            _ => Err(error(
-                command,
-                "UNSUPPORTED",
-                "Cua Driver doesn't offer this; act through refs or hex_window_input.",
-            )),
+            _ => self.more(command, tool, args).unwrap_or_else(|| {
+                Err(error(
+                    command,
+                    "UNSUPPORTED",
+                    "Cua Driver doesn't offer this; act through refs or hex_window_input.",
+                ))
+            }),
         }
     }
 
@@ -1001,7 +1044,7 @@ pub fn tools() -> Vec<Value> {
             &["ref_id"],
         )
     };
-    vec![
+    let mut tools = vec![
         tool(
             "desktop_status",
             "The driver and its permissions.",
@@ -1104,8 +1147,10 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "desktop_press",
-            "Press keys in an app's window in the background (return, escape, tab, cmd+s, …).",
-            json!({"combo": {"type": "string"}, "window_id": window.clone(), "app": app.clone()}),
+            "Press keys or a key combination in an app's window in the background (return, \
+             escape, tab, cmd+s, cmd+shift+d, …); with ref_id they go to that element.",
+            json!({"combo": {"type": "string"}, "window_id": window.clone(), "app": app.clone(),
+                   "ref_id": reference.clone()}),
             &["combo"],
         ),
         tool(
@@ -1157,7 +1202,10 @@ pub fn tools() -> Vec<Value> {
                    "text": {"type": "string"}, "window_id": window.clone(), "timeout": {"type": "integer"}}),
             &[],
         ),
-    ]
+    ];
+    tools.extend(more::tools());
+    tools.extend(browser::tools());
+    tools
 }
 
 #[cfg(test)]

@@ -128,6 +128,112 @@ fn calls(log: &Path) -> Vec<String> {
         .collect()
 }
 
+/// Batches, scripts, menus, and checks reach Cua Driver as its own tools,
+/// each in the task's window; what the guard refuses never does.
+#[test]
+fn batches_scripts_menus_and_checks_reach_the_driver_in_the_tasks_window() {
+    let root = std::env::temp_dir().join(format!("agent-desk-guard-steps-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let spec = json!({
+        "task": "task-steps", "lane": "background", "physical_input": false,
+        "cua_driver": fixtures().join("fake-cua-driver.py"), "state_dir": root.join("state"),
+        "windows": "driver", "autonomy": "smart",
+    });
+    let log = root.join("steps.jsonl");
+    let mut guard = Guard::start(&spec, &log, &root.join("support"));
+    let tools = guard.request("tools/list", json!({}));
+    let names: Vec<&str> = tools["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    for name in [
+        "desktop_run_steps",
+        "desktop_run_script",
+        "desktop_menu",
+        "desktop_verify",
+        "hex_skills",
+        "hex_skill_record",
+        "hex_skill_replay",
+    ] {
+        assert!(names.contains(&name), "{name} isn't offered: {names:?}");
+    }
+    assert!(
+        !names.contains(&"desktop_screen"),
+        "a job without full control"
+    );
+
+    // In the person's window nothing runs.
+    let (refused, envelope) = guard.call(
+        "desktop_run_steps",
+        json!({"window_id": FRONT, "steps": [{"action": "press", "combo": "return"}]}),
+    );
+    assert!(refused);
+    assert_eq!(envelope["error"]["code"], "NOT_YOUR_WINDOW");
+    assert!(calls(&log).is_empty(), "{:?}", calls(&log));
+
+    let (refused, claimed) = guard.call("desktop_claim_window", json!({"window_id": SETTINGS}));
+    assert!(!refused, "{claimed}");
+    let (_, snapshot) = guard.call("desktop_snapshot", json!({"window_id": SETTINGS}));
+    let ok_button = snapshot["data"]["tree"][1]["ref_id"].clone();
+    let (refused, ran) = guard.call(
+        "desktop_run_steps",
+        json!({"window_id": SETTINGS, "observe": false, "steps": [
+            {"action": "click", "ref_id": ok_button},
+            {"action": "type", "role": "textfield", "name": "Name", "text": "Ada"},
+        ]}),
+    );
+    assert!(!refused, "{ran}");
+    let (refused, verified) = guard.call(
+        "desktop_verify",
+        json!({"window_id": SETTINGS, "expect": [{"role": "button", "name": "OK"}]}),
+    );
+    assert!(!refused, "{verified}");
+    assert_eq!(verified["data"]["satisfied"], true);
+    let (refused, menu) = guard.call(
+        "desktop_menu",
+        json!({"window_id": SETTINGS, "path": ["Darstellung", "Alle anzeigen"]}),
+    );
+    assert!(!refused, "{menu}");
+    let (refused, scripted) = guard.call(
+        "desktop_run_script",
+        json!({"window_id": SETTINGS, "script":
+            "const read = desk.snapshot(); desk.click(read.tree[1].ref_id); return read.app;"}),
+    );
+    assert!(!refused, "{scripted}");
+    assert_eq!(
+        calls(&log),
+        [
+            "get_window_state",
+            "run_steps",
+            "verify_state",
+            "invoke_menu",
+            "get_window_state",
+            "click"
+        ]
+    );
+    let entries = reached(&log);
+    let batch = entries
+        .iter()
+        .find(|entry| entry["call"] == "run_steps")
+        .unwrap();
+    assert_eq!(batch["arguments"]["window_id"], 18628);
+    assert_eq!(
+        batch["arguments"]["steps"][0]["args"]["element_token"],
+        "s00000001:1"
+    );
+    assert_eq!(batch["arguments"]["steps"][1]["args"]["name"], "Name");
+    let menu = entries
+        .iter()
+        .find(|entry| entry["call"] == "invoke_menu")
+        .unwrap();
+    assert_eq!(menu["arguments"]["delivery_mode"], "background");
+    guard.stop();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn the_guard_forwards_only_what_the_lane_allows() {
     let root = std::env::temp_dir().join(format!("agent-desk-guard-mcp-{}", std::process::id()));

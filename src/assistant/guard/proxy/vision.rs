@@ -51,6 +51,13 @@ pub(super) struct Vision {
     pub(in crate::assistant::guard) sent: Vec<(u32, Gesture)>,
 }
 
+impl Vision {
+    /// An element's frame (global points), as a result showed it.
+    pub(super) fn frame_of(&self, reference: &str) -> Option<(f64, f64, f64, f64)> {
+        self.frames.get(reference).copied()
+    }
+}
+
 struct Seen {
     image: (u32, u32),
     #[allow(dead_code)] // Told to the agent with the image.

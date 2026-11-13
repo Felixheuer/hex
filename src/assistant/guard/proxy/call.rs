@@ -14,6 +14,7 @@ impl<D: Desktop> Guard<D> {
     pub fn call(&mut self, tool: &str, args: Map<String, Value>) -> Value {
         let started = Instant::now();
         self.notes.clear();
+        self.consequential = None;
         self.forwarding = Duration::ZERO;
         self.notice_resume();
         self.refresh_here_window();
@@ -46,6 +47,13 @@ impl<D: Desktop> Guard<D> {
             self.note_pending = false;
             self.notes
                 .push(RESUMED.replace(" (The action you asked for was not sent.)", ""));
+        }
+        if forwarded && let Some(category) = self.consequential.take() {
+            self.notes.push(format!(
+                "that was a consequential step ({}): check that it took effect with \
+                 desktop_verify (or a fresh snapshot) before you report it done.",
+                category.name()
+            ));
         }
         if !self.notes.is_empty()
             && let Some(content) = result.get_mut("content").and_then(Value::as_array_mut)
@@ -96,6 +104,7 @@ impl<D: Desktop> Guard<D> {
                 kind,
                 Kind::Free
                     | Kind::Observe
+                    | Kind::Skills
                     | Kind::InstalledApps
                     | Kind::AppCapabilities
                     | Kind::Displays
@@ -128,6 +137,19 @@ impl<D: Desktop> Guard<D> {
             Kind::WindowShot => return self.window_shot(tool, args),
             Kind::WindowInput => return self.window_input(tool, args),
             Kind::AppCapabilities => return self.app_capabilities(tool, args),
+            Kind::Script => return self.run_script(tool, args),
+            Kind::Skills => return Ok(self.skills_list(args)),
+            Kind::SkillRecord => return self.skill_record(tool, args),
+            Kind::SkillReplay => return self.skill_replay(tool, args),
+            Kind::Screen if !self.config.front_window => {
+                return Err(refusal(
+                    tool,
+                    "POLICY_DENIED",
+                    "The whole screen shows the person's windows; look at your own window with \
+                     desktop_screenshot.",
+                ));
+            }
+            Kind::Screen => return self.forward(tool, args),
             Kind::Clipboard
                 if self.config.lane == Lane::Background && !self.config.physical_input =>
             {
@@ -138,7 +160,26 @@ impl<D: Desktop> Guard<D> {
                      window with desktop_type or desktop_set_value instead.",
                 ));
             }
-            Kind::Clipboard => return self.forward(tool, args),
+            Kind::Clipboard => {
+                // A job replacing what the person copied asks first, like
+                // sharing (the Here task's person asked for it right now).
+                if tool == "desktop_clipboard_set"
+                    && self.config.lane == Lane::Background
+                    && self.config.autonomy != crate::assistant::autonomy::Autonomy::Yolo
+                {
+                    let gate = crate::assistant::autonomy::Gate::new(
+                        tool,
+                        self.config.autonomy,
+                        self.store.authorized(&self.config.task),
+                    );
+                    gate.check(
+                        crate::assistant::autonomy::Category::Share,
+                        "the person's clipboard (it replaces what they copied)",
+                    )
+                    .map_err(|refused| super::consent::needs_confirmation(&refused))?;
+                }
+                return self.forward(tool, args);
+            }
             Kind::Free => {
                 let result = self.forward(tool, args)?;
                 let background = self.config.lane == Lane::Background;
@@ -208,6 +249,16 @@ impl<D: Desktop> Guard<D> {
         for window in &resolved {
             self.check(tool, kind, window, &held)?;
         }
+        if kind == Kind::Batch {
+            self.batch_refs(tool, args, &resolved)?;
+        }
+        if tool == "desktop_drag" && resolved.len() == 2 && resolved[0].id != resolved[1].id {
+            return Err(refusal(
+                tool,
+                "POLICY_DENIED",
+                "A drag stays in one window: from and to must be refs of the same snapshot.",
+            ));
+        }
         self.borrow_desk(tool, kind, &resolved)?;
         self.secure_read(tool, args)?;
         if kind.acts() {
@@ -242,6 +293,8 @@ impl<D: Desktop> Guard<D> {
         if kind.acts() {
             result = self.ax_fallback(tool, args, &resolved, result);
             self.count_failure(&resolved, &result);
+            self.spot(args, &resolved, &result);
+            self.note_step(tool, args, &resolved, &result);
             if kind == Kind::CloseApp
                 && child::data(&result).is_some()
                 && let Some(window) = resolved.first()
@@ -317,6 +370,92 @@ impl<D: Desktop> Guard<D> {
 }
 
 impl<D: Desktop> Guard<D> {
+    /// A batch acts in its one window: every step's ref must be from a
+    /// snapshot of that window, and no step may name another.
+    pub(super) fn batch_refs(
+        &mut self,
+        tool: &str,
+        args: &Map<String, Value>,
+        resolved: &[Resolved],
+    ) -> Result<(), Value> {
+        let Some(window) = resolved.first() else {
+            return Err(refusal(
+                tool,
+                "INVALID_ARGS",
+                "Name the batch's window with window_id.",
+            ));
+        };
+        let steps = args
+            .get("steps")
+            .and_then(Value::as_array)
+            .ok_or_else(|| refusal(tool, "INVALID_ARGS", "run_steps needs steps."))?;
+        for (index, step) in steps.iter().enumerate() {
+            let Some(step) = step.as_object() else {
+                return Err(refusal(
+                    tool,
+                    "INVALID_ARGS",
+                    &format!("step {} isn't an object.", index + 1),
+                ));
+            };
+            for key in ["window_id", "app", "pid", "window", "element_token"] {
+                if step.contains_key(key) {
+                    return Err(refusal(
+                        tool,
+                        "INVALID_ARGS",
+                        &format!(
+                            "step {}: a step can't name a window ({key}); the batch's window_id does.",
+                            index + 1
+                        ),
+                    ));
+                }
+            }
+            let action = text(step, "action").unwrap_or_default();
+            if !super::super::cua::STEP_ACTIONS.contains(&action.as_str()) {
+                return Err(refusal(
+                    tool,
+                    "INVALID_ARGS",
+                    &format!(
+                        "step {}: action must be one of {}.",
+                        index + 1,
+                        super::super::cua::STEP_ACTIONS.join(", ")
+                    ),
+                ));
+            }
+            let Some(reference) = text(step, "ref_id") else {
+                continue;
+            };
+            let snapshot = policy::snapshot_of(&reference)
+                .map_err(|why| refusal(tool, "POLICY_DENIED", &why))?;
+            let origin = self.learned.snapshots.lock().get(&snapshot).cloned();
+            match origin {
+                Some(origin) if origin.window.is_none() || origin.window == window.id => {}
+                Some(_) => {
+                    return Err(refusal(
+                        tool,
+                        "NOT_YOUR_WINDOW",
+                        &format!(
+                            "step {}: {reference} is from a snapshot of another window; a batch \
+                             acts only in its own.",
+                            index + 1
+                        ),
+                    ));
+                }
+                None => {
+                    return Err(refusal(
+                        tool,
+                        "UNKNOWN_REF",
+                        &format!(
+                            "step {}: Agent-Desk doesn't know which window {reference} is in. Take \
+                             a snapshot of the batch's window and use its refs.",
+                            index + 1
+                        ),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Names the app in `args["app"]` exactly as it runs: a name the agent
     /// typed ("WhatsApp") becomes the running app's own ("\u{200e}WhatsApp",
     /// with its invisible mark), so the driver finds it.
