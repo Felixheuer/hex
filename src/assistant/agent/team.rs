@@ -32,8 +32,11 @@ use serde::{Deserialize, Serialize};
 use super::handoff::Job;
 use crate::assistant::types::Event;
 
-/// Helpers working at once for one lead.
-pub const MAX_AT_ONCE: usize = 12;
+/// Helpers working at once for one lead on this computer
+/// (`capacity::limits`: 32 on a 64 GB Mac).
+pub fn max_at_once() -> usize {
+    crate::assistant::capacity::limits().helpers
+}
 /// How long `hex_team_start` waits for the runner to take its request.
 const ANSWER_WAIT: Duration = Duration::from_secs(20);
 /// How long `hex_team_status` may wait for a helper to finish, per call.
@@ -214,7 +217,7 @@ fn send(
                 None => Ok(answered.members),
             };
         }
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_millis(50));
     }
     let _ = std::fs::remove_file(requests.join(format!("{nonce}.json")));
     Err("Hex didn't take the helpers (is it running?). Do the work yourself instead.".into())
@@ -442,13 +445,18 @@ fn apply(member: &mut Member, event: &Event) {
     }
 }
 
-/// What a lead learns in its rules: when and how to use helpers.
-pub const RULES: &str = "\nA team for big jobs: when the work splits into parts that can run beside each other (many sites or suppliers to research, several deliverables, a build beside a comparison), start helpers with hex_team_start: each is a full background job with its own browsers, apps, and folder inside yours, and asks the person on its own what it must know. Give each a self-contained task (every detail it needs, and which files to write in its folder), at most 12 at once. A step that needs their results (a sheet of everything they found, a message with the final link) comes after them: do it yourself once they're done, or start a helper for it then, naming the files to use. While they work, do your own part, or call hex_team_status with wait_seconds (up to 240) to wait for the next to finish; never poll it quickly. When the person changes what they want while helpers work, pass it on with hex_team_tell (one helper's id, or \"all\"). Read their answers and files, check them, and finish with one answer for all of it. Small jobs need no team.\n";
+/// What a lead learns in its rules: when and how to use helpers, at most
+/// `max` at once.
+pub fn rules(max: usize) -> String {
+    format!(
+        "\nA team for big jobs: when the work splits into parts that can run beside each other (many sites or suppliers to research, several deliverables, a build beside a comparison), start helpers with hex_team_start: each is a full background job with its own browsers, apps, and folder inside yours, and asks the person on its own what it must know. When the person asks for a number of helpers or browsers (\"20 Agenten\", \"20 Browser\"), start that many helpers in ONE hex_team_start call right away, up to {max} at once on this computer, before doing anything else; they all start together. Give each a self-contained task (every detail it needs, and which files to write in its folder). A shared table (suppliers, leads, prices): give every helper the same columns and have each write its rows to its own part file in its folder (rows.csv with a header row), never into one shared sheet at the same time; once they're done, combine the parts yourself, without duplicates (same website or name), into one Google Sheet in your `signedIn: true` browser (File → Import the combined CSV, or paste it) and give the person its link; if they asked for an Excel or Numbers file, or have no Google account, make that file with the apps and tools this Mac has. A step that needs their results (a message with the final link) comes after them: do it yourself once they're done, or start a helper for it then, naming the files to use. While they work, do your own part, or call hex_team_status with wait_seconds (up to 240) to wait for the next to finish; never poll it quickly. When the person changes what they want while helpers work, pass it on with hex_team_tell (one helper's id, or \"all\"). Read their answers and files, check them, and finish with one answer for all of it. Small jobs need no team.\n"
+    )
+}
 
 /// What a helper learns in its rules: it does one part of its lead's job.
 pub fn helper_rules(lead: &str) -> String {
     format!(
-        "\nYou are a helper: the job “{lead}” gave you one part of it and combines what its helpers make. Do only your part, fully. Put your results as files in your folder (the lead reads it), and end with a short summary naming each file and any links. Don't start helpers of your own. Ask the person only what you can't find out and your lead couldn't have told you.\n"
+        "\nYou are a helper: the job “{lead}” gave you one part of it and combines what its helpers make. Do only your part, fully. Put your results as files in your folder (the lead reads it), and end with a short summary naming each file and any links. When your part is rows for a shared table, write them to the part file your lead named (rows.csv with a header row) with exactly its columns, adding rows as you find them; never write into the shared sheet yourself. For reading pages use your light browsers (several at once); real Chrome (`signedIn: true`) only for a site that needs a login or doesn't work in the light one. Don't start helpers of your own. Ask the person only what you can't find out and your lead couldn't have told you.\n"
     )
 }
 
@@ -601,6 +609,17 @@ mod tests {
         let rules = helper_rules("50 Lieferanten vergleichen");
         assert!(rules.contains("\u{201c}50 Lieferanten vergleichen\u{201d}"));
         assert!(rules.contains("Don't start helpers"));
+        assert!(rules.contains("rows.csv"), "a shared table goes in parts");
+    }
+
+    #[test]
+    fn a_lead_starts_as_many_helpers_as_asked_at_once_and_merges_their_parts() {
+        let rules = rules(32);
+        assert!(rules.contains("up to 32 at once"));
+        assert!(rules.contains("ONE hex_team_start call"));
+        assert!(rules.contains("Google Sheet"));
+        assert!(!rules.contains("at most 12"));
+        assert!((2..=crate::assistant::capacity::MAX_HELPERS).contains(&max_at_once()));
     }
 
     #[test]

@@ -27,6 +27,7 @@ overlay_strings![
     ("New background task", ["Nowe zadanie w tle", "新的后台任务", "新しいバックグラウンドタスク", "Neue Hintergrundaufgabe", "Nueva tarea en segundo plano", "Нове фонове завдання", "Nova tarefa em segundo plano", "Nouvelle tâche en arrière-plan", "Новая фоновая задача"]),
     ("Here · {}", ["Tutaj · {}", "此处 · {}", "ここ · {}", "Hier · {}", "Aquí · {}", "Тут · {}", "Aqui · {}", "Ici · {}", "Здесь · {}"]),
     ("You have it", ["Masz kontrolę", "由你操作", "あなたが操作中", "Du hast übernommen", "Lo tienes tú", "Керуєте ви", "Com você", "C'est à vous", "Управляете вы"]),
+    ("All {} live", ["Wszystkie {} na żywo", "全部 {} 个实时", "{} 件すべてをライブで", "Alle {} live", "Los {} en vivo", "Усі {} наживо", "Todos os {} ao vivo", "Les {} en direct", "Все {} вживую"]),
     ("Live windows", ["Okna na żywo", "实时窗口", "ライブのウインドウ", "Live-Fenster", "Ventanas en vivo", "Вікна наживо", "Janelas ao vivo", "Fenêtres en direct", "Окна вживую"]),
     ("App window", ["Okno aplikacji", "应用窗口", "アプリのウインドウ", "App-Fenster", "Ventana de la app", "Вікно застосунку", "Janela do app", "Fenêtre de l'app", "Окно приложения"]),
     ("Live app window", ["Okno aplikacji na żywo", "实时应用窗口", "ライブのアプリウインドウ", "App-Fenster live", "Ventana de la app en vivo", "Вікно застосунку наживо", "Janela do app ao vivo", "Fenêtre de l'app en direct", "Окно приложения вживую"]),

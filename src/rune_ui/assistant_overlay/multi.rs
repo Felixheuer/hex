@@ -202,6 +202,7 @@ pub(crate) fn view(state: &TwoDisplays, cx: &mut Cx<TwoDisplays>) -> El {
                     jobs: super::jobs::LineActions {
                         hover: |_, _| {},
                         pin: |_| {},
+                        wall: |_, _| {},
                     },
                 },
             )),

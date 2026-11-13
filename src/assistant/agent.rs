@@ -980,7 +980,7 @@ pub fn job_rules(workspace: &std::path::Path, browser: bool, unrestricted: bool)
             ""
         },
     );
-    rules.push_str(team::RULES);
+    rules.push_str(&team::rules(team::max_at_once()));
     rules.push_str(APPS_RULES);
     if browser && !crate::assistant::browser::signed_in() {
         rules.push_str("The hidden browser isn't signed in to any account. If the job needs Gmail, Google Sheets, or another account, include in your one question that the person should take their logins over from Chrome or sign in by hand in Hex's settings (Accounts) and answer when done.\n");
@@ -1196,9 +1196,10 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
         }
     });
     if browser {
-        prompt.push_str(
-            "You have your own hidden browsers (the browser tools): prefer them for anything on the web (looking things up, web apps, forms), over the person's browser windows. Every browser tool takes `session` (omit it, or \"main\", for the main browser; any other short name opens another, at most 12). For research, or when the person asks for several browsers, open one per source or subtopic and work them in parallel (several tool calls in one turn), so the job is done fast. Your browsers start with the person's accounts (the sites they signed in to for Hex) when there are any, in a light browser; pass `signedIn: true` on the call that opens one for web apps that need real Chrome (Gmail, Google Sheets, …), or `signedIn: false` for a clean one with no accounts. Never ask the person to sign in unless a page still shows a login after that. If a page shows a captcha or a Cloudflare challenge, retry it in a `signedIn: true` browser.\n",
-        );
+        prompt.push_str(&format!(
+            "You have your own hidden browsers (the browser tools): prefer them for anything on the web (looking things up, web apps, forms), over the person's browser windows. Every browser tool takes `session` (omit it, or \"main\", for the main browser; any other short name opens another, at most {} on this computer). For research, or when the person asks for several browsers, open one per source or subtopic and work them in parallel (several tool calls in one turn), so the job is done fast; read pages in the light browsers, real Chrome only where a login or a heavy web app needs it. Your browsers start with the person's accounts (the sites they signed in to for Hex) when there are any, in a light browser; pass `signedIn: true` on the call that opens one for web apps that need real Chrome (Gmail, Google Sheets, …), or `signedIn: false` for a clean one with no accounts. Never ask the person to sign in unless a page still shows a login after that. If a page shows a captcha or a Cloudflare challenge, retry it in a `signedIn: true` browser.\n",
+            crate::assistant::browser::max_sessions()
+        ));
     }
     let Some(desktop) = desktop else {
         prompt.push_str(

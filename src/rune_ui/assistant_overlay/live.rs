@@ -52,17 +52,21 @@ pub(crate) enum Rate {
     /// Its job's card shows it: a frame a second, so a picture is ready
     /// the moment the pointer comes.
     Background = 1,
+    /// The live wall shows it among all of a job's browsers: two frames a
+    /// second, at full size so a tile stays sharp.
+    Wall = 2,
     /// Its task is hovered in the list: thumbnails.
-    Small = 2,
+    Small = 3,
     /// A viewer shows it large.
-    Large = 3,
+    Large = 4,
 }
 
 impl Rate {
-    fn fps(self) -> u32 {
+    pub(crate) fn fps(self) -> u32 {
         match self {
             Self::Idle => 0,
             Self::Background => 1,
+            Self::Wall => 2,
             Self::Small => 5,
             Self::Large => 24,
         }
@@ -70,8 +74,9 @@ impl Rate {
 
     fn from_u8(value: u8) -> Self {
         match value {
-            3 => Self::Large,
-            2 => Self::Small,
+            4 => Self::Large,
+            3 => Self::Small,
+            2 => Self::Wall,
             1 => Self::Background,
             _ => Self::Idle,
         }
@@ -224,6 +229,9 @@ struct Registry {
     hovered: Option<String>,
     /// The jobs whose cards show at the orb: their first browsers stream.
     cards: Vec<String>,
+    /// The tasks on the live wall (a job and its helpers): every browser
+    /// of theirs streams at [`Rate::Wall`] while it shows.
+    wall: Vec<String>,
     /// What each viewer shows large: (task, session).
     viewing: HashMap<Viewer, (String, String)>,
     /// A preview pressed in the orb's list, for Chats to open.
@@ -297,6 +305,17 @@ pub(crate) fn cards(tasks: &[String]) {
     sync(&mut registry);
 }
 
+/// The tasks the live wall shows (empty: it's closed): all their browsers
+/// stream at [`Rate::Wall`], and stop again when it closes.
+pub(crate) fn wall(tasks: &[String]) {
+    let mut registry = registry();
+    if registry.wall == tasks {
+        return;
+    }
+    registry.wall = tasks.to_vec();
+    sync(&mut registry);
+}
+
 /// The pointer rests on `task` in the orb's list (`None`: on none).
 pub(crate) fn hover(task: Option<&str>) {
     let mut registry = registry();
@@ -363,7 +382,11 @@ fn wanted(registry: &Registry) -> Vec<String> {
     let mut tasks: Vec<String> = registry.hovered.iter().cloned().collect();
     let mut viewed: Vec<&String> = registry.viewing.values().map(|(task, _)| task).collect();
     viewed.sort();
-    for task in viewed.into_iter().chain(&registry.tracked) {
+    for task in viewed
+        .into_iter()
+        .chain(&registry.wall)
+        .chain(&registry.tracked)
+    {
         if !tasks.contains(task) {
             tasks.push(task.clone());
         }
@@ -388,6 +411,8 @@ fn rate_of(registry: &Registry, task: &str, session: &str) -> Rate {
         Rate::Large
     } else if registry.hovered.as_deref() == Some(task) {
         Rate::Small
+    } else if registry.wall.iter().any(|walled| walled == task) {
+        Rate::Wall
     } else if on_card() {
         Rate::Background
     } else {
@@ -398,7 +423,7 @@ fn rate_of(registry: &Registry, task: &str, session: &str) -> Rate {
 /// Whether going from `before` to `after` needs a fresh frame now: the
 /// person looks at it (hovered or large) and it has no full frame yet.
 fn needs_refresh(before: Rate, after: Rate, has_full: bool) -> bool {
-    after > before && after >= Rate::Small && !has_full
+    after > before && after >= Rate::Wall && !has_full
 }
 
 /// Whether any viewer shows `session` of `task` large.
@@ -612,7 +637,7 @@ fn stream_connected(preview: &Preview, path: &std::path::Path) -> Result<(), Str
                     let (tw, th, thumb) = fit_width(&rgba, width, height, THUMB_WIDTH);
                     preview.pixels.set(tw as u32, th as u32, thumb);
                     // The full frame only while someone looks closely.
-                    if preview.rate() >= Rate::Small {
+                    if preview.rate() >= Rate::Wall {
                         preview.full.set(width as u32, height as u32, rgba);
                     }
                 }
@@ -899,6 +924,45 @@ mod tests {
         assert_eq!(rate_of(&registry, "a", "hex-a_b"), Rate::Large);
         assert!(Rate::Large.fps() > Rate::Small.fps());
         assert!(Rate::Small.fps() > Rate::Background.fps());
+    }
+
+    #[test]
+    fn the_wall_streams_every_browser_of_its_jobs_only_while_it_shows() {
+        let preview = |session: &str| Arc::new(Preview::new(session.into(), String::new()));
+        let mut registry = Registry {
+            tracked: vec!["lead".into(), "h1".into(), "other".into()],
+            cards: vec!["lead".into()],
+            ..Registry::default()
+        };
+        let sessions: Vec<String> = (0..20).map(|n| format!("hex-h1_{n}")).collect();
+        registry.tasks.insert(
+            "h1".into(),
+            Watch {
+                previews: sessions.iter().map(|s| preview(s)).collect(),
+                stop: Arc::new(AtomicBool::new(false)),
+            },
+        );
+        // Closed: a helper's browsers past a card stream nothing.
+        assert_eq!(rate_of(&registry, "h1", "hex-h1_19"), Rate::Idle);
+        registry.wall = vec!["lead".into(), "h1".into()];
+        for session in &sessions {
+            assert_eq!(rate_of(&registry, "h1", session), Rate::Wall);
+        }
+        assert_eq!(rate_of(&registry, "lead", "hex-lead"), Rate::Wall);
+        assert_eq!(rate_of(&registry, "other", "hex-other"), Rate::Idle);
+        // Pressed large or hovered, one goes faster.
+        registry
+            .viewing
+            .insert(Viewer::Overlay, ("h1".into(), "hex-h1_3".into()));
+        assert_eq!(rate_of(&registry, "h1", "hex-h1_3"), Rate::Large);
+        // One or two frames a second: sharp but cheap.
+        assert!((1..=2).contains(&Rate::Wall.fps()));
+        assert!(Rate::Background < Rate::Wall && Rate::Wall < Rate::Small);
+        assert!(needs_refresh(Rate::Idle, Rate::Wall, false));
+        // Closed again: back to what the cards show.
+        registry.wall.clear();
+        assert_eq!(rate_of(&registry, "h1", "hex-h1_19"), Rate::Idle);
+        assert_eq!(Rate::from_u8(Rate::Wall as u8), Rate::Wall);
     }
 
     #[test]

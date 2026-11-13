@@ -62,6 +62,7 @@ mod stack;
 pub(crate) mod stories;
 #[cfg(test)]
 mod tests;
+mod wall;
 mod when;
 
 pub(crate) use host::{ask_hint, install, listening, set_open_chats, set_open_setup, setup_needed};

@@ -108,6 +108,8 @@ struct Registry {
     tasks: HashMap<String, Vec<Arc<AppPreview>>>,
     /// The jobs whose cards show at the orb.
     cards: Vec<String>,
+    /// The jobs the live wall shows: their windows are captured too.
+    wall: Vec<String>,
     /// The window shown large: (task, number).
     viewing: Option<(String, u32)>,
 }
@@ -206,6 +208,17 @@ pub(crate) fn cards(tasks: &[String]) {
     apply(&registry);
 }
 
+/// The jobs the live wall shows (empty: it's closed): their windows are
+/// captured while it shows.
+pub(crate) fn wall(tasks: &[String]) {
+    let mut registry = registry();
+    if registry.wall == tasks {
+        return;
+    }
+    registry.wall = tasks.to_vec();
+    apply(&registry);
+}
+
 /// The overlay's card shows window `number` of `task` large (`None`:
 /// nothing).
 pub(crate) fn view(target: Option<(&str, u32)>) {
@@ -234,7 +247,11 @@ pub(crate) fn show(task: &str, number: u32) {
         let window = preview.window.clone();
         spawn("hex-app-show", move || {
             if let Err(error) = crate::assistant::space::show_now(&window) {
-                tracing::warn!(error, app = window.app, "couldn't bring a job's window over");
+                tracing::warn!(
+                    error,
+                    app = window.app,
+                    "couldn't bring a job's window over"
+                );
             }
         });
     }
@@ -270,7 +287,7 @@ fn spawn(name: &str, work: impl FnOnce() + Send + 'static) {
 /// Which windows each capture thread takes, from what shows.
 fn apply(registry: &Registry) {
     for (task, previews) in &registry.tasks {
-        let carded = registry.cards.contains(task);
+        let carded = registry.cards.contains(task) || registry.wall.contains(task);
         for preview in previews {
             let large = registry
                 .viewing

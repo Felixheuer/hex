@@ -36,6 +36,59 @@ pub fn recommended_parallel() -> u32 {
     })
 }
 
+/// The most browsers one task may have open, and the most helpers one job
+/// may have working at once, on any computer.
+pub const MAX_BROWSERS: usize = 32;
+pub const MAX_HELPERS: usize = 32;
+
+/// How many browsers, real Chrome ones among them, and helpers a computer
+/// gives one job: what a request for more ("20 browsers", "20 helpers")
+/// is cut to.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Limits {
+    /// Browsers one task may have open at once, its main one included.
+    pub browsers: usize,
+    /// Of those, real Chrome (`signedIn: true`, or every browser while
+    /// Lightpanda isn't installed): several times a light one's memory.
+    pub chrome: usize,
+    /// Helpers one job may have working at once.
+    pub helpers: usize,
+}
+
+/// The limits for `ram_bytes` of memory and `cores` cores. A light
+/// Lightpanda browser takes about 100 MB and little CPU, so after 16 GB
+/// for the system and the person's apps a gigabyte buys one with ample
+/// room, two a core; real Chrome takes 300–600 MB and a core's share while
+/// a page loads, so three gigabytes and one core each. Helpers are whole
+/// background jobs, bounded like [`recommended_parallel_for`].
+pub fn limits_for(ram_bytes: u64, cores: u32) -> Limits {
+    let ram_gb = ram_bytes as f64 / (1u64 << 30) as f64;
+    let spare = (ram_gb - 16.0).max(0.0);
+    let browsers = spare.min(f64::from(cores) * 2.0).floor() as usize;
+    let chrome = (spare / 3.0).min(f64::from(cores)).floor() as usize;
+    let helpers = recommended_parallel_for(ram_bytes, cores) as usize;
+    Limits {
+        browsers: browsers.clamp(4, MAX_BROWSERS),
+        chrome: chrome.clamp(2, 16),
+        helpers: helpers.clamp(2, MAX_HELPERS),
+    }
+}
+
+/// The limits for this computer, read once.
+pub fn limits() -> Limits {
+    static LIMITS: OnceLock<Limits> = OnceLock::new();
+    *LIMITS.get_or_init(|| match hardware() {
+        Some((ram, cores)) => limits_for(ram, cores),
+        None => limits_for(32 << 30, 8),
+    })
+}
+
+/// How many of `requested` start now, with `working` already going and at
+/// most `limit` at once.
+pub fn room_for(requested: usize, working: usize, limit: usize) -> usize {
+    requested.min(limit.saturating_sub(working))
+}
+
 /// Memory in bytes and logical cores, from `hw.memsize` and `hw.ncpu`.
 #[cfg(target_os = "macos")]
 fn hardware() -> Option<(u64, u32)> {
@@ -239,6 +292,35 @@ mod tests {
         assert_eq!(recommended_parallel_for(8 * GB, 8), 2);
         assert_eq!(recommended_parallel_for(128 * GB, 4), 12, "three a core");
         assert_eq!(recommended_parallel_for(512 * GB, 32), MAX_PARALLEL);
+    }
+
+    #[test]
+    fn browsers_and_helpers_follow_the_hardware() {
+        // This Mac: 64 GB, 18 cores.
+        let limits = |browsers, chrome, helpers| Limits {
+            browsers,
+            chrome,
+            helpers,
+        };
+        assert_eq!(limits_for(64 * GB, 18), limits(32, 16, 32));
+        assert_eq!(limits_for(32 * GB, 10), limits(16, 5, 10));
+        // A small laptop still gets a few of each.
+        assert_eq!(limits_for(8 * GB, 8), limits(4, 2, 2));
+        // A big workstation stops at the most there are.
+        let big = limits_for(512 * GB, 64);
+        assert_eq!((big.browsers, big.helpers), (MAX_BROWSERS, MAX_HELPERS));
+        let here = super::limits();
+        assert!((4..=MAX_BROWSERS).contains(&here.browsers));
+        assert!((2..=MAX_HELPERS).contains(&here.helpers));
+        assert!(here.chrome <= 16);
+    }
+
+    #[test]
+    fn a_request_for_more_than_there_is_room_for_is_cut() {
+        assert_eq!(room_for(20, 0, 32), 20);
+        assert_eq!(room_for(20, 0, 12), 12);
+        assert_eq!(room_for(20, 10, 12), 2);
+        assert_eq!(room_for(5, 14, 12), 0);
     }
 
     #[test]
