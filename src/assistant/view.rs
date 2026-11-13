@@ -262,6 +262,8 @@ impl Stream {
                 }),
             ),
             Event::ConversationsChanged => false,
+            // The frames' part (`frame_until`), drawn by the overlays.
+            Event::Borrowed { .. } | Event::Returned { .. } => false,
         }
     }
 

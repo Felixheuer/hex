@@ -92,7 +92,9 @@ impl ChatsPane {
             | Event::HandsOff { .. }
             | Event::Acting { .. }
             | Event::Plan { .. }
-            | Event::QuestionsChanged { .. } => {}
+            | Event::QuestionsChanged { .. }
+            | Event::Borrowed { .. }
+            | Event::Returned { .. } => {}
         }
         if matches!(
             event,
