@@ -595,9 +595,15 @@ fn list() {
             tasks
         };
         let mut open = crate::assistant::browser::running_of(&path, &tasks);
+        // Only browsers the task used show (cards, desk, wall): one started
+        // ahead for it and never used stays hidden (`browser::Used`).
+        let used = crate::assistant::browser::Used::here();
         let mut any = false;
         for task in &tasks {
             let mut sessions = open.remove(task).unwrap_or_default();
+            if let Some(used) = &used {
+                sessions = used.only_used(sessions);
+            }
             sessions.sort_by_key(|session| (session.contains('_'), session.clone()));
             any |= apply_sessions(task, &sessions, &path);
         }

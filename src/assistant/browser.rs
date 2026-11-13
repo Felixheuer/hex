@@ -215,11 +215,22 @@ pub fn prewarm_for(task: &str, request: &str) {
                 let mut command = command(&path, &session);
                 command.envs(env).arg("--json").args(&args);
                 match run::bounded(command, COMMAND_LIMIT) {
-                    Ok(ran) if !ran.timed_out() => tracing::debug!(
-                        session,
-                        ms = started.elapsed().as_millis() as u64,
-                        "started a job's browser ahead"
-                    ),
+                    Ok(ran) if !ran.timed_out() => {
+                        // The sign-ins came back with the saved state's last
+                        // page: a browser started ahead shows a blank page
+                        // until its task opens one (the task's first call
+                        // waits for this start, so it's still unused here).
+                        let url = last_json(&ran.stdout)
+                            .and_then(|reply| reply["data"]["url"].as_str().map(str::to_owned));
+                        if blank_needed(url.as_deref(), used(&session)) {
+                            let _ = call(&path, &session, &["open", "about:blank"]);
+                        }
+                        tracing::debug!(
+                            session,
+                            ms = started.elapsed().as_millis() as u64,
+                            "started a job's browser ahead"
+                        )
+                    }
                     Ok(_) | Err(_) => {
                         tracing::debug!(session, "couldn't start a job's browser ahead")
                     }
@@ -231,12 +242,35 @@ pub fn prewarm_for(task: &str, request: &str) {
     }
 }
 
+/// Words before a site's name that make it the place to go (`in Example`,
+/// `bei Kiosk`, `open Example`): grammar, never a list of sites.
+const TOWARD: &[&str] = &[
+    "in", "im", "auf", "bei", "zu", "on", "at", "into", "to", "open", "öffne", "öffnen", "visit",
+    "besuche",
+];
+
+/// Words after a site's name that make it a site (`Example account`).
+const SITE_WORDS: &[&str] = &[
+    "site", "website", "seite", "webseite", "account", "konto", "login",
+];
+
+/// Whether a browser started ahead goes to a blank page: it shows a page
+/// (`url`, the restored state's last one) and its task never used it (a
+/// used one is the task's, and keeps its page).
+fn blank_needed(url: Option<&str>, used: bool) -> bool {
+    !used && url.is_some_and(|url| !url.is_empty() && url != "about:blank")
+}
+
 /// Whether `request` names one of `sites` (hosts such as
-/// `mail.example.com`): the host itself, or the site's own name, the label
-/// before its suffix (`example`), as a whole word of at least four letters.
+/// `mail.example.com`) as a place to go: the host itself or an address of
+/// the same site (`example.de`), or the site's own name, the label before
+/// its suffix (`example`, a whole word of at least four letters), used as
+/// a destination ([`TOWARD`] before it, or [`SITE_WORDS`] after it). A
+/// site's name alone is often a word of its own ("google it", "Google mal
+/// nach …" means search), so it alone starts nothing.
 pub fn names_site(request: &str, sites: &[String]) -> bool {
     let text = request.to_lowercase();
-    let words: std::collections::HashSet<&str> = text
+    let words: Vec<&str> = text
         .split(|c: char| !c.is_alphanumeric() && c != '.' && c != '-')
         .map(|word| word.trim_matches(|c: char| c == '.' || c == '-'))
         .filter(|word| !word.is_empty())
@@ -246,10 +280,26 @@ pub fn names_site(request: &str, sites: &[String]) -> bool {
         if host.is_empty() {
             return false;
         }
-        if words.contains(host.as_str()) {
-            return true;
-        }
-        site_name(&host).is_some_and(|name| name.chars().count() >= 4 && words.contains(name))
+        let name = site_name(&host).filter(|name| name.chars().count() >= 4);
+        words.iter().enumerate().any(|(at, word)| {
+            if *word == host {
+                return true;
+            }
+            let Some(name) = name else {
+                return false;
+            };
+            if word.contains('.') {
+                // An address: the same site under another suffix or host.
+                return site_name(word) == Some(name);
+            }
+            *word == name
+                && (at
+                    .checked_sub(1)
+                    .is_some_and(|before| TOWARD.contains(&words[before]))
+                    || words
+                        .get(at + 1)
+                        .is_some_and(|after| SITE_WORDS.contains(after)))
+        })
     })
 }
 
@@ -372,6 +422,55 @@ impl Drop for Warming {
     }
 }
 
+/// Which of the task's browsers the task has used: a marker file under
+/// `<support>/assistant/browser-used/<session>` written by its browser
+/// proxy (another process) on the first tool call pinned to it. Only those
+/// show as minis (the cards, the desk, the wall); one started ahead
+/// ([`prewarm_for`]) and never used stays hidden, and closes with its task.
+pub(crate) struct Used(PathBuf);
+
+impl Used {
+    /// This Mac's markers.
+    pub(crate) fn here() -> Option<Self> {
+        crate::app_paths::support_dir()
+            .ok()
+            .map(|support| Self(support.join("assistant").join("browser-used")))
+    }
+
+    /// `session` is used from now on.
+    pub(crate) fn mark(&self, session: &str) {
+        let path = self.0.join(session);
+        if path.exists() {
+            return;
+        }
+        let _ = std::fs::create_dir_all(&self.0);
+        let _ = std::fs::write(path, std::process::id().to_string());
+    }
+
+    pub(crate) fn has(&self, session: &str) -> bool {
+        self.0.join(session).exists()
+    }
+
+    /// `session` closed: the next one of that name starts unused.
+    pub(crate) fn forget(&self, session: &str) {
+        let _ = std::fs::remove_file(self.0.join(session));
+    }
+
+    /// The ones of `sessions` that were used, in their order.
+    pub(crate) fn only_used(&self, sessions: Vec<String>) -> Vec<String> {
+        sessions
+            .into_iter()
+            .filter(|session| self.has(session))
+            .collect()
+    }
+}
+
+/// Whether `session` was used (`Used`); unknown markers count as used, so
+/// a missing support folder never hides a task's browser.
+pub(crate) fn used(session: &str) -> bool {
+    Used::here().is_none_or(|used| used.has(session))
+}
+
 /// Waits while `session` is being started ahead (at most [`WARM_WAIT`],
 /// and never on a marker older than a start can take).
 pub(crate) fn wait_for_warmup(session: &str) {
@@ -398,13 +497,44 @@ pub(crate) fn wait_for_warmup(session: &str) {
 /// ([`close_now`]). Decided by the lane the task ended in, never by the
 /// conversation's first origin: a job escalated from a hold closes its
 /// research browsers. Blocks for a moment; quick when it never opened one.
+/// Browsers the task started ahead and never used close either way.
 pub fn close(task: &str, lane: crate::assistant::types::Lane) {
     if stays_on_desk(lane, || has_open(task)) {
+        if let Some(path) = executable() {
+            let (_, unused) = split_used(running(&path, task), used);
+            close_sessions(&path, &unused);
+        }
         crate::assistant::guard::desk_keep_browser(task);
         tracing::info!(task, "a quick turn's browser stays on the desk");
         return;
     }
     close_now(task);
+}
+
+/// `sessions` as (used, unused) by `used`.
+fn split_used(sessions: Vec<String>, used: impl Fn(&str) -> bool) -> (Vec<String>, Vec<String>) {
+    sessions.into_iter().partition(|session| used(session))
+}
+
+/// Closes `sessions` at once, and forgets that they were used.
+fn close_sessions(path: &Path, sessions: &[String]) {
+    let markers = Used::here();
+    std::thread::scope(|scope| {
+        for session in sessions {
+            let markers = &markers;
+            scope.spawn(move || {
+                match call(path, session, &["close"]) {
+                    Ok(_) => tracing::debug!(session, "closed a task's browser"),
+                    Err(error) => {
+                        tracing::warn!(session, error, "could not close a task's browser")
+                    }
+                }
+                if let Some(markers) = markers {
+                    markers.forget(session);
+                }
+            });
+        }
+    });
 }
 
 /// Whether a task that ended in `lane` keeps its browsers on the desk:
@@ -413,9 +543,10 @@ fn stays_on_desk(lane: crate::assistant::types::Lane, open: impl FnOnce() -> boo
     lane == crate::assistant::types::Lane::Here && open()
 }
 
-/// Whether `task` has a browser open now.
+/// Whether `task` has a browser open now that it used (one only started
+/// ahead keeps nothing on the desk).
 fn has_open(task: &str) -> bool {
-    executable().is_some_and(|path| !running(&path, task).is_empty())
+    executable().is_some_and(|path| running(&path, task).iter().any(|session| used(session)))
 }
 
 /// Closes every browser of `task` now, desk or not.
@@ -430,15 +561,7 @@ pub fn close_now(task: &str) {
         // Listed or not, the main one is closed (a quick no-op if absent).
         open.push(main);
     }
-    std::thread::scope(|scope| {
-        for session in &open {
-            let path = &path;
-            scope.spawn(move || match call(path, session, &["close"]) {
-                Ok(_) => tracing::debug!(session, "closed a task's browser"),
-                Err(error) => tracing::warn!(session, error, "could not close a task's browser"),
-            });
-        }
-    });
+    close_sessions(&path, &open);
 }
 
 /// Reads a session's page through agent-browser, for [`consent`].
@@ -891,6 +1014,58 @@ mod tests {
         assert_eq!(first["session"], name.as_str());
     }
 
+    fn markers(name: &str) -> (Used, PathBuf) {
+        let dir =
+            std::env::temp_dir().join(format!("agent-desk-used-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        (Used(dir.clone()), dir)
+    }
+
+    /// Only browsers the task used show as minis: a warm one it never
+    /// touched is left out of the listing, and closing forgets the use.
+    #[test]
+    fn only_used_browsers_show() {
+        let (used, dir) = markers("show");
+        let main = session("t1");
+        let warm = sessions::full_name("t1", "_chrome");
+        let listed = vec![main.clone(), warm.clone()];
+        assert!(used.only_used(listed.clone()).is_empty());
+        used.mark(&main);
+        assert_eq!(used.only_used(listed.clone()), std::slice::from_ref(&main));
+        used.mark(&warm);
+        assert_eq!(used.only_used(listed.clone()), listed);
+        used.forget(&warm);
+        assert!(!used.has(&warm) && used.has(&main));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A task's end closes its unused browsers even when its used ones
+    /// stay on the desk.
+    #[test]
+    fn unused_browsers_close_with_their_task() {
+        let main = session("t1");
+        let warm = sessions::full_name("t1", "_chrome");
+        let (kept, closed) =
+            split_used(vec![main.clone(), warm.clone()], |session| session == main);
+        assert_eq!(kept, std::slice::from_ref(&main));
+        assert_eq!(closed, [warm]);
+        // Only a used one keeps a quick turn's browsers on the desk.
+        assert!(!stays_on_desk(crate::assistant::types::Lane::Here, || {
+            false
+        }));
+    }
+
+    /// A warm start shows no restored page: it goes blank unless its task
+    /// used it already.
+    #[test]
+    fn a_warm_start_goes_blank_until_used() {
+        assert!(blank_needed(Some("https://www.google.com/"), false));
+        assert!(!blank_needed(Some("https://www.google.com/"), true));
+        assert!(!blank_needed(Some("about:blank"), false));
+        assert!(!blank_needed(Some(""), false));
+        assert!(!blank_needed(None, false));
+    }
+
     #[test]
     fn only_jobs_naming_a_site_the_person_signed_in_to_warm_a_chrome() {
         let sites: Vec<String> = [
@@ -916,6 +1091,20 @@ mod tests {
         assert!(!names_site("Post it on X", &sites));
         assert!(!names_site("Schreib in Example-Mail", &[]));
         assert!(!names_site("", &sites));
+        // A site's name that is a word of its own (search) starts nothing;
+        // its address, or the name as a place to go, does.
+        let google = vec![".google.com".to_owned(), "mail.google.com".to_owned()];
+        assert!(!names_site(
+            "Google mal, wie das Wetter morgen wird",
+            &google
+        ));
+        assert!(!names_site("google the opening hours of the zoo", &google));
+        assert!(!names_site("Was sagt Google zu dem Fehler?", &google));
+        assert!(names_site("öffne google.com", &google));
+        assert!(names_site("check mail.google.com", &google));
+        assert!(names_site("schau auf google.de nach", &google));
+        assert!(names_site("Log dich in Google ein", &google));
+        assert!(names_site("my Google account settings", &google));
         assert_eq!(site_name("mail.example.com"), Some("example"));
         assert_eq!(site_name("example.co.uk"), Some("example"));
         assert_eq!(site_name("localhost"), None);
