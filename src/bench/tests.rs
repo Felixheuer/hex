@@ -652,12 +652,12 @@ fn the_audit_log_is_read_without_a_jobs_own_checks() {
 }
 
 #[test]
-fn the_dev_target_is_hex_devs_data_folder() {
+fn the_dev_target_is_agent_desk_devs_data_folder() {
     if std::env::var_os("AGENT_DESK_BENCH_SUPPORT_DIR").is_some() {
         return;
     }
     let dev = Target::Dev.support_dir().unwrap();
     let live = Target::Live.support_dir().unwrap();
     assert!(dev.ends_with("agent-desk-dev"), "{}", dev.display());
-    assert!(live.ends_with("hex"), "{}", live.display());
+    assert!(live.ends_with("agent-desk"), "{}", live.display());
 }
