@@ -134,7 +134,12 @@ if [ -n "$install" ]; then
   fi
   rm -rf "$installed"
   mv "$staged" "$installed"
-  /usr/bin/open "$installed"
+  # LaunchServices may not know the new bundle yet (-600): try a few times,
+  # and never let a failed open stop the cleanup below.
+  for _ in 1 2 3 4 5; do
+    /usr/bin/open "$installed" 2> /dev/null && break
+    sleep 2
+  done
   echo "Installed $installed: it now updates itself from ai.sms-pilot.de." >&2
 fi
 # The built bundle in target/app is a second copy of Hex with the same

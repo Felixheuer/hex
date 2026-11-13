@@ -304,7 +304,7 @@ impl Hooks {
             }),
             prewarm: Box::new(agent::prewarm),
             end_ahead: Box::new(provider::end_ahead),
-            front_window: Box::new(|| super::computer::quick_context().window),
+            front_window: Box::new(super::computer::front_window_quick),
             browser_ahead: Box::new(super::browser::prewarm_for),
             requests: Box::new(move || {
                 remote::take_new(&mut seen.lock().unwrap_or_else(|error| error.into_inner()))
