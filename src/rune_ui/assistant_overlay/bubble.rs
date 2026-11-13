@@ -1,7 +1,7 @@
 //! The quick question's bubble, just past the dictation HUD where Live
 //! text and Failure notices show: the question as heard, "Thinking…", the
 //! latest steps, then the answer as it streams. A long answer is cut with
-//! "…" and the footer's "Show in Assistant" shows the rest. A failed one
+//! "…" and the footer's More projects the rest on the stage. A failed one
 //! says why in a short line, in the language it was asked in
 //! ([`super::failure`]), with its one action: Fix (the settings or the
 //! setup page that repairs it) or Try again. It stays while the answer is
@@ -43,7 +43,7 @@ pub(crate) const INSET: f32 = 6.0;
 pub(crate) struct Actions<S> {
     /// The card: dismiss it.
     pub(crate) dismiss: fn(&mut S),
-    /// "Show in Assistant": open this conversation there.
+    /// More: the whole answer on the stage.
     pub(crate) open: fn(&mut S, &str),
     /// "Continue setup", or Fix on what the setup repairs: open the
     /// assistant's setup where it fixes it.
@@ -312,7 +312,7 @@ pub(crate) fn card<S: 'static>(
             None => {
                 let open = actions.open;
                 let id = bubble.conversation.clone();
-                Button::new(tr("Show in Assistant"))
+                Button::new(tr("More"))
                     .variant(ButtonVariant::GhostMuted)
                     .control_size(ControlSize::Small)
                     .on_press(move |s: &mut S| open(s, &id))

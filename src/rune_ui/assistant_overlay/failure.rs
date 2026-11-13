@@ -25,9 +25,11 @@ pub(crate) enum Failure {
 /// The one action a failure's bubble offers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Remedy {
-    /// Fix: Assistant settings (where the switch is).
+    /// Turn on: the assistant's switch, in place (the window stays shut).
     Settings,
-    /// Fix: the setup, at the page that repairs what's missing.
+    /// Fix: the agent's sign-in in Terminal when that's what's missing,
+    /// else the setup at the page that repairs it (a press, so the window
+    /// may open for it).
     Repair,
     /// Try again: the same question once more.
     Retry,
@@ -112,7 +114,8 @@ impl Remedy {
     /// The button's label, in English.
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::Settings | Self::Repair => "Fix",
+            Self::Settings => "Turn on",
+            Self::Repair => "Fix",
             Self::Retry => "Try again",
         }
     }
@@ -191,7 +194,7 @@ mod tests {
         let english = failures
             .iter()
             .map(|failure| failure.line())
-            .chain([Remedy::Settings, Remedy::Retry].map(Remedy::label));
+            .chain([Remedy::Settings, Remedy::Repair, Remedy::Retry].map(Remedy::label));
         for line in english {
             assert_ne!(
                 crate::desktop::i18n::tr_in(Some("de"), line),

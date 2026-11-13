@@ -55,7 +55,7 @@ pub(super) fn sheet(ui: &Ui, p: Paint) -> Option<El> {
             },
             take_over: |ui: &mut Ui, id| ui.chats.take_over(id),
             hand_back: |ui: &mut Ui, id| ui.chats.hand_back(id),
-            open_chats: None,
+            what_it_did: None,
         },
     );
     Some(

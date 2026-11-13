@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 mod assistant;
 mod assistant_overlay;
+mod stage;
 mod failures;
 mod french;
 mod meetings;
@@ -369,6 +370,7 @@ pub(super) fn all_translations() -> impl Iterator<Item = &'static (&'static str,
         .chain(onboarding::TRANSLATIONS)
         .chain(assistant::TRANSLATIONS)
         .chain(assistant_overlay::TRANSLATIONS)
+        .chain(stage::TRANSLATIONS)
         .chain(window::TRANSLATIONS)
 }
 
@@ -1769,6 +1771,8 @@ mod tests {
         include_str!("../rune_ui/assistant_overlay/orb.rs"),
         include_str!("../rune_ui/assistant_overlay/outline.rs"),
         include_str!("../rune_ui/assistant_overlay/hands.rs"),
+        include_str!("../rune_ui/assistant_overlay/stage.rs"),
+        include_str!("../rune_ui/assistant_overlay/host/stage.rs"),
     ];
 
     /// The string literals passed to `tr`, `tr_fill`, and `tr_named`.

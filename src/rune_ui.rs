@@ -407,8 +407,6 @@ pub(crate) enum Destination {
     Meetings(Option<String>),
     /// The Assistant pane, on a conversation or a new chat.
     Chats(Option<String>),
-    /// Assistant settings (a failed quick turn's Fix).
-    AssistantSettings,
     Modes,
     History,
 }
@@ -426,6 +424,17 @@ pub(crate) fn destination(pane: Option<crate::control::Pane>) -> Destination {
         Some(Named::Meetings) => Destination::Meetings(None),
         Some(Named::Chats) => Destination::Chats(None),
     }
+}
+
+/// "Turn on" from the overlay: the assistant's switch, without the window.
+pub(crate) fn turn_on_assistant(ui: &mut Ui, _tx: &mut Tx) {
+    chats::turn_on(ui);
+}
+
+/// The overlay's repair card: Fix all… (`fix_all`, the caller opens the
+/// window) or Later.
+pub(crate) fn repair_asked(ui: &mut Ui, fix_all: bool, tx: &mut Tx) {
+    chats::repair(ui, fix_all, tx);
 }
 
 /// Shows `destination` in the window (the caller opens it).
@@ -453,7 +462,6 @@ pub(crate) fn show(ui: &mut Ui, destination: Destination, tx: &mut Tx) {
         Destination::Meetings(_) => Pane::Meetings,
         Destination::Modes => Pane::Output,
         Destination::History => Pane::History,
-        Destination::AssistantSettings => Pane::Assistant,
         Destination::Chats(conversation) => {
             ui.close_dialogs();
             return chats::show(ui, conversation.clone(), tx);
