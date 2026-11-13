@@ -1,8 +1,10 @@
-//! Labs › Screenshots' settings (macOS): its shortcut and folder.
+//! The retired Screenshots feature's settings (macOS): its shortcut and
+//! folder stay in the file, but `crate::features::screenshots` is off, so
+//! none of them takes effect.
 
 use super::*;
 
-/// Where Labs › Screenshots saves, and the shortcut that starts one. The
+/// Where Screenshots saves, and the shortcut that starts one. The
 /// Lab's switch is `labs.screenshots`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default)]
@@ -77,7 +79,7 @@ impl AppSettings {
     /// The screenshot shortcut while it takes effect: macOS, the Lab on,
     /// and sharing no key with another active shortcut.
     pub fn active_screenshot_hotkey(&self) -> Option<&HotkeyBinding> {
-        (cfg!(target_os = "macos") && self.labs.screenshots)
+        (cfg!(target_os = "macos") && crate::features::screenshots())
             .then_some(&self.screenshots.hotkey)
             .filter(|binding| !self.hotkey_in_use(HotkeySlot::Screenshot, binding))
     }
@@ -94,14 +96,14 @@ impl AppSettings {
             .filter(|binding| !self.hotkey_in_use(HotkeySlot::ScreenshotRecord, binding))
     }
 
-    /// Whether Labs › Screenshots can record: macOS, the Lab on, and
+    /// Whether Screenshots can record: macOS, the Lab on, and
     /// Annotate on, since a recording is an Annotate capture.
     pub fn screenshot_recording_available(&self) -> bool {
         #[cfg(hex_capture)]
         let capture = self.capture_on();
         #[cfg(not(hex_capture))]
         let capture = false;
-        cfg!(target_os = "macos") && self.labs.screenshots && capture
+        cfg!(target_os = "macos") && crate::features::screenshots() && capture
     }
 
     /// The shortcuts `slot` counts because of the Screenshots record

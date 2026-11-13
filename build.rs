@@ -77,6 +77,9 @@ fn main() {
     compile_swift_bridge("speech_output", "HEXSpeechOutputBridge", &[]);
     compile_swift_bridge("calendar", "HEXCalendarBridge", &[]);
     println!("cargo:rustc-link-lib=framework=EventKit");
+    // The assistant's lookups in Contacts and Reminders (`hex_lookup`).
+    compile_swift_bridge("knowledge", "HEXKnowledgeBridge", &[]);
+    println!("cargo:rustc-link-lib=framework=Contacts");
     // The assistant's job notifications (UNUserNotificationCenter; works
     // only inside the bundled app, else `osascript` stands in).
     compile_swift_bridge(

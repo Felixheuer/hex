@@ -53,7 +53,7 @@ const JOB_SECONDS_PER_AUDIO_SECOND: u32 = 8;
 /// How often a waiter whose job has not started checks whether the job ahead
 /// of it timed out, leaving the engine wedged.
 const QUEUE_POLL: Duration = Duration::from_millis(250);
-/// How often an idle engine looks again at Labs › Unload model when idle.
+/// How often an idle engine looks again at Unload model when idle.
 const IDLE_RECHECK: Duration = Duration::from_secs(30);
 /// How long dropping the engine waits for its thread. A native run that cannot
 /// be aborted is left to finish on its own.
@@ -87,7 +87,7 @@ pub(crate) enum Command {
         /// Aborts this stream only.
         cancel: CancelToken,
         /// Where the stream publishes its text after each feed, when live
-        /// text is on (Labs).
+        /// text is on.
         partials: Option<Partials>,
     },
     Feed {
@@ -393,7 +393,7 @@ pub struct TranscriptionEngine {
     /// whether its definition advertises streaming.
     streams: Arc<AtomicBool>,
     /// Whether dictation streams publish their text as they go, asked as
-    /// each stream begins: Labs › Live text, or a
+    /// each stream begins: Live text, or a
     /// [`crate::dictation::live_text::Demand`].
     live_text: fn() -> bool,
     held: Held,
@@ -535,7 +535,7 @@ impl TranscriptionEngine {
 
     /// Starts with no model loaded, remembering `selection` to reload on the
     /// first command that needs it, as [`Worker::park`] leaves the engine.
-    /// Labs › Unload model when idle uses this so a launch stays unloaded
+    /// Unload model when idle uses this so a launch stays unloaded
     /// until the first dictation. Whether it can stream is seeded from the
     /// model's definition, not measured on this device: the first capture
     /// either streams after the reload or falls back to its whole clip.
@@ -588,7 +588,7 @@ impl TranscriptionEngine {
             stalled,
             requests,
             streams,
-            live_text: || crate::labs::live_text() || crate::dictation::live_text::demanded(),
+            live_text: || crate::features::live_text() || crate::dictation::live_text::demanded(),
             held,
             dictating,
             next_stream: AtomicU64::new(0),
@@ -704,11 +704,11 @@ impl TranscriptionEngine {
             stream,
             clip,
             Box::new(|model, clip| {
-                // Labs › Skip long pauses, asked as the run starts, then
+                // Skip long pauses, asked as the run starts, then
                 // padding that follows the cut rather than being trimmed by
                 // a trailing pause (#1629).
                 let clip =
-                    padded_whole_clip(clip, crate::labs::skip_pauses(), Some(model.model_id()));
+                    padded_whole_clip(clip, crate::features::skip_pauses(), Some(model.model_id()));
                 model
                     .transcribe(&clip)
                     .map_err(|error| format!("{error:#}"))
@@ -989,7 +989,7 @@ impl Drop for TranscriptionEngine {
 }
 
 struct Worker {
-    /// `None` while unloaded for idleness (Labs › Unload model when idle) or
+    /// `None` while unloaded for idleness (Unload model when idle) or
     /// after its reload failed.
     model: Option<Model>,
     /// What an unloaded model reloads, before the next command that needs it.
@@ -1104,12 +1104,12 @@ impl Worker {
         }
     }
 
-    /// The next command. With Labs › Unload model when idle on, it unloads
+    /// The next command. With Unload model when idle on, it unloads
     /// the model once nothing has used it for the chosen time and nothing
     /// records (a dictation or a meeting); between commands no request runs.
     fn wait(&mut self, commands: &Receiver<Command>) -> Option<Command> {
         loop {
-            let Some(after) = crate::labs::unload_idle() else {
+            let Some(after) = crate::features::unload_idle() else {
                 // Settings may turn it on meanwhile.
                 match commands.recv_timeout(IDLE_RECHECK) {
                     Ok(command) => return Some(command),

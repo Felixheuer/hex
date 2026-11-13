@@ -641,10 +641,18 @@ mod macos {
         super::frame_among(&windows, window)
     }
 
+    fn is_own_process(pid: i32) -> bool {
+        u32::try_from(pid).is_ok_and(|pid| pid == std::process::id())
+    }
+
     pub fn quick_context() -> Context {
         // Hex's own window in front (Chats) means the person's window behind it.
         let front =
-            objc2::rc::autoreleasepool(|_| scrawl_capture::capture::frontmost_external_app_info());
+            objc2::rc::autoreleasepool(|_| scrawl_capture::capture::frontmost_external_app_info())
+                // Never Hex itself: Accessibility reads of its own windows
+                // from this thread re-enter its UI (accesskit) while the main
+                // thread holds it, and Hex aborted ("RefCell already borrowed").
+                .filter(|(pid, _, _)| !is_own_process(*pid));
         let (selected_text, window_title) = match &front {
             Some((pid, _, _)) => (
                 crate::accessibility::selected_text(*pid).map(clip_selection),

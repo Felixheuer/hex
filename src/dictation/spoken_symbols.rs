@@ -1,4 +1,4 @@
-//! Labs › Spoken symbols: whole spoken words for punctuation and symbols
+//! Spoken symbols: whole spoken words for punctuation and symbols
 //! become the characters, joined to their neighbours as written text joins
 //! them: "hashtag release" is "#release", "my underscore variable" is
 //! "my_variable", and "done comma thanks" is "done, thanks". Spanish words

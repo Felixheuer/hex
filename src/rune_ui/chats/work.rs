@@ -206,7 +206,7 @@ pub(super) fn plan_card(ui: &Ui, p: Paint, id: &str) -> Option<El> {
     });
     // Folded, the line names the step it's on.
     let now = match current {
-        Some(index) if folded => steps[index].title.clone(),
+        Some(index) if folded => step_words(&steps[index].title),
         Some(_) => String::new(),
         None => tr("Wrapping up").to_owned(),
     };
@@ -300,7 +300,7 @@ fn plan_step(p: Paint, index: usize, step: &PlanStep, current: bool) -> El {
     row()
         .key(format!("step{index}"))
         .role("listitem")
-        .label(step.title.clone())
+        .label(step_words(&step.title))
         .checked(step.done)
         .gap(8.0)
         .min_h(20.0)
@@ -313,7 +313,7 @@ fn plan_step(p: Paint, index: usize, step: &PlanStep, current: bool) -> El {
                 .a11y_hidden(),
         )
         .child(
-            text(step.title.clone())
+            text(step_words(&step.title))
                 .key("title")
                 .font(if current {
                     p.k.ty.small_medium
@@ -596,6 +596,66 @@ pub(super) fn escalated(ui: &Ui, id: &ConversationId) -> bool {
     ui.chats.escalated.contains(id)
 }
 
+/// A plan step as the person reads it: the tool names an agent writes into
+/// its steps (`desktop_snapshot`, "(hex_installed_apps, desktop_list_windows)")
+/// are left out, so only the words remain.
+pub(super) fn step_words(title: &str) -> String {
+    fn tool_name(word: &str) -> bool {
+        let word = word.trim_matches(|c: char| matches!(c, ',' | ';' | '.' | ':'));
+        word.contains('_')
+            && word
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    }
+    let mut out = String::with_capacity(title.len());
+    let mut rest = title;
+    while let Some(start) = rest.find(['(', '`']) {
+        let close = if rest[start..].starts_with('(') {
+            ')'
+        } else {
+            '`'
+        };
+        let Some(length) = rest[start + 1..].find(close) else {
+            break;
+        };
+        let inner = &rest[start + 1..start + 1 + length];
+        let tools = !inner.trim().is_empty()
+            && inner
+                .split([',', ' ', '/'])
+                .filter(|word| !word.is_empty())
+                .all(|word| tool_name(word) || matches!(word, "and" | "or" | "via" | "with"));
+        out.push_str(&rest[..start]);
+        if !tools {
+            out.push_str(&rest[start..start + length + 2]);
+        }
+        rest = &rest[start + length + 2..];
+    }
+    out.push_str(rest);
+    let mut words: Vec<&str> = out.split_whitespace().collect();
+    // A connector left dangling where a tool name was ("with", "via").
+    while words.len() > 1
+        && matches!(
+            words.last().copied(),
+            Some("with" | "via" | "using" | "and" | "or" | "mit" | "über")
+        )
+    {
+        words.pop();
+    }
+    let joined = words.join(" ");
+    let cleaned = joined
+        .replace(" ,", ",")
+        .replace(" .", ".")
+        .replace(" :", ":")
+        .trim_end_matches([',', ':', ';', ' '])
+        .trim()
+        .to_owned();
+    if cleaned.is_empty() {
+        title.trim().to_owned()
+    } else {
+        cleaned
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -647,5 +707,16 @@ mod tests {
             links_in(answer),
             ["https://docs.google.com/spreadsheets/d/abc"]
         );
+    }
+
+    #[test]
+    fn plan_steps_leave_out_tool_names() {
+        assert_eq!(
+            step_words("List the apps (hex_installed_apps, desktop_list_windows)"),
+            "List the apps"
+        );
+        assert_eq!(step_words("Open Mail with `hex_open_app`"), "Open Mail");
+        assert_eq!(step_words("Reply (in German)"), "Reply (in German)");
+        assert_eq!(step_words("desktop_snapshot"), "desktop_snapshot");
     }
 }

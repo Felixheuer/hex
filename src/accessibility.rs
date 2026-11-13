@@ -154,7 +154,7 @@ pub fn focused_window_title(pid: i32) -> Option<String> {
     copy_string(&window, c"AXTitle").filter(|title| !title.is_empty())
 }
 
-/// The text selected in the application's focused element (Labs ›
+/// The text selected in the application's focused element (
 /// Assistant's question context), read through Accessibility, never the
 /// clipboard. `None` when nothing is selected or the app doesn't say.
 pub fn selected_text(pid: i32) -> Option<String> {
@@ -302,7 +302,7 @@ fn copy_elements(element: &CfObject, name: &CStr) -> Vec<CfObject> {
 }
 
 /// The character just before the insertion point of the application's
-/// focused text element, for Labs › Smart spacing. `None` when text is
+/// focused text element, for Smart spacing. `None` when text is
 /// selected, the cursor is at the start, or the app doesn't say.
 pub fn char_before_caret(pid: i32) -> Option<char> {
     let application = foreign_application(pid)?;

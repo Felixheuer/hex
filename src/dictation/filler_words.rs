@@ -1,4 +1,4 @@
-//! Labs › Remove filler words: the English hesitations a model writes down
+//! Remove filler words: the English hesitations a model writes down
 //! verbatim ("um", "umm", "uh", "uhh", "erm", "er", "ah") leave an English
 //! dictation, with no model involved. A filler matches as a whole word,
 //! lowercase or with only its first letter capitalised, so "umbrella",

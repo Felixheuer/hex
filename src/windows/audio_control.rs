@@ -124,7 +124,7 @@ impl Drop for AudioSuppressor {
 }
 
 /// What one recording changes: `mode` ("While dictating"), or nothing when
-/// Labs › Only on speakers is on and the default output is headphones. The
+/// Only on speakers is on and the default output is headphones. The
 /// route is read once per recording, here on the worker thread, so the
 /// dictation loop never waits on cpal; with the lab off it is not read at
 /// all. Idle sleep is not part of this.
@@ -132,7 +132,8 @@ fn suppress(mode: WhileDictating) -> Option<Suppressed> {
     if mode == WhileDictating::DoNothing {
         return None;
     }
-    if crate::labs::speakers_only() && !output_route::applies(output_route::default_output_route())
+    if crate::features::speakers_only()
+        && !output_route::applies(output_route::default_output_route())
     {
         tracing::info!("left other audio alone while dictating on headphones");
         return None;

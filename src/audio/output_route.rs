@@ -1,5 +1,5 @@
 //! Whether the default output plays through speakers or headphones, for
-//! Labs › Only on speakers. Anything Hex can't classify counts as speakers,
+//! Only on speakers. Anything Hex can't classify counts as speakers,
 //! so "While dictating" applies as before.
 
 /// What the default output is, as far as "While dictating" cares.

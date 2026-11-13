@@ -1,6 +1,6 @@
 //! Optional output processing on transcription responses: the `process`
 //! query on `POST /transcriptions` and `POST /streams/{id}/finish`
-//! (Labs › Process API transcripts). The app installs a processor built from
+//! (Process API transcripts). The app installs a processor built from
 //! its dictation pipeline; this module owns the query, the gates, and the
 //! `processed` field.
 //!
@@ -34,14 +34,14 @@ impl Default for Processing {
     fn default() -> Self {
         Self {
             processor: None,
-            enabled: crate::labs::api_processing,
+            enabled: crate::features::api_processing,
             busy: Arc::default(),
         }
     }
 }
 
 impl Processing {
-    /// The running app's processor, while Labs › Process API transcripts is
+    /// The running app's processor, while Process API transcripts is
     /// on.
     pub fn installed(processor: Processor) -> Self {
         Self {

@@ -81,7 +81,7 @@ impl DictationOutput {
         // printed or copy-only dictation clears its preedit and takes the
         // usual path instead.
         let inserted = match typing {
-            Some(session) if !printed && !crate::labs::copy_only() => {
+            Some(session) if !printed && !crate::features::copy_only() => {
                 session.finish(&processed.text)
             }
             Some(session) => {

@@ -1,4 +1,4 @@
-//! Labs › Screenshots: talking over a shot. A dictation that starts while a
+//! Screenshots: talking over a shot. A dictation that starts while a
 //! shot's editor is open talks over that shot: its words show under the shot
 //! and go with it to a session instead of being pasted. The corner card that
 //! shows a fresh shot never takes words: a dictation while it shows pastes as
@@ -22,7 +22,7 @@ static OVER: AtomicBool = AtomicBool::new(false);
 /// A dictation started: with the Lab on and a shot's editor open, it talks
 /// over that shot.
 pub(crate) fn started() {
-    let talking = crate::labs::screenshots() && editor::is_open();
+    let talking = crate::features::screenshots() && editor::is_open();
     let before = OVER.swap(talking, Ordering::SeqCst);
     if talking {
         editor::listen(Listen::Recording);

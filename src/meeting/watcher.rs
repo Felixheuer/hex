@@ -28,7 +28,7 @@ pub(crate) enum ControllerCommand {
     /// offered again once its app releases and retakes the microphone.
     OfferTimedOut,
     Stop,
-    /// Import a local audio file as a meeting (macOS; Labs › Import audio).
+    /// Import a local audio file as a meeting (macOS; Import audio).
     Import(PathBuf),
     Open(String),
     Summarize(String),
@@ -44,7 +44,7 @@ pub(crate) enum ControllerCommand {
     /// Not now, or Don't record: the meeting's call is neither offered nor
     /// recorded automatically.
     DismissReminder(CalendarMeeting),
-    /// Keep recording on the call-ended capsule: Labs › Stop when the call
+    /// Keep recording on the call-ended capsule: Stop when the call
     /// ends doesn't stop this absence (it arms again if the call app comes
     /// back and leaves again).
     KeepRecording,
@@ -73,7 +73,7 @@ pub(crate) enum ControllerEvent {
     Retitled {
         title: String,
     },
-    /// The recording's live chapters so far (Labs).
+    /// The recording's live chapters so far.
     Chapters(Vec<meeting::Chapter>),
     /// The microphone became digitally silent, or its audio returned.
     SourceWarning {
@@ -82,7 +82,7 @@ pub(crate) enum ControllerEvent {
     OpenMeeting(String),
     Transcribing,
     /// `auto_stop` when the recording stops on its own after
-    /// [`crate::meeting::detection::AUTO_STOP_GRACE`] (Labs › Stop when the
+    /// [`crate::meeting::detection::AUTO_STOP_GRACE`] (Stop when the
     /// call ends).
     CallEnded {
         app: String,
@@ -107,7 +107,7 @@ struct ActiveRecording {
     app_label: String,
     automatic: bool,
     presence: CallPresence,
-    /// Labs › Stop when the call ends, armed while the call is over.
+    /// Stop when the call ends, armed while the call is over.
     auto_stop: AutoStop,
     stop: Arc<AtomicBool>,
     updates: Receiver<meeting::RecordingUpdate>,
@@ -124,7 +124,7 @@ pub enum MeetingMenuState {
         started: Instant,
         id: String,
         title: String,
-        /// Live chapters, for Copy Section (Labs).
+        /// Live chapters, for Copy Section.
         chapters: Vec<meeting::Chapter>,
         /// The microphone is digitally silent, as a call app holding it with
         /// voice processing leaves it (#1518).
@@ -405,10 +405,10 @@ fn handle_command(
         ControllerCommand::Import(_) if !enabled => {
             tracing::warn!("ignored an audio import while meetings are off");
         }
-        ControllerCommand::Import(_) if !crate::labs::meeting_import() => {
-            tracing::warn!("ignored an audio import while Labs › Import audio is off");
+        ControllerCommand::Import(_) if !crate::features::meeting_import() => {
+            tracing::warn!("ignored an audio import: only macOS imports audio");
             let _ = events.send(ControllerEvent::ImportFailed {
-                error: "Labs › Import audio is off".into(),
+                error: "Only macOS imports audio as a meeting".into(),
             });
         }
         ControllerCommand::Import(path) => start_import(recording, importing, path, events),
@@ -678,7 +678,7 @@ fn records_automatically(
 }
 
 /// An audio file being transcribed as a meeting on its own worker thread
-/// (macOS; Labs › Import audio).
+/// (macOS; Import audio).
 struct ImportWorker {
     worker: JoinHandle<Result<meeting::MeetingManifest>>,
 }
@@ -894,7 +894,8 @@ fn poll_recording(
         && let Some(application) = active.application.as_deref()
     {
         // A failed query must not end the controller while it owns a recording.
-        let auto_stop = stops_when_call_ends(active.automatic, crate::labs::stop_when_call_ends());
+        let auto_stop =
+            stops_when_call_ends(active.automatic, crate::features::stop_when_call_ends());
         let on_microphone = match active_microphone_applications() {
             Ok(applications) => applications
                 .iter()
@@ -941,7 +942,7 @@ fn poll_recording(
 }
 
 /// Whether a recording stops on its own once its call ends: only one Hex
-/// started automatically (Always record), and only with Labs › Stop when
+/// started automatically (Always record), and only with Stop when
 /// the call ends on. Manual and offered recordings never do.
 fn stops_when_call_ends(automatic: bool, lab_on: bool) -> bool {
     automatic && lab_on
@@ -1186,7 +1187,7 @@ fn detect_meeting(
         tracing::info!(?applications, "microphone application activity changed");
         *observed_microphone_apps = observed;
     }
-    let more_call_apps = crate::labs::more_call_apps();
+    let more_call_apps = crate::features::more_call_apps();
     let application = microphone_apps
         .into_iter()
         .filter(|application| application.is_supported_meeting_app(more_call_apps))
@@ -1226,7 +1227,7 @@ pub fn probe() -> Result<()> {
         println!(
             "{}\t{}\t{}\t{}",
             application.pid,
-            if application.is_supported_meeting_app(crate::labs::more_call_apps()) {
+            if application.is_supported_meeting_app(crate::features::more_call_apps()) {
                 "meeting"
             } else {
                 "other"

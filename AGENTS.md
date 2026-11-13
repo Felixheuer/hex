@@ -29,26 +29,24 @@ and keep consequential behavior explicit. Deterministic personal transcript
 transformations live in the explicit TypeScript user config (`~/.config/hex/hex.config.ts`). User-facing
 runtime settings persist in Application Support.
 
-Every build shows General, Output, History, and Labs. Labs holds features
-we're unsure about, especially ones people asked for that we built: **new or
-user-requested features land in Labs, off by default, not on by default.**
-Labs has no master switch; Settings › Labs lists every lab this OS has as a
-card (name, description, toggle), each off by default, under one collapsible
-header per group (Dictation, Output, History, Meetings, Annotate, Shortcuts,
-Models; `labs::Feature::group`), plus Send feedback and Run setup again. Each feature has an audience: `Everyone` or `Dev` (dev, local, test, and
-dev-channel builds only; a stable build never lists, accepts, or runs it).
-A feature with its own pane joins the sidebar as a normal item while
-on and is hidden while off; a behaviour-only feature is just its toggle. Today:
-Meetings (beta), Voice Filter (Dev; locked on while its macOS driver is
-installed, and a stable build with the driver keeps its pane for Uninstall
-alone), Playground (Dev), Live text, Live chapters, Vocabulary biasing, Switch
-model with keyboard language (#216), Mouse shortcuts (#209, macOS), Also
-pause the browser (#301, macOS), Share dictation shortcut (#176, Windows),
-Unload model when idle (#442), Terminal paste (Windows), and Terminal paste
-shortcut (Windows, Linux). Externally contributed features land there too.
-Annotate is a normal feature in every build, stable included, on macOS,
-Linux, and Windows; only developer tools (`dev_build::is_dev_build()` with
-`DEVELOPER_FEATURES_ENABLED`) stay gated to dev builds.
+The window is built around the assistant (this fork): the sidebar starts with
+**Assistant** (the one stream: every request, answer, and job; `rune_ui::chats`)
+and **Assistant settings** (agent and model, shortcuts, how it acts, apps and
+windows, the web and accounts, voice, notifications, the phone, memory), then a
+**Voice to text** group (**Dictation**: shortcuts, speech model, language,
+vocabulary, microphone, what happens to the text, the rest behind Advanced;
+**History**; **Output**; **Meetings**, its opt-in card while off), the tools a
+build may have (Annotate, an installed Voice Filter driver's Uninstall), and
+**General** last (permissions' errors, appearance, interface language, launch at
+login, Dock and menu bar, ⌘Q, Run setup again, updates, sounds). The window
+opens on the stream. `rune_ui::sidebar::order` is the order Command-1… follows.
+
+Labs is gone (`docs/features/labs.md` records each former lab's decision and
+the settings migration). There is no experiment store: a new feature ships as
+an ordinary setting where it belongs (`AppSettings::preferences` for the
+former labs, gated in `crate::features`), with a sensible default, or not at
+all. Keep the window small: no duplicate settings, dropdowns over pairs of
+switches, rare settings behind a pane's Advanced fold.
 
 ## Feature Map
 
@@ -458,9 +456,8 @@ substitute for source inspection or a second roadmap.
 - `rune_ui`: the one window on macOS, Windows, and Linux, on Rune with
   `rune-kit` and the OpenCode theme: General, Output, and History, then in dev
   builds the opt-in Meetings once on (each feature owns its
-  settings, rarer ones in the pane's Advanced fold), and under Labs (`labs`:
-  the Labs switch and the opt-ins) Annotate and the Voice Filter, plus in
-  Playground (`⇧⌘D`) HUD Lab's live Dot scope sliders (`hud_stories`), the transcription
+  settings, rarer ones in the pane's Advanced fold), and Annotate and an
+  installed Voice Filter driver's Uninstall, plus in dev builds' Playground (`⇧⌘D`) HUD Lab's live Dot scope sliders (`hud_stories`), the transcription
   picker, the Sounds sheet (its stage replays `rune_hud`'s HUD, drawn by the
   window's compositor with `rune_hud.wgsl`), the onboarding pages, the macOS
   meeting capsules, the `--snap`
@@ -558,10 +555,10 @@ substitute for source inspection or a second roadmap.
   "Choose a file…", the macOS meetings folder) through `rune::FileDialogs` on
   its own thread. Answers on a channel; cancel and a dialog that never opened
   read as nothing chosen.
-- `labs`: the Labs feature registry (`labs::Feature`: name, settings key,
-  description, audience, group), the runtime gates (`labs::live_text`, `live_chapters`,
-  `playground`, `vocabulary_biasing`, `mouse_shortcuts`), and
-  `hex labs [on|off <feature>]`. `dev_build`: whether this is a dev, local, test,
+- `features`: the former Labs features' runtime gates (`features::live_text`,
+  `live_chapters`, `playground`, …): graduated ones are constant, settings read
+  this process's `AppSettings::preferences`, removed ones are `false`.
+  `dev_build`: whether this is a dev, local, test,
   or dev-channel build.
 - `capture_host`: Scrawl's capture engine (the `scrawl-capture` crate in
   `crates/capture`, copied from Scrawl's `engine/split` at `e351ddb` and
@@ -1542,13 +1539,11 @@ git diff --check
 cd sdk/typescript && bun run check && bun run test && bun run build
 ```
 
-New, unproven, user-requested, and externally contributed features
-(including ones the issue pipeline builds) land in Labs, off by default
-([docs/features/labs.md](docs/features/labs.md)): add a `labs::Feature` with
-its settings key, description, and group (`Feature::group`), a card on the Labs page, and a
-`hex settings` key; gate where the feature's work starts (worker, thread,
-capture), not just its UI. Never add a master switch or ship such a feature
-on by default. Remove it from Labs when it graduates or is dropped.
+New, unproven, user-requested, and externally contributed features land as
+ordinary settings where they belong, with a sensible default (Labs is gone:
+[docs/features/labs.md](docs/features/labs.md)); add their `hex settings` key
+and gate where the feature's work starts (worker, thread, capture), not just
+its UI.
 
 Use `scripts/check [filter]` for the local loop, not raw `cargo test`. It runs
 tests through cargo-nextest (`brew install cargo-nextest`) with

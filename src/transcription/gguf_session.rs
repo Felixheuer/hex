@@ -130,7 +130,7 @@ impl RunKind {
 /// How a session feeds its model the vocabulary.
 #[derive(Clone, Copy)]
 enum VocabularySlot {
-    /// Parakeet's transducer heads, as a run extension (Labs).
+    /// Parakeet's transducer heads, as a run extension.
     Bias,
     /// The context prompt (Whisper, Qwen3-ASR), bounded to this many characters.
     Prompt(usize),

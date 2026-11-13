@@ -154,10 +154,11 @@ fn suppress(behavior: RecordingAudioBehavior) -> Suppressed {
         return Suppressed::Nothing;
     }
     // Read once per recording, here on the worker thread, so the dictation
-    // loop never waits on the sound server. With Labs › Only on speakers
+    // loop never waits on the sound server. With Only on speakers
     // on, headphones leave other audio alone for this recording; idle sleep
     // is not part of this. With the lab off nothing runs pactl.
-    if crate::labs::speakers_only() && !output_route::applies(output_route::default_output_route())
+    if crate::features::speakers_only()
+        && !output_route::applies(output_route::default_output_route())
     {
         tracing::info!("left other audio alone while dictating on headphones");
         return Suppressed::Nothing;

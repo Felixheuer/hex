@@ -3,7 +3,7 @@
 //! those that would change the language folded away at the end.
 
 use rune::{El, col, el, row, text};
-use rune_kit::{Badge, ButtonVariant, ControlSize, IconButton, IconButtonVariant};
+use rune_kit::{ButtonVariant, ControlSize, IconButton, IconButtonVariant};
 
 use super::facts::{self as facts, Entry, State, tnum};
 use super::{self as picker, delete};
@@ -20,7 +20,7 @@ const PROGRESS_WIDTH: f32 = 196.0;
 pub(super) fn body(ui: &Ui, p: Paint, entries: &[Entry], language: &str) -> El {
     let mut body = col().key("all-view").px(16.0).pb(16.0);
     // Files other apps downloaded that aren't catalog models; a catalog
-    // one shows on its own row. Labs › Downloaded models only leaves them out.
+    // one shows on its own row. Downloaded models only leaves them out.
     if !picker::downloaded_filter(ui)
         && let Some(found) = crate::rune_ui::found::section(ui, p)
     {
@@ -62,7 +62,7 @@ struct Groups<'a> {
     others: Vec<&'a Entry>,
 }
 
-/// Sorts `entries` into their groups. `first` (Labs › Model in use first)
+/// Sorts `entries` into their groups. `first` (Model in use first)
 /// leads its group, and an imported one puts your model files first.
 fn groups(entries: &[Entry], first: Option<TranscriptionModelId>) -> Groups<'_> {
     let speaking = lead(
@@ -238,10 +238,6 @@ fn model_row(ui: &Ui, p: Paint, entry: &Entry, language: &str) -> El {
                 .color(if first { p.accent() } else { p.faint() }),
         );
     }
-    // A catalog model behind its own Labs toggle says so.
-    if def.id == TranscriptionModelId::ParakeetUltra {
-        title = title.child(Badge::new(tr("Labs")).build(p.k));
-    }
     let line = |key: &str, copy: String, color| {
         text(copy)
             .key(key.to_owned())
@@ -278,7 +274,7 @@ fn model_row(ui: &Ui, p: Paint, entry: &Entry, language: &str) -> El {
             p.faint(),
         ));
     }
-    // Labs › Benchmark details: raw error rates with their provenance.
+    // Benchmark details: raw error rates with their provenance.
     if picker::benchmark_details_on(ui)
         && let Some(record) = transcription_models::benchmark(def)
     {

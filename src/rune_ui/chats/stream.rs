@@ -55,7 +55,11 @@ pub(super) fn body(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
     let pane = &ui.chats;
     let ready = crate::assistant::ready(&ui.settings);
     let mut notices = Vec::new();
-    if let Some(error) = &pane.error {
+    if let Some(error) = pane
+        .error
+        .as_ref()
+        .filter(|error| !transcript::is_stop(error))
+    {
         notices.push(dismissible_error_panel(
             p,
             "chats-error",
@@ -190,7 +194,7 @@ fn standing(ui: &Ui, p: Paint, id: &str, outcome: Option<Outcome>) -> Option<El>
             None => tone_tag(p, "state", tr("Running"), Tone::Accent),
         });
     }
-    if pane.failures.contains_key(id) || outcome == Some(Outcome::Failed) {
+    if failed(pane, id, outcome) {
         return Some(tone_tag(p, "state", tr("Failed"), Tone::Danger));
     }
     match outcome {
@@ -216,7 +220,7 @@ fn mark(ui: &Ui, p: Paint, id: &str, origin: Origin, outcome: Option<Outcome>) -
     if pane.running(id) {
         return boxed(pulsing_dot(p.accent()));
     }
-    if pane.failures.contains_key(id) || outcome == Some(Outcome::Failed) {
+    if failed(pane, id, outcome) {
         return boxed(icon(FAILED_ICON, 14.0).color(p.danger()));
     }
     if outcome == Some(Outcome::Interrupted) {
@@ -225,11 +229,22 @@ fn mark(ui: &Ui, p: Paint, id: &str, origin: Origin, outcome: Option<Outcome>) -
     boxed(icon(origin_icon(origin), 14.0).color(p.faint()))
 }
 
-/// A job: asked in the background, moved there, or with a plan.
+/// Whether an entry went wrong: a stop (a request moved to the background
+/// settles as one) is not a failure.
+fn failed(pane: &ChatsPane, id: &str, outcome: Option<Outcome>) -> bool {
+    pane.failures
+        .get(id)
+        .is_some_and(|message| !transcript::is_stop(message))
+        || outcome == Some(Outcome::Failed)
+}
+
+/// A job, drawn as a card: one with a plan, or background work while it
+/// runs. Anything else (a quick question, a small action, a finished
+/// background request without a plan) is a light exchange.
 fn is_job(ui: &Ui, id: &str, origin: Origin) -> bool {
-    origin == Origin::Background
-        || work::escalated(ui, &id.to_owned())
-        || ui.chats.plans.contains_key(id)
+    ui.chats.plans.contains_key(id)
+        || (ui.chats.running(id)
+            && (origin == Origin::Background || work::escalated(ui, &id.to_owned())))
 }
 
 /// One entry: its head (a click points the composer at it), then what was
@@ -258,15 +273,8 @@ fn entry_el(ui: &Ui, p: Paint, entry: &Entry, now: u64) -> El {
     let targeted = pane.target.as_deref() == Some(id);
     let selected = pane.selected.as_deref() == Some(id);
 
+    // One state per entry: how it stands now, nothing stacked beside it.
     let mut meta = Vec::new();
-    if job && running && work::escalated(ui, &id.to_owned()) {
-        meta.push(tone_tag(
-            p,
-            "escalated",
-            tr("Moved to the background"),
-            Tone::Accent,
-        ));
-    }
     meta.extend(standing(ui, p, id, outcome));
     if !running && let Some(updated) = updated {
         meta.push(ld::meta_text(p, &super::age(updated, now)).key("age"));

@@ -37,10 +37,8 @@ pub(super) fn run_runtime(
             initial_input_source,
         ),
         app_switcher: crate::transcription::app_model_switching::Switcher::new(
-            settings.labs.app_model_switching,
-            settings
-                .labs
-                .app_model_switching
+            crate::features::app_model_switching(),
+            crate::features::app_model_switching()
                 .then(|| crate::transcription::app_model_switching::startup_choice(&settings))
                 .flatten(),
         ),
@@ -99,7 +97,7 @@ pub(super) struct Runtime {
     pub(super) settings: AppSettings,
     pub(super) preparation: TranscriptionPreparation,
     pub(super) keyboard_switcher: crate::transcription::keyboard_model_switching::Switcher,
-    /// Labs › Switch model with app: the foreground application's mode choice.
+    /// Switch model with app: the foreground application's mode choice.
     pub(super) app_switcher: crate::transcription::app_model_switching::Switcher,
     pub(super) automatic_preparation: bool,
     /// Starts the listener once setup is ready; `None` once started.
@@ -169,7 +167,7 @@ impl Runtime {
                 }
                 if self
                     .app_switcher
-                    .configure(settings.labs.app_model_switching)
+                    .configure(crate::features::app_model_switching())
                 {
                     self.supersede_automatic();
                 }
@@ -230,7 +228,7 @@ impl Runtime {
         observation: crate::transcription::app_model_switching::Observation<'_>,
         now: Instant,
     ) {
-        if !self.settings.labs.app_model_switching {
+        if !crate::features::app_model_switching() {
             return;
         }
         if self.app_switcher.observe(
@@ -270,10 +268,7 @@ impl Runtime {
         self.switch_with_keyboard(now);
         // Read the frontmost application only while the lab is on. Hex's own
         // window names no mode and is ignored.
-        let application = self
-            .settings
-            .labs
-            .app_model_switching
+        let application = crate::features::app_model_switching()
             .then(crate::dictation::context::frontmost_other_application)
             .flatten();
         self.follow_app(

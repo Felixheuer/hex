@@ -1,4 +1,4 @@
-//! Labs › Transform typed text (Linux): the shortcut copies the focused
+//! Transform typed text (Linux): the shortcut copies the focused
 //! field's text, runs the Output steps a dictation would, checks the field
 //! still holds that text, and pastes the result over it. Everything runs on
 //! the output worker, never on audio capture.

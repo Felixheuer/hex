@@ -53,7 +53,7 @@ pub fn hotkey_pre_roll(behavior: crate::app_settings::RecordingAudioBehavior) ->
 }
 /// What started a dictation, and so how its transcript is handled: the
 /// dictation shortcut and a local API client dictate normally, Dictate
-/// without processing skips Output, and Labs › Terminal paste always pastes
+/// without processing skips Output, and Terminal paste always pastes
 /// with Ctrl+Shift+V. Only the Windows and Linux listeners use it.
 #[cfg_attr(not(any(target_os = "windows", target_os = "linux")), allow(dead_code))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -62,10 +62,10 @@ pub enum DictationFlavour {
     Normal,
     /// Dictate without processing: the transcript is pasted as heard.
     Raw,
-    /// Labs › Terminal paste shortcut: processed like a normal dictation,
+    /// Terminal paste shortcut: processed like a normal dictation,
     /// but pasted with Ctrl+Shift+V whatever Terminal paste says.
     TerminalPaste,
-    /// Labs › Second dictation shortcut: another key that dictates exactly
+    /// Second dictation shortcut: another key that dictates exactly
     /// like the dictation shortcut. It is its own owner, so neither
     /// shortcut finishes or double-taps the other's capture.
     Second,
@@ -685,7 +685,7 @@ struct Recording {
     resampler: Option<Fft<f32>>,
     stream: Option<LiveStream>,
     /// Whether this recording's stream should show the live text plate,
-    /// decided once when the stream opens so toggling Labs › Live text
+    /// decided once when the stream opens so toggling Live text
     /// mid-capture changes nothing.
     show_live_text: bool,
     voice: VoiceTrack,
@@ -1179,7 +1179,7 @@ impl DictationCapture {
         self.recording.as_mut()?.stream.as_mut()?.take_partial()
     }
 
-    /// Shows the live text on the HUDs when it changed and Labs › Live text
+    /// Shows the live text on the HUDs when it changed and Live text
     /// (or the first run's practice) wants it, and logs at debug how far it
     /// has got: word counts against the audio fed, never the words (the
     /// engine logs each stream's count of changes). Every OS's capture loop
@@ -1218,7 +1218,7 @@ impl DictationCapture {
         if recording.stream.is_none() {
             recording.stream = engine.begin();
             recording.show_live_text = recording.stream.is_some()
-                && (crate::labs::live_text() || crate::dictation::live_text::board_demanded());
+                && (crate::features::live_text() || crate::dictation::live_text::board_demanded());
             recording.feed_stream();
         }
     }

@@ -2,8 +2,8 @@
 //! and its model, how freely it acts and how long and how many jobs run,
 //! apps and windows (real input, the window in front, blocked apps,
 //! displays), the web, its voice (one picker: the system voices and Hex's
-//! own), notifications, and what it remembers. The Action and Stop all
-//! shortcuts live in General.
+//! own), notifications, and what it remembers, after its two shortcuts
+//! (Action, and Stop all tasks).
 
 mod lanes;
 mod models;
@@ -335,6 +335,7 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         .into(),
     );
     desktop.push(super::displays::settings_row(ui, p, layer).into());
+    desktop.push(lanes::park_windows_row(ui, p).into());
     // One voice picker: the system voices and Hex's own, with its download.
     let mut voice: Vec<CardRow> = vec![
         toggle_row(
@@ -354,8 +355,16 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         voice.extend(more::hex_voice_row(ui, p));
     }
     voice.extend(more::conversation_rows(ui, p, layer));
-    vec![
-        super::switch::settings_card(ui, p),
+    let mut sections = vec![super::switch::settings_card(ui, p)];
+    if crate::assistant::enabled(&ui.settings) && ui.records_shortcuts() {
+        sections.push(section(
+            p,
+            "assistant-shortcuts",
+            tr("Shortcuts"),
+            shortcut_rows(ui, p),
+        ));
+    }
+    sections.extend([
         section(p, "assistant-agent", tr("Agent & model"), agent),
         section(p, "assistant-tasks", tr("How it works"), works),
         section(p, "assistant-desktop", tr("Apps & windows"), desktop),
@@ -370,8 +379,35 @@ pub(super) fn page_rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<El> {
         ),
         phone::section(ui, p, layer),
         more::memory_section(ui, p),
-        lanes::experimental_section(ui, p),
-    ]
+    ]);
+    sections
+}
+
+/// The Action shortcut (hold and say anything, the assistant decides;
+/// double-tap for the task list) and Stop all tasks under it.
+fn shortcut_rows(ui: &Ui, p: Paint) -> Vec<CardRow> {
+    use super::super::ShortcutTarget;
+    use super::super::general::shortcut_rows as rows;
+    use super::super::icons::{CIRCLE_X, KEYBOARD};
+    let mut all = rows(
+        ui,
+        p,
+        "action-shortcut",
+        &KEYBOARD,
+        tr("Action shortcut"),
+        ShortcutTarget::Action,
+        Some(tr("Hold and say anything; Hex decides")),
+    );
+    all.extend(rows(
+        ui,
+        p,
+        "stop-all-shortcut",
+        &CIRCLE_X,
+        tr("Stop all tasks"),
+        ShortcutTarget::StopAll,
+        Some(tr("Stops every assistant task and its speech")),
+    ));
+    all
 }
 
 /// The settings page.

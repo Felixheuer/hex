@@ -458,7 +458,7 @@ fn neutral_with(mut flags: impl FnMut() -> u64, key_down: impl FnMut(u16) -> boo
 }
 
 /// Whether no keyboard key or modifier reads as held, with the physical
-/// keyboard's own state agreeing. Labs › Pause from menu bar waits for this
+/// keyboard's own state agreeing. Pause from menu bar waits for this
 /// before its shortcuts go live again, so a key held while Resume is chosen
 /// can never start a capture.
 pub(crate) fn keyboard_is_neutral() -> bool {
@@ -688,7 +688,7 @@ unsafe extern "C" fn event_callback(
             event
         };
     }
-    // Labs › Caps Lock dictation: every AlphaShift change, including Hex's
+    // Caps Lock dictation: every AlphaShift change, including Hex's
     // own lock reset, reaches the gate; no IOKit runs on this thread.
     if event_type == EVENT_FLAGS_CHANGED {
         // SAFETY: CoreGraphics supplied a valid event to this callback.
@@ -880,7 +880,7 @@ fn list_takes_keys(capture_on: bool, open: bool, suspended: bool) -> bool {
     capture_on && open && !suspended
 }
 
-/// Hands Labs › Screenshots its keys (`screenshots::key`): its shortcut,
+/// Hands Screenshots its keys (`screenshots::key`): its shortcut,
 /// and Escape and Space while its picker shows.
 #[cfg(hex_capture)]
 fn screenshot_tap(event_type: u32, event: EventRef) -> crate::screenshots::Take {

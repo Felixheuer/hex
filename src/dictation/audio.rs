@@ -158,7 +158,7 @@ enum Command {
 struct Owner {
     input: RecoveringAudioInput,
     release_while_idle: bool,
-    /// Labs › Keep mic open after dictating: how long a finished or
+    /// Keep mic open after dictating: how long a finished or
     /// cancelled capture's microphone keeps open before it is released.
     linger: MicrophoneLinger,
     pending_capture: Option<PendingCapture>,
@@ -1090,7 +1090,7 @@ impl Owner {
 
     fn reconcile_input(&mut self) {
         if self.release_while_idle && !self.capture_sink_open() {
-            // Labs › Keep mic open after dictating: a capture's end keeps the
+            // Keep mic open after dictating: a capture's end keeps the
             // microphone open for the lab's window, and closing waits for it.
             // Off, this is the plain idle close.
             if self.input.is_active() && self.linger.may_close(Instant::now(), !self.capture_idle())
@@ -1170,7 +1170,7 @@ impl Owner {
     /// stream failure, and renegotiate the device's sample rate as it opens:
     /// the device can stay on a stale clock that delivers only zeros (#1575).
     /// A cold microphone closes once idle and opens fresh for the next press
-    /// anyway; a lingering one (Labs › Keep mic open after dictating) closes
+    /// anyway; a lingering one (Keep mic open after dictating) closes
     /// now for the same reason, since it would otherwise stay open on the
     /// dead stream.
     fn reopen_silent_stream(&mut self) {

@@ -18,12 +18,12 @@
 //! The recording capsule rests as a compact pill in its corner and springs
 //! open to show its actions while the pointer is over it. Dragging it moves
 //! the window; on release it snaps to the nearest corner, which is saved.
-//! With Labs › Movable meeting capsules on, the panel capsules (offer,
+//! With Movable meeting capsules on, the panel capsules (offer,
 //! reminder, call ended, ready, recording automatically) show in that same
 //! saved corner and drag the same way; off, they stay in the top right.
 //!
 //! On a Linux Wayland compositor without layer-shell (GNOME) the capsules
-//! float on XWayland only with Labs › Floating meeting capsules on GNOME
+//! float on XWayland only with Floating meeting capsules on GNOME
 //! (`linux::meeting_capsules`); otherwise an offer opens the Meetings pane.
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -162,7 +162,7 @@ struct Capsule {
     /// Where the recording capsule rests, and the panel while
     /// [`Capsule::movable`].
     corner: MeetingIndicatorCorner,
-    /// The panel capsule can be dragged to another corner (Labs › Movable
+    /// The panel capsule can be dragged to another corner (Movable
     /// meeting capsules); the recording capsule always can.
     movable: bool,
     /// Moves the capsule's window by a drag's travel from `corner`.
@@ -200,7 +200,7 @@ impl Capsule {
         let Some(Kind::Offer(candidate)) = &self.kind else {
             return false;
         };
-        let Some(provider) = candidate.provider(crate::labs::more_call_apps()) else {
+        let Some(provider) = candidate.provider(crate::features::more_call_apps()) else {
             return false;
         };
         tracing::info!(key = %provider.key, ?policy, "meeting provider choice made from an offer");
@@ -396,7 +396,7 @@ fn place_capsule(
 }
 
 /// Linux: lets the capsule's next show float on XWayland where Wayland has
-/// no layer-shell, only by Labs › Floating meeting capsules on GNOME (#1274).
+/// no layer-shell, only by Floating meeting capsules on GNOME (#1274).
 /// Off, Rune can't open it there and the Meetings pane stands in (#1271).
 fn float_on_xwayland(capsule: &OverlayHandle<Capsule>) {
     #[cfg(target_os = "linux")]
@@ -614,9 +614,9 @@ impl MeetingCapsules {
     fn show_panel(&self, kind: Kind, timeout: Option<Duration>) {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let reminder = matches!(kind, Kind::Reminder { .. });
-        // With Labs › Movable meeting capsules the panel shows in the saved
+        // With Movable meeting capsules the panel shows in the saved
         // capsule corner; otherwise in the top right, as it always has.
-        let movable = crate::labs::movable_meeting_capsules();
+        let movable = crate::features::movable_meeting_capsules();
         let corner = if movable {
             crate::app_settings::meeting_indicator_corner()
         } else {
@@ -837,7 +837,10 @@ fn view_body(capsule: &Capsule, cx: &mut Cx<Capsule>) -> El {
         Kind::Offer(candidate) if capsule.more_open => offer_choices(p, candidate),
         Kind::Offer(candidate) => {
             let mut actions = Vec::new();
-            if candidate.provider(crate::labs::more_call_apps()).is_some() {
+            if candidate
+                .provider(crate::features::more_call_apps())
+                .is_some()
+            {
                 actions.push(
                     button(p, "offer-more", "…", false, |c| {
                         c.set_more_open(true);
@@ -1014,7 +1017,7 @@ fn reminder(
 /// The offer's "…": never offer this provider again, or always record it
 /// (which records this call too).
 fn offer_choices(p: Paint, candidate: &MeetingCandidate) -> (rune::Color, String, String, Vec<El>) {
-    let more_call_apps = crate::labs::more_call_apps();
+    let more_call_apps = crate::features::more_call_apps();
     let label = candidate
         .provider(more_call_apps)
         .map_or_else(String::new, |provider| provider.label);

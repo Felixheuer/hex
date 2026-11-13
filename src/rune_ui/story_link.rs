@@ -1,15 +1,14 @@
 //! Links into the playground: `hex://story/<group>/<story>[?variant=V&play=1]`
 //! (`hex-test://` in a test build) and `hex window story`. Both open the
 //! window on the story, pick the variant, and with `play` run its `r`
-//! trigger, as pressing R does. Only with Labs on.
+//! trigger, as pressing R does. Only in dev builds.
 
 use rune::Tx;
 
 use super::playground;
 
 /// Why a link opened only the window.
-pub(crate) const PLAYGROUND_OFF: &str = "the playground is in Labs; turn it on with \
-     `hex labs on playground` and restart Hex";
+pub(crate) const PLAYGROUND_OFF: &str = "the playground exists only in dev builds";
 
 /// Longer links are ignored: they come from outside Hex.
 pub(super) const MAX_LINK: usize = 2048;
@@ -113,7 +112,7 @@ pub(super) fn percent_decode(segment: &str) -> Option<String> {
 }
 
 /// Opens the playground on `link`'s story; the caller opens the window.
-/// With Labs off it says why and changes nothing.
+/// Without the playground it says why and changes nothing.
 pub(crate) fn open(link: &StoryLink, tx: &mut Tx) -> Result<(), &'static str> {
     if !playground::enabled() {
         return Err(PLAYGROUND_OFF);

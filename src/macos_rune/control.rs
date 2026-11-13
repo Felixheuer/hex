@@ -565,7 +565,7 @@ fn listener_command(
         } => background(reply, move || {
             let action = control::check_flags(action, true, raw)?;
             let printing_start = action == control::CaptureAction::Start;
-            if printing_start && !crate::labs::print_start() {
+            if printing_start && !crate::features::print_start() {
                 return Err(control::ControlError::new(
                     "disabled",
                     "Labs › Print-only CLI dictation is off; turn it on with \
@@ -618,10 +618,10 @@ fn listener_command(
 fn screenshot(pick: bool, reply: &SyncSender<ControlResponse>) -> Option<ControlReply> {
     #[cfg(hex_capture)]
     {
-        if !crate::labs::screenshots() {
+        if !crate::features::screenshots() {
             return Some(ControlReply::error(
                 "disabled",
-                "Labs › Screenshots is off; turn it on with `hex settings set labs.screenshots on`",
+                "Screenshots are no longer part of Hex",
             ));
         }
         if pick {
@@ -971,7 +971,6 @@ fn status(
             pane: open.then(|| current_pane(window)).flatten(),
         },
         update: control::update_label(&published.update_status).into(),
-        labs: crate::labs::active_names(settings),
         capabilities: crate::rune_ui::capabilities(),
     })))
 }
