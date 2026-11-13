@@ -30,7 +30,10 @@ use super::Method;
 
 /// Agent-Desk's own update target; `macos-arm64` is the bridge older Hex
 /// installs take (`scripts/pilot-release-macos.sh`).
-pub const TARGET: &str = "macos-arm64-agent-desk";
+// At most three parts after the platform, with "-sig" counted
+// (`protocol::is_target_name`); "agent-desk" would make the manifest
+// malformed for every client.
+pub const TARGET: &str = "macos-arm64-agentdesk";
 pub const DOWNLOAD_TARGET: &str = "macos-arm64-dmg";
 const BUNDLE_ID: &str = crate::app_paths::Variant::Live.bundle_id();
 /// The bundle's folder name, in the update ZIP and in /Applications.
@@ -610,5 +613,18 @@ mod tests {
         remove_hex(&root);
         assert!(mine.exists(), "a different app named Hex stays");
         let _ = fs::remove_dir_all(root);
+    }
+}
+
+#[cfg(test)]
+mod target_name_tests {
+    #[test]
+    fn the_target_and_its_signature_are_valid_target_names() {
+        let manifest = format!(
+            r#"{{"schema":1,"app":"hex","artifact":"desktop","channel":"stable","sequence":1,"published_at":"x","release":{{"version":"3.4.0-pilot.51","rollout_percent":100,"distributions":[{{"kind":"direct"}}],"targets":{{"{t}":{{"url":"/a","size":1,"sha256":"{h}"}},"{t}-sig":{{"url":"/b","size":1,"sha256":"{h}"}}}}}}}}"#,
+            t = super::TARGET,
+            h = "0".repeat(64)
+        );
+        assert!(crate::updater::protocol::parse_manifest(&manifest).is_some());
     }
 }
