@@ -12,7 +12,7 @@ use color_eyre::{Result, eyre::eyre};
 use scrawl_capture::win;
 
 use super::displays::{Display, Frame};
-use super::{LONG_SIDE, Screenshot, encode_png, fit, resize};
+use super::Screenshot;
 use crate::assistant::{Context, TaskWindow};
 
 /// How long the focused app may take to say what's selected.
@@ -101,17 +101,7 @@ pub fn screenshot() -> Result<Screenshot> {
         [x, y, width, height],
         &hidden,
     );
-    let (fitted_width, fitted_height) = fit(pixel_width, pixel_height, LONG_SIDE);
-    let rgba = resize(
-        &rgba,
-        (pixel_width, pixel_height),
-        (fitted_width, fitted_height),
-    );
-    Ok(Screenshot {
-        png: encode_png(fitted_width, fitted_height, &rgba)?,
-        width: fitted_width,
-        height: fitted_height,
-    })
+    super::screenshot_from(pixel_width, pixel_height, &rgba)
 }
 
 /// The screen's pixels in the rectangle at (`x`, `y`), `width` × `height`

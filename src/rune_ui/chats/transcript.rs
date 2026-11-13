@@ -27,7 +27,7 @@ const BUBBLE_MAX: f32 = 520.0;
 /// this width, centred, so lines stay comfortable on a wide window.
 pub(super) const READING_W: f32 = 760.0;
 /// A screenshot thumbnail's width.
-const THUMB_W: f32 = 220.0;
+const THUMB_W: f32 = 320.0;
 /// Step blocks longer than this fold to their last step.
 const FOLD_AFTER: usize = 4;
 

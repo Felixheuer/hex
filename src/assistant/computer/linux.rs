@@ -17,7 +17,7 @@ use x11rb::protocol::randr::ConnectionExt as _;
 use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, Window as XWindow};
 
 use super::displays::{Display, Frame};
-use super::{LONG_SIDE, Screenshot, encode_png, fit, resize};
+use super::Screenshot;
 use crate::assistant::{Context, TaskWindow};
 
 /// How long the selection's owner may take to hand its text over.
@@ -259,13 +259,7 @@ pub fn screenshot() -> Result<Screenshot> {
     } else {
         x11_shot()?
     };
-    let (fitted_width, fitted_height) = fit(width, height, LONG_SIDE);
-    let rgba = resize(&rgba, (width, height), (fitted_width, fitted_height));
-    Ok(Screenshot {
-        png: encode_png(fitted_width, fitted_height, &rgba)?,
-        width: fitted_width,
-        height: fitted_height,
-    })
+    super::screenshot_from(width, height, &rgba)
 }
 
 fn x11_shot() -> Result<(u32, u32, Vec<u8>)> {
@@ -509,7 +503,7 @@ mod tests {
     #[test]
     fn a_png_reads_back_as_rgba() {
         let rgba = [10, 20, 30, 255, 40, 50, 60, 255];
-        let png = encode_png(2, 1, &rgba).expect("png");
+        let png = super::super::encode_png(2, 1, &rgba).expect("png");
         assert_eq!(decode_png(&png).expect("decoded"), (2, 1, rgba.to_vec()));
     }
 }
