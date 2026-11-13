@@ -150,12 +150,6 @@ pub(crate) fn count(task: &str) -> usize {
     app_live::previews(task).len() + live::previews(task).len()
 }
 
-/// The jobs whose cards show at the orb now.
-pub(crate) fn cards(tasks: &[String]) {
-    live::cards(tasks);
-    app_live::cards(tasks);
-}
-
 /// The jobs the live wall shows (empty: it's closed).
 pub(crate) fn wall(tasks: &[String]) {
     live::wall(tasks);

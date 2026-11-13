@@ -227,7 +227,8 @@ impl Desk {
             desk.open_result = desk.board.recall(id, Instant::now());
             desk.expanded = false;
         };
-        actions.jobs.wall = |desk, id| desk.note = format!("Would show every picture of {id}");
+        actions.jobs.open =
+            |desk, scope, _| desk.note = format!("Would show every picture of {scope:?}");
         actions.jobs.all = |desk| desk.note = "Would show every live picture".into();
         actions
     }

@@ -2,12 +2,12 @@
 //! per running job in the card material (its colour and plan ring, title,
 //! how long it runs; one line of where it works and what it does now,
 //! "Safari · in background · choosing a time", live as it changes; every
-//! browser and app window it works in, live and small, a press on one
-//! opening it large; a thin plan bar). At most [`MAX_ROWS`] rows show, the
+//! browser and app window it works in, live and small in a filmstrip that
+//! scrolls sideways, a press on one opening it large; a thin plan bar). At most [`MAX_ROWS`] rows show, the
 //! newest first, in the order the jobs started, so nothing jumps; the rest
 //! fold into one "N more" line whose press opens the task list in place,
-//! where every job is, scrolling. "All N live" on a row opens the live wall
-//! with every picture of the job and its helpers.
+//! where every job is, scrolling. "All N live" on a row opens the live
+//! overview ([`super::peek`]) with every picture of the job and its helpers.
 //!
 //! The rail has one order, nearest its head first, so nothing overlaps:
 //! the question waiting on the person, a task the person holds or that
@@ -23,6 +23,7 @@ use super::super::icons::{GLOBE, PANEL};
 use super::app_live::{self, AppPreview};
 use super::board::{Phase, Task};
 use super::live::{self, Preview};
+use super::wall::Scope;
 use super::{look, orb, palette, stack};
 use crate::assistant::Origin;
 use crate::desktop::i18n::{tr, tr_fill};
@@ -42,12 +43,15 @@ pub(crate) const LINE_H: f32 = 36.0;
 
 /// What a job row asks of the host, beside the list's actions.
 pub(crate) struct LineActions<S> {
-    /// "All N live" on a job's row: every browser and window of it and its
-    /// helpers on the live wall (the job's id).
-    pub(crate) wall: fn(&mut S, &str),
+    /// "All N live" on a job's row (pressed: `true`, it takes the keyboard;
+    /// or the pointer resting on it): the live overview of what it shows
+    /// ([`super::peek`]).
+    pub(crate) open: fn(&mut S, &Scope, bool),
     /// "All live" beside the orb: every live picture of every job and of
-    /// the desk on the wall.
+    /// the desk, in the overview.
     pub(crate) all: fn(&mut S),
+    /// The overview's own buttons, and which pictures show (they stream).
+    pub(crate) peek: super::peek::Actions<S>,
 }
 
 impl<S> Clone for LineActions<S> {
@@ -233,7 +237,7 @@ pub(crate) fn view<S: 'static>(
                         &live::previews(&task.id),
                         &helpers_of(team, &task.id),
                         actions,
-                        line_actions.wall,
+                        line_actions,
                         room.still,
                         tag,
                     )
@@ -280,30 +284,35 @@ pub(crate) fn view<S: 'static>(
         rows.into_iter().chain(groups).collect()
     };
     Some(
-        col()
-            .key("jobs")
-            .w(CARD_W + 2.0 * SHADOW_ROOM)
-            .px(SHADOW_ROOM)
-            .ml(-SHADOW_ROOM)
-            .mr(-SHADOW_ROOM)
-            .pb(SHADOW_ROOM)
-            .mb(-SHADOW_ROOM)
-            .max_h(room.max_h + SHADOW_ROOM)
-            .min_h(0.0)
-            .shrink()
-            .gap(5.0)
-            .scroll(rune::ScrollSpec {
-                stick_bottom: !room.down,
-            })
-            .scroll_edge_fade(16.0)
-            .hit()
-            .role("list")
-            .label(tr_fill(
-                "{} jobs running",
-                &(layout.rows.len() + layout.more).to_string(),
-            ))
-            .animate_layout()
-            .children(rows),
+        super::wheel::scroller::<S>(
+            col(),
+            super::wheel::Surface::Orb,
+            "jobs",
+            super::wheel::Axis::Y,
+        )
+        .key("jobs")
+        .w(CARD_W + 2.0 * SHADOW_ROOM)
+        .px(SHADOW_ROOM)
+        .ml(-SHADOW_ROOM)
+        .mr(-SHADOW_ROOM)
+        .pb(SHADOW_ROOM)
+        .mb(-SHADOW_ROOM)
+        .max_h(room.max_h + SHADOW_ROOM)
+        .min_h(0.0)
+        .shrink()
+        .gap(5.0)
+        .scroll(rune::ScrollSpec {
+            stick_bottom: !room.down,
+        })
+        .scroll_edge_fade(16.0)
+        .hit()
+        .role("list")
+        .label(tr_fill(
+            "{} jobs running",
+            &(layout.rows.len() + layout.more).to_string(),
+        ))
+        .animate_layout()
+        .children(rows),
     )
 }
 
@@ -334,16 +343,17 @@ fn card<S: 'static>(
     previews: &[std::sync::Arc<Preview>],
     helpers: &[&Task],
     actions: stack::Actions<S>,
-    open_wall: fn(&mut S, &str),
+    line: LineActions<S>,
     still: bool,
     project: Option<&str>,
 ) -> El {
     let c = &p.k.c;
     let colour = palette::task(task.colour, p.k.dark);
     let toggle = actions.toggle;
-    let (apps_shown, shown, more) = strip(apps.len(), previews.len());
+    let (apps_shown, shown, _) = strip(apps.len(), previews.len());
     // Every picture of the job and its helpers, when the row can't show
-    // them all: "All 20 live" opens the wall.
+    // them all at once: "All 20 live" opens the overview, on a press or
+    // when the pointer rests on it.
     let all = apps.len()
         + previews.len()
         + helpers
@@ -351,7 +361,8 @@ fn card<S: 'static>(
             .map(|helper| super::pictures::count(&helper.id))
             .sum::<usize>();
     let wall = wants_wall(all, apps_shown + shown).then(|| {
-        let id = task.id.clone();
+        let open = line.open;
+        let (pressed, rested) = (Scope::Job(task.id.clone()), Scope::Job(task.id.clone()));
         let label = tr_fill("All {} live", &all.to_string());
         p.k.interactive(
             el().key("job-wall")
@@ -363,7 +374,13 @@ fn card<S: 'static>(
                 .role("button")
                 .label(label.clone())
                 .hit()
-                .on_press(move |s: &mut S| open_wall(s, &id))
+                .on_press(move |s: &mut S| open(s, &pressed, true))
+                .hover_delays(super::peek::INTENT, std::time::Duration::ZERO)
+                .on_hover_change(move |s: &mut S, inside, _| {
+                    if inside {
+                        open(s, &rested, false);
+                    }
+                })
                 .child(text(label).font(look::meta(p)).color(p.text())),
         )
     });
@@ -419,53 +436,59 @@ fn card<S: 'static>(
             .min_w(0.0)
             .pl(STEP_INSET)
     });
-    let browsers = (apps_shown + shown > 0).then(|| {
-        let mut cells: Vec<El> = apps[..apps_shown]
+    // Every picture in one filmstrip, two in view; the rest scroll in
+    // sideways (the trackpad, or the wheel over it), each streaming once
+    // it shows.
+    let browsers = (!apps.is_empty() || !previews.is_empty()).then(|| {
+        let seen = line.peek.seen;
+        let cells: Vec<El> = apps
             .iter()
-            .map(|preview| app_thumb(p, task, preview, still, actions))
-            .chain(
-                previews[..shown]
-                    .iter()
-                    .map(|preview| thumb(p, task, preview, still, actions)),
-            )
+            .map(|preview| {
+                let session = preview.session();
+                seen_as(
+                    app_thumb(p, task, preview, still, actions),
+                    &task.id,
+                    &session,
+                    seen,
+                )
+            })
+            .chain(previews.iter().map(|preview| {
+                let session = preview.session.clone();
+                seen_as(
+                    thumb(p, task, preview, still, actions),
+                    &task.id,
+                    &session,
+                    seen,
+                )
+            }))
             .collect();
-        // The rest as "+N" on the last picture; a press shows them all.
-        if more > 0
-            && let Some(last) = cells.pop()
-        {
-            let id = task.id.clone();
-            let badge = p.k.interactive(
-                el().key("job-more")
-                    .absolute(THUMB_W - 36.0, THUMB_H - 24.0)
-                    .h(20.0)
-                    .min_w(32.0)
-                    .px(6.0)
-                    .radius(10.0)
-                    .fill(c.bg_base.alpha(0.92))
-                    .border(p.hair, c.border_base)
-                    .center()
-                    .role("button")
-                    .label(tr_fill("All {} live", &all.to_string()))
-                    .hit()
-                    .on_press(move |s: &mut S| open_wall(s, &id))
-                    .child(
-                        text(format!("+{more}"))
-                            .font(look::label(p))
-                            .color(p.text()),
-                    ),
-            );
-            cells.push(el().key("job-last").child(last).child(badge));
-        }
-        row()
-            .key("job-browsers")
-            .gap(THUMB_GAP)
-            .pt(2.0)
-            .pl(STEP_INSET)
-            .role("list")
-            .label(tr("Live windows"))
-            .children(cells)
+        let key = format!("job-film-{}", task.id);
+        el().pl(STEP_INSET).pt(2.0).child(
+            super::wheel::scroller::<S>(
+                row(),
+                super::wheel::Surface::Orb,
+                &key,
+                super::wheel::Axis::X,
+            )
+            .key(key.clone())
+            .w(FILM_W)
+            .scroll_x()
+            .scroll_edge_fade(14.0)
+            .hit()
+            .child(
+                row()
+                    .key("job-browsers")
+                    .gap(THUMB_GAP)
+                    // Room for the rings around the pictures.
+                    .py(3.0)
+                    .px(3.0)
+                    .role("list")
+                    .label(tr("Live windows"))
+                    .children(cells),
+            ),
+        )
     });
-    let team = (!helpers.is_empty()).then(|| team_row(p, helpers).pl(STEP_INSET));
+    let team = (!helpers.is_empty()).then(|| team_row(p, helpers, task.board).pl(STEP_INSET));
     let plan = task.progress().map(|(done, all)| {
         el().pl(STEP_INSET).child(look::progress(
             p,
@@ -503,6 +526,20 @@ const CARD_PAD: f32 = 11.0;
 const THUMB_GAP: f32 = 6.0;
 /// How far a row's step, pictures, and helpers are set in: past its dot.
 const STEP_INSET: f32 = 17.0;
+/// The filmstrip's width: the row's, past its dot.
+pub(crate) const FILM_W: f32 = CARD_W - 2.0 * CARD_PAD - STEP_INSET;
+
+/// `el`, picture `session` of `task`, tells `seen` when it comes into view
+/// and leaves it, so only the pictures that show stream.
+pub(crate) fn seen_as<S: 'static>(
+    el: El,
+    task: &str,
+    session: &str,
+    seen: fn(&mut S, &str, &str, bool),
+) -> El {
+    let (task, session) = (task.to_owned(), session.to_owned());
+    el.on_visible(move |s: &mut S, on, _| seen(s, &task, &session, on))
+}
 
 /// The app a job works in (its first window's), else the site its browser
 /// is on, else "Browser" for a job on the web.
@@ -579,15 +616,8 @@ pub(crate) fn wants_wall(all: usize, shown: usize) -> bool {
 
 /// A lead's helpers on its card: a dot each and how many ended ("4 Helfer
 /// · 1 erledigt"); resting on the cards shows each one's own.
-fn team_row(p: Paint, helpers: &[&Task]) -> El {
-    let ended = helpers
-        .iter()
-        .filter(|task| matches!(task.phase, Phase::Done | Phase::Failed | Phase::Stopped))
-        .count();
-    let mut words = tr_fill("{} helpers", &helpers.len().to_string());
-    if ended > 0 {
-        words = format!("{words} · {}", tr_fill("{} done", &ended.to_string()));
-    }
+fn team_row(p: Paint, helpers: &[&Task], board: Option<(usize, usize)>) -> El {
+    let words = team_words(helpers, board);
     row()
         .key("job-team")
         .gap(5.0)
@@ -607,6 +637,27 @@ fn team_row(p: Paint, helpers: &[&Task]) -> El {
                 .font(p.k.ty.small)
                 .color(p.muted()),
         )
+}
+
+/// A lead's team line: "4 helpers · 1 done", then what its board counts
+/// ("12 claimed · 30 items done") once helpers claim items there.
+pub(crate) fn team_words(helpers: &[&Task], board: Option<(usize, usize)>) -> String {
+    let ended = helpers
+        .iter()
+        .filter(|task| matches!(task.phase, Phase::Done | Phase::Failed | Phase::Stopped))
+        .count();
+    let mut words = tr_fill("{} helpers", &helpers.len().to_string());
+    if ended > 0 {
+        words = format!("{words} · {}", tr_fill("{} done", &ended.to_string()));
+    }
+    if let Some((claimed, done)) = board.filter(|(claimed, done)| claimed + done > 0) {
+        words = format!(
+            "{words} · {} · {}",
+            tr_fill("{} claimed", &claimed.to_string()),
+            tr_fill("{} items done", &done.to_string())
+        );
+    }
+    words
 }
 
 /// A card's second line: the plan step it's on, as the job wrote its plan
@@ -955,6 +1006,28 @@ mod tests {
             }
         }
         assert_eq!(layout(&running(&board.tasks), false), rows(&["job0"], 0));
+        // The lead's team line counts its board once helpers claim items.
+        board.apply(
+            &Event::Board {
+                conversation: "job0".into(),
+                claimed: 4,
+                done: 9,
+            },
+            None,
+            Instant::now(),
+        );
+        let lead = board.tasks.iter().find(|task| task.id == "job0").unwrap();
+        assert_eq!(lead.board, Some((4, 9)));
+        let helpers: Vec<&Task> = board
+            .tasks
+            .iter()
+            .filter(|task| task.lead.is_some())
+            .collect();
+        assert_eq!(
+            team_words(&helpers, lead.board),
+            "3 helpers · 4 claimed · 9 items done"
+        );
+        assert_eq!(team_words(&helpers, Some((0, 0))), "3 helpers");
     }
 
     #[test]

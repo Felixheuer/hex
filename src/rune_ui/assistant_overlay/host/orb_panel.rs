@@ -3,6 +3,8 @@
 //! and the board it keeps, which the outlines, the frame, the Hands off
 //! pill, the wall, and the large card follow.
 
+use super::super::peek::Peek;
+use super::super::wall::Scope;
 use super::*;
 
 /// Unfolds the task list from the orb, or folds it back (a double-tap of
@@ -69,10 +71,79 @@ pub(super) fn orb_key(orb: &mut Orb, key: &rune::KeyEvent, _tx: &mut Tx) -> bool
     key.key == rune::Key::Escape && escape(orb)
 }
 
+/// "All N live" on a job's row, or "All live" at the head (`pressed`), or
+/// the pointer resting on the row's: the live overview of `scope` takes
+/// the rows' place. A press gives it the keyboard (Escape, and a click
+/// outside, close it); the pointer resting only shows it, the keys stay
+/// where the person types.
+pub(in super::super) fn open_peek(orb: &mut Orb, scope: &Scope, pressed: bool) {
+    let pressed = pressed || orb.peek.as_ref().is_some_and(|peek| peek.pressed);
+    if orb.expanded {
+        fold(orb);
+    }
+    // The rows' filmstrips leave (no picture of theirs says so): what the
+    // overview shows reports itself as it comes into view.
+    if orb.peek.as_ref().is_none_or(|peek| peek.scope != *scope) {
+        orb.seen.clear();
+    }
+    orb.peek = Some(Peek::new(scope.clone(), pressed));
+    show_cards(orb);
+    if pressed && let Some(overlays) = OVERLAYS.get() {
+        overlays.orb.request_keys();
+    }
+}
+
+/// ×, Escape, a click outside, or the pointer away long enough: the job
+/// rows come back, and the overview's pictures stop streaming.
+pub(in super::super) fn close_peek(orb: &mut Orb) {
+    if orb.peek.take().is_none() {
+        return;
+    }
+    // Its pictures leave; the rows' report themselves as they come back.
+    orb.seen.clear();
+    show_cards(orb);
+}
+
+/// The pointer left the rail (`false`) or came back: an overview open
+/// closes after `peek::LEAVE` away.
+pub(in super::super) fn peek_hover(orb: &mut Orb, inside: bool) {
+    let Some(peek) = orb.peek.as_mut() else {
+        return;
+    };
+    if inside {
+        peek.left = None;
+        return;
+    }
+    peek.left = Some(Instant::now());
+    if let Some(overlays) = OVERLAYS.get() {
+        overlays
+            .orb
+            .update(|_, tx| tx.wake_after(super::super::peek::LEAVE));
+    }
+}
+
+/// A picture in the rail came into view or left it: those in view stream.
+pub(in super::super) fn seen_picture(orb: &mut Orb, task: &str, session: &str, on: bool) {
+    let picture = (task.to_owned(), session.to_owned());
+    let changed = if on {
+        orb.seen.insert(picture)
+    } else {
+        orb.seen.remove(&picture)
+    };
+    if changed {
+        let seen: Vec<(String, String)> = orb.seen.iter().cloned().collect();
+        super::super::live::seen(&seen);
+    }
+}
+
 /// Escape at the orb: the project picker folds, else the answer field
 /// goes, else an unfolded result folds, else the list; whether anything
 /// did.
 pub(in super::super) fn escape(orb: &mut Orb) -> bool {
+    if orb.peek.is_some() {
+        close_peek(orb);
+        return true;
+    }
     if orb.project.open {
         cancel_project(orb);
         return true;
@@ -101,6 +172,10 @@ pub(super) fn orb_focus(orb: &mut Orb, focused: bool, _tx: &mut Tx) {
     }
     if orb.expanded {
         fold(orb);
+    }
+    // A click outside closes an overview a press opened.
+    if orb.peek.as_ref().is_some_and(|peek| peek.pressed) {
+        close_peek(orb);
     }
     // A click outside folds the picker, unless a name is being typed.
     if orb.project.open && orb.project.typed().is_none() {
@@ -187,15 +262,21 @@ pub(super) fn rearm() {
 /// stream (`live::cards`).
 pub(super) fn show_cards(orb: &Orb) {
     let mut carded = orb::carded(&orb.board, orb.expanded);
+    let desk = super::super::minis::now();
     // The desk's minis show whenever the list is folded.
-    if !orb.expanded {
-        let desk = super::super::minis::now();
-        if !desk.is_empty() {
-            carded.push(super::super::minis::DESK.to_owned());
-            carded.extend(desk.browsers);
-        }
+    if !orb.expanded && !desk.is_empty() {
+        carded.push(super::super::minis::DESK.to_owned());
+        carded.extend(desk.browsers.iter().cloned());
     }
-    super::super::pictures::cards(&carded);
+    super::super::live::cards(&carded);
+    // The overview's app windows are captured while it shows; its browsers
+    // stream as they come into view (`seen_picture`).
+    if let Some(peek) = &orb.peek {
+        carded.extend(super::super::peek::tasks(&orb.board, &desk, &peek.scope));
+    }
+    super::super::app_live::cards(&carded);
+    let seen: Vec<(String, String)> = orb.seen.iter().cloned().collect();
+    super::super::live::seen(&seen);
 }
 
 /// The pointer came onto task `id`'s row in the list, or left it: its
@@ -522,6 +603,10 @@ pub(super) fn arm(orb: &mut Orb, tx: &mut Tx, now: Instant) {
 
 pub(super) fn orb_poll(orb: &mut Orb, _clock: f64, tx: &mut Tx) -> bool {
     let now = Instant::now();
+    if orb.peek.as_ref().is_some_and(|peek| peek.expired(now)) {
+        close_peek(orb);
+        return true;
+    }
     if orb.board.expire(now) {
         orb.armed = None;
         board_changed(orb, tx, now);

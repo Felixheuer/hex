@@ -747,7 +747,9 @@ const HERE_BUDGET: usize = 11_500;
 // 18_300: one line for the media tools (hex_document_read/write, hex_image, hex_audio, hex_video_make).
 // 18_900: the guard's batch, script, menu, verify and skill tools (Cua, round 7 A).
 // 19_100: projects (projects::RULES): their folder and hex_project.
-const JOB_BUDGET: usize = 19_100;
+// 19_500: the team board and merged results (team::rules), and noting what
+// worked in an app for procedural memory (procedures::JOURNAL_RULE).
+const JOB_BUDGET: usize = 19_500;
 
 #[test]
 fn each_lane_s_rules_stay_within_their_budget() {

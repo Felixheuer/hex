@@ -487,6 +487,12 @@ impl Stage {
 /// `content` (a column) scrolling past `max_h`, keyed `key`. The column
 /// itself scrolls, so its blocks keep their height.
 fn scrolling(content: El, key: &str, max_h: f32) -> El {
+    let content = super::wheel::scroller::<Stage>(
+        content,
+        super::wheel::Surface::Stage,
+        key,
+        super::wheel::Axis::Y,
+    );
     content
         .key(key.to_owned())
         .w_full()
@@ -1146,6 +1152,7 @@ fn repair(p: Paint, state: &Stage, gaps: &[Gap]) -> El {
 }
 
 pub(crate) fn view(state: &Stage, cx: &mut Cx<Stage>) -> El {
+    super::wheel::begin(super::wheel::Surface::Stage);
     drawn(Paint::new(cx.system_dark(), cx.env().scale), state)
 }
 

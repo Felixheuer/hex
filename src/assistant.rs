@@ -49,6 +49,8 @@ pub mod memory;
 pub mod notify;
 pub mod palette;
 pub mod phone;
+pub mod preferences;
+pub mod procedures;
 pub mod projects;
 pub mod provider;
 pub mod route;

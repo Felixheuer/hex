@@ -18,7 +18,23 @@ use super::live_card::{self, Driver, PAD};
 /// The largest picture the panel shows, in points.
 pub(crate) const ROOM: (f32, f32) = (720.0, 450.0);
 /// The panel: the card at its largest, and room for its shadow.
-pub(crate) const SIZE: (f32, f32) = (ROOM.0 + PAD * 2.0 + 40.0, ROOM.1 + 170.0);
+pub(crate) const SIZE: (f32, f32) = size_for(ROOM);
+
+/// The panel around a picture of at most `room`.
+pub(crate) const fn size_for(room: (f32, f32)) -> (f32, f32) {
+    (room.0 + PAD * 2.0 + 40.0, room.1 + 170.0)
+}
+
+/// The picture's room on a display whose visible area is `visible`, the
+/// card hanging `margin` below its top: as large as the display allows
+/// ("full screen" from a tile), never smaller than [`ROOM`].
+pub(crate) fn room_on(visible: (f32, f32), margin: f32) -> (f32, f32) {
+    let (w, h) = SIZE;
+    (
+        (visible.0 - 80.0 - (w - ROOM.0)).max(ROOM.0),
+        (visible.1 - margin - 24.0 - (h - ROOM.1)).max(ROOM.1),
+    )
+}
 
 /// The enlarged card's state.
 pub(crate) struct Enlarged {
@@ -26,6 +42,8 @@ pub(crate) struct Enlarged {
     pub(crate) target: Option<(String, String)>,
     /// Who has the task, as the orb's board last said.
     pub(crate) driver: Driver,
+    /// The picture's room ([`room_on`]).
+    pub(crate) room: (f32, f32),
     pub(crate) actions: live_card::Actions<Enlarged>,
 }
 
@@ -34,6 +52,7 @@ impl Enlarged {
         Self {
             target: None,
             driver: Driver::Agent,
+            room: ROOM,
             actions,
         }
     }
@@ -77,6 +96,7 @@ pub(crate) fn driver_for(phase: Option<Phase>) -> Driver {
 }
 
 pub(crate) fn view(state: &Enlarged, cx: &mut Cx<Enlarged>) -> El {
+    super::wheel::begin(super::wheel::Surface::Enlarged);
     let p = Paint::new(cx.system_dark(), cx.env().scale);
     let root = col()
         .key("enlarged-root")
@@ -90,7 +110,7 @@ pub(crate) fn view(state: &Enlarged, cx: &mut Cx<Enlarged>) -> El {
     };
     let close = state.actions.close;
     root.child(
-        live_card::card(p, task, session, state.driver, ROOM, state.actions)
+        live_card::card(p, task, session, state.driver, state.room, state.actions)
             .on_key(move |s: &mut Enlarged, key: &rune::KeyEvent, _| {
                 if key.key == rune::Key::Escape {
                     close(s);
@@ -177,6 +197,17 @@ mod tests {
         assert_eq!(driver_for(Some(Phase::Done)), Driver::Finished);
         assert_eq!(driver_for(Some(Phase::Running)), Driver::Agent);
         assert_eq!(driver_for(Some(Phase::Paused)), Driver::Person);
+    }
+
+    #[test]
+    fn a_tile_opens_the_card_as_large_as_the_display_allows() {
+        // This Mac's 1800 × 1132 below the menu bar.
+        let room = room_on((1800.0, 1132.0), 64.0);
+        assert!(room.0 > 1500.0 && room.1 > 800.0, "{room:?}");
+        let size = size_for(room);
+        assert!(size.0 <= 1800.0 && size.1 + 64.0 <= 1132.0, "{size:?}");
+        // A small display keeps the card's own size.
+        assert_eq!(room_on((760.0, 560.0), 64.0), ROOM);
     }
 
     #[test]

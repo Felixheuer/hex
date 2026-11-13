@@ -295,7 +295,7 @@ pub fn report(members: &[Member]) -> String {
         }
     }
     out.push_str(if open == 0 {
-        "\nEvery helper has ended: combine their results (their files are in their folders inside yours), check them, and finish."
+        "\nEvery helper has ended: check their results (their files are in their folders inside yours; Agent-Desk combines their tables and reports below when they wrote some), and finish."
     } else {
         "\nWhile they work, do your own part, or call hex_team_status with wait_seconds to wait for the next one to finish."
     });
@@ -449,14 +449,14 @@ fn apply(member: &mut Member, event: &Event) {
 /// `max` at once.
 pub fn rules(max: usize) -> String {
     format!(
-        "\nA team for big jobs: when the work splits into parts that can run beside each other (many sites or suppliers to research, several deliverables, a build beside a comparison), start helpers with hex_team_start: each is a full background job with its own browsers, apps, and folder inside yours, and asks the person on its own what it must know. When the person asks for a number of helpers or browsers (\"20 Agenten\", \"20 Browser\"), start that many helpers in ONE hex_team_start call right away, up to {max} at once on this computer, before doing anything else; they all start together. Give each a self-contained task (every detail it needs, and which files to write in its folder). A shared table (suppliers, leads, prices): give every helper the same columns and have each write its rows to its own part file in its folder (rows.csv with a header row), never into one shared sheet at the same time; once they're done, combine the parts yourself, without duplicates (same website or name), into one online sheet in your `signedIn: true` browser where the person's accounts have one (import the combined CSV, or paste it) and give the person its link; if they asked for an Excel or Numbers file, or have no such account, make that file with the apps and tools this Mac has. A step that needs their results (a message with the final link) comes after them: do it yourself once they're done, or start a helper for it then, naming the files to use. While they work, do your own part, or call hex_team_status with wait_seconds (up to 240) to wait for the next to finish; never poll it quickly. When the person changes what they want while helpers work, pass it on with hex_team_tell (one helper's id, or \"all\"). Read their answers and files, check them, and finish with one answer for all of it. Small jobs need no team.\n"
+        "\nA team for big jobs: when the work splits into parts that can run beside each other (many sites or suppliers to research, several deliverables, a build beside a comparison), start helpers with hex_team_start: each is a full background job with its own browsers, apps, and folder inside yours, and asks the person on its own what it must know. When the person asks for a number of helpers or browsers (\"20 Agenten\", \"20 Browser\"), start that many helpers in ONE hex_team_start call right away, up to {max} at once on this computer, before doing anything else; they all start together. Give each a self-contained task (every detail it needs, and which files to write in its folder). A shared table (suppliers, leads, prices): give every helper the same columns and have each write its rows to its own part file in its folder (rows.csv with a header row), never into one shared sheet at the same time; once all are done, hex_team_status combines the parts without duplicates into team-table.csv (and .xlsx) and their reports into team-report.md (and .docx) in your folder: check those and put the table into one online sheet in your `signedIn: true` browser where the person's accounts have one (import the combined CSV, or paste it) and give the person its link; if they asked for an Excel or Numbers file, or have no such account, make that file with the apps and tools this Mac has. A step that needs their results (a message with the final link) comes after them: do it yourself once they're done, or start a helper for it then, naming the files to use. While they work, do your own part, or call hex_team_status with wait_seconds (up to 240) to wait for the next to finish; never poll it quickly. Helpers claim items on the team board (team.md, hex_team_board) so none is done twice. When the person changes what they want while helpers work, pass it on with hex_team_tell (one helper's id, or \"all\"). Read their answers and files, check them, and finish with one answer for all of it. Small jobs need no team.\n"
     )
 }
 
 /// What a helper learns in its rules: it does one part of its lead's job.
 pub fn helper_rules(lead: &str) -> String {
     format!(
-        "\nYou are a helper: the job “{lead}” gave you one part of it and combines what its helpers make. Do only your part, fully. Put your results as files in your folder (the lead reads it), and end with a short summary naming each file and any links. When your part is rows for a shared table, write them to the part file your lead named (rows.csv with a header row) with exactly its columns, adding rows as you find them; never write into the shared sheet yourself. For reading pages use your light browsers (several at once); real Chrome (`signedIn: true`) only for a site that needs a login or doesn't work in the light one. Don't start helpers of your own. Ask the person only what you can't find out and your lead couldn't have told you.\n"
+        "\nYou are a helper: the job “{lead}” gave you one part of it and combines what its helpers make. Do only your part, fully. Put your results as files in your folder (the lead reads it), and end with a short summary naming each file and any links. When your part is rows for a shared table, write them to the part file your lead named (rows.csv with a header row) with exactly its columns, adding rows as you find them; never write into the shared sheet yourself. For reading pages use your light browsers (several at once); real Chrome (`signedIn: true`) only for a site that needs a login or doesn't work in the light one. Your team shares a board (hex_team_board, team.md in your lead's folder): read it before you start; claim each item (site, supplier, file, part) before you work on it, and when it's taken or done take the next one; mark it done with where its result is; note findings the others need (found). Your browsers share this computer with the other helpers, so you get a fair share of them: close one you're done with before opening another. Don't start helpers of your own. Ask the person only what you can't find out and your lead couldn't have told you.\n"
     )
 }
 
@@ -610,6 +610,7 @@ mod tests {
         assert!(rules.contains("\u{201c}50 Lieferanten vergleichen\u{201d}"));
         assert!(rules.contains("Don't start helpers"));
         assert!(rules.contains("rows.csv"), "a shared table goes in parts");
+        assert!(rules.contains("hex_team_board") && rules.contains("claim each item"));
     }
 
     #[test]
@@ -618,6 +619,7 @@ mod tests {
         assert!(rules.contains("up to 32 at once"));
         assert!(rules.contains("ONE hex_team_start call"));
         assert!(rules.contains("online sheet"));
+        assert!(rules.contains("team-table.csv") && rules.contains("team.md"));
         assert!(!rules.contains("at most 12"));
         assert!((2..=crate::assistant::capacity::MAX_HELPERS).contains(&max_at_once()));
     }

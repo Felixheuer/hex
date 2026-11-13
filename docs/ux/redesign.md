@@ -317,7 +317,7 @@ widths: 348 rail · 470 island · 560–640 stage
 |---|---|---|
 | Island | 1 line + 1 card | newer replaces older; older goes to the rail/stage |
 | Rail | head + 1 question + 3 job rows + 1 result | "N more" line opens the list in place |
-| Minis per row | 3 | "All N live" opens the wall on the stage |
+| Minis per row | 2 in view, the rest in a sideways filmstrip | "All N live" (press or rest the pointer) opens the live overview in the rail; its "Large" opens the wall |
 | Outlines | one per visible window | second task in the same window: chip says "2 tasks" |
 | Stage | 1 panel | pinned panels shrink to a chip in the rail |
 | Desk frame | 1 | — |

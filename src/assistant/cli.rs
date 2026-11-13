@@ -111,6 +111,10 @@ pub enum AssistantCommand {
         /// team), `turn` (the default) for a question or a chat.
         #[arg(long, default_value = "turn")]
         role: String,
+        /// The team's board (`team.md` in the lead's folder), for a job
+        /// and its helpers.
+        #[arg(long)]
+        board: Option<std::path::PathBuf>,
     },
     /// The guard's MCP server for one task (Agent-Desk gives it to each task's
     /// agent in place of the desktop driver): `--spec` is the task's JSON spec or
@@ -284,8 +288,8 @@ pub fn run(command: AssistantCommand) -> u8 {
         AssistantCommand::HandBack { id } => send(&id, remote::Verb::HandBack),
         AssistantCommand::Schedules { command } => schedules(command),
         AssistantCommand::Driver { command } => driver(command),
-        AssistantCommand::ToolsMcp { task, role } => {
-            super::tools::serve(&task, super::tools::Role::parse(&role)).map(|()| true)
+        AssistantCommand::ToolsMcp { task, role, board } => {
+            super::tools::serve(&task, super::tools::Role::parse(&role), board).map(|()| true)
         }
         AssistantCommand::Conversations => {
             list();
@@ -519,6 +523,9 @@ fn follow(id: &str, events: &mpsc::Receiver<Event>, speak: bool) -> bool {
                 println!("[back to you] {}", to.as_deref().unwrap_or_default())
             }
             Event::Acting { .. } => {}
+            Event::Board { claimed, done, .. } => {
+                println!("[team board] {claimed} claimed, {done} done")
+            }
             Event::InProject { name, .. } => println!("[project] {name}"),
             Event::ProjectSuggested { name, .. } => println!("[project?] {name}"),
             Event::Plan { steps, .. } => {

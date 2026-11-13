@@ -35,13 +35,15 @@ impl Runner {
             .iter()
             .find(|task| task.status.conversation == ask.lead && task.running)
             .ok_or("Only a running background job can start helpers.")?;
-        if lead.workspace.is_none() {
+        let Some(workspace) = lead.workspace.clone() else {
             return Err("Only a background job can start helpers; do it yourself.".into());
-        }
+        };
         if lead.parent.is_some() {
             return Err("A helper can't start helpers of its own: do this part yourself.".into());
         }
         let said = lead.said.clone();
+        // The team's shared board, in the lead's folder (`blackboard`).
+        agent::blackboard::ensure(&workspace);
         if !ask.tell.is_empty() {
             return Ok(self.team_tell(state, ask, said));
         }

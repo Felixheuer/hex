@@ -20,11 +20,13 @@ mod models;
 pub use models::*;
 mod prompt;
 pub use prompt::*;
+pub mod blackboard;
 pub mod goal;
 pub mod handoff;
 pub mod journal;
 pub mod long;
 pub mod markers;
+pub mod merge;
 pub mod recovery;
 pub mod rollover;
 pub mod team;
@@ -1107,7 +1109,7 @@ pub fn prepare(
         .then(|| keep_warm_for(settings))
         .flatten();
     let system = system_for(job, desktop.as_ref(), browser.is_some());
-    let tools = tools_server(&job.conversation, tool_role(job));
+    let tools = tools_server(&job.conversation, tool_role(job), job.workspace.as_deref());
     Ok(Run {
         backend: settings.backend,
         model: model(job),
@@ -1159,19 +1161,33 @@ pub(crate) fn tool_role(job: &Job) -> crate::assistant::tools::Role {
 fn tools_server(
     task: &str,
     role: crate::assistant::tools::Role,
+    workspace: Option<&std::path::Path>,
 ) -> Option<crate::assistant::backends::McpServer> {
+    let mut args: Vec<String> = [
+        "assistant",
+        "tools-mcp",
+        "--task",
+        task,
+        "--role",
+        role.arg(),
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    // A job and its helpers share the lead's board (`blackboard`).
+    if role.is_job()
+        && let Some(workspace) = workspace
+    {
+        let helper = role == crate::assistant::tools::Role::Helper;
+        args.push("--board".into());
+        args.push(
+            blackboard::path_for(workspace, helper)
+                .display()
+                .to_string(),
+        );
+    }
     Some(crate::assistant::backends::McpServer {
         command: std::env::current_exe().ok()?,
-        args: [
-            "assistant",
-            "tools-mcp",
-            "--task",
-            task,
-            "--role",
-            role.arg(),
-        ]
-        .map(str::to_owned)
-        .to_vec(),
+        args,
         path_env: std::env::var("PATH").unwrap_or_default(),
     })
 }
