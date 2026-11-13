@@ -231,14 +231,18 @@ fn focusing_waits_for_background_actions_to_fail_first() {
 }
 
 #[test]
-fn any_app_takes_a_url_and_recipes_check_blocked_apps() {
+fn any_app_takes_a_url_or_a_script_and_blocked_apps_and_sends_are_checked() {
     let scratch = Scratch::new();
     let fake = Fake::recorded();
     with_running_apps(&fake);
+    {
+        let mut state = fake.state();
+        state.apps.push(app("Ghostty", "com.mitchellh.ghostty"));
+    }
     let ran = Arc::new(Mutex::new(Vec::new()));
     let mut guard = background(&scratch, &fake, "bg", false);
     let seen = ran.clone();
-    guard.run_recipe = Box::new(move |command| {
+    guard.run_action = Box::new(move |command| {
         seen.lock().unwrap().push(format!("{command:?}"));
         Ok(String::new())
     });
@@ -249,16 +253,18 @@ fn any_app_takes_a_url_and_recipes_check_blocked_apps() {
         .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
         .collect();
     assert!(tools.contains(&"hex_app_action".to_owned()));
+    assert!(tools.contains(&"hex_app_capabilities".to_owned()));
     assert!(tools.contains(&"hex_read_window".to_owned()));
-    // A draft, never sent.
-    let drafted = guard.call(
+    // The real failure: a password in a note, its window unreachable. The
+    // note is read by script, without any window.
+    let read = guard.call(
         "hex_app_action",
-        args(json!({"app": "whatsapp", "intent": "open_chat",
-            "params": {"phone": "+49 176 1234567", "text": "Hallo"}})),
+        args(json!({"app": "Notes", "intent": "script",
+            "params": {"script": "get plaintext of every note whose name contains \"Kraftstoffnotdienst\""}})),
     );
-    let note = data(&drafted)["note"].as_str().unwrap().to_owned();
-    assert!(note.contains("nothing was sent"), "{note}");
-    // Any app, no recipe needed.
+    assert_eq!(error_code(&read), None, "{read}");
+    assert!(ran.lock().unwrap()[0].contains("tell application id \\\"com.apple.Notes\\\""));
+    // Any app takes a URL.
     let opened = guard.call(
         "hex_app_action",
         args(json!({"app": "Notes", "intent": "open_url",
@@ -266,18 +272,55 @@ fn any_app_takes_a_url_and_recipes_check_blocked_apps() {
     );
     assert_eq!(error_code(&opened), None, "{opened}");
     assert_eq!(ran.lock().unwrap().len(), 2);
-    // Ghostty is blocked for this task.
+    // No per-app intents.
+    let unknown = guard.call(
+        "hex_app_action",
+        args(json!({"app": "WhatsApp", "intent": "open_chat", "params": {"phone": "+49176"}})),
+    );
+    assert_eq!(error_code(&unknown).as_deref(), Some("UNKNOWN_INTENT"));
+    // Ghostty is blocked for this task, for actions and for a look at it.
     let blocked = guard.call(
         "hex_app_action",
-        args(json!({"app": "ghostty", "intent": "open", "params": {"dir": "/tmp"}})),
+        args(json!({"app": "ghostty", "intent": "open_url", "params": {"url": "file:///tmp"}})),
     );
     assert_eq!(error_code(&blocked).as_deref(), Some("BLOCKED_APP"));
-    // Sending needs the person's yes.
+    let blocked = guard.call("hex_app_capabilities", args(json!({"app": "Ghostty"})));
+    assert_eq!(error_code(&blocked).as_deref(), Some("BLOCKED_APP"));
+    // Sending by script needs the person's yes.
     let send = guard.call(
         "hex_app_action",
-        args(json!({"app": "messages", "intent": "send",
-            "params": {"to": "+49176", "text": "hi"}})),
+        args(json!({"app": "Notes", "intent": "script",
+            "params": {"script": "send note 1"}})),
     );
     assert_eq!(error_code(&send).as_deref(), Some("NEEDS_CONFIRMATION"));
     assert_eq!(ran.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn what_an_app_offers_comes_from_the_app_itself() {
+    let scratch = Scratch::new();
+    let fake = Fake::recorded();
+    with_running_apps(&fake);
+    let mut guard = background(&scratch, &fake, "bg", false);
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let seen = asked.clone();
+    guard.discover = Box::new(move |app| {
+        seen.lock().unwrap().push(app.path.clone());
+        json!({"app": app.name, "scripting": "AppleScript and JXA work"})
+    });
+    // By name or bundle id, as installed.
+    let found = guard.call(
+        "hex_app_capabilities",
+        args(json!({"app": "com.apple.Notes"})),
+    );
+    assert_eq!(data(&found)["app"], "Notes", "{found}");
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [std::path::PathBuf::from("/Applications/Notes.app")]
+    );
+    let missing = guard.call("hex_app_capabilities", args(json!({"app": "Nope"})));
+    assert_eq!(error_code(&missing).as_deref(), Some("APP_NOT_FOUND"));
+    // A look only: a check that may change nothing still gets it.
+    assert!(!super::super::policy::Kind::AppCapabilities.acts());
+    assert!(!super::super::policy::Kind::AppCapabilities.needs_desktop());
 }

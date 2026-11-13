@@ -36,8 +36,10 @@ pub enum Kind {
     Displays,
     /// Hex's own `hex_release_window`: lets go of a desk window.
     Release,
-    /// Hex's own `hex_app_action`: an app recipe (deep link, script, CLI).
+    /// Hex's own `hex_app_action`: a URL or a script for any app.
     AppAction,
+    /// Hex's own `hex_app_capabilities`: what an app offers (read-only).
+    AppCapabilities,
     /// Hex's own `hex_read_window`: a window's text from its picture.
     ReadWindow,
     /// Never forwarded; the text says why.
@@ -50,7 +52,12 @@ impl Kind {
     pub fn needs_desktop(self) -> bool {
         !matches!(
             self,
-            Self::Free | Self::InstalledApps | Self::Displays | Self::Release | Self::Refused(_)
+            Self::Free
+                | Self::InstalledApps
+                | Self::AppCapabilities
+                | Self::Displays
+                | Self::Release
+                | Self::Refused(_)
         )
     }
 
@@ -89,8 +96,12 @@ pub const DISPLAYS_TOOL: &str = "hex_displays";
 /// orb): the person said they're done with it ("schließ WhatsApp").
 pub const RELEASE_TOOL: &str = "hex_release_window";
 
-/// Hex's app recipes: deep links, AppleScript, and CLIs (`actions::recipes`).
+/// Any app's action by a URL or a script (`actions::app_action`).
 pub const APP_ACTION_TOOL: &str = "hex_app_action";
+
+/// What any app offers: its dictionary, URL schemes, documents, toolkit
+/// (`actions::capabilities`).
+pub const APP_CAPABILITIES_TOOL: &str = "hex_app_capabilities";
 
 /// Hex's screen text for a window without Accessibility (`actions::ocr`).
 pub const READ_WINDOW_TOOL: &str = "hex_read_window";
@@ -168,6 +179,7 @@ pub fn kind(tool: &str, args: &Map<String, Value>) -> Kind {
         DISPLAYS_TOOL => return Kind::Displays,
         RELEASE_TOOL => return Kind::Release,
         APP_ACTION_TOOL => return Kind::AppAction,
+        APP_CAPABILITIES_TOOL => return Kind::AppCapabilities,
         READ_WINDOW_TOOL => return Kind::ReadWindow,
         _ => {}
     }
