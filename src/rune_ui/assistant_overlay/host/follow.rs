@@ -3,7 +3,9 @@
 //! window's, else the pointer's. They're placed there, and move there when
 //! the person switches displays or displays come and go (the watcher asks
 //! once a second while there's work, and at once when displays change).
-//! Main thread.
+//! The rail keeps clear of outlined windows: when one is under its spot it
+//! flips to the display's left edge, and back once it's gone
+//! (`place::anchor_clear` with the watcher's outline rects). Main thread.
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -182,14 +184,49 @@ fn note_placed(id: u32) {
     *PLACED_ON.lock().unwrap_or_else(|error| error.into_inner()) = Some(id);
 }
 
+/// Where the rail's head goes on `screen`: where it was dragged there,
+/// else top right, flipped left while an outlined window is under it.
+fn rail_anchor(orb: &Orb, screen: &Screen, all: &[Screen]) -> (f64, f64) {
+    let (x, _, below) = hud_spot(screen, all);
+    let outlines: Vec<place::Area> = super::watcher::outlined_rects()
+        .into_iter()
+        .filter(|rect| screens::intersect(screen.frame, *rect).is_some())
+        .collect();
+    place::anchor_clear(
+        &screen.key,
+        screen.visible,
+        Some((x, below)),
+        &outlines,
+        rail_height(orb),
+    )
+}
+
+/// About how tall the rail stands now: its head, its question, and up to
+/// three job rows with their pictures (the list unfolded: all its room).
+fn rail_height(orb: &Orb) -> f64 {
+    const HEAD: f64 = 52.0;
+    const ROW: f64 = 150.0;
+    const QUESTION: f64 = 170.0;
+    let room = f64::from(orb.room);
+    if orb.expanded {
+        return room;
+    }
+    let rows = super::super::orb::carded(&orb.board, false).len().min(3) as f64;
+    let question = if orb.board.active_question().is_some() {
+        QUESTION
+    } else {
+        0.0
+    };
+    (HEAD + rows * ROW + question).min(room)
+}
+
 /// Puts the orb on the working display: where it was dragged there, else
-/// beside the HUD.
+/// top right, clear of outlined windows.
 pub(super) fn place_orb(handle: &OverlayHandle<Orb>, orb: &mut Orb) {
     let Some((screen, all)) = working() else {
         return;
     };
-    let (x, _, below) = hud_spot(&screen, &all);
-    let anchor = place::anchor(&screen.key, screen.visible, Some((x, below)));
+    let anchor = rail_anchor(orb, &screen, &all);
     orb.grow = place::grow(anchor, screen.visible);
     *ORB_AT.lock().unwrap_or_else(|error| error.into_inner()) = Some(anchor);
     let rect = screens::snap(
@@ -284,6 +321,18 @@ fn follow_now(orb: &mut Orb, force: bool) {
     };
     let before = *PLACED_ON.lock().unwrap_or_else(|error| error.into_inner());
     if !force && before.is_none_or(|id| id == screen.id) {
+        // Same display: the rail still flips when an outlined window came
+        // under it or left (not while it's dragged).
+        let at = *ORB_AT.lock().unwrap_or_else(|error| error.into_inner());
+        if orb.shown && DRAG.get().is_none() && before.is_some() {
+            let all = screens();
+            let anchor = rail_anchor(orb, &screen, &all);
+            if at.is_some_and(|at| (at.0 - anchor.0).abs() > 0.5 || (at.1 - anchor.1).abs() > 0.5) {
+                overlays.orb.hide();
+                place_orb(&overlays.orb, orb);
+                overlays.orb.fade_in(MOVE_IN);
+            }
+        }
         return;
     }
     if orb.shown {

@@ -433,11 +433,10 @@ fn frame_story() -> Story<()> {
         || (),
         |_: &(), cx: &mut Cx<()>| {
             let dark = cx.system_dark();
-            let reduced = cx.system_reduced_motion();
             el().key("frame-stage")
                 .w_full()
                 .h_full()
-                .child(frame::glow(dark, !reduced))
+                .child(frame::glow(dark))
         },
     )
     .stage(Stage::Fill)

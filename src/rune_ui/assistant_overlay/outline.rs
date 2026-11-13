@@ -1,28 +1,36 @@
-//! A window outline: a thin line in its task's colour around a window the
-//! task works in, with a soft glow and a small label naming the task. Each
-//! outline is its own click-through overlay, sized to its window plus a
-//! margin and moved with it, so a moving window costs a move, not a redraw.
+//! A window outline, tier 2 of the three frames (`docs/ux/redesign.md`
+//! §3.5): a 2-point line in its task's colour (the agent's hue for a Here
+//! task) with a soft ring around a window the task works in **that the
+//! person can see**, and a chip above its top-left naming it: dot · title ·
+//! what it does there (· 2/5). Parked windows get none (their minis' rings
+//! say it, `pictures::ring`). Each outline is its own click-through
+//! overlay, sized to its window plus a margin and moved with it, so a
+//! moving window costs a move, not a redraw.
 //!
-//! Its look follows the task: dashed with "You have it" while the person
-//! has taken it over, dimmed with when it resumes while it waits out a
-//! usage limit, and a soft line without a label while a task moves the real
-//! pointer there ("Hands off").
+//! Its look follows the task, and the chip keeps the title in every look:
+//! dashed with "you have it" while the person has taken it over, dimmed
+//! with when it resumes while it waits out a usage limit, and solid while
+//! a task moves the real pointer there ("Hands off", under the desk frame).
+//! Without room above (a window at the top of its display) the chip sits
+//! inside the window's top-left corner.
 
 use rune::{Cx, El, Shadow, el, row, text};
 
 use super::super::controls::Paint;
 use super::board::Look;
-use super::{palette, when};
+use super::{look, palette, when};
 use crate::desktop::i18n::{tr, tr_fill};
 
 /// Room around the window for the glow, in points.
 pub(crate) const PAD: f32 = 10.0;
 /// The label's height.
-pub(crate) const LABEL_H: f32 = 20.0;
+pub(crate) const LABEL_H: f32 = 22.0;
 /// Between the label and the outline.
 const LABEL_GAP: f32 = 4.0;
 /// The label's widest.
-const LABEL_MAX_W: f32 = 260.0;
+const LABEL_MAX_W: f32 = 380.0;
+/// The title's widest inside it, so what it does keeps room.
+const TITLE_MAX_W: f32 = 220.0;
 /// macOS windows' corner radius (Sonoma's; Tahoe's are rounder, and the
 /// glow covers the difference).
 const WINDOW_CORNER: f32 = 10.0;
@@ -36,8 +44,8 @@ pub(crate) enum LabelSide {
     /// Above the window's top-left corner, outside it.
     #[default]
     Above,
-    /// Inside its bottom-left corner: no room above (a window at the top
-    /// of its display).
+    /// Inside its top-left corner: no room above (a window at the top of
+    /// its display).
     Inside,
 }
 
@@ -52,6 +60,10 @@ pub(crate) struct Outline {
     pub(crate) look: Look,
     /// Its plan's steps done and in all, shown after its title.
     pub(crate) progress: Option<(usize, usize)>,
+    /// What it does there now, shown after its title.
+    pub(crate) step: Option<String>,
+    /// A Here task's window: drawn in the agent's hue, not a task colour.
+    pub(crate) here: bool,
     /// Where the whole outline starts in this panel: (0, 0), or less for a
     /// piece of one spanning displays.
     pub(crate) origin: (f32, f32),
@@ -97,8 +109,11 @@ pub(crate) fn view(outline: &Outline, cx: &mut Cx<Outline>) -> El {
 /// The outline with its label, its window's top-left at `(x, y)` plus the
 /// margin the overlay leaves.
 pub(crate) fn drawn(p: Paint, outline: &Outline, x: f32, y: f32) -> El {
-    let colour = palette::task(outline.colour, p.k.dark);
-    let ink = palette::ink(colour, p.k);
+    let colour = if outline.here {
+        palette::agent(p.k.dark)
+    } else {
+        palette::task(outline.colour, p.k.dark)
+    };
     let (w, h) = outline.size;
     let room = match outline.label {
         LabelSide::Above => LABEL_H + LABEL_GAP,
@@ -112,16 +127,12 @@ pub(crate) fn drawn(p: Paint, outline: &Outline, x: f32, y: f32) -> El {
         .radius(WINDOW_CORNER)
         .a11y_hidden();
     let line = match outline.look {
-        Look::HandsOff => {
-            line.border(LINE * 0.75, colour.alpha(0.7))
-                .outline(6.0, 0.0, colour.alpha(0.14))
-        }
         Look::Paused => {
             line.border(LINE, colour)
                 .border_dash(10.0, 6.0)
                 .outline(4.0, 0.0, colour.alpha(0.16))
         }
-        Look::Working | Look::Waiting { .. } => line
+        Look::Working | Look::HandsOff | Look::Waiting { .. } => line
             .border(LINE, colour)
             // A soft ring outside the line; a drop shadow would also paint
             // under the (clear) element and tint the window.
@@ -135,55 +146,90 @@ pub(crate) fn drawn(p: Paint, outline: &Outline, x: f32, y: f32) -> El {
                 inset: true,
             }),
     };
-    let label_top = match outline.label {
-        LabelSide::Above => y + PAD,
-        LabelSide::Inside => top + h - LABEL_H - 8.0,
+    let (label_left, label_top) = match outline.label {
+        LabelSide::Above => (left + 2.0, y + PAD),
+        LabelSide::Inside => (left + 8.0, top + 8.0),
     };
-    let label_left = match outline.label {
-        LabelSide::Above => left + 2.0,
-        LabelSide::Inside => left + 8.0,
-    };
-    let words = match outline.look {
-        Look::Working => Some(match outline.progress {
-            Some((done, total)) => format!("{} · {done}/{total}", outline.title),
-            None => outline.title.clone(),
-        }),
-        Look::Paused => Some(tr("You have it").to_owned()),
-        Look::Waiting { until_ms } => Some(tr_fill(
-            "Waiting for limit · resumes {}",
-            &when::clock(until_ms),
-        )),
-        Look::HandsOff => None,
-    };
-    let label = words.map(|words| {
-        row()
-            .key("label")
-            .absolute(label_left, label_top)
-            .h(LABEL_H)
-            .max_w(LABEL_MAX_W.min(w - 16.0).max(40.0))
-            .px(8.0)
-            .center_y()
-            .radius(LABEL_H / 2.0)
-            .fill(colour)
-            .child(
-                text(words)
-                    .key("label-text")
-                    .truncate()
-                    .font(p.k.ty.small_medium)
-                    .color(ink),
-            )
-    });
+    let label = chip(p, outline, colour)
+        .absolute(label_left, label_top)
+        .max_w(LABEL_MAX_W.min(w - 16.0).max(40.0));
     let drawn = el()
         .key("outline")
         .w_full()
         .h_full()
         .child(line)
-        .children(label);
+        .child(label);
     if matches!(outline.look, Look::Waiting { .. }) {
         drawn.opacity(WAITING_OPACITY)
     } else {
         drawn
     }
+}
+
+/// What the chip says after the title in `outline`'s look: the step and
+/// progress while it works, "you have it" while the person has it, when
+/// it resumes while it waits.
+pub(crate) fn state_words(outline: &Outline) -> Option<String> {
+    match outline.look {
+        Look::Working | Look::HandsOff => {
+            let mut parts: Vec<String> = outline.step.iter().cloned().collect();
+            if let Some((done, total)) = outline.progress {
+                parts.push(format!("{done}/{total}"));
+            }
+            (!parts.is_empty()).then(|| parts.join(" · "))
+        }
+        Look::Paused => Some(tr("you have it").to_owned()),
+        Look::Waiting { until_ms } => Some(tr_fill("resumes {}", &when::clock(until_ms))),
+    }
+}
+
+/// The chip: a dot in the outline's colour, the task's title, and what it
+/// does now, on the card material so it reads over any window.
+fn chip(p: Paint, outline: &Outline, colour: rune::Color) -> El {
+    let c = &p.k.c;
+    let state = state_words(outline);
+    let spoken = match &state {
+        Some(state) => format!("{}, {state}", outline.title),
+        None => outline.title.clone(),
+    };
+    row()
+        .key("label")
+        .h(LABEL_H)
+        .pl(8.0)
+        .pr(9.0)
+        .gap(6.0)
+        .center_y()
+        .radius(LABEL_H / 2.0)
+        .fill(c.bg_base.alpha(1.0))
+        .border(1.0, colour.alpha(0.7))
+        .box_shadow(Shadow {
+            x: 0.0,
+            y: 2.0,
+            blur: 8.0,
+            spread: 0.0,
+            color: rune::Color::BLACK.alpha(if p.k.dark { 0.4 } else { 0.14 }),
+            inset: false,
+        })
+        .label(spoken)
+        .child(look::dot(colour, 7.0))
+        .child(
+            text(outline.title.clone())
+                .key("label-text")
+                .truncate()
+                .font(look::label(p))
+                .color(p.text())
+                .max_w(TITLE_MAX_W)
+                .a11y_hidden(),
+        )
+        .children(state.map(|state| {
+            text(format!("· {state}"))
+                .key("label-state")
+                .truncate()
+                .font(look::meta(p))
+                .color(p.muted())
+                .min_w(0.0)
+                .a11y_hidden()
+        }))
 }
 
 /// How much two window rects (x, y, width, height) overlap: the shared
