@@ -48,7 +48,24 @@ const ASPECT: f32 = 1.6;
 /// scrolls instead of shrinking.
 pub(crate) const MIN_TILE_W: f32 = 210.0;
 /// The grid's room inside the panel.
-pub(crate) const ROOM: (f32, f32) = (SIZE.0 - PAD * 4.0, SIZE.1 - PAD * 4.0 - HEADER_H - GAP);
+#[cfg(test)]
+pub(crate) const ROOM: (f32, f32) = room(SIZE);
+
+/// The grid's room inside a panel of `size`.
+pub(crate) const fn room(size: (f32, f32)) -> (f32, f32) {
+    (size.0 - PAD * 4.0, size.1 - PAD * 4.0 - HEADER_H - GAP)
+}
+
+/// The panel on a display whose visible area (below the menu bar, beside
+/// the Dock) is `visible` wide and tall, hanging `margin` below its top:
+/// [`SIZE`] at most, never past the display, so the grid's own scroll is
+/// the only one and nothing is cut.
+pub(crate) fn fitted(visible: (f32, f32), margin: f32) -> (f32, f32) {
+    (
+        SIZE.0.min(visible.0 - 2.0 * PAD).max(480.0),
+        SIZE.1.min(visible.1 - margin - PAD).max(360.0),
+    )
+}
 
 /// Four panes: "All live" at the orb.
 pub(crate) static GRID: Icon = Icon {
@@ -71,6 +88,8 @@ pub(crate) struct Actions<S> {
     pub(crate) close: fn(&mut S),
     /// A tile: open that browser or window large (task, session).
     pub(crate) open: fn(&mut S, &str, &str),
+    /// Tile (task, session) came into view (`true`) or left it.
+    pub(crate) seen: fn(&mut S, &str, &str, bool),
 }
 
 impl<S> Clone for Actions<S> {
@@ -89,6 +108,10 @@ pub(crate) struct Wall {
     pub(crate) board: Board,
     /// The person's desk as last read.
     pub(crate) desk: Desk,
+    /// The panel's size on its display ([`fitted`]).
+    pub(crate) size: (f32, f32),
+    /// The tiles in view (task, session): only they stream.
+    pub(crate) seen: std::collections::BTreeSet<(String, String)>,
     pub(crate) actions: Actions<Wall>,
 }
 
@@ -98,6 +121,8 @@ impl Wall {
             scope: None,
             board: Board::default(),
             desk: Desk::default(),
+            size: SIZE,
+            seen: Default::default(),
             actions,
         }
     }
@@ -298,6 +323,7 @@ pub(crate) fn groups<'a>(board: &'a Board, desk: &Desk, scope: &Scope) -> Vec<Gr
 }
 
 pub(crate) fn view(state: &Wall, cx: &mut Cx<Wall>) -> El {
+    super::wheel::begin(super::wheel::Surface::Wall);
     let p = Paint::new(cx.system_dark(), cx.env().scale);
     let close = state.actions.close;
     let root = col()
@@ -363,12 +389,20 @@ pub(crate) fn view(state: &Wall, cx: &mut Cx<Wall>) -> El {
                 .build(k)
                 .key("wall-close"),
         );
-    let open = state.actions.open;
+    let (open, seen) = (state.actions.open, state.actions.seen);
     let headed = *scope == Scope::All;
+    let room = room(state.size);
     let layout = if headed {
-        scrolling_grid(count, groups.len(), ROOM)
+        scrolling_grid(count, groups.len(), room)
     } else {
-        grid(count, ROOM, ASPECT)
+        // Many pictures of one job: as large as they fit, but readable;
+        // past that the grid scrolls.
+        let fit = grid(count, room, ASPECT);
+        if fit.tile.0 >= MIN_TILE_W {
+            fit
+        } else {
+            scrolling_grid(count, 1, room)
+        }
     };
     let rows_of = |at: usize, group: &Group| -> Vec<El> {
         group
@@ -380,12 +414,18 @@ pub(crate) fn view(state: &Wall, cx: &mut Cx<Wall>) -> El {
                     .key(format!("wall-row-{at}-{line}"))
                     .gap(GAP)
                     .children(tiles.iter().map(|tile| {
-                        cell(
-                            p,
-                            tile,
-                            layout.tile,
-                            headed.then_some(group.task).flatten(),
-                            open,
+                        let session = super::peek::session_of(tile);
+                        super::jobs::seen_as(
+                            cell(
+                                p,
+                                tile,
+                                layout.tile,
+                                headed.then_some(group.task).flatten(),
+                                open,
+                            ),
+                            &tile.owner,
+                            &session,
+                            seen,
                         )
                     }))
             })
@@ -433,25 +473,30 @@ pub(crate) fn view(state: &Wall, cx: &mut Cx<Wall>) -> El {
     } else {
         sections.extend(groups.iter().enumerate().flat_map(|(at, g)| rows_of(at, g)));
     }
-    let grid = col()
-        .key("wall-grid")
-        .w(ROOM.0)
-        .min_h(0.0)
-        .shrink()
-        .gap(GAP)
-        .scroll(rune::ScrollSpec {
-            stick_bottom: false,
-        })
-        .scroll_edge_fade(16.0)
-        // The wheel answers between the tiles too.
-        .hit()
-        .role("list")
-        .label(tr("Live windows"))
-        .children(sections);
+    let grid = super::wheel::scroller::<Wall>(
+        col(),
+        super::wheel::Surface::Wall,
+        "wall-grid",
+        super::wheel::Axis::Y,
+    )
+    .key("wall-grid")
+    .w(room.0)
+    .min_h(0.0)
+    .shrink()
+    .gap(GAP)
+    .scroll(rune::ScrollSpec {
+        stick_bottom: false,
+    })
+    .scroll_edge_fade(16.0)
+    // The wheel answers between the tiles too.
+    .hit()
+    .role("list")
+    .label(tr("Live windows"))
+    .children(sections);
     root.child(
         col()
             .key("wall-panel")
-            .max_h(SIZE.1 - PAD * 2.0)
+            .max_h(state.size.1 - PAD * 2.0)
             .padding(PAD)
             .gap(GAP)
             .radius(16.0)

@@ -439,6 +439,33 @@ fn picture<S: 'static>(
     let (move_task, move_session) = (task.to_owned(), session.to_owned());
     let (wheel_task, wheel_session) = (task.to_owned(), session.to_owned());
     let (key_task, key_session) = (task.to_owned(), session.to_owned());
+    // In the overlay's card the panel hears no wheel of its own
+    // (`super::wheel`): the host routes it here.
+    let overlay =
+        std::any::TypeId::of::<S>() == std::any::TypeId::of::<super::enlarged::Enlarged>();
+    let base = if overlay {
+        let (task, session) = (task.to_owned(), session.to_owned());
+        super::wheel::sink::<S>(
+            base,
+            super::wheel::Surface::Enlarged,
+            "live-picture",
+            std::rc::Rc::new(move |(x, y), (dx, dy)| {
+                let (x, y) = live::to_page((x, y), size, viewport);
+                live::send(
+                    &task,
+                    &session,
+                    &Input::Wheel {
+                        x,
+                        y,
+                        dx: -dx,
+                        dy: -dy,
+                    },
+                );
+            }),
+        )
+    } else {
+        base
+    };
     base.role("application")
         .label(tr("Live browser you're driving"))
         .focusable(true)

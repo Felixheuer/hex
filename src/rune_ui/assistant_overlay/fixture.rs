@@ -779,3 +779,51 @@ pub(crate) fn crowd_question(board: &mut Board) {
         Instant::now(),
     );
 }
+
+/// One running job `id` working in `browsers` browsers, each on another
+/// site, their pictures registered as if streamed; with `waiting_app`, an
+/// app window too whose picture hasn't come.
+#[cfg(test)]
+pub(crate) fn browsers_board(id: &str, browsers: usize, waiting_app: bool) -> Board {
+    let now = Instant::now();
+    let mut board = Board::default();
+    board.apply(
+        &Event::Started {
+            conversation: id.into(),
+            origin: Origin::Background,
+            question: format!("{browsers} Shops vergleichen"),
+        },
+        None,
+        now,
+    );
+    board.apply(
+        &Event::Step {
+            conversation: id.into(),
+            description: "Vergleicht Preise".into(),
+        },
+        None,
+        now,
+    );
+    let pages: Vec<(String, String, &str, &str)> = (0..browsers)
+        .map(|b| {
+            let (title, url) = SITES[b % SITES.len()];
+            let session = if b == 0 {
+                format!("hex-{id}")
+            } else {
+                format!("hex-{id}_{b}")
+            };
+            let name = if b == 0 { String::new() } else { b.to_string() };
+            (session, name, title, url)
+        })
+        .collect();
+    let pages: Vec<(&str, &str, &str, &str)> = pages
+        .iter()
+        .map(|(s, name, t, u)| (s.as_str(), name.as_str(), *t, *u))
+        .collect();
+    super::live::fake(id, &pages, page);
+    if waiting_app {
+        super::app_live::fake(id, &[("Ghostty", 9100)], |_| (0, 0, Vec::new()));
+    }
+    board.pops = Default::default();
+    board
+}

@@ -36,6 +36,7 @@ mod orb_panel;
 mod stage;
 mod wall;
 mod watcher;
+mod wheel;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -77,9 +78,10 @@ pub(crate) fn projected() -> Vec<String> {
         .clone()
 }
 use orb_panel::{
-    ask_again, board_changed, cancel_project, create_project, fold, hover_task, name_project,
-    orb_event, orb_focus, orb_key, orb_poll, pick_project, rearm, refresh_projects, reply_edit,
-    retry, send_reply, start_reply, toggle_pressed, toggle_project,
+    ask_again, board_changed, cancel_project, close_peek, create_project, fold, hover_task,
+    name_project, open_peek, orb_event, orb_focus, orb_key, orb_poll, peek_hover, pick_project,
+    rearm, refresh_projects, reply_edit, retry, seen_picture, send_reply, start_reply,
+    toggle_pressed, toggle_project,
 };
 #[cfg(test)]
 pub(super) use orb_panel::{escape, should_chime};
@@ -326,11 +328,20 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
                     if !inside {
                         hover_task(orb, "", false);
                     }
+                    peek_hover(orb, inside);
                 },
                 drag: drag_orb,
                 jobs: jobs::LineActions {
-                    wall: |orb, id| wall::open(&orb.board, id),
-                    all: |orb| wall::open_all(&orb.board),
+                    open: open_peek,
+                    all: |orb| open_peek(orb, &super::wall::Scope::All, true),
+                    peek: super::peek::Actions {
+                        close: close_peek,
+                        wall: |orb, scope| {
+                            wall::open_scope(&orb.board, scope.clone());
+                            close_peek(orb);
+                        },
+                        seen: seen_picture,
+                    },
                 },
                 project: super::project::Actions {
                     toggle: toggle_project,
@@ -428,6 +439,8 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         wall,
         stage,
     });
+    // The wheel and the trackpad on the panels, which Rune's overlays drop.
+    wheel::install();
     // Tasks already running when Agent-Desk started listening.
     if let Some(overlays) = OVERLAYS.get() {
         overlays

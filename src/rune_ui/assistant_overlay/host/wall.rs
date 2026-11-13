@@ -66,20 +66,23 @@ pub(super) fn install<S: 'static>(app: &mut rune::App<S>) -> OverlayHandle<Wall>
             open: |state, task, session| {
                 super::enlarged::open(&state.board, task, session);
             },
+            seen: |state, task, session, on| {
+                let picture = (task.to_owned(), session.to_owned());
+                if on {
+                    state.seen.insert(picture);
+                } else {
+                    state.seen.remove(&picture);
+                }
+                let seen: Vec<(String, String)> = state.seen.iter().cloned().collect();
+                super::super::live::wall_seen(Some(&seen));
+            },
         }),
     )
 }
 
-/// "All N live" on `lead`'s card (whose board is `board`): shows every
-/// browser and window of it and its helpers, streaming from now on.
-pub(super) fn open(board: &Board, lead: &str) {
-    show(board, Scope::Job(lead.to_owned()));
-}
-
-/// "All live" beside the orb: every live picture of every job and of the
-/// desk.
-pub(super) fn open_all(board: &Board) {
-    show(board, Scope::All);
+/// The live overview's "Large": the same pictures on the wall.
+pub(super) fn open_scope(board: &Board, scope: Scope) {
+    show(board, scope);
 }
 
 fn show(board: &Board, scope: Scope) {
@@ -88,11 +91,23 @@ fn show(board: &Board, scope: Scope) {
     };
     let desk = minis::now();
     stream(&wall::tasks(board, &desk, &scope));
+    // As large as it is, but never past the display under the pointer.
+    let size = super::follow::pointer()
+        .and_then(|at| {
+            let all = super::follow::screens();
+            super::super::screens::at(&all, at).map(|screen| screen.visible)
+        })
+        .map_or(wall::SIZE, |[_, _, w, h]| {
+            wall::fitted((w as f32, h as f32), MARGIN)
+        });
+    overlays.wall.resize(size);
     let board = board.clone();
     overlays.wall.update(move |state, _| {
         state.scope = Some(scope);
         state.board = board;
         state.desk = desk;
+        state.size = size;
+        state.seen.clear();
     });
     SHOWN.store(true, Ordering::Release);
     overlays.wall.fade_in(FADE);
@@ -113,6 +128,8 @@ pub(super) fn refocus() {
 fn close(state: &mut Wall) {
     state.scope = None;
     SHOWN.store(false, Ordering::Release);
+    state.seen.clear();
+    super::super::live::wall_seen(None);
     stream(&[]);
     if let Some(overlays) = OVERLAYS.get() {
         overlays.wall.fade_out(FADE);

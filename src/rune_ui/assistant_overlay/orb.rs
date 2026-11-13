@@ -147,8 +147,9 @@ impl<S: 'static> Actions<S> {
             hover: |_, _| {},
             drag: |_, _| {},
             jobs: jobs::LineActions {
-                wall: |_, _| {},
+                open: |_, _, _| {},
                 all: |_| {},
+                peek: super::peek::Actions::inert(),
             },
             project: project::Actions::inert(),
         }
@@ -186,6 +187,10 @@ pub(crate) struct Orb {
     pub(crate) cards: usize,
     /// The project chip at the head and its picker.
     pub(crate) project: project::Picker,
+    /// The live overview, while it shows in the rows' place.
+    pub(crate) peek: Option<super::peek::Peek>,
+    /// The pictures in view in the rail (task, session): they stream.
+    pub(crate) seen: std::collections::BTreeSet<(String, String)>,
     pub(crate) actions: Actions<Orb>,
 }
 
@@ -207,6 +212,8 @@ impl Orb {
             desk: Desk::default(),
             cards: MAX_CARDS,
             project: project::Picker::default(),
+            peek: None,
+            seen: Default::default(),
             actions,
         }
     }
@@ -239,6 +246,8 @@ pub(crate) struct Look {
     pub(crate) cards: Option<usize>,
     /// The project chip and its picker.
     pub(crate) project: project::Picker,
+    /// The live overview shows in the job rows' place.
+    pub(crate) peek: Option<wall::Scope>,
 }
 
 /// Floating cards on the screen at once, at most (`docs/ux/redesign.md`
@@ -259,6 +268,7 @@ impl Look {
 }
 
 pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
+    super::wheel::begin(super::wheel::Surface::Orb);
     let p = Paint::new(cx.system_dark(), cx.env().scale);
     let look = Look {
         open: orb.expanded,
@@ -273,6 +283,7 @@ pub(crate) fn view(orb: &Orb, cx: &mut Cx<Orb>) -> El {
         desk: orb.desk.clone(),
         cards: Some(orb.cards),
         project: orb.project.clone(),
+        peek: orb.peek.as_ref().map(|peek| peek.scope.clone()),
     };
     el().key("orb-root")
         .w_full()
@@ -507,24 +518,44 @@ pub(crate) fn content<S: 'static>(p: Paint, board: &Board, look: &Look, actions:
             still: look.still,
             active_project: look.project.active().map(str::to_owned),
         };
+        // The live overview takes the rows' place, in the same room.
+        let peek = look.peek.as_ref().map(|scope| {
+            super::peek::view(
+                p,
+                board,
+                &look.desk,
+                scope,
+                room.max_h,
+                look.still,
+                actions.list.open_preview,
+                actions.jobs.peek,
+            )
+            .transition(pop_in(grow))
+        });
+        let showing_peek = peek.is_some();
+        bubbles.extend(peek);
         // The job rows and the person's desk (what quick turns opened,
         // live, until let go) in one column that scrolls inside the panel.
         bubbles.extend(
-            jobs::view(
-                p,
-                &running,
-                &board
-                    .tasks
-                    .iter()
-                    .filter(|task| task.lead.is_some())
-                    .collect::<Vec<_>>(),
-                &layout,
-                room,
-                minis::view(p, &look.desk, look.still, actions.list),
-                actions.list,
-                actions.jobs,
-            )
-            .map(|rows| rows.transition(pop_in(grow))),
+            (!showing_peek)
+                .then(|| {
+                    jobs::view(
+                        p,
+                        &running,
+                        &board
+                            .tasks
+                            .iter()
+                            .filter(|task| task.lead.is_some())
+                            .collect::<Vec<_>>(),
+                        &layout,
+                        room,
+                        minis::view(p, &look.desk, look.still, actions.list),
+                        actions.list,
+                        actions.jobs,
+                    )
+                })
+                .flatten()
+                .map(|rows| rows.transition(pop_in(grow))),
         );
         bubbles.extend(results.iter().map(|(key, outcome)| {
             results::bubble(

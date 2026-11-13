@@ -83,8 +83,19 @@ pub(super) fn open(board: &Board, task: &str, session: &str) {
         return;
     };
     pictures::view(Some((task, session)));
+    // As large as the display under the pointer allows.
+    let room = super::follow::pointer()
+        .and_then(|at| {
+            let all = super::follow::screens();
+            super::super::screens::at(&all, at).map(|screen| screen.visible)
+        })
+        .map_or(enlarged::ROOM, |[_, _, w, h]| {
+            enlarged::room_on((w as f32, h as f32), MARGIN)
+        });
+    overlays.enlarged.resize(enlarged::size_for(room));
     let (board, task, session) = (board.clone(), task.to_owned(), session.to_owned());
     overlays.enlarged.update(move |state, _| {
+        state.room = room;
         enlarged::open(state, &task, &session, &board);
     });
     SHOWN.store(true, std::sync::atomic::Ordering::Release);

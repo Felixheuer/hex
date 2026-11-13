@@ -195,21 +195,26 @@ pub(crate) fn sheet<S: 'static>(
                 .map(|outcome| results::list_row(p, outcome, actions.results)),
         );
     }
-    let rows = col()
-        .key("sheet-rows")
-        .w_full()
-        .min_h(0.0)
-        .shrink()
-        .gap(ROW_GAP)
-        .scroll(ScrollSpec {
-            stick_bottom: !newest_first,
-        })
-        .scroll_edge_fade(16.0)
-        // The wheel answers anywhere over the rows, not only on a row.
-        .hit()
-        .role("list")
-        .label(tr("Assistant tasks"))
-        .children(sections);
+    let rows = super::wheel::scroller::<S>(
+        col(),
+        super::wheel::Surface::Orb,
+        "sheet-rows",
+        super::wheel::Axis::Y,
+    )
+    .key("sheet-rows")
+    .w_full()
+    .min_h(0.0)
+    .shrink()
+    .gap(ROW_GAP)
+    .scroll(ScrollSpec {
+        stick_bottom: !newest_first,
+    })
+    .scroll_edge_fade(16.0)
+    // The wheel answers anywhere over the rows, not only on a row.
+    .hit()
+    .role("list")
+    .label(tr("Assistant tasks"))
+    .children(sections);
     look::material(
         p,
         col()
