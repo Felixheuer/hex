@@ -1231,12 +1231,22 @@ fn start(output: Output) -> u8 {
         crate::app_paths::variant().bundle_id(),
         std::env::vars_os(),
     );
-    match std::process::Command::new("/usr/bin/open")
-        .args(arguments)
-        .status()
-    {
-        Ok(status) if status.success() => {}
-        Ok(_) | Err(_) => {
+    // Agents (and their guards, this executable) an earlier Agent-Desk left
+    // running make macOS refuse to open the app (-600): they end first.
+    let _ = crate::assistant::provider::orphans::sweep();
+    let open = || {
+        std::process::Command::new("/usr/bin/open")
+            .args(&arguments)
+            .status()
+            .is_ok_and(|status| status.success())
+    };
+    let opened = open() || {
+        std::thread::sleep(Duration::from_secs(2));
+        open()
+    };
+    match opened {
+        true => {}
+        false => {
             return print(
                 ControlReply::error("failed", "couldn't open Agent-Desk.app; is it installed?"),
                 output,
