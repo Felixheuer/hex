@@ -60,7 +60,7 @@ pub(super) struct Turn {
     pub(super) pause_before_ms: Option<u64>,
 }
 
-/// One topic of a meeting (Labs), from `start_ms` to
+/// One topic of a meeting, from `start_ms` to
 /// the next chapter's start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Chapter {
@@ -107,7 +107,7 @@ pub(super) struct Meeting {
     pub(super) microphone_warning: Option<crate::meeting::TrackWarning>,
     pub(super) transcript: Transcript,
     pub(super) chapters: Vec<Chapter>,
-    /// Imported from an audio file (Labs › Import audio): its one track is
+    /// Imported from an audio file (Import audio): its one track is
     /// labelled Speaker.
     pub(super) imported: bool,
     /// How long it is kept once finished, as `MeetingRetention::label`;
@@ -149,7 +149,7 @@ pub(super) enum View {
 /// Meetings is on, so the pane lists recordings and settings instead of the
 /// opt-in card (`MeetingSettings::available`; scenes leave `developer` off).
 pub(super) fn available(ui: &Ui) -> bool {
-    crate::labs::Feature::Meetings.managed().is_none()
+    crate::policy::Policy::meetings_lock().is_none()
         && (ui.settings.meetings.enabled || ui.platform.developer)
 }
 
@@ -185,7 +185,7 @@ pub(super) struct MeetingsPane {
     error: Option<String>,
     /// The last recording that could not start or finish.
     pub(super) runtime_error: Option<String>,
-    /// The last audio file that could not be imported (Labs › Import audio).
+    /// The last audio file that could not be imported (Import audio).
     pub(super) import_error: Option<String>,
     /// The audio file dialog while it is open.
     import_chooser: Option<Pending>,
@@ -508,7 +508,7 @@ fn recording_action(ui: &Ui, p: Paint) -> El {
         ),
     };
     // Importing is a second way in, never a competing main action.
-    if crate::labs::meeting_import() && active.is_none() && !pane.start_pending {
+    if crate::features::meeting_import() && active.is_none() && !pane.start_pending {
         return row()
             .key("meeting-actions")
             .gap(8.0)
@@ -525,7 +525,7 @@ fn recording_action(ui: &Ui, p: Paint) -> El {
     action
 }
 
-/// The Labs › Import audio file dialog: one supported audio file.
+/// The Import audio file dialog: one supported audio file.
 fn choose_import(ui: &mut Ui) {
     if ui.meetings.import_chooser.is_some() {
         return;
@@ -959,14 +959,10 @@ fn detail(ui: &Ui, p: Paint, meeting: &Meeting, layer: &mut Vec<El>) -> El {
         ))
 }
 
-/// Labs › Follow live transcript: a recording meeting's transcript keeps
-/// its newest line in view while scrolled to the bottom. Off, and for any
-/// meeting not recording, the card scrolls only by hand, as before.
+/// A recording meeting's transcript keeps its newest line in view while
+/// scrolled to the bottom; any meeting not recording scrolls only by hand.
 fn follows_live_transcript(ui: &Ui, meeting: &Meeting) -> bool {
-    ui.settings.labs.follow_live_transcript
-        && crate::labs::Feature::FollowLiveTranscript.shipped()
-        && matches!(meeting.status, Status::Starting | Status::Recording)
-        && !ui.meetings.stop_pending
+    matches!(meeting.status, Status::Starting | Status::Recording) && !ui.meetings.stop_pending
 }
 
 /// The meeting's chapters, each with its start, name, line, and Copy
@@ -1290,7 +1286,7 @@ mod tests {
         assert_eq!(name("preview-failed"), "hex-row-call");
     }
 
-    /// Labs › Follow live transcript: only a recording meeting's transcript
+    /// Follow live transcript: only a recording meeting's transcript
     /// follows its newest line, and only with the lab on (#1332).
     #[test]
     fn only_a_recording_transcript_follows_and_only_with_its_lab() {

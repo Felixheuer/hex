@@ -3,7 +3,7 @@
 //!
 //! History is a product record, deliberately separate from the diagnostic
 //! Activity event stream. Entries hold text and bounded metadata; audio is
-//! kept only while Labs › Keep recordings is on ([`recordings`]), as a file
+//! kept only while Keep recordings is on ([`recordings`]), as a file
 //! per entry that follows the entry's retention plus its own byte cap. Every
 //! retention choice remains subject to hard entry and byte caps, writes are
 //! atomic, and files are owner-only.
@@ -17,6 +17,7 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
+#[allow(dead_code, reason = "the Captures pane left with Screenshots")]
 pub mod captures;
 pub mod playback;
 pub mod recordings;
@@ -123,7 +124,7 @@ pub struct HistoryEntry {
     pub inference_ms: u64,
     #[serde(default)]
     pub total_ms: u64,
-    /// The size of this entry's kept audio (Labs › Keep recordings); 0
+    /// The size of this entry's kept audio (Keep recordings); 0
     /// when it has none.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub recording_bytes: u64,
@@ -204,7 +205,7 @@ pub struct HistoryDraft {
     pub audio_ms: u64,
     pub inference_ms: u64,
     pub total_ms: u64,
-    /// The dictation's audio, while Labs › Keep recordings is on.
+    /// The dictation's audio, while Keep recordings is on.
     pub recording: Option<Recording>,
     /// The speech model that transcribed it ([`dictation_model`]).
     pub model: Option<String>,
@@ -265,7 +266,7 @@ pub fn read_snapshot(path: &std::path::Path) -> io::Result<Vec<HistoryEntry>> {
 /// Owner-only bounded history store. Entries are held oldest-first.
 pub struct HistoryStore {
     path: PathBuf,
-    /// Labs › Keep recordings' audio, one file per entry.
+    /// Keep recordings' audio, one file per entry.
     recordings: PathBuf,
     recording_cap: u64,
     entries: Vec<HistoryEntry>,

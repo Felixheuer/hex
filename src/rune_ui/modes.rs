@@ -853,7 +853,7 @@ fn basics(
     card(p, "basics-card", rows)
 }
 
-/// The selected mode's speech model and language, while Labs › Switch model
+/// The selected mode's speech model and language, while Switch model
 /// with app is on; None leaves the Modes pane exactly as it was.
 fn speech_row(
     ui: &Ui,

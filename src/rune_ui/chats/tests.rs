@@ -481,7 +481,7 @@ fn a_finished_job_offers_its_folder_files_and_sheet() {
 }
 
 #[test]
-fn a_here_question_that_becomes_a_job_says_so() {
+fn a_here_question_that_becomes_a_job_shows_one_state() {
     let mut rt = chats();
     rt.state.chats.deliver(Event::Started {
         conversation: "window-question".into(),
@@ -498,7 +498,9 @@ fn a_here_question_that_becomes_a_job_says_so() {
         rt.state.chats.turns["window-question"].origin,
         Origin::Background
     );
-    assert!(shows(&rt, "Moved to the background"));
+    // One state per entry: it runs; no second chip says it moved.
+    assert!(shows(&rt, "Running"));
+    assert!(!shows(&rt, "Moved to the background"));
 }
 
 #[test]
@@ -1405,7 +1407,10 @@ fn a_job_answered_by_voice_goes_on_without_doubling_or_its_old_question() {
         conversation: id.into(),
         text: "What goes on it?".into(),
     });
-    assert!(rt.state.chats.turns[id].answer.is_empty(), "stored with the question");
+    assert!(
+        rt.state.chats.turns[id].answer.is_empty(),
+        "stored with the question"
+    );
     // Answered by voice: the service starts it again with the answer.
     rt.state.chats.apply(&Event::Started {
         conversation: id.into(),
@@ -1418,4 +1423,28 @@ fn a_job_answered_by_voice_goes_on_without_doubling_or_its_old_question() {
         text: "Done.".into(),
     });
     assert_eq!(rt.state.chats.turns[id].answer, "Done.");
+}
+
+/// A request that only stopped (a quick question moved to the background
+/// settles that way) is a quiet state on its entry: never "Failed", never a
+/// red error.
+#[test]
+fn a_stop_is_a_quiet_state_not_an_error() {
+    let mut rt = chats();
+    let failed = |rt: &Runtime<Ui>| texts(rt).iter().filter(|text| *text == "Failed").count();
+    let before = failed(&rt);
+    rt.state.chats.deliver(Event::Started {
+        conversation: "quick".into(),
+        origin: Origin::ActionShortcut,
+        question: "Open Mail".into(),
+    });
+    rt.state.chats.deliver(Event::Failed {
+        conversation: "quick".into(),
+        message: "Stopped.".into(),
+    });
+    rt.invalidate();
+    settle(&mut rt);
+    assert_eq!(failed(&rt), before, "{:?}", texts(&rt));
+    assert!(!shows(&rt, "Stopped."), "no error row");
+    assert!(shows(&rt, "Stopped"), "a quiet line says it stopped");
 }

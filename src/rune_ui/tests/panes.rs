@@ -23,41 +23,35 @@ fn refresh(rt: &mut Runtime<Ui>) {
 
 #[test]
 fn each_os_lists_only_the_panes_it_can_run() {
-    // Meetings (beta) is a Labs switch on every OS; this Mac fixture has it on.
-    for scene in ["portal", "windows-settings"] {
-        let mut rt = runtime(scene, true, PANE_SIZE);
-        open_labs(&mut rt);
-        assert!(rt.find("lab-meetings").is_some(), "{scene} offers Meetings");
-    }
+    // Meetings shows its opt-in card while off; this Mac fixture has it on.
     let mut mac = runtime("mac-settings", true, PANE_SIZE);
-    tap(&mut mac, "nav-labs");
     for (key, pane) in [
         ("nav-meetings", Pane::Meetings),
+        ("nav-dictation", Pane::Dictation),
         ("nav-general", Pane::General),
     ] {
         tap(&mut mac, key);
         assert_eq!(mac.state.pane, pane);
     }
+    assert!(mac.find("nav-labs").is_none(), "Labs is gone");
 }
 
 #[test]
 fn settings_rows_follow_each_os() {
     let present = |rt: &Runtime<Ui>, key: &str| rt.find(key).is_some();
     let mut linux = runtime("portal", true, TALL_SIZE);
-    open_advanced(&mut linux, Pane::General);
+    open_advanced(&mut linux, Pane::Dictation);
     assert!(present(&linux, "terminal-paste"));
     assert!(present(&linux, "toggle-listening"));
+    tap(&mut linux, "nav-general");
     assert!(present(&linux, "enable-on-launch"));
     assert!(present(&linux, "launch-at-login"));
     assert!(!present(&linux, "dock-icon"));
     assert!(!present(&linux, "meetings-enabled"));
 
     let mut mac = runtime("mac-settings", true, TALL_SIZE);
-    open_advanced(&mut mac, Pane::General);
-    for key in ["launch-at-login", "dock-icon", "update-status"] {
-        assert!(present(&mac, key), "macOS shows {key}");
-    }
-    // Features own their settings: none of these are in General.
+    open_advanced(&mut mac, Pane::Dictation);
+    // Features own their settings: none of these are in Dictation.
     for key in [
         "terminal-paste",
         "toggle-listening",
@@ -67,25 +61,36 @@ fn settings_rows_follow_each_os() {
         "hex-mic-driver",
         "command-model-notice",
     ] {
-        assert!(!present(&mac, key), "macOS General has no {key}");
+        assert!(!present(&mac, key), "macOS Dictation has no {key}");
+    }
+    tap(&mut mac, "nav-general");
+    for key in [
+        "launch-at-login",
+        "dock-icon",
+        "update-status",
+        "appearance",
+        "hide-menu-bar-icon",
+        "quit-closes-window",
+        "restart-onboarding",
+    ] {
+        assert!(present(&mac, key), "macOS General shows {key}");
     }
 
     let mut windows = runtime("windows-settings", true, TALL_SIZE);
-    open_advanced(&mut windows, Pane::General);
-    assert!(present(&windows, "launch-at-login"));
+    open_advanced(&mut windows, Pane::Dictation);
     assert!(present(&windows, "toggle-listening"));
-    assert!(!present(&windows, "dock-icon"));
-    assert!(
-        !present(&windows, "terminal-paste"),
-        "Windows has it in Labs"
-    );
+    assert!(present(&windows, "terminal-paste"), "Windows has it too");
+    assert!(present(&windows, "share-shortcut"));
     assert!(!present(&windows, "meetings-enabled"));
+    tap(&mut windows, "nav-general");
+    assert!(present(&windows, "launch-at-login"));
+    assert!(!present(&windows, "dock-icon"));
 }
 
 #[test]
 fn a_listener_notice_reads_apart_from_a_dictation_failure() {
     let mut rt = runtime("portal", true, TALL_SIZE);
-    open_advanced(&mut rt, Pane::General);
+    open_advanced(&mut rt, Pane::Dictation);
     if let Some(view) = &mut rt.state.view {
         view.listener.warning = Some("Microphone unavailable".into());
     }
@@ -117,6 +122,7 @@ fn a_listener_notice_reads_apart_from_a_dictation_failure() {
 #[test]
 fn launch_at_login_asks_the_login_item_and_needs_approval_first() {
     let mut rt = runtime("mac-settings", true, (980.0, 2400.0));
+    tap(&mut rt, "nav-general");
     tap(&mut rt, "launch-at-login");
     assert_eq!(asked(&rt), [PlatformRequest::SetLaunchAtLogin(true)]);
     assert_eq!(rt.state.platform.login_item, Some(LoginItemStatus::Enabled));
@@ -233,6 +239,7 @@ impl platform::NativeHost for SlowLoginItem {
 #[test]
 fn login_item_row_moves_its_switch_before_macos_answers() {
     let mut rt = runtime("mac-settings", true, (980.0, 2400.0));
+    tap(&mut rt, "nav-general");
     let sent = std::rc::Rc::default();
     rt.state.host = PlatformHost::Native(Box::new(SlowLoginItem(std::rc::Rc::clone(&sent))));
     tap(&mut rt, "launch-at-login");
@@ -336,7 +343,7 @@ fn a_grant_gathers_then_releases_into_allowed() {
     assert_eq!(asked(&rt).len(), 2, "Allowed is not a button");
 
     // Coming back to the pane shows Allowed at rest, without replaying.
-    tap(&mut rt, "nav-general");
+    tap(&mut rt, "nav-dictation");
     let (x, y) = rt.find("nav-meetings").unwrap();
     rt.pointer_down(x, y);
     rt.pointer_up(x, y);
@@ -367,116 +374,6 @@ fn reduce_motion_swaps_allow_for_allowed_at_once() {
     rt.pointer_up(x, y);
     rt.frame(1.0 / 60.0);
     assert_eq!(rt.presented(pill).unwrap().0, allowed, "no travel");
-}
-
-#[test]
-fn the_browser_permission_shows_with_pause_media_and_its_labs_toggle() {
-    let mut rt = runtime("mac-settings-pause-browser", true, TALL_SIZE);
-    rt.state.settings.pause_browser_media = false;
-    refresh(&mut rt);
-    open_advanced(&mut rt, Pane::General);
-    assert!(rt.find("pause-browser").is_none(), "the toggle is in Labs");
-    assert!(rt.find("pause-browser-audio").is_none());
-    rt.state.settings.pause_browser_media = true;
-    refresh(&mut rt);
-    assert!(rt.find("pause-browser-audio").is_some());
-}
-
-#[test]
-fn the_browser_labs_toggle_turns_on_and_asks_for_system_audio() {
-    let mut rt = runtime("mac-settings", true, TALL_SIZE);
-    rt.state.platform.system_audio = false;
-    open_labs(&mut rt);
-    tap(&mut rt, "lab-pause-browser");
-    assert!(rt.state.settings.pause_browser_media);
-    assert_eq!(asked(&rt), [PlatformRequest::SystemAudio]);
-
-    let mut rt = runtime("mac-settings", true, TALL_SIZE);
-    rt.state.platform.system_audio = true;
-    open_labs(&mut rt);
-    tap(&mut rt, "lab-pause-browser");
-    assert!(rt.state.settings.pause_browser_media);
-    assert!(asked(&rt).is_empty());
-}
-
-#[test]
-fn contributed_options_are_labs_toggles_off_by_default() {
-    let mut rt = runtime("mac-settings", true, (980.0, 2400.0));
-    open_labs(&mut rt);
-    for row in [
-        "lab-mouse-shortcuts",
-        "lab-pause-browser",
-        "lab-keep-on-clipboard",
-        "lab-copy-only",
-        "lab-return-to-app",
-        "lab-print-start",
-        "lab-spoken-formatting",
-        "lab-filler-words",
-        "lab-spoken-symbols",
-        "lab-caps-lock-dictation",
-    ] {
-        assert!(rt.find(row).is_some(), "Labs lacks {row}");
-    }
-    assert!(!rt.state.settings.labs.spoken_formatting);
-    tap(&mut rt, "lab-spoken-formatting");
-    assert!(rt.state.settings.labs.spoken_formatting);
-    assert!(!rt.state.settings.labs.spoken_symbols);
-    tap(&mut rt, "lab-spoken-symbols");
-    assert!(rt.state.settings.labs.spoken_symbols);
-    assert!(!rt.state.settings.labs.filler_words);
-    tap(&mut rt, "lab-filler-words");
-    assert!(rt.state.settings.labs.filler_words);
-    assert!(rt.find("lab-share-shortcut").is_none(), "Windows only");
-    assert!(!rt.state.settings.labs.mouse_shortcuts);
-    tap(&mut rt, "lab-mouse-shortcuts");
-    assert!(rt.state.settings.labs.mouse_shortcuts);
-    assert!(!rt.state.settings.labs.keep_on_clipboard);
-    tap(&mut rt, "lab-keep-on-clipboard");
-    assert!(rt.state.settings.labs.keep_on_clipboard);
-    assert!(!rt.state.settings.labs.copy_only);
-    tap(&mut rt, "lab-copy-only");
-    assert!(rt.state.settings.labs.copy_only);
-    assert!(!rt.state.settings.labs.return_to_app);
-    tap(&mut rt, "lab-return-to-app");
-    assert!(rt.state.settings.labs.return_to_app);
-    assert!(!rt.state.settings.labs.print_start);
-    tap(&mut rt, "lab-print-start");
-    assert!(rt.state.settings.labs.print_start);
-    assert!(!rt.state.settings.labs.caps_lock_dictation);
-    tap(&mut rt, "lab-caps-lock-dictation");
-    assert!(rt.state.settings.labs.caps_lock_dictation);
-
-    // Tall enough that the last Labs rows (Share shortcut, Terminal paste)
-    // sit inside the window, where a tap reaches them.
-    let mut rt = runtime("windows-settings", true, (980.0, 2400.0));
-    open_advanced(&mut rt, Pane::General);
-    assert!(rt.find("share-dictation-shortcut").is_none());
-    open_labs(&mut rt);
-    assert!(rt.find("lab-mouse-shortcuts").is_none(), "macOS only");
-    assert!(rt.find("lab-keep-on-clipboard").is_some(), "every OS");
-    assert!(rt.find("lab-copy-only").is_some(), "macOS and Windows");
-    assert!(rt.find("lab-spoken-formatting").is_some(), "every OS");
-    assert!(rt.find("lab-filler-words").is_some(), "every OS");
-    assert!(rt.find("lab-spoken-symbols").is_some(), "every OS");
-    assert!(!rt.state.settings.labs.keep_on_clipboard);
-    tap(&mut rt, "lab-keep-on-clipboard");
-    assert!(rt.state.settings.labs.keep_on_clipboard);
-    assert!(!rt.state.settings.labs.copy_only);
-    tap(&mut rt, "lab-copy-only");
-    assert!(rt.state.settings.labs.copy_only);
-    assert!(!rt.state.settings.share_dictation_shortcut);
-    tap(&mut rt, "lab-share-shortcut");
-    assert!(rt.state.settings.share_dictation_shortcut);
-
-    // Linux's paster keeps the dictation on the clipboard too; only macOS
-    // and Windows can skip the paste.
-    let mut rt = runtime("linux-labs", true, (980.0, 4000.0));
-    unfold_labs(&mut rt);
-    assert!(rt.find("lab-keep-on-clipboard").is_some(), "every OS");
-    assert!(rt.find("lab-copy-only").is_none(), "macOS and Windows only");
-    assert!(!rt.state.settings.labs.keep_on_clipboard);
-    tap(&mut rt, "lab-keep-on-clipboard");
-    assert!(rt.state.settings.labs.keep_on_clipboard);
 }
 
 /// Summaries is one choice in Meetings › Settings › After a meeting: Off,
@@ -529,34 +426,6 @@ fn on_this_mac_without_apple_intelligence_stays_chosen_with_the_fix() {
     tap(&mut rt, "meeting-summaries-menu-item2");
     assert_eq!(rt.state.settings.meetings.summaries, MeetingSummaries::Mac);
     assert!(rt.find("meeting-summary-model").is_none());
-}
-
-/// The separate Keep audio row follows its Labs toggle and saves the window.
-#[test]
-fn keep_audio_shows_with_its_lab_and_saves_its_window() {
-    use crate::app_settings::MeetingRetention;
-    let mut rt = runtime("portal", true, TALL_SIZE);
-    rt.state.settings.meetings.enabled = true;
-    rt.state.pane = Pane::Meetings;
-    rt.state.meetings.view = super::super::meetings::View::Settings;
-    refresh(&mut rt);
-    assert!(
-        rt.find("meeting-audio-retention").is_none(),
-        "hidden while the lab is off"
-    );
-
-    rt.state.settings.labs.expire_meeting_audio = true;
-    refresh(&mut rt);
-    assert!(rt.find("meeting-audio-retention").is_some());
-    assert_eq!(
-        a11y_value(&rt, "meeting-audio-retention-control-trigger").as_deref(),
-        Some("Follow Keep meetings")
-    );
-    pick(&mut rt, "meeting-audio-retention", 2);
-    assert_eq!(
-        rt.state.settings.meetings.audio_retention,
-        Some(MeetingRetention::Week)
-    );
 }
 
 /// Off a Mac, Summaries is a switch that turns OpenCode on.
@@ -893,7 +762,7 @@ fn the_shortcut_row_holds_still_through_every_face_and_side() {
     for reduced in [false, true] {
         let mut rt = runtime("shortcut-row", true, TALL_SIZE);
         rt.set_system_reduced_motion(reduced);
-        open_advanced(&mut rt, Pane::General);
+        open_advanced(&mut rt, Pane::Dictation);
         let at_rest = place(&rt);
         for side in [1, 2, 0] {
             pick(&mut rt, "dictation-side", side);
@@ -1209,7 +1078,7 @@ fn the_explainer_picker_and_shortcut_recording_never_share_the_window() {
     assert!(!rt.state.explainer.open);
     picker::open(&mut rt.state);
     rt.state
-        .select_pane(Pane::General, &mut rune::Tx::default());
+        .select_pane(Pane::Dictation, &mut rune::Tx::default());
     assert!(!rt.state.picker.open);
 }
 
@@ -1276,31 +1145,6 @@ fn an_update_is_a_secondary_button_with_a_dot_and_its_own_label() {
     }
     refresh(&mut rt);
     assert!(texts(&rt).iter().any(|text| text == "Download update"));
-}
-
-#[test]
-fn release_notes_link_shows_only_with_its_lab() {
-    let mut rt = runtime("portal", true, PANE_SIZE);
-    rt.state.build_preview = Some(BuildKind::Release);
-    refresh(&mut rt);
-    assert!(
-        rt.find("release-notes").is_none(),
-        "off, the footer is unchanged"
-    );
-
-    rt.state.settings.labs.release_notes_link = true;
-    refresh(&mut rt);
-    assert!(rt.find("release-notes").is_some());
-    assert!(texts(&rt).iter().any(|text| text == "Release notes"));
-
-    for (kind, name) in [(BuildKind::Local, "local"), (BuildKind::Test, "test")] {
-        rt.state.build_preview = Some(kind);
-        refresh(&mut rt);
-        assert!(
-            rt.find("release-notes").is_none(),
-            "the lab is on, but a {name} build has no published notes"
-        );
-    }
 }
 
 #[test]
@@ -1961,32 +1805,11 @@ fn hud_lab_and_activity_stay_out_of_the_window_sidebar() {
     let mut rt = runtime("mac-settings", true, PANE_SIZE);
     rt.state.platform.developer = true;
     refresh(&mut rt);
-    tap(&mut rt, "nav-labs");
     assert!(rt.find("nav-hud-lab").is_none());
     assert!(rt.find("nav-activity").is_none());
-    assert!(
-        rt.find("nav-voice-filter").is_some(),
-        "Hex Microphone is on"
-    );
     let rt = runtime("mac-hud-lab", true, PANE_SIZE);
     assert!(rt.find("nav-hud-lab").is_none());
     assert!(rt.find("nav-activity").is_none());
-}
-
-#[test]
-fn voice_filter_shows_only_while_its_labs_toggle_is_on() {
-    let mut rt = runtime("mac-settings", true, PANE_SIZE);
-    rt.state.settings.experimental.hex_microphone = false;
-    rt.state.platform.hex_microphone = None;
-    refresh(&mut rt);
-    assert!(rt.find("nav-voice-filter").is_none());
-    open_labs(&mut rt);
-    tap(&mut rt, "lab-voice-filter");
-    assert!(rt.state.settings.experimental.hex_microphone);
-    assert!(
-        rt.find("nav-voice-filter").is_some(),
-        "a top-level sidebar item"
-    );
 }
 
 #[test]
@@ -2044,512 +1867,44 @@ fn hud_lab_picks_dot_scope_processing_placement_and_level() {
 }
 
 #[test]
-fn labs_lists_every_toggle_off_by_default() {
-    let mut rt = runtime("mac-production", true, (980.0, 2000.0));
-    rt.state.settings.experimental.hex_microphone = false;
-    rt.state.platform.hex_microphone = None;
-    refresh(&mut rt);
-    for hidden in [
-        "nav-meetings",
-        "nav-annotate",
-        "nav-voice-filter",
-        "nav-playground",
-        "nav-hud-lab",
-        "nav-activity",
+fn former_labs_are_dictation_and_general_settings() {
+    let mut rt = runtime("mac-settings", true, (980.0, 4000.0));
+    for key in [
+        "after-dictation",
+        "live-text",
+        "spoken-formatting",
+        "filler-words",
     ] {
-        assert!(rt.find(hidden).is_none(), "the sidebar showed {hidden}");
+        assert!(rt.find(key).is_some(), "Dictation shows {key}");
     }
-    open_labs(&mut rt);
-    assert!(rt.find("send-feedback").is_some());
-    assert!(rt.find("restart-onboarding").is_some());
-    let settings = &rt.state.settings;
-    for (row, on) in [
-        ("lab-meetings", settings.meetings.enabled),
-        ("lab-voice-filter", settings.experimental.hex_microphone),
-        ("lab-playground", settings.labs.playground),
-        ("lab-live-text", settings.labs.live_text),
-        ("lab-live-chapters", settings.labs.live_chapters),
-        ("lab-vocabulary-biasing", settings.labs.vocabulary_biasing),
-        ("lab-return-to-app", settings.labs.return_to_app),
-        ("lab-speakers-only", settings.labs.speakers_only),
-        (
-            "lab-second-dictation-shortcut",
-            settings.labs.second_dictation_shortcut,
-        ),
-    ] {
-        assert!(rt.find(row).is_some(), "Labs lacks {row}");
-        assert!(!on, "{row} is on");
-    }
-    assert!(rt.find("lab-terminal-paste").is_none(), "Windows only");
-
-    tap(&mut rt, "lab-meetings");
-    assert!(rt.state.settings.meetings.enabled);
+    tap(&mut rt, "live-text");
+    assert!(!rt.state.settings.preferences.live_text, "on by default");
+    open_advanced(&mut rt, Pane::Dictation);
+    assert!(rt.find("unload-model").is_some());
+    assert!(rt.find("caps-lock").is_some());
     assert!(
-        rt.find("nav-meetings").is_some(),
-        "Meetings joins the main sidebar"
+        rt.find("keep-microphone-open").is_none(),
+        "only while the mic turns off between dictations"
     );
-    tap(&mut rt, "lab-live-text");
-    assert!(rt.state.settings.labs.live_text);
-    tap(&mut rt, "lab-vocabulary-biasing");
-    assert!(rt.state.settings.labs.vocabulary_biasing);
-    tap(&mut rt, "lab-meetings");
-    assert!(rt.find("nav-meetings").is_none(), "hidden while off");
-
-    // Windows lists Terminal paste in Labs, not General. Labs is tall enough
-    // that its last row needs the macOS half's height to be on screen.
-    let mut rt = runtime("windows-settings", true, (980.0, 2000.0));
-    assert!(rt.find("terminal-paste").is_none());
-    open_labs(&mut rt);
-    assert!(rt.find("lab-return-to-app").is_none(), "macOS only");
-    assert!(
-        rt.find("lab-second-dictation-shortcut").is_some(),
-        "the second dictation shortcut runs on Windows too"
-    );
-    tap(&mut rt, "lab-terminal-paste");
-    assert!(rt.state.settings.paste_with_shift);
-    assert!(
-        rt.find("lab-meetings").is_some(),
-        "Meetings runs on Windows too"
-    );
-
-    // Linux lists the second dictation shortcut as well.
-    let mut rt = runtime("linux-labs", true, (980.0, 2000.0));
-    unfold_labs(&mut rt);
-    assert!(
-        rt.find("lab-second-dictation-shortcut").is_some(),
-        "the second dictation shortcut runs on Linux too"
-    );
-}
-
-#[test]
-fn a_labs_link_shows_its_labs_group_and_leaves_it_off() {
-    use super::super::labs::LabsLink;
-    use crate::labs::Feature;
-    let mut rt = runtime("mac-settings", true, (980.0, 2000.0));
-    let feature = Feature::VocabularyBiasing;
-    assert!(!feature.on(&rt.state.settings));
-    let link = LabsLink {
-        lab: Some(feature.name().into()),
-        ..LabsLink::default()
-    };
-    rt.update(|ui, tx| super::super::labs::reveal(ui, &link, tx));
-    settle(&mut rt);
-    assert!(rt.state.labs_open);
-    assert_eq!(rt.state.lab_store.group, Some(feature.group()));
-    assert!(rt.find("lab-card-vocabulary-biasing").is_some());
-    assert!(!feature.on(&rt.state.settings), "a link never flips it");
-}
-
-#[test]
-fn a_labs_link_keeps_the_category_it_names() {
-    use super::super::labs::LabsLink;
-    let mut rt = runtime("mac-settings", true, (980.0, 2000.0));
-    let link = LabsLink {
-        lab: Some(crate::labs::Feature::VocabularyBiasing.name().into()),
-        category: Some("shortcuts".into()),
-        ..LabsLink::default()
-    };
-    rt.update(|ui, tx| super::super::labs::reveal(ui, &link, tx));
-    settle(&mut rt);
+    tap(&mut rt, "microphone-mode");
+    assert!(rt.find("keep-microphone-open").is_some());
+    tap(&mut rt, "nav-general");
     assert_eq!(
-        rt.state.lab_store.group,
-        Some(crate::labs::Group::Shortcuts)
-    );
-}
-
-#[test]
-fn a_labs_link_to_an_unknown_name_opens_labs_on_every_group() {
-    use super::super::labs::LabsLink;
-    let mut rt = runtime("mac-settings", true, (980.0, 2000.0));
-    let link = LabsLink {
-        lab: Some("no-such-lab".into()),
-        category: Some("no-such-category".into()),
-        ..LabsLink::default()
-    };
-    rt.update(|ui, tx| super::super::labs::reveal(ui, &link, tx));
-    settle(&mut rt);
-    assert!(rt.state.labs_open);
-    assert!(rt.state.lab_store.group.is_none());
-}
-
-#[test]
-fn a_labs_link_sets_the_stores_tab_chip_and_search() {
-    use super::super::labs::LabsLink;
-    use super::super::labs::Tab;
-    let mut rt = runtime("mac-settings", true, (980.0, 2000.0));
-    let link = LabsLink {
-        turned_on: true,
-        category: Some("shortcuts".into()),
-        search: Some("tap".into()),
-        ..LabsLink::default()
-    };
-    rt.update(|ui, tx| super::super::labs::reveal(ui, &link, tx));
-    settle(&mut rt);
-    let store = &rt.state.lab_store;
-    assert_eq!(store.tab, Tab::On);
-    assert_eq!(store.group, Some(crate::labs::Group::Shortcuts));
-    assert_eq!(store.search.text, "tap");
-}
-
-#[test]
-fn a_labs_card_shows_its_description_and_its_switch_turns_it_on() {
-    use crate::labs::Feature;
-    let mut rt = runtime("mac-labs", true, (980.0, 2000.0));
-    unfold_labs(&mut rt);
-    let feature = Feature::SubtitleExport;
-    assert!(rt.find("lab-card-subtitle-export").is_some());
-    tap(&mut rt, "lab-card-subtitle-export");
-    assert!(
-        !feature.on(&rt.state.settings),
-        "pressing a card flips nothing"
-    );
-    tap(&mut rt, "lab-subtitle-export");
-    assert!(
-        feature.on(&rt.state.settings),
-        "the card's switch turns it on"
-    );
-    tap(&mut rt, "lab-subtitle-export");
-    assert!(!feature.on(&rt.state.settings), "and off");
-}
-
-#[test]
-fn unload_when_idle_shows_its_minutes_on_its_card_while_on() {
-    let mut rt = runtime("mac-labs", true, (980.0, 4000.0));
-    rt.update(|ui, _| ui.lab_store.group = Some(crate::labs::Feature::UnloadIdle.group()));
-    settle(&mut rt);
-    assert!(rt.find("unload-idle-minutes").is_none(), "hidden while off");
-    tap(&mut rt, "lab-unload-idle");
-    assert!(rt.state.settings.labs.unload_idle);
-    assert!(rt.find("unload-idle-minutes").is_some());
-}
-
-#[test]
-fn keep_microphone_open_shows_its_window_on_its_card_while_on() {
-    use crate::labs::Feature;
-    let mut rt = runtime("mac-labs", true, (980.0, 4000.0));
-    rt.update(|ui, _| ui.lab_store.group = Some(Feature::KeepMicrophoneOpen.group()));
-    settle(&mut rt);
-    assert!(
-        rt.find("keep-microphone-open-seconds-trigger").is_none(),
-        "hidden while off"
-    );
-    tap(&mut rt, "lab-keep-microphone-open");
-    assert!(rt.state.settings.labs.keep_microphone_open);
-    let (control, _) = rt
-        .presented("keep-microphone-open-seconds-trigger")
-        .expect("the window's control");
-    let (card, _) = rt
-        .presented("lab-card-keep-microphone-open")
-        .expect("its card");
-    assert!(
-        control[0] + control[2] <= card[0] + card[2],
-        "the window's control stays inside its card"
-    );
-    assert_eq!(
-        rt.state.settings.labs.keep_microphone_open_seconds,
-        crate::app_settings::LabsSettings::DEFAULT_KEEP_MICROPHONE_OPEN_SECONDS
-    );
-    // The last choice is reachable from the menu.
-    tap(&mut rt, "keep-microphone-open-seconds-trigger");
-    tap(&mut rt, "option4");
-    assert_eq!(
-        rt.state.settings.labs.keep_microphone_open_seconds,
-        crate::app_settings::KEEP_MICROPHONE_OPEN_SECONDS[4]
-    );
-    tap(&mut rt, "lab-keep-microphone-open");
-    assert!(!rt.state.settings.labs.keep_microphone_open);
-    assert!(rt.find("keep-microphone-open-seconds-trigger").is_none());
-}
-
-#[test]
-fn caps_lock_light_shows_its_choices_on_its_card_while_on() {
-    let mut rt = runtime("mac-labs", true, (980.0, 4000.0));
-    rt.update(|ui, _| ui.lab_store.group = Some(crate::labs::Feature::CapsLockDictation.group()));
-    settle(&mut rt);
-    assert!(rt.find("caps-lock-light").is_none(), "hidden while off");
-    assert_eq!(
-        rt.state.settings.labs.caps_lock_light,
-        crate::app_settings::CapsLockLight::Steady
-    );
-    tap(&mut rt, "lab-caps-lock-dictation");
-    assert!(rt.state.settings.labs.caps_lock_dictation);
-    assert!(rt.find("caps-lock-light").is_some());
-}
-
-#[test]
-fn appearance_shows_its_theme_on_its_card_while_on() {
-    let mut rt = runtime("mac-labs", true, (980.0, 4000.0));
-    rt.update(|ui, _| ui.lab_store.group = Some(crate::labs::Feature::Appearance.group()));
-    settle(&mut rt);
-    assert!(rt.find("appearance-theme").is_none(), "hidden while off");
-    assert_eq!(
-        rt.state.settings.labs.appearance_theme,
+        rt.state.settings.preferences.appearance,
         crate::app_settings::AppearanceTheme::System
     );
-    tap(&mut rt, "lab-appearance");
-    assert!(rt.state.settings.labs.appearance);
-    assert!(rt.find("appearance-theme").is_some());
-    tap(&mut rt, "segment2");
+    pick(&mut rt, "appearance", 2);
     assert_eq!(
-        rt.state.settings.labs.appearance_theme,
+        rt.state.settings.preferences.appearance,
         crate::app_settings::AppearanceTheme::Dark
     );
-}
-
-#[test]
-fn the_main_window_paints_the_forced_appearance_not_the_os() {
-    use crate::app_settings::AppearanceTheme;
-    let mut rt = runtime("mac-settings", false, (980.0, 4000.0));
-    let fill = |rt: &Runtime<Ui>| {
-        rt.elements()
-            .into_iter()
-            .find(|element| element.key.as_deref() == Some("window"))
-            .expect("the window paints its background")
-            .fill
-    };
-    assert_eq!(fill(&rt), rune_theme_opencode::kit(false).c.bg_deep);
-    rt.update(|ui, _| {
-        ui.settings.labs.appearance = true;
-        ui.settings.labs.appearance_theme = AppearanceTheme::Dark;
-    });
-    refresh(&mut rt);
-    assert_eq!(
-        fill(&rt),
-        rune_theme_opencode::kit(true).c.bg_deep,
-        "the OS is light, so only the lab's Dark paints the window dark"
-    );
-}
-
-#[test]
-fn the_labs_store_filters_by_tab_chip_and_search() {
-    let mut rt = runtime("mac-labs-on", true, (980.0, 2000.0));
-    assert!(rt.find("lab-card-live-text").is_some());
-    assert!(
-        rt.find("lab-card-vocabulary-biasing").is_none(),
-        "Turned on lists only what's on"
-    );
-    rt.update(|ui, _| ui.lab_store.tab = super::super::labs::Tab::Discover);
-    settle(&mut rt);
-    assert!(
-        rt.find("featured").is_some(),
-        "Discover leads with what's new"
-    );
-    tap(&mut rt, "chip-shortcuts");
-    assert!(rt.find("featured").is_none());
-    assert!(rt.find("lab-card-mouse-shortcuts").is_some());
-    assert!(rt.find("lab-card-live-text").is_none());
-    tap(&mut rt, "chip-all");
-    rt.update(|ui, _| ui.lab_store.search = rune::TextEdit::new("no such words".to_string()));
-    settle(&mut rt);
-    assert!(rt.find("empty-copy").is_some());
-    assert!(rt.find("lab-card-live-text").is_none());
-}
-
-#[test]
-fn a_lone_lab_card_keeps_half_the_row() {
-    let mut rt = runtime("mac-labs", true, (980.0, 4000.0));
-    unfold_labs(&mut rt);
-    let mut width = None;
-    let mut lone = false;
-    let chips = [
-        "chip-all",
-        "chip-dictation",
-        "chip-output",
-        "chip-history",
-        "chip-meetings",
-        "chip-annotate",
-        "chip-shortcuts",
-        "chip-models",
-    ];
-    for chip in chips {
-        if rt.find(chip).is_none() {
-            continue;
-        }
-        tap(&mut rt, chip);
-        let widths: Vec<f32> = rt
-            .elements()
-            .into_iter()
-            .filter(|e| e.key.as_deref().is_some_and(|k| k.starts_with("lab-card-")))
-            .map(|e| e.rect[2])
-            .collect();
-        lone |= widths.len() % 2 == 1;
-        let width = *width.get_or_insert(widths[0]);
-        assert!(
-            widths.iter().all(|w| (w - width).abs() < 0.5),
-            "{chip}: every card is as wide: {widths:?}"
-        );
-    }
-    assert!(lone, "some chip leaves a card alone in its row");
-}
-
-#[test]
-fn new_in_labs_isnt_repeated_in_the_grid() {
-    let mut rt = runtime("mac-labs", true, (980.0, 4000.0));
-    unfold_labs(&mut rt);
-    let featured: Vec<String> = rt
-        .elements()
-        .into_iter()
-        .filter_map(|e| e.key?.strip_prefix("lab-featured-").map(str::to_string))
-        .collect();
-    // Up to two of the labs added most recently: how many depends on how
-    // many share the newest date on this OS, not on the test.
-    assert!(
-        (1..=2).contains(&featured.len()),
-        "one or two labs are featured: {featured:?}"
-    );
-    for id in featured {
-        assert!(
-            rt.find(&format!("lab-card-{id}")).is_none(),
-            "{id} shows once"
-        );
-    }
-}
-
-/// Groups start folded unless they hold a lab that's on, fold and unfold
-/// from their header, remember it, and stay open while their last lab
-/// turns off. A search shows every match whatever the folds.
-#[test]
-fn labs_groups_fold_and_remember_it() {
-    let mut rt = runtime("mac-labs", true, (980.0, 4000.0));
-    assert!(
-        rt.find("lab-card-live-text").is_some(),
-        "Dictation holds Live text, on"
-    );
-    assert!(
-        rt.find("lab-card-unload-idle").is_none(),
-        "Models holds nothing on"
-    );
-    tap(&mut rt, "group-models");
-    assert!(rt.find("lab-card-unload-idle").is_some());
-    assert_eq!(rt.state.settings.labs.groups.get("models"), Some(&true));
-    tap(&mut rt, "group-dictation");
-    assert!(rt.find("lab-card-live-text").is_none());
-    assert_eq!(rt.state.settings.labs.groups.get("dictation"), Some(&false));
-    tap(&mut rt, "nav-general");
-    tap(&mut rt, "nav-labs");
-    assert!(rt.find("lab-card-unload-idle").is_some(), "remembered");
-    assert!(rt.find("lab-card-live-text").is_none(), "remembered");
-
-    rt.update(|ui, _| ui.lab_store.search = rune::TextEdit::new("live text".to_string()));
-    settle(&mut rt);
-    assert!(
-        rt.find("lab-card-live-text").is_some(),
-        "a search shows folded matches"
-    );
-    assert!(
-        rt.find("group-dictation-slot").is_none(),
-        "under a plain heading"
-    );
-
-    let mut rt = runtime("mac-labs", true, (980.0, 4000.0));
-    rt.state.settings.labs.unload_idle = true;
-    refresh(&mut rt);
-    tap(&mut rt, "lab-unload-idle");
-    assert!(!rt.state.settings.labs.unload_idle);
-    assert!(
-        rt.find("lab-card-unload-idle").is_some(),
-        "turning off a group's last lab leaves it open"
-    );
-    assert_eq!(rt.state.settings.labs.groups.get("models"), Some(&true));
-}
-
-#[cfg(target_os = "macos")]
-#[test]
-fn a_saved_record_shortcut_shows_and_clears_while_annotate_is_off() {
-    let mut rt = runtime("mac-labs", true, (980.0, 4000.0));
-    rt.update(|ui, _| {
-        ui.settings.labs.screenshots = true;
-        ui.settings.capture.enabled = false;
-        ui.settings.screenshots.record_hotkey =
-            Some(crate::app_settings::HotkeyBinding::screenshot_default());
-        ui.lab_store.group = Some(crate::labs::Feature::Screenshots.group());
-    });
-    settle(&mut rt);
-    assert!(rt.find("needs-annotate").is_some());
-    assert!(
-        rt.find("clear-screenshot-record-shortcut").is_some(),
-        "the key it holds stays visible and can be freed"
-    );
-    tap(&mut rt, "clear-screenshot-record-shortcut");
-    assert_eq!(rt.state.settings.screenshots.record_hotkey, None);
-    assert!(rt.find("clear-screenshot-record-shortcut").is_none());
-}
-
-/// Each OS shows only its labs, and a group with none of them hides.
-#[test]
-fn labs_groups_follow_each_os() {
-    let cards = |rt: &Runtime<Ui>| -> Vec<String> {
-        rt.elements()
-            .into_iter()
-            .filter_map(|e| e.key?.strip_prefix("lab-card-").map(str::to_string))
-            .collect()
-    };
-    let cases: [(&str, &[&str], &str); 3] = [
-        ("windows-labs", &["terminal-paste"], "mouse-shortcuts"),
-        ("linux-labs", &["section-key"], "terminal-paste"),
-        (
-            "mac-labs",
-            &["section-key", "mouse-shortcuts"],
-            "terminal-paste",
-        ),
-    ];
-    for (scene, shows, hides) in cases {
-        let mut rt = runtime(scene, true, (980.0, 4000.0));
-        unfold_labs(&mut rt);
-        let shown = cards(&rt);
-        for id in shows {
-            assert!(shown.contains(&id.to_string()), "{scene} shows {id}");
-        }
-        assert!(!shown.contains(&hides.to_string()), "{scene} hides {hides}");
-        for group in crate::labs::Group::ALL {
-            let any = shown.iter().any(|id| {
-                crate::labs::Feature::from_name(id)
-                    .map_or(crate::labs::Group::Annotate, |feature| feature.group())
-                    == group
-            });
-            assert_eq!(
-                rt.find(&format!("group-{}", group.id())).is_some(),
-                any,
-                "{scene}: {} shows only with a lab",
-                group.id()
-            );
-        }
-    }
-    let rt = runtime("windows-labs", true, (980.0, 4000.0));
-    assert!(rt.find("group-output").is_some());
-    assert!(
-        rt.find("lab-card-terminal-paste").is_some(),
-        "Output holds Terminal paste, on"
-    );
-    assert!(rt.find("lab-card-spoken-formatting").is_some());
-    assert!(
-        rt.find("lab-card-unload-idle").is_none(),
-        "Models is folded"
-    );
-}
-
-#[test]
-fn command_f_searches_labs() {
-    let mut rt = runtime("mac-labs", true, PANE_SIZE);
-    assert!(!rt.state.lab_store.search.focused);
-    key(&mut rt, Key::Command('f'), Mods::default());
-    assert!(rt.state.lab_store.search.focused);
-}
-
-#[test]
-fn labs_run_setup_again_opens_the_first_run() {
-    let mut rt = runtime("mac-labs", true, (980.0, 2000.0));
-    assert!(rt.state.first_run.is_none());
-    tap(&mut rt, "restart-onboarding");
-    assert!(rt.state.error.is_none(), "{:?}", rt.state.error);
-    assert!(rt.state.first_run.is_some(), "the first run opens at once");
 }
 
 #[test]
 fn run_setup_again_opens_the_first_run_on_linux_and_windows() {
     for scene in ["portal", "windows-settings"] {
         let mut rt = runtime(scene, true, (980.0, 2000.0));
-        tap(&mut rt, "nav-labs");
+        tap(&mut rt, "nav-general");
         tap(&mut rt, "restart-onboarding");
         assert!(rt.state.error.is_none(), "{scene}: {:?}", rt.state.error);
         assert!(rt.state.first_run.is_some(), "{scene}: the first run opens");
@@ -2644,7 +1999,7 @@ fn experiment_goldens() {
 fn ducking_shows_a_persisted_slider_on_every_os_when_selected() {
     use crate::app_settings::RecordingAudioBehavior;
     let mut rt = runtime("mac-settings", true, (1100.0, 2800.0));
-    open_advanced(&mut rt, Pane::General);
+    open_advanced(&mut rt, Pane::Dictation);
     assert!(rt.find("recording-duck-slider").is_none());
     pick(&mut rt, "while-dictating", 2);
     assert_eq!(
@@ -2672,7 +2027,7 @@ fn ducking_shows_a_persisted_slider_on_every_os_when_selected() {
         if scene == "portal" {
             rt.state.platform.caps = platform::Capabilities::LINUX;
         }
-        open_advanced(&mut rt, Pane::General);
+        open_advanced(&mut rt, Pane::Dictation);
         pick(&mut rt, "while-dictating", 2);
         assert_eq!(
             rt.state.settings.recording_audio_behavior,
@@ -2710,18 +2065,6 @@ fn an_installed_driver_keeps_the_voice_filter_on() {
         asked(&rt).last(),
         Some(PlatformRequest::UninstallHexMicrophone)
     ));
-    open_labs(&mut rt);
-    tap(&mut rt, "lab-voice-filter");
-    assert!(
-        !rt.state.settings.experimental.hex_microphone,
-        "the toggle is locked"
-    );
-    assert!(
-        texts(&rt)
-            .iter()
-            .any(|t| t.starts_with("On while the Hex Microphone driver is installed")),
-        "its card says why"
-    );
     assert!(rt.find("nav-voice-filter").is_some());
 
     if let Some(driver) = &mut rt.state.platform.hex_microphone {
@@ -2731,11 +2074,6 @@ fn an_installed_driver_keeps_the_voice_filter_on() {
     assert!(
         rt.find("nav-voice-filter").is_none(),
         "off once uninstalled"
-    );
-    tap(&mut rt, "lab-voice-filter");
-    assert!(
-        rt.state.settings.experimental.hex_microphone,
-        "without the driver the toggle works"
     );
 }
 
@@ -2765,21 +2103,6 @@ fn a_stable_build_offers_only_uninstall_for_an_installed_driver() {
         rt.find("nav-voice-filter").is_none(),
         "gone once uninstalled, though its setting is on"
     );
-}
-
-#[test]
-fn a_stable_build_has_no_playground_or_voice_filter_lab() {
-    let _stable = crate::dev_build::pretend_stable();
-    let mut rt = runtime("mac-settings", true, (980.0, 4000.0));
-    rt.state.settings.labs.playground = true;
-    rt.state.settings.experimental.hex_microphone = true;
-    refresh(&mut rt);
-    assert!(rt.find("nav-playground").is_none());
-    open_labs(&mut rt);
-    unfold_labs(&mut rt);
-    assert!(rt.find("lab-live-text").is_some());
-    assert!(rt.find("lab-playground").is_none());
-    assert!(rt.find("lab-voice-filter").is_none());
 }
 
 fn fun_driver_installed(rt: &rune::Runtime<Ui>) -> bool {
@@ -2827,43 +2150,6 @@ fn a_long_transcript_scrolls_by_dragging_its_scroll_bar() {
     );
 }
 
-/// The Labs store uses the same clearly visible pane thumb, and dragging it
-/// scrolls the store.
-#[test]
-fn a_long_labs_store_scrolls_by_dragging_its_scroll_bar() {
-    let mut rt = runtime("linux-labs", true, PANE_SIZE);
-    unfold_labs(&mut rt);
-    settle(&mut rt);
-    let at = |rt: &Runtime<Ui>, path: &str| {
-        rt.elements()
-            .into_iter()
-            .find(|e| e.path.ends_with(path))
-            .unwrap_or_else(|| panic!("no {path}"))
-    };
-    let thumb = at(&rt, "scroll-scroll-area/scroll-bar/thumb-slot/thumb");
-    assert_eq!(thumb.fill, rune_theme_opencode::kit(true).c.text_faint);
-    assert_eq!(thumb.opacity, 1.0);
-    assert!(thumb.rect[2] >= 8.0, "the pane thumb is wide enough to see");
-    assert!(
-        thumb.rect[3] > 0.0,
-        "the Labs store overflows with every group open"
-    );
-    let top = at(&rt, "scroll-scroll-area/scroll/inset").rect[1];
-    let (x, y) = (thumb.rect[0] + thumb.rect[2] / 2.0, thumb.rect[1] + 4.0);
-    rt.pointer_move(x, y);
-    rt.pointer_down(x, y);
-    rt.pointer_move(x, y + 60.0);
-    rt.pointer_up(x, y + 60.0);
-    settle(&mut rt);
-    assert!(
-        at(&rt, "scroll-scroll-area/scroll/inset").rect[1] < top - 60.0,
-        "dragging the thumb scrolled the Labs store"
-    );
-    assert!(
-        at(&rt, "scroll-scroll-area/scroll-bar/thumb-slot/thumb").rect[1] > thumb.rect[1] + 59.0
-    );
-}
-
 /// A touchscreen taps like a click and a finger drag pans a long transcript
 /// (#1337).
 #[test]
@@ -2900,9 +2186,9 @@ fn a_finger_pans_the_transcript_and_taps_the_sidebar() {
         "the transcript followed the finger"
     );
 
-    let (x, y) = rt.find("nav-labs").expect("the Labs item");
+    let (x, y) = rt.find("nav-general").expect("the General item");
     rt.touch(2, Started, x, y, 1.0);
     rt.touch(2, Ended, x, y, 1.05);
     settle(&mut rt);
-    assert!(rt.find("lede").is_some(), "the tap opened Labs");
+    assert_eq!(rt.state.pane, Pane::General, "the tap opened General");
 }

@@ -34,7 +34,6 @@ mod hud_lab;
 #[cfg(target_os = "macos")]
 mod hud_stories;
 mod icons;
-mod labs;
 mod list_detail;
 mod lists;
 mod live_notes;
@@ -42,8 +41,6 @@ pub(crate) mod live_text;
 pub(crate) mod meeting_capsules;
 mod meetings;
 pub(crate) use self::meetings::meeting_import_failed;
-#[cfg(hex_capture)]
-mod captures;
 mod meetings_host;
 pub(crate) use meetings_host::{meeting_corner_moved, meeting_failed, meeting_provider_chosen};
 mod model_details;
@@ -190,7 +187,7 @@ pub(crate) fn run_app(
 }
 
 /// The window as a Rune app whose lifetime the caller chooses, connected to
-/// its host through `connect`, with the playground that Labs › Playground
+/// its host through `connect`, with the playground that Playground
 /// opens.
 pub(crate) fn app(connect: host::Connect) -> rune::App<Ui> {
     onboarding_kit::set_live_window(true);
@@ -331,7 +328,7 @@ enum PlaygroundMode {
     /// With Rune's own ⇧⌘D (headless `--playground` renders).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
     Attached,
-    /// Opened only while Labs › Playground is on (the window).
+    /// Opened only while Playground is on (the window).
     Gated,
 }
 
@@ -450,7 +447,7 @@ pub(crate) fn open_assistant_setup(ui: &mut Ui, tx: &mut Tx) {
 
 pub(crate) fn show(ui: &mut Ui, destination: Destination, tx: &mut Tx) {
     let pane = match &destination {
-        Destination::Settings | Destination::Models => Pane::General,
+        Destination::Settings | Destination::Models => Pane::Dictation,
         Destination::Meetings(_) => Pane::Meetings,
         Destination::Modes => Pane::Output,
         Destination::History => Pane::History,
@@ -502,7 +499,7 @@ pub(crate) fn restart_onboarding(ui: &mut Ui, tx: &mut Tx) -> Result<(), String>
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn current_pane(ui: &Ui) -> &'static str {
     match ui.pane {
-        Pane::General => "settings",
+        Pane::Dictation => "settings",
         pane => pane.key().trim_start_matches("nav-"),
     }
 }
@@ -629,7 +626,7 @@ enum Menu {
     InputSourceModel(usize),
     /// An input source's language in keyboard model switching.
     InputSourceLanguage(usize),
-    /// A mode's speech model in the Modes pane (Labs › Switch model with app).
+    /// A mode's speech model in the Modes pane (Switch model with app).
     ModeSpeechModel(modes::Selection),
     /// A mode's speech language in the Modes pane.
     ModeSpeechLanguage(modes::Selection),
@@ -690,14 +687,8 @@ pub(crate) struct Ui {
     microphones_listing:
         Option<std::sync::mpsc::Receiver<Result<crate::audio::InputDevices, String>>>,
     mic_level: general::MicLevel,
-    /// General's search, while Labs › Settings search is on.
-    general_search: TextEdit,
     /// The panes whose Advanced fold is open.
     advanced: Vec<Pane>,
-    /// The Labs page shows in place of a pane.
-    labs_open: bool,
-    /// The Labs store's search, tab, and chip.
-    lab_store: labs::Store,
     /// A scene previewing the badge of a build kind this binary is not.
     build_preview: Option<BuildKind>,
     capture: Capture,
@@ -709,8 +700,6 @@ pub(crate) struct Ui {
     duck_volume_drag: Option<f32>,
     models: models::Models,
     history: history::HistoryPane,
-    #[cfg(hex_capture)]
-    captures: captures::CapturesPane,
     modes: modes::ModesPane,
     output: output::OutputPane,
     picker: picker::Picker,
@@ -719,7 +708,7 @@ pub(crate) struct Ui {
     explainer: explainer::Explainer,
     sound_sets: sound_sets::SoundSets,
     tour: Option<onboarding::Tour>,
-    /// The new first run over the tour (Labs).
+    /// The new first run over the tour.
     first_run: Option<onboarding_kit::Onboard>,
     /// The OS's capabilities and the OS-only state its panes show.
     platform: platform::PlatformState,
@@ -765,25 +754,11 @@ impl Ui {
         let store = host::history(&connect, settings.history_retention);
         #[cfg(target_os = "linux")]
         let paste = connect.is_some().then(paste_access::detect).flatten();
-        #[cfg(target_os = "linux")]
-        let clipboard_unrestorable =
-            connect.is_some() && crate::linux::clipboard::wayland_without_data_control();
         let mut ui = Self::with(settings, Service::Pending(connect));
         ui.error = error;
         #[cfg(target_os = "linux")]
         {
             ui.platform.paste = paste;
-            ui.platform.clipboard_unrestorable = clipboard_unrestorable;
-        }
-        // A mouse-button shortcut went back to its default: say so once.
-        if ui.settings.mouse_shortcut_notice {
-            ui.settings.mouse_shortcut_notice = false;
-            if let Err(error) = ui.settings.save() {
-                tracing::warn!(%error, "could not clear the mouse shortcut note");
-            }
-            ui.error.get_or_insert_with(|| {
-                tr("Mouse shortcuts are in Labs now, so your mouse-button shortcut went back to the default. Turn on Labs › Mouse shortcuts to use one again.").to_owned()
-            });
         }
         ui.history = history::HistoryPane::shared(store);
         ui.output = output::OutputPane::shuffled();
@@ -791,6 +766,11 @@ impl Ui {
         ui.platform.developer =
             crate::dev_build::is_dev_build() && crate::DEVELOPER_FEATURES_ENABLED;
         ui.platform.hud.tuning = crate::rune_hud::dot_scope::lab();
+        // The assistant comes first: the window opens on its stream where
+        // this Mac has it.
+        if chats::available(&ui) {
+            ui.pane = Pane::Chats;
+        }
         ui.tour = onboarding::Tour::start(&ui.settings, &ui.platform);
         onboarding_kit::live::open(&mut ui);
         ui.platform.set_login_item(host::launch_at_login());
@@ -809,7 +789,7 @@ impl Ui {
             error: None,
             connection_error: None,
             service_settings: None,
-            pane: Pane::General,
+            pane: Pane::Dictation,
             open: None,
             microphones: Ok(Default::default()),
             microphones_route: None,
@@ -817,10 +797,7 @@ impl Ui {
             input_sources_listed_at: f64::NEG_INFINITY,
             microphones_listing: None,
             mic_level: general::MicLevel::default(),
-            general_search: TextEdit::default(),
             advanced: Vec::new(),
-            labs_open: false,
-            lab_store: labs::Store::default(),
             build_preview: None,
             capture: Capture::Idle,
             vocabulary,
@@ -829,8 +806,6 @@ impl Ui {
             duck_volume_drag: None,
             models: models::Models::default(),
             history: history::HistoryPane::default(),
-            #[cfg(hex_capture)]
-            captures: captures::CapturesPane::default(),
             modes,
             output: output::OutputPane::default(),
             picker: picker::Picker::default(),
@@ -1140,15 +1115,13 @@ impl Ui {
     /// Switches panes at once: the new pane replaces the old without a fade,
     /// already at rest (a grant's morph doesn't replay).
     fn select_pane(&mut self, pane: Pane, tx: &mut Tx) {
-        let labs = std::mem::take(&mut self.labs_open);
-        if self.pane == pane && !labs {
+        if self.pane == pane {
             return;
         }
         tx.settle();
         self.flush_drafts();
         settings::cancel_capture(self);
         self.open = None;
-        self.general_search.clear();
         models::close(self);
         self.close_dialogs();
         self.output.prompt_copied = false;
@@ -1179,7 +1152,7 @@ fn on_key(ui: &mut Ui, event: &rune::KeyEvent, tx: &mut Tx) -> bool {
     if settings::on_key(ui, event, tx) {
         return true;
     }
-    // Labs › Playground: ⇧⌘D (Ctrl+Shift+D off macOS) opens the playground.
+    // Dev builds: ⇧⌘D (Ctrl+Shift+D off macOS) opens the playground.
     if event.key == rune::Key::Command('d') && event.mods.shift && playground::enabled() {
         tx.toggle_playground();
         return true;
@@ -1189,10 +1162,6 @@ fn on_key(ui: &mut Ui, event: &rune::KeyEvent, tx: &mut Tx) -> bool {
     #[cfg(target_os = "linux")]
     if event.key == rune::Key::Command('q') && !event.mods.shift && !event.mods.alt {
         ui.quit();
-        return true;
-    }
-    // ⌘F (Ctrl+F off macOS) searches Labs or General.
-    if general::focus_search_key(ui, event) {
         return true;
     }
     if let rune::Key::Command(digit @ '1'..='9') = event.key
@@ -1205,7 +1174,7 @@ fn on_key(ui: &mut Ui, event: &rune::KeyEvent, tx: &mut Tx) -> bool {
         && ui.tour.is_none()
     {
         let index = digit as usize - '1' as usize;
-        let pane = labs::order(ui).get(index).copied();
+        let pane = sidebar::order(ui).get(index).copied();
         if let Some(pane) = pane {
             ui.select_pane(pane, tx);
         }
@@ -1275,8 +1244,6 @@ fn local_meetings(ui: &mut Ui) -> bool {
 fn setup(ui: &mut Ui, waker: Waker) {
     ui.modes.waker = Some(waker.clone());
     ui.modes.icon_cache = Some(rune::ImageCache::new(waker.clone()));
-    #[cfg(hex_capture)]
-    ui.captures.set_cache(rune::ImageCache::new(waker.clone()));
     if let Service::Pending(connect) = &mut ui.service {
         let connect = std::mem::take(connect);
         #[cfg(target_os = "macos")]
@@ -1317,15 +1284,11 @@ fn poll(ui: &mut Ui, clock: f64, tx: &mut Tx) -> bool {
     );
     let history_multi = history::multi(ui);
     changed |= ui.history.poll(
-        ui.pane == Pane::History
-            && !ui.labs_open
-            && ui.window.as_ref().is_none_or(rune::AppHandle::is_visible),
-        ui.settings.labs.keep_recordings,
+        ui.pane == Pane::History && ui.window.as_ref().is_none_or(rune::AppHandle::is_visible),
+        ui.settings.preferences.keep_recordings,
         history_multi,
     );
-    #[cfg(hex_capture)]
-    let mut changed = ui.captures.poll(ui.pane == Pane::Captures && !ui.labs_open) | changed;
-    if ui.pane == Pane::Output && !ui.labs_open {
+    if ui.pane == Pane::Output {
         changed |= output::poll(ui, clock, tx);
     }
     // Mode rows show their applications' icons, which the catalog locates.
@@ -1349,7 +1312,7 @@ fn poll(ui: &mut Ui, clock: f64, tx: &mut Tx) -> bool {
     // General names the input in use; list again when the OS reports an
     // input change. Windows reports a default change only to an open
     // default stream, so there the list is also refreshed every few seconds.
-    if ui.pane == Pane::General
+    if ui.pane == Pane::Dictation
         && ui.live()
         && ui.window.as_ref().is_some_and(rune::AppHandle::is_visible)
         && (ui.microphones_route != Some(crate::audio::input_route_generation())
@@ -1431,10 +1394,10 @@ fn poll(ui: &mut Ui, clock: f64, tx: &mut Tx) -> bool {
 // View
 
 fn view(ui: &Ui, cx: &mut Cx<Ui>) -> El {
-    let dark = crate::labs::window_dark(&ui.settings.labs, cx.system_dark());
+    let dark = crate::features::window_dark(&ui.settings.preferences, cx.system_dark());
     let p = Paint::new(dark, cx.env().scale);
     // The native title bar takes the window's background and light/dark mode,
-    // so its text and buttons stay readable while Labs › Appearance forces a
+    // so its text and buttons stay readable while Appearance forces a
     // theme. winit repaints the frame from the OS theme on every settings
     // broadcast, so `match_title_bar` records this frame's theme and a window
     // subclass re-applies it after each one while a theme is forced.
@@ -1443,13 +1406,11 @@ fn view(ui: &Ui, cx: &mut Cx<Ui>) -> El {
     // Menus and popovers mount above the page (rune-kit overlays).
     let mut layer = Vec::new();
     let (actions, body) = match ui.pane {
-        _ if ui.labs_open => (vec![labs::tabs(ui, p)], labs::page(ui, p, &mut layer)),
-        Pane::General => (Vec::new(), general::pane(ui, p, &mut layer)),
+        Pane::Dictation => (Vec::new(), general::pane(ui, p, &mut layer)),
+        Pane::General => (Vec::new(), general::app_pane(ui, p, &mut layer)),
         Pane::Output => (Vec::new(), output::pane(ui, p, cx.is_reduced_motion())),
         Pane::Modes => modes::pane(ui, p, &mut layer),
         Pane::History => history::pane(ui, p, &mut layer),
-        #[cfg(hex_capture)]
-        Pane::Captures => (Vec::new(), captures::pane(ui, p)),
         Pane::Meetings => meetings::pane(ui, p, &mut layer),
         Pane::Chats => chats::pane(ui, p, &mut layer),
         Pane::Assistant => chats::settings_pane(ui, p, &mut layer),
@@ -1475,18 +1436,10 @@ fn view(ui: &Ui, cx: &mut Cx<Ui>) -> El {
         .clip_soft(0.0)
         .child(pane_header(
             p,
-            if ui.labs_open {
-                tr("Labs")
-            } else {
-                ui.pane.title()
-            },
-            if ui.labs_open {
-                Some(labs::search_field(ui, p))
-            } else {
-                (ui.pane == Pane::Meetings)
-                    .then(|| meetings::view_switch(ui, p))
-                    .flatten()
-            },
+            ui.pane.title(),
+            (ui.pane == Pane::Meetings)
+                .then(|| meetings::view_switch(ui, p))
+                .flatten(),
             actions,
         ))
         .child(body);

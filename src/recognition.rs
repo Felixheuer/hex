@@ -298,7 +298,7 @@ pub fn listen(
                 });
             }
         }
-        let caps_lock_on = crate::labs::caps_lock_dictation();
+        let caps_lock_on = crate::features::caps_lock_dictation();
         caps_lock.set_enabled(caps_lock_on);
         // Turning the lab off mid-capture cancels it, as unbinding the
         // second shortcut does.
@@ -1219,7 +1219,7 @@ fn handle_hotkey_action(
             if !dictation.start(action_at)? {
                 return Ok(false);
             }
-            // Labs › Return to app: this paste goes back to the app in front
+            // Return to app: this paste goes back to the app in front
             // now, even if another one comes forward while the person talks.
             worker.remember_return_to_app();
             // The press started a capture, but it may still be provisional:
@@ -1658,7 +1658,7 @@ mod tests {
     };
     use crate::suppression::InputEvent;
 
-    /// Labs › Second dictation shortcut (issue 627): each shortcut follows
+    /// Second dictation shortcut (issue 627): each shortcut follows
     /// the same double-tap lock, the one that started a capture finishes
     /// it, and the other stands down while it records.
     #[test]
@@ -1763,7 +1763,7 @@ mod tests {
         })
     }
 
-    /// Labs › More dictation shortcuts: each extra row triggers its own way
+    /// More dictation shortcuts: each extra row triggers its own way
     /// while the dictation shortcut keeps its global mode.
     #[test]
     fn each_extra_shortcut_keeps_its_own_mode() {

@@ -219,7 +219,7 @@ pub(in crate::rune_ui) fn open_from_hold(ui: &mut Ui, tx: &mut rune::Tx) {
             .iter()
             .any(|gap| gap.fix() == Fix::Models)
     {
-        ui.select_pane(super::super::super::Pane::General, tx);
+        ui.select_pane(super::super::super::Pane::Dictation, tx);
     }
 }
 

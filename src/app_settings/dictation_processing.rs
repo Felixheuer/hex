@@ -35,7 +35,7 @@ pub struct DictationMode {
     pub transformations: Vec<String>,
     pub post_processing: DictationPostProcessing,
     /// The speech model and language this mode selects while it matches the
-    /// foreground app (Labs › Switch model with app). None means don't switch.
+    /// foreground app (Switch model with app). None means don't switch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speech: Option<KeyboardModelChoice>,
     /// Names heard and spelled here ahead of the shared vocabulary.

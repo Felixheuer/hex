@@ -384,11 +384,11 @@ fn paused_guard(players: Vec<MediaPlayer>, browser: Option<PausedBrowser>) -> Au
 impl AudioBehaviorGuard {
     fn start(behavior: RecordingAudioBehavior) -> Self {
         // Read once per recording, here on the environment worker thread, so
-        // the event tap never waits on CoreAudio. With Labs › Only on
+        // the event tap never waits on CoreAudio. With Only on
         // speakers on, headphones leave the output and media alone for this
         // session; idle sleep is not part of this guard. With the lab off,
         // or with nothing to do, CoreAudio is never asked.
-        if crate::labs::speakers_only()
+        if crate::features::speakers_only()
             && behavior != RecordingAudioBehavior::DoNothing
             && !output_route::applies(output_route::default_output_route())
         {

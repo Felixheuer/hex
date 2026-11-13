@@ -79,7 +79,7 @@ pub(crate) struct WindowsDesktopHost {
     personal_commands_checked_at: Instant,
     preparation: TranscriptionPreparation,
     keyboard_switcher: crate::transcription::keyboard_model_switching::Switcher,
-    /// Labs › Switch model with app: the foreground app's mode choice.
+    /// Switch model with app: the foreground app's mode choice.
     app_switcher: crate::transcription::app_model_switching::Switcher,
     /// Present only while keyboard model switching is on.
     input_sources: Option<crate::keyboard_input_sources::Watcher>,
@@ -220,10 +220,8 @@ impl WindowsDesktopHost {
         // Known before the first poll, so launching keeps the saved model
         // instead of applying the frontmost app's mode choice.
         let app_switcher = crate::transcription::app_model_switching::Switcher::new(
-            settings.labs.app_model_switching,
-            settings
-                .labs
-                .app_model_switching
+            crate::features::app_model_switching(),
+            crate::features::app_model_switching()
                 .then(|| crate::transcription::app_model_switching::startup_choice(&settings))
                 .flatten(),
         );
@@ -415,7 +413,7 @@ impl WindowsDesktopHost {
     /// host cannot see a listener recording, so a due switch is held only
     /// while the shared engine's dictation streams or finishes run.
     fn switch_with_app(&mut self) {
-        if !self.settings.labs.app_model_switching {
+        if !crate::features::app_model_switching() {
             return;
         }
         let application = foreground_other_process_stem();
@@ -562,7 +560,7 @@ impl WindowsDesktopHost {
         let previous = std::mem::replace(&mut self.settings, settings.clone());
         if self
             .app_switcher
-            .configure(settings.labs.app_model_switching)
+            .configure(crate::features::app_model_switching())
         {
             self.supersede_automatic();
         }
@@ -798,7 +796,7 @@ impl Drop for WindowsDesktopHost {
 }
 
 /// The foreground application's executable stem, or `None` when Hex owns the
-/// foreground window or none is focused: Labs › Switch model with app matches
+/// foreground window or none is focused: Switch model with app matches
 /// applications only, never Hex's own window.
 pub(crate) fn foreground_other_process_stem() -> Option<String> {
     use windows_sys::Win32::System::Threading::GetCurrentProcessId;

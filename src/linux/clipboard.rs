@@ -3,7 +3,7 @@
 //! again from Hex until another client takes the clipboard. Wayland reads
 //! and serves through ext-data-control or wlr-data-control. X11 uses its own selection owner,
 //! because `x11-clipboard` serves a single target. A Wayland desktop with
-//! neither protocol (GNOME's Mutter) restores nothing unless Labs › Restore
+//! neither protocol (GNOME's Mutter) restores nothing unless Restore
 //! clipboard on GNOME is on and XWayland already runs: then the paste reads
 //! and restores the CLIPBOARD selection through XWayland, which Mutter
 //! bridges to Wayland apps both ways (#1111). Hex never starts XWayland.
@@ -75,7 +75,7 @@ impl Selection {
             Self::Wayland | Self::XWayland => {
                 if uses_xwayland(
                     wayland::offers_data_control(),
-                    crate::labs::gnome_clipboard_restore(),
+                    crate::features::gnome_clipboard_restore(),
                     xwayland_running,
                 ) {
                     Self::XWayland
@@ -139,7 +139,7 @@ impl Selection {
 
 /// Whether this is a Wayland session whose compositor offers no
 /// data-control protocol (GNOME), so pastes restore the clipboard only
-/// through Labs › Restore clipboard on GNOME.
+/// through Restore clipboard on GNOME.
 pub(crate) fn wayland_without_data_control() -> bool {
     crate::linux::session::LinuxSession::detect().is_wayland() && !wayland::offers_data_control()
 }
@@ -624,7 +624,7 @@ mod wayland {
 
     fn missing() -> color_eyre::eyre::Report {
         eyre!(
-            "the compositor offers no ext-data-control or wlr-data-control clipboard access; Labs › Restore clipboard on GNOME restores it through XWayland while XWayland runs"
+            "the compositor offers no ext-data-control or wlr-data-control clipboard access; Hex restores it through XWayland while XWayland runs"
         )
     }
 

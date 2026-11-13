@@ -11,20 +11,20 @@ pub(super) fn shortcuts(settings: &AppSettings) -> (LinuxHotkey, HotkeyOptions) 
             && settings.double_tap_only
             && settings.dictation_hotkey.key.is_some(),
         toggle: settings.shortcut_mode == crate::dictation::ShortcutMode::Toggle,
-        // Labs › Tap or hold, off by default; it acts only in Toggle mode.
+        // Tap or hold acts only in Toggle mode.
         tap_or_hold: settings.shortcut_mode == crate::dictation::ShortcutMode::Toggle
-            && crate::labs::Feature::TapOrHold.on(settings),
+            && crate::features::tap_or_hold(),
         paste_last: settings.paste_last_hotkey.as_ref().map(LinuxHotkey::from),
         raw_dictation: settings
             .raw_dictation_hotkey
             .as_ref()
             .map(LinuxHotkey::from),
-        // Only while Labs › Transform typed text is on: off registers nothing.
+        // Only while Transform typed text is on: off registers nothing.
         typed_text: settings.active_typed_text_hotkey().map(LinuxHotkey::from),
         terminal_paste: settings
             .active_terminal_paste_hotkey()
             .map(LinuxHotkey::from),
-        // Labs › Second dictation shortcut: off registers nothing, and a
+        // Second dictation shortcut: off registers nothing, and a
         // keyless saved binding never runs on Linux.
         second_dictation: settings
             .active_second_dictation_hotkey()

@@ -59,7 +59,7 @@ pub enum HistoryAction {
         output: crate::control::cli::Output,
     },
     /// Sum up the retained dictations: words, speaking speed, top apps,
-    /// how often Output changed the text, and the daily streak (Labs ›
+    /// how often Output changed the text, and the daily streak (
     /// Dictation stats). Read-only.
     Stats {
         /// Lower time bound: 3d, today, YYYY-MM-DD, or RFC 3339.
@@ -109,10 +109,10 @@ pub enum MeetingsCommand {
         md: bool,
         #[arg(long)]
         json: bool,
-        /// SubRip subtitles, one cue per speaker turn (Labs › Subtitle export).
+        /// SubRip subtitles, one cue per speaker turn (Subtitle export).
         #[arg(long, conflicts_with_all = ["md", "json", "vtt"])]
         srt: bool,
-        /// WebVTT subtitles, one cue per speaker turn (Labs › Subtitle export).
+        /// WebVTT subtitles, one cue per speaker turn (Subtitle export).
         #[arg(long, conflicts_with_all = ["md", "json"])]
         vtt: bool,
         /// Only entries overlapping this offset or later: mm:ss, h:mm:ss, or seconds.
@@ -125,7 +125,7 @@ pub enum MeetingsCommand {
         #[arg(long, conflicts_with_all = ["from", "to"])]
         chapter: Option<usize>,
     },
-    /// List a meeting's chapters (Labs), by id, unique
+    /// List a meeting's chapters, by id, unique
     /// prefix, or latest.
     Chapters {
         id: String,
@@ -178,7 +178,7 @@ struct HistoryRow<'a> {
     score: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     snippet: Option<String>,
-    /// The entry's kept audio file (Labs › Keep recordings), while it is
+    /// The entry's kept audio file (Keep recordings), while it is
     /// still beside the store.
     #[serde(skip_serializing_if = "Option::is_none")]
     recording: Option<String>,
@@ -345,19 +345,9 @@ fn stats_output(
 
 /// Dictation stats are a Labs feature, refused before History is read
 /// while its toggle is off.
-fn require_history_stats(on: bool) -> Result<()> {
-    if on {
-        Ok(())
-    } else {
-        Err(eyre!(
-            "Dictation stats are a Labs feature and are off. Turn them on with `hex labs on history-stats` or in Settings › Labs."
-        ))
-    }
-}
 
 /// `hex history stats`.
 fn history_stats(since: Option<&str>, until: Option<&str>, json: bool) -> Result<()> {
-    require_history_stats(crate::labs::history_stats())?;
     let root = crate::app_paths::support_dir()?;
     let entries = crate::history::read_snapshot(&root.join("history.json"))
         .wrap_err("could not read history.json")?;
@@ -406,11 +396,10 @@ fn stats_text(stats: &HistoryStats) -> String {
     text
 }
 
-/// Labs › Keep recordings for `hex history`, read from the saved settings:
-/// this command never applies them to the process, so the runtime switch
-/// (`crate::labs::keep_recordings`) can read off while the lab is on.
+/// Keep recordings for `hex history`, read from the saved settings: this
+/// command never applies them to the process.
 fn keep_recordings(settings: &AppSettings) -> bool {
-    crate::labs::Feature::KeepRecordings.saved_on(settings)
+    settings.preferences.keep_recordings
 }
 
 pub fn history(args: &HistoryArgs) -> Result<()> {
@@ -617,9 +606,7 @@ pub fn meetings(command: &MeetingsCommand) -> Result<()> {
             ..
         } => {
             let subtitles = SubtitleFormat::from_flags(*srt, *vtt);
-            if subtitles.is_some() {
-                require_subtitle_export(crate::labs::subtitle_export())?;
-            }
+            if subtitles.is_some() {}
             let range = OffsetRange::parse(from.as_deref(), to.as_deref())?;
             let meeting = resolve(&library, id)?;
             if let Some(format) = subtitles {
@@ -712,15 +699,6 @@ impl SubtitleFormat {
 
 /// Subtitle export is a Labs feature, refused before any meeting is read
 /// while its toggle is off.
-fn require_subtitle_export(on: bool) -> Result<()> {
-    if on {
-        Ok(())
-    } else {
-        Err(eyre!(
-            "Subtitle export is a Labs feature and is off. Turn it on with `hex labs on subtitle-export` or in Settings › Labs."
-        ))
-    }
-}
 
 /// One cue per transcript entry (a speaker turn), timed by the entry's
 /// offsets from the meeting's start and labelled You or Them.

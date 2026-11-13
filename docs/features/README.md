@@ -10,6 +10,33 @@ and model-download recovery guidance. The initial map was source-only. Listed ch
 locators unless an executed result is explicitly recorded, as in the
 [keyboard-layout verification](recovery.md#keyboard-layout-resolution).
 
+## The window (Pilot)
+
+The window is built around the assistant. The sidebar, top to bottom:
+
+```ts
+Assistant                 // the one stream: requests, answers, job cards with their plan; the window opens here
+Assistant settings        // agent & model, shortcuts (Action, Stop all), how it works, apps & windows,
+                          // blocked apps, web & accounts, voice, notifications, phone, memory
+Voice to text             // group heading
+├── Dictation             // shortcut + mode, speech model, language, vocabulary, microphone;
+│                         // Text: After dictating, Live text, Spoken formatting, Remove filler words;
+│                         // Advanced: shortcut side, keyboard-language switching, Bluetooth mic, mic linger,
+│                         // unload model, Caps Lock, While dictating (+ only on speakers), HUD, paste last
+├── History
+├── Output
+└── Meetings              // the opt-in card while off (macOS)
+Annotate / Voice Filter   // only where the build has them (Voice Filter: an installed driver's Uninstall)
+General                   // appearance, interface language, launch at login, Dock, menu bar icon,
+                          // ⌘Q closes the window, Run setup again, update channel, sounds
+```
+
+The first run is agent first: it sets up the speech model and permissions,
+then the assistant's pages (agent, permissions, a spoken task), and ends on
+the stream; the dictation demo and practice are passed over where the
+assistant runs. Labs is gone: [labs.md](labs.md) records what became of each
+former lab.
+
 ## Product Map
 
 ```ts
@@ -30,9 +57,8 @@ have detailed maps.
 automation (strobe's benches) read from the window, the HUD, and the capsules.
 Agents can [read retained transcripts](transcript-cli.md) and
 [control the running app](control-cli.md) with the release CLI.
-[Labs](labs.md) gives every unfinished feature its own switch, off by
-default, listed under collapsible groups (Dictation, Output, History,
-Meetings, Annotate, Shortcuts, Models) with only this OS's labs.
+[Labs](labs.md) is retired: each former lab graduated, became a setting, or
+was removed.
 The [Assistant](assistant.md) (macOS, on by default in this fork, graduated
 from Labs) answers, acts, or starts a background job when you hold the
 Action shortcut and speak; Chats lists its conversations, and its switch is
@@ -63,8 +89,6 @@ The [vocabulary](vocabulary.md) biases transcription toward names you list.
 models another app already downloaded.
 [Annotate](capture.md) (macOS, Linux,
 and Windows) records the screen while you draw and talk and sends it to an agent.
-[Screenshots](labs.md) (Labs, macOS) takes CleanShot-style ⌘⇧4 area and
-window screenshots.
 The other capabilities stay here until they need their own verification recipe.
 
 ## Get Ready

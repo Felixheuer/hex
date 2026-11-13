@@ -225,9 +225,7 @@ fn shortcut_rows(ui: &Ui, p: Paint, view: &ScrawlView) -> Vec<El> {
         keys_button(ui, p, ShortcutTarget::Capture),
     )];
     #[cfg(target_os = "macos")]
-    if crate::labs::Feature::AnnotateReplay.on_this_os()
-        && crate::labs::Feature::AnnotateReplay.on(&ui.settings)
-    {
+    if crate::features::annotate_replay() {
         let mut control = row()
             .key("capture-replay-shortcut-control")
             .gap(4.0)
@@ -528,7 +526,6 @@ mod tests {
         };
         let mut settings = AppSettings::default();
         settings.capture.enabled = false;
-        settings.labs.screenshots = true;
         settings.screenshots.record_hotkey = Some(record.clone());
         settings.capture.hotkey = record;
         let before = serde_json::to_value(&settings).unwrap();
@@ -539,14 +536,7 @@ mod tests {
         );
         assert_eq!(serde_json::to_value(&settings).unwrap(), before);
 
-        // With the Lab off, the saved record shortcut still holds the key:
-        // Annotate can't take it until the record shortcut is cleared.
-        settings.labs.screenshots = false;
-        assert!(
-            set_enabled(&mut settings, true)
-                .unwrap_err()
-                .contains("already in use")
-        );
+        // The saved record shortcut holds the key until it is cleared.
         settings.screenshots.record_hotkey = None;
         set_enabled(&mut settings, true).unwrap();
         assert!(settings.capture.enabled);
@@ -675,7 +665,6 @@ mod tests {
     fn opening_the_pane_reads_screen_recording_again() {
         let mut rt = pane("mac-scrawl");
         tap(&mut rt, "nav-general");
-        tap(&mut rt, "nav-labs");
         tap(&mut rt, "nav-annotate");
         assert_eq!(
             asked(&rt),

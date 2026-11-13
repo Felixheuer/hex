@@ -1,4 +1,4 @@
-//! Live chapters (Labs). While a meeting records,
+//! Live chapters. While a meeting records,
 //! Apple's on-device model reads each ~3 minutes of settled transcript and
 //! says whether it is still the current chapter's topic or a new one, with a
 //! short name and one line. After Stop, one call per change labels the lines
@@ -918,7 +918,7 @@ pub(super) fn retitle_export(manifest: &mut MeetingManifest, previous: &str) {
         super::export_name::rename_to_title(
             manifest,
             &title,
-            crate::labs::meeting_descriptive_filenames(),
+            crate::features::meeting_descriptive_filenames(),
         );
         super::notes_file::refresh(manifest);
     }

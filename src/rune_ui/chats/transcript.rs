@@ -510,7 +510,23 @@ pub(super) fn in_flight(ui: &Ui, p: Paint, id: &str, turn: &Turn) -> El {
     )
 }
 
+/// Whether `message` only says a request was stopped (by the person, or
+/// because it moved to the background): a state, not an error.
+pub(super) fn is_stop(message: &str) -> bool {
+    let message = message.trim();
+    message.is_empty() || message == "Stopped." || message == "Stopped"
+}
+
+/// A request that went wrong, in the danger tone; a mere stop is a quiet
+/// line instead ([`is_stop`]).
 pub(super) fn error_row(p: Paint, key: &str, message: &str) -> El {
+    if is_stop(message) {
+        return text(tr("Stopped"))
+            .key(key.to_owned())
+            .role("status")
+            .font(DESCRIPTION)
+            .color(p.faint());
+    }
     row()
         .key(key.to_owned())
         .role("status")

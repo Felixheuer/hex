@@ -1,5 +1,5 @@
 //! A mode's speech choice follows the foreground application, as keyboard
-//! language switching follows the input source (Labs › Switch model with app).
+//! language switching follows the input source (Switch model with app).
 //!
 //! Matching is by application on macOS and Windows alike: a mode's website
 //! rules are ignored. Hex's own window, and a moment with no application in

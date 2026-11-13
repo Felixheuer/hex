@@ -39,7 +39,7 @@ fn paste_with_shift_into(stem: Option<&str>, terminal_paste: bool) -> bool {
     terminal_paste && !stem.is_some_and(|stem| PLAIN_PASTE_STEMS.contains(&stem))
 }
 
-/// A paste with Ctrl+Shift+V when this capture asks for it (Labs › Terminal
+/// A paste with Ctrl+Shift+V when this capture asks for it (Terminal
 /// paste shortcut) or the saved Terminal paste setting is on.
 fn shift_paste(for_this_capture: bool, terminal_paste: bool) -> bool {
     for_this_capture || terminal_paste
@@ -122,7 +122,7 @@ impl ClipboardRestore {
         self.generation
     }
 
-    /// Labs › Keep dictation on clipboard: the paste stays on the clipboard,
+    /// Keep dictation on clipboard: the paste stays on the clipboard,
     /// so no earlier snapshot may come back and any pending restore stands
     /// down.
     fn keep(&mut self) {
@@ -154,7 +154,7 @@ impl WindowsPaster {
             .unwrap_or_else(|error| error.into_inner());
         let original_sequence = clipboard_sequence();
         // Read as the paste commits, so the toggle applies at once.
-        let keep = crate::labs::keep_on_clipboard();
+        let keep = crate::features::keep_on_clipboard();
         // A clipboard Hex can't snapshot (an app's private format) never
         // blocks the paste: the transcript still goes in, and that
         // clipboard just isn't restored afterwards. Keeping the paste needs
@@ -177,7 +177,7 @@ impl WindowsPaster {
             ));
         }
         if keep {
-            // Labs › Keep dictation on clipboard: an ordinary entry, so
+            // Keep dictation on clipboard: an ordinary entry, so
             // Windows keeps it in clipboard history (Win+V) and cloud sync,
             // as macOS keeps its kept entry ordinary too.
             self.clipboard
@@ -234,7 +234,7 @@ impl WindowsPaster {
         Ok(())
     }
 
-    /// Labs › Copy dictation only: leaves `text` on the clipboard for the
+    /// Copy dictation only: leaves `text` on the clipboard for the
     /// user to paste, with no keystroke and no restore. A pending restore
     /// stands down and no earlier snapshot comes back.
     pub fn copy_only(&mut self, text: &str) -> Result<()> {

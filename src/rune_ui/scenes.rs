@@ -89,39 +89,19 @@ pub(super) const SCENES: &[Scene] = &[
         ui.history.clear_armed = true;
         ui.pane = Pane::History;
     }),
-    // Labs › Dictation stats: the Stats button with its dialog open.
+    // Dictation stats: the Stats button with its dialog open.
     ("history-stats", |ui| {
         *ui = portal_fixture();
         ui.history = history::HistoryPane::fixture();
         ui.history.stats = Some(history::HistoryPane::fixture_stats());
         ui.history.stats_open = true;
-        ui.settings.labs.history_stats = true;
-        crate::labs::apply(&ui.settings.labs);
         ui.pane = Pane::History;
     }),
-    // Labs › Select multiple dictations: two entries selected, with the card
-    // that copies or deletes them.
+    // Two entries selected, with the card that copies or deletes them.
     ("history-selection", |ui| {
         *ui = portal_fixture();
         ui.history = history::HistoryPane::fixture_selection();
-        ui.settings.labs.history_multi_select = true;
         ui.pane = Pane::History;
-    }),
-    // Labs › Screenshots' Captures: a shot, a recording with its words, and
-    // an older shot; and before any.
-    #[cfg(hex_capture)]
-    ("captures", |ui| {
-        *ui = portal_fixture();
-        ui.settings.labs.screenshots = true;
-        ui.captures = captures::CapturesPane::fixture();
-        ui.pane = Pane::Captures;
-    }),
-    #[cfg(hex_capture)]
-    ("captures-empty", |ui| {
-        *ui = portal_fixture();
-        ui.settings.labs.screenshots = true;
-        ui.captures = captures::CapturesPane::fixture_empty();
-        ui.pane = Pane::Captures;
     }),
     ("history-empty", |ui| {
         *ui = portal_fixture();
@@ -180,11 +160,10 @@ pub(super) const SCENES: &[Scene] = &[
         ui.open = Some(Menu::Transformations);
         ui.pane = Pane::Modes;
     }),
-    // Labs › Switch model with app: each mode's speech model and language.
+    // Switch model with app: each mode's speech model and language.
     ("modes-speech", |ui| {
         *ui = mac_fixture();
         modes::fixture(ui);
-        ui.settings.labs.app_model_switching = true;
         ui.settings.dictation_processing.modes[0].speech =
             Some(crate::app_settings::KeyboardModelChoice {
                 model: TranscriptionModelId::ParakeetV3,
@@ -201,7 +180,7 @@ pub(super) const SCENES: &[Scene] = &[
         *ui = portal_fixture();
         picker::fixture(ui, Some(TranscriptionModelId::CohereTranscribe));
     }),
-    // Labs › Parakeet Ultra: its card's details, credit, and published
+    // Parakeet Ultra: its card's details, credit, and published
     // benchmarks (lists Ultra only where the saved settings turn it on).
     ("picker-parakeet-ultra", |ui| {
         *ui = portal_fixture();
@@ -351,7 +330,7 @@ pub(super) const SCENES: &[Scene] = &[
     ("mac-input-source-models", |ui| {
         use crate::app_settings::KeyboardModelChoice;
         *ui = mac_fixture();
-        ui.advanced = vec![Pane::General];
+        ui.advanced = vec![Pane::Dictation];
         ui.settings.keyboard_model_switching.enabled = true;
         ui.settings.keyboard_model_switching.mappings = [
             (
@@ -432,7 +411,7 @@ pub(super) const SCENES: &[Scene] = &[
             devices.system_default = Some("MacBook Pro Microphone".into());
             devices.bluetooth_default_passed_over = Some("Alex Pods".into());
         }
-        ui.advanced = vec![Pane::General];
+        ui.advanced = vec![Pane::Dictation];
     }),
     ("mac-settings-vocabulary", |ui| {
         *ui = mac_fixture();
@@ -492,7 +471,7 @@ pub(super) const SCENES: &[Scene] = &[
     }),
     ("mac-settings-advanced", |ui| {
         *ui = mac_fixture();
-        ui.advanced = vec![Pane::General];
+        ui.advanced = vec![Pane::Dictation];
     }),
     ("mac-settings-dev-channel", |ui| {
         *ui = mac_fixture();
@@ -697,53 +676,28 @@ pub(super) const SCENES: &[Scene] = &[
         ui.platform.developer = true;
         ui.pane = Pane::HudLab;
     }),
-    ("mac-labs", labs_with_some_on),
-    // Where hex://labs/vocabulary-biasing lands: its group's chip.
-    ("mac-labs-link", |ui| {
+    // General: the app itself, and the Dictation pane's Advanced fold.
+    ("mac-general", |ui| {
         *ui = mac_fixture();
-        ui.labs_open = true;
-        ui.lab_store.group = Some(crate::labs::Feature::VocabularyBiasing.group());
+        ui.pane = Pane::General;
     }),
-    ("mac-labs-on", |ui| {
-        labs_with_some_on(ui);
-        ui.lab_store.tab = labs::Tab::On;
+    ("mac-dictation-advanced", |ui| {
+        *ui = mac_fixture();
+        ui.settings.release_microphone_while_idle = true;
+        ui.settings.preferences.keep_microphone_open_seconds = Some(60);
+        ui.advanced.push(Pane::Dictation);
+        ui.pane = Pane::Dictation;
     }),
-    ("mac-labs-category", |ui| {
-        labs_with_some_on(ui);
-        ui.lab_store.group = Some(crate::labs::Group::Shortcuts);
-    }),
-    ("mac-labs-search", |ui| {
-        labs_with_some_on(ui);
-        ui.lab_store.search = rune::TextEdit::new("paste".to_string());
-    }),
-    // A lab's own settings on its card while it's on.
-    ("mac-labs-settings", |ui| {
-        labs_with_some_on(ui);
-        ui.settings.labs.unload_idle = true;
-        ui.lab_store.group = Some(crate::labs::Feature::UnloadIdle.group());
-    }),
-    // Labs › Screenshots' card while on (macOS only: elsewhere the lab has
-    // no row).
-    ("mac-labs-screenshots", |ui| {
-        labs_with_some_on(ui);
-        ui.settings.labs.screenshots = true;
-        ui.lab_store.group = Some(crate::labs::Feature::Screenshots.group());
-    }),
-    // Labs on Windows and Linux: only their OS's labs, groups holding a
-    // lab that's on open.
-    ("windows-labs", |ui| {
+    ("windows-general", |ui| {
         *ui = fixture(DesktopShortcuts::Registered);
         ui.platform = platform::PlatformState::preview(platform::Capabilities::WINDOWS);
         ui.host = platform::PlatformHost::Fixture(Vec::new());
-        ui.settings.paste_with_shift = true;
-        ui.labs_open = true;
+        ui.pane = Pane::General;
     }),
-    ("linux-labs", |ui| {
+    ("linux-general", |ui| {
         *ui = portal_fixture();
         ui.platform.caps = platform::Capabilities::LINUX;
-        ui.settings.labs.skip_pauses = true;
-        ui.settings.labs.typed_text = true;
-        ui.labs_open = true;
+        ui.pane = Pane::General;
     }),
     ("mac-production", |ui| {
         *ui = mac_fixture();
@@ -980,7 +934,7 @@ pub(super) const SCENES: &[Scene] = &[
     }),
     ("mac-settings-sides", |ui| {
         *ui = mac_fixture();
-        ui.advanced = vec![Pane::General];
+        ui.advanced = vec![Pane::Dictation];
         ui.settings.dictation_hotkey = HotkeyBinding {
             modifiers: HotkeyModifiers {
                 option: Some(crate::app_settings::ModifierSide::Left),
@@ -1200,22 +1154,4 @@ pub(super) fn fixture(shortcuts: DesktopShortcuts) -> Ui {
         editing: false,
     });
     ui
-}
-
-/// Labs with a few labs on: every store scene's fixture, so a lab reads
-/// the same in each.
-fn labs_with_some_on(ui: &mut Ui) {
-    *ui = mac_fixture();
-    for feature in [
-        crate::labs::Feature::LiveText,
-        crate::labs::Feature::SmartSpacing,
-        crate::labs::Feature::TapOrHold,
-    ] {
-        feature.set(&mut ui.settings, true);
-    }
-    #[cfg(hex_capture)]
-    {
-        ui.platform.scrawl = Some(platform::ScrawlView::preview());
-    }
-    ui.labs_open = true;
 }

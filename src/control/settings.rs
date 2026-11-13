@@ -48,34 +48,16 @@ fn unavailable_under(name: &str, policy: crate::policy::Policy) -> Option<Contro
     if let Some(lock) = policy.setting_lock(name) {
         return Some(managed(name, lock));
     }
-    if let Some(feature) = crate::labs::Feature::for_settings_key(name)
-        && !feature.shipped()
-    {
+    if name.starts_with("screenshots.") || name == "capture.replay_hotkey" {
         return Some(ControlError::new(
             "unsupported",
-            format!("`{name}` belongs to a Labs feature that only dev builds have"),
-        ));
-    }
-    // A `labs.` key is only its feature's switch, so off its OS it does nothing.
-    if let Some(feature) = crate::labs::Feature::for_settings_key(name)
-        && (name.starts_with("labs.") || name == "capture.replay_hotkey")
-        && !feature.on_this_os()
-    {
-        return Some(ControlError::new(
-            "unsupported",
-            format!("`{name}` belongs to a Labs feature this OS doesn't have"),
-        ));
-    }
-    if name.starts_with("screenshots.") && !cfg!(target_os = "macos") {
-        return Some(ControlError::new(
-            "unsupported",
-            format!("`{name}` belongs to Labs › Screenshots, which only macOS has"),
+            format!("`{name}` belongs to a feature Hex no longer has"),
         ));
     }
     if name == "extra_dictation_hotkeys" && !cfg!(target_os = "macos") {
         return Some(ControlError::new(
             "unsupported",
-            format!("`{name}` belongs to Labs › More dictation shortcuts, which only macOS has"),
+            format!("`{name}` (more dictation shortcuts) is macOS only"),
         ));
     }
     let capability = needs(name).filter(|capability| !crate::rune_ui::capability(capability))?;
@@ -101,7 +83,7 @@ fn keys() -> impl Iterator<Item = &'static Key> {
 
 /// Settings `hex settings` never shows: Hex's own bookkeeping.
 #[cfg(test)]
-const INTERNAL: &[&str] = &["migrations", "mouse_shortcut_notice", "labs.groups"];
+const INTERNAL: &[&str] = &["migrations"];
 
 /// Settings another `hex` command edits instead (`hex vocabulary`).
 #[cfg(test)]
@@ -186,6 +168,15 @@ pub fn get(settings: &AppSettings, name: &str) -> Result<Vec<SettingValue>, Cont
 }
 
 fn unknown(name: &str) -> ControlError {
+    if name == "labs" || name.starts_with("labs.") {
+        return ControlError::new(
+            "unknown-setting",
+            format!(
+                "`{name}`: Labs is gone. Its features are always on now, or became \
+                 `preferences.*` settings; run `hex settings get preferences` for those."
+            ),
+        );
+    }
     if let Some((_, replacement)) = RETIRED.iter().find(|(retired, _)| *retired == name) {
         return ControlError::new(
             "unknown-setting",
@@ -310,7 +301,7 @@ pub fn apply(
                     && !candidate.double_tap_modifiers_allowed())
             {
                 let modifier_only = if cfg!(target_os = "macos") {
-                    ", or with Labs › Double-tap on a lone modifier on, a shortcut without a key"
+                    ", or a shortcut without a key"
                 } else {
                     ""
                 };
@@ -323,7 +314,6 @@ pub fn apply(
                 ));
             }
         }
-        "labs.double_tap_modifiers" => candidate.normalize_double_tap_settings(),
         "dictation_hotkey"
         | "paste_last_hotkey"
         | "raw_dictation_hotkey"
@@ -387,8 +377,8 @@ pub fn apply(
                     )?;
                 }
             }
-            // A row can't be double-tap only without a key, or with Labs ›
-            // Double-tap on a lone modifier, without a key but modifiers.
+            // A row can't be double-tap only without a key, except on macOS
+            // with modifiers alone.
             let modifiers_allowed = candidate.double_tap_modifiers_allowed();
             for row in &mut candidate.extra_dictation_hotkeys {
                 row.mode = row
@@ -428,27 +418,9 @@ pub fn apply(
                  shortcut first",
             ));
         }
-        "labs.screenshots"
-            if candidate.labs.screenshots
-                && candidate
-                    .hotkey_in_use(HotkeySlot::Screenshot, &candidate.screenshots.hotkey) =>
-        {
-            return Err(ControlError::new(
-                "shortcut-in-use",
-                "The screenshot shortcut is already in use; set screenshots.hotkey to another \
-                 shortcut first",
-            ));
-        }
-        "labs.standalone_special_keys" => candidate.repair_special_keys(),
-        "labs.section_key_alone" => candidate.repair_section_key(),
         // On, an Action shortcut another shortcut took meanwhile is unbound.
         "assistant.enabled" => {
             candidate.repair_action_shortcut();
-        }
-        "labs.parakeet_ultra" if !candidate.labs.parakeet_ultra => {
-            if let Some(why) = crate::labs::Feature::ParakeetUltra.off_refusal(settings) {
-                return Err(invalid(name, why));
-            }
         }
         "history_retention" => effects.push(Effect::HistoryRetention(candidate.history_retention)),
         "show_dock_icon" => effects.push(Effect::DockIcon),
@@ -611,11 +583,11 @@ fn parse(key: &Key, raw: &str, shortcuts: &ShortcutRules) -> Result<Value, Contr
                 let minutes: u8 = choice.parse().expect("lead choices are numbers");
                 debug_assert!(CALENDAR_LEAD_MINUTES.contains(&minutes));
                 Value::from(minutes)
-            } else if name == "labs.unload_idle_minutes" {
+            } else if name == "preferences.unload_model_after_minutes" {
                 let minutes: u32 = choice.parse().expect("idle choices are numbers");
                 debug_assert!(crate::app_settings::UNLOAD_IDLE_MINUTES.contains(&minutes));
                 Value::from(minutes)
-            } else if name == "labs.keep_microphone_open_seconds" {
+            } else if name == "preferences.keep_microphone_open_seconds" {
                 let seconds: u32 = choice.parse().expect("linger choices are numbers");
                 debug_assert!(crate::app_settings::KEEP_MICROPHONE_OPEN_SECONDS.contains(&seconds));
                 Value::from(seconds)
@@ -666,90 +638,14 @@ mod tests {
             assert!(error.message.contains("managed by your organization"));
         }
         assert!(unavailable_under("sound_effects", policy).is_none());
-        assert!(unavailable_under("labs.live_text", policy).is_none());
-        let labs = Policy::default().with(Lock::Labs);
-        assert_eq!(
-            unavailable_under("labs.live_text", labs).map(|error| error.code),
-            Some("managed")
-        );
-        assert!(unavailable_under("labs.live_text", Policy::default()).is_none());
+        assert!(unavailable_under("preferences.live_text", policy).is_none());
     }
 
     #[test]
-    fn a_labs_switch_for_another_os_is_refused() {
-        let refused = unavailable_under("labs.notch_indicator", crate::policy::Policy::default())
-            .map(|error| error.code);
-        if cfg!(target_os = "macos") {
-            assert_eq!(refused, None);
-        } else {
-            assert_eq!(refused, Some("unsupported"));
-        }
-    }
-
-    /// A saved record shortcut and Annotate's shortcut can't share a chord
-    /// with either off. The reported sequence: Annotate off with the Lab on
-    /// and a record shortcut saved. Setting Annotate's shortcut to the
-    /// record chord is refused, and so is setting the record shortcut to
-    /// Annotate's chord. The old code allowed both, and Annotate then won
-    /// the key at runtime, recording the whole screen.
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn the_screenshot_lab_and_annotate_never_share_a_shortcut() {
-        let chord = |code: u16, label: &str, modifiers: crate::app_settings::HotkeyModifiers| {
-            HotkeyBinding {
-                modifiers,
-                key: Some(HotkeyKey {
-                    code,
-                    label: label.into(),
-                }),
-            }
-        };
-        let mut settings = AppSettings {
-            capture: crate::app_settings::CaptureSettings {
-                enabled: false,
-                ..Default::default()
-            },
-            ..AppSettings::default()
-        };
-        settings.labs.screenshots = true;
-        settings.capture.hotkey = chord(
-            u16::from(b's'),
-            "S",
-            crate::app_settings::HotkeyModifiers {
-                option: Some(ModifierSide::Either),
-                shift: Some(ModifierSide::Either),
-                ..Default::default()
-            },
-        );
-        let record = chord(
-            u16::from(b'r'),
-            "R",
-            crate::app_settings::HotkeyModifiers {
-                command: Some(ModifierSide::Either),
-                shift: Some(ModifierSide::Either),
-                ..Default::default()
-            },
-        );
-        settings.screenshots.record_hotkey = Some(record.clone());
-
-        let error = apply(
-            &settings,
-            "capture.hotkey",
-            &format_hotkey(&record),
-            &rules(),
-        )
-        .unwrap_err();
-        assert_eq!(error.code, "shortcut-in-use");
-
-        let annotate = settings.capture.hotkey.clone();
-        let error = apply(
-            &settings,
-            "screenshots.record_hotkey",
-            &format_hotkey(&annotate),
-            &rules(),
-        )
-        .unwrap_err();
-        assert_eq!(error.code, "shortcut-in-use");
+    fn a_labs_key_says_labs_is_gone() {
+        let error = apply(&AppSettings::default(), "labs.live_text", "on", &rules()).unwrap_err();
+        assert_eq!(error.code, "unknown-setting");
+        assert!(error.message.contains("Labs is gone"), "{}", error.message);
     }
 
     fn rules() -> ShortcutRules {
@@ -920,37 +816,37 @@ mod tests {
 
     #[test]
     fn a_microphone_linger_window_is_seconds_in_settings_json() {
-        let settings = apply(
-            &AppSettings::default(),
-            "labs.keep_microphone_open",
-            "on",
-            &rules(),
-        )
-        .unwrap()
-        .settings;
-        assert!(settings.labs.keep_microphone_open);
-        assert_eq!(
-            settings.labs.keep_microphone_open_for(),
-            Some(std::time::Duration::from_secs(60)),
-            "the default window"
-        );
         let change = apply(
-            &settings,
-            "labs.keep_microphone_open_seconds",
+            &AppSettings::default(),
+            "preferences.keep_microphone_open_seconds",
             "180",
             &rules(),
         )
         .unwrap();
-        assert_eq!(change.settings.labs.keep_microphone_open_seconds, 180);
         assert_eq!(
-            get(&change.settings, "labs.keep_microphone_open_seconds").unwrap()[0].value,
+            change.settings.preferences.keep_microphone_open_seconds,
+            Some(180)
+        );
+        assert_eq!(
+            get(&change.settings, "preferences.keep_microphone_open_seconds").unwrap()[0].value,
             Value::String("180".into()),
             "shown as its choice"
         );
+        let cleared = apply(
+            &change.settings,
+            "preferences.keep_microphone_open_seconds",
+            "none",
+            &rules(),
+        )
+        .unwrap();
+        assert_eq!(
+            cleared.settings.preferences.keep_microphone_open_seconds,
+            None
+        );
         assert_eq!(
             apply(
-                &settings,
-                "labs.keep_microphone_open_seconds",
+                &AppSettings::default(),
+                "preferences.keep_microphone_open_seconds",
                 "45",
                 &rules()
             )
@@ -999,16 +895,8 @@ mod tests {
     }
 
     #[test]
-    fn app_model_switching_is_named_and_modes_validate_their_speech_choice() {
-        let settings = apply(
-            &AppSettings::default(),
-            "labs.app_model_switching",
-            "on",
-            &rules(),
-        )
-        .unwrap()
-        .settings;
-        assert!(settings.labs.app_model_switching);
+    fn modes_validate_their_speech_choice() {
+        let settings = AppSettings::default();
         let modes = r#"[{"name":"Spanish","applications":["Notes"],"speech":{"model":"parakeet_v3","language":"es"}}]"#;
         let change = apply(&settings, "dictation_processing.modes", modes, &rules()).unwrap();
         assert_eq!(
@@ -1130,8 +1018,8 @@ mod tests {
             ("shortcut_mode", "tap"),
             ("meetings.calendar.lead_minutes", "3"),
             ("meetings.output_folder", "relative/path"),
-            ("labs.caps_lock_light", "fast"),
-            ("labs.appearance_theme", "sepia"),
+            ("preferences.caps_lock", "fast"),
+            ("preferences.appearance", "sepia"),
             ("dictation_processing.modes", "[{"),
         ] {
             assert_eq!(
@@ -1157,23 +1045,30 @@ mod tests {
         );
         let change = apply(&settings, "meetings.calendar.lead_minutes", "5", &rules()).unwrap();
         assert_eq!(change.settings.meetings.calendar.lead_minutes, 5);
-        let change = apply(&settings, "labs.caps_lock_light", "slow_blink", &rules()).unwrap();
+        let change = apply(&settings, "preferences.caps_lock", "slow_blink", &rules()).unwrap();
         assert_eq!(
-            change.settings.labs.caps_lock_light,
-            crate::app_settings::CapsLockLight::SlowBlink
+            change.settings.preferences.caps_lock,
+            crate::app_settings::CapsLockMode::SlowBlink
         );
         assert_eq!(
-            get(&change.settings, "labs.caps_lock_light").unwrap()[0].value,
+            get(&change.settings, "preferences.caps_lock").unwrap()[0].value,
             Value::String("slow_blink".into())
         );
-        let change = apply(&settings, "labs.appearance_theme", "dark", &rules()).unwrap();
+        let change = apply(&settings, "preferences.appearance", "dark", &rules()).unwrap();
         assert_eq!(
-            change.settings.labs.appearance_theme,
+            change.settings.preferences.appearance,
             crate::app_settings::AppearanceTheme::Dark
         );
+        let change = apply(
+            &settings,
+            "preferences.after_dictation",
+            "copy_only",
+            &rules(),
+        )
+        .unwrap();
         assert_eq!(
-            get(&change.settings, "labs.appearance_theme").unwrap()[0].value,
-            Value::String("dark".into())
+            change.settings.preferences.after_dictation,
+            crate::app_settings::AfterDictation::CopyOnly
         );
         let change = apply(&settings, "ui_language", "none", &rules()).unwrap();
         assert_eq!(change.settings.ui_language, None);
@@ -1248,60 +1143,26 @@ mod tests {
         );
     }
 
-    /// Issue 767: Menu alone (Caps Lock remapped to it) is a Linux
-    /// shortcut only with Labs › Special keys alone on, and turning the
-    /// toggle off puts it back to the default. Windows takes it alone
-    /// without the toggle (#794).
+    /// Issue 767: Menu alone (Caps Lock remapped to it) is a shortcut on
+    /// Linux and Windows (#794); macOS still asks for a modifier.
     #[test]
-    fn menu_alone_needs_its_labs_toggle() {
+    fn menu_alone_is_a_linux_and_windows_shortcut() {
         assert!(parse_hotkey("menu", rules().key_named).is_ok());
         assert!(parse_hotkey("space", rules().key_named).is_err());
-        let settings = AppSettings::default();
-        let without_toggle = apply(&settings, "dictation_hotkey", "menu", &rules());
-        if cfg!(target_os = "windows") {
-            let change = without_toggle.unwrap();
-            assert_eq!(format_hotkey(&change.settings.dictation_hotkey), "menu");
-            return;
-        }
-        assert_eq!(without_toggle.unwrap_err().code, "invalid-value");
-        let on = apply(&settings, "labs.standalone_special_keys", "on", &rules())
-            .unwrap()
-            .settings;
-        let change = apply(&on, "dictation_hotkey", "menu", &rules());
-        if cfg!(target_os = "linux") {
-            let change = change.unwrap();
-            assert_eq!(format_hotkey(&change.settings.dictation_hotkey), "menu");
-            let off = apply(
-                &change.settings,
-                "labs.standalone_special_keys",
-                "off",
-                &rules(),
-            )
-            .unwrap();
-            assert_eq!(off.settings.dictation_hotkey, HotkeyBinding::default());
+        let change = apply(
+            &AppSettings::default(),
+            "dictation_hotkey",
+            "menu",
+            &rules(),
+        );
+        if cfg!(any(target_os = "linux", target_os = "windows")) {
+            assert_eq!(
+                format_hotkey(&change.unwrap().settings.dictation_hotkey),
+                "menu"
+            );
         } else {
-            assert!(change.is_err(), "only Linux has the toggle");
+            assert_eq!(change.unwrap_err().code, "invalid-value");
         }
-    }
-
-    /// Issue 1050: § alone is a Linux shortcut only with Labs › Section key
-    /// alone on, and turning the toggle off puts it back to the default.
-    #[test]
-    fn section_alone_needs_its_labs_toggle() {
-        let settings = AppSettings::default();
-        let without_toggle = apply(&settings, "dictation_hotkey", "§", &rules());
-        assert_eq!(without_toggle.unwrap_err().code, "invalid-value");
-        if !cfg!(any(target_os = "linux", target_os = "macos")) {
-            return;
-        }
-        let on = apply(&settings, "labs.section_key_alone", "on", &rules())
-            .unwrap()
-            .settings;
-        let change = apply(&on, "dictation_hotkey", "§", &rules()).unwrap();
-        assert!(change.settings.dictation_hotkey.is_lone_section_key());
-        assert_eq!(format_hotkey(&change.settings.dictation_hotkey), "§");
-        let off = apply(&change.settings, "labs.section_key_alone", "off", &rules()).unwrap();
-        assert_eq!(off.settings.dictation_hotkey, HotkeyBinding::default());
     }
 
     #[test]
@@ -1462,7 +1323,8 @@ mod tests {
         .unwrap();
         assert_eq!(
             change.settings.extra_dictation_hotkeys[0].mode,
-            ExtraDictationMode::HoldOrDoubleTap
+            ExtraDictationMode::DoubleTap
+                .for_binding(None, change.settings.double_tap_modifiers_allowed())
         );
 
         // More than four rows are refused.
@@ -1521,11 +1383,10 @@ mod tests {
             "invalid-value"
         );
 
-        // Two rows can't share a key while their Lab is on (macOS).
+        // Two rows can't share a key (macOS).
         #[cfg(target_os = "macos")]
         {
-            let mut settings = AppSettings::default();
-            settings.labs.more_dictation_shortcuts = true;
+            let settings = AppSettings::default();
             assert_eq!(
                 apply(
                     &settings,
@@ -1567,14 +1428,20 @@ mod tests {
         let settings = AppSettings::default();
         let without_key = AppSettings {
             dictation_hotkey: parse_hotkey("option", rules().key_named).unwrap(),
+            double_tap_lock: false,
             ..settings.clone()
         };
+        // Without the double-tap lock no shortcut can be double-tap only.
         assert_eq!(
             apply(&without_key, "double_tap_only", "on", &rules())
                 .unwrap_err()
                 .code,
             "invalid-value"
         );
+        let without_key = AppSettings {
+            double_tap_lock: true,
+            ..without_key
+        };
         let with_key = apply(&without_key, "dictation_hotkey", "option+space", &rules())
             .unwrap()
             .settings;
@@ -1585,35 +1452,17 @@ mod tests {
     }
 
     #[test]
-    fn double_tap_only_takes_a_lone_modifier_with_the_lab() {
+    fn double_tap_only_takes_a_lone_modifier_on_macos() {
         let settings = AppSettings {
             dictation_hotkey: parse_hotkey("option", rules().key_named).unwrap(),
             ..AppSettings::default()
         };
-        let refused = apply(&settings, "double_tap_only", "on", &rules()).unwrap_err();
-        assert_eq!(refused.code, "invalid-value");
-        // Only macOS has the lab, so only there does the refusal name it.
-        assert_eq!(
-            refused
-                .message
-                .contains("Labs › Double-tap on a lone modifier"),
-            cfg!(target_os = "macos"),
-            "{}",
-            refused.message
-        );
-        let mut with_lab = settings.clone();
-        with_lab.labs.double_tap_modifiers = true;
-        if with_lab.double_tap_modifiers_allowed() {
-            let change = apply(&with_lab, "double_tap_only", "on", &rules()).unwrap();
-            assert!(change.settings.double_tap_only);
+        let result = apply(&settings, "double_tap_only", "on", &rules());
+        if cfg!(target_os = "macos") {
+            assert!(result.unwrap().settings.double_tap_only);
         } else {
-            assert!(apply(&with_lab, "double_tap_only", "on", &rules()).is_err());
+            assert_eq!(result.unwrap_err().code, "invalid-value");
         }
-        // Turning the lab off clears a modifier-only double-tap-only start.
-        with_lab.double_tap_only = true;
-        let change = apply(&with_lab, "labs.double_tap_modifiers", "off", &rules()).unwrap();
-        assert!(!change.settings.double_tap_only);
-        assert!(change.settings.double_tap_lock);
     }
 
     #[test]

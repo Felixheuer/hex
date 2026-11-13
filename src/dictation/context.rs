@@ -327,7 +327,7 @@ impl ContextSnapshot {
             // the app in front.
             if let Some(pid) = pid {
                 let pages = crate::accessibility::browser_pages(pid);
-                let more_call_apps = crate::labs::more_call_apps();
+                let more_call_apps = crate::features::more_call_apps();
                 let (url, title) = crate::dictation::browser_page::choose(
                     &pages,
                     |url| {
@@ -498,7 +498,7 @@ pub fn frontmost_bundle_path() -> Option<std::path::PathBuf> {
 }
 
 /// The frontmost application's display name, without reading a page or a
-/// window title: a dictation mode's application name (Labs › Switch model
+/// window title: a dictation mode's application name (Switch model
 /// with app). `None` when Hex itself owns the frontmost application, since
 /// its own window names no mode, or when macOS reports none.
 #[cfg(target_os = "macos")]

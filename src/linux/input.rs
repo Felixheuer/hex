@@ -203,11 +203,11 @@ fn keysym_name(key: &str) -> Result<String> {
         "," | "comma" => "comma",
         "." | "period" => "period",
         "/" | "slash" => "slash",
-        // Labs › Special keys alone; settings hold these only while it's on.
+        // Special keys alone; settings hold these only while it's on.
         "menu" => "Menu",
         "pause" => "Pause",
         "scroll lock" | "scrolllock" | "scroll_lock" => "Scroll_Lock",
-        // The ISO key left of 1; alone only with Labs › Section key alone.
+        // The ISO key left of 1; alone only with Section key alone.
         "§" | "section" => "section",
         key if key.len() == 1 && key.as_bytes()[0].is_ascii_alphanumeric() => key,
         key if key.starts_with('f')
@@ -249,7 +249,7 @@ pub(crate) const KEY_PRESS: u8 = 2;
 pub(crate) const KEY_RELEASE: u8 = 3;
 const RELEASE_GRACE: Duration = Duration::from_millis(50);
 pub(crate) const DOUBLE_TAP_WINDOW: Duration = Duration::from_millis(300);
-/// Labs › Tap or hold: a Toggle press held this long is a hold, as macOS's
+/// Tap or hold: a Toggle press held this long is a hold, as macOS's
 /// hold threshold.
 const TAP_OR_HOLD_THRESHOLD: Duration = Duration::from_millis(300);
 /// Desktops that repeat a held shortcut's press (KWin) repeat it sooner
@@ -271,7 +271,7 @@ const PORTAL_READY_TIMEOUT: Duration = Duration::from_secs(65);
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum HotkeyEvent {
     /// `flavour` is the shortcut that started the capture: dictation,
-    /// Dictate without processing, Labs › Terminal paste, or Labs › Second
+    /// Dictate without processing, Terminal paste, or Second
     /// dictation.
     Start {
         flavour: DictationFlavour,
@@ -282,7 +282,7 @@ pub(crate) enum HotkeyEvent {
     FinishPrinting(crate::control::PrintReply),
     Cancel,
     PasteLast,
-    /// Labs › Transform typed text: the focused field's text is processed
+    /// Transform typed text: the focused field's text is processed
     /// and replaced, while nothing records.
     TypedText,
     /// The Annotate key went down: nothing recording, a capture starts;
@@ -346,17 +346,17 @@ pub(crate) struct HotkeyOptions {
     /// Only a double-tap starts recording, which then stays locked.
     pub(crate) double_tap_only: bool,
     pub(crate) toggle: bool,
-    /// Labs › Tap or hold, in Toggle mode: a press held at least
+    /// Tap or hold, in Toggle mode: a press held at least
     /// [`TAP_OR_HOLD_THRESHOLD`] finishes its capture when it lifts.
     pub(crate) tap_or_hold: bool,
     pub(crate) paste_last: Option<LinuxHotkey>,
     /// Dictate without processing, while it is bound.
     pub(crate) raw_dictation: Option<LinuxHotkey>,
-    /// Labs › Transform typed text, while its lab is on and it is bound.
+    /// Transform typed text, while its lab is on and it is bound.
     pub(crate) typed_text: Option<LinuxHotkey>,
-    /// Labs › Terminal paste shortcut, while the lab is on and it is bound.
+    /// Terminal paste shortcut, while the lab is on and it is bound.
     pub(crate) terminal_paste: Option<LinuxHotkey>,
-    /// Labs › Second dictation shortcut, while the lab is on and it is bound:
+    /// Second dictation shortcut, while the lab is on and it is bound:
     /// another key that dictates exactly like the dictation shortcut.
     pub(crate) second_dictation: Option<LinuxHotkey>,
     /// Annotate's one key, while Annotate is on: tap to start and stop,
@@ -623,7 +623,7 @@ enum Shortcut {
     Capture,
     RawDictation,
     TerminalPaste,
-    /// Labs › Second dictation shortcut.
+    /// Second dictation shortcut.
     SecondDictation,
     /// The assistant's Action shortcut: hold to ask.
     Action,
@@ -723,7 +723,7 @@ struct ShortcutState {
     double_tap_only: bool,
     /// Every press acts as the second tap of a double-tap: releasing locks.
     toggle: bool,
-    /// Labs › Tap or hold in Toggle mode: a long press finishes on release.
+    /// Tap or hold in Toggle mode: a long press finishes on release.
     tap_or_hold: bool,
     /// Toggle mode has a cancel shortcut.
     cancels: bool,
@@ -739,7 +739,7 @@ struct ShortcutState {
     /// stop mean its keys came up.
     repeating: bool,
     /// The shortcut that owns the capture (or the last one): dictation,
-    /// Dictate without processing, Labs › Terminal paste, Labs › Second
+    /// Dictate without processing, Terminal paste, Second
     /// dictation, or the assistant's Action shortcut.
     flavour: DictationFlavour,
     /// The Action shortcut is registered, so Escape may be the assistant's.
@@ -956,7 +956,7 @@ impl ShortcutState {
                         self.last_release = Some(now);
                         None
                     }
-                    // Labs › Tap or hold: a Toggle press held long enough
+                    // Tap or hold: a Toggle press held long enough
                     // dictates only while held, as Hold does.
                     Capture::Held { second_tap: true }
                         if self.tap_or_hold
@@ -2369,7 +2369,7 @@ mod tests {
         }
     }
 
-    /// #1144: with Labs › Tap or hold, a held Toggle press dictates until it
+    /// #1144: with Tap or hold, a held Toggle press dictates until it
     /// lifts, and a short tap still locks until the next press.
     #[test]
     fn tap_or_hold_finishes_a_held_press_and_locks_a_tap() {

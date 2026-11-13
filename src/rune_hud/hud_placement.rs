@@ -21,7 +21,7 @@ pub const ISLAND_PAD: f64 = 7.0;
 /// The island's room either side of the plate: the same as above and
 /// below it, so the field sits evenly in the island.
 pub const ISLAND_INSET: f64 = ISLAND_PAD;
-/// How far Labs' notch indicator widens the notch on each side: room for
+/// How far the notch indicator widens the notch on each side: room for
 /// one glyph beside the camera, as the menu bar is tall.
 pub const EAR_WIDTH: f64 = 34.0;
 /// "Pretend notch" on a flat screen: a 14-inch MacBook Pro's notch width.
@@ -131,7 +131,7 @@ impl Default for Layout {
 /// A black island grown out of the notch: the notch's size, the island's
 /// open width, and the screen's top edge, from the window's middle, y down.
 /// `ears` keeps it the notch's height and widens it sideways only, with a
-/// glyph either side of the camera instead of Dot scope (Labs' notch
+/// glyph either side of the camera instead of Dot scope (the notch
 /// indicator).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Island {
@@ -253,7 +253,7 @@ pub fn place(placement: Placement, screen: &Screen, content: Content, bottom: bo
     }
 }
 
-/// Labs' notch indicator on `screen`: the notch widened by [`EAR_WIDTH`]
+/// the notch indicator on `screen`: the notch widened by [`EAR_WIDTH`]
 /// on each side at the notch's own height, or `None` on a screen without
 /// a notch.
 pub fn ears(screen: &Screen, content: Content) -> Option<Placed> {
@@ -275,7 +275,7 @@ pub fn ears(screen: &Screen, content: Content) -> Option<Placed> {
     })
 }
 
-/// Labs' notch indicator when `lab` is on and the HUD is shown: [`ears`]'
+/// the notch indicator when `lab` is on and the HUD is shown: [`ears`]'
 /// island on a notched screen, whatever the position setting, or `None`
 /// while Hidden or on a flat screen.
 pub fn notch_placement(

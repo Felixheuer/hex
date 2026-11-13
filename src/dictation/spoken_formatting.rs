@@ -1,4 +1,4 @@
-//! Labs › Spoken formatting: whole spoken phrases ("new line", "line
+//! Spoken formatting: whole spoken phrases ("new line", "line
 //! break", "new paragraph", "open quote", "close quote", and "quote" …
 //! "unquote" around words, #1167) become line breaks
 //! and quotation marks, in English and Spanish ("nuevo párrafo", "nueva

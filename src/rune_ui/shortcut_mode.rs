@@ -2,7 +2,7 @@
 //! of the three saved settings behind it (`shortcut_mode`, `double_tap_lock`,
 //! `double_tap_only`). Of their eight combinations only four behave
 //! differently: Toggle ignores both double-tap settings, and double-tap only
-//! needs the lock and a shortcut with a key (or, with Labs › Double-tap on a
+//! needs the lock and a shortcut with a key (or, with Double-tap on a
 //! lone modifier, a shortcut without a key, one or more modifiers). General's
 //! row names the choice and opens the modal in `explainer` that makes it.
 
@@ -101,7 +101,7 @@ impl Trigger {
 
     /// Why this shortcut can't trigger this way, if it can't: a shortcut
     /// without a key can't tell a double-tap from a chord without
-    /// Labs › Double-tap on a lone modifier.
+    /// Double-tap on a lone modifier.
     pub(super) fn unavailable(self, settings: &AppSettings) -> Option<String> {
         self.unavailable_for(
             Some(&settings.dictation_hotkey),
@@ -109,8 +109,8 @@ impl Trigger {
         )
     }
 
-    /// [`Self::unavailable`] for a Labs › More dictation shortcuts row, whose
-    /// binding is its own. `modifiers_allowed` is Labs › Double-tap on a lone
+    /// [`Self::unavailable`] for a More dictation shortcuts row, whose
+    /// binding is its own. `modifiers_allowed` is Double-tap on a lone
     /// modifier, which the row follows as the dictation shortcut does.
     pub(super) fn unavailable_for(
         self,
@@ -133,7 +133,7 @@ impl Trigger {
         })
     }
 
-    /// The choice that saves `mode` on a Labs › More dictation shortcuts row.
+    /// The choice that saves `mode` on a More dictation shortcuts row.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(super) fn from_extra(mode: ExtraDictationMode) -> Self {
         match mode {
@@ -144,7 +144,7 @@ impl Trigger {
         }
     }
 
-    /// The mode a Labs › More dictation shortcuts row saves for `self`.
+    /// The mode a More dictation shortcuts row saves for `self`.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(super) fn to_extra(self) -> ExtraDictationMode {
         match self {
@@ -264,7 +264,9 @@ mod tests {
                 settings.shortcut_mode = ShortcutMode::Toggle;
                 assert_eq!(Trigger::of(&settings), Trigger::Tap);
                 settings.shortcut_mode = ShortcutMode::Hold;
-                let expected = match (lock, only && key) {
+                // macOS lets a lone modifier be double-tap only.
+                let allowed = key || settings.double_tap_modifiers_allowed();
+                let expected = match (lock, only && allowed) {
                     (false, _) => Trigger::Hold,
                     (true, true) => Trigger::DoubleTap,
                     (true, false) => Trigger::HoldOrDoubleTap,
@@ -279,15 +281,18 @@ mod tests {
     }
 
     #[test]
-    fn double_tap_needs_a_key() {
-        assert!(Trigger::DoubleTap.unavailable(&settings(false)).is_some());
+    fn double_tap_needs_a_key_off_macos() {
+        assert_eq!(
+            Trigger::DoubleTap.unavailable(&settings(false)).is_some(),
+            !settings(false).double_tap_modifiers_allowed()
+        );
         assert!(Trigger::DoubleTap.unavailable(&settings(true)).is_none());
         for trigger in [Trigger::HoldOrDoubleTap, Trigger::Hold, Trigger::Tap] {
             assert!(trigger.unavailable(&settings(false)).is_none());
         }
     }
 
-    /// A Labs › More dictation shortcuts row follows Labs › Double-tap on a
+    /// A More dictation shortcuts row follows Double-tap on a
     /// lone modifier as the dictation shortcut does.
     #[test]
     fn a_row_needs_a_key_or_the_lone_modifier_lab() {

@@ -693,7 +693,7 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
             changed = true;
         }
         if !available(ui) && ui.pane == Pane::Chats {
-            ui.select_pane(Pane::General, tx);
+            ui.select_pane(Pane::Dictation, tx);
             changed = true;
         }
         set_focus(ui, None);
@@ -706,7 +706,7 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
         changed = true;
     }
     let visible = ui.window.as_ref().is_none_or(rune::AppHandle::is_visible);
-    let showing = visible && ui.pane == Pane::Chats && !ui.labs_open;
+    let showing = visible && ui.pane == Pane::Chats;
     if showing && !ui.chats.listed {
         ui.chats.reload();
         changed = true;
@@ -720,7 +720,11 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
     // The running jobs' browsers and app windows stream while the window
     // shows them, so each job card is live without the orb's cards open.
     let live: Vec<String> = if showing {
-        ui.chats.tasks.iter().map(|task| task.conversation.clone()).collect()
+        ui.chats
+            .tasks
+            .iter()
+            .map(|task| task.conversation.clone())
+            .collect()
     } else {
         Vec::new()
     };

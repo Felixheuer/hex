@@ -187,49 +187,38 @@ fn invalid_enum_resets_only_that_field_and_leaves_disk_alone() {
 }
 
 #[test]
-fn an_invalid_appearance_theme_resets_only_that_field() {
-    let original = br#"{"labs":{"appearance":true,"appearance_theme":"sepia","live_text":true}}"#;
+fn an_invalid_appearance_resets_only_that_field() {
+    let original = br#"{"preferences":{"appearance":"sepia","live_text":false}}"#;
     let file = SettingsFile::new(original);
     let settings = AppSettings::load_from(&file.path).unwrap();
-    assert!(settings.labs.appearance);
     assert_eq!(
-        settings.labs.appearance_theme,
+        settings.preferences.appearance,
         crate::app_settings::AppearanceTheme::default()
     );
-    assert!(settings.labs.live_text);
+    assert!(!settings.preferences.live_text);
     assert_eq!(fs::read(&file.path).unwrap(), original);
     assert!(file.backups().is_empty());
 }
 
 #[test]
-fn a_microphone_linger_window_outside_the_choices_loads_the_default() {
-    let original = br#"{"labs":{"keep_microphone_open":true,"keep_microphone_open_seconds":45,"live_text":true}}"#;
+fn a_microphone_linger_window_outside_the_choices_loads_off() {
+    let original = br#"{"preferences":{"keep_microphone_open_seconds":45,"live_text":false}}"#;
     let file = SettingsFile::new(original);
     let settings = AppSettings::load_from(&file.path).unwrap();
-    assert!(
-        settings.labs.keep_microphone_open,
-        "the switch stays as saved"
-    );
-    assert_eq!(
-        settings.labs.keep_microphone_open_seconds,
-        crate::app_settings::LabsSettings::DEFAULT_KEEP_MICROPHONE_OPEN_SECONDS
-    );
-    assert_eq!(
-        settings.labs.keep_microphone_open_for(),
-        Some(std::time::Duration::from_secs(60))
-    );
-    assert!(settings.labs.live_text);
+    assert_eq!(settings.preferences.keep_microphone_open_seconds, None);
+    assert_eq!(settings.preferences.keep_microphone_open_for(), None);
+    assert!(!settings.preferences.live_text);
     assert_eq!(fs::read(&file.path).unwrap(), original);
     assert!(file.backups().is_empty());
 }
 
 #[test]
-fn a_microphone_linger_window_from_the_choices_keeps_its_seconds() {
+fn a_retired_labs_linger_window_carries_into_preferences() {
     let original = br#"{"labs":{"keep_microphone_open":true,"keep_microphone_open_seconds":180}}"#;
     let file = SettingsFile::new(original);
     let settings = AppSettings::load_from(&file.path).unwrap();
     assert_eq!(
-        settings.labs.keep_microphone_open_for(),
+        settings.preferences.keep_microphone_open_for(),
         Some(std::time::Duration::from_secs(180))
     );
 }
@@ -554,16 +543,14 @@ fn unreadable_file_does_not_block_load_or_get_overwritten() {
 fn a_managed_lock_reads_off_and_never_rewrites_the_saved_switch() {
     use crate::policy::{Lock, Policy};
     let file = SettingsFile::new(
-        br#"{"meetings":{"enabled":true,"summarize_with_apple_intelligence":false,"summarize_with_opencode":true},"labs":{"live_text":true}}"#,
+        br#"{"meetings":{"enabled":true,"summarize_with_apple_intelligence":false,"summarize_with_opencode":true}}"#,
     );
     let policy = Policy::default()
         .with(Lock::Meetings)
-        .with(Lock::OpenCodeProcessing)
-        .with(Lock::Labs);
+        .with(Lock::OpenCodeProcessing);
     let (mut settings, _) = AppSettings::read_managed_from(&file.path, policy).unwrap();
     assert!(!settings.meetings.enabled);
     assert_eq!(settings.meetings.summaries, MeetingSummaries::Off);
-    assert!(!settings.labs.live_text);
 
     // Saving another change, or the locked switch itself, keeps the file's.
     settings.sound_effects = false;
@@ -572,11 +559,9 @@ fn a_managed_lock_reads_off_and_never_rewrites_the_saved_switch() {
     let saved: serde_json::Value = serde_json::from_slice(&fs::read(&file.path).unwrap()).unwrap();
     assert_eq!(saved["meetings"]["enabled"], json!(true));
     assert_eq!(saved["meetings"]["summaries"], json!("opencode"));
-    assert_eq!(saved["labs"]["live_text"], json!(true));
     assert_eq!(saved["sound_effects"], json!(false));
 
     // Without the policy the user's own choices come back.
     let (unmanaged, _) = AppSettings::read_managed_from(&file.path, Policy::default()).unwrap();
     assert!(unmanaged.meetings.enabled);
-    assert!(unmanaged.labs.live_text);
 }

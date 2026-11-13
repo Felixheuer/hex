@@ -118,20 +118,20 @@ impl PhysicalKeyboard {
     };
 }
 
-/// Labs › Tap or hold. Unit tests never read the saved Labs switches; they
+/// Tap or hold. Unit tests never read the saved Labs switches; they
 /// turn it on per machine.
 const TAP_OR_HOLD: fn() -> bool = if cfg!(test) {
     || false
 } else {
-    crate::labs::tap_or_hold
+    crate::features::tap_or_hold
 };
 
-/// Labs › Double-tap on a lone modifier. Unit tests turn it on per machine,
+/// Double-tap on a lone modifier. Unit tests turn it on per machine,
 /// as they do Tap or hold.
 const DOUBLE_TAP_MODIFIERS: fn() -> bool = if cfg!(test) {
     || false
 } else {
-    crate::labs::double_tap_modifiers
+    crate::features::double_tap_modifiers
 };
 
 pub struct DictationHotkey {
@@ -150,10 +150,10 @@ pub struct DictationHotkey {
     /// second press held past the hold threshold finishes as a hold
     /// ([`DictationHotkey::follows_tap`] tells it apart).
     double_tap_gesture: bool,
-    /// Labs › Tap or hold, read at each Toggle release: a press held past
+    /// Tap or hold, read at each Toggle release: a press held past
     /// the hold threshold finishes on release instead of locking.
     tap_or_hold: fn() -> bool,
-    /// Labs › Double-tap on a lone modifier, read as the mode is applied: a
+    /// Double-tap on a lone modifier, read as the mode is applied: a
     /// modifier-only binding may start a double-tap-only capture.
     double_tap_modifiers: fn() -> bool,
     binding: RuntimeHotkey,
@@ -290,7 +290,7 @@ impl DictationHotkey {
         self.toggle = enabled;
     }
 
-    /// Applies a Labs › More dictation shortcuts row's activation mode.
+    /// Applies a More dictation shortcuts row's activation mode.
     /// Double-tap is enabled first because double-tap only reads it, then
     /// double-tap only, then Toggle.
     pub fn set_trigger(&mut self, mode: crate::app_settings::ExtraDictationMode) {
@@ -362,7 +362,7 @@ impl DictationHotkey {
         true
     }
 
-    /// A physical Caps Lock press (Labs › Caps Lock dictation). From Idle it
+    /// A physical Caps Lock press (Caps Lock dictation). From Idle it
     /// locks a hands-free capture; from a lock it finishes it. A hold
     /// capture, a pending double tap, or another recording is left alone.
     pub fn caps_lock_toggle(&mut self) -> Option<HotkeyAction> {
@@ -896,7 +896,7 @@ impl DictationHotkey {
                 };
                 Some(HotkeyAction::Start)
             }
-            // With Labs › Tap or hold, a Toggle press held past the hold
+            // With Tap or hold, a Toggle press held past the hold
             // threshold is push-to-talk: it falls through to finish below.
             State::Recording { started_at, .. }
                 if trigger_released
