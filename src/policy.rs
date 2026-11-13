@@ -1,5 +1,5 @@
 //! Feature locks an organization sets through managed preferences (macOS
-//! configuration profiles) in the `anomaly.hex` domain: `DisableMeetings`,
+//! configuration profiles) in the `fheuer.agentdesk` domain: `DisableMeetings`,
 //! `DisableAnnotate`, `DisableOpenCodeProcessing`, and `DisableTransforms`, plus `RestrictTransformsToLoopback`, which keeps
 //! transformations on but holds their `fetch` to this computer and runs no
 //! programs. (`DisableLabs` locked the Labs features; Labs is gone, so it
@@ -21,7 +21,7 @@ use crate::app_settings::{AppSettings, MeetingSummaries};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Lock {
     /// No new meeting recording or meeting processing; existing meetings stay
-    /// readable (`hex meetings`, `hex mcp`).
+    /// readable (`agent-desk meetings`, `agent-desk mcp`).
     Meetings,
     Annotate,
     /// No OpenCode generation: mode rewrites, meeting notes, and Annotate's
@@ -44,7 +44,7 @@ impl Lock {
         Self::LoopbackTransforms,
     ];
 
-    /// Its key in the `anomaly.hex` managed preferences.
+    /// Its key in the `fheuer.agentdesk` managed preferences.
     pub const fn key(self) -> &'static str {
         match self {
             Self::Meetings => "DisableMeetings",
@@ -124,7 +124,7 @@ impl Policy {
             .then_some(Lock::Meetings)
     }
 
-    /// The lock on `hex settings` key `name`, if any.
+    /// The lock on `agent-desk settings` key `name`, if any.
     pub fn setting_lock(self, name: &str) -> Option<Lock> {
         let lock = match name {
             "meetings.enabled" => Lock::Meetings,
@@ -189,7 +189,7 @@ mod platform {
         CFPreferencesAppValueIsForced, CFPreferencesGetAppBooleanValue, CFString,
     };
 
-    const DOMAIN: &str = "anomaly.hex";
+    const DOMAIN: &str = "fheuer.agentdesk";
 
     /// Whether a configuration profile forces `key` to true.
     pub fn forced(key: &str) -> bool {
@@ -297,7 +297,7 @@ mod tests {
         );
         assert_eq!(meetings.setting_lock("preferences.live_text"), None);
         assert_eq!(meetings.setting_lock("sound_effects"), None);
-        // A choice that is only partly locked: `hex settings` refuses
+        // A choice that is only partly locked: `agent-desk settings` refuses
         // `opencode` itself.
         let opencode = Policy::default().with(Lock::OpenCodeProcessing);
         assert_eq!(opencode.setting_lock("meetings.summaries"), None);

@@ -1,5 +1,5 @@
 //! Made-up assistant activity for the stories, the render tests, and a
-//! development run with `HEX_ASSISTANT_FAKE=1`: six Background tasks in
+//! development run with `AGENT_DESK_ASSISTANT_FAKE=1`: six Background tasks in
 //! every state (running, taken over, waiting out a usage limit, queued,
 //! done, failed), a Here question that thinks, takes the pointer for a
 //! moment ("Hands off"), steps, and streams its answer, and where their
@@ -440,9 +440,9 @@ pub(crate) fn team_board(helpers: usize) -> Board {
 /// What the supplier job answers: its table, the shop, and its folder.
 pub(crate) const SUPPLIER_ANSWER: &str = "**Fertig:** 50 Lieferanten verglichen, \
     die günstigsten drei sind markiert.\n\n\
-    - Tabelle: `/tmp/Hex Jobs/Lieferanten/Vergleich.xlsx`\n\
+    - Tabelle: `/tmp/Agent-Desk Jobs/Lieferanten/Vergleich.xlsx`\n\
     - Bester Preis bei [Muster GmbH](https://muster.example.com/preise)\n\n\
-    Files: /tmp/Hex Jobs/Lieferanten";
+    Files: /tmp/Agent-Desk Jobs/Lieferanten";
 /// Why the landing page job failed.
 pub(crate) const LANDING_ERROR: &str =
     "The site asked for a login the job doesn't have (xyz.com/admin).";

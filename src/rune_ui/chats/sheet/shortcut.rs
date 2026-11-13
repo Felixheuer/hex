@@ -48,30 +48,30 @@ fn probe_words(found: &Probe, taker: Option<&str>) -> (String, bool) {
     match found {
         Probe::Works(held) => (
             tr_fill(
-                "Hex received it (held {})",
+                "Agent-Desk received it (held {})",
                 &format!("{:.1} s", held.as_secs_f32()),
             ),
             true,
         ),
         Probe::Swallowed => (
             match taker {
-                Some(name) => tr_fill("{} took the keys before Hex could", name),
-                None => tr("Another app or macOS took the keys before Hex could").into(),
+                Some(name) => tr_fill("{} took the keys before Agent-Desk could", name),
+                None => tr("Another app or macOS took the keys before Agent-Desk could").into(),
             },
             false,
         ),
         Probe::NothingReceived => (
-            tr("Nothing reached Hex. Another app or macOS may take it").into(),
+            tr("Nothing reached Agent-Desk. Another app or macOS may take it").into(),
             false,
         ),
-        Probe::WrongKeys(saw) => (tr_fill("Hex saw {} instead", saw), false),
-        Probe::NoRelease => (tr("Hex never saw the keys let go").into(), false),
+        Probe::WrongKeys(saw) => (tr_fill("Agent-Desk saw {} instead", saw), false),
+        Probe::NoRelease => (tr("Agent-Desk never saw the keys let go").into(), false),
         Probe::Unavailable(why) => (why.clone(), false),
     }
 }
 
 /// One shortcut's live press test: Test, a waiting pill while it listens,
-/// then what reached Hex.
+/// then what reached Agent-Desk.
 fn probe_row(ui: &Ui, flow: &SetupFlow, p: Paint, slot: HotkeySlot) -> El {
     let taker = flow.conflicts.as_ref().and_then(|found| {
         found
@@ -161,7 +161,7 @@ fn probe_row(ui: &Ui, flow: &SetupFlow, p: Paint, slot: HotkeySlot) -> El {
         .child(control)
 }
 
-/// The shortcuts are free and Hex receives them: what else takes them,
+/// The shortcuts are free and Agent-Desk receives them: what else takes them,
 /// each with where it's fixed, then a live press of each.
 pub(super) fn shortcut(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
     let mut rows = Vec::new();
@@ -236,7 +236,7 @@ pub(super) fn shortcut(ui: &Ui, flow: &SetupFlow, p: Paint) -> El {
         lead(
             p,
             tr(
-                "Nothing else may take them, and Hex has to receive them. Test each by pressing it once.",
+                "Nothing else may take them, and Agent-Desk has to receive them. Test each by pressing it once.",
             ),
         ),
         Some(rows_card(p, "shortcut-card", rows)),

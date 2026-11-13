@@ -1,5 +1,5 @@
 //! What used to be Labs. There is no Labs anymore: no pane, no switches, no
-//! `hex labs`. Each former lab was decided once (see
+//! `agent-desk labs`. Each former lab was decided once (see
 //! `docs/features/labs.md`):
 //!
 //! - **Graduated**: always on where the OS has it, with no switch. Most
@@ -52,7 +52,7 @@ pub fn window_dark(preferences: &Preferences, system_dark: bool) -> bool {
 }
 
 /// Logs the preferences to process.log; call once logging is up in a
-/// long-lived Hex.
+/// long-lived Agent-Desk.
 pub fn log_launch() {
     let preferences = preferences();
     tracing::info!(?preferences, "preferences");
@@ -114,7 +114,7 @@ pub fn hide_menu_bar_icon() -> bool {
     cfg!(target_os = "macos") && preferences().hide_menu_bar_icon
 }
 
-/// ⌘Q closes the window instead of quitting Hex (macOS).
+/// ⌘Q closes the window instead of quitting Agent-Desk (macOS).
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn quit_closes_window() -> bool {
     cfg!(target_os = "macos") && preferences().quit_closes_window
@@ -210,7 +210,7 @@ pub fn parakeet_ultra() -> bool {
     true
 }
 
-/// History's summary and `hex history stats`.
+/// History's summary and `agent-desk history stats`.
 pub fn history_stats() -> bool {
     true
 }
@@ -301,7 +301,7 @@ pub fn meeting_notes_file() -> bool {
     true
 }
 
-/// The menu bar offers Pause Hex (macOS).
+/// The menu bar offers Pause Agent-Desk (macOS).
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn pause_menu() -> bool {
     cfg!(target_os = "macos")
@@ -338,7 +338,7 @@ pub fn app_model_switching() -> bool {
 // Removed
 
 /// The developer playground (story browser): no switch and no sidebar item;
-/// dev builds open it with ⌘⇧D or `hex window story`. Stable builds never
+/// dev builds open it with ⌘⇧D or `agent-desk window story`. Stable builds never
 /// have it.
 pub fn playground() -> bool {
     crate::dev_build::is_dev_build() && !cfg!(test)
@@ -363,7 +363,7 @@ pub fn annotate_replay() -> bool {
     false
 }
 
-/// The Voice Filter (Hex Microphone) was a developer tool; only an installed
+/// The Voice Filter (Agent-Desk Microphone) was a developer tool; only an installed
 /// driver's Uninstall remains.
 pub fn voice_filter() -> bool {
     false

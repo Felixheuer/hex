@@ -3,7 +3,7 @@
 //!
 //! `<id>.json` holds the conversation, the backend sessions that continue
 //! it, and how its last request ended (`Outcome`; `Running` with the pid of
-//! the Hex that runs it); `<id>/` holds its PNG attachments. Both are private to this user, and
+//! the Agent-Desk that runs it); `<id>/` holds its PNG attachments. Both are private to this user, and
 //! every write goes to a temporary file first, then replaces the old one.
 //!
 //! OWNER: brain.
@@ -36,7 +36,7 @@ pub struct Stored {
     /// How its last request ended; `Running` while one runs.
     #[serde(default)]
     pub outcome: Outcome,
-    /// The process running it, while `Running`: a dead one means Hex quit
+    /// The process running it, while `Running`: a dead one means Agent-Desk quit
     /// or crashed mid-task (`Interrupted`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
@@ -237,7 +237,7 @@ impl Store {
         list
     }
 
-    /// Marks every conversation left `Running` by a Hex that is gone as
+    /// Marks every conversation left `Running` by an Agent-Desk that is gone as
     /// `Interrupted` (at startup); their ids.
     pub fn recover_interrupted(&self) -> Vec<String> {
         let Ok(entries) = fs::read_dir(&self.dir) else {
@@ -708,7 +708,7 @@ mod tests {
         let id = new_id();
         let mut running = Stored::new(&id, Origin::Chat, "Teste dich selber");
         running.push(message(Role::User, "Teste dich selber", 10));
-        running.push(message(Role::Assistant, "Ich teste Hex.", 20));
+        running.push(message(Role::Assistant, "Ich teste Agent-Desk.", 20));
         store.save(&running).unwrap();
         // Said while the job works, beside the copy it holds.
         store
@@ -732,7 +732,7 @@ mod tests {
             texts,
             [
                 "Teste dich selber",
-                "Ich teste Hex.",
+                "Ich teste Agent-Desk.",
                 "Wie weit bist du?",
                 "Läuft seit 2 Minuten.",
                 "Fertig."

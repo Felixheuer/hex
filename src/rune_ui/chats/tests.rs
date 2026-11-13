@@ -357,7 +357,7 @@ fn tasks_show_taken_over_waiting_and_queued_and_events_move_them() {
     );
     // The list marks how conversations ended.
     assert!(shows(&rt, "Failed"));
-    assert!(shows(&rt, "Interrupted: Hex quit while it ran"));
+    assert!(shows(&rt, "Interrupted: Agent-Desk quit while it ran"));
     rt.state.chats.deliver(Event::Waiting {
         conversation: "reply-to-maya".into(),
         until_ms: crate::history::now_ms() + 60_000,
@@ -400,7 +400,7 @@ fn tasks_show_taken_over_waiting_and_queued_and_events_move_them() {
 #[test]
 fn an_interrupted_conversation_offers_resume() {
     let mut rt = scene("mac-chats-interrupted");
-    assert!(shows(&rt, "This task stopped when Hex quit"));
+    assert!(shows(&rt, "This task stopped when Agent-Desk quit"));
     tap(&mut rt, "resume");
     assert_eq!(
         rt.state.chats.store().unwrap().resumed,
@@ -437,7 +437,7 @@ fn the_composer_sends_auto_by_default_with_here_and_background_overrides() {
             .as_ref()
             .map(|window| window.app.clone())
     };
-    // Auto: the assistant decides, knowing the window in front of Hex.
+    // Auto: the assistant decides, knowing the window in front of Agent-Desk.
     assert_eq!(store.submitted[0].origin, Origin::Chat);
     assert_eq!(window(0).as_deref(), Some("Safari"));
     assert_eq!(store.submitted[1].origin, Origin::ActionShortcut);
@@ -488,7 +488,7 @@ fn a_finished_job_offers_its_folder_files_and_sheet() {
         rt.state.chats.store().unwrap().opened,
         vec![
             "https://docs.google.com/spreadsheets/d/1hX9q3quotes/edit".to_owned(),
-            "~/Hex/Jobs/q3-quotes/Comparison.xlsx".to_owned(),
+            "~/Agent-Desk/Jobs/q3-quotes/Comparison.xlsx".to_owned(),
         ]
     );
 }
@@ -762,7 +762,7 @@ fn a_permission_waits_after_allow_until_macos_reports_it() {
 #[test]
 fn a_grant_that_needs_a_restart_relaunches_hex_in_one_click() {
     let mut rt = scene("mac-assistant-setup-restart");
-    assert!(shows(&rt, "Restart Hex and continue"));
+    assert!(shows(&rt, "Restart Agent-Desk and continue"));
     tap(&mut rt, "restart");
     let asked = match &rt.state.host {
         crate::rune_ui::platform::PlatformHost::Fixture(sent) => sent.clone(),
@@ -814,7 +814,7 @@ fn the_assistant_pages_continue_the_voice_first_run_before_hex_is_ready() {
     assert!(flow.merged);
     assert!(shows(&rt, "Now, your assistant"));
     assert!(!rt.state.first_run.as_ref().unwrap().ready_age().is_finite());
-    // Done (or left for later): "Hex is ready" ends both.
+    // Done (or left for later): "Agent-Desk is ready" ends both.
     rt.update(|ui, _| super::setup::close(ui));
     settle(&mut rt);
     assert!(rt.state.chats.setup.is_none());
@@ -973,11 +973,11 @@ fn the_merged_flow_says_it_continues_and_new_in_hex_says_so() {
     let rt = scene("mac-assistant-setup-merged");
     assert!(shows(&rt, "Now, your assistant"));
     let rt = scene("mac-assistant-setup-new");
-    assert!(shows(&rt, "New in Hex: your assistant"));
+    assert!(shows(&rt, "New in Agent-Desk: your assistant"));
     let rt = scene("mac-assistant-setup-resumed");
     assert!(shows(
         &rt,
-        "Hex restarted. Checking again where you left off…"
+        "Agent-Desk restarted. Checking again where you left off…"
     ));
 }
 
@@ -1049,7 +1049,7 @@ fn the_try_page_checks_each_gesture_live() {
     rt.state.chats.deliver(Event::Answer {
         conversation: "q".into(),
         origin: Origin::ActionShortcut,
-        text: "Hex's release notes.".into(),
+        text: "Agent-Desk's release notes.".into(),
     });
     rt.invalidate();
     settle(&mut rt);
@@ -1113,13 +1113,13 @@ fn the_shortcut_page_waits_for_a_free_shortcut_and_a_real_press() {
         settle(rt);
     };
     probed(&mut rt, Probe::Swallowed);
-    assert!(shows(&rt, "Siri took the keys before Hex could"));
+    assert!(shows(&rt, "Siri took the keys before Agent-Desk could"));
     assert!(!done(&rt));
     probed(&mut rt, Probe::Works(std::time::Duration::from_millis(400)));
     assert!(!done(&rt), "a taken shortcut keeps the page unfinished");
     answer(&mut rt, Done::Conflicts(Vec::new()));
     assert!(done(&rt));
-    assert!(shows(&rt, "Hex received it (held 0.4 s)"));
+    assert!(shows(&rt, "Agent-Desk received it (held 0.4 s)"));
 }
 
 #[test]
@@ -1285,10 +1285,10 @@ mod repair {
             "starts at the first page that fixes one"
         );
         assert_eq!(repair_pages(&rt), [Page::Desktop, Page::Shortcut]);
-        assert!(shows(&rt, "Hex needs your help for a moment"));
+        assert!(shows(&rt, "Agent-Desk needs your help for a moment"));
         assert!(shows(
             &rt,
-            "Hex can't see the screen: Screen Recording is off"
+            "Agent-Desk can't see the screen: Screen Recording is off"
         ));
         assert!(shows(&rt, "Another app took the assistant's shortcut"));
         assert!(

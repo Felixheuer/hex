@@ -127,7 +127,7 @@ fn application(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<CardRow> {
                 "hide-menu-bar-icon",
                 &PANEL,
                 tr("Hide the menu bar icon"),
-                tr("Shortcuts keep working; open Hex from Spotlight"),
+                tr("Shortcuts keep working; open Agent-Desk from Spotlight"),
                 settings.preferences.hide_menu_bar_icon,
                 |ui: &mut Ui| {
                     ui.update(|settings| settings.preferences.hide_menu_bar_icon ^= true);

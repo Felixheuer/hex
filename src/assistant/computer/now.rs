@@ -1,7 +1,7 @@
 //! The desktop right now, for every task's prompt: which apps run (the
 //! ones in the Dock), which of them is in front or hidden, and each one's
 //! windows with agent-desktop's ids, on this screen or not (on another
-//! desktop, minimized). Read in Hex's own process from the window server
+//! desktop, minimized). Read in Agent-Desk's own process from the window server
 //! and the workspace, in milliseconds, so a turn never starts from what an
 //! older turn or another task said was open.
 //!
@@ -81,7 +81,7 @@ pub fn real_window(window: &RawWindow) -> bool {
         }
 }
 
-/// The desktop now: the running apps (not Hex itself) with their windows.
+/// The desktop now: the running apps (not Agent-Desk itself) with their windows.
 /// A few milliseconds; never blocks on an app.
 pub fn read() -> DesktopNow {
     let started = Instant::now();
@@ -152,7 +152,7 @@ pub fn describe(now: &DesktopNow, blocked: &[String]) -> Option<String> {
         )
     });
     let mut text = String::from(
-        "The desktop right now (Hex read it as this message was sent; it is current: trust it over anything said earlier in this conversation, other tasks' results, or your memory about which apps and windows are open; window ids work with window_id and desktop_claim_window):\n",
+        "The desktop right now (Agent-Desk read it as this message was sent; it is current: trust it over anything said earlier in this conversation, other tasks' results, or your memory about which apps and windows are open; window ids work with window_id and desktop_claim_window):\n",
     );
     if let Some(front) = apps.iter().find(|app| app.front) {
         let window = front.windows.iter().find(|window| window.on_screen);
@@ -195,7 +195,7 @@ fn app_line(app: &RunningApp, blocked: bool) -> String {
         flags.push("hidden");
     }
     if blocked {
-        flags.push("blocked: Hex won't read or operate it");
+        flags.push("blocked: Agent-Desk won't read or operate it");
     }
     let flags = if flags.is_empty() {
         String::new()
@@ -433,7 +433,7 @@ mod tests {
         // A blocked app's titles stay out.
         assert_eq!(
             lines[4],
-            "- 1Password (blocked: Hex won't read or operate it)"
+            "- 1Password (blocked: Agent-Desk won't read or operate it)"
         );
         assert_eq!(lines[5], "- Ghostty: w-12 “~/dev”");
         assert_eq!(

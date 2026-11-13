@@ -1,5 +1,5 @@
-//! The guard between every task and the desktop: Hex's own MCP server
-//! (`hex assistant mcp`), which each task's agent gets instead of
+//! The guard between every task and the desktop: Agent-Desk's own MCP server
+//! (`agent-desk assistant mcp`), which each task's agent gets instead of
 //! agent-desktop directly. It forwards agent-desktop's tools and enforces
 //! what the lanes promise, so a prompt is never the only safeguard:
 //!
@@ -22,10 +22,10 @@
 //!
 //! Windows on screen, and the one in front, are read in the guard's process
 //! from CoreGraphics (`screen`, under a millisecond), so agent-desktop runs
-//! only the task's own calls. Hex adds `desktop_claim_window`,
+//! only the task's own calls. Agent-Desk adds `desktop_claim_window`,
 //! `hex_installed_apps`, and `hex_open_app` to agent-desktop's tools.
 //!
-//! `hex assistant mcp --spec <json or file>` serves it (`server`); the spec
+//! `agent-desk assistant mcp --spec <json or file>` serves it (`server`); the spec
 //! is [`WireSpec`] as JSON. `mcp_server` gives a task's agent that command.
 //!
 //! OWNER: guard.
@@ -82,7 +82,7 @@ pub struct TaskSpec {
     pub open_apps: bool,
 }
 
-/// A [`TaskSpec`] as `hex assistant mcp --spec` reads it (JSON).
+/// A [`TaskSpec`] as `agent-desk assistant mcp --spec` reads it (JSON).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct WireSpec {
     pub task: String,
@@ -130,8 +130,8 @@ pub struct WireSpec {
     /// change nothing).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub observe_only: bool,
-    /// Hex's own process: the desk's holder (`desk`), so apps a quick turn
-    /// opens stay held after the turn ends, for as long as Hex runs.
+    /// Agent-Desk's own process: the desk's holder (`desk`), so apps a quick turn
+    /// opens stay held after the turn ends, for as long as Agent-Desk runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desk_pid: Option<u32>,
 }
@@ -200,11 +200,11 @@ impl WireSpec {
 }
 
 /// The MCP server a task's agent should get in place of agent-desktop:
-/// this executable's `assistant mcp --spec <json>` (inside Hex.app, the
+/// this executable's `assistant mcp --spec <json>` (inside Agent-Desk.app, the
 /// bundle's binary). `None` when agent-desktop isn't installed.
 ///
 /// The spec names agent-desktop and the guard's folder as this process
-/// found them, so the guard agrees with Hex even when an agent starts its
+/// found them, so the guard agrees with Agent-Desk even when an agent starts its
 /// MCP servers with an environment of its own.
 ///
 /// A Here task's window goes through the guard's state
@@ -339,7 +339,7 @@ fn server_for(spec: &TaskSpec, hex: &Path, desktop: &McpServer, state_dir: &Path
     wire.agent_desktop = Some(desktop.command.clone());
     wire.state_dir = Some(state_dir.to_path_buf());
     wire.agent_display = crate::assistant::computer::agent_display_setting();
-    // This process (Hex) holds the desk.
+    // This process (Agent-Desk) holds the desk.
     wire.desk_pid = Some(std::process::id());
     if let Some((_, settings)) = crate::app_settings::assistant_runtime() {
         wire.autonomy = settings.autonomy;
@@ -356,7 +356,7 @@ fn server_for(spec: &TaskSpec, hex: &Path, desktop: &McpServer, state_dir: &Path
     }
 }
 
-/// Runs `hex assistant mcp --spec <spec>` until the agent disconnects.
+/// Runs `agent-desk assistant mcp --spec <spec>` until the agent disconnects.
 pub fn serve(spec: &str) -> Result<()> {
     let wire = WireSpec::parse(spec)?;
     let store = match &wire.state_dir {
@@ -534,7 +534,7 @@ pub fn release_all(task: &str) {
     }
 }
 
-/// Notes that the person's Hand back (or Hex) parked window `window_id` of
+/// Notes that the person's Hand back (or Agent-Desk) parked window `window_id` of
 /// `app`, which was at `from` (`parking`).
 pub fn note_parked(window_id: &str, app: &str, from: Option<Rect>, how: ParkedHow) {
     if cfg!(test) {
@@ -569,7 +569,7 @@ fn put_back_lapsed_in(store: &state::Store) {
     }
 }
 
-/// Hex is quitting (an update, the person's Quit): every window it parked
+/// Agent-Desk is quitting (an update, the person's Quit): every window it parked
 /// goes back where it was, the desk's too. Waits at most `wait` for apps
 /// that are slow to answer Accessibility; what's left goes back at the next
 /// start.
@@ -592,7 +592,7 @@ pub fn put_back_all(wait: std::time::Duration) {
             let _ = done.send(());
         });
     if spawned.is_ok() && finished.recv_timeout(wait).is_err() {
-        tracing::warn!("parked windows are still going back as Hex quits");
+        tracing::warn!("parked windows are still going back as Agent-Desk quits");
     }
 }
 
@@ -623,7 +623,7 @@ pub fn hands_off() -> Option<ConversationId> {
 
 /// Clears what tasks of an earlier run left behind: leases and hands-off
 /// markers of processes that have ended, and pause markers; windows they
-/// (or the desk of a Hex that quit, crashed, or was updated) left parked go
+/// (or the desk of an Agent-Desk that quit, crashed, or was updated) left parked go
 /// back where they were. Call once when the assistant starts (only while
 /// `assistant::enabled`).
 pub fn startup() {

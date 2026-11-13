@@ -400,7 +400,7 @@ impl Thumbnail {
     /// Adds the overlay, hidden, made the first time it shows.
     pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) -> Self {
         let spec = OverlaySpec {
-            name: "Hex screenshot",
+            name: "Agent-Desk screenshot",
             size: NOMINAL,
             edge: ScreenEdge::Bottom,
             margin: 0.0,

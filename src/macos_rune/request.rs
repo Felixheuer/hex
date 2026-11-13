@@ -27,7 +27,7 @@ pub(crate) enum Request {
     },
     /// The menu bar's model list: only installed models, never a download.
     SelectInstalledModel(TranscriptionModelId),
-    /// `hex model use`: this exact selection, installed only, never a download.
+    /// `agent-desk model use`: this exact selection, installed only, never a download.
     UseInstalledSelection(TranscriptionSelection),
     /// Snapshot from the main-thread TIS observer, not a shortcut event.
     InputSourceChanged(Option<String>),

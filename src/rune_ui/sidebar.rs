@@ -68,7 +68,7 @@ pub(super) enum Pane {
     #[default]
     Dictation,
     History,
-    /// What Hex does to every dictation and in some apps, read-only: the
+    /// What Agent-Desk does to every dictation and in some apps, read-only: the
     /// person's agent edits it.
     Output,
     /// Recorded calls and their settings (macOS).
@@ -78,12 +78,12 @@ pub(super) enum Pane {
     General,
     /// The old per-app editor, kept for its scenes until it is removed.
     Modes,
-    /// Annotate (Scrawl's captures inside Hex): the switch, shortcuts,
+    /// Annotate (Scrawl's captures inside Agent-Desk): the switch, shortcuts,
     /// permission, transcriber, folder, retention, and Scrawl's own app.
     /// Dev builds, macOS and Linux only.
     #[cfg(hex_capture)]
     Annotate,
-    /// The Hex Microphone's driver: only its Uninstall, while it is
+    /// The Agent-Desk Microphone's driver: only its Uninstall, while it is
     /// installed.
     VoiceFilter,
     /// The dictation indicator's tuning scene (Playground only).
@@ -369,7 +369,7 @@ fn footer(ui: &Ui, p: Paint) -> El {
         // (#1120); the hourly check alone never changes its words.
         Some(status @ (DesktopUpdateStatus::Current | DesktopUpdateStatus::Failed)) => {
             let words = match status {
-                DesktopUpdateStatus::Current if ui.update_asked => tr("Hex is up to date"),
+                DesktopUpdateStatus::Current if ui.update_asked => tr("Agent-Desk is up to date"),
                 DesktopUpdateStatus::Failed if ui.update_asked => tr("Couldn't check for updates"),
                 _ => tr("Check for updates"),
             };
@@ -540,7 +540,7 @@ pub(super) enum BuildKind {
 fn build_kind() -> BuildKind {
     if crate::app_paths::is_local_build() {
         BuildKind::Local
-    } else if option_env!("HEX_TEST_BUILD") == Some("1") {
+    } else if option_env!("AGENT_DESK_TEST_BUILD") == Some("1") {
         BuildKind::Test
     } else {
         BuildKind::Release
@@ -555,7 +555,7 @@ pub(super) const FOOTER_LINE: f32 = 20.0;
 fn version_label() -> String {
     // Goldens render a fixed version: a local build's names its commit.
     let version = if cfg!(test) { "0.0.0" } else { crate::VERSION };
-    match option_env!("HEX_COMMIT") {
+    match option_env!("AGENT_DESK_COMMIT") {
         Some(commit) => {
             let kind = if crate::app_paths::is_macos_dev_build() {
                 "dev"
@@ -643,14 +643,14 @@ fn nav_item(p: Paint, pane: Pane, on: bool) -> El {
     lists::source_item(item, on)
 }
 
-/// Linux has no tray: the window's way to stop Hex. Closing the window
-/// keeps Hex dictating.
+/// Linux has no tray: the window's way to stop Agent-Desk. Closing the window
+/// keeps Agent-Desk dictating.
 fn quit_item(p: Paint) -> El {
     let c = &p.k.c;
     row()
         .key("quit")
         .role("button")
-        .label(tr("Quit Hex"))
+        .label(tr("Quit Agent-Desk"))
         .h(NAV_ROW_HEIGHT)
         .px(6.0)
         .mt(NAV_ROW_GAP)
@@ -662,7 +662,7 @@ fn quit_item(p: Paint) -> El {
         .focusable(true)
         .focus_ring(2.0, -2.0, c.border_focus)
         .child(
-            text(tr("Quit Hex"))
+            text(tr("Quit Agent-Desk"))
                 .key("label")
                 .font(p.k.ty.ui)
                 .color(c.text_muted)

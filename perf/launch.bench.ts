@@ -26,7 +26,7 @@ export default bench({
         milestones: { api },
       },
     },
-    // To the window's first frame drawn, from Hex's own log: needs no screen
+    // To the window's first frame drawn, from Agent-Desk's own log: needs no screen
     // capture (macOS refuses `painted` without Screen Recording). It covers
     // the GPU device and pipelines the window draws with.
     "first-frame": {

@@ -4,7 +4,7 @@
 //! A schedule says when as a cron line (`0 8 * * 1-5`) or an iCalendar
 //! RRULE (`FREQ=WEEKLY;BYDAY=MO;BYHOUR=9`), in this computer's local time.
 //!
-//! Runs missed while the Mac slept or Hex was closed run once when Hex next
+//! Runs missed while the Mac slept or Agent-Desk was closed run once when Agent-Desk next
 //! looks, never once per missed time. Tasks add, list, and remove schedules
 //! with `hex_schedule`, `hex_schedules`, and `hex_unschedule` (`tools`); the
 //! UI uses [`list`], [`add`], [`remove`], [`set_enabled`], [`next_runs`].
@@ -44,7 +44,7 @@ pub struct Schedule {
     /// otherwise come back on the same date next year).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub once: bool,
-    /// The person made it (Chats, `hex assistant schedules add`), so its
+    /// The person made it (Chats, `agent-desk assistant schedules add`), so its
     /// words may authorize sending or deleting; one an agent made with
     /// `hex_schedule` (or saved before this was kept) asks first.
     #[serde(default)]
@@ -304,7 +304,7 @@ impl Rule {
                 }
                 // Limits a schedule's own time can't honour are refused, not
                 // silently ignored.
-                other => return Err(eyre!("Hex's schedules don't support {other}")),
+                other => return Err(eyre!("Agent-Desk's schedules don't support {other}")),
             }
         }
         let every = |step: u32, max: u32| (0..=max).step_by(step as usize).collect();

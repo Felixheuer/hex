@@ -14,13 +14,13 @@ or user-defined TypeScript transformations.
 The default shortcut is `Ctrl+Space`. In **Hold** mode, hold both keys while
 speaking and release Space to transcribe and paste. In **Toggle** mode, press
 `Ctrl+Space` to start and again to finish, or press the **Cancel** shortcut
-(Escape by default) to throw the recording away; Hex takes that key only while
+(Escape by default) to throw the recording away; Agent-Desk takes that key only while
 a recording runs. Hold mode has no cancel (every dictation finishes and
-pastes), and holding a modifier on its own does nothing. Hex consumes the chord while it matches, so
+pastes), and holding a modifier on its own does nothing. Agent-Desk consumes the chord while it matches, so
 applications and input methods no longer see `Ctrl+Space`; rebind it in Settings
 if you rely on that chord elsewhere. To let another app use the same key, such as
 a Discord push-to-talk key, turn on **Share dictation shortcut with other apps**
-under Advanced: Hex still reacts to it but passes its key-down and key-up on,
+under Advanced: Agent-Desk still reacts to it but passes its key-down and key-up on,
 which can also trigger that binding in other apps. In Hold mode, tap the shortcut twice within
 300 ms to lock recording, then press it again to finish. Paste Last defaults to
 `Ctrl+Alt+V`. Settings changes apply live or through an automatic listener
@@ -31,20 +31,20 @@ app and **Disabled** when it does nothing.
 
 ## Install
 
-x86_64 PCs need a 2013 or newer processor with AVX2 (Intel Haswell / AMD Excavator or later); on an older processor Hex shows a message and quits instead of starting.
+x86_64 PCs need a 2013 or newer processor with AVX2 (Intel Haswell / AMD Excavator or later); on an older processor Agent-Desk shows a message and quits instead of starting.
 
 Download and run the installer for your PC:
 
 - x64: [`HexSetup.exe`](https://anoma.ly/hex/download/windows-x64-setup)
 - ARM64: [`HexSetup.exe`](https://anoma.ly/hex/download/windows-arm64-setup)
 
-Until Hex's first stable release these are the newest dev build, which keeps
+Until Agent-Desk's first stable release these are the newest dev build, which keeps
 updating itself from the Dev channel; afterwards, the stable release.
 
 [anoma.ly/hex](https://anoma.ly/hex/) picks the right one. The
 installer needs no administrator rights: it installs for the current user,
-adds Hex to the Start menu, to **Settings › Apps** for uninstalling, and
-`hex` to PATH for terminals, and opens Hex, whose first run downloads a speech
+adds Agent-Desk to the Start menu, to **Settings › Apps** for uninstalling, and
+`agent-desk` to PATH for terminals, and opens Agent-Desk, whose first run downloads a speech
 model. Releases built once
 Anomaly's Azure Artifact Signing is configured are Authenticode-signed
 ([windows-signing.md](windows-signing.md)). Until then, and while a new
@@ -53,12 +53,12 @@ PC; choose **More info**, then **Run anyway**.
 
 **x64** decodes on the GPU through Vulkan 1.2, which a current NVIDIA, AMD, or
 Intel graphics driver supplies (`vulkan-1.dll`). With a missing or older
-driver Hex still starts and decodes on the CPU, and Settings › Speech engine
+driver Agent-Desk still starts and decodes on the CPU, and Settings › Speech engine
 says so. **ARM64** decodes on the CPU. Both are
-self-contained: no Visual C++ Redistributable is required. Hex then keeps
+self-contained: no Visual C++ Redistributable is required. Agent-Desk then keeps
 itself current through the signed update feed. Uninstalling removes every
 installed version, the shortcut, and Launch at login, and keeps settings and
-history in `%APPDATA%\hex` and logs and models in `%LOCALAPPDATA%\hex`.
+history in `%APPDATA%\agent-desk` and logs and models in `%LOCALAPPDATA%\agent-desk`.
 
 The installer and the script below create the same managed layout, so either
 can replace the other. For a scripted install:
@@ -69,39 +69,39 @@ powershell -ExecutionPolicy Bypass -Command "iwr https://anoma.ly/hex/files/inst
 
 Uninstall a script install with `install-windows.ps1 -Uninstall`.
 
-The managed layout is `%APPDATA%\hex\versions\<version>\` holding `hex.exe`,
-the app, a GUI program so launching Hex opens no console window, and
-`hex.com`, its console entry point, which runs `hex.exe` with the same
-arguments, waits for it, and returns its exit code (`hex` and `hex app` only
+The managed layout is `%APPDATA%\agent-desk\versions\<version>\` holding `agent-desk.exe`,
+the app, a GUI program so launching Agent-Desk opens no console window, and
+`agent-desk.com`, its console entry point, which runs `agent-desk.exe` with the same
+arguments, waits for it, and returns its exit code (`agent-desk` and `agent-desk app` only
 start the app and return). Shortcuts, Launch at login,
-and the Start menu open `hex.exe`. `%APPDATA%\hex\bin\hex.com`, a copy that
+and the Start menu open `agent-desk.exe`. `%APPDATA%\agent-desk\bin\agent-desk.com`, a copy that
 runs the version `current-version` names, is on the user's PATH, and a
-terminal resolves `hex` to it before any `hex.exe` because PATHEXT lists
+terminal resolves `agent-desk` to it before any `agent-desk.exe` because PATHEXT lists
 `.COM` first. Terminals opened before the install need reopening to see PATH.
 
 ## Known Issues
 
 **Discord shows "Playing HEX: Shards of Fate"**
 ([#445](https://github.com/anomalyco/hex/issues/445)). With game activity
-detection on, Discord Desktop matches the running `hex.exe` to the verified game
+detection on, Discord Desktop matches the running `agent-desk.exe` to the verified game
 *HEX: Shards of Fate*. It then shows that game on your profile for as long as
-Hex runs. The reporter's local test suggests Discord matches on the executable
-name. Hex keeps the name `hex.exe` because the installer, updater, Start Menu
+Agent-Desk runs. The reporter's local test suggests Discord matches on the executable
+name. Agent-Desk keeps the name `agent-desk.exe` because the installer, updater, Start Menu
 shortcut, and Launch at login all use the managed
-`%APPDATA%\hex\versions\<version>\hex.exe` path. The problem has been reported
+`%APPDATA%\agent-desk\versions\<version>\agent-desk.exe` path. The problem has been reported
 to Discord. Until Discord fixes its game list, open Discord's
 **Settings › Registered Games** (or **Activity Privacy**) and hide the detected
-entry, or turn off activity sharing there. Hex works the same either way.
+entry, or turn off activity sharing there. Agent-Desk works the same either way.
 
 ## Streaming Dictation
 
-With Parakeet Unified English on a GPU, Hex streams audio into the model while
+With Parakeet Unified English on a GPU, Agent-Desk streams audio into the model while
 the shortcut is held, so release only decodes the last one to two seconds. The
 same engine streams on macOS (Metal) and Linux (Vulkan). Each dictation logs
 `source=stream` or `source=fallback` in `logs\process.log`; a stream that fails,
 stalls past its deadline, or returns nothing falls back to transcribing the
 whole clip. CPU devices (including ARM64) always use the whole-clip path. Set
-`HEX_STREAMING=0` to force the whole-clip path. See
+`AGENT_DESK_STREAMING=0` to force the whole-clip path. See
 [dictation](features/dictation.md#streaming-finish).
 
 ## Requirements For Source Builds
@@ -139,7 +139,7 @@ cargo run -- devices
 cargo run -- model devices
 ```
 
-Install the selected model (with Hex stopped, `model install` downloads and
+Install the selected model (with Agent-Desk stopped, `model install` downloads and
 selects it in this process), load it, and transcribe a WAV file:
 
 ```powershell
@@ -164,7 +164,7 @@ cargo run -- app
 
 The Settings card reads **Enabled** when the shortcut works system-wide in every
 app and **Disabled** when it does nothing; its button and the tray's
-**Enable / Disable Hex** switch between them. Hex enables itself on launch by
+**Enable / Disable Agent-Desk** switch between them. Agent-Desk enables itself on launch by
 default (**Enable on launch**). The microphone records only while you dictate.
 Changing the
 transcription model, microphone, dictation shortcut, double-tap behavior, or
@@ -183,15 +183,15 @@ cargo run -- listen --model parakeet_v3 --language pl
 Press Enter once to start, then again to stop. Captures shorter than 300 ms are
 discarded. `--device` accepts a case-insensitive fragment from `devices`.
 
-Runtime data is stored under `%APPDATA%\hex`, except logs and speech models,
-which belong to this computer and live in `%LOCALAPPDATA%\hex`: on managed
+Runtime data is stored under `%APPDATA%\agent-desk`, except logs and speech models,
+which belong to this computer and live in `%LOCALAPPDATA%\agent-desk`: on managed
 networks Windows copies the Roaming folder to a server at every sign-in, which
-hundreds of megabytes of models would slow down. An older Hex's `logs` and
-`models` move there once (`app_paths::machine_local`); while a running Hex
+hundreds of megabytes of models would slow down. An older Agent-Desk's `logs` and
+`models` move there once (`app_paths::machine_local`); while a running Agent-Desk
 holds them, the Roaming copy stays in use. Observations are in
 `logs\live.ndjson`, and native/runtime diagnostics are in `logs\process.log`,
 including every panic with its thread and backtrace. A worker that stops
-unexpectedly leaves its cause there. `hex.exe` is a GUI program, so a launch
+unexpectedly leaves its cause there. `agent-desk.exe` is a GUI program, so a launch
 from Explorer, the Start menu, or login opens no console window. Run from a
 terminal, it prints startup errors there, then the app leaves the terminal and
 has no stdout or stderr.
@@ -201,24 +201,24 @@ by default.
 
 ## Control commands
 
-The `hex` control commands ([docs/cli.md](cli.md)) drive the running tray app
+The `agent-desk` control commands ([docs/cli.md](cli.md)) drive the running tray app
 as they do on macOS: `status`, `start`, `quit`, `restart`, `dictation
 start|stop|cancel|toggle` (with `stop --print`), `paste-last`, `settings`,
 `model`, `window`, `vocabulary`, `history clear`, `check-for-updates`,
 `launch-at-login` (the Run key), `onboarding reset`, `logs`, and `commands
 init|check`, `annotate`, `meetings record|stop|copy-last`, `history`, and
 `mcp`. They reach it through its local API (`local-api.json` in
-`%APPDATA%\hex` and the bearer-authenticated `POST /control`). Dictation commands go
+`%APPDATA%\agent-desk` and the bearer-authenticated `POST /control`). Dictation commands go
 to the listener's own loop as a shortcut press would, and `annotate`
 start, stop, cancel, and status wait for its capture host. `history`,
-`meetings`, and `mcp` work as on macOS. `hex restart`
-quits, waits for the drain, and starts `hex app --hidden` again.
+`meetings`, and `mcp` work as on macOS. `agent-desk restart`
+quits, waits for the drain, and starts `agent-desk app --hidden` again.
 
 ## Custom Transformations
 
 The Transformations card in Modes always offers the built-in transformations.
-Choose **Set up** there to create `~/.config/hex/hex.config.ts` and load any
-transformations registered by that config. Hex runs the config in its embedded
+Choose **Set up** there to create `~/.config/agent-desk/hex.config.ts` and load any
+transformations registered by that config. Agent-Desk runs the config in its embedded
 JavaScript engine (QuickJS), so nothing else needs installing.
 
 Transformations run in the displayed order after mode corrections and the
@@ -231,11 +231,11 @@ the card.
 
 ## The App
 
-`hex app` (`--hidden` for a login launch) runs the tray app on Rune. Snapshot
-fixtures without starting anything: `hex app -- --snap out.png --scene modes`.
+`agent-desk app` (`--hidden` for a login launch) runs the tray app on Rune. Snapshot
+fixtures without starting anything: `agent-desk app -- --snap out.png --scene modes`.
 
 ```ts
-hex app
+agent-desk app
 ├── named event already held -> signal it (the running app shows its window) -> exit
 └── becomes the app                                   // windows::rune::open
     ├── the local API's POST /control -> control::host::answer
@@ -246,7 +246,7 @@ hex app
     └── tray Quit / Ctrl-C / restart into an update -> AppHandle::quit -> runtime stops the listener
 ```
 
-- Quit Hex in the window or the tray stops the listener and ends the app;
+- Quit Agent-Desk in the window or the tray stops the listener and ends the app;
   closing the window only hides it.
 - The window uses the shared Rune panes (General, Modes,
   History, the transcription picker, first-run setup) with Windows rows:
@@ -277,7 +277,7 @@ hex app
   winit repaints the frame from the OS theme on each one, and only reports
   `ThemeChanged` when the OS theme actually changed. The subclass removes
   itself when the window is destroyed.
-- Without a tray (creation failed) closing the window quits Hex.
+- Without a tray (creation failed) closing the window quits Agent-Desk.
   See the [single-process plan](plans/single-process.md#windows-under-rune).
 
 **This app has never run on Windows.** Earlier releases shipped a GPUI app
@@ -349,7 +349,7 @@ current-user startup registry, UI Automation, and Windows capture APIs.
 | Local transcription API and public TypeScript SDK host lifecycle on Windows | Missing; see Local Transcription Service |
 | Streaming finish with whole-clip fallback | Implemented on GPU devices with Parakeet Unified English |
 
-Settings live in `%APPDATA%\hex\settings.json`, the same file macOS and
+Settings live in `%APPDATA%\agent-desk\settings.json`, the same file macOS and
 Linux use.
 
 The Windows window uses the shared design system
@@ -364,7 +364,7 @@ Labs › OpenCode in WSL on: WSL2 forwards its loopback URL, and the lab adds
 the default distribution's registration and a Linux workspace path for
 `x-opencode-directory`. Annotate's capture sends use the same service: the
 prompt's "Recorded at" line names the capture folder as a Linux `/mnt/…` path
-while the summary header keeps the Windows path. Off, Hex reads only the
+while the summary header keeps the Windows path. Off, Agent-Desk reads only the
 Windows registration and an OpenCode in WSL isn't found.
 Remaining panes should be added only with their complete Windows behavior;
 empty look-alike screens do not count as parity.

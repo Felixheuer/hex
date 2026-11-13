@@ -32,7 +32,7 @@ targets:
     info:
       path: HEXMobile/Info.plist
       properties:
-        CFBundleDisplayName: Hex
+        CFBundleDisplayName: Agent-Desk
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CADisableMinimumFrameDurationOnPhone: true
@@ -41,8 +41,8 @@ targets:
             CFBundleURLName: com.kitlangton.hex.mobile.keyboard-session
             CFBundleURLSchemes:
               - hex-dictation
-        NSMicrophoneUsageDescription: Hex records only while you dictate and transcribes locally on this iPhone.
-        NSSpeechRecognitionUsageDescription: Hex uses Apple's on-device SpeechTranscriber to turn your recording into text.
+        NSMicrophoneUsageDescription: Agent-Desk records only while you dictate and transcribes locally on this iPhone.
+        NSSpeechRecognitionUsageDescription: Agent-Desk uses Apple's on-device SpeechTranscriber to turn your recording into text.
         NSSupportsLiveActivities: true
         ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes:
@@ -84,7 +84,7 @@ targets:
     info:
       path: HEXKeyboard/Info.plist
       properties:
-        CFBundleDisplayName: Hex Keyboard
+        CFBundleDisplayName: Agent-Desk Keyboard
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
@@ -116,7 +116,7 @@ targets:
     info:
       path: HEXWidgets/Info.plist
       properties:
-        CFBundleDisplayName: Hex
+        CFBundleDisplayName: Agent-Desk
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:

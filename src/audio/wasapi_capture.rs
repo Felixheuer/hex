@@ -36,7 +36,7 @@ use super::input_format::{InputStream, StartedStream};
 use super::mix_format::{MixFormat, float_format_bytes};
 use super::{CaptureInstant, duration_for_frames};
 
-/// How long opening, across every path, may take before Hex gives up.
+/// How long opening, across every path, may take before Agent-Desk gives up.
 const OPEN_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long one `ActivateAudioInterfaceAsync` may take to complete.
 const ACTIVATION_TIMEOUT: Duration = Duration::from_secs(3);
@@ -439,7 +439,7 @@ fn open_with(
     if !format.is_decodable() {
         return Err(Failure {
             mix: Some(mix_format),
-            error: format!("Hex cannot decode this format ({format})"),
+            error: format!("Agent-Desk cannot decode this format ({format})"),
         });
     }
     if path == Path::SharedAudioStream {

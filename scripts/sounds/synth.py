@@ -2,19 +2,19 @@
 # requires-python = ">=3.11"
 # dependencies = ["numpy", "scipy"]
 # ///
-"""Hex's feedback sound sets, made reproducibly.
+"""Agent-Desk's feedback sound sets, made reproducibly.
 
 Run: uv run scripts/sounds/synth.py   (rewrites resources/audio/sounds/)
 
 Each set is a folder of start, stop, done, cancel, error and success WAVs:
 
 - signature: one voice, a kalimba-like FM tine, and one motif, D - B - A - D:
-  up a major sixth, a step down, home ("hex" is six, so the sixth is Hex's
+  up a major sixth, a step down, home ("hex" is six, so the sixth is Agent-Desk's
   interval). Start, stop and done play the motif in order across a
   dictation; cancel collapses the sixth; error turns it minor; success plays
   the whole motif and lands on a D sixth chord.
-- classic: the tones Hex played before the signature set, decoded from the
-  original MP3s in git (start, stop and cancel only; Hex plays no done tone,
+- classic: the tones Agent-Desk played before the signature set, decoded from the
+  original MP3s in git (start, stop and cancel only; Agent-Desk plays no done tone,
   macOS Basso for errors, and signature's success for this set).
 - click: mechanical key clicks.
 - soft: warm sine blips in A major.
@@ -29,7 +29,7 @@ leading silence), begins and ends at zero with raised-cosine edges, and is
 normalized so its loudest 400 ms window (BS.1770 K-weighted, EBU momentary
 loudness) reads its target in TARGETS, the same in every set, so a volume
 setting sounds as loud whichever set is chosen. The targets match the sounds
-Hex first shipped: start -25.5 LUFS like the classic start clicks, stop like
+Agent-Desk first shipped: start -25.5 LUFS like the classic start clicks, stop like
 the classic swish, error like macOS Basso. A mono sound plays in both
 speakers, so the stereo classic sounds are measured per channel, which puts
 their start 2.5 dB and stop 3 dB under the targets their summed loudness once
@@ -485,7 +485,7 @@ ONBOARDING_TARGETS = {
 
 
 def onboarding():
-    """Quiet harmonic motion cues in Hex's D-major sixth world. Tactile keycap
+    """Quiet harmonic motion cues in Agent-Desk's D-major sixth world. Tactile keycap
     and shortcut foley WAVs (`key_*`, `shortcut_*`) live alongside these in
     `resources/audio/sounds/onboarding/` and are kept intact."""
     D5, Fs5, A5, B5, D6 = map(hz, ["D5", "F#5", "A5", "B5", "D6"])
@@ -523,7 +523,7 @@ def onboarding():
         (0.052, 0.85 * warm(A5, 0.15, 0.044, h2=0.06, bell=0.04, atk_ms=5.0)),
     ], 0.21)
 
-    # "Hex is ready" building the logo outside in, one note per hexagon:
+    # "Agent-Desk is ready" building the logo outside in, one note per hexagon:
     # A5, B5, then home on D6 over a quiet A5, the sixth world's resolution.
     s["build_1"] = 0.8 * warm(A5, 0.16, 0.042, h2=0.06, bell=0.06, atk_ms=3.0)
     s["build_2"] = 0.85 * warm(B5, 0.16, 0.042, h2=0.06, bell=0.07, atk_ms=3.0)

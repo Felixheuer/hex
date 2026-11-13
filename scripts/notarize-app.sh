@@ -14,7 +14,7 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 bundle=$1
 dmg=$2
 volume=$3
-team_id=${HEX_TEAM_ID:?Set HEX_TEAM_ID to the Apple Developer signing team}
+team_id=${AGENT_DESK_TEAM_ID:?Set AGENT_DESK_TEAM_ID to the Apple Developer signing team}
 identity=$(hex_codesign_identity "$team_id")
 work=$(mktemp -d "${TMPDIR:-/tmp}/hex-notarize.XXXXXX")
 trap 'rm -rf "$work"' EXIT HUP INT TERM

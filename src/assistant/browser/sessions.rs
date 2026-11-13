@@ -1,5 +1,5 @@
 //! A task's browsers: its main one and more it names ("a", "b",
-//! "suppliers-2"), each an agent-browser session of its own in Hex's
+//! "suppliers-2"), each an agent-browser session of its own in Agent-Desk's
 //! namespace (`hex-<task>`, `hex-<task>_<name>`), so one job can read many
 //! pages at once. How many is the computer's (`capacity::limits`): up to
 //! 32 on a big Mac, fewer of them real Chrome.
@@ -10,7 +10,7 @@
 //!   clean Chrome;
 //! - **signed in** (`signedIn: true` on its first call) for web apps such as
 //!   Gmail or Google Sheets: real Chrome, starting from the sites the person
-//!   signed in to for Hex (never saved back).
+//!   signed in to for Agent-Desk (never saved back).
 
 use std::collections::BTreeMap;
 
@@ -26,7 +26,7 @@ pub fn max_sessions() -> usize {
 
 /// Arguments no task passes through to agent-browser: they would show a
 /// window, reach another task's browsers, keep state, or pass raw flags.
-/// `session` and `signedIn` are Hex's own and read here.
+/// `session` and `signedIn` are Agent-Desk's own and read here.
 pub const WITHHELD_ARGUMENTS: &[&str] = &[
     "namespace",
     "all",
@@ -44,7 +44,7 @@ pub const WITHHELD_ARGUMENTS: &[&str] = &[
     "idleTimeout",
 ];
 
-/// The tool that lists a task's browsers, answered by Hex.
+/// The tool that lists a task's browsers, answered by Agent-Desk.
 pub const LIST_TOOL: &str = "hex_browser_sessions";
 
 /// The session a task's first signed-in Chrome runs in, whatever the agent
@@ -378,7 +378,7 @@ fn parse_name(value: Option<Value>) -> Result<String, String> {
         return Ok(String::new());
     }
     let valid = text.chars().count() <= 16
-        // A leading `_` is Hex's own ([`WARM_CHROME`]).
+        // A leading `_` is Agent-Desk's own ([`WARM_CHROME`]).
         && !text.starts_with('_')
         && text
             .chars()
@@ -392,7 +392,7 @@ fn parse_name(value: Option<Value>) -> Result<String, String> {
     }
 }
 
-/// The `session` and `signedIn` arguments Hex adds to every tool's schema,
+/// The `session` and `signedIn` arguments Agent-Desk adds to every tool's schema,
 /// and the list tool.
 pub fn describe_tools(result: &mut Value) {
     let last_page = result.get("nextCursor").is_none_or(Value::is_null);
@@ -614,7 +614,7 @@ mod tests {
         let mut again = args(json!({"session": "mail", "signedIn": true}));
         sessions.pin("agent_browser_open", &mut again).unwrap();
         assert_eq!(again["session"], warm.as_str());
-        // Light browsers keep their own names; nobody names Hex's own.
+        // Light browsers keep their own names; nobody names Agent-Desk's own.
         let mut light = args(json!({"session": "a"}));
         sessions.pin("agent_browser_open", &mut light).unwrap();
         assert_eq!(light["session"], "hex-t1_a");

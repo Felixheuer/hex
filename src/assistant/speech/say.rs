@@ -128,7 +128,7 @@ fn write(job: &Job, generation: u64) -> Option<Vec<f32>> {
         Plan::Audio(bytes) => {
             let samples = bytes.as_deref().and_then(wav_samples);
             if bytes.is_some() && samples.is_none() {
-                tracing::warn!("the speech engine wrote audio Hex can't read");
+                tracing::warn!("the speech engine wrote audio Agent-Desk can't read");
             }
             return samples;
         }
@@ -196,7 +196,7 @@ fn write(job: &Job, generation: u64) -> Option<Vec<f32>> {
     }
     let samples = bytes.ok().and_then(|bytes| wav_samples(&bytes));
     if samples.is_none() {
-        tracing::warn!("the speech program wrote audio Hex can't read");
+        tracing::warn!("the speech program wrote audio Agent-Desk can't read");
     }
     samples
 }
@@ -320,7 +320,7 @@ mod tests {
             wav_samples(&wav(0xFFFE, 2, RATE, &samples, false)).as_deref(),
             Some(&[0.0, -0.5][..])
         );
-        // 16-bit PCM at 32-bit sizes is nothing Hex reads.
+        // 16-bit PCM at 32-bit sizes is nothing Agent-Desk reads.
         assert_eq!(wav_samples(&wav(1, 1, RATE, &samples, false)), None);
         assert_eq!(wav_samples(b"RIFF\0\0\0\0WAVEdata"), None);
     }

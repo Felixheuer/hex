@@ -1,4 +1,4 @@
-//! "Stopp", said instead of a question: Hex goes quiet instead of asking.
+//! "Stopp", said instead of a question: Agent-Desk goes quiet instead of asking.
 //!
 //! A hold or a conversation-mode follow-up whose words are only a stop
 //! ("Stopp", "Halt", "Sei still", "Hör auf", "Stop", "Be quiet", …) ends the
@@ -47,8 +47,8 @@ const QUIET: &[&str] = &[
 
 /// Words around a stop that don't change it.
 const FILLER: &[&str] = &[
-    "bitte", "danke", "ok", "okay", "hey", "hex", "jetzt", "mal", "sofort", "please", "now",
-    "thanks", "ja", "yes", "nein", "no", "einfach",
+    "bitte", "danke", "ok", "okay", "hey", "agent", "desk", "jetzt", "mal", "sofort", "please",
+    "now", "thanks", "ja", "yes", "nein", "no", "einfach",
 ];
 
 /// Phrases that stop every task.
@@ -230,7 +230,7 @@ mod tests {
             "Okay, stopp bitte.",
             "Danke, das reicht.",
             "Stopp, stopp",
-            "Hey Hex, Ruhe!",
+            "Hey Agent-Desk, Ruhe!",
             "Be quiet, please.",
             "That's enough.",
             "Abbrechen",

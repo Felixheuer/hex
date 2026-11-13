@@ -183,12 +183,12 @@ fn away_row(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> El {
 
 fn messages_row(p: Paint) -> El {
     let (copy, ok) = match phone::messages_permission() {
-        Some(AutomationState::Granted) => (tr("Hex may send with Messages"), true),
+        Some(AutomationState::Granted) => (tr("Agent-Desk may send with Messages"), true),
         Some(AutomationState::Denied) => (
             tr("Turned off in System Settings › Privacy & Security › Automation"),
             false,
         ),
-        _ => (tr("Hex asks once to send with Messages"), false),
+        _ => (tr("Agent-Desk asks once to send with Messages"), false),
     };
     let control = if ok {
         row()
@@ -205,10 +205,10 @@ fn messages_row(p: Paint) -> El {
 
 fn disk_row(state: &PhoneState, p: Paint) -> El {
     let (copy, ok) = match state.access {
-        Some(Access::Granted) => (tr("Hex reads your replies"), true),
+        Some(Access::Granted) => (tr("Agent-Desk reads your replies"), true),
         Some(Access::Missing) => (tr("Messages isn't set up on this Mac"), true),
         _ => (
-            tr("Needed to read your replies: turn Hex on under Full Disk Access"),
+            tr("Needed to read your replies: turn Agent-Desk on under Full Disk Access"),
             false,
         ),
     };

@@ -233,7 +233,7 @@ pub(super) fn share<S: 'static>(
                 .h(SHARE_ROWS[0])
                 .center_y()
                 .child(
-                    text("Hex")
+                    text("Agent-Desk")
                         .key("brand")
                         .font(k.ty.ui_medium)
                         .color(p.text()),

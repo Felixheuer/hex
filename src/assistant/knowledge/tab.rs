@@ -25,9 +25,8 @@ use super::script;
 use crate::assistant::autonomy::{self, Autonomy, Gate};
 use crate::assistant::tools::Role;
 
-/// The tool's name, and the one it had (kept for one release).
+/// The tool's name.
 pub const NAME: &str = "hex_browser_tab";
-pub const OLD_NAME: &str = "hex_chrome_tab";
 
 /// How much of a page a read returns by default, and at most.
 const READ_CHARS: usize = 8000;
@@ -428,7 +427,8 @@ pub fn call(arguments: &Value, task: Option<&str>, role: Role) -> Result<String,
             let (label, kind) = find(&browser, tab, arguments, true, &nonce)?;
             if kind == "password" {
                 return Err(
-                    "Hex never types into password fields; the person signs in themselves.".into(),
+                    "Agent-Desk never types into password fields; the person signs in themselves."
+                        .into(),
                 );
             }
             check_fill(&label, &gate)?;

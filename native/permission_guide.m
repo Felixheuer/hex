@@ -24,7 +24,7 @@ static NSUInteger guideReopens;
 static const NSUInteger guideReopenLimit = 2;
 static NSView *guideTile;
 
-/// The tile flies on its own from the click in Hex's window to its place in
+/// The tile flies on its own from the click in Agent-Desk's window to its place in
 /// the guide, so the eye can follow it to System Settings.
 static NSPanel *flightPanel;
 static CALayer *flightLayer;
@@ -51,7 +51,7 @@ static NSString *hexAppName(NSURL *bundleURL) {
     if ([name.pathExtension.lowercaseString isEqualToString:@"app"]) {
         name = name.stringByDeletingPathExtension;
     }
-    return name.length > 0 ? name : @"Hex";
+    return name.length > 0 ? name : @"Agent-Desk";
 }
 
 /// macOS 27 renamed the Accessibility list.
@@ -250,7 +250,7 @@ static BOOL settingsHasWindow(void) {
 
 /// Bit 0: System Settings has an open window.
 /// Bit 1: System Settings is the frontmost application.
-/// Bit 2: Hex is the active application.
+/// Bit 2: Agent-Desk is the active application.
 int hex_permission_settings_state(void) {
     NSCAssert(NSThread.isMainThread, @"settings state must run on the main thread");
     BOOL open = settingsHasWindow();
@@ -295,7 +295,7 @@ static void openSettingsPaneMayQuit(NSURL *url, BOOL mayQuit) {
     BOOL cold = running.count == 0;
     NSUInteger request = ++settingsRequest;
     // A Settings window left on another Space would pull the whole screen
-    // there, away from Hex. Quit it so it opens fresh on this Space.
+    // there, away from Agent-Desk. Quit it so it opens fresh on this Space.
     if (mayQuit && !cold && !settingsHasWindow() && settingsWindowExists()) {
         NSRunningApplication *settings = running.firstObject;
         [settings terminate];
@@ -375,7 +375,7 @@ static BOOL systemAudioGranted(void) {
 static BOOL permissionGranted(void) {
     switch (activePermission) {
         // What System Settings shows now: the preflights keep their launch
-        // answer until Hex restarts.
+        // answer until Agent-Desk restarts.
         case HexPermissionAccessibility:
             return AXIsProcessTrusted();
         case HexPermissionMicrophone:
@@ -471,7 +471,7 @@ static void stepFlight(void) {
     }
 }
 
-/// The click that asked for the guide, when it was in one of Hex's windows.
+/// The click that asked for the guide, when it was in one of Agent-Desk's windows.
 static BOOL clickInHexWindow(NSPoint point) {
     for (NSWindow *window in NSApp.windows) {
         if (window.visible && window != guidePanel && window != flightPanel &&
@@ -482,7 +482,7 @@ static BOOL clickInHexWindow(NSPoint point) {
     return NO;
 }
 
-/// Lifts a copy of the tile out of Hex's window at `origin`.
+/// Lifts a copy of the tile out of Agent-Desk's window at `origin`.
 static void beginFlight(NSPoint origin, NSURL *bundleURL, NSSize tileSize) {
     flightOrigin = origin;
     flightShownAt = CACurrentMediaTime();

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Updates this Mac's Hex from the fork: pulls `dev` from origin
+# Updates this Mac's Agent-Desk from the fork: pulls `dev` from origin
 # (Felixheuer/hex), then rebuilds, signs, and reinstalls it with
 # scripts/install-fork.sh. Refuses to run over uncommitted changes.
 #
@@ -23,7 +23,7 @@ fi
 git fetch --quiet origin dev
 behind=$(git rev-list --count HEAD..origin/dev)
 if [ "$behind" = 0 ] && [ "${1:-}" != --force ]; then
-  echo "Hex is up to date with origin/dev ($(git rev-parse --short HEAD))."
+  echo "Agent-Desk is up to date with origin/dev ($(git rev-parse --short HEAD))."
   exit 0
 fi
 if [ "$behind" != 0 ]; then

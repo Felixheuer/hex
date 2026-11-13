@@ -30,7 +30,7 @@ pub fn start(deliver: Deliver) {
 pub enum Main {
     /// The app's run loop answers.
     Answers,
-    /// Asked from a main thread that runs no loop (`hex dev …`): each
+    /// Asked from a main thread that runs no loop (`agent-desk dev …`): each
     /// sentence runs it while being written.
     Pumped,
     /// Nobody answered in time (a blocked main thread, as in tests).

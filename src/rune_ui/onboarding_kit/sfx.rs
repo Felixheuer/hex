@@ -5,7 +5,7 @@
 //!   typing`), never repeating an adjacent sample, each press at its own
 //!   pitch and level.
 //! - Tactile shortcut keycap press and release (`⌥` down / up).
-//! - Hex's real `#292` `DictationStart`, `DictationStop`, and `DictationDone`
+//! - Agent-Desk's real `#292` `DictationStart`, `DictationStop`, and `DictationDone`
 //!   tones and the ready logo's three rising notes, played through
 //!   [`crate::feedback`], respecting
 //!   the user's sound set and feedback volume (`volume == 0` is silent;
@@ -15,7 +15,7 @@
 //!   Settings, and `"Almost ready"`.
 //! - Words shooting out of the HUD ([`WordHits`]: a few varied flicks a
 //!   burst, not one a word) and the game's cards burning away.
-//! - Optional offline WAV export (`HEX_ONBOARDING_AUDIO_OUT`) so headless
+//! - Optional offline WAV export (`AGENT_DESK_ONBOARDING_AUDIO_OUT`) so headless
 //!   `--video` renders produce a frame-accurate 48 kHz soundtrack without ever
 //!   opening an audio output device.
 
@@ -34,20 +34,20 @@ use crate::feedback::{
 const HEART_QUIET: f32 = 10.0;
 const HEART_LOUD: f32 = 28.0;
 
-/// The triumph candidate a render plays, `HEX_ONBOARDING_TRIUMPH=1..3`
+/// The triumph candidate a render plays, `AGENT_DESK_ONBOARDING_TRIUMPH=1..3`
 /// (the first by default) until one is chosen.
 fn triumph_take() -> u8 {
-    std::env::var("HEX_ONBOARDING_TRIUMPH")
+    std::env::var("AGENT_DESK_ONBOARDING_TRIUMPH")
         .ok()
         .and_then(|v| v.parse::<u8>().ok())
         .filter(|n| (1..=TRIUMPHS).contains(n))
         .map_or(0, |n| n - 1)
 }
 
-/// Whether the heartbeat plays under the panic; `HEX_ONBOARDING_HEARTBEAT=off`
+/// Whether the heartbeat plays under the panic; `AGENT_DESK_ONBOARDING_HEARTBEAT=off`
 /// renders the comedy without it to compare.
 fn heartbeat_on() -> bool {
-    std::env::var("HEX_ONBOARDING_HEARTBEAT").map_or(true, |v| v != "off")
+    std::env::var("AGENT_DESK_ONBOARDING_HEARTBEAT").map_or(true, |v| v != "off")
 }
 
 /// A fixed scramble of `seed`, so each press's pitch and level vary the same
@@ -160,12 +160,12 @@ impl SfxTrack {
             .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     }
 
-    /// Initial `"Setting up Hex"` hexagon bloom.
+    /// Initial `"Setting up Agent-Desk"` hexagon bloom.
     pub(crate) fn on_download_start(&mut self, now: f64) {
         self.push(now + 0.08, Tone::Onboarding(OnboardingTone::Hexagon));
     }
 
-    /// `"Without Hex"` waiting to start: the hexagon settles into the top
+    /// `"Without Agent-Desk"` waiting to start: the hexagon settles into the top
     /// pill.
     pub(crate) fn on_parked(&mut self, now: f64, had_model: bool) {
         if !had_model {
@@ -188,7 +188,7 @@ impl SfxTrack {
         self.push(now, Tone::Onboarding(OnboardingTone::ShortcutDown));
     }
 
-    /// The conversation on screen already, `"Without Hex"` from `from`:
+    /// The conversation on screen already, `"Without Agent-Desk"` from `from`:
     /// the lines from before it land in it, each with its sound, in place
     /// of the row's dings.
     pub(crate) fn on_arrivals(&mut self, from: f64, scene: &typing::Scene) {
@@ -202,7 +202,7 @@ impl SfxTrack {
         }
     }
 
-    /// `"Without Hex"` from `from`: every keystroke, harder as panic builds
+    /// `"Without Agent-Desk"` from `from`: every keystroke, harder as panic builds
     /// (a space-bar thud under the tap), a soft send, Jay's messages, a
     /// deadpan tick on `"Read"`, and the selected set's error on removal.
     /// The keys are always the mechanical clack, whatever the reader picked
@@ -304,7 +304,7 @@ impl SfxTrack {
         }
     }
 
-    /// The story winding back into `"With Hex"`, and `"Voice-first mode"`
+    /// The story winding back into `"With Agent-Desk"`, and `"Voice-first mode"`
     /// called.
     pub(crate) fn on_rewind(&mut self, now: f64) {
         self.push(now, Tone::Onboarding(OnboardingTone::Rewind));
@@ -314,7 +314,7 @@ impl SfxTrack {
         );
     }
 
-    /// `"With Hex"`'s payoff from the shortcut at `from`: the answer
+    /// `"With Agent-Desk"`'s payoff from the shortcut at `from`: the answer
     /// sending, each tapback and reply, and a triumphant sting under the
     /// first celebration, each with its own sound.
     pub(crate) fn on_hex_reply(&mut self, from: f64, beats: &triumph::HexBeats) {
@@ -354,7 +354,7 @@ impl SfxTrack {
         }
     }
 
-    /// `"With Hex"` or scripted `"Your turn"` dictation: physical shortcut
+    /// `"With Agent-Desk"` or scripted `"Your turn"` dictation: physical shortcut
     /// down, real `DictationStart`, then shortcut up, `DictationStop`, and
     /// `DictationDone`.
     pub(crate) fn on_voice_take(&mut self, start: f64, take: &Take) {
@@ -416,7 +416,7 @@ impl SfxTrack {
         );
     }
 
-    /// The Accessibility step: the guide escaping Hex's card, then a tick
+    /// The Accessibility step: the guide escaping Agent-Desk's card, then a tick
     /// as the switch goes on.
     pub(crate) fn on_accessibility(&mut self, from: f64) {
         let from = from - permissions::AX_SHIFT;
@@ -435,7 +435,7 @@ impl SfxTrack {
         self.push(now, Tone::Onboarding(OnboardingTone::PermissionTick));
     }
 
-    /// `"With Hex"`'s score landing.
+    /// `"With Agent-Desk"`'s score landing.
     pub(crate) fn on_score(&mut self, now: f64) {
         self.push(now + 0.05, Tone::Onboarding(OnboardingTone::AlmostReady));
     }
@@ -456,7 +456,7 @@ impl SfxTrack {
         }
     }
 
-    /// `"Hex is ready"` finale: one rising note as each of the logo's
+    /// `"Agent-Desk is ready"` finale: one rising note as each of the logo's
     /// hexagons lands, resolving on the last; Reduced Motion shows the logo
     /// built, with only the last.
     pub(crate) fn on_ready(&mut self, now: f64, reduced: bool) {
@@ -490,24 +490,24 @@ impl SfxTrack {
         &self.cues[..self.fired]
     }
 
-    /// Writes the fired soundtrack offline when `HEX_ONBOARDING_AUDIO_OUT` is set.
+    /// Writes the fired soundtrack offline when `AGENT_DESK_ONBOARDING_AUDIO_OUT` is set.
     pub(crate) fn flush_offline_if_requested(&mut self, fallback_secs: f64) {
         if self.flushed {
             return;
         }
-        let Ok(path) = std::env::var("HEX_ONBOARDING_AUDIO_OUT") else {
+        let Ok(path) = std::env::var("AGENT_DESK_ONBOARDING_AUDIO_OUT") else {
             return;
         };
         if path.is_empty() || self.fired == 0 {
             return;
         }
         self.flushed = true;
-        let duration_secs = std::env::var("HEX_ONBOARDING_AUDIO_SECS")
+        let duration_secs = std::env::var("AGENT_DESK_ONBOARDING_AUDIO_SECS")
             .ok()
             .and_then(|v| v.parse::<f64>().ok())
             .unwrap_or(fallback_secs)
             .max(fallback_secs);
-        let gain = std::env::var("HEX_ONBOARDING_AUDIO_GAIN")
+        let gain = std::env::var("AGENT_DESK_ONBOARDING_AUDIO_GAIN")
             .ok()
             .and_then(|v| v.parse::<f32>().ok())
             .unwrap_or(0.88)

@@ -2,21 +2,21 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-export HEX_TEAM_ID=TESTTEAM00
+export AGENT_DESK_TEAM_ID=TESTTEAM00
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/hex-app-identity.XXXXXX")
 trap 'rm -rf "$temporary"' EXIT HUP INT TERM
-bundle="$temporary/Hex.app"
+bundle="$temporary/Agent-Desk.app"
 mkdir -p "$bundle/Contents"
 plist="$bundle/Contents/Info.plist"
 cp "$root/app/Info.plist" "$plist"
 
-[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = anomaly.hex ]
+[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = fheuer.agentdesk ]
 [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist")" = hex ]
-[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist")" = Hex ]
-[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = Hex ]
+[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist")" = Agent-Desk ]
+[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = Agent-Desk ]
 
 expect_rejection() {
-  if output=$(sh "$root/scripts/validate-app.sh" "$bundle" Hex.app 2.1.0 20100 2>&1); then
+  if output=$(sh "$root/scripts/validate-app.sh" "$bundle" Agent-Desk.app 2.1.0 20100 2>&1); then
     echo "Unexpectedly accepted an incompatible app." >&2
     exit 1
   fi
@@ -27,32 +27,32 @@ expect_rejection() {
 expect_rejection 'wrong bundle identifier'
 /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.kitlangton.hex.agent' "$plist"
 expect_rejection 'wrong bundle identifier'
-/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier ly.anoma.Hex' "$plist"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier ly.anoma.Agent-Desk' "$plist"
 expect_rejection 'wrong bundle identifier'
 /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.kitlangton.hex2' "$plist"
 expect_rejection 'wrong bundle identifier'
-/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier anomaly.hex' "$plist"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier fheuer.agentdesk' "$plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable hex-watch' "$plist"
 expect_rejection 'wrong executable name'
 /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable hex' "$plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 2.1.0' "$plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleVersion 20100' "$plist"
 mkdir -p "$bundle/Contents/MacOS"
-printf '#!/bin/sh\n' >"$bundle/Contents/MacOS/hex"
-chmod +x "$bundle/Contents/MacOS/hex"
+printf '#!/bin/sh\n' >"$bundle/Contents/MacOS/agent-desk"
+chmod +x "$bundle/Contents/MacOS/agent-desk"
 expect_rejection 'scrawl-helper is missing'
 
 for script in build-app.sh build-service-app.sh release-app.sh; do
-  if output=$(env -u HEX_TEAM_ID sh "$root/scripts/$script" 2>&1); then
+  if output=$(env -u AGENT_DESK_TEAM_ID sh "$root/scripts/$script" 2>&1); then
     echo "Unexpectedly allowed $script without an explicit signing team." >&2
     exit 1
   fi
-  printf '%s\n' "$output" | grep -Fq 'Set HEX_TEAM_ID to the Apple Developer signing team'
+  printf '%s\n' "$output" | grep -Fq 'Set AGENT_DESK_TEAM_ID to the Apple Developer signing team'
 done
 
 for script in build-app.sh build-service-app.sh; do
   for identity in 'Developer ID Application: Fixture (WRONGTEAM0)' 'Apple Development: Fixture (TESTTEAM00)'; do
-    if output=$(HEX_CODESIGN_IDENTITY="$identity" sh "$root/scripts/$script" 2>&1); then
+    if output=$(AGENT_DESK_CODESIGN_IDENTITY="$identity" sh "$root/scripts/$script" 2>&1); then
       echo "Unexpectedly allowed an incompatible signing identity in $script." >&2
       exit 1
     fi
@@ -60,10 +60,10 @@ for script in build-app.sh build-service-app.sh; do
   done
 done
 
-if output=$(env -u HEX_NOTARY_PROFILE sh "$root/scripts/prepare-service-app.sh" 2>&1); then
+if output=$(env -u AGENT_DESK_NOTARY_PROFILE sh "$root/scripts/prepare-service-app.sh" 2>&1); then
   echo "Unexpectedly allowed helper notarization without an explicit profile." >&2
   exit 1
 fi
-printf '%s\n' "$output" | grep -Fq 'Set HEX_NOTARY_PROFILE to the matching notarization profile'
+printf '%s\n' "$output" | grep -Fq 'Set AGENT_DESK_NOTARY_PROFILE to the matching notarization profile'
 
 echo "Rust app identity guards passed."

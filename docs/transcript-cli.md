@@ -1,22 +1,22 @@
 # Read transcripts from the command line
 
 The macOS release binary can read retained dictations and recorded meetings
-while Hex runs. Use `/Applications/Hex.app/Contents/MacOS/hex` if `hex` is not
+while Agent-Desk runs. Use `/Applications/Agent-Desk.app/Contents/MacOS/agent-desk` if `agent-desk` is not
 on your PATH.
 
 ```sh
-hex history --since 3d --app 'OpenCode Beta' --grep problems --json
-hex history --since 2026-10-20 --until 2026-10-21 --raw --oldest-first --limit 500
-hex history --since 7d --search 'problems board' --json
-hex history stats --since 7d --json   # Labs › Dictation stats
-hex meetings list --since 7d --json
-hex meetings show latest --md
-hex meetings show 1790000500000-1002 --json
-hex meetings show 1790000500000-1002 --from 113:03 --to 120:43 --md
-hex meetings chapters latest --json
-hex meetings show 1790003000000-1005 --chapter 2
-hex meetings show latest --srt > call.srt   # Labs › Subtitle export
-hex meetings search 'release schedule'
+agent-desk history --since 3d --app 'OpenCode Beta' --grep problems --json
+agent-desk history --since 2026-10-20 --until 2026-10-21 --raw --oldest-first --limit 500
+agent-desk history --since 7d --search 'problems board' --json
+agent-desk history stats --since 7d --json   # Labs › Dictation stats
+agent-desk meetings list --since 7d --json
+agent-desk meetings show latest --md
+agent-desk meetings show 1790000500000-1002 --json
+agent-desk meetings show 1790000500000-1002 --from 113:03 --to 120:43 --md
+agent-desk meetings chapters latest --json
+agent-desk meetings show 1790003000000-1005 --chapter 2
+agent-desk meetings show latest --srt > call.srt   # Labs › Subtitle export
+agent-desk meetings search 'release schedule'
 ```
 
 ## History filters apply before the limit
@@ -24,7 +24,7 @@ hex meetings search 'release schedule'
 `history` returns successful retained results, including Send and Voice Action.
 Each result has a timestamp, application, recorded processing mode if present,
 and final text. `--raw` adds the stored pre-processing transcript. Older entries
-may have no app or mode; Hex does not infer missing metadata. With Labs › Keep
+may have no app or mode; Agent-Desk does not infer missing metadata. With Labs › Keep
 recordings on, an entry whose WAV is still beside the store adds its absolute
 path as `recording` in JSON; every other entry omits it.
 
@@ -52,7 +52,7 @@ path as `recording` in JSON; every other entry omits it.
 
 ## History stats sum up what is retained
 
-`history stats` (Labs › Dictation stats, `hex labs on history-stats`, off by
+`history stats` (Labs › Dictation stats, `agent-desk labs on history-stats`, off by
 default) prints a summary of the retained entries: dictations, words (the
 inserted text split on whitespace), words per minute (words over recorded
 audio minutes, counting only entries with audio; unknown without any), how
@@ -106,9 +106,9 @@ and `chapter` in JSON; it cannot be combined with `--from`/`--to`, and a number
 outside the list is an error. Plain `show` Markdown adds a `## Chapters` list
 when there are any.
 
-`show --srt` and `show --vtt` (Labs › Subtitle export, `hex labs on
+`show --srt` and `show --vtt` (Labs › Subtitle export, `agent-desk labs on
 subtitle-export`, off by default) write timed subtitles to stdout instead,
-for example `hex meetings show latest --vtt > call.vtt`. With the toggle off
+for example `agent-desk meetings show latest --vtt > call.vtt`. With the toggle off
 they fail, naming the command that turns it on, before any meeting is read.
 They take the same IDs, `--from`/`--to`, and `--chapter` as the other outputs
 and conflict with `--md`, `--json`, and each other. Each transcript entry (a
@@ -137,7 +137,7 @@ in `blog`, `Bob`, or `believe` once three passages say `blob`, and `media` does
 not pull in a word as common as `made`. When several words in a passage could
 stand for one term, the exact stem wins, then the higher score, the more
 trusted match, and the alphabetically first word, so results never vary between
-runs. `hex history --search` uses the same ranking, with an entry's raw and
+runs. `agent-desk history --search` uses the same ranking, with an entry's raw and
 final text counted as one document (so a word in both counts once) and its
 better text as the hit.
 
@@ -186,7 +186,7 @@ type History = {
   }[]
 }
 
-type HistoryStats = { // hex history stats --json
+type HistoryStats = { // agent-desk history stats --json
   version: 1
   retention: "off" | "day" | "week" | "month" | "forever"
   dictations: number
@@ -248,14 +248,14 @@ type MeetingChapters = {
 ## Reads never start or change the app
 
 These commands dispatch before logging, instance locking,
-local API startup, permissions, GUI, and Hex Microphone. They open no microphone,
+local API startup, permissions, GUI, and Agent-Desk Microphone. They open no microphone,
 load no model, make no network request, and create no files or directories.
 History reads one file descriptor, so an atomic replacement yields a complete
 old or new snapshot. Malformed history produces an error without recovery writes.
 
-Data comes from `~/Library/Application Support/hex`. `HEX_APPLICATION_SUPPORT_DIR` overrides the
-root for fixtures or a mirrored copy (`%APPDATA%\hex` on Windows,
-`~/.local/share/hex` or `$XDG_DATA_HOME/hex` on Linux). These commands are
+Data comes from `~/Library/Application Support/agent-desk`. `AGENT_DESK_APPLICATION_SUPPORT_DIR` overrides the
+root for fixtures or a mirrored copy (`%APPDATA%\agent-desk` on Windows,
+`~/.local/share/agent-desk` or `$XDG_DATA_HOME/hex` on Linux). These commands are
 available on every OS.
 
 ## Retention stays bounded in one store

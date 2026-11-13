@@ -1,5 +1,5 @@
 //! The tools a task's guard offers: the driver's, less those its lane may
-//! never use, plus Hex's own. One definition for every backend: Claude
+//! never use, plus Agent-Desk's own. One definition for every backend: Claude
 //! Code, Codex, OpenCode, and the Claude API all see exactly this list, so
 //! no backend keeps an allowlist of its own (`provider::servers`).
 //!
@@ -15,7 +15,7 @@ use crate::assistant::types::Lane;
 
 /// The guard's MCP instructions: a pointer, so the system prompt is the one
 /// place with the rules (the Claude API never reads MCP instructions).
-pub const RULES: &str = "Hex guards these tools: each call is checked against this task's \
+pub const RULES: &str = "Agent-Desk guards these tools: each call is checked against this task's \
 windows and the person's settings. Your system prompt has the rules. A refusal is a tool error \
 with a code and says what to do instead.";
 
@@ -32,7 +32,7 @@ pub fn offered(config: &Config, mut tools: Vec<Value>) -> Vec<Value> {
             // (briefly) only with full control.
             Kind::FocusWindow => !background || config.front_window,
             Kind::Free | Kind::Observe | Kind::Act | Kind::Press | Kind::CloseApp => true,
-            // Hex's `hex_open_app` opens apps; the rest are refused or Hex's.
+            // Agent-Desk's `hex_open_app` opens apps; the rest are refused or Agent-Desk's.
             _ => false,
         }
     });
@@ -71,7 +71,7 @@ pub fn offered_names(config: &Config) -> Vec<String> {
 fn claim_tool() -> Value {
     json!({
         "name": policy::CLAIM_TOOL,
-        "description": "Hex: take a window that's on screen and free (no other task holds it, \
+        "description": "Agent-Desk: take a window that's on screen and free (no other task holds it, \
             and it isn't the window in front of the person) so this task may read and operate \
             it. Windows this task opens with hex_open_app are its own already.",
         "inputSchema": {

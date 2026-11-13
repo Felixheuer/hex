@@ -1,7 +1,7 @@
 //! The floating guide beside System Settings' Privacy & Security pane: it
-//! opens the pane for one permission, clears retired Hex identities' stale TCC
-//! rows in the background, and offers Hex as a drag tile (or, for a refused
-//! microphone, asks to switch Hex on), closing once it is granted.
+//! opens the pane for one permission, clears retired Agent-Desk identities' stale TCC
+//! rows in the background, and offers Agent-Desk as a drag tile (or, for a refused
+//! microphone, asks to switch Agent-Desk on), closing once it is granted.
 
 use std::ffi::CStr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -44,7 +44,7 @@ pub(crate) fn list_name(kind: PermissionKind) -> &'static str {
 }
 
 /// Whether System Settings has an open window, whether it is frontmost, and
-/// whether Hex is active. Main thread only.
+/// whether Agent-Desk is active. Main thread only.
 pub(crate) fn settings_focus() -> SettingsFocus {
     if MainThreadMarker::new().is_none() {
         return SettingsFocus::default();
@@ -64,7 +64,7 @@ pub(crate) fn prompt_accessibility_trust() -> bool {
 }
 
 /// The running `.app` bundle's `CFBundleIdentifier`, or the build's default
-/// Hex identifier (`anomaly.hex`, `anomaly.hex.dev`, `anomaly.hex.test`)
+/// Agent-Desk identifier (`fheuer.agentdesk`, `fheuer.agentdesk.dev`, `fheuer.agentdesk.test`)
 /// outside a bundle.
 pub(crate) fn running_bundle_id() -> String {
     let mut buf = [0u8; 256];
@@ -74,7 +74,7 @@ pub(crate) fn running_bundle_id() -> String {
     {
         return id.to_owned();
     }
-    default_mac_bundle_id(option_env!("HEX_TEST_BUILD")).to_owned()
+    default_mac_bundle_id(option_env!("AGENT_DESK_TEST_BUILD")).to_owned()
 }
 
 fn tccutil_allowed() -> bool {
@@ -125,7 +125,7 @@ fn reset_bundle_service(service: &str, bundle_id: &str) {
 
 /// Clears retired Hex bundle IDs (`com.kitlangton.hex2`, `com.kitlangton.Hex`,
 /// `com.kitlangton.Hex.debug`) once per process for `kind`'s TCC services off
-/// the UI thread, so System Settings never lists duplicate Hex rows.
+/// the UI thread, so System Settings never lists duplicate Agent-Desk rows.
 pub(crate) fn clear_legacy_entries_async(kind: PermissionKind) {
     static ACCESSIBILITY_CLEARED: AtomicBool = AtomicBool::new(false);
     static SCREEN_AUDIO_CLEARED: AtomicBool = AtomicBool::new(false);
@@ -157,7 +157,7 @@ pub(crate) fn clear_legacy_entries_async(kind: PermissionKind) {
     }
 }
 
-/// Resets the running bundle ID plus retired Hex bundle IDs for `kind` off the
+/// Resets the running bundle ID plus retired Agent-Desk bundle IDs for `kind` off the
 /// UI thread, then calls `done` so the main thread can re-prompt and reopen
 /// System Settings.
 pub(crate) fn reset_and_reopen_async(

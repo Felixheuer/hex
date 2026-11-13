@@ -38,7 +38,7 @@ pub fn message_for(event: &Event, title: &str) -> Option<String> {
 
 /// What the test button shows.
 pub fn test_message() -> String {
-    tr("Hex: this is how questions and results reach you while you're away. Reply to test it.")
+    tr("Agent-Desk: this is how questions and results reach you while you're away. Reply to test it.")
         .to_owned()
 }
 

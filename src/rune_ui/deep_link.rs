@@ -1,7 +1,6 @@
-//! Links that open the window on a page: `hex://settings/<pane>` and
-//! `hex://chats?id=<conversation>` (`hex-test://` in a test build). Labs is
-//! gone; an old `hex://labs` link opens the Dictation pane, where most of
-//! its features now live. Story links live in `story_link`.
+//! Links that open the window on a page: `agent-desk://settings/<pane>` and
+//! `agent-desk://chats?id=<conversation>` (`agent-desk-test://` in a test
+//! build). Story links live in `story_link`.
 
 use rune::Tx;
 
@@ -17,7 +16,7 @@ pub(crate) enum Target {
     Chats(Option<String>),
 }
 
-/// The main panes a `hex://settings/<pane>` link names.
+/// The main panes a `agent-desk://settings/<pane>` link names.
 const PANES: [(&str, Pane); 8] = [
     ("dictation", Pane::Dictation),
     ("general", Pane::General),
@@ -29,8 +28,7 @@ const PANES: [(&str, Pane); 8] = [
     ("voice-filter", Pane::VoiceFilter),
 ];
 
-/// Reads `scheme://settings/<pane>`, a retired `scheme://labs[…]`, and
-/// `scheme://chats`. `None`
+/// Reads `scheme://settings/<pane>` and `scheme://chats`. `None`
 /// means it is not one of these (a story link, or not ours), for the caller
 /// to read another way.
 pub(crate) fn parse(link: &str, scheme: &str) -> Option<Result<Target, String>> {
@@ -49,7 +47,7 @@ pub(crate) fn parse(link: &str, scheme: &str) -> Option<Result<Target, String>> 
             .map(|(_, value)| value.trim().to_owned());
         return Some(Ok(Target::Chats(id)));
     }
-    if host != "labs" && host != "settings" {
+    if host != "settings" {
         return None;
     }
     let segments: Option<Vec<String>> = url
@@ -63,10 +61,10 @@ pub(crate) fn parse(link: &str, scheme: &str) -> Option<Result<Target, String>> 
         return Some(Err("the link isn't valid UTF-8".into()));
     };
     let name = segments.join("/").to_ascii_lowercase();
-    Some(match (host, name.is_empty()) {
-        ("labs", _) => Ok(Target::Settings("dictation".into())),
-        (_, true) => Err("the link names no settings pane".into()),
-        (_, false) => Ok(Target::Settings(name)),
+    Some(if name.is_empty() {
+        Err("the link names no settings pane".into())
+    } else {
+        Ok(Target::Settings(name))
     })
 }
 
@@ -87,7 +85,7 @@ pub(crate) fn open(ui: &mut Ui, target: Target, tx: &mut Tx) {
                     ui.select_pane(pane, tx);
                 }
                 _ => {
-                    tracing::warn!(pane = %name, "a settings link named no pane this Hex shows");
+                    tracing::warn!(pane = %name, "a settings link named no pane this Agent-Desk shows");
                     super::show(ui, super::Destination::Settings, tx);
                 }
             }
@@ -100,40 +98,32 @@ mod tests {
     use super::*;
 
     fn read(link: &str) -> Option<Result<Target, String>> {
-        parse(link, "hex")
-    }
-
-    #[test]
-    fn a_retired_labs_link_opens_dictation() {
-        let dictation = Some(Ok(Target::Settings("dictation".into())));
-        assert_eq!(read("hex://labs"), dictation);
-        assert_eq!(read("hex://labs/live-text?tab=on"), dictation);
-        assert_eq!(
-            parse("hex-test://labs/meetings", "hex-test"),
-            Some(Ok(Target::Settings("dictation".into())))
-        );
+        parse(link, "agent-desk")
     }
 
     #[test]
     fn reads_settings_links() {
         assert_eq!(
-            read("hex://settings/history"),
+            read("agent-desk://settings/history"),
             Some(Ok(Target::Settings("history".into())))
         );
-        assert!(matches!(read("hex://settings"), Some(Err(_))));
-        assert!(matches!(read("hex://labs/%FF"), Some(Err(_))));
+        assert!(matches!(read("agent-desk://settings"), Some(Err(_))));
+        assert!(matches!(read("agent-desk://settings/%FF"), Some(Err(_))));
     }
 
     #[test]
     fn reads_chats_links() {
         assert_eq!(
-            read("hex://chats?id=2f9c-41"),
+            read("agent-desk://chats?id=2f9c-41"),
             Some(Ok(Target::Chats(Some("2f9c-41".into()))))
         );
-        assert_eq!(read("hex://chats"), Some(Ok(Target::Chats(None))));
-        assert_eq!(read("hex://chats?id="), Some(Ok(Target::Chats(None))));
+        assert_eq!(read("agent-desk://chats"), Some(Ok(Target::Chats(None))));
         assert_eq!(
-            parse("hex-test://chats?id=a%20b", "hex-test"),
+            read("agent-desk://chats?id="),
+            Some(Ok(Target::Chats(None)))
+        );
+        assert_eq!(
+            parse("agent-desk-test://chats?id=a%20b", "agent-desk-test"),
             Some(Ok(Target::Chats(Some("a b".into()))))
         );
     }
@@ -141,16 +131,17 @@ mod tests {
     #[test]
     fn leaves_other_links_alone() {
         for other in [
-            "hex://story/hud/processing",
-            "hex-test://labs/live-text",
+            "agent-desk://story/hud/processing",
+            "agent-desk-test://labs/live-text",
             "https://labs/live-text",
-            "hex://elsewhere",
+            "agent-desk://elsewhere",
+            "agent-desk://labs/live-text",
             "not a link",
             "",
         ] {
             assert_eq!(read(other), None, "{other}");
         }
-        let long = format!("hex://labs/{}", "a".repeat(MAX_LINK));
+        let long = format!("agent-desk://settings/{}", "a".repeat(MAX_LINK));
         assert_eq!(read(&long), None);
     }
 

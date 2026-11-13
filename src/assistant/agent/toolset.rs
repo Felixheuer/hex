@@ -1,5 +1,5 @@
 //! The tools a run has, per lane and backend, in one place: the guard's
-//! desktop tools (`guard::proxy::tools`), Hex's own (`tools::Role`), the
+//! desktop tools (`guard::proxy::tools`), Agent-Desk's own (`tools::Role`), the
 //! hidden browser's, and the backend's built-ins. The rules name only
 //! these, by the name each backend gives them, and the tests check that
 //! every lane's rules and toolset agree for every backend.
@@ -63,7 +63,7 @@ mod tests {
     use crate::assistant::provider::Desktop;
     use crate::assistant::types::{Context, Lane, Origin, Request};
 
-    /// One kind of run: who asks, what the settings allow, and what Hex
+    /// One kind of run: who asks, what the settings allow, and what Agent-Desk
     /// gives it.
     #[derive(Clone, Copy)]
     struct Variant {
@@ -148,7 +148,7 @@ mod tests {
     }
 
     /// The run `variant` is on `backend`: its system prompt, every tool it
-    /// is offered, and Hex's own among them (the ones its rules must name).
+    /// is offered, and Agent-Desk's own among them (the ones its rules must name).
     fn run(
         variant: &Variant,
         backend: AssistantBackend,
@@ -246,7 +246,7 @@ mod tests {
     }
 
     /// Every tool any lane's rules name is one that lane has, on every
-    /// backend; and every tool of Hex's that a lane has, its rules name.
+    /// backend; and every tool of Agent-Desk's that a lane has, its rules name.
     #[test]
     fn every_lane_s_rules_and_tools_agree_on_every_backend() {
         for variant in variants() {

@@ -37,7 +37,7 @@ pub(super) fn view(s: &CapsuleState, cx: &mut Cx<CapsuleState>) -> El {
     capsule
 }
 
-/// Hex's menu-bar item where the menu-bar flow folds the capsule, for
+/// Agent-Desk's menu-bar item where the menu-bar flow folds the capsule, for
 /// stills and clips, which have no menu bar.
 pub(super) fn menu_item(p: Paint) -> El {
     let [x, y, w, h] = surface::MENU_FOLD;
@@ -589,7 +589,7 @@ pub(super) fn key_parts<S: AsRef<str>>(keys: &[S]) -> Vec<String> {
 
 /// The open capsule's field: the kit's search field over the typed
 /// text. The capsule never takes key focus, so the field always reads as
-/// focused and Hex's tap feeds it ([`flow::Input::Type`]).
+/// focused and Agent-Desk's tap feeds it ([`flow::Input::Type`]).
 pub(super) fn field(p: Paint, base: El, typed: &rune::TextEdit) -> El {
     let mut edit = typed.clone();
     edit.focused = true;
@@ -616,7 +616,7 @@ pub(super) fn glyph(p: Paint, lead: Lead, thumb: Option<&rune::Pixels>) -> El {
     glyph.absolute(8.0, (CHIP_H - CHECK) * 0.5)
 }
 
-/// The kit's ✕, at the size Hex's icon buttons draw it.
+/// The kit's ✕, at the size Agent-Desk's icon buttons draw it.
 pub(super) fn close_glyph(p: Paint) -> El {
     rune::icon(p.k.glyph.close, 16.0).color(p.muted())
 }

@@ -2,13 +2,13 @@
 // Copyright (c) 2026 Kit Langton
 //
 // HexMicrophoneDriver.c
-// Minimal CoreAudio AudioServerPlugIn virtual microphone driver for Hex.
+// Minimal CoreAudio AudioServerPlugIn virtual microphone driver for Agent-Desk.
 //
 // Exposes two devices inside coreaudiod:
-//   1. "Hex Microphone" (UID: "anomaly.hex.microphone")
+//   1. "Agent-Desk Microphone" (UID: "fheuer.agentdesk.microphone")
 //      Visible 48 kHz mono float32 virtual input device for call apps.
-//   2. "Hex Microphone (Internal Sink)" (UID: "anomaly.hex.microphone.sink")
-//      Hidden 48 kHz mono float32 output sink that Hex writes processed capture
+//   2. "Agent-Desk Microphone (Internal Sink)" (UID: "fheuer.agentdesk.microphone.sink")
+//      Hidden 48 kHz mono float32 output sink that Agent-Desk writes processed capture
 //      audio into.
 
 #include <CoreAudio/AudioServerPlugIn.h>
@@ -20,19 +20,19 @@
 #include <stdint.h>
 #include <string.h>
 
-#define HEX_SAMPLE_RATE 48000.0
-#define HEX_CHANNELS 1u
-#define HEX_BITS_PER_CHANNEL 32u
-#define HEX_BYTES_PER_FRAME 4u
-#define HEX_ZERO_TIMESTAMP_PERIOD 4800u
-#define HEX_SAFETY_OFFSET 64u
+#define AGENT_DESK_SAMPLE_RATE 48000.0
+#define AGENT_DESK_CHANNELS 1u
+#define AGENT_DESK_BITS_PER_CHANNEL 32u
+#define AGENT_DESK_BYTES_PER_FRAME 4u
+#define AGENT_DESK_ZERO_TIMESTAMP_PERIOD 4800u
+#define AGENT_DESK_SAFETY_OFFSET 64u
 
 // Power-of-two capacity in mono float32 frames (16384 frames = ~341 ms at 48 kHz).
-#define HEX_RING_CAPACITY 16384u
-#define HEX_RING_MASK (HEX_RING_CAPACITY - 1u)
+#define AGENT_DESK_RING_CAPACITY 16384u
+#define AGENT_DESK_RING_MASK (AGENT_DESK_RING_CAPACITY - 1u)
 // Maximum queued frames before ReadInput skips ahead to keep latency < 20 ms
 // (768 frames = 16 ms at 48 kHz).
-#define HEX_MAX_RING_LATENCY_FRAMES 768u
+#define AGENT_DESK_MAX_RING_LATENCY_FRAMES 768u
 
 enum {
     kObjectID_PlugIn = kAudioObjectPlugInObject, // 1
@@ -68,7 +68,7 @@ static HexDeviceState gSinkState = {
     .streamActive = true,
 };
 
-static float gRingBuffer[HEX_RING_CAPACITY];
+static float gRingBuffer[AGENT_DESK_RING_CAPACITY];
 static _Atomic uint64_t gRingWritePos = 0;
 static _Atomic uint64_t gRingReadPos = 0;
 
@@ -83,14 +83,14 @@ static void HexRingWrite(const float *src, uint32_t frameCount) {
     uint64_t readPos = atomic_load_explicit(&gRingReadPos, memory_order_acquire);
 
     uint64_t available = writePos - readPos;
-    if (available + frameCount > HEX_RING_CAPACITY) {
+    if (available + frameCount > AGENT_DESK_RING_CAPACITY) {
         // Advance readPos so the newest samples always fit without blocking.
-        uint64_t newReadPos = writePos + frameCount - HEX_RING_CAPACITY;
+        uint64_t newReadPos = writePos + frameCount - AGENT_DESK_RING_CAPACITY;
         atomic_store_explicit(&gRingReadPos, newReadPos, memory_order_release);
     }
 
     for (uint32_t i = 0; i < frameCount; ++i) {
-        gRingBuffer[(writePos + i) & HEX_RING_MASK] = src[i];
+        gRingBuffer[(writePos + i) & AGENT_DESK_RING_MASK] = src[i];
     }
 
     atomic_store_explicit(&gRingWritePos, writePos + frameCount, memory_order_release);
@@ -110,15 +110,15 @@ static void HexRingRead(float *dst, uint32_t frameCount) {
     }
 
     uint64_t available = writePos - readPos;
-    if (available > HEX_MAX_RING_LATENCY_FRAMES + frameCount) {
+    if (available > AGENT_DESK_MAX_RING_LATENCY_FRAMES + frameCount) {
         // Bound accumulated drift/queue latency to keep end-to-end delay < 20 ms.
-        readPos = writePos - (HEX_MAX_RING_LATENCY_FRAMES / 2u + frameCount);
+        readPos = writePos - (AGENT_DESK_MAX_RING_LATENCY_FRAMES / 2u + frameCount);
         available = writePos - readPos;
     }
 
     uint32_t toCopy = (available < (uint64_t)frameCount) ? (uint32_t)available : frameCount;
     for (uint32_t i = 0; i < toCopy; ++i) {
-        dst[i] = gRingBuffer[(readPos + i) & HEX_RING_MASK];
+        dst[i] = gRingBuffer[(readPos + i) & AGENT_DESK_RING_MASK];
     }
     if (toCopy < frameCount) {
         memset(dst + toCopy, 0, (size_t)(frameCount - toCopy) * sizeof(float));
@@ -129,14 +129,14 @@ static void HexRingRead(float *dst, uint32_t frameCount) {
 
 static AudioStreamBasicDescription HexMakeStreamFormat(void) {
     AudioStreamBasicDescription desc = {
-        .mSampleRate = HEX_SAMPLE_RATE,
+        .mSampleRate = AGENT_DESK_SAMPLE_RATE,
         .mFormatID = kAudioFormatLinearPCM,
         .mFormatFlags = kAudioFormatFlagsNativeFloatPacked,
-        .mBytesPerPacket = HEX_BYTES_PER_FRAME,
+        .mBytesPerPacket = AGENT_DESK_BYTES_PER_FRAME,
         .mFramesPerPacket = 1,
-        .mBytesPerFrame = HEX_BYTES_PER_FRAME,
-        .mChannelsPerFrame = HEX_CHANNELS,
-        .mBitsPerChannel = HEX_BITS_PER_CHANNEL,
+        .mBytesPerFrame = AGENT_DESK_BYTES_PER_FRAME,
+        .mChannelsPerFrame = AGENT_DESK_CHANNELS,
+        .mBitsPerChannel = AGENT_DESK_BITS_PER_CHANNEL,
         .mReserved = 0,
     };
     return desc;
@@ -146,8 +146,8 @@ static AudioStreamRangedDescription HexMakeRangedStreamFormat(void) {
     AudioStreamRangedDescription desc = {
         .mFormat = HexMakeStreamFormat(),
         .mSampleRateRange = {
-            .mMinimum = HEX_SAMPLE_RATE,
-            .mMaximum = HEX_SAMPLE_RATE,
+            .mMinimum = AGENT_DESK_SAMPLE_RATE,
+            .mMaximum = AGENT_DESK_SAMPLE_RATE,
         },
     };
     return desc;
@@ -234,7 +234,7 @@ static OSStatus HexInitialize(AudioServerPlugInDriverRef inDriver, AudioServerPl
         timebase.denom = 1;
     }
     Float64 hostTicksPerSecond = (1000000000.0 * (Float64)timebase.denom) / (Float64)timebase.numer;
-    gHostTicksPerFrame = hostTicksPerSecond / HEX_SAMPLE_RATE;
+    gHostTicksPerFrame = hostTicksPerSecond / AGENT_DESK_SAMPLE_RATE;
 
     HexRingReset();
     os_unfair_lock_unlock(&gStateLock);
@@ -395,13 +395,13 @@ static OSStatus HexPlugInGetPropertyData(
 
         case kAudioObjectPropertyManufacturer:
             if (inDataSize < sizeof(CFStringRef)) return kAudioHardwareBadPropertySizeError;
-            *((CFStringRef *)outData) = CFSTR("Hex");
+            *((CFStringRef *)outData) = CFSTR("Agent-Desk");
             *outDataSize = sizeof(CFStringRef);
             return kAudioHardwareNoError;
 
         case kAudioPlugInPropertyBundleID:
             if (inDataSize < sizeof(CFStringRef)) return kAudioHardwareBadPropertySizeError;
-            *((CFStringRef *)outData) = CFSTR("anomaly.hex.microphone.driver");
+            *((CFStringRef *)outData) = CFSTR("fheuer.agentdesk.microphone.driver");
             *outDataSize = sizeof(CFStringRef);
             return kAudioHardwareNoError;
 
@@ -429,9 +429,9 @@ static OSStatus HexPlugInGetPropertyData(
             CFStringRef uid = *((const CFStringRef *)inQualifierData);
             AudioObjectID found = kAudioObjectUnknown;
             if (uid != NULL) {
-                if (CFStringCompare(uid, CFSTR("anomaly.hex.microphone"), 0) == kCFCompareEqualTo) {
+                if (CFStringCompare(uid, CFSTR("fheuer.agentdesk.microphone"), 0) == kCFCompareEqualTo) {
                     found = kObjectID_MicDevice;
-                } else if (CFStringCompare(uid, CFSTR("anomaly.hex.microphone.sink"), 0) == kCFCompareEqualTo) {
+                } else if (CFStringCompare(uid, CFSTR("fheuer.agentdesk.microphone.sink"), 0) == kCFCompareEqualTo) {
                     found = kObjectID_SinkDevice;
                 }
             }
@@ -555,7 +555,7 @@ static OSStatus HexDeviceGetPropertyDataSize(
             return kAudioHardwareNoError;
         case kAudioDevicePropertyPreferredChannelLayout:
             *outDataSize = offsetof(AudioChannelLayout, mChannelDescriptions) +
-                           HEX_CHANNELS * sizeof(AudioChannelDescription);
+                           AGENT_DESK_CHANNELS * sizeof(AudioChannelDescription);
             return kAudioHardwareNoError;
         default:
             return kAudioHardwareUnknownPropertyError;
@@ -595,30 +595,30 @@ static OSStatus HexDeviceGetPropertyData(
         case kAudioObjectPropertyName:
             if (inDataSize < sizeof(CFStringRef)) return kAudioHardwareBadPropertySizeError;
             *((CFStringRef *)outData) = isMic
-                ? CFSTR("Hex Microphone")
-                : CFSTR("Hex Microphone (Internal Sink)");
+                ? CFSTR("Agent-Desk Microphone")
+                : CFSTR("Agent-Desk Microphone (Internal Sink)");
             *outDataSize = sizeof(CFStringRef);
             return kAudioHardwareNoError;
 
         case kAudioObjectPropertyManufacturer:
             if (inDataSize < sizeof(CFStringRef)) return kAudioHardwareBadPropertySizeError;
-            *((CFStringRef *)outData) = CFSTR("Hex");
+            *((CFStringRef *)outData) = CFSTR("Agent-Desk");
             *outDataSize = sizeof(CFStringRef);
             return kAudioHardwareNoError;
 
         case kAudioDevicePropertyDeviceUID:
             if (inDataSize < sizeof(CFStringRef)) return kAudioHardwareBadPropertySizeError;
             *((CFStringRef *)outData) = isMic
-                ? CFSTR("anomaly.hex.microphone")
-                : CFSTR("anomaly.hex.microphone.sink");
+                ? CFSTR("fheuer.agentdesk.microphone")
+                : CFSTR("fheuer.agentdesk.microphone.sink");
             *outDataSize = sizeof(CFStringRef);
             return kAudioHardwareNoError;
 
         case kAudioDevicePropertyModelUID:
             if (inDataSize < sizeof(CFStringRef)) return kAudioHardwareBadPropertySizeError;
             *((CFStringRef *)outData) = isMic
-                ? CFSTR("anomaly.hex.microphone.model")
-                : CFSTR("anomaly.hex.microphone.sink.model");
+                ? CFSTR("fheuer.agentdesk.microphone.model")
+                : CFSTR("fheuer.agentdesk.microphone.sink.model");
             *outDataSize = sizeof(CFStringRef);
             return kAudioHardwareNoError;
 
@@ -669,13 +669,13 @@ static OSStatus HexDeviceGetPropertyData(
 
         case kAudioDevicePropertySafetyOffset:
             if (inDataSize < sizeof(UInt32)) return kAudioHardwareBadPropertySizeError;
-            *((UInt32 *)outData) = HEX_SAFETY_OFFSET;
+            *((UInt32 *)outData) = AGENT_DESK_SAFETY_OFFSET;
             *outDataSize = sizeof(UInt32);
             return kAudioHardwareNoError;
 
         case kAudioDevicePropertyZeroTimeStampPeriod:
             if (inDataSize < sizeof(UInt32)) return kAudioHardwareBadPropertySizeError;
-            *((UInt32 *)outData) = HEX_ZERO_TIMESTAMP_PERIOD;
+            *((UInt32 *)outData) = AGENT_DESK_ZERO_TIMESTAMP_PERIOD;
             *outDataSize = sizeof(UInt32);
             return kAudioHardwareNoError;
 
@@ -688,13 +688,13 @@ static OSStatus HexDeviceGetPropertyData(
 
         case kAudioDevicePropertyNominalSampleRate:
             if (inDataSize < sizeof(Float64)) return kAudioHardwareBadPropertySizeError;
-            *((Float64 *)outData) = HEX_SAMPLE_RATE;
+            *((Float64 *)outData) = AGENT_DESK_SAMPLE_RATE;
             *outDataSize = sizeof(Float64);
             return kAudioHardwareNoError;
 
         case kAudioDevicePropertyAvailableNominalSampleRates: {
             if (inDataSize < sizeof(AudioValueRange)) return kAudioHardwareBadPropertySizeError;
-            AudioValueRange range = { .mMinimum = HEX_SAMPLE_RATE, .mMaximum = HEX_SAMPLE_RATE };
+            AudioValueRange range = { .mMinimum = AGENT_DESK_SAMPLE_RATE, .mMaximum = AGENT_DESK_SAMPLE_RATE };
             *((AudioValueRange *)outData) = range;
             *outDataSize = sizeof(AudioValueRange);
             return kAudioHardwareNoError;
@@ -736,12 +736,12 @@ static OSStatus HexDeviceGetPropertyData(
 
         case kAudioDevicePropertyPreferredChannelLayout: {
             UInt32 needed = offsetof(AudioChannelLayout, mChannelDescriptions) +
-                            HEX_CHANNELS * sizeof(AudioChannelDescription);
+                            AGENT_DESK_CHANNELS * sizeof(AudioChannelDescription);
             if (inDataSize < needed) return kAudioHardwareBadPropertySizeError;
             AudioChannelLayout *layout = (AudioChannelLayout *)outData;
             memset(layout, 0, needed);
             layout->mChannelLayoutTag = kAudioChannelLayoutTag_UseChannelDescriptions;
-            layout->mNumberChannelDescriptions = HEX_CHANNELS;
+            layout->mNumberChannelDescriptions = AGENT_DESK_CHANNELS;
             layout->mChannelDescriptions[0].mChannelLabel = kAudioChannelLabel_Mono;
             *outDataSize = needed;
             return kAudioHardwareNoError;
@@ -1121,11 +1121,11 @@ static OSStatus HexGetZeroTimeStamp(
     os_unfair_lock_unlock(&gStateLock);
 
     UInt64 now = mach_absolute_time();
-    Float64 ticksPerPeriod = ticksPerFrame * (Float64)HEX_ZERO_TIMESTAMP_PERIOD;
+    Float64 ticksPerPeriod = ticksPerFrame * (Float64)AGENT_DESK_ZERO_TIMESTAMP_PERIOD;
     UInt64 elapsedTicks = (now > anchor) ? (now - anchor) : 0;
     UInt64 periods = (ticksPerPeriod > 0.0) ? (UInt64)((Float64)elapsedTicks / ticksPerPeriod) : 0;
 
-    *outSampleTime = (Float64)(periods * HEX_ZERO_TIMESTAMP_PERIOD);
+    *outSampleTime = (Float64)(periods * AGENT_DESK_ZERO_TIMESTAMP_PERIOD);
     *outHostTime = anchor + (UInt64)((Float64)periods * ticksPerPeriod);
     *outSeed = seed;
     return kAudioHardwareNoError;

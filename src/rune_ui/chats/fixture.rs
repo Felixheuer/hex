@@ -25,7 +25,7 @@ pub(in crate::rune_ui) struct Store {
     pub(in crate::rune_ui) deleted: Vec<ConversationId>,
     /// Take over (`true`) and Hand back (`false`), in order.
     pub(in crate::rune_ui) taken_over: Vec<(ConversationId, bool)>,
-    /// Conversations resumed after Hex quit while they ran.
+    /// Conversations resumed after Agent-Desk quit while they ran.
     pub(in crate::rune_ui) resumed: Vec<ConversationId>,
     /// The files in each job folder, by folder.
     pub(in crate::rune_ui) files: HashMap<String, Vec<String>>,
@@ -394,13 +394,13 @@ fn jobs(store: &mut Store, now: u64) {
                     action("Opened 12 quotes in Downloads"),
                     action("Built the comparison in a spreadsheet"),
                     action("Shared it in Google Sheets"),
-                    text("Done. **Bean & Co** is cheapest for single origin, **Nordroast** for blends. Everything is in `~/Hex/Jobs/q3-quotes/`, and the shared sheet is at https://docs.google.com/spreadsheets/d/1hX9q3quotes/edit."),
+                    text("Done. **Bean & Co** is cheapest for single origin, **Nordroast** for blends. Everything is in `~/Agent-Desk/Jobs/q3-quotes/`, and the shared sheet is at https://docs.google.com/spreadsheets/d/1hX9q3quotes/edit."),
                 ],
             ),
         ],
     ));
     store.files.insert(
-        "~/Hex/Jobs/q3-quotes/".into(),
+        "~/Agent-Desk/Jobs/q3-quotes/".into(),
         vec![
             "Comparison.xlsx".into(),
             "Quotes.csv".into(),
@@ -509,7 +509,7 @@ pub(in crate::rune_ui) enum Scene {
     Running,
     /// Tasks running, taken over, waiting on a usage limit, and queued.
     Tasks,
-    /// A conversation Hex quit in the middle of, with Resume.
+    /// A conversation Agent-Desk quit in the middle of, with Resume.
     Interrupted,
     /// A big job: its plan, and the one question it asks.
     Job,
@@ -524,7 +524,7 @@ pub(in crate::rune_ui) enum Scene {
     Setup(super::setup::Page),
     /// The onboarding's last page with every check passed.
     SetupDone,
-    /// The onboarding as "New in Hex", for someone who set Hex up before.
+    /// The onboarding as "New in Agent-Desk", for someone who set Agent-Desk up before.
     NewInHex,
     /// Continuing the voice first run.
     Merged,
@@ -649,7 +649,7 @@ pub(in crate::rune_ui) fn scene(ui: &mut super::Ui, scene: Scene) {
             running(&mut pane);
             if let Some(task) = pane.view.task_mut("suppliers") {
                 task.plan = job_plan();
-                task.question = Some("I'll draft the emails in your Gmail and share the sheet from your Google account. **Sign in to Google** in Hex's browser so I can, or tell me to save drafts as files instead.".into());
+                task.question = Some("I'll draft the emails in your Gmail and share the sheet from your Google account. **Sign in to Google** in Agent-Desk's browser so I can, or tell me to save drafts as files instead.".into());
             }
             pane.select("suppliers".into());
         }

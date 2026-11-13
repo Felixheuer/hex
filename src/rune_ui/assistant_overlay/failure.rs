@@ -1,5 +1,5 @@
 //! Why a quick turn failed, read from the brain's message: a short line
-//! the Here bubble shows and Hex says, in the language of the question
+//! the Here bubble shows and Agent-Desk says, in the language of the question
 //! (`assistant::lines`), and the one thing to do about it. Plain data, so
 //! every rule is a unit test.
 
@@ -146,7 +146,7 @@ mod tests {
                 Remedy::Repair,
             ),
             (
-                "Codex isn't installed on this Mac, or Hex can't find it. Install it, or choose another agent in Assistant settings.",
+                "Codex isn't installed on this Mac, or Agent-Desk can't find it. Install it, or choose another agent in Assistant settings.",
                 Failure::Install,
                 Remedy::Repair,
             ),
@@ -156,7 +156,7 @@ mod tests {
                 Remedy::Repair,
             ),
             (
-                "Hex may not control Mail: turn it on in System Settings › Privacy & Security › Automation",
+                "Agent-Desk may not control Mail: turn it on in System Settings › Privacy & Security › Automation",
                 Failure::Permission,
                 Remedy::Repair,
             ),

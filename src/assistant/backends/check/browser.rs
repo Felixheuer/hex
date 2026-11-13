@@ -21,7 +21,7 @@ use crate::assistant::browser::{self, MCP_NAME};
 pub const ROUND_TRIP_LIMIT: Duration = Duration::from_secs(60);
 pub const THROUGH_AGENT_LIMIT: Duration = Duration::from_secs(90);
 
-/// A check's page: its title is `Hex-check-<nonce>`, spelled `%2D` in the
+/// A check's page: its title is `Agent-Desk-check-<nonce>`, spelled `%2D` in the
 /// URL, so finding the title in an agent's output proves the page was read,
 /// not just that the URL was repeated.
 pub struct Page {
@@ -39,8 +39,8 @@ impl Page {
             .take(10)
             .collect();
         Self {
-            url: format!("data:text/html,<title>Hex%2Dcheck%2D{nonce}</title>"),
-            title: format!("Hex-check-{nonce}"),
+            url: format!("data:text/html,<title>Agent-Desk%2Dcheck%2D{nonce}</title>"),
+            title: format!("Agent-Desk-check-{nonce}"),
             task: format!("check-{nonce}"),
         }
     }
@@ -172,7 +172,7 @@ pub fn through_agent(
     let Some(server) = browser::mcp_server(&page.task) else {
         return CheckResult::failed(
             check,
-            "Hex couldn't start its browser tool",
+            "Agent-Desk couldn't start its browser tool",
             Some(Fix::Retry),
         );
     };
@@ -243,7 +243,7 @@ fn through(
             }
             command.arg(open_prompt(&tool, &page.url));
         }
-        AssistantBackend::ClaudeApi => unreachable!("Hex calls the tool itself"),
+        AssistantBackend::ClaudeApi => unreachable!("Agent-Desk calls the tool itself"),
     }
     let ran = match run::bounded(command, THROUGH_AGENT_LIMIT) {
         Ok(ran) => ran,
@@ -288,7 +288,7 @@ fn through(
     CheckResult::failed(check, problem, Some(fix))
 }
 
-/// Hex's own MCP session with the browser tool, as the Claude API's tasks
+/// Agent-Desk's own MCP session with the browser tool, as the Claude API's tasks
 /// have it: open the page, read its title.
 fn through_hex(check: Check, server: &McpServer, page: &Page) -> CheckResult {
     let started = Instant::now();
@@ -296,7 +296,7 @@ fn through_hex(check: Check, server: &McpServer, page: &Page) -> CheckResult {
         Ok(text) if text.contains(&page.title) => CheckResult::passed(
             check,
             format!(
-                "Hex opened a hidden page through its browser tool in {:.1} s",
+                "Agent-Desk opened a hidden page through its browser tool in {:.1} s",
                 started.elapsed().as_secs_f32()
             ),
         ),
@@ -409,9 +409,12 @@ mod tests {
     #[test]
     fn the_check_page_hides_its_title_in_its_url() {
         let page = Page::new();
-        assert!(page.title.starts_with("Hex-check-"));
+        assert!(page.title.starts_with("Agent-Desk-check-"));
         assert!(!page.url.contains(&page.title));
-        assert!(page.url.starts_with("data:text/html,<title>Hex%2Dcheck%2D"));
+        assert!(
+            page.url
+                .starts_with("data:text/html,<title>Agent-Desk%2Dcheck%2D")
+        );
         assert_eq!(browser::session(&page.task), format!("hex-{}", page.task));
         assert!(open_prompt("agent_browser_open", &page.url).contains(&page.url));
     }
@@ -419,7 +422,7 @@ mod tests {
     #[test]
     fn a_tool_results_text_is_joined() {
         let result =
-            json!({"content": [{"type": "text", "text": "Hex-check-a"}, {"type": "image"}]});
-        assert_eq!(text_of(&result), "Hex-check-a");
+            json!({"content": [{"type": "text", "text": "Agent-Desk-check-a"}, {"type": "image"}]});
+        assert_eq!(text_of(&result), "Agent-Desk-check-a");
     }
 }

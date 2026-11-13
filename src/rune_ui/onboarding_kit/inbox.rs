@@ -1,5 +1,5 @@
 //! The Launch Room's row in a Messages list, waiting before `"Without
-//! Hex"`: Jay's messages land on it with a ding each, its red badge counting
+//! Agent-Desk"`: Jay's messages land on it with a ding each, its red badge counting
 //! them, a ring leaving it with each, and then a pointer comes in and
 //! clicks it open. The click grows the row into the conversation, its faces,
 //! title, and Jay's question flying over as themselves ([`MATCHED`]); a

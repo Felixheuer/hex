@@ -473,7 +473,7 @@ pub(super) fn key_label(name: &str) -> String {
     if shortcut_repair::is_scroll_lock(name) {
         return "Scroll Lock".into();
     }
-    // `section`, as `hex settings` may name the § key.
+    // `section`, as `agent-desk settings` may name the § key.
     if name.eq_ignore_ascii_case("section") {
         return "§".into();
     }
@@ -731,7 +731,7 @@ impl HotkeyBinding {
 
     /// Option-Shift-S, Scrawl's capture shortcut; F9 on Linux. Annotate's
     /// one key is held to draw while the other hand moves the mouse, so on
-    /// Linux it's a single key one hand holds easily: F9 is free in Hex's
+    /// Linux it's a single key one hand holds easily: F9 is free in Agent-Desk's
     /// defaults (Alt+Space, Ctrl+Alt+V) and in the common desktops', where
     /// F10 opens GTK's menu bar, F11 is full screen and F12 is often a
     /// dropdown terminal.
@@ -1371,12 +1371,12 @@ pub struct RuntimeHotkeys {
     /// is on and it is bound and shares no key.
     pub stop_all: Option<RuntimeHotkey>,
     /// Toggle mode's cancel shortcut. Not among [`RuntimeHotkeys::all`]:
-    /// Hex takes it only while a toggled recording runs.
+    /// Agent-Desk takes it only while a toggled recording runs.
     pub cancel: Option<RuntimeHotkey>,
 }
 
 impl RuntimeHotkeys {
-    /// Every shortcut Hex matches, for suppression and chord evidence.
+    /// Every shortcut Agent-Desk matches, for suppression and chord evidence.
     pub fn all(self) -> [Option<RuntimeHotkey>; 10 + MAX_EXTRA_DICTATION_SHORTCUTS] {
         let named = [
             Some(self.dictation),

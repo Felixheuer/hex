@@ -1,14 +1,14 @@
-//! Cua Driver, installed by Hex: one pinned release from GitHub
+//! Cua Driver, installed by Agent-Desk: one pinned release from GitHub
 //! (`trycua/cua`, tag `cua-driver-rs-v<VERSION>`), its archive checked
 //! against the SHA-256 from that release's `SHA256SUMS` before it is
 //! unpacked, and the app bundle checked as signed by Cua AI's Developer ID
 //! (team `YCK386LBJ7`) and notarized. Nothing of its own installer runs:
 //! that script connects coding agents, edits shell profiles, and runs a
-//! self-test, none of which Hex wants. It lives in
+//! self-test, none of which Agent-Desk wants. It lives in
 //! `<support>/assistant/cua-driver/<VERSION>/`.
 //!
-//! Hex runs it with telemetry and update checks off and its state under
-//! Hex's folder (`env`).
+//! Agent-Desk runs it with telemetry and update checks off and its state under
+//! Agent-Desk's folder (`env`).
 
 use std::path::{Path, PathBuf};
 
@@ -69,8 +69,8 @@ pub fn installed() -> Option<PathBuf> {
     Some(found)
 }
 
-/// The environment Hex runs it with: no telemetry, no update checks, its
-/// state in Hex's folder.
+/// The environment Agent-Desk runs it with: no telemetry, no update checks, its
+/// state in Agent-Desk's folder.
 pub fn env() -> Vec<(String, String)> {
     let mut env = vec![
         ("DO_NOT_TRACK".to_owned(), "1".to_owned()),

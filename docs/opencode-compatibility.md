@@ -18,18 +18,18 @@ the already-running server `0.0.0-dev-18329`, without creating a session or
 restarting the service.
 
 This is a dated validation snapshot, not a claim about the newest CLI available
-today. The integration contract below describes Hex's current implementation;
+today. The integration contract below describes Agent-Desk's current implementation;
 new provider-backed validation must record its own CLI and server versions.
 
 ## Integration Contract
 
-Hex's dictation processing never runs an OpenCode executable, never starts or
+Agent-Desk's dictation processing never runs an OpenCode executable, never starts or
 restarts the service, and never searches for or probes an installed CLI. It
 only talks to an already running service (`src/desktop/opencode_service.rs`).
 
 The one exception is the assistant (on by default, macOS) with OpenCode
 chosen as its agent: each task runs `opencode run --standalone` with its own
-`OPENCODE_CONFIG_CONTENT` (a `hex` agent denied the shell and file edits, and
+`OPENCODE_CONFIG_CONTENT` (a `agent-desk` agent denied the shell and file edits, and
 agent-desktop as its MCP server), because the running service loads its MCP
 servers once and can't give one session its own agent-desktop agent id. The
 assistant's setup also finds the CLI (`src/assistant/backends`) and can run
@@ -82,12 +82,12 @@ below describes the dictation integration:
   cancellation. Credentials never reach diagnostics.
 
 When no service answers, features report "OpenCode isn't running" and link to
-the OpenCode docs; Hex starts nothing.
+the OpenCode docs; Agent-Desk starts nothing.
 
-Hex reads `/api/model` and `/api/model/default` through authenticated HTTP, avoiding
+Agent-Desk reads `/api/model` and `/api/model/default` through authenticated HTTP, avoiding
 large piped CLI responses. It supplies `x-opencode-directory` for its Application
 Support workspace; a service found in WSL gets a Linux workspace instead
-(`<home>/.local/share/hex/opencode`), because a Windows path is relative to a
+(`<home>/.local/share/agent-desk/opencode`), because a Windows path is relative to a
 Linux server. Model selections use the catalog's `id`, not the upstream
 provider's `modelID`. Available text-output models remain selectable regardless
 of release status, including alpha and beta. Selecting a thinking variant for the
@@ -95,12 +95,12 @@ floating default saves the resolved catalog model alongside it; existing explici
 model selections are preserved.
 
 One-shot generation accepts a prompt and optional model reference and returns
-`data.text`. Current OpenCode serves it at `/api/experimental/generate`; Hex
+`data.text`. Current OpenCode serves it at `/api/experimental/generate`; Agent-Desk
 falls back to the older `/api/generate` only when the server answers the new
 route with HTTP 404, within the same generation deadline. It is stateless and uses the server's base configuration, not the
 catalog request's directory header. Existing saved selections whose catalog and
 upstream IDs match need no migration. Previously broken alias selections can be
-fixed by reselecting the model; Hex does not guess an ID migration.
+fixed by reselecting the model; Agent-Desk does not guess an ID migration.
 
 ## Updating The Baseline
 

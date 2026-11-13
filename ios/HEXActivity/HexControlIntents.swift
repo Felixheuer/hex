@@ -2,10 +2,10 @@ import AppIntents
 import Foundation
 
 /// Shared between HEXMobile and HEXWidgets so Control Center, Lock Screen, and Action Button
-/// controls can start or finish dictation in Hex.
+/// controls can start or finish dictation in Agent-Desk.
 @available(iOS 18.0, *)
 nonisolated struct ToggleHexControlIntent: AppIntent {
-    static let title: LocalizedStringResource = "Dictate with Hex"
+    static let title: LocalizedStringResource = "Dictate with Agent-Desk"
     static let description = IntentDescription("Starts or finishes on-device dictation and copies the transcript.")
     @available(iOS 26.0, *)
     static let supportedModes: IntentModes = .foreground

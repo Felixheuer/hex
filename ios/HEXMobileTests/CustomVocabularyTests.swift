@@ -28,12 +28,12 @@ final class VocabularySpellingTests: XCTestCase {
 
     func testMatchesWholeWordsOnly() {
         XCTAssertEqual(
-            VocabularySpelling.apply(["Hex"], to: "hexagon"),
+            VocabularySpelling.apply(["Agent-Desk"], to: "hexagon"),
             "hexagon"
         )
         XCTAssertEqual(
-            VocabularySpelling.apply(["Hex"], to: "hex"),
-            "Hex"
+            VocabularySpelling.apply(["Agent-Desk"], to: "hex"),
+            "Agent-Desk"
         )
     }
 

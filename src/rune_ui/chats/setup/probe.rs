@@ -24,7 +24,7 @@ pub(in crate::rune_ui) fn check_shortcut(ui: &mut Ui) {
 }
 
 /// Asks for a press of `slot`'s shortcut now: the row waits, then shows
-/// whether its press and release really reached Hex.
+/// whether its press and release really reached Agent-Desk.
 pub(in crate::rune_ui) fn test_shortcut(ui: &mut Ui, slot: HotkeySlot) {
     let live = ui.chats.live();
     stop_probe(ui);

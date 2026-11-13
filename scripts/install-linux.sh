@@ -16,7 +16,7 @@ target_dir=${CARGO_TARGET_DIR:-"$root/target"}
 cargo build --locked --release --manifest-path "$root/Cargo.toml"
 version=$("$target_dir/release/hex" --version | awk 'NF { value=$NF } END { print value }')
 
-HEX_INSTALL_SOURCE=1 \
-HEX_INSTALL_ARTIFACT="$target_dir/release/hex" \
-HEX_INSTALL_VERSION="$version" \
+AGENT_DESK_INSTALL_SOURCE=1 \
+AGENT_DESK_INSTALL_ARTIFACT="$target_dir/release/hex" \
+AGENT_DESK_INSTALL_VERSION="$version" \
   exec "$installer"

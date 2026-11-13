@@ -1,10 +1,10 @@
-//! What Hex itself plays (its own speech), kept for two seconds with when it
-//! was handed to the output, so conversation mode can tell Hex's voice in
-//! the microphone from the person's (`recognition::echo`). Only Hex's own
+//! What Agent-Desk itself plays (its own speech), kept for two seconds with when it
+//! was handed to the output, so conversation mode can tell Agent-Desk's voice in
+//! the microphone from the person's (`recognition::echo`). Only Agent-Desk's own
 //! output is here; other apps' audio is never captured.
 //!
 //! The output thread pushes every 10 ms chunk it plays (silence included
-//! while the device is open), so the timeline has no holes while Hex
+//! while the device is open), so the timeline has no holes while Agent-Desk
 //! reads; a query outside what was played gets zeros.
 
 use std::collections::VecDeque;
@@ -91,8 +91,8 @@ fn push(slot: &mut Option<Ring>, samples: &[f32], rate: u32, at: u64) {
     }
 }
 
-/// What Hex played from `end - length` to `end`, as `rate` mono samples
-/// (`length * rate` of them), zeros where nothing played. `None` when Hex
+/// What Agent-Desk played from `end - length` to `end`, as `rate` mono samples
+/// (`length * rate` of them), zeros where nothing played. `None` when Agent-Desk
 /// played nothing audible in the 400 ms before `end`: there is no echo of
 /// it to look for.
 pub fn recent(end: CaptureInstant, length: Duration, rate: u32) -> Option<Vec<f32>> {

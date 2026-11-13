@@ -1,4 +1,4 @@
-// `"With Hex"`'s fireworks (fireworks.rs): spark streaks with a hot core
+// `"With Agent-Desk"`'s fireworks (fireworks.rs): spark streaks with a hot core
 // and a soft glow, and the bursts' light falling on the page.
 //
 // Colours arrive linear and brighter than white while hot. Dark pages take

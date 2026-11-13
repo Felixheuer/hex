@@ -1,11 +1,11 @@
-//! What Hex itself reads from the desktop: a quick question's context
+//! What Agent-Desk itself reads from the desktop: a quick question's context
 //! (screenshot, selected text, frontmost app) and where a task's windows
 //! are, for their outlines. Tasks operate apps through agent-desktop
 //! (`backends`), not through this module.
 //!
 //! Everything here only reads, never the clipboard. macOS: the selection
 //! through Accessibility and the screenshot through ScreenCaptureKit with
-//! every window of Hex's own (the HUD, the frame, Chats) left out. Linux
+//! every window of Agent-Desk's own (the HUD, the frame, Chats) left out. Linux
 //! ([`linux`]): X11 or the compositor for the focused window, the PRIMARY
 //! selection, and X11, `grim`, or the desktop portal for the screenshot.
 //! Windows ([`windows`]): the foreground window, UI Automation's selection,
@@ -284,7 +284,7 @@ impl Drop for ContextHandle {
     }
 }
 
-/// Whether Hex may read other apps and record the screen (macOS
+/// Whether Agent-Desk may read other apps and record the screen (macOS
 /// Accessibility and Screen Recording), for setup to show what's missing.
 /// Never blocks: Screen Recording follows a cached read that refreshes in
 /// the background (see [`permissions_now`]).
@@ -301,7 +301,7 @@ pub fn permissions() -> Permissions {
 
 /// Linux and Windows ask no permission to read other apps or the screen:
 /// only a Wayland desktop without `grim` or the portal's Screenshot can't
-/// give Hex a screenshot, which the question then goes without.
+/// give Agent-Desk a screenshot, which the question then goes without.
 #[cfg(not(target_os = "macos"))]
 fn others_permissions() -> Permissions {
     Permissions {
@@ -310,7 +310,7 @@ fn others_permissions() -> Permissions {
     }
 }
 
-/// Whether this OS asks the person to grant Hex Accessibility and Screen
+/// Whether this OS asks the person to grant Agent-Desk Accessibility and Screen
 /// Recording (macOS), which setup then walks through.
 pub const fn asks_permissions() -> bool {
     cfg!(target_os = "macos")
@@ -370,7 +370,7 @@ pub struct Permissions {
     pub screen_recording: bool,
 }
 
-/// One permission Hex asks for.
+/// One permission Agent-Desk asks for.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Permission {
     Accessibility,
@@ -387,8 +387,8 @@ impl Permission {
     }
 }
 
-/// Opens System Settings at `permission`'s list. On the main thread Hex's
-/// own guide floats beside it with Hex to drag in (as onboarding does);
+/// Opens System Settings at `permission`'s list. On the main thread Agent-Desk's
+/// own guide floats beside it with Agent-Desk to drag in (as onboarding does);
 /// elsewhere the list opens alone.
 pub fn open_settings(permission: Permission) {
     #[cfg(target_os = "macos")]
@@ -629,14 +629,14 @@ mod macos {
             if permissions(false).screen_recording {
                 eyre!("Couldn't take a screenshot: {error}")
             } else {
-                eyre!("Hex needs Screen Recording to see the screen")
+                eyre!("Agent-Desk needs Screen Recording to see the screen")
             }
         })?;
         super::privacy::black_out(&mut image.rgba, (image.width, image.height), frame, &secure);
         super::screenshot_from(image.width, image.height, &image.rgba)
     }
 
-    /// Every window of Hex's (the HUD, Agent mode's frame and outlines,
+    /// Every window of Agent-Desk's (the HUD, Agent mode's frame and outlines,
     /// Chats) and of the apps the person blocked: never part of what the
     /// model sees. The filter leaves out whole apps, so a window one shows
     /// while the shot is taken is left out too.
@@ -658,9 +658,9 @@ mod macos {
         u32::try_from(pid).is_ok_and(|pid| pid == std::process::id())
     }
 
-    /// The window in front (not Hex's), from the window list alone: no
+    /// The window in front (not Agent-Desk's), from the window list alone: no
     /// Accessibility, so any thread may ask (the stand-by thread did, and an
-    /// Accessibility read there took Hex down through its own UI tree).
+    /// Accessibility read there took Agent-Desk down through its own UI tree).
     pub fn front_window_quick() -> Option<crate::assistant::TaskWindow> {
         let (pid, name, _) =
             objc2::rc::autoreleasepool(|_| scrawl_capture::capture::frontmost_external_app_info())
@@ -670,12 +670,12 @@ mod macos {
     }
 
     pub fn quick_context() -> Context {
-        // Hex's own window in front (Chats) means the person's window behind it.
+        // Agent-Desk's own window in front (Chats) means the person's window behind it.
         let front =
             objc2::rc::autoreleasepool(|_| scrawl_capture::capture::frontmost_external_app_info())
-                // Never Hex itself: Accessibility reads of its own windows
+                // Never Agent-Desk itself: Accessibility reads of its own windows
                 // from this thread re-enter its UI (accesskit) while the main
-                // thread holds it, and Hex aborted ("RefCell already borrowed").
+                // thread holds it, and Agent-Desk aborted ("RefCell already borrowed").
                 .filter(|(pid, _, _)| !is_own_process(*pid));
         let (selected_text, window_title) = match &front {
             Some((pid, _, _)) => (
@@ -726,7 +726,7 @@ mod macos {
             Permission::ScreenRecording => PermissionKind::ScreenRecording,
         };
         // macOS lists an app in these panes only once it has asked, so ask
-        // first: otherwise Settings opens on a list without Hex.
+        // first: otherwise Settings opens on a list without Agent-Desk.
         match permission {
             Permission::Accessibility => {
                 let _ = crate::desktop::permission_guide::prompt_accessibility_trust();

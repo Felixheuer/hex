@@ -183,13 +183,13 @@ pub struct Run {
     /// A job's folder (also `workdir`): the backend gets file tools and a
     /// sandboxed shell that may write only there.
     pub workspace: Option<PathBuf>,
-    /// Hex's own tools (`assistant::tools`): memory and schedules.
+    /// Agent-Desk's own tools (`assistant::tools`): memory and schedules.
     pub tools: Option<McpServer>,
     /// A job in Yolo mode: no sandbox and no permission prompts. Its shell
     /// runs as the person, with the whole network and every folder they can
     /// reach (git, gh, npm, tailscale, brew, …).
     pub unrestricted: bool,
-    /// The backend's whole environment when it needs more than Hex's usual
+    /// The backend's whole environment when it needs more than Agent-Desk's usual
     /// one (OpenCode with a bring-your-own-key provider: the key by env).
     pub backend_env: Option<Vec<(String, String)>>,
     /// More OpenCode configuration (a bring-your-own-key provider).
@@ -205,7 +205,7 @@ impl Run {
             model: None,
             effort: None,
             escalate_after: None,
-            system: "You are Hex.".into(),
+            system: "You are Agent-Desk.".into(),
             prompt: "hi".into(),
             image: None,
             resume: None,
@@ -299,7 +299,7 @@ pub struct Control {
     cancelled: AtomicBool,
     /// Stopped to take a new instruction (steering), not to end.
     steered: AtomicBool,
-    /// Stopped by Hex for this reason (it ran too long): a failure.
+    /// Stopped by Agent-Desk for this reason (it ran too long): a failure.
     failure: Mutex<Option<String>>,
     /// Turns ended for making no progress (`stall`).
     stalls: std::sync::atomic::AtomicUsize,
@@ -388,7 +388,7 @@ impl Control {
         self.stalls.load(Ordering::Acquire)
     }
 
-    /// Why Hex stopped the task as failed, if it did.
+    /// Why Agent-Desk stopped the task as failed, if it did.
     pub fn failure(&self) -> Option<String> {
         self.failure
             .lock()
@@ -488,7 +488,7 @@ pub fn claude_code_sandbox() -> std::result::Result<(), String> {
 pub fn executable(backend: AssistantBackend) -> Result<PathBuf> {
     crate::assistant::backends::executable(backend).ok_or_else(|| {
         eyre!(
-            "{} isn't installed on this {}, or Hex can't find it. Install it, or choose another agent in {}.",
+            "{} isn't installed on this {}, or Agent-Desk can't find it. Install it, or choose another agent in {}.",
             name(backend),
             crate::assistant::agent::computer_name(),
             crate::assistant::lines::ASSISTANT_SETTINGS
@@ -504,7 +504,7 @@ pub fn agent_desktop() -> Option<PathBuf> {
         .map(|found| found.path)
 }
 
-/// A command for `executable` in `workdir`, with the environment Hex gives
+/// A command for `executable` in `workdir`, with the environment Agent-Desk gives
 /// agents (`backends::agent_command`: its PATH finds `node` and
 /// agent-desktop) and the task's desktop session.
 pub fn command(executable: &Path, workdir: &Path, desktop: Option<&Desktop>) -> Command {

@@ -1,6 +1,6 @@
 // Draws a "DEV" band across the lower part of every PNG in an
-// .iconset folder, so Hex Dev never looks like the released Hex in the Dock,
-// Finder, or the app switcher (scripts/build-app.sh, HEX_DEV_BUILD=1).
+// .iconset folder, so Agent-Desk Dev never looks like the released Agent-Desk in the Dock,
+// Finder, or the app switcher (scripts/build-app.sh, AGENT_DESK_DEV_BUILD=1).
 //
 //   swift scripts/badge-icon.swift <folder.iconset> [LABEL]
 import AppKit

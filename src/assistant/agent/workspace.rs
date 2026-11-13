@@ -1,5 +1,5 @@
-//! A job's own folder, `~/Documents/Hex/<date> <title>/`: its spreadsheets,
-//! documents, intermediate data, its `plan.md` (the checklist Hex shows as
+//! A job's own folder, `~/Documents/Agent-Desk/<date> <title>/`: its spreadsheets,
+//! documents, intermediate data, its `plan.md` (the checklist Agent-Desk shows as
 //! the plan), and its `report.md` (everything it did, with links). The
 //! backend's file and shell tools are scoped to it.
 
@@ -18,9 +18,9 @@ pub const REPORT: &str = "report.md";
 /// diff images, message proofs (the person reads it after coming back).
 pub const EVIDENCE: &str = "Nachweis.md";
 
-/// `~/Documents/Hex`.
+/// `~/Documents/Agent-Desk`.
 pub fn root() -> Option<PathBuf> {
-    Some(crate::app_paths::document_dir()?.join("Hex"))
+    Some(crate::app_paths::document_dir()?.join("Agent-Desk"))
 }
 
 /// Creates a new workspace for `title` under `root`, named

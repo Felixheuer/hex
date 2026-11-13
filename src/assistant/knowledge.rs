@@ -1,11 +1,11 @@
-//! What Hex knows about the person's Mac, read locally and read-only:
+//! What Agent-Desk knows about the person's Mac, read locally and read-only:
 //! `hex_lookup` finds their files (Spotlight), contacts, calendar,
 //! reminders, mail (envelopes only), the tabs open in their browser and
 //! their browsing history, apps, and the memory graph in one call, ranked,
 //! in milliseconds; `hex_browser_tab` reads and acts in the tab the person
 //! means in their own browser (whichever is their default); and the
 //! memory graph ([`graph`]) links the people, companies, and projects the
-//! person told Hex about, for every turn's context.
+//! person told Agent-Desk about, for every turn's context.
 //!
 //! Never message bodies, passwords, cookies, or form data; every answer is
 //! bounded. Contacts and Reminders read only with the permission macOS
@@ -77,17 +77,10 @@ impl Scope {
         ("all", Self::All),
     ];
 
-    /// The names they had (kept for one release).
-    const OLD_NAMES: [(&'static str, Scope); 2] = [
-        ("chrome_tabs", Self::BrowserTabs),
-        ("chrome_history", Self::BrowserHistory),
-    ];
-
     pub fn parse(name: &str) -> Option<Self> {
         let name = name.trim().to_lowercase().replace([' ', '-'], "_");
         Self::NAMES
             .iter()
-            .chain(Self::OLD_NAMES.iter())
             .find(|(known, _)| *known == name)
             .map(|(_, scope)| *scope)
     }
@@ -140,7 +133,7 @@ pub fn definitions() -> Vec<Value> {
 }
 
 pub fn handles(name: &str) -> bool {
-    name == LOOKUP || name == BROWSER_TAB || name == tab::OLD_NAME
+    name == LOOKUP || name == BROWSER_TAB
 }
 
 /// Runs one of the knowledge tools for the task `task` (`--task`), for
@@ -195,7 +188,7 @@ pub fn call(
             }
             Ok(lookup(query, scope, limit))
         }
-        BROWSER_TAB | tab::OLD_NAME => tab::call(arguments, task, role),
+        BROWSER_TAB => tab::call(arguments, task, role),
         other => Err(format!("There is no tool “{other}”.")),
     }
 }
@@ -222,7 +215,7 @@ fn memory(query: &str, limit: usize) -> Result<Vec<Hit>, String> {
     if !memory_on() {
         return Err("the person turned memory off".into());
     }
-    let (_, graph) = graph::load().ok_or("Hex has no memory folder")?;
+    let (_, graph) = graph::load().ok_or("Agent-Desk has no memory folder")?;
     Ok(graph
         .search(query, limit)
         .into_iter()
@@ -409,8 +402,8 @@ mod tests {
     #[test]
     fn scopes_parse_and_bad_calls_say_why() {
         assert_eq!(Scope::parse("Browser tabs"), Some(Scope::BrowserTabs));
-        assert_eq!(Scope::parse("chrome_tabs"), Some(Scope::BrowserTabs));
-        assert_eq!(Scope::parse("chrome-history"), Some(Scope::BrowserHistory));
+        assert_eq!(Scope::parse("browser-history"), Some(Scope::BrowserHistory));
+        assert_eq!(Scope::parse("chrome_tabs"), None);
         assert_eq!(Scope::parse("recent-files"), Some(Scope::RecentFiles));
         assert_eq!(Scope::parse("x"), None);
         for (name, scope) in Scope::NAMES {
@@ -432,7 +425,7 @@ mod tests {
                 .contains("needs a “query”")
         );
         assert!(handles("hex_lookup") && handles("hex_browser_tab") && !handles("hex_remember"));
-        assert!(handles("hex_chrome_tab"), "the old name, for one release");
+        assert!(!handles("hex_chrome_tab"));
         let tools = definitions();
         let names: Vec<&str> = tools
             .iter()
@@ -507,15 +500,17 @@ mod tests {
     }
 
     /// Measures each source on this Mac (read-only):
-    /// `cargo test --bin hex knowledge::tests::measure -- --ignored --nocapture`.
-    /// The browser's tabs only with HEX_MEASURE_BROWSER_TABS=1 (it may ask
+    /// `cargo test --bin agent-desk knowledge::tests::measure -- --ignored --nocapture`.
+    /// The browser's tabs only with AGENT_DESK_MEASURE_BROWSER_TABS=1 (it may ask
     /// for Automation permission).
     #[test]
     #[ignore = "reads this Mac's own data"]
     fn measure() {
-        let query = std::env::var("HEX_MEASURE_QUERY").unwrap_or_else(|_| "rechnung".into());
+        let query = std::env::var("AGENT_DESK_MEASURE_QUERY").unwrap_or_else(|_| "rechnung".into());
         for scope in Scope::ALL.into_iter().chain([Scope::RecentFiles]) {
-            if scope == Scope::BrowserTabs && std::env::var("HEX_MEASURE_BROWSER_TABS").is_err() {
+            if scope == Scope::BrowserTabs
+                && std::env::var("AGENT_DESK_MEASURE_BROWSER_TABS").is_err()
+            {
                 continue;
             }
             let query = if scope == Scope::RecentFiles {

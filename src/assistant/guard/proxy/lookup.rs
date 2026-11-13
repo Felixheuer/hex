@@ -44,7 +44,7 @@ impl<D: Desktop> Guard<D> {
                         refusal(
                             tool,
                             "UNKNOWN_REF",
-                            "Hex doesn't know which window this ref is in. Take a snapshot of your \
+                            "Agent-Desk doesn't know which window this ref is in. Take a snapshot of your \
                          window through these tools and use its refs.",
                         )
                     })?;
@@ -311,7 +311,7 @@ impl<D: Desktop> Guard<D> {
         refusal(
             tool,
             "BLOCKED_APP",
-            &format!("{app} is blocked in Hex's settings: no task may read or operate it."),
+            &format!("{app} is blocked in Agent-Desk's settings: no task may read or operate it."),
         )
     }
 

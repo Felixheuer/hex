@@ -1,7 +1,7 @@
 // The assistant's notifications: a Background job finished, failed, or
 // asks something. Posted through UNUserNotificationCenter, which only works
-// inside the bundled, signed Hex.app; clicking one opens Chats on its
-// conversation (`hex://chats?id=<conversation>`).
+// inside the bundled, signed Agent-Desk.app; clicking one opens Chats on its
+// conversation (`agent-desk://chats?id=<conversation>`).
 
 import AppKit
 import Foundation
@@ -23,7 +23,7 @@ private final class Delegate: NSObject, UNUserNotificationCenterDelegate, @unche
     ) {
         if let id = response.notification.request.content.userInfo["conversation"] as? String,
            let encoded = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-_"))),
-           let url = URL(string: "hex://chats?id=\(encoded)") {
+           let url = URL(string: "agent-desk://chats?id=\(encoded)") {
             DispatchQueue.main.async {
                 NSWorkspace.shared.open(url)
             }

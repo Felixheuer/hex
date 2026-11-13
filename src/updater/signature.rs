@@ -1,5 +1,5 @@
 //! Pilot's release signature, checked on every OS. Each published file the
-//! updater runs (the Linux and Windows executables, the Windows `hex.com`,
+//! updater runs (the Linux and Windows executables, the Windows `agent-desk.com`,
 //! the macOS update ZIP) has a 64-byte ed25519 signature by Pilot's release
 //! key over its SHA-256, published beside it as the `<target>-sig` target
 //! (`scripts/pilot-publish.sh` signs with the private half, which lives only
@@ -7,7 +7,7 @@
 //! updater checks it before the file itself is fetched, so whoever controls
 //! the manifest cannot name another file. macOS and Windows additionally
 //! check their OS code signature when the build names a signer
-//! (`HEX_UPDATE_TEAM_ID`, `HEX_AUTHENTICODE_SIGNER`).
+//! (`AGENT_DESK_UPDATE_TEAM_ID`, `AGENT_DESK_AUTHENTICODE_SIGNER`).
 
 use color_eyre::eyre::{Result, WrapErr};
 
@@ -109,7 +109,7 @@ mod tests {
     ///
     /// ```sh
     /// PILOT_CHECK_MANIFEST=stable.json PILOT_CHECK_SIGNATURE=hex.sig \
-    ///   PILOT_CHECK_TARGET=linux-x64 cargo test --bin hex published_release -- --ignored
+    ///   PILOT_CHECK_TARGET=linux-x64 cargo test --bin agent-desk published_release -- --ignored
     /// ```
     ///
     /// `PILOT_CHECK_FILE`, when set, must be the target itself.

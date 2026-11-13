@@ -1,16 +1,16 @@
 //! The assistant's conversation mode and barge-in (macOS): what the
 //! microphone does after a Here answer, as a pure state machine fed by the
-//! answer's events, whether Hex is reading aloud, and 20 ms frames of
+//! answer's events, whether Agent-Desk is reading aloud, and 20 ms frames of
 //! microphone level. `recognition::ask` carries out its [`Step`]s with the
 //! listener's capture.
 //!
 //! ```ts
 //! Idle
 //! └── answered(c) -> Answer(c)
-//!     ├── barge_in, and Hex reads it aloud -> Step::Watch: a capture opens, unshown
+//!     ├── barge_in, and Agent-Desk reads it aloud -> Step::Watch: a capture opens, unshown
 //!     │   └── a voice for 240 ms -> Step::BargeIn -> Hearing(c)
-//!     │       headphones: any speech; speakers: speech the echo of Hex's
-//!     │       own voice doesn't explain (`echo`, from what Hex played), or,
+//!     │       headphones: any speech; speakers: speech the echo of Agent-Desk's
+//!     │       own voice doesn't explain (`echo`, from what Agent-Desk played), or,
 //!     │       until that has learnt the room, speech louder than the answer
 //!     │       itself (speech::level() + 6 dB)
 //!     └── the reading ends (quiet for 400 ms: a gap between two sentences,
@@ -40,18 +40,18 @@ use crate::assistant::ConversationId;
 use crate::assistant::interaction::tuning::{Fired, Route, Thresholds};
 use crate::transcription::pause_segmenter::SpeechFrames;
 
-/// How long an answer may wait to start being read aloud before Hex counts
+/// How long an answer may wait to start being read aloud before Agent-Desk counts
 /// it as shown only.
 const SPEAK_GRACE: Duration = Duration::from_millis(1_500);
 /// How long the reading must have stopped before it counts as over. Between
 /// two sentences (the next still streaming or being made) `speaking` drops
-/// for a moment; listening then would hear Hex's own next sentence.
+/// for a moment; listening then would hear Agent-Desk's own next sentence.
 const READING_SETTLE: Duration = Duration::from_millis(400);
 /// Speech frames in a run that start a follow-up: 160 ms, the speech
 /// detector's shortest speech.
 const ONSET_FRAMES: u32 = 8;
 // The speech frames a run needs to interrupt an answer (240 ms on
-// headphones; 500 ms on speakers, judged against the echo of Hex's own voice,
+// headphones; 500 ms on speakers, judged against the echo of Agent-Desk's own voice,
 // since the echo judge errs on loud built-in speakers and a false
 // interruption cuts the answer) and the margin over the answer's playback
 // level before the echo is learnt start from guesses and learn from each
@@ -68,9 +68,9 @@ const FRAMES_PER_SECOND: u32 = 50;
 /// Where the answer is heard.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Output {
-    /// Headphones or AirPods: the microphone can't hear Hex's voice.
+    /// Headphones or AirPods: the microphone can't hear Agent-Desk's voice.
     Headphones,
-    /// Speakers, or anything Hex can't tell: it can.
+    /// Speakers, or anything Agent-Desk can't tell: it can.
     Speakers,
 }
 
@@ -134,8 +134,8 @@ enum Phase {
 pub(super) struct Frame {
     pub(super) speech: bool,
     pub(super) level_db: f32,
-    /// Whether it holds more than the echo of Hex's own voice
-    /// (`echo::EchoGate`): `Some(true)` also when Hex played nothing lately;
+    /// Whether it holds more than the echo of Agent-Desk's own voice
+    /// (`echo::EchoGate`): `Some(true)` also when Agent-Desk played nothing lately;
     /// `None` while it can't tell yet.
     pub(super) over_echo: Option<bool>,
 }
@@ -148,7 +148,7 @@ struct Ears {
 }
 
 impl Ears {
-    /// `echo(frame, later)` judges a frame against Hex's own voice; `later`
+    /// `echo(frame, later)` judges a frame against Agent-Desk's own voice; `later`
     /// is how many samples of this block arrived after the frame ended.
     fn push(
         &mut self,
@@ -259,7 +259,7 @@ impl Conversation {
         };
     }
 
-    /// Moves on with time: `speaking` is whether Hex reads aloud now or
+    /// Moves on with time: `speaking` is whether Agent-Desk reads aloud now or
     /// still has some of the answer to read (`speech::speaking()` or
     /// `assistant::reading_aloud()`);
     /// `blocked`, whether something else owns the microphone or the
@@ -331,8 +331,8 @@ impl Conversation {
     }
 
     /// Microphone audio at `rate` from its open capture. `output` is where
-    /// the answer plays; `playback_db`, how loud Hex reads it now (dBFS),
-    /// if known; `echo`, the judge of each frame against Hex's own voice
+    /// the answer plays; `playback_db`, how loud Agent-Desk reads it now (dBFS),
+    /// if known; `echo`, the judge of each frame against Agent-Desk's own voice
     /// (see [`Frame::over_echo`]), asked only while an answer plays.
     pub(super) fn hear(
         &mut self,
@@ -388,7 +388,7 @@ impl Conversation {
                 if !*open || self.other_audio {
                     return None;
                 }
-                // Only with headphones: on speakers Hex's own voice comes
+                // Only with headphones: on speakers Agent-Desk's own voice comes
                 // back too loud and too varied for any judge to tell from
                 // the person (it interrupted itself over and over); there a
                 // hold or „Stopp“ interrupts.
@@ -527,7 +527,7 @@ mod tests {
         start + Duration::from_millis(ms)
     }
 
-    /// An answer is read aloud, then Hex listens; speech is a follow-up in
+    /// An answer is read aloud, then Agent-Desk listens; speech is a follow-up in
     /// the same conversation, ended by silence.
     #[test]
     fn an_answer_then_listening_then_a_follow_up() {
@@ -572,7 +572,7 @@ mod tests {
     }
 
     /// A gap between two sentences (the next still streaming or being
-    /// made) is no end of the reading: Hex's own next sentence must not be
+    /// made) is no end of the reading: Agent-Desk's own next sentence must not be
     /// heard as the person's follow-up.
     #[test]
     fn a_gap_between_sentences_opens_no_listening() {
@@ -623,7 +623,7 @@ mod tests {
         );
     }
 
-    /// On speakers, with the echo of Hex's voice taken out, the person
+    /// On speakers, with the echo of Agent-Desk's voice taken out, the person
     /// interrupts at a normal voice: no need to be louder than the answer.
     /// The echo judge is only asked on speakers, under an answer.
     #[test]
@@ -769,9 +769,9 @@ mod tests {
         );
     }
 
-    /// On speakers, the microphone hears Hex's own voice: only speech
+    /// On speakers, the microphone hears Agent-Desk's own voice: only speech
     /// clearly louder than the answer interrupts, and without the answer's
-    /// level nothing does. Once the answer ends, Hex listens as usual.
+    /// level nothing does. Once the answer ends, Agent-Desk listens as usual.
     /// A new answer while one is being listened for keeps the capture and
     /// follows the newer conversation; a follow-up being heard keeps going.
     #[test]
@@ -958,7 +958,7 @@ mod tests {
     }
 
     /// On speakers a voice over the answer never interrupts, however loud
-    /// or however the echo judge rules: Hex's own voice did, again and
+    /// or however the echo judge rules: Agent-Desk's own voice did, again and
     /// again. A hold or „Stopp“ interrupts there.
     #[test]
     fn speakers_never_barge_in() {

@@ -7,7 +7,7 @@
 //! The names of the places it sends people to are here too, so every
 //! message, menu, and button says the sidebar's names.
 
-/// The assistant's pane in Hex's window: the stream of every quick turn
+/// The assistant's pane in Agent-Desk's window: the stream of every quick turn
 /// and job (`rune_ui::sidebar`).
 pub const ASSISTANT: &str = "Assistant";
 /// Its settings pane.

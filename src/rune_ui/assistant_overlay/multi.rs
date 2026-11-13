@@ -120,7 +120,7 @@ pub(crate) fn view(state: &TwoDisplays, cx: &mut Cx<TwoDisplays>) -> El {
                         .center_y()
                         .fill(c.bg_base)
                         .children(
-                            ["Hex", "File", "Edit", "View"]
+                            ["Agent-Desk", "File", "Edit", "View"]
                                 .map(|word| text(word).font(p.k.ty.small_medium).color(p.muted())),
                         ),
                 ),

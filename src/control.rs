@@ -1,5 +1,5 @@
-//! `hex` control: the typed command/reply protocol an agent uses to drive the
-//! one running Hex, the settings registry behind `hex settings`, and the CLI
+//! `agent-desk` control: the typed command/reply protocol an agent uses to drive the
+//! one running Agent-Desk, the settings registry behind `agent-desk settings`, and the CLI
 //! client. Transports (the macOS local API's `POST /control`) only move
 //! [`ControlRequest`]s and [`ControlResponse`]s; the app's host carries out
 //! each command, and every rule shared between the window and the CLI lives
@@ -43,7 +43,7 @@ pub enum CaptureAction {
     Cancel,
 }
 
-/// What `hex capture` does (the `capture` experiment).
+/// What `agent-desk capture` does (the `capture` experiment).
 /// Idempotent like [`CaptureAction`].
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, clap::ValueEnum)]
 #[serde(rename_all = "kebab-case")]
@@ -62,7 +62,7 @@ pub enum ScrawlCaptureAction {
     Replay,
 }
 
-/// The window's panes, by the names `hex window show` takes.
+/// The window's panes, by the names `agent-desk window show` takes.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, clap::ValueEnum)]
 #[serde(rename_all = "kebab-case")]
 pub enum Pane {
@@ -123,7 +123,7 @@ pub enum ControlCommand {
         key: String,
         value: String,
     },
-    /// Several settings at once, all or none (`hex settings apply`).
+    /// Several settings at once, all or none (`agent-desk settings apply`).
     SettingsApply {
         values: serde_json::Map<String, serde_json::Value>,
     },
@@ -207,7 +207,7 @@ pub enum ControlCommand {
     },
     /// Asks the assistant `text` as a hold of the Action shortcut would,
     /// but with no window in front, so it never reads or acts on the
-    /// person's front window (`hex bench`). Continues `conversation` when
+    /// person's front window (`agent-desk bench`). Continues `conversation` when
     /// given. `done.message` is the conversation's id; its progress and
     /// result are in the assistant's conversation files.
     AssistantSubmit {
@@ -259,7 +259,7 @@ pub enum ControlReply {
     ScrawlCaptureRoute {
         explanation: String,
     },
-    /// `hex dictation stop --print` or `hex transcribe`: the transcript.
+    /// `agent-desk dictation stop --print` or `agent-desk transcribe`: the transcript.
     Transcript {
         text: String,
     },
@@ -353,7 +353,7 @@ pub struct ScrawlCaptureOutcome {
     pub missing_transcript: Option<String>,
 }
 
-/// A capture on disk, as `hex capture list` shows it.
+/// A capture on disk, as `agent-desk capture list` shows it.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScrawlCaptureSummary {
     /// The bundle's folder name, which `show`, `send`, and `route` take.
@@ -367,7 +367,7 @@ pub struct ScrawlCaptureSummary {
     pub words: usize,
     /// The session it was sent to, if it was.
     pub sent_to: Option<ScrawlCaptureSession>,
-    /// OpenCode didn't take its send yet; Hex retries it.
+    /// OpenCode didn't take its send yet; Agent-Desk retries it.
     #[serde(default)]
     pub queued: bool,
 }
@@ -378,7 +378,7 @@ pub struct ScrawlCaptureSession {
     pub title: String,
 }
 
-/// `hex capture show`: a capture's summary with its words and files.
+/// `agent-desk capture show`: a capture's summary with its words and files.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScrawlCaptureDetail {
     #[serde(flatten)]
@@ -411,9 +411,9 @@ impl ControlError {
     }
 }
 
-/// How long `hex dictation stop --print` waits for its transcript.
+/// How long `agent-desk dictation stop --print` waits for its transcript.
 pub const PRINT_WAIT: Duration = Duration::from_secs(60);
-/// How long `hex dictation start --print` waits for its dictation to end.
+/// How long `agent-desk dictation start --print` waits for its dictation to end.
 pub const PRINT_START_WAIT: Duration = Duration::from_secs(31 * 60);
 /// How long the app may take to carry out any other control command.
 const CONTROL_DEADLINE: Duration = Duration::from_secs(10);
@@ -524,13 +524,13 @@ pub fn check_flags(
     if print && !matches!(action, CaptureAction::Start | CaptureAction::Stop) {
         return Err(ControlError::new(
             "invalid-value",
-            "--print works only with `hex dictation start` and `hex dictation stop`",
+            "--print works only with `agent-desk dictation start` and `agent-desk dictation stop`",
         ));
     }
     if raw && !matches!(action, CaptureAction::Start | CaptureAction::Toggle) {
         return Err(ControlError::new(
             "invalid-value",
-            "--raw works only with `hex dictation start` and `hex dictation toggle`",
+            "--raw works only with `agent-desk dictation start` and `agent-desk dictation toggle`",
         ));
     }
     Ok(action)
@@ -542,7 +542,7 @@ pub struct ControlCall {
     pub reply: SyncSender<ControlResponse>,
 }
 
-/// Rejects a request from a `hex` built for another protocol version.
+/// Rejects a request from a `agent-desk` built for another protocol version.
 pub fn check_version(request: &ControlRequest) -> Result<(), ControlError> {
     if request.version == CONTROL_VERSION {
         return Ok(());
@@ -554,8 +554,8 @@ pub fn version_mismatch(version: u64) -> ControlError {
     ControlError::new(
         "version-mismatch",
         format!(
-            "this hex speaks control version {version}, but the running Hex speaks \
-             {CONTROL_VERSION}; use the hex inside the running app or restart Hex"
+            "this hex speaks control version {version}, but the running Agent-Desk speaks \
+             {CONTROL_VERSION}; use the hex inside the running app or restart Agent-Desk"
         ),
     )
 }
@@ -575,7 +575,7 @@ pub struct StatusReport {
     pub window: WindowReport,
     /// current, checking, available, or unavailable.
     pub update: String,
-    /// What this OS's Hex can do, by capability name (`rune_ui::platform`).
+    /// What this OS's Agent-Desk can do, by capability name (`rune_ui::platform`).
     /// A command for one it can't do answers `unsupported`.
     #[serde(default)]
     pub capabilities: std::collections::BTreeMap<String, bool>,
@@ -728,16 +728,16 @@ pub struct ModelInfo {
     /// Deprecated: whether the model reads the vocabulary as its prompt,
     /// which is what recognition hints became. Use `vocabulary`.
     pub supports_recognition_hints: bool,
-    /// Where the file is or comes from: `download` (Hex downloads it),
-    /// `hex` (Hex's own download), `imported` (Hex's copy of a file you
+    /// Where the file is or comes from: `download` (Agent-Desk downloads it),
+    /// `agent-desk` (Agent-Desk's own download), `imported` (Agent-Desk's copy of a file you
     /// added), or `found: owner/name@abcdef1` (another app's download in the
     /// Hugging Face cache, used where it is).
     #[serde(default)]
     pub source: String,
 }
 
-/// Where `model`'s file is or comes from, as `hex model list` and the local
-/// API say it: `found: owner/name@abcdef1`, `imported`, `hex`, or `download`.
+/// Where `model`'s file is or comes from, as `agent-desk model list` and the local
+/// API say it: `found: owner/name@abcdef1`, `imported`, `agent-desk`, or `download`.
 pub fn model_source(
     model: &crate::transcription::models::ModelDefinition,
     language: &str,
@@ -750,15 +750,15 @@ pub fn model_source(
         .filter(|_| installed)
         .and_then(|path| describe(&path));
     match (model.id.is_custom(), here) {
-        (true, Some(origin)) => format!("found: {origin} (not tested by Hex)"),
+        (true, Some(origin)) => format!("found: {origin} (not tested by Agent-Desk)"),
         (false, Some(origin)) => format!("found: {origin}"),
         (true, None) => "imported".into(),
-        (false, None) if installed => "hex".into(),
+        (false, None) if installed => "agent-desk".into(),
         (false, None) => "download".into(),
     }
 }
 
-/// Every model `hex model` can name, with what this Mac has installed.
+/// Every model `agent-desk model` can name, with what this Mac has installed.
 pub fn model_infos(
     selection: &crate::transcription::models::TranscriptionSelection,
 ) -> Vec<ModelInfo> {
@@ -789,7 +789,7 @@ pub fn model_infos(
         })
         .collect();
     // Compatible files that aren't catalog models and aren't in use yet:
-    // `hex model use` takes their id and checks them in full first.
+    // `agent-desk model use` takes their id and checks them in full first.
     for model in found.into_iter().filter(|found| {
         found.catalog.is_none() && !crate::transcription::custom_models::uses_path(&found.path)
     }) {
@@ -816,13 +816,13 @@ pub fn model_infos(
                 model.architecture.as_str(),
                 "whisper" | "qwen3_asr"
             ),
-            source: format!("found: {} (not tested by Hex)", model.source()),
+            source: format!("found: {} (not tested by Agent-Desk)", model.source()),
         });
     }
     infos
 }
 
-/// The selection `hex model use` or `install` asks for: a known, available
+/// The selection `agent-desk model use` or `install` asks for: a known, available
 /// model, and a language it supports (the model's best match for the
 /// current language when none is given).
 pub fn model_selection(
@@ -878,7 +878,7 @@ pub fn model_selection(
         .ok_or_else(|| {
             ControlError::new(
                 "unknown-model",
-                format!("unknown model `{model}`; run `hex model list` for the ids"),
+                format!("unknown model `{model}`; run `agent-desk model list` for the ids"),
             )
         })?;
     // The model's own remembered language, as the menu bar picks it; only
@@ -890,7 +890,7 @@ pub fn model_selection(
     let definition = crate::transcription::models::definition(id);
     crate::transcription::models::validate(&selection).map_err(|error| {
         let supported = if definition.languages.contains(&"*") {
-            "any language code Hex knows (en, de, fr, ja, …)".to_owned()
+            "any language code Agent-Desk knows (en, de, fr, ja, …)".to_owned()
         } else {
             definition.languages.join(", ")
         };
@@ -902,7 +902,7 @@ pub fn model_selection(
     Ok(selection)
 }
 
-/// Refuses to stop Hex while it records, unless forced. `capture` is the
+/// Refuses to stop Agent-Desk while it records, unless forced. `capture` is the
 /// listener's answer (idle when no listener runs or setup gates it); a
 /// listener that couldn't answer might be recording, so it refuses too.
 pub fn check_quit(
@@ -917,7 +917,7 @@ pub fn check_quit(
         return Err(ControlError::new(
             "meeting-active",
             format!(
-                "a meeting is {}; stop it first (`hex meetings stop`) or pass --force",
+                "a meeting is {}; stop it first (`agent-desk meetings stop`) or pass --force",
                 meeting.state
             ),
         ));
@@ -940,7 +940,7 @@ pub fn check_quit(
     }
 }
 
-/// Carries out `hex vocabulary add|remove` on the saved list. The reply's
+/// Carries out `agent-desk vocabulary add|remove` on the saved list. The reply's
 /// `changed` says whether the list needs saving.
 pub fn edit_vocabulary(
     list: &mut Vec<VocabularyEntry>,
@@ -1318,7 +1318,7 @@ mod tests {
                     id: "1.scrawl".into(),
                     sent_to: Some(ScrawlCaptureSession {
                         session: "ses_1".into(),
-                        title: "Hex".into(),
+                        title: "Agent-Desk".into(),
                     }),
                     ..ScrawlCaptureSummary::default()
                 }],
@@ -1339,7 +1339,7 @@ mod tests {
             ControlReply::Transcript {
                 text: "Ship it.".into(),
             },
-            ControlReply::error("busy", "Hex is busy"),
+            ControlReply::error("busy", "Agent-Desk is busy"),
         ] {
             let response = ControlResponse::from(reply);
             let json = serde_json::to_string(&response).unwrap();
@@ -1431,7 +1431,7 @@ mod tests {
         assert_eq!(remembered.language, "de");
         let french = pick("whisper_large_v3_turbo", Some("fr")).unwrap();
         assert_eq!(french.language, "fr");
-        // Whisper's wildcard takes any language Hex knows, not any string.
+        // Whisper's wildcard takes any language Agent-Desk knows, not any string.
         for (model, language) in [
             ("whisper_large_v3_turbo", "klingon"),
             ("sense_voice_small", "de"),

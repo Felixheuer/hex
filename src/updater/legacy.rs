@@ -183,8 +183,8 @@ mod linux {
             .env("HEX_INSTALL_ARTIFACT", executable)
             .env("HEX_INSTALL_VERSION", crate::VERSION)
             .env("HEX_INSTALL_CHANNEL", "stable")
-            .env("HEX_APPLICATION_SUPPORT_DIR", root)
-            .env_remove("HEX_INSTALL_DIR")
+            .env("AGENT_DESK_APPLICATION_SUPPORT_DIR", root)
+            .env_remove("AGENT_DESK_INSTALL_DIR")
             .env_remove("HEX_INSTALL_SOURCE")
             .envs(environment.iter().copied())
             .stdin(Stdio::null());
@@ -229,10 +229,10 @@ mod linux {
     pub(super) fn relaunch(executable: &Path, legacy: &Path, root: &Path) -> Result<()> {
         let mut command = Command::new(executable);
         command.args(std::env::args_os().skip(1));
-        if std::env::var_os("HEX_APPLICATION_SUPPORT_DIR")
+        if std::env::var_os("AGENT_DESK_APPLICATION_SUPPORT_DIR")
             .is_some_and(|dir| Path::new(&dir) == legacy)
         {
-            command.env("HEX_APPLICATION_SUPPORT_DIR", root);
+            command.env("AGENT_DESK_APPLICATION_SUPPORT_DIR", root);
         }
         Err(command.exec()).wrap_err("could not start the managed Hex")
     }

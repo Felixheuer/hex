@@ -83,7 +83,7 @@ struct CustomVocabularyEditor: View {
             }
 
             Text(
-                "Hex fixes the spelling of listed words when it hears them. "
+                "Agent-Desk fixes the spelling of listed words when it hears them. "
                     + "It can't teach the speech engine new sounds, so a word heard "
                     + "as something different stays as it is."
             )

@@ -21,7 +21,7 @@ static STOP_ICON: &rune::Icon = &rune_theme_opencode::icons::STOP;
 static DOWN_ICON: &rune::Icon = &rune_theme_opencode::icons::ARROW_DOWN_TO_LINE;
 static CLEAR_ICON: &rune::Icon = &rune_theme_opencode::icons::CLOSE_SMALL;
 
-/// Hex quit or crashed while conversation `id` ran: say so, with Resume.
+/// Agent-Desk quit or crashed while conversation `id` ran: say so, with Resume.
 pub(super) fn interrupted_banner(ui: &Ui, p: Paint, id: &str) -> Option<El> {
     let pane = &ui.chats;
     let interrupted = pane
@@ -37,7 +37,7 @@ pub(super) fn interrupted_banner(ui: &Ui, p: Paint, id: &str) -> Option<El> {
         row()
             .key("interrupted")
             .role("status")
-            .label(tr("This task stopped when Hex quit"))
+            .label(tr("This task stopped when Agent-Desk quit"))
             .mr(12.0)
             .mt(8.0)
             .pl(12.0)
@@ -62,7 +62,7 @@ pub(super) fn interrupted_banner(ui: &Ui, p: Paint, id: &str) -> Option<El> {
                     .shrink()
                     .gap(2.0)
                     .child(
-                        text(tr("This task stopped when Hex quit"))
+                        text(tr("This task stopped when Agent-Desk quit"))
                             .key("title")
                             .font(p.k.ty.ui_medium)
                             .color(p.text())

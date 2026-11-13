@@ -18,7 +18,7 @@
 //! - **Take over.** `take_over` pauses a task's desktop actions through the
 //!   guard and brings its window forward; `hand_back` resumes it.
 //! - **Durability.** A conversation is `Running` on disk while it runs; one
-//!   left so by a Hex that quit reads `Interrupted`, and `resume_interrupted`
+//!   left so by an Agent-Desk that quit reads `Interrupted`, and `resume_interrupted`
 //!   continues it. A task stops after `task_timeout_minutes`; one that hits
 //!   its agent's usage limit waits for the reset and retries
 //!   (`retry_on_limit`). Every end releases the task's window leases and
@@ -98,7 +98,7 @@ pub use inbox::Inbox;
 fn runner() -> &'static Arc<Runner> {
     static RUNNER: OnceLock<Arc<Runner>> = OnceLock::new();
     RUNNER.get_or_init(|| {
-        // Conversations a Hex that quit left running are interrupted, and
+        // Conversations an Agent-Desk that quit left running are interrupted, and
         // the guard forgets what ended tasks left (only in the app: a `hex
         // assistant` command must not clear the app's pauses, or run its
         // schedules).
@@ -106,19 +106,19 @@ fn runner() -> &'static Arc<Runner> {
             if !FROM_CLI.load(Ordering::Acquire) && current_settings().0 {
                 super::guard::startup();
                 start_scheduler();
-                // The Chrome logins Hex's browsers use, taken again daily.
+                // The Chrome logins Agent-Desk's browsers use, taken again daily.
                 let profile = current_settings().1.browser_import_profile;
                 std::thread::spawn(move || {
                     super::browser::accounts::refresh_if_stale(profile.as_deref());
                 });
             }
             let app = !FROM_CLI.load(Ordering::Acquire) && current_settings().0;
-            // Agents an earlier Hex left running (a crash, a force quit)
+            // Agents an earlier Agent-Desk left running (a crash, a force quit)
             // end before their jobs resume beside them.
             if app {
                 let ended = super::provider::orphans::sweep();
                 if ended > 0 {
-                    tracing::info!(ended, "ended agents an earlier Hex left running");
+                    tracing::info!(ended, "ended agents an earlier Agent-Desk left running");
                 }
             }
             if let Ok(store) = Store::open() {
@@ -232,10 +232,10 @@ pub(crate) struct Hooks {
     /// (`browser::prewarm_for`): a hold's that asks for the web, a job's,
     /// a helper's.
     pub browser_ahead: Box<OnWords>,
-    /// The sites the person signed in to for Hex
+    /// The sites the person signed in to for Agent-Desk
     /// (`browser::signed_in_sites`): words naming one ask for the web.
     pub signed_in_sites: Hook<Vec<String>>,
-    /// Requests from other Hex processes (`remote`).
+    /// Requests from other Agent-Desk processes (`remote`).
     pub requests: Hook<Vec<(String, remote::Verb)>>,
     /// Makes a new job's workspace for its title.
     pub make_workspace: Box<MakeWorkspace>,
@@ -385,7 +385,7 @@ impl Hooks {
 }
 
 /// The settings as applied, or as saved (read at most every two seconds)
-/// for a `hex` command that never applies them.
+/// for a `agent-desk` command that never applies them.
 /// Reads `text` right after what is being read, with no gap between
 /// sentences, or starts reading it when nothing is.
 fn speak_next(text: &str, voice: Option<&str>) {

@@ -48,7 +48,7 @@ fi
 
 cargo build --locked
 # Narrow filters only: the whole suite at once can wedge coreaudiod (CLAUDE.md).
-cargo test --locked --bin hex -- assistant recognition::ask shortcut_conflicts code_shape
+cargo test --locked --bin agent-desk -- assistant recognition::ask shortcut_conflicts code_shape
 
 if [ "${1:-}" = --merge ]; then
   git switch --quiet dev

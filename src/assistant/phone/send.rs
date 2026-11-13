@@ -1,4 +1,4 @@
-//! Sends an iMessage through the Mac's Messages app (AppleScript; Hex asks
+//! Sends an iMessage through the Mac's Messages app (AppleScript; Agent-Desk asks
 //! macOS once for permission to control Messages).
 
 use color_eyre::eyre::{Result, bail};

@@ -1,4 +1,4 @@
-//! `"With Hex"`'s payoff, timed from the scene's cheers ([`Cheer`]): your
+//! `"With Agent-Desk"`'s payoff, timed from the scene's cheers ([`Cheer`]): your
 //! spoken line goes out, tapbacks rain on it, replies cascade in, status
 //! pills and renames pile on, and confetti and fireworks go off around the
 //! conversation ([`super::fireworks`]). Every part is optional per scene.
@@ -42,7 +42,7 @@ impl Said {
     }
 }
 
-/// `"With Hex"`'s beats, in seconds after the shortcut goes down.
+/// `"With Agent-Desk"`'s beats, in seconds after the shortcut goes down.
 #[derive(Clone, Debug)]
 pub(crate) struct HexBeats {
     /// Your line leaving the field.
@@ -158,7 +158,7 @@ pub(crate) fn check(script: &'static Script<'static>, send: f64, t: &Timing) -> 
     let mut problems = Vec::new();
     if beats.done > MAX_SECS {
         problems.push(format!(
-            "\"With Hex\" runs {:.1} s from the shortcut; keep it under {MAX_SECS} s",
+            "\"With Agent-Desk\" runs {:.1} s from the shortcut; keep it under {MAX_SECS} s",
             beats.done
         ));
     }

@@ -102,7 +102,7 @@ pub enum TranscriptionTarget {
     /// pane's steps.
     RawPaste,
     Service,
-    /// `hex dictation stop --print`: processed as a paste, then handed to
+    /// `agent-desk dictation stop --print`: processed as a paste, then handed to
     /// the waiting command instead of pasted.
     Print,
     /// A printing stop of a raw dictation: the transcript as heard.
@@ -307,7 +307,7 @@ impl DictationWorker {
         let (_, selection) = crate::app_settings::transcription_selection();
         // Unload model when idle parks a GGUF model at launch too:
         // the first dictation reloads it, so memory stays free until then.
-        // Apple Speech holds no model of Hex's and stays loaded.
+        // Apple Speech holds no model of Agent-Desk's and stays loaded.
         let parked = crate::features::unload_idle().is_some()
             && matches!(
                 validate(&selection).map(|definition| definition.runtime),
@@ -385,7 +385,7 @@ impl DictationWorker {
 
     /// Return to app (macOS): remembers the app in front as this
     /// capture starts, so its paste can bring it back. Read only while the
-    /// lab is on, and never Hex itself.
+    /// lab is on, and never Agent-Desk itself.
     pub fn remember_return_to_app(&self) {
         let return_to = crate::paste::return_to_app::capture_start();
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
@@ -782,7 +782,7 @@ fn wait_for_dictation_idle() -> Result<()> {
         thread::sleep(std::time::Duration::from_millis(50));
     }
     if crate::desktop::process_exit::quitting() {
-        return Err(eyre!("Hex is quitting"));
+        return Err(eyre!("Agent-Desk is quitting"));
     }
     Ok(())
 }
@@ -1521,11 +1521,12 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires HEX_COHERE_MODEL and HEX_COHERE_FIXTURES synthetic audio"]
+    #[ignore = "requires AGENT_DESK_COHERE_MODEL and AGENT_DESK_COHERE_FIXTURES synthetic audio"]
     fn cohere_long_form_keeps_all_sections_with_and_without_pauses() {
-        let model_path = PathBuf::from(std::env::var_os("HEX_COHERE_MODEL").expect("model path"));
+        let model_path =
+            PathBuf::from(std::env::var_os("AGENT_DESK_COHERE_MODEL").expect("model path"));
         let fixtures =
-            PathBuf::from(std::env::var_os("HEX_COHERE_FIXTURES").expect("fixture path"));
+            PathBuf::from(std::env::var_os("AGENT_DESK_COHERE_FIXTURES").expect("fixture path"));
         let selection = TranscriptionSelection {
             model: TranscriptionModelId::CohereTranscribe,
             language: "en".into(),
@@ -1820,14 +1821,14 @@ mod tests {
     /// blocks, the last 200 ms held back as the release tail) and compares
     /// the stream's release latency and text with whole-clip transcription.
     #[test]
-    #[ignore = "requires HEX_STREAM_MODEL (Unified English GGUF) and HEX_STREAM_WAVS (comma-separated)"]
+    #[ignore = "requires AGENT_DESK_STREAM_MODEL (Unified English GGUF) and AGENT_DESK_STREAM_WAVS (comma-separated)"]
     fn metal_stream_tracks_offline_transcription() {
         use crate::transcription::engine::{Offline, Source, TranscriptionEngine};
         use crate::transcription::{Transcriber, WarmTranscriber};
 
         let selection = TranscriptionSelection::default();
         let mut model = Parakeet::load_from(
-            &PathBuf::from(std::env::var("HEX_STREAM_MODEL").unwrap()),
+            &PathBuf::from(std::env::var("AGENT_DESK_STREAM_MODEL").unwrap()),
             false,
             Some(&selection),
         )
@@ -1840,13 +1841,14 @@ mod tests {
             Box::new(model),
         )))
         .unwrap();
-        // `HEX_STREAM_LIVE_TEXT=0` replays without reading live text.
-        let engine = if std::env::var("HEX_STREAM_LIVE_TEXT").is_ok_and(|value| value == "0") {
+        // `AGENT_DESK_STREAM_LIVE_TEXT=0` replays without reading live text.
+        let engine = if std::env::var("AGENT_DESK_STREAM_LIVE_TEXT").is_ok_and(|value| value == "0")
+        {
             engine
         } else {
             engine.with_live_text()
         };
-        let speed = std::env::var("HEX_STREAM_SPEED")
+        let speed = std::env::var("AGENT_DESK_STREAM_SPEED")
             .ok()
             .and_then(|speed| speed.parse::<f64>().ok())
             .unwrap_or(4.0);
@@ -1870,7 +1872,7 @@ mod tests {
                 .filter(|word| !word.is_empty())
                 .collect::<Vec<_>>()
         };
-        for path in std::env::var("HEX_STREAM_WAVS").unwrap().split(',') {
+        for path in std::env::var("AGENT_DESK_STREAM_WAVS").unwrap().split(',') {
             let mut reader = WavReader::open(path).unwrap();
             let rate = reader.spec().sample_rate;
             let channels = usize::from(reader.spec().channels);
@@ -2078,9 +2080,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires HEX_STUTTER_FIXTURE and the installed Parakeet model"]
+    #[ignore = "requires AGENT_DESK_STUTTER_FIXTURE and the installed Parakeet model"]
     fn tdt_decoder_does_not_repeat_single_letter_tokens() {
-        let path = PathBuf::from(std::env::var("HEX_STUTTER_FIXTURE").unwrap());
+        let path = PathBuf::from(std::env::var("AGENT_DESK_STUTTER_FIXTURE").unwrap());
         let mut reader = WavReader::open(path).unwrap();
         let sample_rate = reader.spec().sample_rate;
         let samples = reader

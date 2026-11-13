@@ -10,8 +10,8 @@ let
       modules = [
         self.homeManagerModules.hex
         {
-          home.username = "hex-test";
-          home.homeDirectory = "/home/hex-test";
+          home.username = "agent-desk-test";
+          home.homeDirectory = "/home/agent-desk-test";
           home.stateVersion = "26.05";
           programs.hex = settings;
         }
@@ -107,7 +107,7 @@ in
     assert enabled.systemd.user.services.hex.Service.Restart == "on-failure";
     assert enabled.systemd.user.services.hex.Service.Type == "notify";
     assert enabled.systemd.user.services.hex.Service.NotifyAccess == "main";
-    assert builtins.elem "HEX_APPLICATION_SUPPORT_DIR=${enabled.xdg.dataHome}/hex"
+    assert builtins.elem "AGENT_DESK_APPLICATION_SUPPORT_DIR=${enabled.xdg.dataHome}/hex"
       enabled.systemd.user.services.hex.Service.Environment;
     assert custom.systemd.user.services.hex.Service.ExecStart == [ "${lib.getExe pkgs.hello} service" ];
     assert lib.all (name: custom.systemd.user.services.hex.Unit.${name} == [ "sway-session.target" ]) [
@@ -132,7 +132,7 @@ in
   session-readiness =
     let
       xprop = pkgs.writeShellScriptBin "xprop" ''
-        printf '%s\n' "''${HEX_TEST_XPROP:-}"
+        printf '%s\n' "''${AGENT_DESK_TEST_XPROP:-}"
       '';
       sleep = pkgs.writeShellScriptBin "sleep" "exit 0";
     in
@@ -149,9 +149,9 @@ in
       }
 
       if run; then exit 1; fi
-      if run DISPLAY=:1 HEX_TEST_XPROP='_NET_SUPPORTING_WM_CHECK: not found.'; then exit 1; fi
-      if run DISPLAY=:1 HEX_TEST_XPROP='_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x0'; then exit 1; fi
-      run DISPLAY=:1 HEX_TEST_XPROP='_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0xa00001'
+      if run DISPLAY=:1 AGENT_DESK_TEST_XPROP='_NET_SUPPORTING_WM_CHECK: not found.'; then exit 1; fi
+      if run DISPLAY=:1 AGENT_DESK_TEST_XPROP='_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x0'; then exit 1; fi
+      run DISPLAY=:1 AGENT_DESK_TEST_XPROP='_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0xa00001'
 
       if run WAYLAND_DISPLAY=wayland-test XDG_RUNTIME_DIR="$TMPDIR"; then exit 1; fi
       ${pkgs.python3}/bin/python -c \

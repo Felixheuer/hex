@@ -24,10 +24,10 @@ awk -v current="$current" -v version="$version" '
 ' "$root/Cargo.toml" > "$root/Cargo.toml.next"
 mv "$root/Cargo.toml.next" "$root/Cargo.toml"
 awk -v current="$current" -v version="$version" '
-  /^name = "hex"$/ { package = 1 }
+  /^name = "agent-desk"$/ { package = 1 }
   package && $0 == "version = \"" current "\"" { $0 = "version = \"" version "\""; package = 0 }
   { print }
 ' "$root/Cargo.lock" > "$root/Cargo.lock.next"
 mv "$root/Cargo.lock.next" "$root/Cargo.lock"
 grep -q "^version = \"$version\"" "$root/Cargo.toml"
-echo "Building Hex as $version." >&2
+echo "Building Agent-Desk as $version." >&2

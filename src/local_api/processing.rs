@@ -116,7 +116,7 @@ pub(super) fn attach(
 }
 
 /// The refusal for a request that asked for processing, or the slot its run
-/// holds. Checks that a processor exists before the lab, so `hex service`
+/// holds. Checks that a processor exists before the lab, so `agent-desk service`
 /// answers `processing-unavailable` even while the lab is off, and claims the
 /// one slot before any audio body is read or a stream finishes.
 pub(super) fn gate(wanted: bool, processing: &Processing) -> Result<Option<Guard>, HttpResponse> {
@@ -411,7 +411,7 @@ mod tests {
         let (status, _) = finish(&api, id, &owner, "");
         assert_eq!(status, 200);
 
-        // `hex service` is this state: no processor and the lab off. The
+        // `agent-desk service` is this state: no processor and the lab off. The
         // missing processor is named first, not `processing-disabled`.
         let api = start(Processing::gated(None, || false));
         assert_eq!(

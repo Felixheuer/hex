@@ -51,7 +51,7 @@ fn hex_displays_tells_the_layout_and_both_displays() {
     let scratch = Scratch::new();
     let fake = Fake::recorded();
     this_mac(&fake);
-    let mut guard = here(&scratch, &fake, FRONT, "Hex Test", false);
+    let mut guard = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
     // Not offered (the guard places windows itself; the message names the
     // displays), but still answered.
     assert!(
@@ -71,7 +71,7 @@ fn hex_displays_tells_the_layout_and_both_displays() {
     assert!(data["layout"].as_str().unwrap().contains(
         "M27Q (display 5, 2560×1440 points at (-604, -1440), scale 2) is above and left of it"
     ));
-    assert!(fake.forwarded().is_empty(), "read in Hex");
+    assert!(fake.forwarded().is_empty(), "read in Agent-Desk");
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn a_window_a_task_takes_goes_out_of_the_persons_way_too() {
     assert_eq!(moves(&fake)[0]["window_id"], "w-600");
     // With full control a window becomes the task's as it acts in it, and
     // goes the same way; the window in front stays where the person is.
-    let mut here = here(&scratch, &fake, FRONT, "Hex Test", false);
+    let mut here = here(&scratch, &fake, FRONT, "Agent-Desk Test", false);
     here.config.front_window = true;
     here.config.agent_display = Some("M27Q".into());
     let clicked = here.call("desktop_minimize", args(json!({"window_id": "w-601"})));
@@ -273,7 +273,7 @@ fn a_parked_window_moved_behind_keeps_where_it_came_from_until_it_goes_back() {
     assert_eq!(record.how, How::Behind);
     assert_eq!(record.from, Some((100.0, 100.0, 500.0, 400.0)));
     // While the job holds it, it stays; once its lease is gone, it is one
-    // Hex puts back.
+    // Agent-Desk puts back.
     assert!(parking::lapsed(&scratch.store()).is_empty());
     drop(guard);
     scratch.store().release_all("bg");

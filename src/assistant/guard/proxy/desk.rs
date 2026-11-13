@@ -1,5 +1,5 @@
 //! The desk in a task's guard (`guard::desk`): windows a quick turn opens
-//! are handed to the desk, which Hex holds, and every task that may open
+//! are handed to the desk, which Agent-Desk holds, and every task that may open
 //! apps acts in desk windows as in its own; `hex_release_window` lets go.
 
 use serde_json::{Map, Value, json};
@@ -223,7 +223,7 @@ impl<D: Desktop> Guard<D> {
 pub(super) fn tool() -> Value {
     json!({
         "name": RELEASE_TOOL,
-        "description": "Hex: let go of an app window on the person's desk (the windows quick \
+        "description": "Agent-Desk: let go of an app window on the person's desk (the windows quick \
             turns opened stay there, parked, as live minis at the orb). Use it when the person \
             is done with it (\"schließ WhatsApp\", \"weg damit\"); the window comes back on their \
             screen. desktop_close_app quits the app instead.",

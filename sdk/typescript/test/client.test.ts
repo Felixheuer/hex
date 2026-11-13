@@ -58,7 +58,7 @@ describe("Promise client", () => {
       model: "parakeet_v2",
       language: "en",
       process: "global",
-    })).toEqual({ transcript: "hello from hex", durationMs: 750, processed: "Hello from Hex." })
+    })).toEqual({ transcript: "hello from hex", durationMs: 750, processed: "Hello from Agent-Desk." })
     expect(await host.client.transcribe({
       audio: { data: new Uint8Array([1, 2, 3]), contentType: "audio/wav" },
       model: "parakeet_v2",
@@ -104,7 +104,7 @@ describe("Promise client", () => {
   it("rejects an endpoint outside loopback and cleans up the child", async () => {
     const result = create({
       command: [process.execPath, helper],
-      env: { HEX_FAKE_MODE: "bad-handshake" },
+      env: { AGENT_DESK_FAKE_MODE: "bad-handshake" },
     })
 
     await expect(result).rejects.toMatchObject({ code: "invalid-handshake" } satisfies Partial<HexError>)
@@ -113,7 +113,7 @@ describe("Promise client", () => {
   it("reports an early helper exit", async () => {
     const result = create({
       command: [process.execPath, helper],
-      env: { HEX_FAKE_MODE: "exit-before-ready" },
+      env: { AGENT_DESK_FAKE_MODE: "exit-before-ready" },
     })
 
     await expect(result).rejects.toMatchObject({ code: "service-exited" } satisfies Partial<HexError>)
@@ -122,7 +122,7 @@ describe("Promise client", () => {
   it("preserves cancellation after SSE response headers", async () => {
     const host = await create({
       ...options(),
-      env: { HEX_FAKE_PREPARE_HANG: "1" },
+      env: { AGENT_DESK_FAKE_PREPARE_HANG: "1" },
     })
     const controller = new AbortController()
     try {
@@ -142,9 +142,9 @@ describe("Promise client", () => {
       const host = await create({
         ...options(),
         env: {
-          HEX_FAKE_SERVICE_CAPTURE: "1",
-          HEX_FAKE_DISCOVERY_PATH: discoveryPath,
-          HEX_FAKE_FINISH_RETRY: "1",
+          AGENT_DESK_FAKE_SERVICE_CAPTURE: "1",
+          AGENT_DESK_FAKE_DISCOVERY_PATH: discoveryPath,
+          AGENT_DESK_FAKE_FINISH_RETRY: "1",
         },
       })
       try {
@@ -269,7 +269,7 @@ describe("Promise client", () => {
   it("does not let a buffered terminal event overtake cancellation", async () => {
     const host = await create({
       ...options(),
-      env: { HEX_FAKE_PREPARE_BATCH: "1" },
+      env: { AGENT_DESK_FAKE_PREPARE_BATCH: "1" },
     })
     const controller = new AbortController()
     try {
@@ -286,7 +286,7 @@ describe("Promise client", () => {
   it("bounds an unconsumed observation stream and cancels it through return", async () => {
     const host = await create({
       ...options(),
-      env: { HEX_FAKE_SERVICE_CAPTURE: "1", HEX_FAKE_LEVEL_BURST: "1" },
+      env: { AGENT_DESK_FAKE_SERVICE_CAPTURE: "1", AGENT_DESK_FAKE_LEVEL_BURST: "1" },
     })
     try {
       const recording = await host.client.dictation.start({ source: "buffer-test" })
@@ -306,7 +306,7 @@ describe("Promise client", () => {
   it("preserves remote HTTP and SSE error codes", async () => {
     const httpHost = await create({
       ...options(),
-      env: { HEX_FAKE_TRANSCRIBE_ERROR: "1" },
+      env: { AGENT_DESK_FAKE_TRANSCRIBE_ERROR: "1" },
     })
     try {
       const transcription = httpHost.client.transcribe({
@@ -324,7 +324,7 @@ describe("Promise client", () => {
 
     const sseHost = await create({
       ...options(),
-      env: { HEX_FAKE_PREPARE_ERROR: "1" },
+      env: { AGENT_DESK_FAKE_PREPARE_ERROR: "1" },
     })
     try {
       await expect(sseHost.client.models.prepare("parakeet_v2")).rejects.toMatchObject({

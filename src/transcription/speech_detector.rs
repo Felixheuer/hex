@@ -211,9 +211,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires HEX_VAD_MODEL (Silero VAD GGUF)"]
+    #[ignore = "requires AGENT_DESK_VAD_MODEL (Silero VAD GGUF)"]
     fn real_detector_rejects_silence_and_noise() {
-        let mut session = load(Path::new(&std::env::var("HEX_VAD_MODEL").unwrap())).unwrap();
+        let mut session = load(Path::new(&std::env::var("AGENT_DESK_VAD_MODEL").unwrap())).unwrap();
         assert!(!detect(&mut session, &[0.0; 32_000]).unwrap());
         // -60 dBFS white noise from a fixed linear congruential generator.
         let mut seed = 0x2545_f491_u32;
@@ -233,16 +233,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires HEX_VAD_MODEL and HEX_VAD_SPEECH_WAV (16 kHz mono float speech)"]
+    #[ignore = "requires AGENT_DESK_VAD_MODEL and AGENT_DESK_VAD_SPEECH_WAV (16 kHz mono float speech)"]
     fn real_detector_hears_speech() {
-        let mut session = load(Path::new(&std::env::var("HEX_VAD_MODEL").unwrap())).unwrap();
-        assert!(detect(&mut session, &clip("HEX_VAD_SPEECH_WAV")).unwrap());
+        let mut session = load(Path::new(&std::env::var("AGENT_DESK_VAD_MODEL").unwrap())).unwrap();
+        assert!(detect(&mut session, &clip("AGENT_DESK_VAD_SPEECH_WAV")).unwrap());
     }
 
     #[test]
-    #[ignore = "requires HEX_VAD_MODEL and HEX_VAD_WHISPER_WAV (16 kHz mono float whisper at about -43 dBFS)"]
+    #[ignore = "requires AGENT_DESK_VAD_MODEL and AGENT_DESK_VAD_WHISPER_WAV (16 kHz mono float whisper at about -43 dBFS)"]
     fn real_detector_hears_quiet_whispers() {
-        let mut session = load(Path::new(&std::env::var("HEX_VAD_MODEL").unwrap())).unwrap();
-        assert!(detect(&mut session, &clip("HEX_VAD_WHISPER_WAV")).unwrap());
+        let mut session = load(Path::new(&std::env::var("AGENT_DESK_VAD_MODEL").unwrap())).unwrap();
+        assert!(detect(&mut session, &clip("AGENT_DESK_VAD_WHISPER_WAV")).unwrap());
     }
 }

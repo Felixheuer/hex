@@ -4,19 +4,19 @@
 Agent or terminal                                  // control.cli; every OS
 ├── One tree and protocol over the local API's POST /control on every OS;
 │   OS can't do it -> unsupported at runtime, exit 1
-├── hex status [--json] -> Listener, capture, meeting, model, features,
+├── agent-desk status [--json] -> Listener, capture, meeting, model, features,
 │   permissions, window, update, version, pid, memory
 │   ├── Wayland listener -> its warning names a missing wl-copy before paste fails
-│   └── Hex not running -> exit 3, "Hex is not running; run `hex start`"
-├── hex start -> Already running: nothing | else open Hex.app (Linux and
-│   Windows: a detached `hex app --hidden`), wait ≤ 20 s
-│   └── The caller's HEX_* variables -> open --env (values never logged)
-├── hex quit | restart [--force]
+│   └── Agent-Desk not running -> exit 3, "Agent-Desk is not running; run `agent-desk start`"
+├── agent-desk start -> Already running: nothing | else open Agent-Desk.app (Linux and
+│   Windows: a detached `agent-desk app --hidden`), wait ≤ 20 s
+│   └── The caller's AGENT_DESK_* variables -> open --env (values never logged)
+├── agent-desk quit | restart [--force]
 │   ├── Meeting or dictation in progress, no --force -> refused, exit 1
 │   ├── Listener didn't answer, no --force -> busy (it might be recording)
-│   └── restart -> reopens with the running Hex's HEX_* variables (macOS);
+│   └── restart -> reopens with the running Agent-Desk's AGENT_DESK_* variables (macOS);
 │       Linux unit -> systemctl restart; else waits for the drain, then start
-├── hex dictation start|stop|toggle|cancel
+├── agent-desk dictation start|stop|toggle|cancel
 │   ├── Same shortcut state machine as the hotkey; start locks the capture
 │   ├── start -> intentional at once: tone once the mic is open, recording
 │   │   behavior, live stream
@@ -40,72 +40,72 @@ Agent or terminal                                  // control.cli; every OS
 │   └── dictation start|toggle --raw -> the dictation it starts pastes the
 │       transcript as heard (Dictate without processing); History keeps it as Raw;
 │       --raw with stop -> usage error, exit 2
-├── hex paste-last -> pastes the last dictation
+├── agent-desk paste-last -> pastes the last dictation
 │   ├── Setup gates the listener -> not-ready
 │   └── Recording or shortcut gesture in progress -> busy (menu bar: nothing)
-├── hex typed-text (Linux) -> the Transform typed text shortcut's one job
+├── agent-desk typed-text (Linux) -> the Transform typed text shortcut's one job
 │   ├── Labs › Transform typed text off -> disabled
 │   ├── Terminal paste on -> disabled (it would send Ctrl+Shift+V)
 │   ├── Setup gates the listener -> not-ready
 │   └── Recording, a pending start, or a capture still finishing -> done,
 │       but the listener drops the job: no keys are sent and no state changes
-├── hex transcribe <file> [--model <id>] [--language <code>]
+├── agent-desk transcribe <file> [--model <id>] [--language <code>]
 │   ├── Labs › Transcribe files off -> disabled, exit 1; the file is never read
-│   ├── Not WAV, or over 64 MiB -> refused here, before Hex is asked
-│   ├── Hex running -> the file to POST /transcriptions with the model named;
+│   ├── Not WAV, or over 64 MiB -> refused here, before Agent-Desk is asked
+│   ├── Agent-Desk running -> the file to POST /transcriptions with the model named;
 │   │   ≤30 s runs on the dictation engine's model, longer clips on the
 │   │   transcription service's own copy; stdout gets the transcript
-│   ├── Hex stopped -> Linux/Windows load the model here as `model transcribe`;
+│   ├── Agent-Desk stopped -> Linux/Windows load the model here as `model transcribe`;
 │   │   macOS answers not-running, exit 3
 │   └── No speech -> no-speech, exit 4; nothing pasted, kept, or processed
-├── hex meetings record [--title] | stop | copy-last
+├── agent-desk meetings record [--title] | stop | copy-last
 │   ├── Meetings off -> feature-off; recording shows in the menu bar and HUD
 │   │   exactly like a menu-bar recording
-│   └── No meetings cancel: Hex cannot discard a recording
-├── hex settings list | get <key|prefix> | set <key> <value>
+│   └── No meetings cancel: Agent-Desk cannot discard a recording
+├── agent-desk settings list | get <key|prefix> | set <key> <value>
 │   ├── The window's save, then ReloadSettings -> live, no restart
 │   ├── Unknown key, bad value, read-only key -> refused, nothing written
 │   ├── Shortcut conflict -> refused, as the window's recorder would
 │   └── apply <file|-> -> a JSON object of key: value, all or none
 │       ├── Undeclared settings keep their values; dependent keys in any order
 │       ├── transcription.model / .language -> selected, never downloaded
-│       ├── Hex running -> SettingsApply: saved and adopted live, like set
-│       └── Hex stopped -> written to settings.json under the service lock
-│           (Linux); a Hex holding it is waited for (≤ 35 s) instead
-├── hex model list | use <id> | install [id] | cancel
-│   ├── use -> installed models only; needs the running Hex; never downloads
+│       ├── Agent-Desk running -> SettingsApply: saved and adopted live, like set
+│       └── Agent-Desk stopped -> written to settings.json under the service lock
+│           (Linux); an Agent-Desk holding it is waited for (≤ 35 s) instead
+├── agent-desk model list | use <id> | install [id] | cancel
+│   ├── use -> installed models only; needs the running Agent-Desk; never downloads
 │   │   or repairs; keeps the model's remembered language and hints
 │   │   (--language overrides)
-│   └── Linux/Windows: install with Hex stopped downloads and selects here
-│       (a Hex that starts meanwhile makes the switch); status, devices,
+│   └── Linux/Windows: install with Agent-Desk stopped downloads and selects here
+│       (an Agent-Desk that starts meanwhile makes the switch); status, devices,
 │       check, transcribe run here (macOS: unsupported)
-├── hex window show [pane] | hide
+├── agent-desk window show [pane] | hide
 │   ├── settings -> the General pane (status window.pane stays "settings")
 │   ├── meetings pane with Meetings off -> the pane's opt-in card
 │   └── story <story> [--variant V] [--play] -> a playground story, as a
-│       hex://story link opens (labs.md); playground off -> feature-off
-├── hex history clear --yes -> without --yes refused before Hex is asked
-├── hex check-for-updates -> The updater checks now
-├── hex launch-at-login [on|off] -> SMAppService (changes need Hex.app);
+│       agent-desk://story link opens (labs.md); playground off -> feature-off
+├── agent-desk history clear --yes -> without --yes refused before Agent-Desk is asked
+├── agent-desk check-for-updates -> The updater checks now
+├── agent-desk launch-at-login [on|off] -> SMAppService (changes need Agent-Desk.app);
 │   Windows Run key; Linux XDG autostart entry
-└── hex logs [--process] [-n N] [-f] -> local tail; works with Hex stopped
+└── agent-desk logs [--process] [-n N] [-f] -> local tail; works with Agent-Desk stopped
 ```
 
 Every command except `start`, `restart`, `logs`, `settings apply`, and the
-read commands talks only to the running Hex; none of them launch Hex. Every OS reaches it through
+read commands talks only to the running Agent-Desk; none of them launch Agent-Desk. Every OS reaches it through
 the local API's owner-only discovery file and the bearer-authenticated
 `POST /control` route. Commands dispatch before logging and the instance lock on every OS,
 so they never compete with the running app for its files. Opt-ins stay
 explicit settings: no command turns Meetings on as a side effect.
 
-`hex transcribe` is the one command that doesn't use `/control`: it reads and
+`agent-desk transcribe` is the one command that doesn't use `/control`: it reads and
 checks the WAV here, then sends it to the same discovery file's
 `POST /transcriptions` (`Content-Type: audio/wav`, 64 MiB cap), so the running
 app transcribes it with the model the request names: a clip up to 30 s on its
 dictation engine's model when it holds that one, a longer clip on the
 transcription service's own copy. Its Labs toggle is read from
-`settings.json` (`AppSettings::read`), the same read `hex labs` lists from, so
-the check works with Hex running or stopped; a running Hex saves the toggle
+`settings.json` (`AppSettings::read`), the same read `agent-desk labs` lists from, so
+the check works with Agent-Desk running or stopped; a running Agent-Desk saves the toggle
 there at once. Off, nothing is read.
 
 On Linux and Windows `control::host::answer` carries every command out through
@@ -117,8 +117,8 @@ the OS lacks
 (`settings list` marks it "not on this OS"). `meetings record|stop|copy-last`
 go to the meeting recorder (`meeting/runtime`) as the tray's items do;
 `window story` answers `unsupported`; Windows sends every `annotate`
-command to the running Hex. `hex history`, `hex meetings list|show|search`, and
-`hex mcp` read files on every OS.
+command to the running Agent-Desk. `agent-desk history`, `agent-desk meetings list|show|search`, and
+`agent-desk mcp` read files on every OS.
 
 `dictation start --print` is macOS's, behind a Labs toggle: the listener
 stores the command's reply with the recording (`recognition::Hotkeys::print_capture`)
@@ -155,7 +155,7 @@ protocol versions, and cover the quit rules (an unanswered listener refuses)
 and `model_selection` (remembered hints, wildcard-language validation); `control::settings::tests` include
 `every_persisted_setting_has_a_cli_key`, value parsing, shortcut conflicts,
 and zero volume; `control::cli::tests` pin
-exit codes, output, and `hex start`'s `open`
+exit codes, output, and `agent-desk start`'s `open`
 arguments; `desktop::onboarding::tests::relaunch_forwards_only_the_hex_environment`
 pins restart's; `macos_rune::control::tests` check that `model use` prepares
 its exact selection installed-only;
@@ -181,7 +181,7 @@ the settings-to-capability table; `control::cli::transcribe::tests` cover the
 lab-off refusal, a non-WAV file refused before any transcription, the selected
 model and language, and an empty transcript as `no-speech`.
 
-Observed (Oct 30, apollo, an isolated data root and `hex service` without a
+Observed (Oct 30, apollo, an isolated data root and `agent-desk service` without a
 display): status, settings get/set (and refusing `show_dock_icon`), vocabulary
 add/list/remove, model list/use/status, history clear, window hide,
 check-for-updates, commands check, quit, start, and restart all answered as
@@ -201,7 +201,7 @@ change does not preview a tone as the window does. Onboarding
 permission prompts, calendar connection, and meeting deletion or renaming have
 no command. Linux and Windows dictation through the CLI has not run with a
 microphone, and meeting recording through the CLI has not run on Linux or
-Windows. `hex transcribe`'s gate-off refusal, its non-WAV refusal, and a
+Windows. `agent-desk transcribe`'s gate-off refusal, its non-WAV refusal, and a
 running headless service's `model-unavailable` answer were observed on Linux;
 no model was installed, so its transcript answer was not observed end to end,
 and it has not run on macOS or Windows.

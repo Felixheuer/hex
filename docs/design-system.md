@@ -1,6 +1,6 @@
-# Hex Design System
+# Agent-Desk Design System
 
-Hex's window, meeting capsules, transcription picker, and onboarding are
+Agent-Desk's window, meeting capsules, transcription picker, and onboarding are
 drawn with [Rune](https://github.com/anomalyco/rune) in OpenCode's design
 language:
 
@@ -10,12 +10,12 @@ language:
   and the rest.
 - **`rune-theme-opencode`** provides every colour, elevation, radius, type
   style, and motion token (`rune_theme_opencode::kit(dark)`), which is
-  `@opencode/ui`'s tokens as data. Hex follows the system appearance, so every
+  `@opencode/ui`'s tokens as data. Agent-Desk follows the system appearance, so every
   view works in light and dark; Labs › Appearance can force the main window
   light or dark, while the HUD and other overlays keep following the OS.
 
 The window follows OpenCode Desktop's layout: a deep-background sidebar and a
-raised, rounded content panel. Hex keeps its own information, sections, and
+raised, rounded content panel. Agent-Desk keeps its own information, sections, and
 copy; the look comes from the kit.
 
 The dictation HUD ([`rune_hud.rs`](../src/rune_hud.rs)) is outside the
@@ -32,7 +32,7 @@ by a Rune overlay's compositor on every OS, hand-tuned in HUD Lab.
    column widths, and gaps. Never write a colour literal outside the theme
    crate.
 2. **Kit components first.** Use a `rune-kit` component when one fits. When
-   Hex needs more, extend the Hex piece below that does the job, or add one
+   Agent-Desk needs more, extend the Agent-Desk piece below that does the job, or add one
    beside it; never keep two helpers for the same job.
 3. **One accent per screen.** The kit's contrast button
    (`ButtonKind::Primary`) marks at most one action per screen: the thing the
@@ -62,7 +62,7 @@ by a Rune overlay's compositor on every OS, hand-tuned in HUD Lab.
 6. **Verify by looking.** Render every view you touched with a `--snap` scene
    in light and dark (see [Verification](#verification)).
 
-## Hex pieces
+## Agent-Desk pieces
 
 These live in [`rune_ui/controls.rs`](../src/rune_ui/controls.rs) and
 [`rune_ui/lists.rs`](../src/rune_ui/lists.rs) and compose kit components:
@@ -100,8 +100,8 @@ missing capability omits the row instead of imitating it.
 
 - Sentence case for every label, button, title, and section label:
   "Open settings", "Stop & transcribe", "Permissions needed". Proper nouns keep
-  their capitals: Hex, OpenCode, Apple Intelligence, Finder, Zoom.
-- One product name: "Hex", in copy, comments, and docs alike. `HEX_*`
+  their capitals: Agent-Desk, OpenCode, Apple Intelligence, Finder, Zoom.
+- One product name: "Agent-Desk", in copy, comments, and docs alike. `AGENT_DESK_*`
   environment variables are identifiers, not copy.
 - Use "…" (one character) for ellipses, for both progress ("Saving…") and for
   buttons that open a further choice ("Choose a file…").
@@ -131,7 +131,7 @@ OUT=/tmp/hex-snaps scripts/snap-set.sh modes mac-settings
 # Goldens (light and dark) and pane behavior:
 scripts/check rune_ui
 # After an intended visual change, rewrite the goldens (Linux only):
-HEX_UPDATE_GOLDENS=1 cargo test --locked --bin hex rune_ui
+AGENT_DESK_UPDATE_GOLDENS=1 cargo test --locked --bin agent-desk rune_ui
 ```
 
 On a machine without a GPU, render on lavapipe with

@@ -2051,7 +2051,7 @@ fn poll_clicks(
 /// through `passthrough` ones) is the host's own: this process's chrome
 /// ([`is_own_chrome`](crate::windows::is_own_chrome), with the host's `excluded` windows), or a
 /// helper's other than the app being captured (`source`). Clicks and scrolls there aren't part
-/// of what is being shown; on the host's normal windows (Hex's Settings) they are.
+/// of what is being shown; on the host's normal windows (Agent-Desk's Settings) they are.
 pub fn on_own_window(
     windows: &[crate::windows::RawWindow],
     (x, y): (f64, f64),
@@ -3274,8 +3274,8 @@ mod tests {
 
     /// Clicks on `scrawl-helper`'s windows (the SwiftUI capsule, Settings, onboarding) are
     /// Scrawl's own, except on the iPhone mirror, which is what's being recorded. The host's
-    /// chrome takes clicks unless it lets them through: Hex's capsule is a 640×424 panel, named
-    /// and click-through (only its pill, which Hex checks itself, takes clicks).
+    /// chrome takes clicks unless it lets them through: Agent-Desk's capsule is a 640×424 panel, named
+    /// and click-through (only its pill, which Agent-Desk checks itself, takes clicks).
     #[test]
     fn helper_windows_are_scrawl_s_except_the_capture_source() {
         let (sender, _receiver) = flume::unbounded();

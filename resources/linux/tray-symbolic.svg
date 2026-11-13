@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <!--
-    Hex's tray mark as a symbolic icon: two nested hexagon outlines around a
+    Agent-Desk's tray mark as a symbolic icon: two nested hexagon outlines around a
     solid hexagonal core, drawn in the panel's text color.
 
     Plasma 6 loads this icon name with the panel's own palette and recolors it

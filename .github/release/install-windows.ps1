@@ -1,8 +1,8 @@
-# Install Hex as a managed, self-updating Windows application for the
+# Install Agent-Desk as a managed, self-updating Windows application for the
 # current user, mirroring install-linux.sh: the app lands in
-# %APPDATA%\hex\versions\<version>\hex.exe with its console entry point
-# hex.com beside it, a Start Menu shortcut points at hex.exe, %APPDATA%\hex\bin
-# (a copy of hex.com) goes on PATH, install.json marks the install as direct,
+# %APPDATA%\agent-desk\versions\<version>\agent-desk.exe with its console entry point
+# agent-desk.com beside it, a Start Menu shortcut points at agent-desk.exe, %APPDATA%\agent-desk\bin
+# (a copy of agent-desk.com) goes on PATH, install.json marks the install as direct,
 # and the app then keeps itself current from Pilot's release server
 # (docs/pilot-release.md, docs/plans/release-service.md).
 #
@@ -21,22 +21,22 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$origin = if ($env:HEX_RELEASE_BASE_URL) { $env:HEX_RELEASE_BASE_URL.TrimEnd('/') } else { 'https://ai.sms-pilot.de/release' }
-if (-not $origin.StartsWith('https://')) { throw 'HEX_RELEASE_BASE_URL must be an https:// URL.' }
-# HEX_INSTALL_CHANNEL=dev installs the newest dev build and keeps the
+$origin = if ($env:AGENT_DESK_RELEASE_BASE_URL) { $env:AGENT_DESK_RELEASE_BASE_URL.TrimEnd('/') } else { 'https://ai.sms-pilot.de/release' }
+if (-not $origin.StartsWith('https://')) { throw 'AGENT_DESK_RELEASE_BASE_URL must be an https:// URL.' }
+# AGENT_DESK_INSTALL_CHANNEL=dev installs the newest dev build and keeps the
 # install on the Dev update channel; =stable requires the stable release.
 # Unset, it installs stable, or the newest dev build while the release
-# service has no stable Hex release yet.
-$channel = $env:HEX_INSTALL_CHANNEL
-if ($channel -and $channel -notin @('stable', 'dev')) { throw 'HEX_INSTALL_CHANNEL must be stable or dev.' }
+# service has no stable Agent-Desk release yet.
+$channel = $env:AGENT_DESK_INSTALL_CHANNEL
+if ($channel -and $channel -notin @('stable', 'dev')) { throw 'AGENT_DESK_INSTALL_CHANNEL must be stable or dev.' }
 $support = Join-Path $env:APPDATA 'hex'
 $versions = Join-Path $support 'versions'
 $pointer = Join-Path $support 'current-version'
 $receipt = Join-Path $support 'install.json'
 $bin = Join-Path $support 'bin'
-$shortcut = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Hex.lnk'
+$shortcut = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Agent-Desk.lnk'
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-$managedMark = 'Hex managed install'
+$managedMark = 'Agent-Desk managed install'
 
 function Remove-ManagedShortcut {
     if (Test-Path $shortcut) {
@@ -48,8 +48,8 @@ function Remove-ManagedShortcut {
     }
 }
 
-# The user's PATH without (or with, once) bin, so a terminal runs `hex` as
-# hex.com, the console program that waits for hex.exe.
+# The user's PATH without (or with, once) bin, so a terminal runs `agent-desk` as
+# agent-desk.com, the console program that waits for agent-desk.exe.
 function Set-BinOnPath([bool]$present) {
     $environment = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
     $current = [string]$environment.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
@@ -69,11 +69,11 @@ if ($Uninstall) {
     Remove-ManagedShortcut
     Set-BinOnPath $false
     if (Test-Path $bin) { Remove-Item $bin -Recurse -Force }
-    try { Remove-ItemProperty -Path $runKey -Name 'Hex' -ErrorAction Stop } catch {}
+    try { Remove-ItemProperty -Path $runKey -Name 'Agent-Desk' -ErrorAction Stop } catch {}
     if (Test-Path $versions) { Remove-Item $versions -Recurse -Force }
     if (Test-Path $pointer) { Remove-Item $pointer -Force }
     if (Test-Path $receipt) { Remove-Item $receipt -Force }
-    Write-Output "Removed Hex. Logs and settings remain in $support."
+    Write-Output "Removed Agent-Desk. Logs and settings remain in $support."
     exit 0
 }
 
@@ -82,7 +82,7 @@ $machine = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else
 $target = switch ($machine) {
     'AMD64' { 'windows-x64' }
     'ARM64' { 'windows-arm64' }
-    default { throw "Hex supports 64-bit x64 and ARM64 Windows, not $machine." }
+    default { throw "Agent-Desk supports 64-bit x64 and ARM64 Windows, not $machine." }
 }
 if (-not $channel) {
     try {
@@ -90,7 +90,7 @@ if (-not $channel) {
         $channel = 'stable'
     } catch {
         if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) {
-            Write-Output 'Hex has no stable release yet; installing the newest dev build, which keeps updating from the Dev channel. Set HEX_INSTALL_CHANNEL=stable to require the stable release.'
+            Write-Output 'Agent-Desk has no stable release yet; installing the newest dev build, which keeps updating from the Dev channel. Set AGENT_DESK_INSTALL_CHANNEL=stable to require the stable release.'
             $channel = 'dev'
         } else {
             throw
@@ -102,13 +102,13 @@ Write-Output "Fetching $manifestUrl..."
 $manifest = (Invoke-WebRequest -Uri $manifestUrl -UseBasicParsing -TimeoutSec 30).Content | ConvertFrom-Json
 if ($manifest.schema -ne 1) { throw "Unsupported manifest schema $($manifest.schema)." }
 if ($manifest.app -ne 'hex' -or $manifest.artifact -ne 'desktop' -or $manifest.channel -ne $channel) {
-    throw "The manifest is not Hex desktop on the $channel channel."
+    throw "The manifest is not Agent-Desk desktop on the $channel channel."
 }
 $version = $manifest.release.version
 # Display text that names a directory; versions are never compared.
 if ($version -notmatch '^[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}$') { throw "Unexpected version $version." }
 $file = $manifest.release.targets.$target
-if (-not $file) { throw "Hex $version has no $target build." }
+if (-not $file) { throw "Agent-Desk $version has no $target build." }
 function Resolve-Download($entry, [string]$name) {
     if ($entry.sha256 -notmatch '^[0-9a-f]{64}$' -or $entry.size -le 0) { throw "The manifest's $name entry is invalid." }
     $url = [Uri]::new([Uri]$manifestUrl, $entry.url).AbsoluteUri
@@ -149,20 +149,20 @@ function Save-Download($entry, [string]$url, [string]$path) {
 }
 
 $fileUrl = Resolve-Download $file $target
-# hex.com, from releases that have one.
+# agent-desk.com, from releases that have one.
 $consoleFile = $manifest.release.targets."$target-cli"
 $consoleUrl = if ($consoleFile) { Resolve-Download $consoleFile "$target-cli" }
 
 $versionDir = Join-Path $versions $version
-$executable = Join-Path $versionDir 'hex.exe'
+$executable = Join-Path $versionDir 'agent-desk.exe'
 New-Item -ItemType Directory -Force $versionDir | Out-Null
 
-$console = Join-Path $versionDir 'hex.com'
-Write-Output "Downloading Hex $version..."
+$console = Join-Path $versionDir 'agent-desk.com'
+Write-Output "Downloading Agent-Desk $version..."
 Save-Download $file $fileUrl $executable
 if ($consoleUrl) { Save-Download $consoleFile $consoleUrl $console }
 # The version probe runs the staged files and removes them again on a
-# mismatch. hex.com waits for hex.exe, a GUI program PowerShell wouldn't.
+# mismatch. agent-desk.com waits for agent-desk.exe, a GUI program PowerShell wouldn't.
 if ($consoleUrl) {
     $reported = (& $console --version) -split '\s+' | Select-Object -Last 1
 } else {
@@ -174,7 +174,7 @@ if ($consoleUrl) {
 if ($reported -ne $version) {
     Remove-Item $executable -Force
     if (Test-Path $console) { Remove-Item $console -Force }
-    throw "The downloaded Hex reports version $reported, expected $version."
+    throw "The downloaded Agent-Desk reports version $reported, expected $version."
 }
 
 $pointerPartial = Join-Path $support 'current-version.partial'
@@ -195,14 +195,14 @@ $link.Save()
 
 if ($consoleUrl) {
     New-Item -ItemType Directory -Force $bin | Out-Null
-    $copy = Join-Path $bin 'hex.com.partial'
+    $copy = Join-Path $bin 'agent-desk.com.partial'
     Copy-Item $console $copy -Force
-    Replace-File $copy (Join-Path $bin 'hex.com')
+    Replace-File $copy (Join-Path $bin 'agent-desk.com')
     Set-BinOnPath $true
 }
 
-Write-Output "Installed Hex $version."
+Write-Output "Installed Agent-Desk $version."
 Write-Output "  Executable: $executable"
-Write-Output "  Start Menu: Hex"
+Write-Output "  Start Menu: Agent-Desk"
 if ($consoleUrl) { Write-Output "  Terminal: hex (open a new terminal; $bin is on PATH)" }
-Write-Output 'Launch at login can be enabled inside Hex Settings.'
+Write-Output 'Launch at login can be enabled inside Agent-Desk Settings.'

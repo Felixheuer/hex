@@ -35,15 +35,15 @@ const DEFAULT_LANGUAGE: &str = "en";
 
 #[derive(Parser)]
 #[command(
-    name = "hex",
+    name = "agent-desk",
     version = crate::VERSION,
-    about = "Local Hex dictation for Windows",
-    long_about = "Local Hex dictation for Windows.\n\n\
+    about = "Local Agent-Desk dictation for Windows",
+    long_about = "Local Agent-Desk dictation for Windows.\n\n\
         Control commands (status, dictation, settings, model, window, …) drive the one running \
-        Hex over its owner-only pipe and never launch it, except `start` and `restart`. Every \
+        Agent-Desk over its owner-only pipe and never launch it, except `start` and `restart`. Every \
         one takes --json for a versioned reply (docs/cli.md). Exit codes: 0 done or nothing to \
-        change, 1 refused or failed, 2 usage, 3 Hex isn't running.",
-    after_help = "Run `hex <command> --help` for details, or `hex settings list` for every setting."
+        change, 1 refused or failed, 2 usage, 3 Agent-Desk isn't running.",
+    after_help = "Run `agent-desk <command> --help` for details, or `agent-desk settings list` for every setting."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -127,10 +127,10 @@ impl SelectionArgs {
     }
 }
 
-/// Loads DLLs only from System32 and Hex's own folder, never the current
+/// Loads DLLs only from System32 and Agent-Desk's own folder, never the current
 /// folder or PATH. Another app's incompatible `dxcompiler.dll` on PATH
-/// crashed Hex at its first shader compile (#587), and a DLL planted on PATH
-/// must not load into Hex. Hex's own imports loaded before this, except the
+/// crashed Agent-Desk at its first shader compile (#587), and a DLL planted on PATH
+/// must not load into Agent-Desk. Agent-Desk's own imports loaded before this, except the
 /// delay-loaded vulkan-1.dll (`vulkan`); Windows, the GPU drivers, and COM
 /// load theirs by full path.
 pub(crate) fn restrict_dll_search() -> std::io::Result<()> {
@@ -154,8 +154,8 @@ pub fn run(shutdown: &'static AtomicBool) -> Result<()> {
         hidden: false,
         rune_args: Vec::new(),
     });
-    // Control and read commands talk to the running Hex or read files: no
-    // log, lock, or Hex of their own.
+    // Control and read commands talk to the running Agent-Desk or read files: no
+    // log, lock, or Agent-Desk of their own.
     if let Command::Control(command) = command {
         crate::control::cli::finish(crate::control::cli::run(command));
     }
@@ -243,12 +243,12 @@ pub fn run(shutdown: &'static AtomicBool) -> Result<()> {
     }
 }
 
-/// hex.exe is a GUI program, so Windows gives it no console of its own and
+/// agent-desk.exe is a GUI program, so Windows gives it no console of its own and
 /// an Explorer, Start menu, or login launch shows no terminal window. Run
-/// from a terminal, usually through `hex.com` (crates/console), which waits
+/// from a terminal, usually through `agent-desk.com` (crates/console), which waits
 /// for it, it joins its parent's console, so Ctrl+C reaches it, and points
 /// any standard handle it wasn't given there, so commands, `--help`, and
-/// startup errors print. Handles it was given (hex.com's, a pipe, a file,
+/// startup errors print. Handles it was given (agent-desk.com's, a pipe, a file,
 /// NUL) stay.
 pub(crate) fn attach_parent_console() {
     use windows_sys::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE};
@@ -318,7 +318,7 @@ fn detach_from_console() {
         for &(id, _) in &console_handles {
             SetStdHandle(id, std::ptr::null_mut());
         }
-        // Open, they'd keep the terminal's console alive as long as Hex runs.
+        // Open, they'd keep the terminal's console alive as long as Agent-Desk runs.
         let mut closed = Vec::new();
         for (_, handle) in console_handles {
             if !closed.contains(&handle) {

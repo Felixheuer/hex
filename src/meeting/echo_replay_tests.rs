@@ -3,17 +3,17 @@
 //! repository:
 //!
 //! ```sh
-//! HEX_MEETING_DIR=<meeting directory> HEX_MEETING_CACHE=<scratch directory> \
-//!   HEX_MEETING_MODEL=<Unified English GGUF> HEX_MEETING_LABELS=<labels> \
+//! AGENT_DESK_MEETING_DIR=<meeting directory> AGENT_DESK_MEETING_CACHE=<scratch directory> \
+//!   AGENT_DESK_MEETING_MODEL=<Unified English GGUF> AGENT_DESK_MEETING_LABELS=<labels> \
 //!   cargo test meeting_echo_replay -- --ignored --nocapture
 //! ```
 //!
 //! The first run transcribes both WAVs with Parakeet, caching the chunks in
-//! `HEX_MEETING_CACHE`; later runs only re-evaluate echo suppression. Delete
+//! `AGENT_DESK_MEETING_CACHE`; later runs only re-evaluate echo suppression. Delete
 //! `parakeet.json` there after changing the chunker. Each layer reports its
 //! `You` entries, how many repeat nearby remote words (echo-like), and how
 //! many labeled local utterances it lost. Labels are lines of `<start s> <end s> [note]` marking
-//! where the user really spoke. `HEX_MEETING_WINDOW=<from s>-<to s>` prints
+//! where the user really spoke. `AGENT_DESK_MEETING_WINDOW=<from s>-<to s>` prints
 //! that part of each layer's turns.
 
 use std::collections::HashSet;
@@ -102,7 +102,7 @@ struct Labels(Vec<(u64, u64, String)>);
 
 impl Labels {
     fn read() -> Self {
-        let Ok(path) = std::env::var("HEX_MEETING_LABELS") else {
+        let Ok(path) = std::env::var("AGENT_DESK_MEETING_LABELS") else {
             return Self(Vec::new());
         };
         Self(
@@ -198,7 +198,7 @@ fn parakeet_cache(cache: &Path, tracks: &[(MeetingSource, Vec<f32>); 2]) -> [Vec
     if let Ok(bytes) = fs::read(&path) {
         return serde_json::from_slice(&bytes).unwrap();
     }
-    let model_path = PathBuf::from(std::env::var("HEX_MEETING_MODEL").unwrap());
+    let model_path = PathBuf::from(std::env::var("AGENT_DESK_MEETING_MODEL").unwrap());
     let mut model = Transcriber::Gguf(Box::new(
         crate::parakeet::load_test_model(&model_path).unwrap(),
     ));
@@ -215,12 +215,12 @@ fn parakeet_cache(cache: &Path, tracks: &[(MeetingSource, Vec<f32>); 2]) -> [Vec
 }
 
 #[test]
-#[ignore = "requires HEX_MEETING_DIR and HEX_MEETING_CACHE; see the module documentation"]
+#[ignore = "requires AGENT_DESK_MEETING_DIR and AGENT_DESK_MEETING_CACHE; see the module documentation"]
 fn meeting_echo_replay() {
-    let directory = PathBuf::from(std::env::var("HEX_MEETING_DIR").unwrap());
-    let cache = PathBuf::from(std::env::var("HEX_MEETING_CACHE").unwrap());
+    let directory = PathBuf::from(std::env::var("AGENT_DESK_MEETING_DIR").unwrap());
+    let cache = PathBuf::from(std::env::var("AGENT_DESK_MEETING_CACHE").unwrap());
     fs::create_dir_all(&cache).unwrap();
-    let window = std::env::var("HEX_MEETING_WINDOW").map_or((0, 0), |window| {
+    let window = std::env::var("AGENT_DESK_MEETING_WINDOW").map_or((0, 0), |window| {
         let (from, to) = window.split_once('-').unwrap();
         (
             from.parse::<u64>().unwrap() * 1_000,
@@ -358,13 +358,13 @@ fn process_cpu_seconds() -> f64 {
 }
 
 /// Dictation latency while something else runs: transcribes seconds 5-13
-/// of `HEX_MEETING_DIR/system.wav` with `HEX_MEETING_MODEL` twenty times,
+/// of `AGENT_DESK_MEETING_DIR/system.wav` with `AGENT_DESK_MEETING_MODEL` twenty times,
 /// a second apart, and prints the spread.
 #[test]
-#[ignore = "requires HEX_MEETING_DIR and HEX_MEETING_MODEL; see the module documentation"]
+#[ignore = "requires AGENT_DESK_MEETING_DIR and AGENT_DESK_MEETING_MODEL; see the module documentation"]
 fn dictation_latency() {
-    let directory = PathBuf::from(std::env::var("HEX_MEETING_DIR").unwrap());
-    let model_path = PathBuf::from(std::env::var("HEX_MEETING_MODEL").unwrap());
+    let directory = PathBuf::from(std::env::var("AGENT_DESK_MEETING_DIR").unwrap());
+    let model_path = PathBuf::from(std::env::var("AGENT_DESK_MEETING_MODEL").unwrap());
     let (rate, samples) = read_float_wav(&directory.join("system.wav"));
     let clip = replay_resample(rate, &samples[rate as usize * 5..rate as usize * 13]);
     let mut model = Transcriber::Gguf(Box::new(

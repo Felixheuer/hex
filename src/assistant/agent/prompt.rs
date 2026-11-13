@@ -15,7 +15,7 @@ use super::*;
 /// goes with its message ([`request_rules`]).
 ///
 /// Every tool it names is one the run has, on every backend
-/// (`toolset`): the guard's for the lane (`guard::proxy::tools`), Hex's for
+/// (`toolset`): the guard's for the lane (`guard::proxy::tools`), Agent-Desk's for
 /// the role (`tools::Role`), the browser's, and the backend's built-ins.
 pub fn system_for(job: &Job, desktop: Option<&Desktop>, browser: bool) -> String {
     let settings = &job.settings;
@@ -77,7 +77,7 @@ pub fn system_for(job: &Job, desktop: Option<&Desktop>, browser: bool) -> String
 }
 
 /// What only this request decides, sent at the top of its message: the
-/// person's language (pages, tools, and Hex's notes are mostly English, so
+/// person's language (pages, tools, and Agent-Desk's notes are mostly English, so
 /// it is named), when their words or a yes allowed more than the mode's
 /// baseline in the system prompt, what they allowed, and what the memory
 /// graph knows about what their words name (`Job::recall`).
@@ -261,7 +261,7 @@ pub fn prompt_with(
             prompt.push_str(&format!(
                 "You asked: “{question}”\nThe person answered: “{text}”\n{}",
                 if *allowed {
-                    "That's a yes: Hex now allows it for this task. Do it, then go on."
+                    "That's a yes: Agent-Desk now allows it for this task. Do it, then go on."
                 } else {
                     "That's not a yes: skip that action, go on with the rest, and say at the end what you skipped."
                 }
@@ -307,12 +307,12 @@ pub(super) fn language_rule(request: &str) -> String {
         _ => return LANGUAGE_OF_THEIR_WORDS.into(),
     };
     format!(
-        "\nThe person speaks {name}: write every answer, question, and report to them in {name}, even when pages, tools, and Hex's notes are in English (messages to others in the language the request says).\n"
+        "\nThe person speaks {name}: write every answer, question, and report to them in {name}, even when pages, tools, and Agent-Desk's notes are in English (messages to others in the language the request says).\n"
     )
 }
 
 /// The language rule when the request's language can't be named.
-const LANGUAGE_OF_THEIR_WORDS: &str = "\nWrite every answer, question, and report to the person in the language of their words, even when pages, tools, and Hex's notes are in English (messages to others in the language the request says).\n";
+const LANGUAGE_OF_THEIR_WORDS: &str = "\nWrite every answer, question, and report to the person in the language of their words, even when pages, tools, and Agent-Desk's notes are in English (messages to others in the language the request says).\n";
 
 /// The browser rules of a quick (Here) turn; when it is for (a quick look,
 /// never research) is the routing's (`routing`).
@@ -322,7 +322,7 @@ pub const HERE_BROWSER: &str = "You have your own hidden browser (the browser to
 /// desktop and the browser.
 pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -> String {
     let mut prompt = format!(
-        "You are Hex's assistant on the person's {}. Hex is a voice app: the person speaks a request and you answer or do it.\n",
+        "You are Agent-Desk's assistant on the person's {}. Agent-Desk is a voice app: the person speaks a request and you answer or do it.\n",
         computer_name()
     );
     prompt.push_str(match origin {
@@ -341,7 +341,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
         prompt.push_str(HERE_BROWSER);
     } else if browser {
         prompt.push_str(&format!(
-            "You have your own hidden browsers (the browser tools): prefer them for anything on the web (looking things up, web apps, forms), over the person's browser windows. Every browser tool takes `session` (omit it, or \"main\", for the main browser; any other short name opens another, at most {} on this computer). For research, or when the person asks for several browsers, open one per source or subtopic and work them in parallel (several tool calls in one turn), so the job is done fast; read pages in the light browsers, real Chrome only where a login or a heavy web app needs it. Your browsers start with the person's accounts (the sites they signed in to for Hex) when there are any, in a light browser; pass `signedIn: true` on the call that opens one for heavy web apps or logins that need real Chrome, or `signedIn: false` for a clean one with no accounts. Never ask the person to sign in unless a page still shows a login after that. If a page shows a captcha or a Cloudflare challenge, retry it in a `signedIn: true` browser. If it still asks you to prove you are human, never try to solve or get around it yourself: leave that browser open on the challenge, do whatever else needs no such page, then ask the person to solve it, starting your reply with the line `HEX_QUESTION:` (one or two speakable sentences naming the site, saying they can solve it in the live picture of that browser on your card: Take over, solve it, Hand back). When they answer, look at the page afresh and go on.\n",
+            "You have your own hidden browsers (the browser tools): prefer them for anything on the web (looking things up, web apps, forms), over the person's browser windows. Every browser tool takes `session` (omit it, or \"main\", for the main browser; any other short name opens another, at most {} on this computer). For research, or when the person asks for several browsers, open one per source or subtopic and work them in parallel (several tool calls in one turn), so the job is done fast; read pages in the light browsers, real Chrome only where a login or a heavy web app needs it. Your browsers start with the person's accounts (the sites they signed in to for Agent-Desk) when there are any, in a light browser; pass `signedIn: true` on the call that opens one for heavy web apps or logins that need real Chrome, or `signedIn: false` for a clean one with no accounts. Never ask the person to sign in unless a page still shows a login after that. If a page shows a captcha or a Cloudflare challenge, retry it in a `signedIn: true` browser. If it still asks you to prove you are human, never try to solve or get around it yourself: leave that browser open on the challenge, do whatever else needs no such page, then ask the person to solve it, starting your reply with the line `HEX_QUESTION:` (one or two speakable sentences naming the site, saying they can solve it in the live picture of that browser on your card: Take over, solve it, Hand back). When they answer, look at the page afresh and go on.\n",
             crate::assistant::browser::max_sessions()
         ));
     }
@@ -362,7 +362,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
     );
     prompt.push_str("Use hex_installed_apps to see what's installed before choosing an app.\n");
     prompt.push_str(
-        "Every desktop action passes Hex's guard, which lets you act only in windows that are yours. A refusal comes back as a tool error with a code: NOT_YOUR_WINDOW (another task's window, or one you haven't opened or claimed), PERSON_IN_WINDOW (the person is working there), TAKEN_OVER (the person took this task over; look again before acting), POLICY_DENIED (a blocked app, or an action tasks may not do). Don't try to get around a refusal: choose another way, or say what you couldn't do.\n",
+        "Every desktop action passes Agent-Desk's guard, which lets you act only in windows that are yours. A refusal comes back as a tool error with a code: NOT_YOUR_WINDOW (another task's window, or one you haven't opened or claimed), PERSON_IN_WINDOW (the person is working there), TAKEN_OVER (the person took this task over; look again before acting), POLICY_DENIED (a blocked app, or an action tasks may not do). Don't try to get around a refusal: choose another way, or say what you couldn't do.\n",
     );
     if desktop.driver == crate::assistant::driver::Driver::Cua {
         prompt.push_str("There are no real-pointer tools: act through refs, or by a window's picture with hex_window_shot and hex_window_input.\n");
@@ -378,7 +378,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
          - Never quit or close an app you didn't open in this task.\n\
          - Read before acting: one snapshot of the window (interactive refs), act on a ref, then check only what matters.\n",
     );
-    // Hex's app tools reach every app wherever the task may open apps.
+    // Agent-Desk's app tools reach every app wherever the task may open apps.
     let reach = origin.lane() == Lane::Background || desktop.reaches_apps();
     if reach {
         prompt.push_str(APP_METHODS);
@@ -429,7 +429,7 @@ pub fn system_prompt(origin: Origin, desktop: Option<&Desktop>, browser: bool) -
 }
 
 /// agent-desktop's own guide (`skills get desktop` and `platform`), read
-/// once per run of Hex.
+/// once per run of Agent-Desk.
 pub(super) fn guide(executable: &std::path::Path) -> Option<&'static str> {
     static GUIDE: OnceLock<Option<String>> = OnceLock::new();
     GUIDE
@@ -456,7 +456,7 @@ pub(super) fn guide(executable: &std::path::Path) -> Option<&'static str> {
 
 /// Sections of agent-desktop's guide written for a person or agent at a
 /// shell, which a task never needs: it calls the tools (no shell, no
-/// `--help`, no `skills get`), and Hex sets up the permissions.
+/// `--help`, no `skills get`), and Agent-Desk sets up the permissions.
 pub(super) const GUIDE_SKIPPED: &[&str] = &[
     "Shell syntax",
     "First run",

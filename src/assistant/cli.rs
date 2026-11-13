@@ -1,7 +1,7 @@
-//! `hex assistant` (hidden): runs one assistant task here, without the app,
+//! `agent-desk assistant` (hidden): runs one assistant task here, without the app,
 //! and prints its events as they come (with how long the first token and
 //! the first spoken sentence took); lists and shows saved conversations;
-//! resumes an interrupted one; and asks a running Hex to stop all tasks or
+//! resumes an interrupted one; and asks a running Agent-Desk to stop all tasks or
 //! to let the person take one over. For trying backends end to end. It runs
 //! even while the assistant is off, because a person runs it on purpose.
 
@@ -27,7 +27,7 @@ pub enum AssistantCommand {
     /// Every tool call a conversation's agent made (shell commands, files,
     /// clicks, pages, messages), as a timeline.
     Audit {
-        /// The conversation's id (`hex assistant conversations`).
+        /// The conversation's id (`agent-desk assistant conversations`).
         id: String,
     },
     /// Ask one question and print what happens until it's answered.
@@ -79,21 +79,21 @@ pub enum AssistantCommand {
     /// Save the Anthropic API key read from standard input in the Keychain
     /// (an empty input deletes it).
     Key,
-    /// Continue a conversation Hex quit in the middle of, and print what
+    /// Continue a conversation Agent-Desk quit in the middle of, and print what
     /// happens.
     Resume { id: String },
-    /// Ask the running Hex to stop every assistant task.
+    /// Ask the running Agent-Desk to stop every assistant task.
     StopAll,
-    /// Ask the running Hex to pause a task and bring its window forward.
+    /// Ask the running Agent-Desk to pause a task and bring its window forward.
     TakeOver { id: String },
-    /// Ask the running Hex to give a task back after `take-over`.
+    /// Ask the running Agent-Desk to give a task back after `take-over`.
     HandBack { id: String },
     /// List, add, remove, or watch scheduled jobs.
     Schedules {
         #[command(subcommand)]
         command: Option<SchedulesCommand>,
     },
-    /// Hex's own tools for a task's agent (memory, schedules) as an MCP
+    /// Agent-Desk's own tools for a task's agent (memory, schedules) as an MCP
     /// server on stdio. Started by the task's agent.
     #[command(hide = true)]
     ToolsMcp {
@@ -105,7 +105,7 @@ pub enum AssistantCommand {
         #[arg(long, default_value = "turn")]
         role: String,
     },
-    /// The guard's MCP server for one task (Hex gives it to each task's
+    /// The guard's MCP server for one task (Agent-Desk gives it to each task's
     /// agent in place of agent-desktop): `--spec` is the task's JSON spec or
     /// a file holding it.
     #[command(hide = true)]
@@ -196,7 +196,7 @@ pub fn run(command: AssistantCommand) -> u8 {
         .with_writer(std::io::stderr)
         .with_ansi(false)
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_env("HEX_ASSISTANT_LOG")
+            tracing_subscriber::EnvFilter::try_from_env("AGENT_DESK_ASSISTANT_LOG")
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
         )
         .try_init();
@@ -245,7 +245,7 @@ pub fn run(command: AssistantCommand) -> u8 {
             }
             print!("{}", super::interaction::tuning::report());
             if reset {
-                println!("Hex picks the defaults up the next time it starts.");
+                println!("Agent-Desk picks the defaults up the next time it starts.");
             }
             Ok(true)
         }
@@ -274,7 +274,7 @@ pub fn run(command: AssistantCommand) -> u8 {
         Ok(true) => 0,
         Ok(false) => 1,
         Err(error) => {
-            eprintln!("hex: {error:#}");
+            eprintln!("agent-desk: {error:#}");
             1
         }
     }
@@ -570,10 +570,10 @@ fn schedules(command: Option<SchedulesCommand>) -> Result<bool> {
     }
 }
 
-/// Asks every running Hex to do `verb` to `target`.
+/// Asks every running Agent-Desk to do `verb` to `target`.
 fn send(target: &str, verb: remote::Verb) -> Result<bool> {
     remote::send(target, verb, Duration::from_secs(2))?;
-    println!("Asked the running Hex; a Hex that runs no such task does nothing.");
+    println!("Asked the running Agent-Desk; an Agent-Desk that runs no such task does nothing.");
     Ok(true)
 }
 

@@ -1,4 +1,4 @@
-//! The guard's state on disk, shared by Hex and every task's guard process:
+//! The guard's state on disk, shared by Agent-Desk and every task's guard process:
 //!
 //! - `leases/<window>.json`: who holds a window (task, pid and its start
 //!   time, app). Created exclusively (`O_EXCL`) under `leases/.lock`, so two
@@ -9,9 +9,9 @@
 //! - `guard/hands-off/<task>.json`: present while `task` moves the real
 //!   pointer or presses real keys.
 //! - `guard/here/<task>.json`: a Here task's window in front, written by
-//!   Hex for each request, so a guard started ahead (in another window)
+//!   Agent-Desk for each request, so a guard started ahead (in another window)
 //!   serves the request's own window without new spawn arguments.
-//! - `parking/<window>.json`: where a window Hex moved out of the person's
+//! - `parking/<window>.json`: where a window Agent-Desk moved out of the person's
 //!   way was before (`parking`), so it always goes back.
 
 use std::fs::{File, OpenOptions};
@@ -64,7 +64,7 @@ impl Store {
         Self { root: root.into() }
     }
 
-    /// `<support>/assistant`, where the running Hex keeps it.
+    /// `<support>/assistant`, where the running Agent-Desk keeps it.
     pub fn standard() -> Option<Self> {
         crate::app_paths::support_dir()
             .ok()
@@ -110,7 +110,7 @@ impl Store {
         }
     }
 
-    /// `task`'s Here window as Hex last recorded it.
+    /// `task`'s Here window as Agent-Desk last recorded it.
     pub fn here_window(&self, task: &str) -> Option<super::WireWindow> {
         serde_json::from_slice(&std::fs::read(self.here_path(task)).ok()?).ok()
     }
@@ -169,7 +169,7 @@ impl Store {
     }
 
     /// Hands `window_id` from `from` (which must hold it) to `to` in process
-    /// `pid` (the desk, held by Hex): the lease outlives `from`'s process.
+    /// `pid` (the desk, held by Agent-Desk): the lease outlives `from`'s process.
     pub fn hand_over(&self, window_id: &str, from: &str, to: &str, pid: u32, now_ms: u64) -> bool {
         self.locked(|| {
             let path = self.lease_path(window_id);
@@ -589,7 +589,7 @@ mod windows {
         }
     }
 
-    /// Running: it opens and has no exit code yet. One Hex may not open
+    /// Running: it opens and has no exit code yet. One Agent-Desk may not open
     /// (another user's) exists too.
     pub fn alive(pid: u32) -> bool {
         let Some(process) = Process::open(pid) else {

@@ -18,7 +18,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 packages=(--workspace)
 if [[ "$(uname -s)" == Darwin ]]; then
-    # zbus depends on the crates.io `hex`, so the root package is named with its
+    # zbus depends on the crates.io `agent-desk`, so the root package is named with its
     # version. Not the full `cargo pkgid`: its path URL names this checkout,
     # which matches nothing once HiveMind runs cargo in a copy on another Mac.
     pkgid="$(cargo pkgid)"

@@ -1,5 +1,5 @@
 //! What the runner watches while tasks run: each task's time limit, the
-//! guard's "Hands off" for Here tasks, requests from other Hex processes,
+//! guard's "Hands off" for Here tasks, requests from other Agent-Desk processes,
 //! taking a task over and handing it back, and waiting out a usage limit.
 
 use std::sync::Arc;

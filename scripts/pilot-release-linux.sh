@@ -59,9 +59,9 @@ restore() {
 trap 'restore; rm -rf "$dist"' EXIT
 trap 'exit 1' HUP INT TERM
 
-# HEX_BUILD_CHANNEL names the channel this build follows; the updater checks
+# AGENT_DESK_BUILD_CHANNEL names the channel this build follows; the updater checks
 # it once the install has a receipt (install-linux.sh writes one).
-executable=$(HEX_VERSION="$version" HEX_BUILD_CHANNEL="$channel" HEX_RELEASE_DIST="$dist" \
+executable=$(AGENT_DESK_VERSION="$version" AGENT_DESK_BUILD_CHANNEL="$channel" AGENT_DESK_RELEASE_DIST="$dist" \
   "$root/scripts/build-linux.sh")
 files="$executable"
 case "$(uname -m)" in

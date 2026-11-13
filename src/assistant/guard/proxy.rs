@@ -17,15 +17,15 @@ mod displays;
 mod front;
 mod lookup;
 mod recover;
-mod tools;
 mod shared;
+mod tools;
 mod vision;
 
 pub(super) use desk::DESK_NOTE;
 pub use recover::{Inert, Recoverer, System};
-pub use tools::{RULES, offered_names};
 pub use shared::Seed;
 use shared::{Learned, Shared};
+pub use tools::{RULES, offered_names};
 
 use super::child::{self, Desktop, Window};
 use super::policy::{self, Kind};
@@ -154,7 +154,7 @@ pub struct Guard<D: Desktop> {
     /// Reads what an installed app offers (`actions::capabilities`); a
     /// stand-in in tests, which never read the person's apps.
     pub discover: Box<dyn Fn(&super::screen::App) -> Value + Send>,
-    /// Hex's own process, which holds the desk (`desk`); `None`: no desk.
+    /// Agent-Desk's own process, which holds the desk (`desk`); `None`: no desk.
     pub desk: Option<u32>,
     /// Failed actions in a row per window (background first: `borrow`).
     failures: HashMap<String, u32>,
@@ -272,7 +272,7 @@ impl<D: Desktop> Guard<D> {
         Ok(tools::offered(&self.config, self.desktop.tools()?))
     }
 
-    /// A Here task's window as Hex last recorded it for this request
+    /// A Here task's window as Agent-Desk last recorded it for this request
     /// (`guard::mcp_server`): a guard started ahead in another window takes
     /// the request's own window before its first call.
     fn refresh_here_window(&mut self) {
@@ -362,7 +362,7 @@ impl<D: Desktop> Guard<D> {
         let mut windows = self.screen.windows();
         if windows.is_empty() {
             return Err(failure(
-                "Hex couldn't see the windows on screen to check this call; try again.",
+                "Agent-Desk couldn't see the windows on screen to check this call; try again.",
             ));
         }
         // The task's own windows that aren't on screen (on another Space,

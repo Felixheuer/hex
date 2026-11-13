@@ -40,13 +40,13 @@ case "$mode" in
       test "$(head -c 4 "$executable" | od -An -tx1 | tr -d ' ')" = 7f454c46
     done
     mkdir -p "$dir"
-    sed 's#@HEX_BIN@#/usr/bin/hex#g' "$root/packaging/anomaly.hex.desktop" > "$dir/anomaly.hex.desktop"
-    cp "$root/packaging/hex.service" "$root/packaging/aur/$package.install" "$dir/"
+    sed 's#@AGENT_DESK_BIN@#/usr/bin/hex#g' "$root/packaging/fheuer.agentdesk.desktop" > "$dir/fheuer.agentdesk.desktop"
+    cp "$root/packaging/agent-desk.service" "$root/packaging/aur/$package.install" "$dir/"
     cp "$root/LICENSE" "$dir/LICENSE"
     icon_sums=
     for size in $icon_sizes; do
-      cp "$root/packaging/linux/icons/hicolor/${size}x${size}/apps/anomaly.hex.png" "$dir/anomaly.hex-$size.png"
-      icon_sums="$icon_sums '$(sha256_of "$dir/anomaly.hex-$size.png")'"
+      cp "$root/packaging/linux/icons/hicolor/${size}x${size}/apps/fheuer.agentdesk.png" "$dir/fheuer.agentdesk-$size.png"
+      icon_sums="$icon_sums '$(sha256_of "$dir/fheuer.agentdesk-$size.png")'"
     done
     # makepkg uses a source already present under its file name, so `test`
     # downloads nothing.
@@ -57,8 +57,8 @@ case "$mode" in
       -e "s#@URL_ARM64@#$arm64_url#" \
       -e "s/@SHA256_X64@/$(sha256_of "$x64")/" \
       -e "s/@SHA256_ARM64@/$(sha256_of "$arm64")/" \
-      -e "s/@DESKTOP_SHA256@/$(sha256_of "$dir/anomaly.hex.desktop")/" \
-      -e "s/@SERVICE_SHA256@/$(sha256_of "$dir/hex.service")/" \
+      -e "s/@DESKTOP_SHA256@/$(sha256_of "$dir/fheuer.agentdesk.desktop")/" \
+      -e "s/@SERVICE_SHA256@/$(sha256_of "$dir/agent-desk.service")/" \
       -e "s/@LICENSE_SHA256@/$(sha256_of "$dir/LICENSE")/" \
       -e "s/@ICON_SHA256S@/${icon_sums# }/" \
       "$root/packaging/aur/PKGBUILD" > "$dir/PKGBUILD"
@@ -75,10 +75,10 @@ case "$mode" in
     built=$(cd "$dir" && makepkg --packagelist)
     test -f "$built"
     bsdtar -tf "$built" | grep -qx usr/bin/hex
-    bsdtar -tf "$built" | grep -qx usr/lib/systemd/user/hex.service
-    bsdtar -tf "$built" | grep -qx usr/share/applications/anomaly.hex.desktop
+    bsdtar -tf "$built" | grep -qx usr/lib/systemd/user/agent-desk.service
+    bsdtar -tf "$built" | grep -qx usr/share/applications/fheuer.agentdesk.desktop
     for size in $icon_sizes; do
-      bsdtar -tf "$built" | grep -qx "usr/share/icons/hicolor/${size}x${size}/apps/anomaly.hex.png"
+      bsdtar -tf "$built" | grep -qx "usr/share/icons/hicolor/${size}x${size}/apps/fheuer.agentdesk.png"
     done
     echo "$built"
     ;;

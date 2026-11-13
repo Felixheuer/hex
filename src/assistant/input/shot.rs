@@ -152,7 +152,7 @@ pub fn capture(number: u32) -> Result<(u32, u32, Vec<u8>), String> {
     #[cfg(target_os = "macos")]
     {
         scrawl_capture::capture::capture_window(number, MAX_EDGE).ok_or_else(|| {
-            "Hex couldn't take the window's picture (it closed or is minimized, or Screen \
+            "Agent-Desk couldn't take the window's picture (it closed or is minimized, or Screen \
              Recording isn't allowed)."
                 .to_owned()
         })

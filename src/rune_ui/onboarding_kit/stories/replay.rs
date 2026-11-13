@@ -14,7 +14,7 @@ const ON: bool = cfg!(hex_dev_onboarding);
 /// How fast the download shows, at most.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Speed {
-    /// As fast as Hex downloads it.
+    /// As fast as Agent-Desk downloads it.
     #[default]
     Real,
     Mbps100,
@@ -58,7 +58,7 @@ pub(crate) struct Replay {
 }
 
 impl Replay {
-    /// Holds Hex's real `download` to the chosen speed, and logs how long
+    /// Holds Agent-Desk's real `download` to the chosen speed, and logs how long
     /// it showed for once it finishes. A model already in place shows
     /// nothing.
     pub(crate) fn show(&mut self, download: &mut Download, now: f64) {
@@ -126,14 +126,14 @@ impl Onboard {
         self.replay.speed = self.replay.speed.next();
     }
 
-    /// `"Without Hex"` from the top: the conversation opens as it would
-    /// after `"Setting up Hex"`.
+    /// `"Without Agent-Desk"` from the top: the conversation opens as it would
+    /// after `"Setting up Agent-Desk"`.
     fn opener(&mut self) {
         self.jump_to_demo();
         self.auto_due_at = Some(self.now);
     }
 
-    /// `"With Hex"` from the top, `"Without Hex"` just behind it.
+    /// `"With Agent-Desk"` from the top, `"Without Agent-Desk"` just behind it.
     fn with_hex(&mut self) {
         self.jump_to_demo();
         let now = self.now;

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Publishes Pilot release files on this server (ai.sms-pilot.de) in the
-# layout Hex's updater reads (docs/pilot-release.md,
+# layout Agent-Desk's updater reads (docs/pilot-release.md,
 # docs/plans/release-service.md):
 #
 #   <root>/release/hex/desktop/<channel>.json     the manifest the app polls
@@ -25,9 +25,14 @@
 #   --rollout <0-100>           rollout percent (default 100)
 #   --required                  installs take it without the rollout
 #
-# Files are recognized by their build names: hex-<v>-linux-x64[.deb|.rpm],
-# hex-<v>-linux-arm64[.deb|.rpm], hex-<v>-macos-arm64.zip|.dmg,
-# hex-<v>-windows-x64.exe|.com, hex-setup-<v>-windows-x64.exe (and arm64).
+# Files are recognized by their build names: agent-desk-<v>-linux-x64[.deb|.rpm],
+# agent-desk-<v>-linux-arm64[.deb|.rpm], agent-desk-<v>-macos-arm64.zip|.dmg,
+# agent-desk-<v>-windows-x64.exe|.com, agent-desk-setup-<v>-windows-x64.exe
+# (and arm64). One-time migration, remove after 2026-12: hex-<v>-macos-arm64.zip
+# is the bridge older Hex installs take as `macos-arm64` (scripts/pilot-release-macos.sh).
+#
+# The release keeps its path, release/hex/: "hex" is the release protocol's
+# app id that every installed app and install receipt names.
 # Publishing the version the channel already carries adds or replaces those
 # targets and keeps the others (Linux, Mac, and Windows built on different
 # machines join one release); a new version starts a release with only the
@@ -64,17 +69,19 @@ target_of() {
   local name=$1 v=$2 arch
   for arch in x64 arm64; do
     case "$name" in
-      "hex-$v-linux-$arch") printf 'linux-%s hex\n' "$arch" && return ;;
-      "hex-$v-linux-$arch.deb") printf 'linux-%s-deb hex.deb\n' "$arch" && return ;;
-      "hex-$v-linux-$arch.rpm") printf 'linux-%s-rpm hex.rpm\n' "$arch" && return ;;
-      "hex-$v-windows-$arch.exe") printf 'windows-%s hex.exe\n' "$arch" && return ;;
-      "hex-$v-windows-$arch.com") printf 'windows-%s-cli hex.com\n' "$arch" && return ;;
-      "hex-setup-$v-windows-$arch.exe") printf 'windows-%s-setup PilotSetup.exe\n' "$arch" && return ;;
+      "agent-desk-$v-linux-$arch") printf 'linux-%s agent-desk\n' "$arch" && return ;;
+      "agent-desk-$v-linux-$arch.deb") printf 'linux-%s-deb agent-desk.deb\n' "$arch" && return ;;
+      "agent-desk-$v-linux-$arch.rpm") printf 'linux-%s-rpm agent-desk.rpm\n' "$arch" && return ;;
+      "agent-desk-$v-windows-$arch.exe") printf 'windows-%s agent-desk.exe\n' "$arch" && return ;;
+      "agent-desk-$v-windows-$arch.com") printf 'windows-%s-cli agent-desk.com\n' "$arch" && return ;;
+      "agent-desk-setup-$v-windows-$arch.exe") printf 'windows-%s-setup PilotSetup.exe\n' "$arch" && return ;;
     esac
   done
   case "$name" in
+    "agent-desk-$v-macos-arm64.zip") printf 'macos-arm64-agent-desk Agent-Desk.zip\n' ;;
+    "agent-desk-$v-macos-arm64.dmg") printf 'macos-arm64-dmg Pilot.dmg\n' ;;
+    # One-time migration, remove after 2026-12: the bridge for Hex installs.
     "hex-$v-macos-arm64.zip") printf 'macos-arm64 Hex.zip\n' ;;
-    "hex-$v-macos-arm64.dmg") printf 'macos-arm64-dmg Pilot.dmg\n' ;;
   esac
 }
 
@@ -142,13 +149,13 @@ package_distributions() {
   for arch in x64 arm64; do
     if jq -e --arg t "linux-$arch-deb" '.release.targets[$t]' "$manifest" > /dev/null; then
       jq -n --arg arch "$arch" --arg v "$(jq -r .release.version "$manifest")" --arg site "$site" \
-        '{kind: "deb-\($arch)", package: "hex", version: $v,
-          command: "curl -fLo /tmp/hex.deb \($site)/download/linux-\($arch)-deb && sudo apt install /tmp/hex.deb"}'
+        '{kind: "deb-\($arch)", package: "agent-desk", version: $v,
+          command: "curl -fLo /tmp/agent-desk.deb \($site)/download/linux-\($arch)-deb && sudo apt install /tmp/agent-desk.deb"}'
     fi
     if jq -e --arg t "linux-$arch-rpm" '.release.targets[$t]' "$manifest" > /dev/null; then
       jq -n --arg arch "$arch" --arg v "$(jq -r .release.version "$manifest")" --arg site "$site" \
-        '{kind: "rpm-\($arch)", package: "hex", version: $v,
-          command: "curl -fLo /tmp/hex.rpm \($site)/download/linux-\($arch)-rpm && sudo dnf install /tmp/hex.rpm"}'
+        '{kind: "rpm-\($arch)", package: "agent-desk", version: $v,
+          command: "curl -fLo /tmp/agent-desk.rpm \($site)/download/linux-\($arch)-rpm && sudo dnf install /tmp/agent-desk.rpm"}'
     fi
   done
 }

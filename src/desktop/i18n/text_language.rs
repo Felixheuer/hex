@@ -5,7 +5,7 @@ use super::{TRADITIONAL_CHINESE_COLUMN, column_for_code, is_traditional_chinese,
 
 /// The language Rune shapes text in, which picks the fonts Han characters
 /// fall back to (#1382): the interface language when it's Chinese or
-/// Japanese, otherwise a Chinese, Japanese, or Korean system locale (Hex has
+/// Japanese, otherwise a Chinese, Japanese, or Korean system locale (Agent-Desk has
 /// no Korean interface), so text in it keeps its own forms.
 pub(super) fn for_interface(column: u8, locale: &str) -> Option<&'static str> {
     let tag = locale.split(['.', '@']).next().unwrap_or_default();

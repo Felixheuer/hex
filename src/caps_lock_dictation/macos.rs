@@ -6,7 +6,7 @@
 //!
 //! The Caps Lock light is an output element on each keyboard (HID usage
 //! page 0x08, usage 0x02). Writing it does not change the software Caps Lock
-//! state, so Hex can use the light while typing stays lowercase. The lock
+//! state, so Agent-Desk can use the light while typing stays lowercase. The lock
 //! state is separately reset through `IOHIDSetModifierLockState`.
 //!
 //! The LED manager is not scheduled on a run loop. It is recreated at each
@@ -174,7 +174,7 @@ impl LedOutput {
             }
             self.manager = ptr::null_mut();
         }
-        // SAFETY: a read-only access query; Hex never requests Input
+        // SAFETY: a read-only access query; Agent-Desk never requests Input
         // Monitoring or prompts for it.
         let access = unsafe { IOHIDCheckAccess(IOHID_REQUEST_TYPE_LISTEN_EVENT) };
         if access != IOHID_ACCESS_TYPE_GRANTED {
@@ -189,7 +189,7 @@ impl LedOutput {
             return;
         }
         self.failure_logged = false;
-        // Hex never requests Input Monitoring: opening a keyboard manager
+        // Agent-Desk never requests Input Monitoring: opening a keyboard manager
         // without it could prompt, so the light stays off instead.
         // SAFETY: IOKit returns an owned manager; every use stays on this
         // worker thread, and it is released on the next refresh or drop.
@@ -265,7 +265,7 @@ impl LedOutput {
                     }
                     // Keep the defensive check even though the dictionary
                     // matches exactly: a device that ignores it still cannot
-                    // make Hex write a non-LED element.
+                    // make Agent-Desk write a non-LED element.
                     // SAFETY: `element` is live and its usage is a plain
                     // query.
                     if unsafe { IOHIDElementGetUsagePage(element.cast_mut()) } != LED_USAGE_PAGE
@@ -419,7 +419,7 @@ fn led_matching() -> CFRetained<CFDictionary<CFString, CFNumber>> {
     CFDictionary::from_slices(&[&page_key, &usage_key], &[&page, &usage])
 }
 
-#[allow(deprecated)] // libc's replacement is the mach2 crate, which Hex doesn't depend on.
+#[allow(deprecated)] // libc's replacement is the mach2 crate, which Agent-Desk doesn't depend on.
 fn system_connection() -> Option<u32> {
     // SAFETY: `IOServiceGetMatchingService` consumes the matching dictionary;
     // the returned service is released here and the opened connection closes
@@ -450,7 +450,7 @@ fn system_connection() -> Option<u32> {
 }
 
 /// The listener's handle. It starts one worker while the lab is on and stops
-/// it (light off, software lock cleared) when the lab turns off or Hex quits.
+/// it (light off, software lock cleared) when the lab turns off or Agent-Desk quits.
 pub(crate) struct CapsLockDictation {
     inner: Mutex<Inner>,
     presses: Sender<CaptureInstant>,

@@ -2,18 +2,18 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-team_id=${HEX_TEAM_ID:?Set HEX_TEAM_ID to the Apple Developer signing team}
+team_id=${AGENT_DESK_TEAM_ID:?Set AGENT_DESK_TEAM_ID to the Apple Developer signing team}
 . "$root/scripts/macos-signing.sh"
 identity=$(hex_codesign_identity "$team_id")
-bundle="$root/target/HEX Service.app"
-executable="$bundle/Contents/MacOS/hex-service"
+bundle="$root/target/Agent-Desk Service.app"
+executable="$bundle/Contents/MacOS/agent-desk-service"
 version=$(hex_version "$root")
 build_number=$(hex_build_number "$version")
 
 cargo build --release --manifest-path "$root/Cargo.toml"
 rm -rf "$bundle"
 mkdir -p "$bundle/Contents/MacOS"
-cp "$root/target/release/hex" "$executable"
+cp "$root/target/release/agent-desk" "$executable"
 cp "$root/app/ServiceInfo.plist" "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $build_number" "$bundle/Contents/Info.plist"

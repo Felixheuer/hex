@@ -5,15 +5,15 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$root/scripts/macos-signing.sh"
 version=$(hex_version "$root")
 arch=$(uname -m)
-artifact=${HEX_SERVICE_ARTIFACT:-$root/dist/service/HEX-Service-$version-$arch.zip}
+artifact=${AGENT_DESK_SERVICE_ARTIFACT:-$root/dist/service/HEX-Service-$version-$arch.zip}
 digest="$artifact.sha256"
-install_root="$HOME/Library/Application Support/HEX Service Proof"
+install_root="$HOME/Library/Application Support/Agent-Desk Service Proof"
 version_dir="$install_root/versions/$version"
-installed="$version_dir/HEX Service.app"
+installed="$version_dir/Agent-Desk Service.app"
 runtime="$install_root/runtime"
 staging="$install_root/.staging-$version-$$"
-expected_team=${HEX_TEAM_ID:?Set HEX_TEAM_ID to the Apple Developer signing team}
-expected_identifier=anomaly.hex.service
+expected_team=${AGENT_DESK_TEAM_ID:?Set AGENT_DESK_TEAM_ID to the Apple Developer signing team}
+expected_identifier=fheuer.agentdesk.service
 pid=
 
 cleanup() {
@@ -49,7 +49,7 @@ fi
 rm -rf "$staging"
 mkdir -p "$staging" "$install_root/versions" "$runtime"
 /usr/bin/ditto -x -k "$artifact" "$staging"
-bundle="$staging/HEX Service.app"
+bundle="$staging/Agent-Desk Service.app"
 codesign --verify --deep --strict --verbose=2 "$bundle"
 xcrun stapler validate "$bundle"
 spctl --assess --type execute --verbose=2 "$bundle"
@@ -69,7 +69,7 @@ rm -rf "$staging"
 rm -f "$runtime/local-api.json"
 
 /usr/bin/open -gj -n \
-  --env "HEX_APPLICATION_SUPPORT_DIR=$runtime" \
+  --env "AGENT_DESK_APPLICATION_SUPPORT_DIR=$runtime" \
   "$installed" --args service
 
 discovery="$runtime/local-api.json"

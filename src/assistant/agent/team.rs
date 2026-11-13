@@ -197,8 +197,8 @@ fn send(
     tell: Vec<Tell>,
     wait: Duration,
 ) -> Result<Vec<Member>, String> {
-    let requests = dir(root, lead, "requests").ok_or("this task has no id Hex can use")?;
-    let answers = dir(root, lead, "answers").ok_or("this task has no id Hex can use")?;
+    let requests = dir(root, lead, "requests").ok_or("this task has no id Agent-Desk can use")?;
+    let answers = dir(root, lead, "answers").ok_or("this task has no id Agent-Desk can use")?;
     let nonce = nonce();
     let ask = Ask {
         lead: lead.to_owned(),
@@ -220,7 +220,7 @@ fn send(
         std::thread::sleep(Duration::from_millis(50));
     }
     let _ = std::fs::remove_file(requests.join(format!("{nonce}.json")));
-    Err("Hex didn't take the helpers (is it running?). Do the work yourself instead.".into())
+    Err("Agent-Desk didn't take the helpers (is it running?). Do the work yourself instead.".into())
 }
 
 /// Every helper of `lead`, oldest first.

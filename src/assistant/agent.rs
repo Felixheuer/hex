@@ -1,13 +1,13 @@
 //! One task from start to end: builds its prompt (the question, its lane's
 //! rules, a Here question's window and context, what else is going on, the
 //! desktop's guide), gives it its tools (the guard's desktop server, a
-//! hidden browser, and Hex's own: the same toolset for every backend,
+//! hidden browser, and Agent-Desk's own: the same toolset for every backend,
 //! `toolset`), runs it on the chosen backend (`provider`), reports steps
 //! and windows, and saves the conversation as it goes, so a restart
 //! finds it `Running` and offers to resume it.
 //!
 //! A Here or Chat agent that finds the request is a job says so
-//! (`markers`), and Hex continues it as a Background job: a planning turn
+//! (`markers`), and Agent-Desk continues it as a Background job: a planning turn
 //! first (`plan.md` in its own `workspace`), one batched question if it
 //! needs anything, then the work with file and shell tools scoped to that
 //! folder.
@@ -88,7 +88,7 @@ pub enum JobKind {
     },
     /// The same question again after a usage limit lifted.
     AfterLimit,
-    /// The same question again after Hex quit or crashed while it ran.
+    /// The same question again after Agent-Desk quit or crashed while it ran.
     Resume,
     /// A job's first run: plan, ask what's missing, then do it.
     Job { title: String },
@@ -115,7 +115,7 @@ pub enum Outcome {
     /// The job asks the person this and waits for the answer; the
     /// conversation is kept running.
     Question(String),
-    /// The request is a job: Hex continues it in the background. `reply` is
+    /// The request is a job: Agent-Desk continues it in the background. `reply` is
     /// the short line said meanwhile ("On it: …").
     Escalate {
         title: String,
@@ -126,7 +126,7 @@ pub enum Outcome {
         /// request held several jobs, handed on with `hex_start_jobs`).
         first_task: Option<String>,
     },
-    /// Hex refused a consequential action; the person's yes to `question`
+    /// Agent-Desk refused a consequential action; the person's yes to `question`
     /// allows that kind of action for the task.
     Confirm {
         category: crate::assistant::autonomy::Category,
@@ -146,7 +146,9 @@ pub const LIMIT_NOTE: &str = "You were paused by a usage limit and may go on now
 pub fn run(job: &Job, control: &Control, emit: &mut dyn FnMut(Event)) -> Outcome {
     let store = match Store::open() {
         Ok(store) => store,
-        Err(error) => return Outcome::Failed(format!("Hex can't save conversations: {error:#}")),
+        Err(error) => {
+            return Outcome::Failed(format!("Agent-Desk can't save conversations: {error:#}"));
+        }
     };
     run_in(&store, job, control, emit)
 }
@@ -213,7 +215,7 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
         Ok(run) => run,
         Err(message) => return finish(store, &mut stored, Vec::new(), Err(message), emit),
     };
-    // A saved session keeps the rules it started with: when Hex's rules
+    // A saved session keeps the rules it started with: when Agent-Desk's rules
     // changed (an update), start a new one that is told the conversation.
     let rules_key = format!("{key}.rules");
     let rules = rules_fingerprint(job, &run);
@@ -421,7 +423,7 @@ pub fn run_in(store: &Store, job: &Job, control: &Control, emit: &mut dyn FnMut(
 /// The independent check of a job's answer (`goal`): a fresh session of
 /// the same backend with the same tools, told to change nothing, whose
 /// steps are neither shown nor kept. Its verdict is recorded in the
-/// workspace for the status Hex tells on request.
+/// workspace for the status Agent-Desk tells on request.
 fn check(
     run: &Run,
     job: &Job,
@@ -438,7 +440,7 @@ fn check(
     checker.history = Vec::new();
     // The check only looks: its desktop reads but never acts, its browsers
     // never send, post, or pay, its shell is sandboxed without the network
-    // even in Yolo, and it has none of Hex's own tools (no helpers).
+    // even in Yolo, and it has none of Agent-Desk's own tools (no helpers).
     checker.unrestricted = false;
     checker.tools = None;
     if let Some(desktop) = checker.desktop.as_mut() {
@@ -829,15 +831,16 @@ pub fn prepare(
         None
     };
     let lane = spec.lane;
-    // Both lanes: a quick "open a browser and go to …" runs in Hex's own
+    // Both lanes: a quick "open a browser and go to …" runs in Agent-Desk's own
     // browser (a live picture on the overlay), never in the person's Chrome.
     let browser = (settings.background_browser && (lane == Lane::Background || spec.full_control))
         .then(|| super::browser::mcp_server(&job.conversation))
         .flatten();
     let workdir = match &job.workspace {
         Some(workspace) => workspace.clone(),
-        None => workdir()
-            .map_err(|error| format!("Hex can't prepare the assistant's folder: {error:#}"))?,
+        None => workdir().map_err(|error| {
+            format!("Agent-Desk can't prepare the assistant's folder: {error:#}")
+        })?,
     };
     let continued = resume.is_none() && settings.backend != AssistantBackend::ClaudeApi;
     let keep_warm = (lane == Lane::Here && settings.backend == AssistantBackend::ClaudeCode)
@@ -876,7 +879,7 @@ pub fn prepare(
 /// Why a task that may use apps can't.
 const NO_DRIVER: &str = "No desktop driver (Cua Driver or agent-desktop) is installed, so the assistant can't use apps. Install it in Assistant settings, or turn off “Use apps”.";
 
-/// Whom Hex's tools serve for `job` (`tools::Role`): a background job
+/// Whom Agent-Desk's tools serve for `job` (`tools::Role`): a background job
 /// reads pages and files the person never saw, with or without a workspace
 /// (one couldn't be made), so it never gets the person's own turn's tools;
 /// a helper is a job without a team of its own.
@@ -891,7 +894,7 @@ pub(crate) fn tool_role(job: &Job) -> crate::assistant::tools::Role {
     }
 }
 
-/// Hex's own tools for a task (`tools`): memory and schedules for the
+/// Agent-Desk's own tools for a task (`tools`): memory and schedules for the
 /// person's own turn, a team for a job.
 fn tools_server(
     task: &str,

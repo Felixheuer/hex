@@ -477,8 +477,8 @@ fn key(key: Key) -> KeyEvent {
 
 /// The editor over a 960 × 640 display: a 1440 × 900 shot at 2× with an
 /// arrow, a box, text, and a crop, then with the Send to… list open, then
-/// with words said over it while a dictation still records, against `tests/golden/screenshot-editor-*.png`. `HEX_UPDATE_GOLDENS=1`
-/// rewrites them and `HEX_GOLDEN_RENDERS` also writes them there. Without a
+/// with words said over it while a dictation still records, against `tests/golden/screenshot-editor-*.png`. `AGENT_DESK_UPDATE_GOLDENS=1`
+/// rewrites them and `AGENT_DESK_GOLDEN_RENDERS` also writes them there. Without a
 /// GPU adapter it skips. Checked on Linux only, like every golden.
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "goldens are checked on Linux")]
@@ -561,14 +561,14 @@ fn editor_goldens() {
             );
             let (w, h) = ((SCREEN[0] * 2.0) as u32, (SCREEN[1] * 2.0) as u32);
             let pixels = crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h);
-            if let Some(renders) = std::env::var_os("HEX_GOLDEN_RENDERS") {
+            if let Some(renders) = std::env::var_os("AGENT_DESK_GOLDEN_RENDERS") {
                 let renders = PathBuf::from(renders);
                 std::fs::create_dir_all(&renders).unwrap();
                 rune::render::write_png(&renders.join(format!("{name}.png")), w, h, &pixels)
                     .unwrap();
             }
             let path = folder.join(format!("{name}.png"));
-            if std::env::var_os("HEX_UPDATE_GOLDENS").is_some() {
+            if std::env::var_os("AGENT_DESK_UPDATE_GOLDENS").is_some() {
                 rune::render::write_png(&path, w, h, &pixels).unwrap();
                 continue;
             }
@@ -597,14 +597,14 @@ fn editor_goldens() {
     assert!(misses.is_empty(), "{}", misses.join("\n"));
 }
 
-/// `HEX_SCREENSHOT_FRAMES=<folder>` writes the editor opening over a 960 ×
+/// `AGENT_DESK_SCREENSHOT_FRAMES=<folder>` writes the editor opening over a 960 ×
 /// 640 display, a box and an arrow drawn, words said over it, then
 /// closing, at 60 fps, dark, to
 /// `<folder>/editor/`. Without the variable or a GPU adapter it does
 /// nothing.
 #[test]
 fn editor_frames() {
-    let Some(folder) = std::env::var_os("HEX_SCREENSHOT_FRAMES") else {
+    let Some(folder) = std::env::var_os("AGENT_DESK_SCREENSHOT_FRAMES") else {
         return;
     };
     let Ok(gpu) = rune::render::Gpu::try_new(rune::render::Gpu::instance(), None) else {

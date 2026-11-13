@@ -109,7 +109,7 @@ pub fn active_microphone_applications() -> Result<Vec<ActiveMicrophoneApplicatio
     Ok(deduplicated(applications))
 }
 
-/// The canonical bundle identifier of `pid`'s executable, when Hex knows it.
+/// The canonical bundle identifier of `pid`'s executable, when Agent-Desk knows it.
 pub(crate) fn process_canonical_bundle_id(pid: u32) -> Option<&'static str> {
     let path = process_path(pid)?;
     let executable = path.file_name()?.to_string_lossy().into_owned();

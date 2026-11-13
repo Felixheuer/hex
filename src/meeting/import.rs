@@ -72,7 +72,7 @@ pub(crate) fn import(source: &Path) -> Result<MeetingManifest> {
         sync_file(&marker)?;
         sync_directory(&directory)?;
         if crate::desktop::process_exit::quitting() {
-            return Err(eyre!("Hex is quitting; the audio was not imported"));
+            return Err(eyre!("Agent-Desk is quitting; the audio was not imported"));
         }
         let decoded = directory.join("system.importing.wav");
         decode(source, &decoded)?;
@@ -159,7 +159,7 @@ pub(crate) fn import(source: &Path) -> Result<MeetingManifest> {
         write_manifest(&directory, &manifest)?;
         tracing::info!(
             meeting = id,
-            "Hex quit before an imported transcript ran; it finishes at the next launch"
+            "Agent-Desk quit before an imported transcript ran; it finishes at the next launch"
         );
         return Ok(manifest);
     }
@@ -199,7 +199,7 @@ fn decode(input: &Path, output: &Path) -> Result<()> {
     let mut error = ptr::null_mut();
     // SAFETY: both paths are NUL-terminated strings that outlive the call;
     // the bridge writes only the output file and, on failure, an owned
-    // message into `error`. The cancellation callback reads Hex's quit flag
+    // message into `error`. The cancellation callback reads Agent-Desk's quit flag
     // and captures nothing.
     let status = unsafe {
         hex_meeting_import_decode(input.as_ptr(), output.as_ptr(), hex_is_quitting, &mut error)
@@ -210,7 +210,7 @@ fn decode(input: &Path, output: &Path) -> Result<()> {
     Err(take_error(error))
 }
 
-/// The bridge's cancellation check: Hex's own quit flag.
+/// The bridge's cancellation check: Agent-Desk's own quit flag.
 extern "C" fn hex_is_quitting() -> c_int {
     if crate::desktop::process_exit::quitting() {
         1
@@ -221,7 +221,7 @@ extern "C" fn hex_is_quitting() -> c_int {
 
 fn take_error(error: *mut c_char) -> color_eyre::Report {
     if error.is_null() {
-        return eyre!("Hex could not read this audio file");
+        return eyre!("Agent-Desk could not read this audio file");
     }
     // SAFETY: the bridge answers a NUL-terminated string it allocated.
     let message = unsafe { CStr::from_ptr(error) }

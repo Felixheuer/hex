@@ -1,6 +1,6 @@
-//! The practice game's best score: one number in `game-best` in Hex's data
+//! The practice game's best score: one number in `game-best` in Agent-Desk's data
 //! folder, owner-only and replaced whole. It isn't a setting, so it stays
-//! out of `settings.json` and `hex settings`.
+//! out of `settings.json` and `agent-desk settings`.
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};

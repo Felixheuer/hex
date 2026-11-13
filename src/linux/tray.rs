@@ -1,9 +1,9 @@
 //! The Linux tray icon, a Rune tray (StatusNotifierItem). A click shows the
 //! window; the menu is the one `tray_menu` builds for Linux and Windows. A
 //! desktop without a tray host (GNOME without an extension, i3bar) shows
-//! nothing, and Hex runs on as before.
+//! nothing, and Agent-Desk runs on as before.
 //!
-//! Beside the IconPixmap, the item names Hex's symbolic icon when hicolor has
+//! Beside the IconPixmap, the item names Agent-Desk's symbolic icon when hicolor has
 //! it, so a host that follows the panel's text color (Plasma 6, GNOME's
 //! AppIndicator extension, Waybar) draws a mark that stays visible on any
 //! panel. Hosts that don't know the name keep using the pixmap.
@@ -60,7 +60,9 @@ pub(crate) fn start(
     };
     // Before the tray exists: Plasma reads the name when the item registers.
     let symbolic = crate::linux::icons::install_tray_symbolic(light)
-        .inspect_err(|error| tracing::warn!(%error, "could not install Hex's symbolic tray icon"))
+        .inspect_err(
+            |error| tracing::warn!(%error, "could not install Agent-Desk's symbolic tray icon"),
+        )
         .unwrap_or_default();
     if symbolic.wrote
         && let (Some(runtime), Some(bus)) = (runtime.as_ref(), bus)
@@ -69,7 +71,7 @@ pub(crate) fn start(
     }
     drop(runtime);
     let icon = rune::TrayIcon::rgba(tray_icon::SIZE, tray_icon::SIZE, tray_icon::pixels(light));
-    let mut spec = rune::TraySpec::new("hex", "Hex", icon)
+    let mut spec = rune::TraySpec::new("hex", "Agent-Desk", icon)
         .tooltip(view.tooltip())
         .menu(view.menu());
     if symbolic.present {
@@ -86,14 +88,14 @@ pub(crate) fn start(
         rune::TrayEvent::Activate { token } => show(token),
         rune::TrayEvent::Menu(id) => match TrayCommand::from_id(&id) {
             Some(TrayCommand::Show) => show(None),
-            // As the window's Quit Hex: drains accepted work, then exits.
+            // As the window's Quit Agent-Desk: drains accepted work, then exits.
             Some(TrayCommand::Quit) => shutdown.store(true, Ordering::Release),
             Some(command) => perform(&host, &published, command),
             None => {}
         },
         _ => {}
     });
-    tray.inspect_err(|error| tracing::warn!(%error, "Hex has no tray icon"))
+    tray.inspect_err(|error| tracing::warn!(%error, "Agent-Desk has no tray icon"))
         .ok()
 }
 
@@ -133,7 +135,7 @@ async fn scheme(bus: &Connection) -> Option<bool> {
 
 /// Tells a running Plasma to reload its icons. KIconLoader lists the hicolor
 /// folders that exist when the session starts, so it never looks in the
-/// scalable folder Hex just created; without the broadcast its IconName draws
+/// scalable folder Agent-Desk just created; without the broadcast its IconName draws
 /// nothing until the next login. Emits on the connection's own runtime;
 /// best-effort, so a failure must not unset the name.
 fn reload_icons(runtime: &Runtime, bus: &Connection) {

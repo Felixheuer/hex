@@ -1,9 +1,9 @@
 //! One onboarding that survives a restart. The assistant's pages follow
-//! the voice first run (its "Hex is ready" ends both); someone who set Hex
-//! up before the assistant gets them as "New in Hex" at launch. The page
+//! the voice first run (its "Agent-Desk is ready" ends both); someone who set Agent-Desk
+//! up before the assistant gets them as "New in Agent-Desk" at launch. The page
 //! the flow is on is saved beside the voice tour's markers
 //! (`desktop::onboarding::record_assistant`), so a relaunch, whether macOS
-//! asked for it after a grant or Restart Hex and continue did it, reopens
+//! asked for it after a grant or Restart Agent-Desk and continue did it, reopens
 //! the flow on that page and checks it again. Closed unfinished, it waits
 //! in Chats instead of reopening.
 
@@ -61,8 +61,8 @@ pub(in crate::rune_ui) fn forget(ui: &Ui) {
 }
 
 /// At launch, once the window is connected: reopens a flow a relaunch cut
-/// short where it was, or offers the assistant as "New in Hex" to someone
-/// who set Hex up before it. A voice first run under way brings the pages
+/// short where it was, or offers the assistant as "New in Agent-Desk" to someone
+/// who set Agent-Desk up before it. A voice first run under way brings the pages
 /// itself ([`follow_first_run`]).
 pub(in crate::rune_ui) fn launch(ui: &mut Ui) {
     if !pending(ui) || ui.chats.setup.is_some() || ui.first_run.is_some() {
@@ -89,7 +89,7 @@ pub(in crate::rune_ui) fn launch(ui: &mut Ui) {
 }
 
 /// While the voice first run shows and the assistant still needs setting
-/// up, the run holds before "Hex is ready"; once it gets there, the
+/// up, the run holds before "Agent-Desk is ready"; once it gets there, the
 /// assistant's pages open over it, continuing the same flow. True when
 /// they opened.
 pub(in crate::rune_ui) fn follow_first_run(ui: &mut Ui) -> bool {

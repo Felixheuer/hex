@@ -240,7 +240,7 @@ verification added for this release.
 **Published October 21, 2026:** [2.3.1](../releases/2.3.1.md), release commit
 `c4b3287` (version bump `985c78e`, driver plist `8531c8d` on top of `7bfb51d`),
 build `20301`. CI (macOS, Linux `test` and `nix`, Windows x64 and ARM64) passed
-on `c4b3287`; the first run on `985c78e` failed because the Hex Microphone
+on `c4b3287`; the first run on `985c78e` failed because the Agent-Desk Microphone
 driver plist still said 2.3.0. Both notarizations were accepted and the DMG
 passed Gatekeeper. The DMG SHA-256 is
 `56de94665da8fefbe0fe6310368fd7b62497dff593b6818475f9c5fa751def7a`; the ZIP
@@ -255,7 +255,7 @@ run.
 Built from `9f8fd71` by [Release desktop run 39654195736](https://github.com/anomalyco/hex/actions/runs/39654195736)
 and published from the Pro with `scripts/publish-desktop-release.sh`. The run
 from `c4b3287` failed the x64 Setup.exe test twice: the build's
-`hex.exe --version` check created `%APPDATA%\hex` before parsing the
+`agent-desk.exe --version` check created `%APPDATA%\agent-desk` before parsing the
 CLI, so the installer test saw a dirty machine. `9f8fd71` parses first. The
 three feeds serve 2.3.1 and verify; the Setup.exe SHA-256s are
 `f9c04f6e85db256d43f3539a992e674026aa44935fb59d5fd9d1bf6af1fe3952` (x64) and
@@ -373,7 +373,7 @@ checks, not browser interaction evidence.
 [Homebrew cask PR #23](https://github.com/anomalyco/homebrew-tap/pull/23) merged
 after Ruby syntax, style, and livecheck (`2.1.23 ==> 2.1.23`) passed using a
 temporary verification tap, since removed. The strict online audit now reports a
-token conflict with a homebrew-core formula named `hex`, unrelated to this bump.
+token conflict with a homebrew-core formula named `agent-desk`, unrelated to this bump.
 No Bluetooth headset, physical dictation, or update from an older installed
 build was exercised.
 
@@ -403,7 +403,7 @@ feedback):** 134 Rust tests passed
 (seven native/opt-in tests skipped), along with formatting, strict Linux
 bin/tests Clippy, and the release build. The locally modified `4ff6c4c` build
 (executable SHA-256 `609f16cac11eb66cea7054092e7c4caee3f02c3bd1b8828f5232cf3b2b67df31`)
-was installed and launched with `hex app` on Arch/i3/X11. It reached Listening
+was installed and launched with `agent-desk app` on Arch/i3/X11. It reached Listening
 and opened a PipeWire ALSA playback stream; existing settings were unchanged.
 The installed Settings capture at `/tmp/opencode/hex-linux-sounds.png` showed
 the new volume control with 50% selected. Actual tone audibility, physical

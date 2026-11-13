@@ -1,4 +1,4 @@
-//! The playground (dev builds): Rune's playground in Hex's window,
+//! The playground (dev builds): Rune's playground in Agent-Desk's window,
 //! opened from its sidebar item or ⇧⌘D (Ctrl+Shift+D off macOS). It swaps
 //! the window for a folded list of
 //! prototypes (the onboarding options, live meeting notes, and on macOS
@@ -224,7 +224,7 @@ const PATHS: &[(&str, &str)] = &[
     ("mac-dictation-advanced", "Window/Dictation/Advanced"),
     ("mac-production", "Window/General/Production build"),
     ("mac-activity", "Window/Activity/Activity"),
-    ("mac-onboarding", "Window/Onboarding/Setting up Hex"),
+    ("mac-onboarding", "Window/Onboarding/Setting up Agent-Desk"),
     (
         "mac-onboarding-permissions",
         "Window/Onboarding/Permissions",
@@ -251,7 +251,10 @@ const PATHS: &[(&str, &str)] = &[
         "mac-onboarding-reopen",
         "Window/Onboarding/Your turn · reopen",
     ),
-    ("mac-onboarding-ready", "Window/Onboarding/Hex is ready"),
+    (
+        "mac-onboarding-ready",
+        "Window/Onboarding/Agent-Desk is ready",
+    ),
     ("chats", "Window/Chats (Linux)/Conversation"),
     ("chats-empty", "Window/Chats (Linux)/No conversations"),
     ("chats-settings", "Window/Chats (Linux)/Settings"),
@@ -296,7 +299,7 @@ const PATHS: &[(&str, &str)] = &[
     ),
     (
         "mac-assistant-setup-about",
-        "Window/Assistant setup/Tell Hex about you",
+        "Window/Assistant setup/Tell Agent-Desk about you",
     ),
     ("mac-chats-results", "Window/Chats/A job's results"),
     ("mac-chats-escalated", "Window/Chats/Here became a job"),
@@ -323,7 +326,7 @@ const PATHS: &[(&str, &str)] = &[
     ),
     (
         "mac-assistant-setup-new",
-        "Window/Assistant setup/New in Hex",
+        "Window/Assistant setup/New in Agent-Desk",
     ),
     (
         "mac-assistant-setup-resumed",
@@ -339,7 +342,7 @@ const PATHS: &[(&str, &str)] = &[
     ),
     (
         "mac-assistant-setup-restart",
-        "Window/Assistant setup/Restart Hex and continue",
+        "Window/Assistant setup/Restart Agent-Desk and continue",
     ),
     (
         "mac-assistant-setup-desktop",
@@ -372,7 +375,7 @@ const PATHS: &[(&str, &str)] = &[
     ("mac-assistant-setup-try", "Window/Assistant setup/Try it"),
     ("mac-assistant-setup-done", "Window/Assistant setup/Ready"),
     ("portal", "Linux & Windows/Settings · portal shortcuts"),
-    ("commands", "Linux & Windows/Settings · hex commands"),
+    ("commands", "Linux & Windows/Settings · agent-desk commands"),
     ("portal-mouse", "Linux & Windows/Settings · mouse button"),
     ("windows-settings", "Linux & Windows/Settings · Windows"),
     ("windows-general", "Linux & Windows/General · Windows"),
@@ -464,7 +467,7 @@ fn playground() -> Playground<Ui> {
     let playground = Playground::new()
         .enabled(true)
         .bar(false)
-        .sizes(&[("Hex window", WINDOW_SIZE)])
+        .sizes(&[("Agent-Desk window", WINDOW_SIZE)])
         .group_order(GROUPS)
         .start_folded(true);
     let playground = super::onboarding_kit::stories(playground);
@@ -673,7 +676,7 @@ mod tests {
         assert!(rt.playground_state::<Ui>().is_none(), "⇧⌘D closed it");
     }
 
-    /// Every HUD story, on every variant, opens from its `hex://story` link.
+    /// Every HUD story, on every variant, opens from its `agent-desk://story` link.
     #[cfg(target_os = "macos")]
     #[test]
     fn every_hud_story_and_variant_opens_from_its_link() {
@@ -688,7 +691,9 @@ mod tests {
                 for ending in endings {
                     open_link(
                         &mut rt,
-                        &format!("hex://story/prototypes/hud/{story}?variant={look}-{ending}"),
+                        &format!(
+                            "agent-desk://story/prototypes/hud/{story}?variant={look}-{ending}"
+                        ),
                     );
                 }
             }
@@ -697,11 +702,14 @@ mod tests {
             for variant in ["hud-lab", "notch", "pretend-notch", "menu-bar", "below"] {
                 open_link(
                     &mut rt,
-                    &format!("hex://story/prototypes/hud/{story}?variant={variant}"),
+                    &format!("agent-desk://story/prototypes/hud/{story}?variant={variant}"),
                 );
             }
         }
-        open_link(&mut rt, "hex://story/hud/processing?variant=menu-bar");
+        open_link(
+            &mut rt,
+            "agent-desk://story/hud/processing?variant=menu-bar",
+        );
         for control in [
             "dot-scope-reset",
             "dot-scope-copy",
@@ -719,7 +727,7 @@ mod tests {
     }
 
     /// Every assistant overlay story, and each quick-answer state, opens
-    /// from its `hex://story` link, and the desktop plays its script.
+    /// from its `agent-desk://story` link, and the desktop plays its script.
     #[cfg(target_os = "macos")]
     #[test]
     fn every_assistant_story_opens_from_its_link() {
@@ -729,13 +737,13 @@ mod tests {
         for story in ["desktop", "orb", "hands-off", "listening", "frame"] {
             open_link(
                 &mut rt,
-                &format!("hex://story/prototypes/assistant/{story}"),
+                &format!("agent-desk://story/prototypes/assistant/{story}"),
             );
         }
         for variant in ["bubbles", "quiet", "list", "escalated"] {
             open_link(
                 &mut rt,
-                &format!("hex://story/prototypes/assistant/orb?variant={variant}"),
+                &format!("agent-desk://story/prototypes/assistant/orb?variant={variant}"),
             );
         }
         for variant in [
@@ -749,10 +757,10 @@ mod tests {
         ] {
             open_link(
                 &mut rt,
-                &format!("hex://story/prototypes/assistant/quick-answer?variant={variant}"),
+                &format!("agent-desk://story/prototypes/assistant/quick-answer?variant={variant}"),
             );
         }
-        open_link(&mut rt, "hex://story/prototypes/assistant/desktop");
+        open_link(&mut rt, "agent-desk://story/prototypes/assistant/desktop");
         assert!(rt.playground_element("desk").is_some(), "the desktop shows");
         rt.playground_trigger('r');
         for step in 1..=8 {
@@ -769,7 +777,7 @@ mod tests {
     }
 
     /// Every capture-capsule story, on every flow after a capture, opens
-    /// from its `hex://story` link.
+    /// from its `agent-desk://story` link.
     #[cfg(all(hex_capture, target_os = "macos"))]
     #[test]
     fn every_capsule_story_and_flow_opens_from_its_link() {
@@ -792,20 +800,22 @@ mod tests {
             for flow in ["tuned", "list", "toast", "menu-bar", "cursor", "notch"] {
                 open_link(
                     &mut rt,
-                    &format!("hex://story/prototypes/capture-capsule/{story}?variant={flow}"),
+                    &format!(
+                        "agent-desk://story/prototypes/capture-capsule/{story}?variant={flow}"
+                    ),
                 );
             }
         }
         for variant in ["Side%20by%20side", "1", "2", "3"] {
             open_link(
                 &mut rt,
-                &format!("hex://story/prototypes/capture-capsule/notch?variant={variant}"),
+                &format!("agent-desk://story/prototypes/capture-capsule/notch?variant={variant}"),
             );
         }
         for variant in ["braid", "bars", "line"] {
             open_link(
                 &mut rt,
-                &format!("hex://story/prototypes/capture-capsule/family?variant={variant}"),
+                &format!("agent-desk://story/prototypes/capture-capsule/family?variant={variant}"),
             );
         }
     }
@@ -814,7 +824,7 @@ mod tests {
     /// variant isn't there.
     #[cfg(target_os = "macos")]
     fn open_link(rt: &mut rune::Runtime<Ui>, link: &str) {
-        let link = super::super::story_link::parse(link, "hex").expect(link);
+        let link = super::super::story_link::parse(link, "agent-desk").expect(link);
         rt.open_playground(&link.story, link.variant.as_deref());
         assert!(
             rt.playground_state::<Ui>().is_none(),

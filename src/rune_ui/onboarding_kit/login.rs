@@ -1,4 +1,4 @@
-//! `"Hex is ready"`'s Launch at login ask: one button that turns the real
+//! `"Agent-Desk is ready"`'s Launch at login ask: one button that turns the real
 //! login item on (`SMAppService` on macOS) and pops into a check, with a
 //! line that changes its tune once it is on.
 
@@ -140,9 +140,9 @@ fn burst(p: Paint, ask: &LoginAsk, now: f64, reduced: bool) -> Option<El> {
     )
 }
 
-/// `"Open Hex when your Mac starts?"`, its button, and a line under it.
+/// `"Open Agent-Desk when your Mac starts?"`, its button, and a line under it.
 /// The button is the page's main action only when it is `alone`: beside
-/// Start using Hex it is a neutral one.
+/// Start using Agent-Desk it is a neutral one.
 pub(crate) fn login_ask<S: 'static>(
     p: Paint,
     ask: &LoginAsk,
@@ -155,7 +155,7 @@ pub(crate) fn login_ask<S: 'static>(
     let (question, button, line) = match ask.login {
         Login::Hidden => return None,
         Login::Off => (
-            "Open Hex when your Mac starts?",
+            "Open Agent-Desk when your Mac starts?",
             Button::new("Launch at login")
                 .rolling("login-label")
                 .variant(if alone {
@@ -166,7 +166,7 @@ pub(crate) fn login_ask<S: 'static>(
             "It's tiny. It naps in your menu bar until you hold the key.",
         ),
         Login::On => (
-            "Hex opens when your Mac starts.",
+            "Agent-Desk opens when your Mac starts.",
             Button::new("Launches at login")
                 .rolling("login-label")
                 .icon(&glyphs::CHECK)
@@ -174,7 +174,7 @@ pub(crate) fn login_ask<S: 'static>(
             "It'll be there before your coffee is.",
         ),
         Login::Approve => (
-            "Open Hex when your Mac starts?",
+            "Open Agent-Desk when your Mac starts?",
             Button::new("Allow in Login Items")
                 .rolling("login-label")
                 .variant(ButtonVariant::Neutral),

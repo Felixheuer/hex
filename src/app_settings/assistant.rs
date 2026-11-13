@@ -5,7 +5,7 @@
 
 use super::*;
 
-/// The agent that answers and acts. Hex finds which are installed
+/// The agent that answers and acts. Agent-Desk finds which are installed
 /// (`assistant::backends::detect`); each task runs as its own process or
 /// session of it, with agent-desktop as its desktop tool.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -73,8 +73,7 @@ pub struct AssistantSettings {
     /// Real input, one switch per lane (`here_physical_input` is the
     /// other): Background tasks may also move the real pointer and press
     /// real keys (agent-desktop `--headed`); off, the default, keeps every
-    /// action of theirs in the background. Was `physical_input`.
-    #[serde(alias = "physical_input")]
+    /// action of theirs in the background.
     pub background_physical_input: bool,
     /// A quick question sends a screenshot of the screen with it. Off by
     /// default: the agent looks with its desktop tools when it needs to,
@@ -107,7 +106,7 @@ pub struct AssistantSettings {
     /// Every new task browser starts with the person's accounts (the
     /// sign-in state); a task may still ask for a clean one.
     pub browser_signed_in_by_default: bool,
-    /// The Chrome profile (`Default`, `Profile 1`) whose logins Hex's
+    /// The Chrome profile (`Default`, `Profile 1`) whose logins Agent-Desk's
     /// browsers take over, refreshed daily; `None` takes none.
     pub browser_import_profile: Option<String>,
     /// Apps no task may read or operate (by name or bundle id).
@@ -115,8 +114,7 @@ pub struct AssistantSettings {
     /// Full control of this Mac: tasks of either lane may open any app and
     /// operate every window, the one in front of the person too, as the
     /// ChatGPT app's agent does; off keeps the person's windows theirs and
-    /// tasks work in windows of their own. Was `background_front_window`.
-    #[serde(alias = "background_front_window")]
+    /// tasks work in windows of their own.
     pub full_control: bool,
     /// Where coding jobs create their projects (`~` is the home folder).
     pub projects_folder: String,
@@ -130,8 +128,7 @@ pub struct AssistantSettings {
     pub retry_on_limit: bool,
     /// Windows Background tasks open are parked off-screen, out of the
     /// person's way, until brought forward from the task list. On by
-    /// default. Was `agent_space`.
-    #[serde(alias = "agent_space")]
+    /// default.
     pub park_windows: bool,
     /// The display new Background windows go to, by agent-desktop id ("5")
     /// or name ("M27Q"); `None` is the one the person isn't working on
@@ -148,11 +145,11 @@ pub struct AssistantSettings {
     /// conversations, not here; this only turns it on.
     pub memory: bool,
     /// The shorter of the two follow-up windows (`follow_up_seconds` is the
-    /// other): after a spoken answer, Hex keeps listening this many seconds
+    /// other): after a spoken answer, Agent-Desk keeps listening this many seconds
     /// for a follow-up without the shortcut; 0 turns conversation mode off.
     pub conversation_seconds: u32,
     /// Speaking while an answer is read aloud interrupts it (needs
-    /// headphones or Hex's echo suppression).
+    /// headphones or Agent-Desk's echo suppression).
     pub barge_in: bool,
     /// macOS notifications when a job finishes, fails, or asks something.
     pub notifications: bool,
@@ -311,7 +308,7 @@ impl HotkeyBinding {
 impl AppSettings {
     /// The assistant's Stop all tasks shortcut while it takes effect: the
     /// assistant on, bound, and sharing no key with another active shortcut
-    /// or Force Quit. Otherwise Hex matches and swallows nothing for it.
+    /// or Force Quit. Otherwise Agent-Desk matches and swallows nothing for it.
     pub fn active_stop_all_hotkey(&self) -> Option<&HotkeyBinding> {
         if !crate::assistant::enabled(self) {
             return None;
@@ -338,7 +335,7 @@ pub fn applied_assistant_ready() -> bool {
 }
 
 /// The assistant's settings as last applied, and whether it is on, for
-/// the task runner's threads; `None` until settings are applied (a `hex`
+/// the task runner's threads; `None` until settings are applied (a `agent-desk`
 /// command that never loads them reads the file instead).
 pub fn assistant_runtime() -> Option<(bool, AssistantSettings)> {
     ASSISTANT_RUNTIME
@@ -349,7 +346,7 @@ pub fn assistant_runtime() -> Option<(bool, AssistantSettings)> {
 }
 
 pub(super) fn apply_assistant(settings: &AppSettings) {
-    // Hex's own voice loads when it's chosen, not with the first answer.
+    // Agent-Desk's own voice loads when it's chosen, not with the first answer.
     let neural = crate::assistant::enabled(settings) && settings.assistant.speak_answers;
     crate::assistant::speech::neural::keep_warm(
         settings

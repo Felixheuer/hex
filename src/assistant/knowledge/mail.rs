@@ -137,7 +137,7 @@ pub fn rank_rows(rows: &[Value], tokens: &[String], now_ms: i64, limit: usize) -
 pub fn mail(query: &str, limit: usize, now_ms: i64) -> Result<Vec<Hit>, String> {
     let tokens = &rank::tokens(query);
     let index = index().ok_or(
-        "Mail's index wasn't found or can't be read (Mail set up? Hex needs Full Disk Access)",
+        "Mail's index wasn't found or can't be read (Mail set up? Agent-Desk needs Full Disk Access)",
     )?;
     let rows = exec::query_copy(&index, &sql(&rank::words(query)), Duration::from_secs(4))?;
     Ok(rank_rows(&rows, tokens, now_ms, limit))

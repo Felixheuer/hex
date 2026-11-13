@@ -1,4 +1,4 @@
-// Deterministic policy check for agent-written Hex patches. No AI.
+// Deterministic policy check for agent-written Agent-Desk patches. No AI.
 //
 //   bun check.ts <patch-file>      (or the diff on stdin)
 //

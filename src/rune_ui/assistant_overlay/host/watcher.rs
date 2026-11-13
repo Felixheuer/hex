@@ -97,7 +97,7 @@ fn change(apply: impl FnOnce(&mut Watch) -> bool) {
     WATCH_CHANGED.notify_all();
 }
 
-/// Starts the watcher on first use, so a Hex that never uses the assistant
+/// Starts the watcher on first use, so an Agent-Desk that never uses the assistant
 /// runs no thread for it.
 fn start() {
     WATCHER.get_or_init(|| {
@@ -508,7 +508,7 @@ const BREATHE_KEY: &str = "hex-breathe";
 fn ensure_breathing(_number: Option<u32>) {}
 
 /// Breathes the frame panel's layer in Core Animation (none with Reduce
-/// motion on): the window server animates it, so Hex draws nothing for it.
+/// motion on): the window server animates it, so Agent-Desk draws nothing for it.
 /// Added again if the layer was remade.
 #[cfg(target_os = "macos")]
 fn ensure_breathing(number: Option<u32>) {

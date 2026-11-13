@@ -1,7 +1,7 @@
 //! Transcription: Apple's SpeechAnalyzer through `scrawl-helper` (measured word and segment
-//! timings), Hex when `"transcriber": "hex"` is set and Hex is connected (`crate::hex`; word
+//! timings), Agent-Desk when `"transcriber": "hex"` is set and Agent-Desk is connected (`crate::hex`; word
 //! times estimated), or a program of the user's when `"transcriber": "command"`
-//! (`crate::command_transcriber`). Any Hex or command trouble falls back to Apple for that
+//! (`crate::command_transcriber`). Any Agent-Desk or command trouble falls back to Apple for that
 //! recording.
 
 use std::path::{Path, PathBuf};
@@ -12,10 +12,10 @@ use anyhow::Result;
 use crate::audio::RecordedAudio;
 use crate::model::{TranscriptData, TranscriptSegment, WordTiming};
 
-/// Keep the previous English default; Hex, not Scrawl, validates model/language support.
+/// Keep the previous English default; Agent-Desk, not Scrawl, validates model/language support.
 pub const DEFAULT_LANGUAGE: &str = "en";
 
-/// Accept language-code syntax without maintaining another list of Hex's languages.
+/// Accept language-code syntax without maintaining another list of Agent-Desk's languages.
 /// Blank resets to English; disallow query delimiters before constructing the API URL.
 pub fn language_code(value: &str) -> Option<String> {
     let value = value.trim();
@@ -36,16 +36,22 @@ const MAX_MERGED_MS: u64 = 30_000;
 const MAX_FORCED_MERGE_MS: u64 = 8 * 60_000;
 pub const MAX_CLIPS: usize = 24;
 
-/// Hex's support folder, as Hex's `app_paths::support_dir` resolves it: `~/Library/Application
-/// Support/hex` on macOS, `%APPDATA%\hex` on Windows.
+/// Agent-Desk's support folder, as Agent-Desk's `app_paths::support_dir` resolves it: `~/Library/Application
+/// Support/agent-desk` on macOS, `%APPDATA%\agent-desk` on Windows. One-time migration, remove after
+/// 2026-12: where an older Hex's `hex` folder is still the only one (Linux and Windows use it in
+/// place), that one.
 pub fn hex_support_dir() -> PathBuf {
-    std::env::var_os("HEX_APPLICATION_SUPPORT_DIR")
+    std::env::var_os("AGENT_DESK_APPLICATION_SUPPORT_DIR")
         .map(PathBuf::from)
         .filter(|dir| !dir.as_os_str().is_empty())
         .unwrap_or_else(|| {
-            scrawl_router::user_dirs::data_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join("hex")
+            let data = scrawl_router::user_dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
+            let (current, legacy) = (data.join("agent-desk"), data.join("hex"));
+            if !current.exists() && legacy.exists() {
+                legacy
+            } else {
+                current
+            }
         })
 }
 
@@ -314,14 +320,14 @@ static OVERRIDE: AtomicU8 = AtomicU8::new(0);
 static LOGGED_NOT_CONNECTED: std::sync::Once = std::sync::Once::new();
 static LOGGED_NO_COMMAND: std::sync::Once = std::sync::Once::new();
 
-/// What the Settings window's Transcription controls show. A Hex preference stays saved while Hex
+/// What the Settings window's Transcription controls show. An Agent-Desk preference stays saved while Agent-Desk
 /// is away, but the active choice follows what recordings would really use.
 #[derive(Debug, PartialEq, Eq)]
 pub struct MenuState {
     pub hex_title: &'static str,
     pub hex_enabled: bool,
     pub hex_checked: bool,
-    /// Ready Hex models as `(id, title, chosen)`, empty when Hex is away.
+    /// Ready Agent-Desk models as `(id, title, chosen)`, empty when Agent-Desk is away.
     pub models: Vec<(String, String, bool)>,
 }
 
@@ -333,7 +339,7 @@ pub fn menu_state(
 ) -> MenuState {
     let Some(status) = status else {
         return MenuState {
-            hex_title: "Hex (not running)",
+            hex_title: "Agent-Desk (not running)",
             hex_enabled: false,
             hex_checked: false,
             models: Vec::new(),
@@ -357,7 +363,7 @@ pub fn menu_state(
         .collect();
     let ready = chosen.is_some();
     MenuState {
-        hex_title: if ready { "Hex" } else { "Hex (no model ready)" },
+        hex_title: if ready { "Agent-Desk" } else { "Agent-Desk (no model ready)" },
         hex_enabled: ready,
         hex_checked: ready && preferred == Engine::Hex,
         models,
@@ -488,7 +494,7 @@ fn finish_live(
 }
 
 /// The preferred engine when it isn't Apple, with Apple as the answer to anything it can't do.
-/// `other` returns `Ok(None)` when that engine isn't there at all (Hex not connected or without a
+/// `other` returns `Ok(None)` when that engine isn't there at all (Agent-Desk not connected or without a
 /// ready model, no usable `transcribeCommand`).
 fn run(
     engine: Engine,
@@ -497,7 +503,7 @@ fn run(
 ) -> TranscriptData {
     let name = match engine {
         Engine::Apple => return apple(),
-        Engine::Hex => "Hex",
+        Engine::Hex => "Agent-Desk",
         Engine::Command => "Command",
     };
     match other() {
@@ -536,7 +542,7 @@ fn try_hex(audio: &RecordedAudio) -> Result<Option<TranscriptData>> {
     let not_connected = |reason: String| {
         LOGGED_NOT_CONNECTED.call_once(|| {
             crate::log::scrawl_log(format!(
-                "Hex preferred but unavailable ({reason}); using {LOCAL_ENGINE_TITLE}"
+                "Agent-Desk preferred but unavailable ({reason}); using {LOCAL_ENGINE_TITLE}"
             ));
         });
         Ok(None)
@@ -557,7 +563,7 @@ fn try_hex(audio: &RecordedAudio) -> Result<Option<TranscriptData>> {
 fn try_hex(_audio: &RecordedAudio) -> Result<Option<TranscriptData>> {
     LOGGED_NOT_CONNECTED.call_once(|| {
         crate::log::scrawl_log(format!(
-            "Hex preferred but hex-client feature is disabled; using {LOCAL_ENGINE_TITLE}"
+            "Agent-Desk preferred but hex-client feature is disabled; using {LOCAL_ENGINE_TITLE}"
         ));
     });
     Ok(None)
@@ -656,7 +662,7 @@ mod tests {
 
         let away = menu_state(Engine::Hex, None, None);
         assert!(!away.hex_checked && !away.hex_enabled);
-        assert_eq!(away.hex_title, "Hex (not running)");
+        assert_eq!(away.hex_title, "Agent-Desk (not running)");
 
         let up = status(vec![
             ready("parakeet_v3", "Parakeet v3"),
@@ -682,7 +688,7 @@ mod tests {
         }]);
         let none = menu_state(Engine::Hex, Some(&empty), None);
         assert!(!none.hex_checked && !none.hex_enabled && none.models.is_empty());
-        assert_eq!(none.hex_title, "Hex (no model ready)");
+        assert_eq!(none.hex_title, "Agent-Desk (no model ready)");
     }
 
     #[test]

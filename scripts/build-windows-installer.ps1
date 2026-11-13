@@ -1,8 +1,8 @@
 # Builds hex-setup-<version>-windows-<x64|arm64>.exe, the per-user Windows
-# installer, around an already-built (and signed) release hex.exe and its
-# console entry point hex.com. Installs Inno Setup 6 when ISCC is missing. The
+# installer, around an already-built (and signed) release agent-desk.exe and its
+# console entry point agent-desk.com. Installs Inno Setup 6 when ISCC is missing. The
 # installer embeds both byte for byte. -Console is left out only to wrap a
-# release published before hex.com.
+# release published before agent-desk.com.
 #
 #   scripts/build-windows-installer.ps1 -Executable dist\hex-2.4.0-windows-x64.exe `
 #     -Console dist\hex-2.4.0-windows-x64.com -Version 2.3.0 -Arch x86_64 -OutDir dist

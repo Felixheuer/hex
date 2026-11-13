@@ -460,7 +460,7 @@ impl ClipBufferSession {
         })
     }
 
-    /// Updates Hex's excluded overlay windows in place without resetting the
+    /// Updates Agent-Desk's excluded overlay windows in place without resetting the
     /// 15 s rolling clip buffer.
     pub fn update_exclusions(
         &self,

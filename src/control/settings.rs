@@ -1,4 +1,4 @@
-//! The `hex settings` registry: one key per persisted setting, named by its
+//! The `agent-desk settings` registry: one key per persisted setting, named by its
 //! dotted path in `settings.json`, with the same rules and side effects the
 //! window applies when you change it there.
 
@@ -16,9 +16,9 @@ mod registry;
 
 use hotkeys::check_shortcut;
 pub use hotkeys::{format_hotkey, parse_hotkey};
-use registry::{CAPTURE_KEYS, KEYS, Key, Kind, NUMERIC_CHOICES, RETIRED, canonical, needs};
+use registry::{CAPTURE_KEYS, KEYS, Key, Kind, NUMERIC_CHOICES, needs};
 
-/// One setting as `hex settings get` reports it.
+/// One setting as `agent-desk settings get` reports it.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SettingValue {
     pub key: String,
@@ -29,7 +29,7 @@ pub struct SettingValue {
     pub choices: Vec<String>,
     pub writable: bool,
     pub about: String,
-    /// False where this OS's Hex lacks what the setting needs ([`needs`]):
+    /// False where this OS's Agent-Desk lacks what the setting needs ([`needs`]):
     /// it is kept, but does nothing here and `set` refuses it.
     #[serde(default = "available")]
     pub available: bool,
@@ -39,20 +39,19 @@ fn available() -> bool {
     true
 }
 
-/// Why `hex settings set` refuses `name` on this OS, if it does.
+/// Why `agent-desk settings set` refuses `name` on this OS, if it does.
 pub fn unavailable(name: &str) -> Option<ControlError> {
     unavailable_under(name, crate::policy::Policy::current())
 }
 
 fn unavailable_under(name: &str, policy: crate::policy::Policy) -> Option<ControlError> {
-    let name = canonical(name);
     if let Some(lock) = policy.setting_lock(name) {
         return Some(managed(name, lock));
     }
     if name.starts_with("screenshots.") || name == "capture.replay_hotkey" {
         return Some(ControlError::new(
             "unsupported",
-            format!("`{name}` belongs to a feature Hex no longer has"),
+            format!("`{name}` belongs to a feature Agent-Desk no longer has"),
         ));
     }
     if name == "extra_dictation_hotkeys" && !cfg!(target_os = "macos") {
@@ -65,7 +64,7 @@ fn unavailable_under(name: &str, policy: crate::policy::Policy) -> Option<Contro
     Some(ControlError::new(
         "unsupported",
         format!(
-            "`{name}` does nothing on this OS: it needs {capability}, which Hex has only elsewhere"
+            "`{name}` does nothing on this OS: it needs {capability}, which Agent-Desk has only elsewhere"
         ),
     ))
 }
@@ -82,11 +81,11 @@ fn keys() -> impl Iterator<Item = &'static Key> {
     KEYS.iter().chain(CAPTURE_KEYS)
 }
 
-/// Settings `hex settings` never shows: Hex's own bookkeeping.
+/// Settings `agent-desk settings` never shows: Agent-Desk's own bookkeeping.
 #[cfg(test)]
 const INTERNAL: &[&str] = &["migrations"];
 
-/// Settings another `hex` command edits instead (`hex vocabulary`).
+/// Settings another `agent-desk` command edits instead (`agent-desk vocabulary`).
 #[cfg(test)]
 const OWN_COMMAND: &[&str] = &["vocabulary"];
 
@@ -139,7 +138,7 @@ fn recognition_hints(settings: &AppSettings) -> SettingValue {
         kind: Kind::Text.name().into(),
         choices: Vec::new(),
         writable: true,
-        about: "Deprecated: the vocabulary's terms; setting it adds names to the vocabulary                 (use `hex vocabulary`)"
+        about: "Deprecated: the vocabulary's terms; setting it adds names to the vocabulary                 (use `agent-desk vocabulary`)"
             .into(),
         available: true,
     }
@@ -153,7 +152,6 @@ pub fn list(settings: &AppSettings) -> Vec<SettingValue> {
 
 /// One setting, or every setting under a prefix such as `meetings`.
 pub fn get(settings: &AppSettings, name: &str) -> Result<Vec<SettingValue>, ControlError> {
-    let name = canonical(name);
     if name == RECOGNITION_HINTS {
         return Ok(vec![recognition_hints(settings)]);
     }
@@ -170,21 +168,6 @@ pub fn get(settings: &AppSettings, name: &str) -> Result<Vec<SettingValue>, Cont
 }
 
 fn unknown(name: &str) -> ControlError {
-    if name == "labs" || name.starts_with("labs.") {
-        return ControlError::new(
-            "unknown-setting",
-            format!(
-                "`{name}`: Labs is gone. Its features are always on now, or became \
-                 `preferences.*` settings; run `hex settings get preferences` for those."
-            ),
-        );
-    }
-    if let Some((_, replacement)) = RETIRED.iter().find(|(retired, _)| *retired == name) {
-        return ControlError::new(
-            "unknown-setting",
-            format!("`{name}` was replaced: use `hex settings set {replacement}`"),
-        );
-    }
     let near = keys()
         .map(|key| key.key)
         .find(|key| {
@@ -196,7 +179,7 @@ fn unknown(name: &str) -> ControlError {
         .unwrap_or_default();
     ControlError::new(
         "unknown-setting",
-        format!("unknown setting `{name}`.{near} Run `hex settings list` for every key."),
+        format!("unknown setting `{name}`.{near} Run `agent-desk settings list` for every key."),
     )
 }
 
@@ -242,7 +225,6 @@ pub fn apply(
     raw: &str,
     shortcuts: &ShortcutRules,
 ) -> Result<Change, ControlError> {
-    let name = canonical(name);
     if name == RECOGNITION_HINTS {
         let mut candidate = settings.clone();
         crate::dictation::vocabulary::fold_hints(&mut candidate.vocabulary, raw);
@@ -250,7 +232,7 @@ pub fn apply(
             settings: candidate,
             effects: Vec::new(),
             message: "Added the names to the vocabulary (transcription.recognition_hints is \
-                      deprecated; use `hex vocabulary`)"
+                      deprecated; use `agent-desk vocabulary`)"
                 .into(),
         });
     }
@@ -438,10 +420,10 @@ pub fn apply(
 }
 
 /// Validates every `key: value` in `values` against `settings` and returns
-/// the settings to save, all or none (`hex settings apply`, the Home Manager
+/// the settings to save, all or none (`agent-desk settings apply`, the Home Manager
 /// module). Values are JSON: booleans, numbers, `null` for `none`, objects
 /// and arrays for json settings, text for the rest. `transcription.model`
-/// and `transcription.language` select a model, as `hex model use` would,
+/// and `transcription.language` select a model, as `agent-desk model use` would,
 /// without needing it installed. Keys that depend on each other (a
 /// double-tap-only start and its shortcut) apply in any order.
 pub fn apply_all(
@@ -482,7 +464,7 @@ pub fn apply_all(
             continue;
         }
         let key = keys()
-            .find(|key| key.key == canonical(name))
+            .find(|key| key.key == name)
             .ok_or_else(|| unknown(name))?;
         let raw = match (key.kind, value) {
             (Kind::Json, value) => value.to_string(),
@@ -644,13 +626,6 @@ mod tests {
         assert!(unavailable_under("preferences.live_text", policy).is_none());
     }
 
-    #[test]
-    fn a_labs_key_says_labs_is_gone() {
-        let error = apply(&AppSettings::default(), "labs.live_text", "on", &rules()).unwrap_err();
-        assert_eq!(error.code, "unknown-setting");
-        assert!(error.message.contains("Labs is gone"), "{}", error.message);
-    }
-
     fn rules() -> ShortcutRules {
         ShortcutRules {
             key_named: |name| match name.to_ascii_lowercase().as_str() {
@@ -758,9 +733,9 @@ mod tests {
         }
     }
 
-    /// Fails when a persisted setting has no `hex settings` key: add one to
-    /// `KEYS` (or to `INTERNAL` if it is Hex's own bookkeeping, or to
-    /// `OWN_COMMAND` if another `hex` command edits it).
+    /// Fails when a persisted setting has no `agent-desk settings` key: add one to
+    /// `KEYS` (or to `INTERNAL` if it is Agent-Desk's own bookkeeping, or to
+    /// `OWN_COMMAND` if another `agent-desk` command edits it).
     #[test]
     fn every_persisted_setting_has_a_cli_key() {
         // Lists left empty and unchosen options are left out of the file;
@@ -789,7 +764,7 @@ mod tests {
                 .any(|key| path == key || path.starts_with(&format!("{key}.")));
             assert!(
                 covered,
-                "settings.json has `{path}`, which `hex settings` can't name"
+                "settings.json has `{path}`, which `agent-desk settings` can't name"
             );
         }
         for key in keys() {
@@ -1112,32 +1087,16 @@ mod tests {
             get(&change.settings, "meetings.summaries").unwrap()[0].value,
             "opencode"
         );
-        let retired = apply(
-            &settings,
+        // Old names are unknown: settings.json was renamed once when the
+        // Agent-Desk folder moved (`app_paths::rewrite_renamed_settings`).
+        for old in [
             "meetings.summarize_with_opencode",
-            "on",
-            &rules(),
-        )
-        .unwrap_err();
-        assert!(retired.message.contains("meetings.summaries opencode"));
-        // Renamed keys answer to their old names too, as the new key.
-        for (old, new) in [
-            (
-                "assistant.background_front_window",
-                "assistant.full_control",
-            ),
-            ("assistant.agent_space", "assistant.park_windows"),
-            (
-                "assistant.physical_input",
-                "assistant.background_physical_input",
-            ),
+            "assistant.background_front_window",
+            "assistant.agent_space",
+            "assistant.physical_input",
         ] {
-            let change = apply(&settings, old, "off", &rules()).unwrap();
-            assert_eq!(change.message, format!("Set {new}"));
-            let value = &get(&change.settings, old).unwrap()[0];
-            assert_eq!(value.key, new);
-            assert_eq!(value.value, false);
-            assert!(list(&settings).iter().all(|setting| setting.key != old));
+            let error = apply(&settings, old, "off", &rules()).unwrap_err();
+            assert_eq!(error.code, "unknown-setting", "{old}");
         }
         let change = apply(&settings, "assistant.full_control", "off", &rules()).unwrap();
         assert!(!change.settings.assistant.full_control);

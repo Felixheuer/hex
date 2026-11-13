@@ -34,7 +34,7 @@ impl AfterDictation {
 }
 
 /// Caps Lock as a dictation key (macOS): off, or on with its light steady or
-/// blinking slowly while Hex records.
+/// blinking slowly while Agent-Desk records.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CapsLockMode {

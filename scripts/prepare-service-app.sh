@@ -3,7 +3,7 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$root/scripts/macos-signing.sh"
-: "${HEX_NOTARY_PROFILE:?Set HEX_NOTARY_PROFILE to the matching notarization profile}"
+: "${AGENT_DESK_NOTARY_PROFILE:?Set AGENT_DESK_NOTARY_PROFILE to the matching notarization profile}"
 version=$(hex_version "$root")
 arch=$(uname -m)
 dist="$root/dist/service"

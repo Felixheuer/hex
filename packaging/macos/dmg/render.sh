@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-# Regenerates the installer window from background.html: Hex's keycap
+# Regenerates the installer window from background.html: Agent-Desk's keycap
 # (src/rune_ui/dmg_keycap.rs, drawn with Rune), background.tiff (1× and 2×),
 # and DS_Store (the Finder layout). Needs macOS, a Chromium-family browser
 # (CHROME, else Google Chrome or Brave), and uv.
@@ -16,7 +16,7 @@ done
 work=$(mktemp -d "${TMPDIR:-/tmp}/hex-dmg.XXXXXX")
 trap 'hdiutil detach -quiet "$work/mnt" 2>/dev/null || true; rm -rf "$work"' EXIT HUP INT TERM
 
-(cd "$root" && cargo test --locked --bin hex \
+(cd "$root" && cargo test --locked --bin agent-desk \
   rune_ui::dmg_keycap::render -- --ignored --exact)
 
 for scale in 1 2; do
@@ -27,8 +27,8 @@ done
 tiffutil -cathidpicheck "$work/background@1x.png" "$work/background@2x.png" \
   -out "$here/background.tiff" >/dev/null 2>&1
 
-mkdir "$work/Hex.app"
+mkdir "$work/Agent-Desk.app"
 uv run --quiet --with dmgbuild==1.6.7 dmgbuild -s "$here/layout.py" \
-  -D app="$work/Hex.app" -D background="$here/background.tiff" Hex "$work/layout.dmg"
+  -D app="$work/Agent-Desk.app" -D background="$here/background.tiff" Agent-Desk "$work/layout.dmg"
 hdiutil attach -quiet -nobrowse -readonly -mountpoint "$work/mnt" "$work/layout.dmg"
 cp "$work/mnt/.DS_Store" "$here/DS_Store"

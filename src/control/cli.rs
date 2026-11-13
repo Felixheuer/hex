@@ -1,10 +1,10 @@
-//! The `hex` control client: parses a command, sends it to the running Hex,
+//! The `agent-desk` control client: parses a command, sends it to the running Agent-Desk,
 //! and prints the answer for a person or, with `--json`, the versioned reply.
 //!
 //! Exit codes: 0 when the command ran (or there was nothing to change), 1
-//! when Hex refused or failed it, 2 for usage errors (clap), 3 when Hex
-//! isn't running, and 4 when `dictation stop --print` or `hex transcribe`
-//! heard no speech. Nothing here launches Hex except `start` and `restart`.
+//! when Agent-Desk refused or failed it, 2 for usage errors (clap), 3 when Agent-Desk
+//! isn't running, and 4 when `dictation stop --print` or `agent-desk transcribe`
+//! heard no speech. Nothing here launches Agent-Desk except `start` and `restart`.
 
 use std::io::Write;
 mod human;
@@ -28,10 +28,10 @@ pub struct Output {
     pub json: bool,
 }
 
-/// The control commands at the top of `hex`.
+/// The control commands at the top of `agent-desk`.
 #[derive(Subcommand, Debug)]
 pub enum ControlCli {
-    /// Show what the running Hex is doing.
+    /// Show what the running Agent-Desk is doing.
     ///
     /// Recording, meeting, model, features, permissions, window, version,
     /// pid, and memory footprint.
@@ -39,12 +39,12 @@ pub enum ControlCli {
         #[command(flatten)]
         output: Output,
     },
-    /// Open Hex if it isn't running, and wait until it answers.
+    /// Open Agent-Desk if it isn't running, and wait until it answers.
     Start {
         #[command(flatten)]
         output: Output,
     },
-    /// Quit Hex.
+    /// Quit Agent-Desk.
     ///
     /// Refused while a meeting or dictation is in progress unless --force.
     Quit {
@@ -54,7 +54,7 @@ pub enum ControlCli {
         #[command(flatten)]
         output: Output,
     },
-    /// Quit and reopen Hex (or open it if it isn't running).
+    /// Quit and reopen Agent-Desk (or open it if it isn't running).
     Restart {
         /// Restart even while recording; the recording is lost.
         #[arg(long)]
@@ -102,7 +102,7 @@ pub enum ControlCli {
     Transcribe {
         /// The WAV file to transcribe.
         file: std::path::PathBuf,
-        /// A model id from `hex model list` (default: the selected model).
+        /// A model id from `agent-desk model list` (default: the selected model).
         #[arg(long)]
         model: Option<String>,
         /// A language the model supports (default: the saved language).
@@ -131,7 +131,7 @@ pub enum ControlCli {
         #[command(subcommand)]
         command: ModelCommand,
     },
-    /// Open the Hex window at a pane, or close it.
+    /// Open the Agent-Desk window at a pane, or close it.
     Window {
         #[command(subcommand)]
         command: WindowCommand,
@@ -141,7 +141,7 @@ pub enum ControlCli {
         #[command(subcommand)]
         command: OnboardingCommand,
     },
-    /// Check for a Hex update now; Hex shows what it finds.
+    /// Check for an Agent-Desk update now; Agent-Desk shows what it finds.
     CheckForUpdates {
         #[command(flatten)]
         output: Output,
@@ -159,11 +159,11 @@ pub enum ControlCli {
         command: VocabularyCommand,
     },
     /// Read retained dictation history without starting the app, or clear
-    /// it in the running Hex (`hex history clear --yes`).
+    /// it in the running Agent-Desk (`agent-desk history clear --yes`).
     #[command(args_conflicts_with_subcommands = true)]
     History(crate::control::transcript_cli::HistoryArgs),
     /// Read and search recorded meetings without starting the app; record
-    /// and stop them in the running Hex.
+    /// and stop them in the running Agent-Desk.
     Meetings {
         #[command(subcommand)]
         command: crate::control::transcript_cli::MeetingsCommand,
@@ -175,17 +175,10 @@ pub enum ControlCli {
         #[arg(long)]
         meetings_dir: Option<std::path::PathBuf>,
     },
-    /// Manage the ~/.config/hex personal transformations workspace.
+    /// Manage the ~/.config/agent-desk personal transformations workspace.
     Commands {
         #[command(subcommand)]
         command: CommandsCommand,
-    },
-    /// Retired: Labs is gone (its features are always on or are
-    /// `preferences.*` settings). `hex experiments` was its older name.
-    #[command(hide = true, alias = "experiments")]
-    Labs {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
     },
     /// The assistant: ask one question here and print what happens, or
     /// list saved conversations.
@@ -194,7 +187,7 @@ pub enum ControlCli {
         #[command(subcommand)]
         command: crate::assistant::cli::AssistantCommand,
     },
-    /// Agent-Desk's benchmark: ask ~25 typical tasks of the running Hex Dev,
+    /// Agent-Desk's benchmark: ask ~25 typical tasks of the running Agent-Desk Dev,
     /// check them by machine, and compare with the run before
     /// (docs/bench.md).
     Bench {
@@ -202,14 +195,14 @@ pub enum ControlCli {
         command: crate::bench::BenchCommand,
     },
     /// Annotate: record your screen with drawing and narration in the
-    /// running Hex, then list and send what you recorded (`hex capture`
+    /// running Agent-Desk, then list and send what you recorded (`agent-desk capture`
     /// still works).
     #[command(name = "annotate", alias = "capture")]
     Annotate {
         #[command(subcommand)]
         command: CaptureCommand,
     },
-    /// Print Hex's recent log lines; works without Hex running.
+    /// Print Agent-Desk's recent log lines; works without Agent-Desk running.
     Logs {
         /// Read process.log (Rust and native diagnostics) instead of the
         /// live.ndjson event log.
@@ -226,9 +219,9 @@ pub enum ControlCli {
 
 #[derive(Subcommand, Debug)]
 pub enum CommandsCommand {
-    /// Create ~/.config/hex with a starter config, or refresh its typings.
+    /// Create ~/.config/agent-desk with a starter config, or refresh its typings.
     Init,
-    /// Load ~/.config/hex's config as Hex would and report what it registers
+    /// Load ~/.config/agent-desk's config as Agent-Desk would and report what it registers
     /// or why it fails.
     Check,
 }
@@ -261,7 +254,7 @@ pub enum SettingsCommand {
     ///
     /// Values are JSON (`true`, `0.4`, `"option+space"`, `null` for none);
     /// `transcription.model` and `transcription.language` select a model
-    /// without downloading it. With Hex stopped, writes settings.json
+    /// without downloading it. With Agent-Desk stopped, writes settings.json
     /// directly.
     Apply {
         /// A JSON file, or `-` for standard input.
@@ -280,7 +273,7 @@ pub enum ModelCommand {
     },
     /// Switch to an installed model. Never downloads.
     Use {
-        /// A model id from `hex model list`.
+        /// A model id from `agent-desk model list`.
         model: String,
         /// A language the model supports (default: its best match for the
         /// current language).
@@ -290,7 +283,7 @@ pub enum ModelCommand {
         output: Output,
     },
     /// Download a model, then switch to it. Without a model, the selected
-    /// one. On Linux and Windows it downloads here when Hex isn't running.
+    /// one. On Linux and Windows it downloads here when Agent-Desk isn't running.
     Install {
         model: Option<String>,
         #[arg(long)]
@@ -310,7 +303,7 @@ pub enum ModelCommand {
         #[arg(long)]
         language: Option<String>,
     },
-    /// The transcribe.cpp compute devices Hex can use. Linux and Windows.
+    /// The transcribe.cpp compute devices Agent-Desk can use. Linux and Windows.
     Devices,
     /// Load and prewarm an installed model here. Linux and Windows.
     Check {
@@ -326,7 +319,7 @@ pub enum ModelCommand {
         #[arg(long)]
         language: Option<String>,
     },
-    /// Copy a GGUF speech model into Hex after checking its header,
+    /// Copy a GGUF speech model into Agent-Desk after checking its header,
     /// and print its id. The original is left as it is.
     Import {
         path: std::path::PathBuf,
@@ -336,10 +329,10 @@ pub enum ModelCommand {
     },
     /// Rename an imported or found model.
     Rename { model: String, name: String },
-    /// Check Hex's copy of an import (or a found file) again; a copy whose contents
+    /// Check Agent-Desk's copy of an import (or a found file) again; a copy whose contents
     /// still match is ready again.
     Repair { model: String },
-    /// Remove Hex's copy of an imported model, or forget a found one (its file stays).
+    /// Remove Agent-Desk's copy of an imported model, or forget a found one (its file stays).
     Remove { model: String },
 }
 
@@ -365,7 +358,7 @@ pub enum WindowCommand {
         #[command(flatten)]
         output: Output,
     },
-    /// Close the window. Hex keeps running in the menu bar.
+    /// Close the window. Agent-Desk keeps running in the menu bar.
     Hide {
         #[command(flatten)]
         output: Output,
@@ -458,7 +451,7 @@ pub fn run(command: ControlCli) -> u8 {
             output,
         } => {
             if let Err(error) = super::check_flags(action, print, raw) {
-                eprintln!("hex: {}", error.message);
+                eprintln!("agent-desk: {}", error.message);
                 return 2;
             }
             send(ControlCommand::Dictation { action, print, raw }, output)
@@ -508,7 +501,7 @@ pub fn run(command: ControlCli) -> u8 {
                     == crate::transcription::models::TranscriptionModelId::Custom(id)
                 {
                     color_eyre::eyre::bail!(
-                        "{} is the selected model; choose another with `hex model use` first",
+                        "{} is the selected model; choose another with `agent-desk model use` first",
                         id.as_str()
                     );
                 }
@@ -583,17 +576,13 @@ pub fn run(command: ControlCli) -> u8 {
                 crate::personal_commands::check_workspace().map(|report| println!("{report}"))
             }
         }),
-        ControlCli::Labs { .. } => report(Err(color_eyre::eyre::eyre!(
-            "Labs is gone: its features are always on now, or are settings \
-             (`hex settings get preferences`)"
-        ))),
         ControlCli::Assistant { command } => crate::assistant::cli::run(command),
         ControlCli::Bench { command } => crate::bench::run(command),
         ControlCli::Annotate { command } => capture(command),
     }
 }
 
-/// `hex model install`: the running Hex downloads in the background;
+/// `agent-desk model install`: the running Agent-Desk downloads in the background;
 /// without one, Linux and Windows download and select here.
 fn install_model(model: Option<String>, language: Option<String>, output: Output) -> u8 {
     let model = match model {
@@ -620,10 +609,10 @@ fn install_model(model: Option<String>, language: Option<String>, output: Output
     send(ControlCommand::ModelInstall { model, language }, output)
 }
 
-/// `model install` with no Hex running: make the switch the app would have
-/// made. A Hex that started while the model downloaded takes the choice;
+/// `model install` with no Agent-Desk running: make the switch the app would have
+/// made. An Agent-Desk that started while the model downloaded takes the choice;
 /// otherwise it is saved under the service lock `settings apply` uses, so a
-/// starting Hex is never written behind. An unchanged selection needs neither.
+/// starting Agent-Desk is never written behind. An unchanged selection needs neither.
 #[cfg(not(target_os = "macos"))]
 fn select_installed(
     selection: &crate::transcription::models::TranscriptionSelection,
@@ -652,19 +641,19 @@ fn select_installed(
         Handoff::Done(code) => code,
         #[cfg(target_os = "linux")]
         Handoff::OlderHex => fail(&format!(
-            "the model is installed, but an older Hex is still running; \
-             run `hex restart`, then `hex model use {}`",
+            "the model is installed, but an older Agent-Desk is still running; \
+             run `agent-desk restart`, then `agent-desk model use {}`",
             selection.model.as_str()
         )),
         Handoff::Deadline => fail(&format!(
-            "the model is installed, but Hex is starting and holds its settings; \
-             run `hex model use {}` once it answers",
+            "the model is installed, but Agent-Desk is starting and holds its settings; \
+             run `agent-desk model use {}` once it answers",
             selection.model.as_str()
         )),
     }
 }
 
-/// Hands a downloaded model to a Hex that started while it downloaded.
+/// Hands a downloaded model to an Agent-Desk that started while it downloaded.
 #[cfg(not(target_os = "macos"))]
 fn select_in_running_hex(
     selection: &crate::transcription::models::TranscriptionSelection,
@@ -697,8 +686,8 @@ fn save_selection(
     Ok(format!("Switched to {name} ({})", selection.language))
 }
 
-/// `hex model import`: checks, copies, and records the file here, in this
-/// process; a running Hex lists it at once.
+/// `agent-desk model import`: checks, copies, and records the file here, in this
+/// process; a running Agent-Desk lists it at once.
 fn import_model(path: &std::path::Path, name: Option<&str>) -> color_eyre::Result<()> {
     use crate::transcription::custom_models;
     let id = custom_models::import(path, name, &std::sync::atomic::AtomicBool::new(false))?;
@@ -713,7 +702,7 @@ fn imported(model: &str) -> color_eyre::Result<crate::transcription::models::Cus
     crate::transcription::models::CustomModelId::parse(model)
         .filter(|id| custom_models::is_registered(*id))
         .ok_or_else(|| {
-            color_eyre::eyre::eyre!("no imported model is {model}; run `hex model list`")
+            color_eyre::eyre::eyre!("no imported model is {model}; run `agent-desk model list`")
         })
 }
 
@@ -730,7 +719,7 @@ fn selection(
         .map_err(|error| color_eyre::eyre::eyre!(error.message))
 }
 
-/// `hex model status|devices|check|transcribe`, run in this process.
+/// `agent-desk model status|devices|check|transcribe`, run in this process.
 #[cfg(not(target_os = "macos"))]
 fn offline_model(command: ModelCommand) -> u8 {
     use crate::transcription::models::{definition, is_installed, is_verified, model_path};
@@ -779,7 +768,7 @@ fn offline_model(command: ModelCommand) -> u8 {
             );
             Ok(())
         }
-        _ => unreachable!("Hex carries out the other model commands"),
+        _ => unreachable!("Agent-Desk carries out the other model commands"),
     })())
 }
 
@@ -789,13 +778,13 @@ fn offline_model(_: ModelCommand) -> u8 {
     print(
         ControlReply::error(
             "unsupported",
-            "this `hex model` command is for Linux and Windows; use `hex model list`",
+            "this `agent-desk model` command is for Linux and Windows; use `agent-desk model list`",
         ),
         Output::default(),
     )
 }
 
-/// The exit code of a command that runs here rather than in Hex.
+/// The exit code of a command that runs here rather than in Agent-Desk.
 fn report(result: color_eyre::Result<()>) -> u8 {
     match result {
         Ok(()) => 0,
@@ -803,7 +792,7 @@ fn report(result: color_eyre::Result<()>) -> u8 {
     }
 }
 
-/// `hex meetings`: record, stop, and copy in the running Hex; the rest
+/// `agent-desk meetings`: record, stop, and copy in the running Agent-Desk; the rest
 /// read the meetings folder here.
 fn meetings(command: crate::control::transcript_cli::MeetingsCommand) -> u8 {
     use crate::control::transcript_cli::MeetingsCommand;
@@ -817,14 +806,14 @@ fn meetings(command: crate::control::transcript_cli::MeetingsCommand) -> u8 {
     }
 }
 
-/// `hex mcp`: logs to stderr only (stdout carries MCP messages) and touches
+/// `agent-desk mcp`: logs to stderr only (stdout carries MCP messages) and touches
 /// no app state.
 fn mcp(meetings_dir: Option<std::path::PathBuf>) -> color_eyre::Result<()> {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_ansi(false)
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_env("HEX_MCP_LOG")
+            tracing_subscriber::EnvFilter::try_from_env("AGENT_DESK_MCP_LOG")
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
         )
         .init();
@@ -835,7 +824,7 @@ fn mcp(meetings_dir: Option<std::path::PathBuf>) -> color_eyre::Result<()> {
     crate::meeting::mcp::run(root)
 }
 
-/// `hex annotate` (alias `hex capture`).
+/// `agent-desk annotate` (alias `agent-desk capture`).
 #[derive(Subcommand, Debug)]
 pub enum CaptureCommand {
     /// Start recording a capture.
@@ -935,10 +924,10 @@ pub enum CaptureCommand {
     },
 }
 
-/// Runs `hex capture`: on macOS through the running Hex; on Linux the
+/// Runs `agent-desk capture`: on macOS through the running Agent-Desk; on Linux the
 /// folder reads (`list`, `show`, `route`, `send`) run here, and the
-/// recording commands go to the running Hex's listener; on Windows every
-/// command goes to the running Hex. A build without the capture engine
+/// recording commands go to the running Agent-Desk's listener; on Windows every
+/// command goes to the running Agent-Desk. A build without the capture engine
 /// answers `unsupported`.
 pub fn capture(command: CaptureCommand) -> u8 {
     use crate::control::{ControlCommand as C, ScrawlCaptureAction as A};
@@ -1007,7 +996,7 @@ pub fn capture(command: CaptureCommand) -> u8 {
         let reply = match command {
             C::ScrawlCaptureList { limit } => crate::capture_host::list_captures(limit),
             C::ScrawlCaptureShow { capture } => crate::capture_host::show_capture(&capture),
-            // The running Hex's router sends, so its Undo can take it back.
+            // The running Agent-Desk's router sends, so its Undo can take it back.
             C::ScrawlCaptureSend {
                 capture,
                 to,
@@ -1037,21 +1026,21 @@ pub fn settings(command: SettingsCommand) -> u8 {
     }
 }
 
-/// How handing settings to a running Hex went, or why it couldn't wait.
+/// How handing settings to a running Agent-Desk went, or why it couldn't wait.
 enum Handoff {
-    /// The running Hex took the work, or the lock was free and the work was
+    /// The running Agent-Desk took the work, or the lock was free and the work was
     /// written here; holds that command's exit code.
     Done(u8),
-    /// On Linux, a Hex too old for `hex` commands answers on its socket.
+    /// On Linux, an Agent-Desk too old for `agent-desk` commands answers on its socket.
     #[cfg(target_os = "linux")]
     OlderHex,
-    /// A Hex held the settings lock and didn't answer before the deadline.
+    /// An Agent-Desk held the settings lock and didn't answer before the deadline.
     Deadline,
 }
 
-/// `settings apply`'s wait, shared with `model install`: a Hex that holds the
+/// `settings apply`'s wait, shared with `model install`: an Agent-Desk that holds the
 /// service lock may have read settings.json already, so hand the work to the
-/// Hex that answers (`send`), or write it here while the lock is held
+/// Agent-Desk that answers (`send`), or write it here while the lock is held
 /// (`write`). Only a lock that never answers gives up.
 fn hand_off(send: impl FnOnce() -> u8, write: impl FnOnce() -> u8) -> Handoff {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(35);
@@ -1059,7 +1048,7 @@ fn hand_off(send: impl FnOnce() -> u8, write: impl FnOnce() -> u8) -> Handoff {
         if running() {
             return Handoff::Done(send());
         }
-        // A Hex that holds the service lock may have read settings.json
+        // An Agent-Desk that holds the service lock may have read settings.json
         // already; wait for it to answer instead of writing behind it.
         #[cfg(target_os = "linux")]
         let lock = crate::desktop::instance::acquire("service");
@@ -1076,8 +1065,8 @@ fn hand_off(send: impl FnOnce() -> u8, write: impl FnOnce() -> u8) -> Handoff {
     }
 }
 
-/// `hex settings apply`: the running Hex saves and adopts the settings, so
-/// it never overwrites them from memory; with no Hex running they are
+/// `agent-desk settings apply`: the running Agent-Desk saves and adopts the settings, so
+/// it never overwrites them from memory; with no Agent-Desk running they are
 /// written to settings.json here.
 fn apply_settings(file: &std::path::Path, output: Output) -> u8 {
     use std::io::Read;
@@ -1113,7 +1102,7 @@ fn apply_settings(file: &std::path::Path, output: Output) -> u8 {
         Handoff::Deadline => print(
             ControlReply::error(
                 "busy",
-                "Hex is starting but didn't answer; run `hex settings apply` again",
+                "Agent-Desk is starting but didn't answer; run `agent-desk settings apply` again",
             ),
             output,
         ),
@@ -1141,7 +1130,7 @@ fn apply_offline(values: &serde_json::Map<String, serde_json::Value>) -> Control
     result.unwrap_or_else(ControlReply::from)
 }
 
-/// `hex history clear`; the confirmation is asked here, before Hex is.
+/// `agent-desk history clear`; the confirmation is asked here, before Agent-Desk is.
 pub fn clear_history(confirm: bool, output: Output) -> u8 {
     if !confirm {
         return print(
@@ -1162,7 +1151,7 @@ pub fn send(command: ControlCommand, output: Output) -> u8 {
     }
 }
 
-/// Every OS reaches the running Hex through its local API's owner-only
+/// Every OS reaches the running Agent-Desk through its local API's owner-only
 /// discovery file and bearer-authenticated `POST /control`.
 fn running() -> bool {
     crate::local_api::running_pid().is_some()
@@ -1177,10 +1166,13 @@ fn call(request: ControlRequest) -> Result<ControlResponse, ControlReply> {
 }
 
 pub(crate) fn not_running() -> ControlReply {
-    ControlReply::error("not-running", "Hex is not running; run `hex start`")
+    ControlReply::error(
+        "not-running",
+        "Agent-Desk is not running; run `agent-desk start`",
+    )
 }
 
-/// Why no Hex answered `/control`: on Linux an older Hex an update left
+/// Why no Agent-Desk answered `/control`: on Linux an older Agent-Desk an update left
 /// running answers only on its socket (#915).
 fn absent() -> ControlReply {
     #[cfg(target_os = "linux")]
@@ -1190,17 +1182,17 @@ fn absent() -> ControlReply {
     not_running()
 }
 
-/// An older Hex that predates `hex` commands over the local API.
+/// An older Agent-Desk that predates `agent-desk` commands over the local API.
 #[cfg(target_os = "linux")]
 fn older_hex() -> ControlReply {
     ControlReply::error(
         "outdated",
-        "an older Hex is still running (Hex was updated) and doesn't take `hex` commands; run `hex restart`",
+        "an older Agent-Desk is still running (Agent-Desk was updated) and doesn't take `agent-desk` commands; run `agent-desk restart`",
     )
 }
 
-/// `hex restart` with an older Hex running: restarts its systemd unit into
-/// the installed build, then waits until the new Hex answers.
+/// `agent-desk restart` with an older Agent-Desk running: restarts its systemd unit into
+/// the installed build, then waits until the new Agent-Desk answers.
 #[cfg(target_os = "linux")]
 fn restart_older_hex() -> ControlReply {
     use std::time::{Duration, Instant};
@@ -1208,7 +1200,7 @@ fn restart_older_hex() -> ControlReply {
     if !crate::linux::service::supervised() {
         return ControlReply::error(
             "failed",
-            "an older Hex is running outside its systemd unit; quit it from its window or tray, then run `hex start`",
+            "an older Agent-Desk is running outside its systemd unit; quit it from its window or tray, then run `agent-desk start`",
         );
     }
     if let Err(error) = crate::linux::service::restart() {
@@ -1217,11 +1209,11 @@ fn restart_older_hex() -> ControlReply {
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(20) {
         if running() {
-            return ControlReply::done("Restarted Hex");
+            return ControlReply::done("Restarted Agent-Desk");
         }
         std::thread::sleep(Duration::from_millis(200));
     }
-    ControlReply::done("Restarted Hex; it isn't answering yet (it may be loading its model)")
+    ControlReply::done("Restarted Agent-Desk; it isn't answering yet (it may be loading its model)")
 }
 
 #[cfg(target_os = "macos")]
@@ -1230,7 +1222,7 @@ fn start(output: Output) -> u8 {
 
     if let Some(pid) = crate::local_api::running_pid() {
         return print(
-            ControlReply::unchanged(format!("Hex is already running (pid {pid})")),
+            ControlReply::unchanged(format!("Agent-Desk is already running (pid {pid})")),
             output,
         );
     }
@@ -1246,7 +1238,7 @@ fn start(output: Output) -> u8 {
         Ok(status) if status.success() => {}
         Ok(_) | Err(_) => {
             return print(
-                ControlReply::error("failed", "couldn't open Hex.app; is it installed?"),
+                ControlReply::error("failed", "couldn't open Agent-Desk.app; is it installed?"),
                 output,
             );
         }
@@ -1255,20 +1247,20 @@ fn start(output: Output) -> u8 {
     while started.elapsed() < Duration::from_secs(20) {
         if let Some(pid) = crate::local_api::running_pid() {
             return print(
-                ControlReply::done(format!("Started Hex (pid {pid})")),
+                ControlReply::done(format!("Started Agent-Desk (pid {pid})")),
                 output,
             );
         }
         std::thread::sleep(Duration::from_millis(200));
     }
     print(
-        ControlReply::done("Opened Hex; it isn't answering yet (setup may be waiting)"),
+        ControlReply::done("Opened Agent-Desk; it isn't answering yet (setup may be waiting)"),
         output,
     )
 }
 
-/// `hex start` on Linux and Windows: a detached `hex app --hidden`, which
-/// forwards to the running Hex, starts its systemd unit, or becomes Hex,
+/// `agent-desk start` on Linux and Windows: a detached `agent-desk app --hidden`, which
+/// forwards to the running Agent-Desk, starts its systemd unit, or becomes Agent-Desk,
 /// then waits until it answers.
 #[cfg(not(target_os = "macos"))]
 fn start(output: Output) -> u8 {
@@ -1280,7 +1272,7 @@ fn start_reply() -> ControlReply {
     use std::time::{Duration, Instant};
 
     if running() {
-        return ControlReply::unchanged("Hex is already running");
+        return ControlReply::unchanged("Agent-Desk is already running");
     }
     #[cfg(target_os = "linux")]
     if crate::linux::service::instance_answers() {
@@ -1306,19 +1298,19 @@ fn start_reply() -> ControlReply {
         command.creation_flags(0x0000_0008 | 0x0000_0200);
     }
     if let Err(error) = command.spawn() {
-        return ControlReply::error("failed", format!("couldn't start Hex: {error}"));
+        return ControlReply::error("failed", format!("couldn't start Agent-Desk: {error}"));
     }
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(20) {
         if running() {
-            return ControlReply::done("Started Hex");
+            return ControlReply::done("Started Agent-Desk");
         }
         std::thread::sleep(Duration::from_millis(200));
     }
-    ControlReply::done("Started Hex; it isn't answering yet (it may be loading its model)")
+    ControlReply::done("Started Agent-Desk; it isn't answering yet (it may be loading its model)")
 }
 
-/// After a restart's quit on Linux and Windows: waits for the old Hex to
+/// After a restart's quit on Linux and Windows: waits for the old Agent-Desk to
 /// go, then starts the new one. A Linux unit restarts by itself.
 #[cfg(not(target_os = "macos"))]
 fn reopen_after_restart() -> ControlReply {
@@ -1326,14 +1318,14 @@ fn reopen_after_restart() -> ControlReply {
 
     #[cfg(target_os = "linux")]
     if crate::linux::service::supervised() {
-        return ControlReply::done("Restarting Hex");
+        return ControlReply::done("Restarting Agent-Desk");
     }
     let started = Instant::now();
     while running() {
         if started.elapsed() > Duration::from_secs(30) {
             return ControlReply::error(
                 "failed",
-                "Hex is still finishing its work; run `hex start` once it quits",
+                "Agent-Desk is still finishing its work; run `agent-desk start` once it quits",
             );
         }
         std::thread::sleep(Duration::from_millis(200));
@@ -1341,8 +1333,8 @@ fn reopen_after_restart() -> ControlReply {
     start_reply()
 }
 
-/// `open` arguments for `hex start`: the caller's `HEX_*` environment, then
-/// the Hex.app this `hex` belongs to, or the installed app by bundle id.
+/// `open` arguments for `agent-desk start`: the caller's `AGENT_DESK_*` environment, then
+/// the Agent-Desk.app this `agent-desk` belongs to, or the installed app by bundle id.
 #[cfg(target_os = "macos")]
 fn open_arguments(
     bundle: Option<&std::path::Path>,
@@ -1357,7 +1349,7 @@ fn open_arguments(
     arguments
 }
 
-/// The Hex.app this `hex` belongs to, when it runs from (or links into) one.
+/// The Agent-Desk.app this `agent-desk` belongs to, when it runs from (or links into) one.
 #[cfg(target_os = "macos")]
 fn installed_bundle() -> Option<std::path::PathBuf> {
     let executable = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
@@ -1451,7 +1443,7 @@ fn logs(process: bool, lines: usize, follow: bool) -> u8 {
 }
 
 fn fail(message: &str) -> u8 {
-    eprintln!("hex: {message}");
+    eprintln!("agent-desk: {message}");
     EXIT_REFUSED
 }
 
@@ -1496,8 +1488,8 @@ mod tests {
         let vars = || {
             [
                 ("HOME", "/Users/alex"),
-                ("HEX_RETAIN_DICTATION_AUDIO", "1"),
-                ("HEX_ENABLE_LLM", "1"),
+                ("AGENT_DESK_RETAIN_DICTATION_AUDIO", "1"),
+                ("AGENT_DESK_ENABLE_LLM", "1"),
             ]
             .map(|(key, value)| (key.into(), value.into()))
         };
@@ -1509,22 +1501,22 @@ mod tests {
         };
         let env = [
             "--env",
-            "HEX_ENABLE_LLM=1",
+            "AGENT_DESK_ENABLE_LLM=1",
             "--env",
-            "HEX_RETAIN_DICTATION_AUDIO=1",
+            "AGENT_DESK_RETAIN_DICTATION_AUDIO=1",
         ];
-        let bundle = std::path::Path::new("/Applications/Hex.app");
+        let bundle = std::path::Path::new("/Applications/Agent-Desk.app");
         assert_eq!(
-            strings(open_arguments(Some(bundle), "anomaly.hex", vars())),
-            [&env[..], &["/Applications/Hex.app"]].concat()
+            strings(open_arguments(Some(bundle), "fheuer.agentdesk", vars())),
+            [&env[..], &["/Applications/Agent-Desk.app"]].concat()
         );
         assert_eq!(
-            strings(open_arguments(None, "anomaly.hex", vars())),
-            [&env[..], &["-b", "anomaly.hex"]].concat()
+            strings(open_arguments(None, "fheuer.agentdesk", vars())),
+            [&env[..], &["-b", "fheuer.agentdesk"]].concat()
         );
         assert_eq!(
-            strings(open_arguments(None, "anomaly.hex.test", [])),
-            ["-b", "anomaly.hex.test"]
+            strings(open_arguments(None, "fheuer.agentdesk.test", [])),
+            ["-b", "fheuer.agentdesk.test"]
         );
     }
 
@@ -1583,7 +1575,7 @@ mod tests {
         report.meeting.elapsed_seconds = Some(3723);
         report.features.meetings = true;
         let text = human_status(&report);
-        assert!(text.starts_with("Hex 2.3.1 (pid 42, 412 MB)\n"));
+        assert!(text.starts_with("Agent-Desk 2.3.1 (pid 42, 412 MB)\n"));
         assert!(text.contains("Meeting      recording “Design sync” for 1:02:03\n"));
         assert!(!text.contains("Labs"));
     }

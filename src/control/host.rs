@@ -1,4 +1,4 @@
-//! The Linux and Windows host of `hex` control commands. Each OS supplies a
+//! The Linux and Windows host of `agent-desk` control commands. Each OS supplies a
 //! [`Host`], its thin adapter to the running process (the listener's
 //! queue, the window, model preparation, the updater); [`answer`] carries
 //! out every command the same way on both, with the rules the window and
@@ -21,7 +21,7 @@ use crate::transcription::models::TranscriptionSelection;
 /// How long `model use` waits to confirm, inside the transport's deadline.
 const CONFIRM_WAIT: Duration = Duration::from_secs(8);
 
-/// What the running Hex published last.
+/// What the running Agent-Desk published last.
 pub(crate) struct HostState {
     pub(crate) settings: AppSettings,
     pub(crate) listener: DesktopListenerSnapshot,
@@ -69,7 +69,7 @@ pub(crate) trait Host {
     /// Launch at login, after setting it when `enabled` is given; `None`
     /// when this OS has no login item.
     fn launch_at_login(&self, enabled: Option<bool>) -> Option<Result<bool, String>>;
-    /// Quits Hex (and, for `restart`, reopens it) once this reply is out.
+    /// Quits Agent-Desk (and, for `restart`, reopens it) once this reply is out.
     fn quit(&self, restart: bool) -> Result<(), ControlError>;
     fn shortcut_rules(&self) -> settings::ShortcutRules;
     /// Annotate's commands, where this OS has a capture engine.
@@ -104,7 +104,7 @@ pub(crate) fn serve(
             }
         });
     if let Err(error) = spawned {
-        tracing::warn!(%error, "`hex` control commands will not reach this Hex");
+        tracing::warn!(%error, "`agent-desk` control commands will not reach this Agent-Desk");
     }
 }
 
@@ -129,9 +129,9 @@ fn command(host: &dyn Host, command: ControlCommand) -> ControlReply {
                     .and_then(|()| host.quit(restart))
                     .map(|()| {
                         ControlReply::done(if restart {
-                            "Restarting Hex"
+                            "Restarting Agent-Desk"
                         } else {
-                            "Quitting Hex"
+                            "Quitting Agent-Desk"
                         })
                     }),
             )
@@ -142,7 +142,7 @@ fn command(host: &dyn Host, command: ControlCommand) -> ControlReply {
             ..
         } => ControlReply::error(
             "unsupported",
-            "`hex dictation start --print` is macOS only; `hex dictation stop --print` \
+            "`agent-desk dictation start --print` is macOS only; `agent-desk dictation stop --print` \
              still prints here",
         ),
         ControlCommand::Dictation {
@@ -224,8 +224,8 @@ fn command(host: &dyn Host, command: ControlCommand) -> ControlReply {
         }
         ControlCommand::OnboardingReset => host.onboarding_reset(),
         ControlCommand::HistoryClear => reply(clear_history(host)),
-        ControlCommand::CheckForUpdates => reply(host.state().and_then(|state| {
-            match state.update {
+        ControlCommand::CheckForUpdates => {
+            reply(host.state().and_then(|state| match state.update {
                 DesktopUpdateStatus::Managed => Err(ControlError::new(
                     "unsupported",
                     "updates are managed by your organization",
@@ -234,13 +234,13 @@ fn command(host: &dyn Host, command: ControlCommand) -> ControlReply {
                 | DesktopUpdateStatus::SourceBuild
                 | DesktopUpdateStatus::PackageManager => Err(ControlError::new(
                     "unavailable",
-                    "this Hex build doesn't update itself",
+                    "this Agent-Desk build doesn't update itself",
                 )),
-                _ => host
-                    .check_for_updates()
-                    .map(|()| ControlReply::done("Checking for updates; Hex shows what it finds")),
-            }
-        })),
+                _ => host.check_for_updates().map(|()| {
+                    ControlReply::done("Checking for updates; Agent-Desk shows what it finds")
+                }),
+            }))
+        }
         ControlCommand::LaunchAtLogin { enabled } => launch_at_login(host, enabled),
         ControlCommand::VocabularyList => reply(load().map(|settings| ControlReply::Vocabulary {
             entries: settings.vocabulary,
@@ -266,7 +266,7 @@ fn command(host: &dyn Host, command: ControlCommand) -> ControlReply {
         | ControlCommand::ScrawlCaptureRoute { .. }) => host.annotate(command),
         ControlCommand::AssistantSubmit { .. } => reply(Err(ControlError::new(
             "unsupported",
-            "`hex bench` asks the assistant on macOS only",
+            "`agent-desk bench` asks the assistant on macOS only",
         ))),
     }
 }
@@ -299,7 +299,7 @@ fn meeting_report() -> MeetingReport {
     }
 }
 
-/// `hex meetings record|stop`, as the tray's items do; waits a moment for
+/// `agent-desk meetings record|stop`, as the tray's items do; waits a moment for
 /// the recorder to confirm.
 fn meeting(stop: bool, title: Option<String>) -> ControlReply {
     use crate::meeting::MeetingRequest;
@@ -342,7 +342,7 @@ fn meeting(stop: bool, title: Option<String>) -> ControlReply {
         match (crate::meeting::runtime::state(), stop) {
             (MeetingMenuState::Recording { title, .. }, false) => {
                 return ControlReply::done(format!(
-                    "Recording “{title}”; `hex meetings stop` stops and transcribes it"
+                    "Recording “{title}”; `agent-desk meetings stop` stops and transcribes it"
                 ));
             }
             (MeetingMenuState::Transcribing | MeetingMenuState::Idle, true) => {
@@ -352,9 +352,9 @@ fn meeting(stop: bool, title: Option<String>) -> ControlReply {
         }
     }
     ControlReply::done(if stop {
-        "Asked the meeting to stop; `hex status` shows when it's transcribing"
+        "Asked the meeting to stop; `agent-desk status` shows when it's transcribing"
     } else {
-        "Hex is starting the recording; `hex status` shows when it's recording"
+        "Agent-Desk is starting the recording; `agent-desk status` shows when it's recording"
     })
 }
 
@@ -421,7 +421,7 @@ fn commit(
     Ok(ControlReply::done(change.message))
 }
 
-/// `hex model use` (installed only) and `hex model install` (downloads
+/// `agent-desk model use` (installed only) and `agent-desk model install` (downloads
 /// first). Both switch once the model is ready.
 fn use_model(
     host: &dyn Host,
@@ -443,7 +443,7 @@ fn use_model(
         return Err(ControlError::new(
             "not-installed",
             format!(
-                "{} isn't installed; `hex model install {}` downloads it ({})",
+                "{} isn't installed; `agent-desk model install {}` downloads it ({})",
                 definition.name,
                 selection.model.as_str(),
                 definition.size_label()
@@ -453,8 +453,8 @@ fn use_model(
     host.choose_model(selection.clone())?;
     if !installed {
         return Ok(ControlReply::done(format!(
-            "Downloading {} ({}); Hex switches to it once it's ready. \
-             `hex status` shows progress, `hex model cancel` stops it",
+            "Downloading {} ({}); Agent-Desk switches to it once it's ready. \
+             `agent-desk status` shows progress, `agent-desk model cancel` stops it",
             definition.name,
             definition.size_label()
         )));
@@ -497,7 +497,7 @@ fn wait_for_model(
         }
     }
     Ok(ControlReply::done(format!(
-        "Loading {name}; `hex status` shows when it's ready"
+        "Loading {name}; `agent-desk status` shows when it's ready"
     )))
 }
 

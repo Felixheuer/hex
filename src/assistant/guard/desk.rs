@@ -1,6 +1,6 @@
 //! The desk: the app windows the assistant opened for the person in a quick
 //! (Here) turn. A turn's own leases end with it; these are handed to the
-//! desk instead, whose holder is Hex itself (its pid, from the spec), so
+//! desk instead, whose holder is Agent-Desk itself (its pid, from the spec), so
 //! the window stays parked and shows as a live mini at the orb until the
 //! person lets it go (× on the mini), the assistant does
 //! (`hex_release_window`, "schließ WhatsApp"), or the window closes. Every
@@ -9,7 +9,7 @@
 //!
 //! The desk is leases like any other (`leases/<window>.json`, task
 //! [`DESK`]), so a desk window is never claimed by a job meanwhile, and a
-//! desk Hex no longer runs lapses with it.
+//! desk Agent-Desk no longer runs lapses with it.
 //!
 //! Acting in a desk window takes a short, exclusive borrow of it
 //! (`desk-borrows/<window>.json`): one task at a time, returned when its

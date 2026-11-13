@@ -242,7 +242,7 @@ pub fn own_group(command: &mut Command, with_thread: bool) {
 }
 
 /// Everything one started process began: its process group on Unix
-/// ([`own_group`]), a job object on Windows that ends them all if Hex stops
+/// ([`own_group`]), a job object on Windows that ends them all if Agent-Desk stops
 /// without cleaning up. Dropping it leaves what still runs alone (a daemon
 /// the program started on purpose), as on Unix; [`Tree::kill`] ends it all.
 #[derive(Clone)]

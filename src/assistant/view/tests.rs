@@ -45,7 +45,11 @@ fn a_task_runs_its_steps_and_finishes_with_its_answer() {
     assert_eq!(stream.tasks[0].phase, Phase::Queued);
     assert_eq!(stream.tasks[0].colour, 3);
     stream.apply(&started(1, Origin::Background, "Book a table"), None, t0);
-    assert_eq!(stream.tasks.len(), 1, "Started after Queued is the same task");
+    assert_eq!(
+        stream.tasks.len(),
+        1,
+        "Started after Queued is the same task"
+    );
     assert_eq!(stream.tasks[0].phase, Phase::Running);
     assert_eq!(stream.tasks[0].colour, 3, "keeps its colour");
     assert_eq!(stream.tasks[0].activity, Activity::Thinking);
@@ -128,7 +132,11 @@ fn a_follow_up_starts_afresh_and_counts_its_time_again() {
     let t0 = Instant::now();
     let later = t0 + Duration::from_secs(60);
     let mut stream = Stream::default();
-    stream.apply(&started(1, Origin::Background, "Compare suppliers"), None, t0);
+    stream.apply(
+        &started(1, Origin::Background, "Compare suppliers"),
+        None,
+        t0,
+    );
     stream.apply(&step(1, "Read the first offer"), None, t0);
     stream.apply(
         &Event::AnswerDelta {
@@ -140,10 +148,18 @@ fn a_follow_up_starts_afresh_and_counts_its_time_again() {
     );
     // Steering while it runs: its run goes on, the text in flight is
     // stored, so it starts afresh; it's been running since t0.
-    stream.apply(&started(1, Origin::Background, "And the prices?"), None, later);
+    stream.apply(
+        &started(1, Origin::Background, "And the prices?"),
+        None,
+        later,
+    );
     let task = &stream.tasks[0];
     assert!(task.answer.is_empty() && task.log.is_empty());
-    assert_eq!(task.steps, ["Read the first offer"], "its row keeps its step");
+    assert_eq!(
+        task.steps,
+        ["Read the first offer"],
+        "its row keeps its step"
+    );
     assert_eq!(task.since, Some(t0));
     // Asked again after it ended (Try again): its time starts over.
     stream.apply(
@@ -260,7 +276,11 @@ fn holds_say_why_a_task_waits() {
         t0,
     );
     stream.apply(&step(1, "Looked again"), None, t0);
-    assert_eq!(stream.hold(&id(1)), Some(Hold::Paused), "only Resumed ends it");
+    assert_eq!(
+        stream.hold(&id(1)),
+        Some(Hold::Paused),
+        "only Resumed ends it"
+    );
     stream.apply(
         &Event::Resumed {
             conversation: id(1),
@@ -302,7 +322,10 @@ fn hands_off_follows_its_task_and_ends_with_it() {
         t0
     ));
     assert_eq!(stream.hands_off().map(|t| t.id.clone()), Some(id(1)));
-    assert!(stream.frame_until(t0).is_some(), "the frame shows meanwhile");
+    assert!(
+        stream.frame_until(t0).is_some(),
+        "the frame shows meanwhile"
+    );
     stream.apply(
         &Event::Answer {
             conversation: id(1),

@@ -153,7 +153,11 @@ mod tests {
         let processes = vec![
             process(10, 1, "/usr/local/bin/claude"),
             // Its MCP servers keep running.
-            process(11, 10, "/Applications/Hex.app/Contents/MacOS/hex"),
+            process(
+                11,
+                10,
+                "/Applications/Agent-Desk.app/Contents/MacOS/agent-desk",
+            ),
             process(12, 10, "agent-desktop"),
             // A shell tool's command, with what it started.
             process(20, 10, "/bin/zsh"),

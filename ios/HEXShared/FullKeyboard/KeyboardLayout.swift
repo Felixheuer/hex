@@ -275,7 +275,7 @@ nonisolated struct KeyboardLayout: Equatable, Sendable {
         }
         add(.delete, row: 2, x: right - modW, w: modW, label: "delete")
 
-        // Row 4: 123/ABC, globe?, field extras, space, Hex, return.
+        // Row 4: 123/ABC, globe?, field extras, space, Agent-Desk, return.
         let returnW = lw * returnWidthRatio + m.gap
         var leading: [(KeyKind, CGFloat, String)] = [
             layer == .letters

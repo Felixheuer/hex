@@ -1,8 +1,8 @@
-//! Hex's key shortcuts while another app holds Secure Event Input.
+//! Agent-Desk's key shortcuts while another app holds Secure Event Input.
 //!
 //! A password field, a terminal's Secure Keyboard Entry, or an app that
 //! never turned it off stops macOS from handing key presses to event taps,
-//! Hex's included; modifier changes still reach them. Carbon hotkeys
+//! Agent-Desk's included; modifier changes still reach them. Carbon hotkeys
 //! (`RegisterEventHotKey`) still fire then, so while secure input is on the
 //! key shortcuts that start something (Annotate and its replay, Paste last,
 //! Paste meeting, and the Screenshots shortcuts) are registered as Carbon
@@ -34,7 +34,7 @@ const CARBON_COMMAND: u32 = 1 << 8;
 const CARBON_SHIFT: u32 = 1 << 9;
 const CARBON_OPTION: u32 = 1 << 11;
 const CARBON_CONTROL: u32 = 1 << 12;
-/// Virtual key codes past this are Hex's mouse buttons or the Globe key.
+/// Virtual key codes past this are Agent-Desk's mouse buttons or the Globe key.
 const LAST_KEYBOARD_CODE: u16 = 127;
 
 #[repr(C)]

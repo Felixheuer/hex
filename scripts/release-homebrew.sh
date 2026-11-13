@@ -20,8 +20,8 @@ case "${1:-}" in
     version=$2 url=$3 sha256=$4 out=$5
     printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-(beta|dev)\.[0-9]+)?$'
     printf '%s\n' "$sha256" | grep -Eq '^[0-9a-f]{64}$'
-    printf '%s\n' "$url" | grep -Eq '^https://anoma\.ly/release/hex/files/[0-9a-f]{64}/Hex\.dmg$'
-    # The file is Hex.dmg under its sha256, so the URL names no version.
+    printf '%s\n' "$url" | grep -Eq '^https://anoma\.ly/release/hex/files/[0-9a-f]{64}/Agent-Desk\.dmg$'
+    # The file is Agent-Desk.dmg under its sha256, so the URL names no version.
     sed -e "s|@VERSION@|$version|" -e "s|@SHA256@|$sha256|" -e "s|@URL@|$url|" \
       "$root/packaging/homebrew/hex.rb" > "$out"
     if grep -q '@[A-Z0-9_]*@' "$out"; then

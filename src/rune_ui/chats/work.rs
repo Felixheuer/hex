@@ -42,7 +42,7 @@ fn words(text: &str) -> impl Iterator<Item = &str> {
 
 /// The folder a finished job's answer names: the first absolute or
 /// home-relative path, or the folder of the first file it names. Job
-/// folders are named after their request, with spaces ("2026-11-12 Hex
+/// folders are named after their request, with spaces ("2026-11-12 Agent-Desk
 /// selbst testen"), so the longest run of words from the path's start
 /// that is a folder on this Mac wins over the first word alone.
 pub(super) fn folder_in(text: &str) -> Option<String> {
@@ -658,15 +658,18 @@ mod tests {
 
     #[test]
     fn an_answer_names_its_folder_and_links() {
-        let answer = "Done. Everything is in `~/Hex/Jobs/suppliers/` and the sheet is at https://docs.google.com/spreadsheets/d/abc123/edit.";
-        assert_eq!(folder_in(answer).as_deref(), Some("~/Hex/Jobs/suppliers/"));
+        let answer = "Done. Everything is in `~/Agent-Desk/Jobs/suppliers/` and the sheet is at https://docs.google.com/spreadsheets/d/abc123/edit.";
+        assert_eq!(
+            folder_in(answer).as_deref(),
+            Some("~/Agent-Desk/Jobs/suppliers/")
+        );
         assert_eq!(
             links_in(answer),
             vec!["https://docs.google.com/spreadsheets/d/abc123/edit".to_owned()]
         );
         assert_eq!(
-            folder_in("Saved the report to /Users/me/Hex/Jobs/q3/report.md.").as_deref(),
-            Some("/Users/me/Hex/Jobs/q3/")
+            folder_in("Saved the report to /Users/me/Agent-Desk/Jobs/q3/report.md.").as_deref(),
+            Some("/Users/me/Agent-Desk/Jobs/q3/")
         );
         assert_eq!(folder_in("Nothing here, and no / alone"), None);
         assert!(worth_a_row("Suppliers.xlsx") && !worth_a_row(".DS_Store"));
@@ -687,7 +690,7 @@ mod tests {
 
     #[test]
     fn a_job_folder_with_spaces_is_found_whole() {
-        let folder = "/Users/felix/Documents/Hex/2026-11-12 Hex selbst testen und Lücken notieren";
+        let folder = "/Users/felix/Documents/Agent-Desk/2026-11-12 Agent-Desk selbst testen und Lücken notieren";
         let answer = format!("Alles liegt im Ordner {folder}.");
         let is_dir = |path: &str| path == folder;
         assert_eq!(

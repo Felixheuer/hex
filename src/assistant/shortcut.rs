@@ -107,15 +107,15 @@ pub(crate) struct Question {
     /// it only if the person could have heard or seen it by then.
     asked_at_press: Option<ConversationId>,
     /// A press of the Action shortcut on Linux or Windows ([`press`]): once
-    /// real it quiets Hex and holds announcements back until it's let go
+    /// real it quiets Agent-Desk and holds announcements back until it's let go
     /// (macOS's listener does both itself; conversation mode's captures
     /// never do).
     hold: bool,
     /// The hold's listening, while it's real; ends when dropped.
     holding: Option<Holding>,
-    /// Hex was reading aloud as the capture opened (conversation mode's
+    /// Agent-Desk was reading aloud as the capture opened (conversation mode's
     /// watch under an answer, a hold over it): its transcript may begin
-    /// with Hex's own voice.
+    /// with Agent-Desk's own voice.
     overheard: bool,
 }
 
@@ -267,7 +267,7 @@ impl Question {
                     return;
                 };
                 // A capture that listened under the reading (a barge-in,
-                // conversation mode's window) heard Hex's voice before the
+                // conversation mode's window) heard Agent-Desk's voice before the
                 // person's: only what follows it is theirs.
                 let text = if overheard || barged {
                     crate::assistant::speech::own_echo::without_own_words(&text)
@@ -286,11 +286,11 @@ impl Question {
                 }
                 // "Stopp" ends the speech (and the Here task), asking
                 // nothing; "Stopp alle Aufgaben" stops every task.
-                // Hex's own reading, heard back through the speakers.
+                // Agent-Desk's own reading, heard back through the speakers.
                 if !text.chars().any(char::is_alphanumeric)
                     || crate::assistant::speech::own_echo::heard_back(&text)
                 {
-                    tracing::info!("dropped a question that was Hex's own voice");
+                    tracing::info!("dropped a question that was Agent-Desk's own voice");
                     return;
                 }
                 // „Brich die Shop-Aufgabe ab“: that one task stops.
@@ -347,7 +347,7 @@ pub(crate) fn quick_question_running() -> bool {
     crate::assistant::busy() && !here_tasks(&crate::assistant::tasks()).is_empty()
 }
 
-/// Whether Hex takes Escape for the assistant now: the Action shortcut is
+/// Whether Agent-Desk takes Escape for the assistant now: the Action shortcut is
 /// bound, nothing records or holds Escape otherwise (`free`), and a Here
 /// task runs or an answer is read aloud.
 pub(crate) fn claims_escape(bound: bool, free: bool) -> bool {

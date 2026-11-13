@@ -1,0 +1,1536 @@
+//! Test-only mockups for `docs/ux/redesign.md`: the proposed overlay
+//! language drawn with the real kit tokens over a believable desktop, so the
+//! design document's images look like the product. Not product code: it is
+//! never compiled outside `cfg(test)` and is not committed.
+//!
+//! ```sh
+//! HEX_REDESIGN_SNAPS=/tmp/ux cargo test --bin hex redesign -- --ignored
+//! ```
+
+use rune::{Color, Cx, El, Icon, Shadow, TextStyle, col, el, icon, oklch, row, text};
+
+use super::super::controls::Paint;
+use super::{frame, palette};
+
+const W: f32 = 1440.0;
+const H: f32 = 900.0;
+const MENU: f32 = 34.0;
+const NOTCH: (f32, f32) = (196.0, 34.0);
+
+// ---------------------------------------------------------------- icons
+
+macro_rules! glyph {
+    ($name:ident, $body:literal) => {
+        static $name: Icon = Icon {
+            name: concat!("ux-", stringify!($name)),
+            view: 24.0,
+            body: $body,
+        };
+    };
+}
+
+glyph!(
+    CHECK,
+    "<path d=\"M5 12.5l4.5 4.5L19 7.5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+);
+glyph!(
+    CROSS,
+    "<path d=\"M7 7l10 10M17 7L7 17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/>"
+);
+glyph!(
+    SPARK,
+    "<path d=\"M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z\" fill=\"currentColor\"/>"
+);
+glyph!(
+    ASK,
+    "<path d=\"M9.2 9a2.9 2.9 0 1 1 4.2 2.6c-.9.5-1.4 1.1-1.4 2.1v.6M12 17.6v.1\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\"/>"
+);
+glyph!(
+    PIN,
+    "<path d=\"M9 4h6l-1 5 3 3H7l3-3zM12 12v8\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linejoin=\"round\" stroke-linecap=\"round\"/>"
+);
+glyph!(
+    FOLDER,
+    "<path d=\"M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linejoin=\"round\"/>"
+);
+glyph!(
+    DOC,
+    "<path d=\"M7 3h7l4 4v14H7zM14 3v4h4M9.5 12h6M9.5 15.5h6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linejoin=\"round\" stroke-linecap=\"round\"/>"
+);
+glyph!(
+    GRID,
+    "<path d=\"M4 5h16v14H4zM4 10h16M4 14.5h16M10 5v14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linejoin=\"round\"/>"
+);
+glyph!(
+    LINK,
+    "<path d=\"M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/>"
+);
+glyph!(
+    POINTER,
+    "<path d=\"M5 3l13 7.5-5.6 1.4L9.8 18z\" fill=\"currentColor\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\"/>"
+);
+glyph!(
+    PARK,
+    "<path d=\"M4 6h11v9H4zM15 9h3a2 2 0 0 1 2 2v7H9v-3\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linejoin=\"round\"/>"
+);
+glyph!(
+    HAND,
+    "<path d=\"M8 12V6.5a1.5 1.5 0 0 1 3 0V11M11 10V5a1.5 1.5 0 0 1 3 0v6M14 10.5V7a1.5 1.5 0 0 1 3 0v7a6 6 0 0 1-6 6h-.5a6 6 0 0 1-4.6-2.2L4 15.5a1.5 1.5 0 0 1 2.3-1.9L8 15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+);
+
+// ---------------------------------------------------------------- tokens
+
+/// The proposed type ramp: four sizes only.
+fn ty_title(p: Paint) -> TextStyle {
+    TextStyle {
+        size: 17.0,
+        line_height: 22.0,
+        ..p.k.ty.ui_medium
+    }
+}
+fn ty_body(p: Paint) -> TextStyle {
+    TextStyle {
+        size: 14.0,
+        line_height: 20.0,
+        ..p.k.ty.ui
+    }
+}
+fn ty_label(p: Paint) -> TextStyle {
+    TextStyle {
+        size: 12.0,
+        line_height: 16.0,
+        ..p.k.ty.small_medium
+    }
+}
+fn ty_meta(p: Paint) -> TextStyle {
+    TextStyle {
+        size: 11.5,
+        line_height: 15.0,
+        ..p.k.ty.small
+    }
+}
+
+/// The assistant's own hue (global states: listening, the desk frame).
+fn agent(p: Paint) -> (Color, Color) {
+    palette::frame(p.k.dark)
+}
+
+/// The proposed task palette: six hues that stay clear of the semantic
+/// green (done) and red (failed), and of the assistant's periwinkle.
+fn task(p: Paint, index: usize) -> Color {
+    let dark = p.k.dark;
+    let hues = [
+        (205.0, 0.15),
+        (60.0, 0.16),
+        (170.0, 0.12),
+        (340.0, 0.17),
+        (95.0, 0.14),
+        (25.0, 0.10),
+    ];
+    let (h, c) = hues[index % hues.len()];
+    if dark {
+        oklch(0.76, c, h)
+    } else {
+        oklch(0.6, c, h)
+    }
+}
+
+fn done(p: Paint) -> Color {
+    if p.k.dark {
+        oklch(0.78, 0.16, 150.0)
+    } else {
+        oklch(0.58, 0.15, 150.0)
+    }
+}
+fn failed(p: Paint) -> Color {
+    if p.k.dark {
+        oklch(0.72, 0.17, 25.0)
+    } else {
+        oklch(0.56, 0.19, 25.0)
+    }
+}
+fn needs(p: Paint) -> Color {
+    if p.k.dark {
+        oklch(0.84, 0.14, 85.0)
+    } else {
+        oklch(0.7, 0.15, 75.0)
+    }
+}
+
+fn shadow(blur: f32, y: f32, alpha: f32) -> Shadow {
+    Shadow {
+        x: 0.0,
+        y,
+        blur,
+        spread: 0.0,
+        color: Color::BLACK.alpha(alpha),
+        inset: false,
+    }
+}
+
+/// The one card material every bubble uses.
+fn material(p: Paint, e: El) -> El {
+    let c = &p.k.c;
+    e.radius(16.0)
+        .fill(c.bg_base.alpha(1.0))
+        .border(p.hair, c.border_base)
+        .box_shadow(shadow(28.0, 10.0, if p.k.dark { 0.45 } else { 0.16 }))
+}
+
+fn dot(colour: Color, size: f32) -> El {
+    el().size(size, size).radius(size / 2.0).fill(colour)
+}
+
+/// A pill button: `primary` is the one accent action of a card.
+fn button(p: Paint, label: &str, primary: bool) -> El {
+    let c = &p.k.c;
+    let b = row()
+        .h(28.0)
+        .px(12.0)
+        .center_y()
+        .radius(14.0)
+        .child(text(label.to_owned()).font(ty_label(p)).color(if primary {
+            c.bg_base
+        } else {
+            p.text()
+        }));
+    if primary {
+        b.fill(c.bg_inverse)
+    } else {
+        b.fill(c.surface_raised_base).border(p.hair, c.border_base)
+    }
+}
+
+/// A keycap hint, "Hold ⌘".
+fn key_hint(p: Paint, words: &str) -> El {
+    text(words.to_owned()).font(ty_meta(p)).color(p.faint())
+}
+
+/// A state chip: glyph + word, never colour alone.
+fn chip(p: Paint, glyph: &'static Icon, words: &str, colour: Color) -> El {
+    row()
+        .h(20.0)
+        .px(7.0)
+        .gap(4.0)
+        .center_y()
+        .radius(10.0)
+        .fill(colour.alpha(0.16))
+        .child(icon(glyph, 11.0).color(colour))
+        .child(text(words.to_owned()).font(ty_meta(p)).color(colour))
+}
+
+// ---------------------------------------------------------------- desktop
+
+fn wallpaper(p: Paint) -> El {
+    let stops = if p.k.dark {
+        [
+            (0.0, oklch(0.22, 0.05, 265.0)),
+            (0.55, oklch(0.26, 0.07, 295.0)),
+            (1.0, oklch(0.3, 0.06, 20.0)),
+        ]
+    } else {
+        [
+            (0.0, oklch(0.82, 0.07, 240.0)),
+            (0.55, oklch(0.86, 0.06, 290.0)),
+            (1.0, oklch(0.9, 0.05, 40.0)),
+        ]
+    };
+    el().absolute(0.0, 0.0)
+        .size(W, H)
+        .linear_gradient(2.3, stops)
+}
+
+fn menu_bar(p: Paint, front: &str) -> El {
+    let c = &p.k.c;
+    let ink = p.text();
+    let left = row()
+        .gap(20.0)
+        .center_y()
+        .child(text(front.to_owned()).font(p.k.ty.ui_medium).color(ink))
+        .children(
+            ["File", "Edit", "View", "Window", "Help"]
+                .map(|w| text(w).font(p.k.ty.ui).color(ink)),
+        );
+    let right = row()
+        .gap(16.0)
+        .center_y()
+        .child(dot(agent(p).0, 8.0))
+        .child(text("Fri 13 Nov  14:32").font(p.k.ty.ui).color(ink));
+    el().absolute(0.0, 0.0)
+        .size(W, MENU)
+        .fill(c.bg_base.alpha(0.55))
+        .child(row().absolute(18.0, 0.0).h(MENU).child(left))
+        .child(row().absolute(W - 190.0, 0.0).h(MENU).child(right))
+        .child(
+            el().absolute((W - NOTCH.0) / 2.0, 0.0)
+                .size(NOTCH.0, NOTCH.1)
+                .corners([0.0, 0.0, 12.0, 12.0])
+                .fill(Color::BLACK),
+        )
+}
+
+fn dock(p: Paint) -> El {
+    let c = &p.k.c;
+    let hues = [250.0, 140.0, 30.0, 200.0, 320.0, 80.0, 0.0, 180.0];
+    let w = hues.len() as f32 * 54.0 + 16.0;
+    row()
+        .absolute((W - w) / 2.0, H - 70.0)
+        .size(w, 62.0)
+        .px(8.0)
+        .gap(8.0)
+        .center_y()
+        .radius(20.0)
+        .fill(c.bg_base.alpha(0.45))
+        .border(p.hair, c.border_base.alpha(0.6))
+        .children(hues.map(|h| {
+            el().size(46.0, 46.0)
+                .radius(12.0)
+                .gradient(oklch(0.72, 0.13, h), oklch(0.55, 0.15, h + 25.0))
+        }))
+}
+
+/// Grey text lines standing in for content.
+fn lines(p: Paint, widths: &[f32], gap: f32) -> El {
+    let c = &p.k.c;
+    col().gap(gap).children(
+        widths
+            .iter()
+            .map(|w| el().w(*w).h(7.0).radius(3.5).fill(c.border_base)),
+    )
+}
+
+fn mail_content(p: Paint) -> El {
+    let c = &p.k.c;
+    let item = |from: &str, subject: &str, sel: bool| {
+        col()
+            .w_full()
+            .px(14.0)
+            .py(9.0)
+            .gap(3.0)
+            .fill(if sel {
+                c.surface_raised_base
+            } else {
+                Color::TRANSPARENT
+            })
+            .border_sides([0.0, 0.0, p.hair, 0.0], c.border_weak)
+            .child(text(from.to_owned()).font(p.k.ty.small_medium).color(p.text()))
+            .child(text(subject.to_owned()).font(p.k.ty.small).color(p.muted()).truncate())
+    };
+    row()
+        .w_full()
+        .h_full()
+        .child(
+            col()
+                .w(250.0)
+                .h_full()
+                .border_sides([0.0, p.hair, 0.0, 0.0], c.border_base)
+                .child(item("Maya Lindqvist", "Venue for the offsite?", true))
+                .child(item("Jonas Weber", "Q3 numbers – final draft", false))
+                .child(item("Resy", "Your table at Nopa", false))
+                .child(item("Lena Hoffmann", "Invoice October", false))
+                .child(item("GitHub", "[hex] PR #71 merged", false)),
+        )
+        .child(
+            col()
+                .grow(1.0)
+                .padding(22.0)
+                .gap(12.0)
+                .child(text("Venue for the offsite?").font(ty_title(p)).color(p.text()))
+                .child(text("Maya Lindqvist · to me").font(p.k.ty.small).color(p.faint()))
+                .child(lines(p, &[380.0, 410.0, 300.0, 360.0, 200.0], 9.0))
+                .child(
+                    col()
+                        .mt(14.0)
+                        .padding(12.0)
+                        .radius(8.0)
+                        .border(p.hair, c.border_base)
+                        .gap(9.0)
+                        .child(text("Hi Maya, the Kantine on Thursday works…").font(p.k.ty.small).color(p.muted()))
+                        .child(lines(p, &[320.0, 260.0], 8.0)),
+                ),
+        )
+}
+
+fn web_content(p: Paint, site: &str, hue: f32) -> El {
+    let c = &p.k.c;
+    col()
+        .w_full()
+        .h_full()
+        .child(
+            row()
+                .w_full()
+                .h(34.0)
+                .px(12.0)
+                .center_y()
+                .border_sides([0.0, 0.0, p.hair, 0.0], c.border_base)
+                .child(
+                    row()
+                        .w_full()
+                        .h(22.0)
+                        .px(10.0)
+                        .center_y()
+                        .radius(6.0)
+                        .fill(c.surface_raised_base)
+                        .child(text(site.to_owned()).font(p.k.ty.small).color(p.muted())),
+                ),
+        )
+        .child(
+            col()
+                .padding(18.0)
+                .gap(12.0)
+                .child(
+                    el().w_full()
+                        .h(120.0)
+                        .radius(10.0)
+                        .gradient(oklch(0.7, 0.12, hue), oklch(0.62, 0.14, hue + 40.0)),
+                )
+                .child(
+                    row()
+                        .gap(12.0)
+                        .children((0..3).map(|i| {
+                            col()
+                                .w(150.0)
+                                .gap(7.0)
+                                .child(
+                                    el().w(150.0)
+                                        .h(70.0)
+                                        .radius(8.0)
+                                        .fill(oklch(0.8, 0.05, hue + 20.0 * i as f32).alpha(0.7)),
+                                )
+                                .child(lines(p, &[130.0, 90.0], 6.0))
+                        })),
+                )
+                .child(lines(p, &[420.0, 380.0, 300.0], 8.0)),
+        )
+}
+
+fn sheet_content(p: Paint) -> El {
+    let c = &p.k.c;
+    let cell = |w: f32, head: bool, words: &str| {
+        el().w(w)
+            .h(24.0)
+            .px(6.0)
+            .center_y()
+            .fill(if head {
+                c.surface_raised_base
+            } else {
+                Color::TRANSPARENT
+            })
+            .border_sides([0.0, p.hair, p.hair, 0.0], c.border_weak)
+            .child(text(words.to_owned()).font(p.k.ty.small).color(if head {
+                p.text()
+            } else {
+                p.muted()
+            }).truncate())
+    };
+    let rows = [
+        ["Supplier", "City", "Price / kg", "Lead time"],
+        ["Müller GmbH", "Hamburg", "4,20 €", "5 days"],
+        ["Nordkorn", "Kiel", "3,95 €", "8 days"],
+        ["Agrar Süd", "Ulm", "4,05 €", "4 days"],
+        ["BioMehl", "Leipzig", "4,60 €", "3 days"],
+        ["Hof Brandt", "Celle", "3,80 €", "10 days"],
+        ["", "", "", ""],
+        ["", "", "", ""],
+    ];
+    col()
+        .padding(10.0)
+        .children(rows.iter().enumerate().map(|(i, r)| {
+            row().children(
+                r.iter()
+                    .zip([150.0, 110.0, 100.0, 100.0])
+                    .map(|(w, width)| cell(width, i == 0, w)),
+            )
+        }))
+}
+
+fn window(p: Paint, key: &str, title: &str, (x, y, w, h): (f32, f32, f32, f32), body: El, front: bool) -> El {
+    let c = &p.k.c;
+    let lights = [
+        oklch(0.68, 0.2, 25.0),
+        oklch(0.82, 0.16, 85.0),
+        oklch(0.74, 0.18, 145.0),
+    ];
+    col().key(format!("win-{key}"))
+        .absolute(x, y)
+        .size(w, h)
+        .radius(12.0)
+        .fill(c.bg_base)
+        .border(p.hair, c.border_strong.alpha(0.6))
+        .box_shadow(shadow(if front { 44.0 } else { 24.0 }, if front { 18.0 } else { 8.0 }, if front { 0.32 } else { 0.18 }))
+        .clip_rounded(12.0)
+        .child(
+            row()
+                .w_full()
+                .h(36.0)
+                .px(14.0)
+                .gap(8.0)
+                .center_y()
+                .fill(c.surface_raised_base)
+                .border_sides([0.0, 0.0, p.hair, 0.0], c.border_base)
+                .children(lights.map(|l| dot(if front { l } else { c.border_strong }, 12.0)))
+                .child(text(title.to_owned()).ml(12.0).font(p.k.ty.small_medium).color(p.muted())),
+        )
+        .child(el().w_full().h(h - 36.0).child(body))
+}
+
+/// The common desk: wallpaper, menu bar with the notch, the dock, Safari
+/// behind, Mail in front (the person's focus window).
+fn desk(p: Paint, front: &str) -> El {
+    el().key("desk")
+        .size(W, H)
+        .clip_rounded(0.0)
+        .child(wallpaper(p))
+        .child(window(p, "safari", "Resy – Nopa", SAFARI, web_content(p, "resy.com/cities/sf/nopa", 30.0), false))
+        .child(window(p, "mail", "Inbox – 4 unread", MAIL, mail_content(p), front == "Mail"))
+        .child(dock(p))
+        .child(menu_bar(p, front))
+}
+
+const SAFARI: (f32, f32, f32, f32) = (60.0, 96.0, 620.0, 500.0);
+const MAIL: (f32, f32, f32, f32) = (290.0, 372.0, 760.0, 420.0);
+const NUMBERS: (f32, f32, f32, f32) = (250.0, 170.0, 640.0, 420.0);
+
+// ---------------------------------------------------------------- island
+
+/// The island: the notch's own black capsule, grown down to carry the
+/// one line of state. Always black (it is the notch), in both themes.
+fn island(p: Paint, lead: El, words: &str, trail: Option<El>, width: f32) -> El {
+    let white = p.k.c.white;
+    el().key("island")
+        .absolute((W - width) / 2.0, 0.0)
+        .size(width, 62.0)
+        .corners([0.0, 0.0, 22.0, 22.0])
+        .fill(Color::BLACK)
+        .box_shadow(shadow(18.0, 6.0, 0.25))
+        .child(
+            row()
+                .absolute(18.0, MENU)
+                .size(width - 36.0, 24.0)
+                .gap(9.0)
+                .center_y()
+                .child(lead)
+                .child(
+                    text(words.to_owned())
+                        .font(TextStyle {
+                            size: 13.5,
+                            ..p.k.ty.ui_medium
+                        })
+                        .color(white)
+                        .truncate()
+                        .grow(1.0)
+                        .min_w(0.0),
+                )
+                .children(trail),
+        )
+}
+
+fn wave(p: Paint) -> El {
+    let (a, b) = agent(p);
+    row().gap(2.5).center_y().children(
+        [6.0, 12.0, 17.0, 10.0, 14.0, 7.0]
+            .iter()
+            .enumerate()
+            .map(move |(i, h)| el().size(3.0, *h).radius(1.5).fill(if i % 2 == 0 { a } else { b })),
+    )
+}
+
+fn spark(p: Paint) -> El {
+    icon(&SPARK, 15.0).color(agent(p).0)
+}
+
+fn meta_white(p: Paint, words: &str) -> El {
+    text(words.to_owned())
+        .font(ty_meta(p))
+        .color(p.k.c.white.alpha(0.6))
+}
+
+/// The card that hangs under the island: the one bubble anatomy.
+///
+/// header: glyph · who/what · state chip (right)
+/// body: content (live words, reasoning, answer, question)
+/// footer: ≤ 1 primary + ≤ 2 secondary actions, the voice hint left
+struct Card {
+    lead: El,
+    title: String,
+    chip: Option<El>,
+    body: Vec<El>,
+    hint: Option<String>,
+    actions: Vec<El>,
+    width: f32,
+}
+
+fn card(p: Paint, card: Card) -> El {
+    let header = row()
+        .w_full()
+        .gap(8.0)
+        .center_y()
+        .child(card.lead)
+        .child(
+            text(card.title)
+                .font(ty_label(p))
+                .color(p.muted())
+                .truncate()
+                .grow(1.0)
+                .min_w(0.0),
+        )
+        .children(card.chip);
+    let footer = (card.hint.is_some() || !card.actions.is_empty()).then(|| {
+        row()
+            .w_full()
+            .mt(4.0)
+            .gap(8.0)
+            .center_y()
+            .child(
+                el().grow(1.0)
+                    .children(card.hint.map(|h| key_hint(p, &h))),
+            )
+            .children(card.actions)
+    });
+    material(
+        p,
+        col()
+            .w(card.width)
+            .padding(16.0)
+            .gap(10.0)
+            .child(header)
+            .children(card.body)
+            .children(footer),
+    )
+}
+
+fn body(p: Paint, words: &str) -> El {
+    text(words.to_owned()).font(ty_body(p)).color(p.text()).wrap()
+}
+
+/// One reasoning line: a small label column and the words.
+fn thought(p: Paint, label: &str, words: &str, state: Step) -> El {
+    let c = &p.k.c;
+    let mark = match state {
+        Step::Done => icon(&CHECK, 12.0).color(done(p)),
+        Step::Now => el().size(12.0, 12.0).center().child(dot(agent(p).0, 7.0)),
+        Step::Next => el()
+            .size(12.0, 12.0)
+            .center()
+            .child(el().size(7.0, 7.0).radius(3.5).border(1.2, c.border_strong)),
+    };
+    row()
+        .w_full()
+        .gap(8.0)
+        .items_start()
+        .child(el().pt(4.0).child(mark))
+        .child(
+            text(label.to_owned())
+                .w(76.0)
+                .font(ty_meta(p))
+                .color(p.faint())
+                .pt(2.0),
+        )
+        .child(
+            text(words.to_owned())
+                .font(ty_body(p))
+                .color(match state {
+                    Step::Next => p.faint(),
+                    Step::Done => p.muted(),
+                    Step::Now => p.text(),
+                })
+                .wrap()
+                .grow(1.0)
+                .min_w(0.0),
+        )
+}
+
+#[derive(Clone, Copy)]
+enum Step {
+    Done,
+    Now,
+    Next,
+}
+
+fn under_island(e: El, width: f32) -> El {
+    el().absolute((W - width) / 2.0, 70.0).w(width).child(e)
+}
+
+// ---------------------------------------------------------------- frames
+
+/// Tier 2: a window outline in its task's colour, with its chip.
+fn outline(p: Paint, (x, y, w, h): (f32, f32, f32, f32), colour: Color, words: &str, step: &str, dashed: bool) -> El {
+    let ink = palette::ink(colour, p.k);
+    let line = el()
+        .absolute(x - 3.0, y - 3.0)
+        .size(w + 6.0, h + 6.0)
+        .radius(14.0)
+        .border(2.0, colour)
+        .outline(5.0, 0.0, colour.alpha(0.22));
+    let line = if dashed { line.border_dash(10.0, 6.0) } else { line };
+    let tag = row()
+        .absolute(x + 10.0, y - 30.0)
+        .h(24.0)
+        .pl(8.0)
+        .pr(10.0)
+        .gap(7.0)
+        .center_y()
+        .radius(12.0)
+        .fill(colour)
+        .box_shadow(shadow(10.0, 3.0, 0.18))
+        .child(dot(ink, 6.0))
+        .child(text(words.to_owned()).font(ty_label(p)).color(ink))
+        .child(text(step.to_owned()).font(ty_meta(p)).color(ink.alpha(0.75)));
+    el().absolute(0.0, 0.0).size(W, H).child(line).child(tag)
+}
+
+/// Tier 1's label: the tab that hangs from the island while the desk frame
+/// shows (the agent has the person's input or a window in front).
+fn control_tab(p: Paint, words: &str, colour: Color, width: f32) -> El {
+    let white = p.k.c.white;
+    island(
+        p,
+        icon(&POINTER, 14.0).color(agent(p).0),
+        words,
+        Some(
+            row()
+                .gap(6.0)
+                .center_y()
+                .child(dot(colour, 8.0))
+                .child(meta_white(p, "Esc to stop"))
+                .child(
+                    el().h(20.0)
+                        .px(8.0)
+                        .center()
+                        .radius(10.0)
+                        .fill(white.alpha(0.16))
+                        .child(text("back in 2 s").font(ty_meta(p)).color(white)),
+                ),
+        ),
+        width,
+    )
+}
+
+// ---------------------------------------------------------------- rail
+
+/// A live mini: a parked window's picture with its task's ring.
+fn mini(p: Paint, label: &str, colour: Color, kind: Mini, picture: El) -> El {
+    let c = &p.k.c;
+    let frame = el()
+        .size(132.0, 82.0)
+        .radius(8.0)
+        .fill(c.bg_base)
+        .clip_rounded(8.0)
+        .child(picture);
+    let ring = match kind {
+        Mini::Acting => frame.border(2.0, colour).outline(4.0, 0.0, colour.alpha(0.3)),
+        Mini::Idle => frame.border(1.5, colour.alpha(0.55)),
+        Mini::Yours => frame.border(2.0, colour).border_dash(6.0, 4.0),
+    };
+    let state = match kind {
+        Mini::Acting => "acting",
+        Mini::Idle => "in background",
+        Mini::Yours => "you have it",
+    };
+    col()
+        .gap(5.0)
+        .child(
+            el().size(132.0, 82.0).child(ring).children(matches!(kind, Mini::Acting).then(|| {
+                icon(&POINTER, 13.0)
+                    .color(colour)
+                    .absolute(78.0, 40.0)
+            })),
+        )
+        .child(
+            row()
+                .gap(4.0)
+                .center_y()
+                .child(icon(&PARK, 11.0).color(p.faint()))
+                .child(text(format!("{label} · {state}")).font(ty_meta(p)).color(p.muted()).truncate()),
+        )
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Mini {
+    Acting,
+    Idle,
+    Yours,
+}
+
+fn tiny_web(p: Paint, hue: f32) -> El {
+    let c = &p.k.c;
+    col()
+        .padding(6.0)
+        .gap(5.0)
+        .child(el().w(120.0).h(6.0).radius(3.0).fill(c.surface_raised_base))
+        .child(el().w(120.0).h(28.0).radius(4.0).gradient(oklch(0.72, 0.12, hue), oklch(0.62, 0.13, hue + 40.0)))
+        .child(lines(p, &[100.0, 80.0, 90.0], 4.0))
+}
+
+fn tiny_sheet(p: Paint) -> El {
+    let c = &p.k.c;
+    col().padding(4.0).children((0..7).map(|i| {
+        row().children((0..4).map(move |_| {
+            el().size(31.0, 10.0)
+                .border(0.5, c.border_base)
+                .fill(if i == 0 { c.surface_raised_base } else { Color::TRANSPARENT })
+        }))
+    }))
+}
+
+fn progress(p: Paint, colour: Color, part: f32, width: f32) -> El {
+    let c = &p.k.c;
+    el().w(width)
+        .h(3.0)
+        .radius(1.5)
+        .fill(c.border_base)
+        .child(el().w(width * part).h(3.0).radius(1.5).fill(colour))
+}
+
+/// A job row in the rail: dot, title, time; one line of what it does now
+/// (app and where); its minis; a thin plan bar.
+fn job(p: Paint, colour: Color, title: &str, now: &str, time: &str, part: f32, minis: Vec<El>) -> El {
+    material(
+        p,
+        col()
+            .w(348.0)
+            .padding(14.0)
+            .gap(8.0)
+            .child(
+                row()
+                    .w_full()
+                    .gap(8.0)
+                    .center_y()
+                    .child(dot(colour, 9.0))
+                    .child(text(title.to_owned()).font(ty_label(p)).color(p.text()).truncate().grow(1.0).min_w(0.0))
+                    .child(text(time.to_owned()).font(ty_meta(p)).color(p.faint())),
+            )
+            .child(text(now.to_owned()).font(ty_meta(p)).color(p.muted()).ml(17.0))
+            .child(row().ml(17.0).gap(10.0).children(minis))
+            .child(el().ml(17.0).child(progress(p, colour, part, 300.0))),
+    )
+}
+
+/// The rail's head: the orb and the count, "1 needs you".
+fn rail_head(p: Paint, jobs: usize, asking: usize) -> El {
+    let (a, b) = agent(p);
+    material(
+        p,
+        row()
+            .h(36.0)
+            .pl(8.0)
+            .pr(12.0)
+            .gap(8.0)
+            .center_y()
+            .child(
+                el().size(22.0, 22.0)
+                    .radius(11.0)
+                    .gradient(a, b)
+                    .box_shadow(Shadow {
+                        x: 0.0,
+                        y: 0.0,
+                        blur: 10.0,
+                        spread: 0.0,
+                        color: a.alpha(0.6),
+                        inset: false,
+                    }),
+            )
+            .child(text(if jobs == 1 { "1 job".to_owned() } else { format!("{jobs} jobs") }).font(ty_label(p)).color(p.text()))
+            .children((asking > 0).then(|| chip(p, &ASK, &format!("{asking} needs you"), needs(p)))),
+    )
+    .radius(18.0)
+}
+
+fn rail(p: Paint, children: Vec<El>) -> El {
+    col()
+        .absolute(W - 348.0 - 18.0, MENU + 12.0)
+        .w(348.0)
+        .gap(8.0)
+        .items_end()
+        .children(children)
+}
+
+fn question_card(p: Paint, colour: Color) -> El {
+    card(
+        p,
+        Card {
+            lead: dot(colour, 9.0),
+            title: "File the October invoices".into(),
+            chip: Some(chip(p, &ASK, "Needs you", needs(p))),
+            body: vec![body(p, "Which folder should they go in: Finance or Archive?")],
+            hint: Some("Hold ⌘ and say it".into()),
+            actions: vec![button(p, "Finance", true), button(p, "Archive", false)],
+            width: 348.0,
+        },
+    )
+}
+
+// ---------------------------------------------------------------- scenes
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Scene {
+    Overview,
+    Listening,
+    Foreground,
+    Stage,
+    Results,
+    IslandStates,
+    Frames,
+    Anatomy,
+    Minis,
+}
+
+impl Scene {
+    pub(crate) fn size(self) -> (f32, f32) {
+        match self {
+            Scene::IslandStates => (1000.0, 1480.0),
+            Scene::Frames => (1320.0, 470.0),
+            Scene::Anatomy => (900.0, 420.0),
+            Scene::Minis => (820.0, 350.0),
+            _ => (W, H),
+        }
+    }
+}
+
+pub(crate) fn view(scene: &Scene, cx: &mut Cx<Scene>) -> El {
+    let p = Paint::new(cx.system_dark(), cx.env().scale);
+    match scene {
+        Scene::Overview => overview(p),
+        Scene::Listening => listening(p),
+        Scene::Foreground => foreground(p),
+        Scene::Stage => stage(p),
+        Scene::Results => results(p),
+        Scene::IslandStates => island_states(p),
+        Scene::Frames => frames(p),
+        Scene::Anatomy => anatomy(p),
+        Scene::Minis => minis(p),
+    }
+}
+
+fn thinking_card(p: Paint, width: f32) -> El {
+    card(
+        p,
+        Card {
+            lead: spark(p),
+            title: "“Reply to Maya that Thursday works and book Nopa for two at 8”".into(),
+            chip: None,
+            body: vec![
+                thought(p, "Understood", "Reply to Maya: Thursday works. Book Nopa, 2 people, about 8 pm tonight.", Step::Done),
+                thought(p, "Plan", "Two parts: the reply here in Mail, the booking as a job in the background.", Step::Done),
+                thought(p, "Now", "Writing the reply in Mail (in front, your window)", Step::Now),
+                thought(p, "Next", "Resy in a background browser → pick 8 pm → ask before paying", Step::Next),
+            ],
+            hint: Some("Hold ⌘ to change it · Esc stops".into()),
+            actions: vec![],
+            width,
+        },
+    )
+}
+
+fn overview(p: Paint) -> El {
+    let blue = task(p, 0);
+    let ochre = task(p, 1);
+    let teal = task(p, 2);
+    let rail = rail(
+        p,
+        vec![
+            rail_head(p, 3, 1),
+            question_card(p, ochre),
+            job(
+                p,
+                blue,
+                "Book Nopa for two at 8",
+                "Safari · in background · choosing a time",
+                "1 min",
+                0.4,
+                vec![mini(p, "Safari", blue, Mini::Acting, tiny_web(p, 30.0))],
+            ),
+            job(
+                p,
+                teal,
+                "Compare 50 flour suppliers",
+                "Numbers · in background · 12 of 50 rows",
+                "6 min",
+                0.25,
+                vec![
+                    mini(p, "Numbers", teal, Mini::Idle, tiny_sheet(p)),
+                    mini(p, "Helpers", teal, Mini::Idle, tiny_web(p, 200.0)),
+                ],
+            ),
+        ],
+    );
+    desk(p, "Mail")
+        .child(outline(p, MAIL, agent(p).0, "Here · Mail", "writing the reply", false))
+        .child(island(p, spark(p), "Writing the reply to Maya", Some(meta_white(p, "Mail · in front")), 380.0))
+        .child(under_island(thinking_card(p, 470.0), 470.0))
+        .child(rail)
+}
+
+fn listening(p: Paint) -> El {
+    let words = card(
+        p,
+        Card {
+            lead: wave(p),
+            title: "Listening · Mail is in front".into(),
+            chip: None,
+            body: vec![text("Reply to Maya that Thursday works and book Nopa for two at")
+                .font(ty_title(p))
+                .color(p.text())
+                .wrap()],
+            hint: Some("Release ⌘ to send · Esc to cancel".into()),
+            actions: vec![],
+            width: 470.0,
+        },
+    );
+    desk(p, "Mail")
+        .child(island(p, wave(p), "Listening…", Some(meta_white(p, "0:04")), 300.0))
+        .child(under_island(words, 470.0))
+        .child(rail(p, vec![rail_head(p, 2, 0)]))
+}
+
+fn foreground(p: Paint) -> El {
+    let teal = task(p, 2);
+    let base = el()
+        .key("desk")
+        .size(W, H)
+        .clip_rounded(0.0)
+        .child(wallpaper(p))
+        .child(window(p, "safari", "Resy – Nopa", SAFARI, web_content(p, "resy.com", 30.0), false))
+        .child(window(p, "mail", "Inbox – 4 unread", MAIL, mail_content(p), false))
+        .child(window(p, "numbers", "Suppliers.numbers", NUMBERS, sheet_content(p), true))
+        .child(dock(p))
+        .child(menu_bar(p, "Numbers"));
+    let why = card(
+        p,
+        Card {
+            lead: dot(teal, 9.0),
+            title: "Compare 50 flour suppliers".into(),
+            chip: Some(chip(p, &POINTER, "In front", agent(p).0)),
+            body: vec![
+                body(p, "Numbers won't export in the background, so I'm bringing it forward for the export dialog."),
+                thought(p, "After", "Numbers goes back to the background, Mail is in front again.", Step::Next),
+            ],
+            hint: Some("Touch the mouse or keys to take it".into()),
+            actions: vec![button(p, "Let me do it", false)],
+            width: 440.0,
+        },
+    );
+    base.child(el().absolute(0.0, 0.0).size(W, H).child(frame::glow(p.k.dark, false)))
+        .child(outline(p, NUMBERS, teal, "Compare 50 flour suppliers", "exporting PDF", false))
+        .child(control_tab(p, "Agent-Desk is using Numbers for a moment", teal, 560.0))
+        .child(el().absolute(W - 440.0 - 30.0, 640.0 - 250.0).child(why))
+}
+
+const LONG_ANSWER: &str = "**Three venues fit 14 people on Thursday:**\n\n\
+1. **Kantine Kreuzberg**: private room, 14–18 people, 45 € per head, walkable from the office.\n\
+2. **Prinzessinnengarten**: outdoor with a tent, weather risk, 38 € per head.\n\
+3. **Spreeblick Loft**: projector and kitchen, 900 € flat for the evening.\n\n\
+Maya prefers a room with a screen, so *Spreeblick* is the closest match; Kantine is cheaper and the only one with a menu.\n\n\
+- Kantine has Thursday 18:00 free (checked on their site)\n\
+- Spreeblick answers bookings within a day\n\
+- Prinzessinnengarten needs a deposit\n\n\
+Say “book Kantine” or “ask Spreeblick” and I'll do it.";
+
+fn stage_panel(p: Paint) -> El {
+    let c = &p.k.c;
+    let header = row()
+        .w_full()
+        .gap(8.0)
+        .center_y()
+        .child(spark(p))
+        .child(text("Where can we hold the offsite on Thursday?").font(ty_label(p)).color(p.muted()).grow(1.0).min_w(0.0).truncate())
+        .child(chip(p, &CHECK, "Answered", done(p)))
+        .child(icon(&PIN, 15.0).color(p.muted()).ml(6.0))
+        .child(icon(&CROSS, 14.0).color(p.muted()).ml(6.0));
+    let content = el()
+        .w_full()
+        .h(330.0)
+        .pr(18.0)
+        .clip_rounded(0.0)
+        .child(super::markdown::view(p, LONG_ANSWER));
+    let scrollbar = el()
+        .absolute(612.0, 64.0)
+        .size(4.0, 330.0)
+        .radius(2.0)
+        .fill(c.border_weak)
+        .child(el().size(4.0, 200.0).radius(2.0).fill(c.border_strong));
+    let footer = row()
+        .w_full()
+        .gap(8.0)
+        .center_y()
+        .child(el().grow(1.0).child(key_hint(p, "Hold ⌘ to ask more · Esc puts it away · scroll for more")))
+        .child(button(p, "Copy", false))
+        .child(button(p, "Save as note", false))
+        .child(button(p, "Book Kantine", true));
+    material(
+        p,
+        col()
+            .w(640.0)
+            .padding(20.0)
+            .gap(14.0)
+            .child(header)
+            .child(content)
+            .child(footer),
+    )
+    .child(scrollbar)
+}
+
+fn stage(p: Paint) -> El {
+    desk(p, "Mail")
+        .child(island(p, icon(&CHECK, 14.0).color(done(p)), "Answered · reading aloud", Some(meta_white(p, "0:12")), 340.0))
+        .child(under_island(stage_panel(p), 640.0))
+        .child(rail(p, vec![rail_head(p, 2, 0)]))
+}
+
+fn result_row(p: Paint, glyph: &'static Icon, name: &str, place: &str, primary: &str, secondary: Option<&str>) -> El {
+    let c = &p.k.c;
+    row()
+        .w_full()
+        .py(8.0)
+        .gap(10.0)
+        .center_y()
+        .border_sides([0.0, 0.0, p.hair, 0.0], c.border_weak)
+        .child(
+            el().size(32.0, 32.0)
+                .radius(8.0)
+                .center()
+                .fill(c.surface_raised_base)
+                .child(icon(glyph, 16.0).color(p.muted())),
+        )
+        .child(
+            col()
+                .grow(1.0)
+                .min_w(0.0)
+                .gap(1.0)
+                .child(text(name.to_owned()).font(ty_label(p)).color(p.text()).truncate())
+                .child(text(place.to_owned()).font(ty_meta(p)).color(p.faint()).truncate()),
+        )
+        .children(secondary.map(|s| button(p, s, false)))
+        .child(button(p, primary, false))
+}
+
+fn results_panel(p: Paint) -> El {
+    let teal = task(p, 2);
+    let preview = el()
+        .w_full()
+        .h(150.0)
+        .radius(10.0)
+        .border(p.hair, p.k.c.border_base)
+        .clip_rounded(10.0)
+        .child(sheet_content(p));
+    material(
+        p,
+        col()
+            .w(560.0)
+            .padding(20.0)
+            .gap(12.0)
+            .child(
+                row()
+                    .w_full()
+                    .gap(8.0)
+                    .center_y()
+                    .child(dot(teal, 9.0))
+                    .child(text("Compare 50 flour suppliers").font(ty_label(p)).color(p.muted()).grow(1.0).min_w(0.0))
+                    .child(chip(p, &CHECK, "Done in 14 min", done(p)))
+                    .child(icon(&PIN, 15.0).color(p.muted()).ml(6.0))
+                    .child(icon(&CROSS, 14.0).color(p.muted()).ml(6.0)),
+            )
+            .child(
+                text("Hof Brandt is cheapest (3,80 €/kg) but slowest; Agrar Süd is the best balance. The team got the link on WhatsApp.")
+                    .font(ty_title(p))
+                    .color(p.text())
+                    .wrap(),
+            )
+            .child(preview)
+            .child(
+                col()
+                    .w_full()
+                    .child(result_row(p, &GRID, "Suppliers.numbers", "~/Agent-Desk/Flour suppliers", "Open", Some("Show")))
+                    .child(result_row(p, &DOC, "Suppliers.pdf", "~/Agent-Desk/Flour suppliers", "Open", Some("Share")))
+                    .child(result_row(p, &FOLDER, "Flour suppliers", "Folder · 52 files", "Open in Finder", None))
+                    .child(result_row(p, &LINK, "docs.google.com/spreadsheets/…", "Shared with the team", "Open link", None)),
+            )
+            .child(
+                row()
+                    .w_full()
+                    .gap(8.0)
+                    .center_y()
+                    .child(el().grow(1.0).child(key_hint(p, "Say “open the sheet” · Esc puts it away")))
+                    .child(button(p, "What it did", false))
+                    .child(button(p, "Open sheet", true)),
+            ),
+    )
+}
+
+fn results(p: Paint) -> El {
+    desk(p, "Mail")
+        .child(island(p, icon(&CHECK, 14.0).color(done(p)), "Suppliers compared", Some(meta_white(p, "1 result")), 340.0))
+        .child(under_island(results_panel(p), 560.0))
+        .child(rail(p, vec![rail_head(p, 1, 0)]))
+}
+
+/// Every island state, with its card, on a plain wallpaper strip.
+fn island_states(p: Paint) -> El {
+    let c = &p.k.c;
+    let (sw, _) = Scene::IslandStates.size();
+    let blue = task(p, 0);
+    let states: Vec<(&str, El, &str, Option<El>, Option<El>)> = vec![
+        ("1 Idle", el().size(0.0, 0.0), "", None, None),
+        (
+            "2 Holding · live words",
+            wave(p),
+            "Listening…",
+            Some(meta_white(p, "Mail in front")),
+            Some(card(
+                p,
+                Card {
+                    lead: wave(p),
+                    title: "Listening · Mail is in front".into(),
+                    chip: None,
+                    body: vec![text("Book Nopa for two at eight").font(ty_title(p)).color(p.text())],
+                    hint: Some("Release ⌘ to send · Esc to cancel".into()),
+                    actions: vec![],
+                    width: 470.0,
+                },
+            )),
+        ),
+        (
+            "3 Thinking · visible reasoning",
+            spark(p),
+            "Understood: a table for two",
+            Some(meta_white(p, "0:01")),
+            Some(card(
+                p,
+                Card {
+                    lead: spark(p),
+                    title: "“Book Nopa for two at eight”".into(),
+                    chip: None,
+                    body: vec![
+                        thought(p, "Understood", "Nopa, 2 people, tonight around 8 pm", Step::Done),
+                        thought(p, "Plan", "A job: Resy in a background browser, ask before paying", Step::Now),
+                    ],
+                    hint: Some("Hold ⌘ to change it · Esc stops".into()),
+                    actions: vec![],
+                    width: 470.0,
+                },
+            )),
+        ),
+        (
+            "4 Acting · where and how",
+            dot(blue, 9.0),
+            "Book Nopa · Safari, in background",
+            Some(meta_white(p, "2/5")),
+            None,
+        ),
+        (
+            "5 Asking",
+            icon(&ASK, 15.0).color(needs(p)),
+            "Book Nopa needs you",
+            None,
+            Some(card(
+                p,
+                Card {
+                    lead: dot(blue, 9.0),
+                    title: "Book Nopa for two at 8".into(),
+                    chip: Some(chip(p, &ASK, "Needs you", needs(p))),
+                    body: vec![body(p, "8:00 is gone. Take 8:15 or 8:45? It charges your saved card 20 € to hold it.")],
+                    hint: Some("Hold ⌘ and say it".into()),
+                    actions: vec![button(p, "8:15", true), button(p, "8:45", false), button(p, "Later", false)],
+                    width: 470.0,
+                },
+            )),
+        ),
+        (
+            "6 Done",
+            icon(&CHECK, 14.0).color(done(p)),
+            "Booked · Nopa 8:15 pm",
+            None,
+            Some(card(
+                p,
+                Card {
+                    lead: icon(&CHECK, 14.0).color(done(p)),
+                    title: "Book Nopa for two at 8".into(),
+                    chip: Some(chip(p, &CHECK, "Done", done(p))),
+                    body: vec![body(p, "Table for two at 8:15 pm tonight. It's in your calendar.")],
+                    hint: None,
+                    actions: vec![button(p, "Undo", false), button(p, "Open in Calendar", true)],
+                    width: 470.0,
+                },
+            )),
+        ),
+        (
+            "7 Failed",
+            icon(&CROSS, 14.0).color(failed(p)),
+            "Couldn't book Nopa",
+            None,
+            Some(card(
+                p,
+                Card {
+                    lead: icon(&CROSS, 14.0).color(failed(p)),
+                    title: "Book Nopa for two at 8".into(),
+                    chip: Some(chip(p, &CROSS, "Failed", failed(p))),
+                    body: vec![
+                        body(p, "Resy asks you to sign in again."),
+                        text("resy.com: session expired (401)").font(ty_meta(p)).color(p.faint()),
+                    ],
+                    hint: None,
+                    actions: vec![button(p, "Try again", false), button(p, "Sign in…", true)],
+                    width: 470.0,
+                },
+            )),
+        ),
+    ];
+    let mut column = col().w(sw).padding(24.0).gap(22.0);
+    for (label, lead, words, trail, below) in states {
+        let iw = if words.is_empty() { NOTCH.0 } else { 400.0 };
+        let notch = el()
+            .w(sw - 48.0)
+            .h(64.0)
+            .child(if words.is_empty() {
+                el().absolute((sw - 214.0 - NOTCH.0) / 2.0, 0.0)
+                    .size(NOTCH.0, NOTCH.1)
+                    .corners([0.0, 0.0, 12.0, 12.0])
+                    .fill(Color::BLACK)
+            } else {
+                island(p, lead, words, trail, iw).absolute((sw - 214.0 - iw) / 2.0, 0.0)
+            });
+        column = column.child(
+            row()
+                .w_full()
+                .gap(16.0)
+                .items_start()
+                .child(text(label.to_owned()).w(150.0).pt(40.0).font(ty_label(p)).color(p.text()))
+                .child(
+                    col()
+                        .w(sw - 48.0 - 166.0)
+                        .items_center()
+                        .gap(8.0)
+                        .child(notch.w(sw - 48.0 - 166.0))
+                        .children(below),
+                ),
+        );
+    }
+    el().size(sw, Scene::IslandStates.size().1)
+        .fill(c.bg_deep)
+        .child(column)
+}
+
+/// The three tiers of frame side by side, each in a small desk.
+fn frames(p: Paint) -> El {
+    let c = &p.k.c;
+    let (sw, sh) = Scene::Frames.size();
+    let blue = task(p, 0);
+    let small = |title: &str, sub: &str, inner: El| {
+        col()
+            .w(410.0)
+            .gap(10.0)
+            .child(
+                el().size(410.0, 300.0)
+                    .radius(10.0)
+                    .clip_rounded(10.0)
+                    .linear_gradient(
+                        2.3,
+                        if p.k.dark {
+                            [(0.0, oklch(0.22, 0.05, 265.0)), (0.6, oklch(0.26, 0.07, 295.0)), (1.0, oklch(0.3, 0.06, 20.0))]
+                        } else {
+                            [(0.0, oklch(0.82, 0.07, 240.0)), (0.6, oklch(0.86, 0.06, 290.0)), (1.0, oklch(0.9, 0.05, 40.0))]
+                        },
+                    )
+                    .child(inner),
+            )
+            .child(text(title.to_owned()).font(ty_title(p)).color(p.text()))
+            .child(text(sub.to_owned()).font(ty_meta(p)).color(p.muted()).wrap())
+    };
+    let win = |x: f32, y: f32, w: f32, h: f32| {
+        el().absolute(x, y)
+            .size(w, h)
+            .radius(8.0)
+            .fill(c.bg_base)
+            .border(p.hair, c.border_base)
+            .child(row().w_full().h(18.0).fill(c.surface_raised_base))
+    };
+    let one = el()
+        .size(410.0, 300.0)
+        .child(win(60.0, 70.0, 260.0, 170.0))
+        .child(frame::glow(p.k.dark, false))
+        .child(
+            row()
+                .absolute(85.0, 0.0)
+                .size(240.0, 30.0)
+                .px(10.0)
+                .gap(6.0)
+                .center_y()
+                .corners([0.0, 0.0, 14.0, 14.0])
+                .fill(Color::BLACK)
+                .child(icon(&POINTER, 11.0).color(agent(p).0))
+                .child(text("Using Numbers for a moment").font(ty_meta(p)).color(c.white)),
+        );
+    let two = el()
+        .size(410.0, 300.0)
+        .child(win(60.0, 80.0, 260.0, 170.0))
+        .child(
+            el().absolute(57.0, 77.0)
+                .size(266.0, 176.0)
+                .radius(10.0)
+                .border(2.0, blue)
+                .outline(4.0, 0.0, blue.alpha(0.22)),
+        )
+        .child(
+            row()
+                .absolute(66.0, 52.0)
+                .h(20.0)
+                .px(8.0)
+                .gap(5.0)
+                .center_y()
+                .radius(10.0)
+                .fill(blue)
+                .child(dot(palette::ink(blue, p.k), 5.0))
+                .child(text("Book Nopa · choosing a time").font(ty_meta(p)).color(palette::ink(blue, p.k))),
+        );
+    let three = el().size(410.0, 300.0).child(
+        el().absolute(130.0, 90.0).child(mini(p, "Safari", blue, Mini::Acting, tiny_web(p, 30.0))),
+    );
+    el().size(sw, sh).fill(c.bg_deep).child(
+        row()
+            .padding(24.0)
+            .gap(28.0)
+            .items_start()
+            .child(small(
+                "1 · Desk frame",
+                "The agent has your input or a window in front. Always with the tab under the notch: which app, why, Esc.",
+                one,
+            ))
+            .child(small(
+                "2 · Window outline",
+                "A window you can see that a task works in. Its colour, title and current step.",
+                two,
+            ))
+            .child(small(
+                "3 · Mini ring",
+                "A parked window the agent drives in the background. Never on your screen, only in its mini.",
+                three,
+            )),
+    )
+}
+
+/// The one bubble anatomy, annotated.
+fn anatomy(p: Paint) -> El {
+    let c = &p.k.c;
+    let (sw, sh) = Scene::Anatomy.size();
+    let blue = task(p, 0);
+    let sample = card(
+        p,
+        Card {
+            lead: dot(blue, 9.0),
+            title: "Book Nopa for two at 8".into(),
+            chip: Some(chip(p, &ASK, "Needs you", needs(p))),
+            body: vec![body(p, "8:00 is gone. Take 8:15 or 8:45? It charges your saved card 20 € to hold it.")],
+            hint: Some("Hold ⌘ and say it".into()),
+            actions: vec![button(p, "8:15", true), button(p, "Later", false)],
+            width: 470.0,
+        },
+    );
+    let note = |y: f32, words: &str| {
+        row()
+            .absolute(530.0, y)
+            .gap(8.0)
+            .center_y()
+            .child(el().size(26.0, 1.5).fill(p.muted()))
+            .child(text(words.to_owned()).font(ty_label(p)).color(p.text()))
+    };
+    el().size(sw, sh)
+        .fill(c.bg_deep)
+        .child(el().absolute(40.0, 60.0).child(sample))
+        .child(note(82.0, "Header: who (task dot) · what · state chip"))
+        .child(note(128.0, "Body: one thing, ≤ 4 lines, 14 pt"))
+        .child(note(186.0, "Footer: voice hint left,"))
+        .child(note(206.0, "≤ 1 primary + ≤ 2 secondary right"))
+        .child(
+            text("Radius 16 · padding 16 · gap 10 · hairline border · one shadow · width 348 (rail) / 470 (island) / 560–640 (stage)")
+                .absolute(40.0, 300.0)
+                .w(820.0)
+                .wrap()
+                .font(ty_meta(p))
+                .color(p.muted()),
+        )
+}
+
+/// A job's minis in their three states.
+fn minis(p: Paint) -> El {
+    let c = &p.k.c;
+    let (sw, sh) = Scene::Minis.size();
+    let blue = task(p, 0);
+    let teal = task(p, 2);
+    let pink = task(p, 3);
+    el().size(sw, sh).fill(c.bg_deep).child(
+        col()
+            .padding(24.0)
+            .gap(16.0)
+            .child(job(
+                p,
+                blue,
+                "Book Nopa for two at 8",
+                "Safari · in background · choosing a time",
+                "1 min",
+                0.4,
+                vec![
+                    mini(p, "Safari", blue, Mini::Acting, tiny_web(p, 30.0)),
+                    mini(p, "Calendar", blue, Mini::Idle, tiny_web(p, 140.0)),
+                ],
+            ))
+            .child(
+                row()
+                    .gap(24.0)
+                    .child(mini(p, "Numbers", teal, Mini::Idle, tiny_sheet(p)))
+                    .child(mini(p, "WhatsApp", pink, Mini::Yours, tiny_web(p, 150.0)))
+                    .child(
+                        col()
+                            .w(240.0)
+                            .gap(6.0)
+                            .child(row().gap(6.0).center_y().child(icon(&HAND, 14.0).color(p.text())).child(text("Ring = the window, never your screen").font(ty_label(p)).color(p.text())))
+                            .child(text("Solid + glow + pointer: acting now. Thin: parked, idle. Dashed: you have it (Take over).").font(ty_meta(p)).color(p.muted()).wrap()),
+                    ),
+            ),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rune::Env;
+    use rune::text::TextSystem;
+
+    #[test]
+    #[ignore = "set HEX_REDESIGN_SNAPS to a folder; needs a GPU"]
+    fn redesign_snapshots() {
+        let folder = std::path::PathBuf::from(std::env::var("HEX_REDESIGN_SNAPS").unwrap());
+        std::fs::create_dir_all(&folder).unwrap();
+        let gpu = rune::render::Gpu::try_new(rune::render::Gpu::instance(), None).unwrap();
+        let scenes = [
+            ("overview", Scene::Overview),
+            ("listening", Scene::Listening),
+            ("foreground", Scene::Foreground),
+            ("stage", Scene::Stage),
+            ("results", Scene::Results),
+            ("island-states", Scene::IslandStates),
+            ("frames", Scene::Frames),
+            ("anatomy", Scene::Anatomy),
+            ("minis", Scene::Minis),
+        ];
+        for dark in [false, true] {
+            let theme = if dark { "dark" } else { "light" };
+            for (name, scene) in scenes {
+                let size = scene.size();
+                let mut rt = crate::rune_ui::offscreen::runtime(
+                    scene,
+                    view,
+                    size,
+                    Env {
+                        system_dark: dark,
+                        scale: 2.0,
+                    },
+                    TextSystem::new(rune_theme_opencode::FONTS, rune_theme_opencode::FAMILIES),
+                );
+                let (w, h) = ((size.0 * 2.0) as u32, (size.1 * 2.0) as u32);
+                let pixels = crate::rune_ui::offscreen::draw(&gpu, &mut rt, w, h);
+                rune::render::write_png(&folder.join(format!("proposed-{name}-{theme}.png")), w, h, &pixels)
+                    .unwrap();
+            }
+        }
+    }
+}

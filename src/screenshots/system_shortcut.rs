@@ -1,15 +1,15 @@
-//! Whether macOS's own screenshot shortcuts would take Hex's.
+//! Whether macOS's own screenshot shortcuts would take Agent-Desk's.
 //!
 //! macOS matches its symbolic hot keys (Keyboard › Keyboard Shortcuts ›
 //! Screenshots) in the WindowServer, before any session tap sees the key,
-//! so while one of them is on with Hex's chord, the system screenshot wins.
+//! so while one of them is on with Agent-Desk's chord, the system screenshot wins.
 //! They live in `com.apple.symbolichotkeys`'s `AppleSymbolicHotKeys`, one
 //! entry per ID; an ID with no entry is on with its default chord.
 
 use crate::app_settings::RuntimeHotkey;
 
 /// One symbolic hot key as `AppleSymbolicHotKeys` holds it; read with
-/// every other one by `shortcut_conflicts`, which checks Hex's other
+/// every other one by `shortcut_conflicts`, which checks Agent-Desk's other
 /// shortcuts against them.
 pub(crate) use crate::shortcut_conflicts::Entry;
 

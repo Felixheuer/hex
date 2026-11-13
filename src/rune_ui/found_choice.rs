@@ -1,6 +1,6 @@
 //! Onboarding's speech model list, shown only when the hub-cache scan found
 //! a compatible model (`found_models`): the first run's model step
-//! (`onboarding_kit::live`) shows one card of selectable rows, Hex's
+//! (`onboarding_kit::live`) shows one card of selectable rows, Agent-Desk's
 //! recommended model first and selected, then the models already on this
 //! computer. Picking a row starts it at once: ours downloads (or, when its
 //! exact file is already here, is used in place), and a found model is used
@@ -29,7 +29,7 @@ pub(super) fn pending(ui: &Ui, model: ItemStatus) -> bool {
         && !ui.found.adopting()
 }
 
-/// Hex's recommended model as the list first showed it: picking a found
+/// Agent-Desk's recommended model as the list first showed it: picking a found
 /// model changes the saved selection, and the rows stay as they were.
 fn recommended(ui: &Ui) -> TranscriptionSelection {
     ui.found
@@ -38,7 +38,7 @@ fn recommended(ui: &Ui) -> TranscriptionSelection {
         .unwrap_or_else(|| ui.settings.transcription.clone())
 }
 
-/// One row of the list: Hex's recommended model, or a found file.
+/// One row of the list: Agent-Desk's recommended model, or a found file.
 enum Entry<'a> {
     Recommended { on_disk: bool },
     Found(&'a Found),
@@ -107,7 +107,7 @@ fn row(ui: &Ui, entry: &Entry<'_>, selected: bool, model: ItemStatus) -> ChoiceR
         ),
         (Entry::Recommended { on_disk: true }, ..) => tr("On this computer").to_owned(),
         (Entry::Found(found), ..) if found.catalog.is_some() => tr("On this computer").to_owned(),
-        (Entry::Found(_), ..) => tr("On this computer · not tested by Hex").to_owned(),
+        (Entry::Found(_), ..) => tr("On this computer · not tested by Agent-Desk").to_owned(),
     };
     ChoiceRow {
         name: name.to_owned(),

@@ -1,7 +1,7 @@
-//! Finds why macOS permissions can't apply to this copy of Hex, before
+//! Finds why macOS permissions can't apply to this copy of Agent-Desk, before
 //! onboarding or a permission row sends the person to System Settings:
 //!
-//! - **Translocated:** a downloaded `Hex.app` still carries
+//! - **Translocated:** a downloaded `Agent-Desk.app` still carries
 //!   `com.apple.quarantine`, so Gatekeeper runs a read-only copy from a
 //!   random `…/AppTranslocation/…` path. System Settings never lists it and
 //!   grants never reach it. Repair: drop the quarantine from the original
@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use super::copies::{self, Copy};
 
-/// What stands between Hex and its permissions.
+/// What stands between Agent-Desk and its permissions.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Finding {
     /// Running from a Gatekeeper translocation; `original` is the bundle it
@@ -30,7 +30,7 @@ pub enum Finding {
     OtherCopies(Vec<PathBuf>),
 }
 
-/// The first problem for a Hex running from `running` (its `.app`), with
+/// The first problem for an Agent-Desk running from `running` (its `.app`), with
 /// `own_id` and `copies` the bundles this Mac knows; `None` when grants
 /// can apply. `original` is a translocation's source, when known.
 pub fn diagnose_with(
@@ -64,12 +64,12 @@ pub fn diagnose_with(
 
 /// What a check says for each finding (the setup page translates them;
 /// the paths go to the log).
-pub const TRANSLOCATED: &str = "macOS runs a protected copy of Hex because it was downloaded, so System Settings can't give it permissions";
+pub const TRANSLOCATED: &str = "macOS runs a protected copy of Agent-Desk because it was downloaded, so System Settings can't give it permissions";
 pub const NOT_INSTALLED: &str =
-    "Hex runs from outside Applications, so permissions may go to another copy";
+    "Agent-Desk runs from outside Applications, so permissions may go to another copy";
 pub const OTHER_COPIES: &str =
-    "Other copies of Hex share its permissions, so System Settings may show the wrong one";
-pub const NEEDS_RESTART: &str = "Screen Recording is on, but Hex must restart to use it";
+    "Other copies of Agent-Desk share its permissions, so System Settings may show the wrong one";
+pub const NEEDS_RESTART: &str = "Screen Recording is on, but Agent-Desk must restart to use it";
 
 /// What the person reads for `finding`.
 pub fn message(finding: &Finding) -> &'static str {
@@ -80,7 +80,7 @@ pub fn message(finding: &Finding) -> &'static str {
     }
 }
 
-/// [`diagnose_with`] for the running Hex on this Mac.
+/// [`diagnose_with`] for the running Agent-Desk on this Mac.
 #[cfg(target_os = "macos")]
 pub fn diagnose() -> Option<Finding> {
     let running = running_bundle()?;
@@ -146,9 +146,9 @@ fn translocation_original(path: &Path) -> Option<PathBuf> {
     })
 }
 
-/// Repairs `finding` where Hex can: a translocation (quarantine dropped,
+/// Repairs `finding` where Agent-Desk can: a translocation (quarantine dropped,
 /// the original opened once this copy quits) or other copies (removed).
-/// Returns whether Hex quits for it.
+/// Returns whether Agent-Desk quits for it.
 #[cfg(target_os = "macos")]
 pub fn repair(finding: &Finding) -> color_eyre::Result<bool> {
     use color_eyre::eyre::{bail, eyre};
@@ -157,7 +157,7 @@ pub fn repair(finding: &Finding) -> color_eyre::Result<bool> {
             let original = original
                 .clone()
                 .or_else(|| Some(PathBuf::from(copies::LIVE)).filter(|path| path.exists()))
-                .ok_or_else(|| eyre!("macOS didn't say where Hex was copied from"))?;
+                .ok_or_else(|| eyre!("macOS didn't say where Agent-Desk was copied from"))?;
             let status = std::process::Command::new("/usr/bin/xattr")
                 .args(["-dr", "com.apple.quarantine"])
                 .arg(&original)
@@ -187,13 +187,13 @@ pub fn repair(finding: &Finding) -> color_eyre::Result<bool> {
             Ok(false)
         }
         Finding::NotInstalled { .. } => {
-            bail!("Move Hex to Applications in Finder, then open it from there")
+            bail!("Move Agent-Desk to Applications in Finder, then open it from there")
         }
     }
 }
 
 /// Tells LaunchServices to forget the bundle at `path`, so a removed copy
-/// stops counting as one of Hex's.
+/// stops counting as one of Agent-Desk's.
 #[cfg(target_os = "macos")]
 fn forget_registration(path: &Path) {
     const LSREGISTER: &str = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
@@ -222,9 +222,14 @@ mod tests {
 
     #[test]
     fn a_translocated_copy_is_found_first() {
-        let running = Path::new("/private/var/folders/n0/T/AppTranslocation/9AE1/d/Hex.app");
+        let running = Path::new("/private/var/folders/n0/T/AppTranslocation/9AE1/d/Agent-Desk.app");
         assert_eq!(
-            diagnose_with(running, "anomaly.hex", Some(Path::new(copies::LIVE)), &[]),
+            diagnose_with(
+                running,
+                "fheuer.agentdesk",
+                Some(Path::new(copies::LIVE)),
+                &[]
+            ),
             Some(Finding::Translocated {
                 original: Some(copies::LIVE.into())
             })
@@ -233,9 +238,9 @@ mod tests {
 
     #[test]
     fn a_copy_outside_applications_is_named() {
-        let running = Path::new("/Users/p/Downloads/Hex.app");
+        let running = Path::new("/Users/p/Downloads/Agent-Desk.app");
         assert!(matches!(
-            diagnose_with(running, "anomaly.hex", None, &[]),
+            diagnose_with(running, "fheuer.agentdesk", None, &[]),
             Some(Finding::NotInstalled { .. })
         ));
     }
@@ -243,23 +248,31 @@ mod tests {
     #[test]
     fn other_copies_of_the_same_app_are_listed_and_live_and_dev_stay() {
         let copies = [
-            copy(copies::LIVE, "anomaly.hex"),
-            copy(copies::DEV, "anomaly.hex.dev"),
-            copy("/Users/p/dev/hex/target/app/Hex.app", "anomaly.hex"),
+            copy(copies::LIVE, "fheuer.agentdesk"),
+            copy(copies::DEV, "fheuer.agentdesk.dev"),
             copy(
-                "/Users/p/dev/hex/target/app/Hex Test.app",
-                "anomaly.hex.test",
+                "/Users/p/dev/hex/target/app/Agent-Desk.app",
+                "fheuer.agentdesk",
+            ),
+            copy(
+                "/Users/p/dev/hex/target/app/Agent-Desk Test.app",
+                "fheuer.agentdesk.test",
             ),
         ];
         assert_eq!(
-            diagnose_with(Path::new(copies::LIVE), "anomaly.hex", None, &copies),
+            diagnose_with(Path::new(copies::LIVE), "fheuer.agentdesk", None, &copies),
             Some(Finding::OtherCopies(vec![
-                "/Users/p/dev/hex/target/app/Hex.app".into()
+                "/Users/p/dev/hex/target/app/Agent-Desk.app".into()
             ]))
         );
         // Dev has no other copy of its own id.
         assert_eq!(
-            diagnose_with(Path::new(copies::DEV), "anomaly.hex.dev", None, &copies),
+            diagnose_with(
+                Path::new(copies::DEV),
+                "fheuer.agentdesk.dev",
+                None,
+                &copies
+            ),
             None
         );
     }
@@ -268,8 +281,8 @@ mod tests {
     fn a_loose_binary_and_a_clean_install_have_nothing_to_fix() {
         assert_eq!(
             diagnose_with(
-                Path::new("/Users/p/dev/hex/target/debug/hex"),
-                "anomaly.hex",
+                Path::new("/Users/p/dev/hex/target/debug/agent-desk"),
+                "fheuer.agentdesk",
                 None,
                 &[]
             ),
@@ -278,9 +291,9 @@ mod tests {
         assert_eq!(
             diagnose_with(
                 Path::new(copies::LIVE),
-                "anomaly.hex",
+                "fheuer.agentdesk",
                 None,
-                &[copy(copies::LIVE, "anomaly.hex")]
+                &[copy(copies::LIVE, "fheuer.agentdesk")]
             ),
             None
         );

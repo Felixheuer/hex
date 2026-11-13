@@ -1,4 +1,4 @@
-//! Hex's fast actions for a task (`assistant::actions`): `hex_app_action`
+//! Agent-Desk's fast actions for a task (`assistant::actions`): `hex_app_action`
 //! (a URL or a script for any app), `hex_app_capabilities` (what an app
 //! offers, from the app itself), and `hex_read_window` (a window's text
 //! from its picture), checked like every other action: blocked apps are
@@ -197,7 +197,7 @@ impl<D: Desktop> Guard<D> {
                     tool,
                     "RUNS_CODE",
                     &format!(
-                        "This {} {why}. Outside YOLO Hex runs only what the apps' own \
+                        "This {} {why}. Outside YOLO Agent-Desk runs only what the apps' own \
                          dictionaries and URLs offer, since a page or file a task read could \
                          have written it. Use your shell tool for commands (sandboxed), \
                          hex_browser_tab for a page in the person's browser, or the app's own \
@@ -308,7 +308,7 @@ impl<D: Desktop> Guard<D> {
         let reading = self
             .screen
             .read_window(number, size)
-            .map_err(|why| failure(&format!("Hex couldn't read {id}: {why}")))?;
+            .map_err(|why| failure(&format!("Agent-Desk couldn't read {id}: {why}")))?;
         let total = reading.lines.len();
         let lines: Vec<&ocr::Line> = reading.lines.iter().take(MAX_LINES).collect();
         Ok(success(
@@ -331,7 +331,7 @@ impl<D: Desktop> Guard<D> {
 pub(super) fn app_action_tool() -> Value {
     json!({
         "name": APP_ACTION_TOOL,
-        "description": "Hex: any installed app's action by its fastest way, without clicking, \
+        "description": "Agent-Desk: any installed app's action by its fastest way, without clicking, \
             without its window, and without bringing anything in front. intent script \
             (params.script): AppleScript run inside `tell application id …` of the app, to read \
             or change its data on any desktop (find what its dictionary has with \
@@ -361,7 +361,7 @@ pub(super) fn app_action_tool() -> Value {
 pub(super) fn capabilities_tool() -> Value {
     json!({
         "name": APP_CAPABILITIES_TOOL,
-        "description": "Hex: what any installed app offers, read from the app itself in \
+        "description": "Agent-Desk: what any installed app offers, read from the app itself in \
             milliseconds: its scripting dictionary (classes with their properties and \
             elements, commands with parameters), the URL schemes and documents it declares, \
             what its windows are made of (native, Electron, Catalyst), and the ways to reach \
@@ -382,7 +382,7 @@ pub(super) fn capabilities_tool() -> Value {
 pub(super) fn read_window_tool() -> Value {
     json!({
         "name": READ_WINDOW_TOOL,
-        "description": "Hex: a window's text read from its picture (on-device text recognition), \
+        "description": "Agent-Desk: a window's text read from its picture (on-device text recognition), \
             as lines with where they sit in the window. For apps without an Accessibility tree \
             (Citrix, remote desktops, canvases) where a snapshot shows nothing; works on parked \
             and covered windows. Read-only; about a second.",

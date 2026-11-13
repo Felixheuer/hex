@@ -2,7 +2,7 @@
 //! and the requests they make of it.
 //!
 //! The panes never call macOS or Windows APIs. Permissions, the login item,
-//! the meetings store, and the Hex Microphone driver reach them as plain data
+//! the meetings store, and the Agent-Desk Microphone driver reach them as plain data
 //! in [`PlatformState`], and every action they take goes out as a
 //! [`PlatformRequest`] through [`PlatformHost`]. Linux scenes and tests feed
 //! preview data and record the requests, so macOS and Windows surfaces render
@@ -48,14 +48,14 @@ pub(super) struct Capabilities {
     pub(super) terminal_paste: bool,
     /// The dictation shortcut can pass through to other apps (Windows).
     pub(super) share_shortcut: bool,
-    /// Hex Microphone is a driver to install (macOS). Elsewhere with the
-    /// Voice Filter, Hex creates it while the filter is on (a PipeWire
+    /// Agent-Desk Microphone is a driver to install (macOS). Elsewhere with the
+    /// Voice Filter, Agent-Desk creates it while the filter is on (a PipeWire
     /// virtual source on Linux).
     pub(super) hex_microphone: bool,
     /// The window sees dictation events, so the tour can end with a
     /// practice dictation into its own field.
     pub(super) practice_dictation: bool,
-    /// The Voice Filter pane: Hex Microphone, its tuning, and the try-it
+    /// The Voice Filter pane: Agent-Desk Microphone, its tuning, and the try-it
     /// demo (macOS and Linux, in Labs).
     pub(super) fun: bool,
     /// Modifier-only shortcuts can require the left or right key (macOS,
@@ -240,12 +240,12 @@ impl NotesAvailability {
 pub(super) struct ScrawlView {
     /// Screen Recording, which a capture needs to record the screen.
     pub(super) screen_recording: bool,
-    /// Screen Recording is on in System Settings, but this Hex can't use it
+    /// Screen Recording is on in System Settings, but this Agent-Desk can't use it
     /// until it restarts.
     pub(super) screen_needs_restart: bool,
     /// Scrawl's own app runs, so it owns the capture shortcut.
     pub(super) scrawl_running: bool,
-    /// Use Hex for annotations was pressed and Scrawl has not quit yet.
+    /// Use Agent-Desk for annotations was pressed and Scrawl has not quit yet.
     pub(super) quitting_scrawl: bool,
     /// A captures folder that could not be revealed or chosen.
     pub(super) folder_error: Option<String>,
@@ -271,7 +271,7 @@ pub(super) enum ScrawlRequest {
     /// Read Screen Recording and Scrawl's app again now (the pane opened
     /// or the window became key), not at the next once-a-second refresh.
     Refresh,
-    /// Use Hex for annotations: ask Scrawl's own app to quit. Nothing else
+    /// Use Agent-Desk for annotations: ask Scrawl's own app to quit. Nothing else
     /// ever quits it.
     QuitScrawl,
     RevealFolder,
@@ -295,7 +295,7 @@ pub(super) struct PlatformState {
     /// so their row offers `"Still grey? Fix it"`.
     pub(super) permissions_stale: Vec<PermissionKind>,
     /// Untrusted permissions whose row is visible right now, so the native
-    /// host clears retired Hex bundle IDs' stale TCC rows once in the
+    /// host clears retired Agent-Desk bundle IDs' stale TCC rows once in the
     /// background.
     pub(super) permissions_shown: Vec<PermissionKind>,
     /// Screen & System Audio Recording, for meetings.
@@ -314,9 +314,9 @@ pub(super) struct PlatformState {
     pub(super) meeting_folder_error: Option<String>,
     /// The Calendar card's access, calendars, and next meetings.
     pub(super) calendar: CalendarView,
-    /// The tour's relaunch failed; the person must reopen Hex.
+    /// The tour's relaunch failed; the person must reopen Agent-Desk.
     pub(super) relaunch_failed: bool,
-    /// The desktop's paste permission where Hex pastes through the
+    /// The desktop's paste permission where Agent-Desk pastes through the
     /// RemoteDesktop portal (GNOME and KDE on Wayland); `None` elsewhere.
     pub(super) paste: Option<super::paste_access::PasteAccess>,
     /// A scene's state: [`Self::setup_status`] reports `permissions` on
@@ -328,7 +328,7 @@ pub(super) struct PlatformState {
     /// macOS 27 lists Accessibility as "Device Control and Data Access"
     /// (`permission_guide::list_name`); the permission rows use that name.
     pub(super) accessibility_renamed: bool,
-    /// The Hex Microphone's live filter tuning
+    /// The Agent-Desk Microphone's live filter tuning
     /// (`hex_microphone::current_tuned_config`).
     pub(super) tuning: TunedFilterConfig,
     /// The Voice Filter pane's try-it demo (`hex_microphone::demo_snapshot`); `None`
@@ -606,9 +606,9 @@ pub(super) enum PlatformRequest {
     UninstallHexMicrophone,
     Meeting(MeetingRequest),
     Calendar(CalendarRequest),
-    /// Quit and reopen Hex so macOS applies new permissions.
+    /// Quit and reopen Agent-Desk so macOS applies new permissions.
     Relaunch,
-    /// Apply this tuning to the live Hex Microphone filter
+    /// Apply this tuning to the live Agent-Desk Microphone filter
     /// (`hex_microphone::update_tuned_config`). The pane has already saved
     /// the mode, comfort noise, and strength in `settings.json`.
     SetTuning(TunedFilterConfig),
@@ -629,7 +629,7 @@ pub(super) enum PlatformRequest {
     Scrawl(ScrawlRequest),
 }
 
-/// Performs a Voice Filter request on the Hex Microphone in this process.
+/// Performs a Voice Filter request on the Agent-Desk Microphone in this process.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(super) fn voice_filter_request(request: PlatformRequest) {
     use crate::audio::hex_microphone as mic;
@@ -648,9 +648,9 @@ pub(super) fn voice_filter_request(request: PlatformRequest) {
     }
 }
 
-/// The Voice Filter pane's state from the Hex Microphone in this process:
+/// The Voice Filter pane's state from the Agent-Desk Microphone in this process:
 /// the demo every frame while it records or plays, and, when `refresh`, the
-/// tuning and Hex Microphone's status. Nothing decodes or renders while the
+/// tuning and Agent-Desk Microphone's status. Nothing decodes or renders while the
 /// Voice Filter is off.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(super) fn poll_voice_filter(state: &mut PlatformState, refresh: bool) -> bool {
@@ -756,7 +756,7 @@ impl PlatformHost {
     pub(super) fn poll(&mut self, state: &mut PlatformState) -> bool {
         match self {
             Self::Native(host) => host.poll(state),
-            // Hex Microphone's status is a few atomics on Linux, so it
+            // Agent-Desk Microphone's status is a few atomics on Linux, so it
             // refreshes every frame.
             #[cfg(target_os = "linux")]
             Self::Local(_) => scrawl_poll(state) | poll_voice_filter(state, true),

@@ -200,7 +200,7 @@ fn standing(ui: &Ui, p: Paint, id: &str, outcome: Option<Outcome>) -> Option<El>
         Some(Outcome::Interrupted) => Some(tone_tag(
             p,
             "state",
-            tr("Interrupted: Hex quit while it ran"),
+            tr("Interrupted: Agent-Desk quit while it ran"),
             Tone::Warning,
         )),
         Some(Outcome::Cancelled) => Some(tone_tag(p, "state", tr("Stopped"), Tone::Neutral)),

@@ -264,14 +264,14 @@ fn settings_reopened_sends_its_whole_tree_to_the_new_adapter() {
     let mut first = rune::AccessibilityLink::new();
     first.activate();
     let opened = first
-        .service(&mut rt, "Hex")
+        .service(&mut rt, "Agent-Desk")
         .expect("the first window's tree");
     assert!(opened.tree.is_some());
     assert!(rt.accessibility_action("transcription-control", Action::Click, None));
     settle(&mut rt);
     assert!(
         first
-            .service(&mut rt, "Hex")
+            .service(&mut rt, "Agent-Desk")
             .expect("the picker opened")
             .tree
             .is_none()
@@ -284,7 +284,7 @@ fn settings_reopened_sends_its_whole_tree_to_the_new_adapter() {
     rt.update(|ui, tx| show(ui, Destination::Settings, tx));
     settle(&mut rt);
     let mut reopened = rune::AccessibilityLink::new();
-    if let Some(update) = reopened.service(&mut rt, "Hex") {
+    if let Some(update) = reopened.service(&mut rt, "Agent-Desk") {
         assert!(
             update.tree.is_some(),
             "a partial tree before the client asked"
@@ -292,7 +292,7 @@ fn settings_reopened_sends_its_whole_tree_to_the_new_adapter() {
     }
     reopened.activate();
     let update = reopened
-        .service(&mut rt, "Hex")
+        .service(&mut rt, "Agent-Desk")
         .expect("the reopened window's tree");
     assert!(update.tree.is_some());
     assert!(

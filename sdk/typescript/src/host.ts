@@ -203,7 +203,7 @@ export async function create(options: CreateOptions | TranscriberOptions = {}): 
   return startHost(options)
 }
 
-// Where each OS's Hex keeps its data (`dirs::data_dir()` joined with `hex`).
+// Where each OS's Agent-Desk keeps its data (`dirs::data_dir()` joined with `agent-desk`).
 const defaultSupportDirectory = (): string => {
   switch (process.platform) {
     case "darwin":
@@ -217,7 +217,7 @@ const defaultSupportDirectory = (): string => {
 
 export const connect = async (options: ConnectOptions = {}): Promise<HexClient> => {
   const discoveryPath = options.discoveryPath
-    ?? join(process.env.HEX_APPLICATION_SUPPORT_DIR ?? defaultSupportDirectory(), "local-api.json")
+    ?? join(process.env.AGENT_DESK_APPLICATION_SUPPORT_DIR ?? defaultSupportDirectory(), "local-api.json")
   let value: unknown
   try {
     value = JSON.parse(await readFile(discoveryPath, "utf8"))

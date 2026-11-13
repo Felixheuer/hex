@@ -26,7 +26,7 @@ const packagedExecutable = (): string => {
       cause,
     })
   }
-  const executable = resolve(dirname(manifest), "bin", "hex-service")
+  const executable = resolve(dirname(manifest), "bin", "agent-desk-service")
   try {
     accessSync(executable, constants.X_OK)
   } catch (cause) {

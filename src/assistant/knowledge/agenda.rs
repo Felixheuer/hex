@@ -1,4 +1,4 @@
-//! Calendar events (through Hex's EventKit bridge, `crate::calendar`) and
+//! Calendar events (through Agent-Desk's EventKit bridge, `crate::calendar`) and
 //! open reminders (`knowledge.swift`): titles, times, places, who else
 //! comes; never an invitation's notes.
 
@@ -73,7 +73,7 @@ pub fn rank_events(events: &[Event], tokens: &[String], now_ms: i64, limit: usiz
 fn read_events(now_ms: i64) -> Result<Vec<Event>, String> {
     let access = crate::calendar::access();
     if access != crate::calendar::CalendarAccess::FullAccess {
-        return Err("Hex has no calendar access (Settings › Meetings › Connect calendar, or System Settings › Privacy & Security › Calendars)".into());
+        return Err("Agent-Desk has no calendar access (Settings › Meetings › Connect calendar, or System Settings › Privacy & Security › Calendars)".into());
     }
     // Two reads, so a busy past month can't crowd out the months ahead
     // (each read is capped).
@@ -119,10 +119,10 @@ pub fn reminders(query: &str, tokens: &[String], limit: usize) -> Result<Vec<Hit
     match native::reminders_access() {
         Access::Granted => {}
         Access::NotAsked => {
-            return Err("Hex hasn't asked for Reminders access yet (System Settings › Privacy & Security › Reminders)".into());
+            return Err("Agent-Desk hasn't asked for Reminders access yet (System Settings › Privacy & Security › Reminders)".into());
         }
         Access::Denied => {
-            return Err("Reminders access is off for Hex (System Settings › Privacy & Security › Reminders)".into());
+            return Err("Reminders access is off for Agent-Desk (System Settings › Privacy & Security › Reminders)".into());
         }
     }
     let json = native::reminders(query, 300).ok_or("Reminders didn't answer in time")?;

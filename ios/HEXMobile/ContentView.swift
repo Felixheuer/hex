@@ -196,7 +196,7 @@ struct ContentView: View {
                 color: showRecordingPill ? HexTheme.warmPearl : HexTheme.textBase
             )
 
-            Text("Hex")
+            Text("Agent-Desk")
                 .font(.system(size: 17, weight: .semibold))
                 .tracking(-0.2)
                 .foregroundStyle(HexTheme.textBase)
@@ -603,7 +603,7 @@ struct ContentView: View {
                             color: showRecordingControls ? HexTheme.warmPearl : HexTheme.textBase
                         )
 
-                        Text("Hex")
+                        Text("Agent-Desk")
                             .font(.system(size: 17, weight: .semibold))
                             .tracking(-0.2)
                             .foregroundStyle(HexTheme.textBase)

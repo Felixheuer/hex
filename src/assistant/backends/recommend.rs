@@ -59,7 +59,7 @@ fn recommend(backend: AssistantBackend, install: Plan) -> Recommendation {
         ),
         AssistantBackend::ClaudeApi => (
             "Claude API",
-            "Hex talks to Claude directly with your API key",
+            "Agent-Desk talks to Claude directly with your API key",
             "An Anthropic API key",
         ),
     };

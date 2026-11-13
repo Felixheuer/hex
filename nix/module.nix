@@ -9,10 +9,10 @@ let
 in
 {
   options.programs.hex = {
-    enable = lib.mkEnableOption "Hex local voice dictation";
+    enable = lib.mkEnableOption "Agent-Desk local voice dictation";
     package = lib.mkOption {
       type = lib.types.package;
-      description = "Hex package to install.";
+      description = "Agent-Desk package to install.";
     };
   };
 
@@ -23,7 +23,7 @@ in
           "x86_64-linux"
           "aarch64-linux"
         ];
-        message = "The Hex Nix package supports x86_64-linux and aarch64-linux only.";
+        message = "The Agent-Desk Nix package supports x86_64-linux and aarch64-linux only.";
       }
     ];
     environment.systemPackages = [ cfg.package ];

@@ -138,7 +138,7 @@ impl<D: Desktop> Guard<D> {
 
     /// Notes in the parking store (`guard::parking`) that `window` waits
     /// `how` for this task, from where it is now (kept if it was parked
-    /// before), so Hex puts it back when nobody holds it any more.
+    /// before), so Agent-Desk puts it back when nobody holds it any more.
     pub(super) fn note_parked(&self, window: &Window, how: parking::How) {
         let now = crate::desktop::events::now_ms();
         parking::park(
@@ -193,7 +193,7 @@ impl<D: Desktop> Guard<D> {
 pub(super) fn tool() -> Value {
     json!({
         "name": DISPLAYS_TOOL,
-        "description": "Hex: the displays (id, name, frame and visible frame in global points \
+        "description": "Agent-Desk: the displays (id, name, frame and visible frame in global points \
             with the main display's top-left at 0,0 and y down, so a display above or left of \
             it has negative coordinates; scale), the one the person is working on, and the one \
             new windows of Background tasks go to. Read-only and fast.",

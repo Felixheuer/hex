@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 
 use crate::assistant::{ConversationId, Event, Origin};
 
-use crate::assistant::view::shorten;
 use super::failure::Failure;
+use crate::assistant::view::shorten;
 
 /// How many of a quick question's latest steps its bubble lists.
 pub(crate) const BUBBLE_STEPS: usize = 3;
@@ -44,7 +44,7 @@ pub(crate) struct Bubble {
     /// The question in full, for Try again.
     pub(crate) asked: String,
     /// The language it was asked in (`assistant::lines::language`): what
-    /// Hex shows and says back about it is in that one.
+    /// Agent-Desk shows and says back about it is in that one.
     pub(crate) language: Option<&'static str>,
     pub(crate) phase: BubblePhase,
     /// The latest [`BUBBLE_STEPS`] steps, oldest first.
@@ -418,7 +418,7 @@ mod tests {
         assert_eq!(reading_time(&"word ".repeat(1000)), READING_MAX);
     }
 
-    /// Every line Hex says about a Here question shows: the answer, and the
+    /// Every line Agent-Desk says about a Here question shows: the answer, and the
     /// "On it: ..." said when it hands the question to the background, which
     /// stays while it's read and only then flies to the orb.
     #[test]

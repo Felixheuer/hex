@@ -1,6 +1,6 @@
-//! `hex transcribe <file>` (Transcribe files): a saved WAV through
-//! the running Hex's local API, or in this process on Linux and Windows when
-//! Hex is stopped. Nothing is pasted, saved to History, or processed.
+//! `agent-desk transcribe <file>` (Transcribe files): a saved WAV through
+//! the running Agent-Desk's local API, or in this process on Linux and Windows when
+//! Agent-Desk is stopped. Nothing is pasted, saved to History, or processed.
 
 use std::io::{Cursor, Read};
 use std::path::Path;
@@ -22,7 +22,7 @@ struct Transcript {
     transcript: String,
 }
 
-/// What `hex transcribe` sends once its file and model are settled.
+/// What `agent-desk transcribe` sends once its file and model are settled.
 #[derive(Debug)]
 struct Job {
     wav: Vec<u8>,
@@ -39,7 +39,10 @@ pub(super) fn run(
         Ok(settings) => settings,
         Err(error) => {
             return print(
-                ControlReply::error("failed", format!("couldn't read Hex's settings: {error:#}")),
+                ControlReply::error(
+                    "failed",
+                    format!("couldn't read Agent-Desk's settings: {error:#}"),
+                ),
                 output,
             );
         }
@@ -51,7 +54,7 @@ pub(super) fn run(
     print(reply, output)
 }
 
-/// The file and the model, both checked before Hex is asked.
+/// The file and the model, both checked before Agent-Desk is asked.
 fn prepare(
     settings: &crate::app_settings::AppSettings,
     file: &Path,
@@ -88,12 +91,12 @@ fn read_wav(path: &Path) -> std::result::Result<Vec<u8>, ControlReply> {
         Ok(_) => Ok(wav),
         Err(AudioError::ResourceExhausted) => Err(ControlReply::error(
             "resource-exhausted",
-            format!("{name} is too long for Hex to transcribe at once"),
+            format!("{name} is too long for Agent-Desk to transcribe at once"),
         )),
         Err(_) => Err(ControlReply::error(
             "unsupported",
             format!(
-                "{name} isn't a WAV file Hex can read; convert it to WAV first, \
+                "{name} isn't a WAV file Agent-Desk can read; convert it to WAV first, \
                  for example with ffmpeg: ffmpeg -i <file> <file>.wav"
             ),
         )),
@@ -115,7 +118,7 @@ fn transcribe(job: &Job) -> ControlReply {
     offline(&job.wav, &job.selection)
 }
 
-/// The running Hex transcribes with the model the request names: a clip up to
+/// The running Agent-Desk transcribes with the model the request names: a clip up to
 /// 30 s runs on its dictation engine's loaded copy, and a longer one makes
 /// its transcription service load its own.
 fn in_running_hex(job: &Job) -> ControlReply {
@@ -138,7 +141,7 @@ fn transcript(body: &[u8]) -> ControlReply {
     match serde_json::from_slice::<Transcript>(body) {
         Ok(Transcript { transcript }) if transcript.trim().is_empty() => no_speech(),
         Ok(Transcript { transcript }) => ControlReply::Transcript { text: transcript },
-        Err(_) => ControlReply::error("failed", "Hex sent an unreadable transcript"),
+        Err(_) => ControlReply::error("failed", "Agent-Desk sent an unreadable transcript"),
     }
 }
 
@@ -146,69 +149,95 @@ fn refusal(status: u16, code: &str, model: &str) -> ControlReply {
     match code {
         "unknown-model" => ControlReply::error(
             "unknown-model",
-            format!("the running Hex doesn't know `{model}`; run `hex model list`"),
+            format!("the running Agent-Desk doesn't know `{model}`; run `agent-desk model list`"),
         ),
         "unsupported-model" => ControlReply::error(
             "model-unavailable",
-            format!("the running Hex can't use `{model}`; run `hex model list` to see what it has"),
+            format!(
+                "the running Agent-Desk can't use `{model}`; run `agent-desk model list` to see what it has"
+            ),
         ),
-        "invalid-request" => ControlReply::error("failed", "Hex refused the request; update Hex"),
+        "invalid-request" => ControlReply::error(
+            "failed",
+            "Agent-Desk refused the request; update Agent-Desk",
+        ),
         "unsupported-audio" | "invalid-audio" => ControlReply::error(
             "unsupported",
-            "Hex couldn't read the file as WAV; convert it to WAV first",
+            "Agent-Desk couldn't read the file as WAV; convert it to WAV first",
         ),
-        "length-required" => ControlReply::error("failed", "Hex refused the upload; update Hex"),
+        "length-required" => {
+            ControlReply::error("failed", "Agent-Desk refused the upload; update Agent-Desk")
+        }
         "resource-exhausted" => ControlReply::error(
             "resource-exhausted",
-            "Hex says the file is too large or too long to transcribe",
+            "Agent-Desk says the file is too large or too long to transcribe",
         ),
         "model-not-ready" => ControlReply::error("model-unavailable", not_ready(model)),
-        "queue-full" => {
-            ControlReply::error("busy", "Hex is busy with another transcription; try again")
-        }
+        "queue-full" => ControlReply::error(
+            "busy",
+            "Agent-Desk is busy with another transcription; try again",
+        ),
         "upload-timeout" => {
-            ControlReply::error("failed", "Hex timed out reading the file; try again")
+            ControlReply::error("failed", "Agent-Desk timed out reading the file; try again")
         }
-        "cancelled" => ControlReply::error("failed", "Hex cancelled the transcription; try again"),
+        "cancelled" => ControlReply::error(
+            "failed",
+            "Agent-Desk cancelled the transcription; try again",
+        ),
         "service-gone" => ControlReply::error(
             "unavailable",
-            "Hex's transcription service stopped; restart Hex",
+            "Agent-Desk's transcription service stopped; restart Agent-Desk",
         ),
         "model-load-failed" => ControlReply::error(
             "failed",
-            format!("Hex couldn't load `{model}`; try again or pick another model"),
+            format!("Agent-Desk couldn't load `{model}`; try again or pick another model"),
         ),
         "transcription-failed" => {
-            ControlReply::error("failed", "Hex couldn't transcribe it; try again")
+            ControlReply::error("failed", "Agent-Desk couldn't transcribe it; try again")
         }
         _ => match status {
-            401 => ControlReply::error("failed", "Hex rejected the request; restart Hex"),
-            408 => ControlReply::error("failed", "Hex timed out reading the file; try again"),
+            401 => ControlReply::error(
+                "failed",
+                "Agent-Desk rejected the request; restart Agent-Desk",
+            ),
+            408 => {
+                ControlReply::error("failed", "Agent-Desk timed out reading the file; try again")
+            }
             409 => ControlReply::error("model-unavailable", not_ready(model)),
             413 => ControlReply::error(
                 "resource-exhausted",
-                "Hex says the file is too large to transcribe",
+                "Agent-Desk says the file is too large to transcribe",
             ),
             415 => ControlReply::error(
                 "unsupported",
-                "Hex couldn't read the file as WAV; convert it to WAV first",
+                "Agent-Desk couldn't read the file as WAV; convert it to WAV first",
             ),
-            429 => ControlReply::error("busy", "Hex is busy with another transcription; try again"),
+            429 => ControlReply::error(
+                "busy",
+                "Agent-Desk is busy with another transcription; try again",
+            ),
             _ if code.is_empty() || code.starts_with("http-") => {
-                ControlReply::error("failed", format!("Hex answered HTTP {status}"))
+                ControlReply::error("failed", format!("Agent-Desk answered HTTP {status}"))
             }
-            _ => ControlReply::error("failed", format!("Hex answered HTTP {status} ({code})")),
+            _ => ControlReply::error(
+                "failed",
+                format!("Agent-Desk answered HTTP {status} ({code})"),
+            ),
         },
     }
 }
 
-/// An imported model has no `hex model install` id, so it is checked where it
+/// An imported model has no `agent-desk model install` id, so it is checked where it
 /// was imported instead.
 fn not_ready(model: &str) -> String {
     if model.starts_with("custom-") {
-        format!("`{model}` isn't ready in the running Hex; check it in Hex's model picker")
+        format!(
+            "`{model}` isn't ready in the running Agent-Desk; check it in Agent-Desk's model picker"
+        )
     } else {
-        format!("`{model}` isn't ready in the running Hex; run `hex model install {model}`")
+        format!(
+            "`{model}` isn't ready in the running Agent-Desk; run `agent-desk model install {model}`"
+        )
     }
 }
 
@@ -219,8 +248,8 @@ fn no_speech() -> ControlReply {
     )
 }
 
-/// Without a running Hex, Linux and Windows load the model here as
-/// `hex model transcribe` does; macOS runs models only inside the app.
+/// Without a running Agent-Desk, Linux and Windows load the model here as
+/// `agent-desk model transcribe` does; macOS runs models only inside the app.
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn offline(wav: &[u8], selection: &TranscriptionSelection) -> ControlReply {
     match crate::transcription::local_transcriber::transcribe_wav_bytes(wav, selection) {
@@ -327,18 +356,18 @@ mod tests {
 
         let (code, message) = error(refusal(400, "unknown-model", "parakeet_v2"));
         assert_eq!(code, "unknown-model");
-        assert!(message.contains("hex model list"), "{message}");
+        assert!(message.contains("agent-desk model list"), "{message}");
 
         let (code, message) = error(refusal(409, "model-not-ready", "parakeet_v2"));
         assert_eq!(code, "model-unavailable");
         assert!(
-            message.contains("hex model install parakeet_v2"),
+            message.contains("agent-desk model install parakeet_v2"),
             "{message}"
         );
 
         let (code, message) = error(refusal(409, "model-not-ready", "custom-ab12ab12ab12ab12"));
         assert_eq!(code, "model-unavailable");
-        assert!(!message.contains("hex model install"), "{message}");
+        assert!(!message.contains("agent-desk model install"), "{message}");
 
         let (code, message) = error(refusal(429, "queue-full", "parakeet_v2"));
         assert_eq!(code, "busy");

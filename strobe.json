@@ -1,11 +1,11 @@
 {
   "$schema": "https://raw.githubusercontent.com/anomalyco/strobe/main/schema/strobe.v1.json",
   "build": {
-    "command": "cargo build --locked --release --bin hex",
+    "command": "cargo build --locked --release --bin agent-desk",
     "output": {
-      "windows": "{cache}/cargo-target/release/hex.exe",
-      "macos": "{cache}/cargo-target/release/hex",
-      "linux": "{cache}/cargo-target/release/hex"
+      "windows": "{cache}/cargo-target/release/agent-desk.exe",
+      "macos": "{cache}/cargo-target/release/agent-desk",
+      "linux": "{cache}/cargo-target/release/agent-desk"
     },
     "env": {
       "CARGO_TARGET_DIR": "{cache}/cargo-target",
@@ -22,18 +22,18 @@
     "hex": {
       "kind": "native",
       "exe": {
-        "windows": "target/release/hex.exe",
-        "macos": "/Applications/Hex.app/Contents/MacOS/hex",
-        "linux": "~/.local/share/hex/current/hex"
+        "windows": "target/release/agent-desk.exe",
+        "macos": "/Applications/Agent-Desk.app/Contents/MacOS/agent-desk",
+        "linux": "~/.local/share/agent-desk/current/hex"
       },
       "args": ["app"],
       "env": {
-        "HEX_APPLICATION_SUPPORT_DIR": "{home}/hex-data",
-        "HEX_DISABLE_UPDATES": "1",
+        "AGENT_DESK_APPLICATION_SUPPORT_DIR": "{home}/hex-data",
+        "AGENT_DESK_DISABLE_UPDATES": "1",
         "HF_HUB_CACHE": "{home}/.cache/huggingface/hub"
       },
-      "unset": ["HEX_*", "WGPU_*", "RUNE_*", "HF_HOME", "RUST_LOG"],
-      "moved": ["~/Library/Application Support/hex"],
+      "unset": ["AGENT_DESK_*", "WGPU_*", "RUNE_*", "HF_HOME", "RUST_LOG"],
+      "moved": ["~/Library/Application Support/agent-desk"],
       "files": {
         "hex-data/onboarding-complete": "",
         "hex-data/settings.json": {
@@ -45,10 +45,10 @@
       "guard": [
         { "os": "windows", "file": "%APPDATA%/hex/local-api.json", "pid": "pid" },
         { "os": "windows", "file": "%APPDATA%/hex/settings.json" },
-        { "os": "macos", "file": "~/Library/Application Support/hex/local-api.json", "pid": "pid" },
-        { "os": "macos", "file": "~/Library/Application Support/hex/settings.json" },
-        { "os": "linux", "file": "~/.local/share/hex/local-api.json", "pid": "pid" },
-        { "os": "linux", "file": "~/.local/share/hex/settings.json" }
+        { "os": "macos", "file": "~/Library/Application Support/agent-desk/local-api.json", "pid": "pid" },
+        { "os": "macos", "file": "~/Library/Application Support/agent-desk/settings.json" },
+        { "os": "linux", "file": "~/.local/share/agent-desk/local-api.json", "pid": "pid" },
+        { "os": "linux", "file": "~/.local/share/agent-desk/settings.json" }
       ]
     },
     "hex-listening": {
@@ -81,7 +81,7 @@
     },
     "hex-dictation": {
       "extends": "hex",
-      "env": { "HEX_AUDIO_FIXTURE": "{home}/speech.wav" },
+      "env": { "AGENT_DESK_AUDIO_FIXTURE": "{home}/speech.wav" },
       "files": {
         "hex-data/settings.json": {
           "enable_on_launch": true,

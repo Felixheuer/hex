@@ -1,5 +1,5 @@
-//! The Wayland backend: Hex's shortcuts through the desktop's
-//! GlobalShortcuts portal, or `hex` commands alone while there is none.
+//! The Wayland backend: Agent-Desk's shortcuts through the desktop's
+//! GlobalShortcuts portal, or `agent-desk` commands alone while there is none.
 
 use super::*;
 
@@ -27,7 +27,7 @@ impl Backend {
         self.run_portal(portal, dispatcher, binding, options)
     }
 
-    /// Serves `hex` commands, and with `probe` looks for the shortcuts
+    /// Serves `agent-desk` commands, and with `probe` looks for the shortcuts
     /// portal again from time to time: a portal started before the desktop's
     /// session environment exposes none until it is restarted (#875).
     /// Returns the portal once it appears, or `None` when the listener stops.
@@ -39,7 +39,7 @@ impl Backend {
         self.mark_ready(DesktopShortcuts::Commands);
         let mut probe = probe.then(|| crate::linux::portal::PortalProbe::new(self.stop.clone()));
         while !self.stopping() {
-            // No portal: `hex` commands are the only input, so wait on their
+            // No portal: `agent-desk` commands are the only input, so wait on their
             // queue; the probe is due far less often than this.
             dispatcher.wait_for_commands(COMMAND_WAIT);
             if !dispatcher.flush()? {
@@ -130,10 +130,10 @@ impl Backend {
         if let Err(error) = portal.forget_legacy_kde_shortcuts(&keep) {
             tracing::warn!(
                 error = format!("{error:#}"),
-                "could not remove Hex's old shortcuts from KDE"
+                "could not remove Agent-Desk's old shortcuts from KDE"
             );
         }
-        // GNOME asks for approval whenever Hex binds shortcuts it hasn't
+        // GNOME asks for approval whenever Agent-Desk binds shortcuts it hasn't
         // approved, as after a shortcut change; dismissing that dialog fails
         // the bind (#723), and Enable binds again, so the dialog returns.
         let granted = match portal.bind(&shortcuts, &self.stop) {
@@ -148,7 +148,7 @@ impl Backend {
                 tracing::warn!(
                     error = format!("{error:#}"),
                     desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),
-                    "the shortcuts portal's backend could not bind Hex's shortcuts; dictation follows the hex commands, which reach the service listener (`hex start`) but not a foreground `hex dictate`"
+                    "the shortcuts portal's backend could not bind Agent-Desk's shortcuts; dictation follows the agent-desk commands, which reach the service listener (`agent-desk start`) but not a foreground `agent-desk dictate`"
                 );
                 drop(portal);
                 self.wait_for_portal(&mut dispatcher, false)?;
@@ -156,7 +156,7 @@ impl Backend {
             }
             Err(error) => {
                 return Err(error.wrap_err(
-                    "the desktop did not approve Hex's shortcuts; choose Enable to ask again",
+                    "the desktop did not approve Agent-Desk's shortcuts; choose Enable to ask again",
                 ));
             }
         };
@@ -178,13 +178,13 @@ impl Backend {
                 None if shortcut.unconfirmed => {
                     tracing::info!(
                         name = %shortcut.name,
-                        "the desktop assigns this Hex shortcut's key itself; Hex cannot confirm it"
+                        "the desktop assigns this Agent-Desk shortcut's key itself; Agent-Desk cannot confirm it"
                     );
                 }
                 None => {
                     tracing::warn!(
                         name = %shortcut.name,
-                        "the desktop did not grant a Hex shortcut"
+                        "the desktop did not grant an Agent-Desk shortcut"
                     );
                 }
                 Some(_) => {}
@@ -203,7 +203,7 @@ impl Backend {
         };
         while !self.stopping() {
             // Wakes on the desktop's signals; the timeout only lets queued
-            // `hex` commands through while nothing is pressed.
+            // `agent-desk` commands through while nothing is pressed.
             for event in portal.wait_events(PORTAL_WAIT) {
                 let input = match event {
                     crate::linux::portal::Event::Pressed(id) => match shortcut_for(&id) {
@@ -234,7 +234,9 @@ impl Backend {
                         dispatcher.keys.released_all();
                         dispatcher.input(Input::Lost);
                         let _ = dispatcher.flush();
-                        return Err(eyre!("the desktop closed Hex's shortcuts portal session"));
+                        return Err(eyre!(
+                            "the desktop closed Agent-Desk's shortcuts portal session"
+                        ));
                     }
                 };
                 dispatcher.input(input);
@@ -263,7 +265,7 @@ impl Backend {
         {
             tracing::warn!(
                 error = format!("{error:#}"),
-                "could not clear Hex's shortcuts from the desktop"
+                "could not clear Agent-Desk's shortcuts from the desktop"
             );
         }
         Ok(())

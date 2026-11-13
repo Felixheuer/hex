@@ -145,7 +145,7 @@ pub(crate) fn copy_last_transcript() -> Result<(), String> {
 fn offer_unshown(window: &rune::AppHandle<Ui>, reason: String) {
     tracing::warn!(%reason, "meeting recording offer could not show; opening the Meetings pane");
     let message = format!(
-        "Hex detected a call but couldn't show its recording offer on this desktop ({reason}). Record it from here."
+        "Agent-Desk detected a call but couldn't show its recording offer on this desktop ({reason}). Record it from here."
     );
     window.update(move |ui, tx| {
         crate::rune_ui::meeting_failed(ui, message);

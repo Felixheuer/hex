@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-support="$HOME/Library/Application Support/hex"
+support="$HOME/Library/Application Support/agent-desk"
 model_dir="$support/models"
 model="$model_dir/parakeet-unified-en-0.6b-Q8_0.gguf"
 partial="$model.partial"

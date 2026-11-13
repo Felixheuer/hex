@@ -105,7 +105,7 @@ pub(crate) fn set_open_chats(open: impl Fn(&str) + Send + Sync + 'static) {
 
 /// What "Continue setup" on the "Finish setting up" bubble does (the same
 /// as the trigger's own hook). Called on the main thread. Until it's set,
-/// a press brings Hex's window forward.
+/// a press brings Agent-Desk's window forward.
 pub(crate) fn set_open_setup(open: impl Fn() + Send + Sync + 'static) {
     let _ = OPEN_SETUP.set(Box::new(open));
 }
@@ -150,7 +150,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
     let frames = (0..watcher::MAX_DISPLAYS)
         .map(|_| {
             app.overlay(
-                passive("Hex agent frame", (1440.0, 900.0), frame::view),
+                passive("Agent-Desk agent frame", (1440.0, 900.0), frame::view),
                 Frame::default(),
             )
         })
@@ -158,14 +158,14 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
     let outlines = (0..watcher::MAX_OUTLINES)
         .map(|_| {
             app.overlay(
-                passive("Hex agent window", (400.0, 300.0), outline::view),
+                passive("Agent-Desk agent window", (400.0, 300.0), outline::view),
                 Outline::default(),
             )
         })
         .collect();
     let orb_spec = OverlaySpec {
         interactive: true,
-        ..OverlaySpec::new("Hex assistant tasks", orb::SIZE, orb::view)
+        ..OverlaySpec::new("Agent-Desk assistant tasks", orb::SIZE, orb::view)
     }
     .options(OverlayOptions {
         // Only on request: the answer field, or a list a press opened.
@@ -255,7 +255,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
     );
     let bubble_spec = OverlaySpec {
         interactive: true,
-        ..OverlaySpec::new("Hex quick answer", bubble::SIZE, bubble::view)
+        ..OverlaySpec::new("Agent-Desk quick answer", bubble::SIZE, bubble::view)
     }
     .options(options(OverlayInput::Regions))
     .poll(bubble_poll)
@@ -293,15 +293,15 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         },
     );
     let hint = app.overlay(
-        passive("Hex new task", hint::SIZE, hint::view),
+        passive("Agent-Desk new task", hint::SIZE, hint::view),
         Hint::default(),
     );
     let hands = app.overlay(
-        passive("Hex hands off", hands::SIZE, hands::view),
+        passive("Agent-Desk hands off", hands::SIZE, hands::view),
         Hands::default(),
     );
     let listening = app.overlay(
-        passive("Hex listening", listening::SIZE, listening::view).poll(listening_poll),
+        passive("Agent-Desk listening", listening::SIZE, listening::view).poll(listening_poll),
         Listening::default(),
     );
     // The wall first: a tile pressed opens the enlarged card above it.
@@ -318,7 +318,7 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         enlarged,
         wall,
     });
-    // Tasks already running when Hex started listening.
+    // Tasks already running when Agent-Desk started listening.
     if let Some(overlays) = OVERLAYS.get() {
         overlays
             .orb
@@ -350,12 +350,12 @@ pub(crate) fn install<S: 'static>(app: &mut rune::App<S>) {
         watcher::displays_changed();
         follow::follow(true);
     });
-    if std::env::var_os("HEX_ASSISTANT_FAKE").is_some() {
+    if std::env::var_os("AGENT_DESK_ASSISTANT_FAKE").is_some() {
         play_fixture();
     }
 }
 
-/// `HEX_ASSISTANT_FAKE=1` (development): plays `fixture::script` into the
+/// `AGENT_DESK_ASSISTANT_FAKE=1` (development): plays `fixture::script` into the
 /// real overlays, with its windows laid out on the main display, then
 /// finishes the tasks and ends the Background work.
 static FAKE: AtomicBool = AtomicBool::new(false);

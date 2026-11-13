@@ -1,7 +1,7 @@
 //! Setup's one-click fixes: installing an agent, agent-desktop, or
 //! agent-browser without a prompt, with each line of the installer's output
 //! handed to the caller as progress, and signing in through a terminal
-//! window while Hex waits for the agent to say it's signed in.
+//! window while Agent-Desk waits for the agent to say it's signed in.
 //!
 //! Each install uses its project's documented method, per system:
 //!
@@ -204,7 +204,7 @@ pub struct Installers {
     /// Windows PowerShell, for a project's `install.ps1`.
     pub powershell: Option<PathBuf>,
     /// Where a global npm install goes when npm's own folder belongs to the
-    /// system (Linux's packaged npm): `~/.local`, whose `bin` Hex searches.
+    /// system (Linux's packaged npm): `~/.local`, whose `bin` Agent-Desk searches.
     pub npm_prefix: Option<PathBuf>,
     pub installed: bool,
     /// agent-browser's Chrome is downloaded.
@@ -318,7 +318,7 @@ pub enum Plan {
     /// Already installed (and agent-browser's Chrome downloaded).
     Ready,
     Run(Vec<Step>),
-    /// Hex can't install it by itself: why, and what the person can paste
+    /// Agent-Desk can't install it by itself: why, and what the person can paste
     /// in Terminal.
     Missing {
         why: String,
@@ -461,7 +461,7 @@ fn windows_step(tool: Tool, here: &Installers) -> Option<Step> {
     })
 }
 
-/// Why Hex can't install `tool` by itself on `os`, and what to paste.
+/// Why Agent-Desk can't install `tool` by itself on `os`, and what to paste.
 fn missing(os: Os, tool: Tool) -> Plan {
     let then = os.then();
     let chrome = if tool == Tool::AgentBrowser {
@@ -477,7 +477,7 @@ fn missing(os: Os, tool: Tool) -> Plan {
     match os {
         Os::Mac => Plan::Missing {
             why: format!(
-                "Homebrew isn't installed, so Hex can't install {} by itself. Install \
+                "Homebrew isn't installed, so Agent-Desk can't install {} by itself. Install \
                  Homebrew from brew.sh, or paste this in Terminal",
                 tool.name()
             ),
@@ -488,7 +488,7 @@ fn missing(os: Os, tool: Tool) -> Plan {
         },
         Os::Linux => Plan::Missing {
             why: format!(
-                "Node.js and npm aren't installed, so Hex can't install {} by itself. \
+                "Node.js and npm aren't installed, so Agent-Desk can't install {} by itself. \
                  Install them from your distribution's packages (for example \
                  `sudo apt install nodejs npm`), or paste this in a terminal",
                 tool.name()
@@ -500,7 +500,7 @@ fn missing(os: Os, tool: Tool) -> Plan {
         },
         Os::Windows => Plan::Missing {
             why: format!(
-                "Node.js isn't installed, so Hex can't install {} by itself. Install \
+                "Node.js isn't installed, so Agent-Desk can't install {} by itself. Install \
                  Node.js from nodejs.org, or paste this in PowerShell",
                 tool.name()
             ),
@@ -552,7 +552,7 @@ pub(super) fn install(tool: Tool, progress: &mut dyn FnMut(&str)) -> Result<()> 
     let program = tool.program().unwrap_or_default();
     let path = search::find(program).ok_or_else(|| {
         eyre!(
-            "{} was installed, but Hex can't find `{program}`",
+            "{} was installed, but Agent-Desk can't find `{program}`",
             tool.name()
         )
     })?;
@@ -568,7 +568,8 @@ fn run_step(step: &Step, progress: &mut dyn FnMut(&str)) -> Result<()> {
     let program = if Path::new(&step.program).is_absolute() {
         PathBuf::from(&step.program)
     } else {
-        search::find(&step.program).ok_or_else(|| eyre!("Hex can't find `{}`", step.program))?
+        search::find(&step.program)
+            .ok_or_else(|| eyre!("Agent-Desk can't find `{}`", step.program))?
     };
     let mut command = agent_command(&program);
     command
@@ -597,7 +598,7 @@ fn run_step(step: &Step, progress: &mut dyn FnMut(&str)) -> Result<()> {
 
 /// Does what `fix` offers. Blocks while installing or waiting for a
 /// sign-in; call it off the UI thread, except [`Fix::OpenSettings`], which
-/// shows Hex's guide only from the main thread. Run the check again
+/// shows Agent-Desk's guide only from the main thread. Run the check again
 /// afterwards.
 pub fn apply_fix(fix: Fix) -> Result<()> {
     apply_fix_with(fix, |_| {})
@@ -635,7 +636,7 @@ pub fn apply_fix_with(fix: Fix, mut progress: impl FnMut(&str)) -> Result<()> {
                 "terminal window"
             };
             progress(&format!(
-                "Sign in to {} in the {window} Hex opened…",
+                "Sign in to {} in the {window} Agent-Desk opened…",
                 name(backend)
             ));
             wait_for_sign_in(backend, progress)
@@ -680,11 +681,11 @@ fn repair_copy() -> Result<()> {
     Ok(())
 }
 
-/// Opens Hex again once this process quits, then quits.
+/// Opens Agent-Desk again once this process quits, then quits.
 #[cfg(target_os = "macos")]
 fn restart_hex() -> Result<()> {
     if !crate::desktop::onboarding::spawn_relaunch() {
-        return Err(eyre!("Hex couldn't schedule its restart"));
+        return Err(eyre!("Agent-Desk couldn't schedule its restart"));
     }
     crate::macos_rune::quit();
     Ok(())

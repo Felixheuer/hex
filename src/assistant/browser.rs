@@ -10,13 +10,13 @@
 //! MCP server (`agent-browser mcp`). A task gets that server through `hex
 //! assistant browser-mcp --task <id>` ([`proxy`]), which pins every call to
 //! one of the task's own browsers ([`sessions`]: its main one and up to
-//! seven named ones) in Hex's own namespace and withholds the arguments that
+//! seven named ones) in Agent-Desk's own namespace and withholds the arguments that
 //! would show a window, reach another task, or persist state.
 //!
 //! **Sign-ins.** A hidden browser has none of the person's cookies. The
 //! person signs in once: by taking the logins of one of their Chrome
 //! profiles over ([`accounts::import_from_chrome`], refreshed daily), or by
-//! hand in a visible window of Hex's own ([`sign_in`]). agent-browser keeps
+//! hand in a visible window of Agent-Desk's own ([`sign_in`]). agent-browser keeps
 //! them under one restore key, and every task's browser starts from a
 //! read-only copy of them (it never saves back): in real Chrome when it asks
 //! for `signedIn`, else in the light engine, which loads them too
@@ -48,7 +48,7 @@ pub use sessions::{Engine, max_sessions};
 /// (Codex), and `agent-browser_agent_browser_*` (OpenCode).
 pub const MCP_NAME: &str = "agent-browser";
 
-/// Hex's own agent-browser namespace: its sessions and saved state stay
+/// Agent-Desk's own agent-browser namespace: its sessions and saved state stay
 /// apart from the person's own agent-browser use.
 const NAMESPACE: &str = "hex";
 
@@ -173,7 +173,7 @@ fn server(hex: PathBuf, task: &str, browser: &Path) -> McpServer {
 /// (twenty helpers' at once 0.36 s, against about 4 s cold). Only a light
 /// Lightpanda browser is started for every job, and only while memory is
 /// fine; real Chrome with the person's accounts only when `request` names a
-/// site they signed in to for Hex ([`names_site`] among
+/// site they signed in to for Agent-Desk ([`names_site`] among
 /// [`signed_in_sites`]): the task's
 /// first `signedIn: true` browser is that one
 /// (`Sessions::pin`). The task's end closes them like any other
@@ -270,7 +270,7 @@ fn site_name(host: &str) -> Option<&str> {
     labels.get(n.checked_sub(suffix + 1)?).copied()
 }
 
-/// The sites the person signed in to for Hex: those in the sign-in store
+/// The sites the person signed in to for Agent-Desk: those in the sign-in store
 /// (never a list of sites), read again only when a state file changed. A
 /// request naming one ([`names_site`]) is worth a warm real Chrome with
 /// their accounts.
@@ -549,7 +549,7 @@ pub fn session(task: &str) -> String {
     format!("hex-{id}")
 }
 
-/// Opens Hex's own browser in a visible window at `url`, so the person can
+/// Opens Agent-Desk's own browser in a visible window at `url`, so the person can
 /// sign in to the sites tasks should use. Its cookies and storage are saved
 /// as they change and when [`finish_sign_in`] closes it; every task's
 /// browser starts with them from then on. Returns once the window is open.
@@ -561,7 +561,7 @@ pub fn sign_in(url: Option<&str>) -> Result<()> {
         &["--headed", "open", url.unwrap_or("about:blank")],
     )
     .map(|_| ())
-    .map_err(|error| eyre!("Hex's browser didn't open: {error}"))
+    .map_err(|error| eyre!("Agent-Desk's browser didn't open: {error}"))
 }
 
 /// Saves and closes the sign-in window.
@@ -569,7 +569,7 @@ pub fn finish_sign_in() -> Result<()> {
     let path = executable().ok_or_else(|| eyre!("agent-browser isn't installed"))?;
     call(&path, SIGN_IN, &["close"])
         .map(|_| ())
-        .map_err(|error| eyre!("Hex's browser didn't close: {error}"))?;
+        .map_err(|error| eyre!("Agent-Desk's browser didn't close: {error}"))?;
     private_state();
     Ok(())
 }
@@ -705,7 +705,7 @@ pub fn forget_sign_in() -> Result<()> {
     Ok(())
 }
 
-/// agent-browser's saved state for Hex's namespace:
+/// agent-browser's saved state for Agent-Desk's namespace:
 /// `~/.agent-browser/namespaces/hex/state/sessions/<key>-<session>.json`.
 fn state_dir() -> Option<PathBuf> {
     Some(
@@ -730,7 +730,7 @@ fn private_state() {
     }
 }
 
-/// agent-browser with Hex's agent PATH (and Lightpanda's folder) and none
+/// agent-browser with Agent-Desk's agent PATH (and Lightpanda's folder) and none
 /// of the person's own `AGENT_BROWSER_*` settings.
 fn base_command(path: &Path) -> Command {
     let mut command = search::command(path);
@@ -747,7 +747,7 @@ fn base_command(path: &Path) -> Command {
     command
 }
 
-/// agent-browser for `session` in Hex's namespace, headless and clean; a
+/// agent-browser for `session` in Agent-Desk's namespace, headless and clean; a
 /// signed-in browser asks for the sign-ins per call ([`sessions`]). The
 /// sign-in window's own session loads and saves them.
 pub(crate) fn command(path: &Path, session: &str) -> Command {
@@ -785,7 +785,7 @@ pub fn session_env(session: &str, config: Option<&Path>) -> Vec<(String, String)
     env
 }
 
-/// Hex's agent-browser config, in place of the person's
+/// Agent-Desk's agent-browser config, in place of the person's
 /// `~/.agent-browser/config.json` (which could make every browser visible
 /// or open their own Chrome profile).
 fn config() -> Option<PathBuf> {
@@ -1018,7 +1018,7 @@ mod tests {
     #[test]
     fn the_server_is_hex_itself_for_the_task() {
         let server = server(
-            PathBuf::from("/Applications/Hex.app/Contents/MacOS/hex"),
+            PathBuf::from("/Applications/Agent-Desk.app/Contents/MacOS/agent-desk"),
             "t1",
             Path::new("/opt/homebrew/bin/agent-browser"),
         );
@@ -1032,11 +1032,11 @@ mod tests {
         let claude: Value = serde_json::from_str(&server.claude_config_as(MCP_NAME)).unwrap();
         assert_eq!(
             claude["mcpServers"]["agent-browser"]["command"],
-            "/Applications/Hex.app/Contents/MacOS/hex"
+            "/Applications/Agent-Desk.app/Contents/MacOS/agent-desk"
         );
         assert_eq!(
             server.codex_args_as(MCP_NAME, &["agent_browser_open"])[1],
-            r#"mcp_servers.agent-browser.command="/Applications/Hex.app/Contents/MacOS/hex""#
+            r#"mcp_servers.agent-browser.command="/Applications/Agent-Desk.app/Contents/MacOS/agent-desk""#
         );
         assert_eq!(
             server.opencode_config_as(MCP_NAME)["agent-browser"]["command"][4],

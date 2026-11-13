@@ -1,4 +1,4 @@
-//! Settings rows for the person's accounts in Hex's hidden browsers: take
+//! Settings rows for the person's accounts in Agent-Desk's hidden browsers: take
 //! the logins of a Chrome profile over (refreshed daily), sign in by hand,
 //! forget them all, and whether new browsers start with them
 //! (`assistant::browser::accounts`). Self-contained: whichever settings pane
@@ -65,7 +65,7 @@ pub(in crate::rune_ui) fn rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<Ca
     let mut rows: Vec<CardRow> = vec![
         note(
             "accounts-note",
-            tr("Hex's browsers then use your accounts: tasks can read and act as you on these sites"),
+            tr("Agent-Desk's browsers then use your accounts: tasks can read and act as you on these sites"),
             p.muted(),
         )
         .into(),
@@ -117,7 +117,7 @@ pub(in crate::rune_ui) fn rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<Ca
             "accounts-chrome-profile",
             tr("Take logins from Chrome"),
             Some((
-                tr("Taken again every day. macOS asks once whether Hex may read Chrome's key")
+                tr("Taken again every day. macOS asks once whether Agent-Desk may read Chrome's key")
                     .to_owned(),
                 p.muted(),
             )),

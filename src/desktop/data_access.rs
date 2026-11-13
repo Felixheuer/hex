@@ -128,7 +128,7 @@ pub fn last(source: Source) -> Access {
 }
 
 fn remember(source: Source, access: Access) -> Access {
-    // A grant made in this process can still read "not asked" until Hex
+    // A grant made in this process can still read "not asked" until Agent-Desk
     // relaunches (EventKit); the grant stands until macOS says otherwise.
     let access = if access == Access::NotAsked && last(source) == Access::Granted {
         Access::Granted
@@ -242,7 +242,7 @@ pub fn open_settings(source: Source) {
     let _ = source;
 }
 
-/// Full Disk Access: whether macOS lets Hex open TCC's own database, which
+/// Full Disk Access: whether macOS lets Agent-Desk open TCC's own database, which
 /// every Mac has and only Full Disk Access opens.
 fn full_disk_access() -> Access {
     let Some(home) = crate::app_paths::home_dir() else {

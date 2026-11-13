@@ -1,6 +1,6 @@
 //! A task's MCP servers in each backend's config format: its desktop tool
 //! (the guard, which forwards the driver's tools under agent-desktop's names
-//! plus Hex's own), its hidden browser under `agent-browser`, and Hex's
+//! plus Agent-Desk's own), its hidden browser under `agent-browser`, and Agent-Desk's
 //! tools. Each server lists exactly the tools the task may use, so every
 //! backend gets all of them and none keeps an allowlist of its own
 //! (`guard::proxy::tools`, `tools::definitions_for`).

@@ -31,7 +31,7 @@ case "$CHANNEL" in
     for existing in "$tag" "app-v$version"; do
       refs=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$existing" --jq '.[].ref')
       if grep -Fxq "refs/tags/$existing" <<< "$refs"; then
-        die "Hex $version is already tagged $existing; raise the version in Cargo.toml on dev first."
+        die "Agent-Desk $version is already tagged $existing; raise the version in Cargo.toml on dev first."
       fi
     done
     [ -f "docs/releases/$version.md" ] || die "Add release notes at docs/releases/$version.md first."

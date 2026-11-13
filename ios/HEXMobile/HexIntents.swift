@@ -5,7 +5,7 @@ import Foundation
 /// Conforms to `AudioRecordingIntent` + `LiveActivityIntent` so iOS permits
 /// starting or stopping background microphone dictation with a Live Activity.
 nonisolated struct DictateWithHexIntent: AudioRecordingIntent, LiveActivityIntent {
-    static let title: LocalizedStringResource = "Dictate with Hex"
+    static let title: LocalizedStringResource = "Dictate with Agent-Desk"
     static let description = IntentDescription(
         "Starts recording on first press, then transcribes locally and copies to the clipboard on second press."
     )
@@ -19,9 +19,9 @@ nonisolated struct DictateWithHexIntent: AudioRecordingIntent, LiveActivityInten
 }
 
 nonisolated struct WarmHexKeyboardIntent: AppIntent {
-    static let title: LocalizedStringResource = "Warm Hex Keyboard"
+    static let title: LocalizedStringResource = "Warm Agent-Desk Keyboard"
     static let description = IntentDescription(
-        "Starts Hex's warm microphone session so the keyboard can dictate without switching apps."
+        "Starts Agent-Desk's warm microphone session so the keyboard can dictate without switching apps."
     )
     @available(iOS 26.0, *)
     static let supportedModes: IntentModes = .foreground

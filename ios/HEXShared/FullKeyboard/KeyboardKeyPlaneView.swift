@@ -1,8 +1,8 @@
 import UIKit
 
-/// Draws the keys and turns touches into `FullKeyboardEngine` calls. The Hex and globe
+/// Draws the keys and turns touches into `FullKeyboardEngine` calls. The Agent-Desk and globe
 /// keys are real controls laid over their slots by `FullKeyboardView`; this view only
-/// draws the globe's keycap and leaves the Hex slot empty.
+/// draws the globe's keycap and leaves the Agent-Desk slot empty.
 @MainActor
 final class KeyboardKeyPlaneView: UIView {
     let engine: FullKeyboardEngine

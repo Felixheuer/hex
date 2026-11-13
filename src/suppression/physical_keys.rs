@@ -10,10 +10,10 @@
 //! blocking.
 //!
 //! The manager opens with `kIOHIDOptionsTypeNone` and never seizes a device,
-//! so every key still reaches the foreground application. Hex never requests
-//! Input Monitoring, so the tracker runs only when Hex already has it: a user
-//! can turn Hex on under System Settings › Privacy & Security › Input
-//! Monitoring and restart Hex. `IOHIDCheckAccess` gates the tracker before it
+//! so every key still reaches the foreground application. Agent-Desk never requests
+//! Input Monitoring, so the tracker runs only when Agent-Desk already has it: a user
+//! can turn Agent-Desk on under System Settings › Privacy & Security › Input
+//! Monitoring and restart Agent-Desk. `IOHIDCheckAccess` gates the tracker before it
 //! opens; without that permission it stays inactive without opening or
 //! prompting, and matching keeps using CoreGraphics flags unchanged, including
 //! Right Control starting from a remapped Caps Lock.
@@ -340,9 +340,9 @@ fn run(
     stop: Arc<AtomicBool>,
     ready: SyncSender<Option<u64>>,
 ) {
-    // Hex never calls IOHIDRequestAccess: asking could prompt for Input
-    // Monitoring, which Hex's onboarding deliberately never requests. The
-    // tracker runs only when Hex already has Input Monitoring; without it, a
+    // Agent-Desk never calls IOHIDRequestAccess: asking could prompt for Input
+    // Monitoring, which Agent-Desk's onboarding deliberately never requests. The
+    // tracker runs only when Agent-Desk already has Input Monitoring; without it, a
     // remapped Caps Lock keeps starting a Right Control shortcut.
     // SAFETY: a read-only access query.
     let access = unsafe { IOHIDCheckAccess(IOHID_REQUEST_TYPE_LISTEN_EVENT) };

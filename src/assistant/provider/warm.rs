@@ -7,7 +7,7 @@
 //! through the guard's state (`guard::mcp_server`), so a process started in
 //! one window serves a request asked in another. Each ends after its time
 //! to live, when evicted, when the reservation it was started for goes
-//! unused (`end_for`), or when Hex ends (its input closes).
+//! unused (`end_for`), or when Agent-Desk ends (its input closes).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};

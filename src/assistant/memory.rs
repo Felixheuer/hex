@@ -66,7 +66,7 @@ fn clean(fact: &str) -> Result<String> {
     }
     if looks_secret(&line) {
         return Err(eyre!(
-            "that looks like a secret (a password, key, or card number); Hex never remembers those"
+            "that looks like a secret (a password, key, or card number); Agent-Desk never remembers those"
         ));
     }
     Ok(line)

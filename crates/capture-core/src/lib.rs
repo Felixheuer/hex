@@ -2,7 +2,7 @@
 //!
 //! A host describes a recording with a [`Plan`] and starts it with [`Recorder::start`]. Each
 //! display, window or region source records to its own MP4: H.264 through an
-//! `SCRecordingOutput`, or HEVC at a constant quality through Hex's own `AVAssetWriter`
+//! `SCRecordingOutput`, or HEVC at a constant quality through Agent-Desk's own `AVAssetWriter`
 //! ([`Encoder`]).
 //! [`Recording::stop`] returns at once; the files are finished on the recording's own thread and
 //! come back from [`Finishing::wait`] along with a versioned [`Manifest`] that places every file

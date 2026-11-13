@@ -461,7 +461,7 @@ extension View {
 }
 
 enum KeyboardSetupCopy {
-    static let fullAccessPath = "Allow Full Access: Settings › Apps › Hex › Keyboards"
+    static let fullAccessPath = "Allow Full Access: Settings › Apps › Agent-Desk › Keyboards"
 }
 
 /// Metal-free stand-in for the resting Dot Scope bar. Mounting it instead of
@@ -610,7 +610,7 @@ struct KeyboardSurfaceView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Open Hex")
+            .accessibilityLabel("Open Agent-Desk")
 
             leadingAccessory(palette: p)
 
@@ -790,7 +790,7 @@ struct KeyboardSurfaceView: View {
 
     private var idleTriggerSpec: (icon: String, title: String, width: CGFloat) {
         if !model.hasFullAccess {
-            return ("arrow.up.forward.app.fill", "Set up Hex", 112)
+            return ("arrow.up.forward.app.fill", "Set up Agent-Desk", 112)
         }
         if !model.isModelInstalled {
             return ("mic.fill", "Set up", 88)
