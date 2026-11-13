@@ -6,18 +6,30 @@ maintainable, and nothing that isn't possible.
 
 ## Round 3 (running, 2026-11-13)
 
-- [ ] Cua Driver as the desktop backend (background like Codex, cursor and focus stay with
-      the person), agent-desktop as fallback
+- [x] Cua Driver as the desktop backend (background like Codex, cursor and focus stay with
+      the person), agent-desktop as fallback (pilot.42)
 - [x] Universal app control: `hex_app_capabilities` (sdef, URL schemes, AX), no recipe list,
       no brand word lists (pilot.40)
-- [ ] Orb view: "All live" overview, scrolling, nothing clipped, checked visually with
-      headless renders
+- [x] Orb view: "All live" overview, scrolling, nothing clipped, checked visually with
+      headless renders (pilot.41)
 - [x] Permissions: Contacts/Reminders/Calendar/Automation/FDA in setup and repair
 - [x] Stable service tests (46/46)
 - [x] Browsers are Chrome with live pictures (pilot.39)
 
 ## Round 4 (planned): integration and quality
 
+- [x] Review done: docs/review-round4.md (38 findings)
+- [x] P0 1, 2, 6, 7 · P1 15, 16, 17, 18, 19, 21, 22, 23 (Cua seam), 27, 28 · P2 30, 31, 32, 33,
+      34, 35, 37 (pilot.42–43)
+- [x] Crash: system-wide AX reads off the main thread (pilot.44); the release opens Hex
+      reliably
+- [ ] P0 3 (tool allowlist per backend), 4 (parking store, windows back after a restart),
+      5 (an escalated job's browsers), P1 8–14 (tools per lane, guard rules, routing, helper
+      rules, speed rules for jobs, exclusive desk), 20 (consent without app lists), 36 (guard
+      concurrency)
+- [ ] P1 24 (one view reducer for overlay and stream), 25 (renames), 26 (setting names),
+      29 (cfg!(test) as hooks), 38 (splits); remaining German branches in service/inbox.rs and
+      voice.rs
 - [ ] Architecture review across `src/assistant/**`, overlay and stream: duplication, seams,
       dead code (screenshots, Labs leftovers), naming, module sizes (code_shape)
 - [ ] UX review of the whole flow (hold → answer/action/job → minis → question → result) in
@@ -51,3 +63,7 @@ maintainable, and nothing that isn't possible.
 | pilot.38 | Background apps, desk, recipes/OCR |
 | pilot.39 | Browsers with live pictures (Chrome) |
 | pilot.40 | Universal app control, permissions in setup, stable tests |
+| pilot.41 | Overlay: All live, big pictures, scrolling |
+| pilot.42 | Cua Driver, Codex-style background input |
+| pilot.43 | Round 4: security, brain structure, errors/wording, any browser |
+| pilot.44 | Fix crash (system-wide AX), reliable restart after an update |
