@@ -343,27 +343,32 @@ pub fn recall_in(graph: &graph::Graph, request: &str) -> Option<String> {
 /// Adds a remembered fact to the graph (`hex_remember`), `about` naming
 /// whom or what it is about when the agent said so.
 pub fn learn_fact(fact: &str, about: Option<&str>) {
-    if cfg!(test) {
-        return;
-    }
-    let Some((path, mut graph)) = graph::load() else {
+    let Some((path, graph)) = graph::load() else {
         return;
     };
     let region = crate::assistant::phone::incoming::region();
-    let fact = graph::extract(fact, about, &region);
+    learn_fact_into(&path, graph, fact, about, &region);
+}
+
+/// [`learn_fact`] into `graph`, kept at `path`, for a person in `region`.
+pub fn learn_fact_into(
+    path: &std::path::Path,
+    mut graph: graph::Graph,
+    fact: &str,
+    about: Option<&str>,
+    region: &str,
+) {
+    let fact = graph::extract(fact, about, region);
     if graph.learn(&fact, "remember", crate::assistant::store::now_ms())
-        && let Err(error) = graph::save_to(&path, &graph)
+        && let Err(error) = graph::save_to(path, &graph)
     {
         tracing::warn!(%error, "couldn't save the memory graph");
     }
 }
 
-/// Learns from a finished task's answer, off the caller's thread (one
-/// hook in `service::run`).
-pub fn learn_from_task(conversation: &str, request: &str, answer: &str, memory: bool) {
-    if !memory || cfg!(test) {
-        return;
-    }
+/// Learns from a finished task's answer, off the caller's thread, while
+/// memory is on (the `learn` hook in `service::run` asks only then).
+pub fn learn_from_task(conversation: &str, request: &str, answer: &str) {
     let (conversation, request, answer) = (
         conversation.to_owned(),
         request.to_owned(),
@@ -422,6 +427,26 @@ mod tests {
         assert_eq!(names, NAMES);
         // Installed apps are the guard's hex_installed_apps: one tool per job.
         assert_eq!(Scope::parse("apps"), None);
+    }
+
+    #[test]
+    fn a_remembered_fact_is_saved_into_the_graph_and_recalled() {
+        let dir = std::env::temp_dir().join(format!("hex-knowledge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("memory-graph.json");
+        learn_fact_into(
+            &path,
+            graph::Graph::default(),
+            "Company: Kalibermarkt",
+            None,
+            "DE",
+        );
+        let saved = graph::load_from(&path, String::new, "DE");
+        let _ = std::fs::remove_dir_all(&dir);
+        let recalled = recall_in(&saved, "Wie läuft Kalibermarkt?").unwrap_or_default();
+        assert!(recalled.contains("Kalibermarkt"), "{recalled}");
+        assert_eq!(recall_in(&saved, "Wie wird das Wetter?"), None);
     }
 
     #[test]

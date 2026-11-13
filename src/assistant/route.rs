@@ -197,13 +197,14 @@ const WEB: &[&str] = &[
 ];
 
 /// Whether words said so far ask for the web: a browser or a search, an
-/// address (written, or spoken as "spiegel punkt de"), or a site the
-/// person signed in to for Hex. No list of sites.
-pub fn wants_web(words: &str) -> bool {
+/// address (written, or spoken as "spiegel punkt de"), or one of the
+/// `signed_in` sites, those the person signed in to for Hex
+/// (`browser::signed_in_sites`). No list of sites.
+pub fn wants_web(words: &str, signed_in: &[String]) -> bool {
     let text = words.to_lowercase();
     WEB.iter().any(|word| text.contains(word))
         || names_address(&text)
-        || crate::assistant::browser::names_signed_in_site(&text)
+        || crate::assistant::browser::names_site(&text, signed_in)
 }
 
 /// Whether `text` (lowercase) holds a web address: `https://…`, `www.…`, a

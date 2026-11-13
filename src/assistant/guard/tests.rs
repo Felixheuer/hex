@@ -101,6 +101,10 @@ struct FakeState {
     menus: HashMap<i64, Vec<super::screen::MenuKey>>,
     /// What Return would press in each process.
     returns: HashMap<i64, super::screen::ReturnTarget>,
+    /// LaunchServices' link handlers, as the person set them.
+    link_handlers: Option<Value>,
+    /// Each window's text, read from its picture, by window number.
+    readings: HashMap<u32, crate::assistant::actions::ocr::Reading>,
 }
 
 /// agent-desktop answering from recorded windows; every call is kept.
@@ -187,6 +191,23 @@ impl Screen for Fake {
 
     fn return_target(&mut self, pid: i64) -> super::screen::ReturnTarget {
         self.state().returns.get(&pid).cloned().unwrap_or_default()
+    }
+
+    fn link_handlers(&mut self) -> Option<Value> {
+        self.state().link_handlers.clone()
+    }
+
+    fn read_window(
+        &mut self,
+        number: u32,
+        _size: Option<(f64, f64)>,
+    ) -> Result<crate::assistant::actions::ocr::Reading, String> {
+        Ok(self
+            .state()
+            .readings
+            .get(&number)
+            .cloned()
+            .unwrap_or_default())
     }
 }
 

@@ -86,6 +86,18 @@ impl Shared<Box<dyn Screen>> {
     pub fn return_target(&self, pid: i64) -> ReturnTarget {
         self.lock().return_target(pid)
     }
+
+    pub fn link_handlers(&self) -> Option<Value> {
+        self.lock().link_handlers()
+    }
+
+    pub fn read_window(
+        &self,
+        number: u32,
+        size: Option<(f64, f64)>,
+    ) -> Result<crate::assistant::actions::ocr::Reading, String> {
+        self.lock().read_window(number, size)
+    }
 }
 
 /// What results taught the guard, shared with its readers.
