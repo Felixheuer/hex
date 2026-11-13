@@ -1124,7 +1124,7 @@ fn a_task_running_too_long_fails_with_a_clear_message() {
     assert!(!ended(&id)(&world.events.lock().unwrap()));
     world.advance(31 * 60_000);
     world.wait_for("the timeout", ended(&id));
-    let message = "Stopped after 30 minutes: it may run at most 30 minutes (Settings › Assistant).";
+    let message = "Stopped after 30 minutes: it may run at most 30 minutes (Assistant settings).";
     assert_eq!(
         world.finals(),
         [Event::Failed {
@@ -1501,7 +1501,7 @@ fn nothing_runs_while_the_assistant_is_off_or_not_set_up() {
             },
             Event::Failed {
                 conversation: later,
-                message: "Finish setting up the assistant first (Settings › Assistant).".into()
+                message: "Finish setting up the assistant first (Assistant settings).".into()
             }
         ]
     );

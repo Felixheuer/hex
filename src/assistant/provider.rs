@@ -536,9 +536,10 @@ pub fn claude_code_sandbox() -> std::result::Result<(), String> {
 pub fn executable(backend: AssistantBackend) -> Result<PathBuf> {
     crate::assistant::backends::executable(backend).ok_or_else(|| {
         eyre!(
-            "{} isn't installed on this {}, or Hex can't find it. Install it, or choose another agent in Chats › Settings.",
+            "{} isn't installed on this {}, or Hex can't find it. Install it, or choose another agent in {}.",
             name(backend),
-            crate::assistant::agent::computer_name()
+            crate::assistant::agent::computer_name(),
+            crate::assistant::lines::ASSISTANT_SETTINGS
         )
     })
 }

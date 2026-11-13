@@ -34,7 +34,7 @@ const SCALE: f32 = 1.15;
 static DRAWING: Mutex<()> = Mutex::new(());
 
 /// Task `colour`'s cursor image (a PNG, the arrow's tip at
-/// [`cursor_hotspot`]), drawn on first use; `None` when it can't be drawn
+/// [`TIP`]), drawn on first use; `None` when it can't be drawn
 /// (no GPU, no support folder).
 pub(crate) fn cursor_image(colour: u8) -> Option<PathBuf> {
     let index = colour % COLOURS;
@@ -52,12 +52,6 @@ pub(crate) fn cursor_image(colour: u8) -> Option<PathBuf> {
         tracing::warn!(%error, "assistant: couldn't draw the agents' cursors");
     }
     path.exists().then_some(path)
-}
-
-/// Where the arrow's tip is in the image, in points from its top-left.
-#[allow(dead_code)] // For agent-desktop, once it takes a hotspot.
-pub(crate) fn cursor_hotspot() -> (f32, f32) {
-    (TIP[0], TIP[1])
 }
 
 fn file(dir: &Path, index: u8) -> PathBuf {

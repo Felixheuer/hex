@@ -321,6 +321,8 @@ pub(crate) fn draw(p: Paint, desk: &Desk, reduced: bool) -> El {
             },
             open: Desk::open,
             setup: |desk: &mut Desk| desk.note = "Would open the assistant's setup".into(),
+            settings: |desk: &mut Desk| desk.note = "Would open Assistant settings".into(),
+            retry: |desk: &mut Desk, _, asked| desk.note = format!("Would ask again: {asked}"),
         };
         let card = match &desk.bubble {
             _ if desk.setup => bubble::setup_card(p, actions),

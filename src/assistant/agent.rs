@@ -878,7 +878,7 @@ pub fn prepare(
                 spec.physical_input,
             )
             .ok_or(
-                "No desktop driver (Cua Driver or agent-desktop) is installed, so the assistant can't use apps. Install it in Settings › Assistant, or turn off “Use apps”.",
+                "No desktop driver (Cua Driver or agent-desktop) is installed, so the assistant can't use apps. Install it in Assistant settings, or turn off “Use apps”.",
             )
             .map(|mut desktop| {
                 desktop.front_window = spec.full_control;

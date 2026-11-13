@@ -1,22 +1,24 @@
 //! The assistant (on by default, `assistant.enabled`): a second, "Action"
-//! shortcut. Hold it to ask by voice (the answer shows in the HUD and is
-//! read aloud); double-tap it for Agent
-//! mode, where a frame circles the screen and every hold starts another task
-//! that runs beside the others, each operating its own windows with its own
-//! cursor. Chats lists every conversation and takes typed messages.
+//! shortcut. Hold it and say anything; Hex decides whether it is a quick
+//! turn (the Here lane: about the window in front, answered beside the HUD
+//! and read aloud) or a job (the Background lane: its own windows and
+//! hidden browsers, beside the others, its dot on the orb). Double-tap shows
+//! the job list. The Assistant pane is one stream of every quick turn and
+//! job and takes typed messages; Assistant settings hold its settings and
+//! shortcuts.
 //!
-//! Hex does the voice, HUD, frame, and Chats. The thinking is done by an
-//! agent already on this Mac (Claude Code, Codex, OpenCode) or the Claude
-//! API; the desktop is operated through agent-desktop (Vercel Labs), which
-//! acts through the accessibility tree without taking the pointer.
+//! Hex does the voice, the overlays, and the window. The thinking is done by
+//! an agent already on this computer (Claude Code, Codex, OpenCode) or the
+//! Claude API; every desktop action goes through the guard, Hex's MCP server
+//! in front of agent-desktop. `docs/features/assistant.md` and AGENTS.md's
+//! "Assistant architecture" have the whole picture.
 //!
 //! ```ts
-//! Action shortcut (recognition) ─┐                        ┌─ backend: claude -p | codex exec | opencode | API
-//!                                ├─ service::submit ─ agent ┤      └─ agent-desktop (MCP / CLI), own cursor per task
-//! Chats pane (rune_ui)  ─────────┘        │                 └─ speech: reads quick answers aloud
-//!                                         └─ store: conversations on disk
-//! service::subscribe ─ Event ─ HUD bubble and task stack, screen frame, window outlines, Chats
-//! backends::detect ─ setup sheet (agents found, agent-desktop, permissions)
+//! Action shortcut (assistant::shortcut) ─┐                          ┌─ backend (provider): claude -p | codex exec | opencode | API
+//!                                        ├─ service::submit ─ agent ┤     └─ guard (MCP) ─ agent-desktop; browser; tools; knowledge
+//! Assistant pane (rune_ui::chats) ───────┘   lanes, queue      │    └─ speech: reads quick answers aloud
+//!                                                              └─ store: conversations on disk
+//! service::subscribe ─ Event ─ Here bubble, orb and job list, screen frame, window outlines, the Assistant pane
 //! ```
 //!
 //! Everything here is inert while `assistant.enabled` is off.
@@ -41,6 +43,7 @@ pub mod guard;
 pub mod input;
 pub mod interaction;
 pub mod knowledge;
+pub mod lines;
 pub mod memory;
 pub mod notify;
 pub mod palette;

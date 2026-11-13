@@ -509,7 +509,8 @@ pub fn run(shutdown: &'static AtomicBool, listener: ListenerConfig, hidden: bool
     // The assistant: the frame, window outlines, task stack, and quick
     // answer; hidden, without windows, until the assistant reports work.
     crate::rune_ui::assistant_overlay::install(&mut app);
-    // Its task stack and "Open in Chats" open the conversation in Chats.
+    // Its task stack and "Show in Assistant" open the conversation in the
+    // Assistant pane.
     crate::rune_ui::assistant_overlay::set_open_chats(|id| open_chat(Some(id.to_owned())));
     // A hold of the Action shortcut before setup says "Finish setting up the
     // assistant first" and opens the setup; the bubble's "Continue setup"
@@ -804,6 +805,16 @@ pub(crate) fn open_chat(conversation: Option<String>) {
     with_window(|window| {
         window.update(move |ui, tx| {
             crate::rune_ui::show(ui, Destination::Chats(conversation), tx);
+            bring_window_forward();
+        });
+    });
+}
+
+/// Opens the window on Assistant settings, in front. Any thread.
+pub(crate) fn open_assistant_settings() {
+    with_window(|window| {
+        window.update(|ui, tx| {
+            crate::rune_ui::show(ui, Destination::AssistantSettings, tx);
             bring_window_forward();
         });
     });

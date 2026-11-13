@@ -43,6 +43,7 @@ mod bubble;
 mod cursor;
 mod desk;
 mod enlarged;
+mod failure;
 mod fixture;
 mod frame;
 mod hands;

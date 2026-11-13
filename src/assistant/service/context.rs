@@ -257,21 +257,13 @@ pub fn looks_like_job(text: &str) -> bool {
 }
 
 /// What Hex says when it sends a plainly long request to the background,
-/// in the request's language as far as a glance tells.
+/// in the request's language (`lines`).
 pub fn on_it(text: &str) -> String {
-    const GERMAN: &[&str] = &[
-        "und", "die", "der", "das", "ich", "mir", "mein", "meine", "für", "mit", "bitte", "eine",
-    ];
-    let german = text
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|word| GERMAN.contains(&word.to_lowercase().as_str()))
-        .count()
-        >= 2;
-    if german {
-        "Mach ich, im Hintergrund. Ich plane das und frage, was ich noch brauche.".into()
-    } else {
-        "On it, in the background. I'll plan it and ask what I need.".into()
-    }
+    crate::assistant::lines::tr(
+        "On it, in the background. I'll plan it and ask what I need.",
+        text,
+    )
+    .into()
 }
 
 /// `text`'s meaningful words, lowercased, without filler and task words.

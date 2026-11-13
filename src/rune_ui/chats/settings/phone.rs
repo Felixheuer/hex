@@ -1,4 +1,4 @@
-//! Chats › Settings › „Aufs iPhone, wenn ich weg bin“: the person's own
+//! Assistant settings › „Aufs iPhone, wenn ich weg bin“: the person's own
 //! number or Apple ID, when they count as away, a test message, and the two
 //! permissions the channel needs (Messages automation to send, Full Disk
 //! Access to read replies). The channel itself is `assistant::phone`.

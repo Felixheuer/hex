@@ -299,7 +299,7 @@ struct Ask {
 
 /// Runs one task (and its follow-up); whether it was answered.
 fn ask(ask: Ask) -> Result<bool> {
-    service::allow_without_lab();
+    service::run_from_cli();
     let Ask {
         backend,
         model,
@@ -503,7 +503,7 @@ fn follow(id: &str, events: &mpsc::Receiver<Event>, speak: bool) -> bool {
 
 /// Resumes an interrupted conversation and prints what happens.
 fn resume(id: &str) -> Result<bool> {
-    service::allow_without_lab();
+    service::run_from_cli();
     let (sender, events) = mpsc::channel();
     service::subscribe(Box::new(move |event| {
         let _ = sender.send(event.clone());
@@ -553,7 +553,7 @@ fn schedules(command: Option<SchedulesCommand>) -> Result<bool> {
             minutes,
             no_desktop,
         } => {
-            service::allow_without_lab();
+            service::run_from_cli();
             if no_desktop {
                 service::adjust_settings(|settings| settings.control_desktop = false);
             }

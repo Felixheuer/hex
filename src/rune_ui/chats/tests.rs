@@ -141,6 +141,19 @@ fn the_settings_switch_turns_the_assistant_off_and_on() {
     assert!(rt.state.settings.assistant.enabled);
 }
 
+/// The assistant's shortcuts are recorded where its settings are, with the
+/// same recorder General uses, and not in General too.
+#[test]
+fn assistant_settings_record_the_assistants_shortcuts() {
+    let mut rt = scene("mac-chats-settings");
+    for key in ["action-shortcut", "stop-all-shortcut"] {
+        reveal(&mut rt, key);
+        assert!(rt.find(key).is_some(), "{key} in Assistant settings");
+    }
+    let general = scene("mac-general");
+    assert!(general.find("action-shortcut").is_none(), "not in General");
+}
+
 #[test]
 fn the_list_groups_conversations_and_the_transcript_renders_them() {
     let rt = chats();

@@ -28,7 +28,8 @@ pub(super) fn run(
 ) -> Result<Finished> {
     let key = crate::assistant::credentials::api_key().ok_or_else(|| {
         eyre!(
-            "No Anthropic API key is saved. Add one in Chats › Settings, or choose another agent."
+            "No Anthropic API key is saved. Add one in {}, or choose another agent.",
+            crate::assistant::lines::ASSISTANT_SETTINGS
         )
     })?;
     let mut servers = Vec::new();

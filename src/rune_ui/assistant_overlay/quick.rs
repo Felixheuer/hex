@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use crate::assistant::{ConversationId, Event, Origin};
 
 use super::board::shorten;
+use super::failure::Failure;
 
 /// How many of a quick question's latest steps its bubble lists.
 pub(crate) const BUBBLE_STEPS: usize = 3;
@@ -18,8 +19,9 @@ const BUBBLE_LINGER: Duration = Duration::from_secs(4);
 const READING_PER_WORD: Duration = Duration::from_millis(250);
 /// … up to this much.
 const READING_MAX: Duration = Duration::from_secs(20);
-/// A failed quick question's message stays as long as a failure notice.
-const BUBBLE_FAILED: Duration = Duration::from_secs(6);
+/// A failed quick question's line stays long enough to hear it and press
+/// its Fix or Try again.
+const BUBBLE_FAILED: Duration = Duration::from_secs(12);
 
 /// What the quick question's bubble shows.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -39,11 +41,18 @@ pub(crate) enum BubblePhase {
 pub(crate) struct Bubble {
     pub(crate) conversation: ConversationId,
     pub(crate) question: String,
+    /// The question in full, for Try again.
+    pub(crate) asked: String,
+    /// The language it was asked in (`assistant::lines::language`): what
+    /// Hex shows and says back about it is in that one.
+    pub(crate) language: Option<&'static str>,
     pub(crate) phase: BubblePhase,
     /// The latest [`BUBBLE_STEPS`] steps, oldest first.
     pub(crate) steps: Vec<String>,
     pub(crate) answer: String,
     pub(crate) error: Option<String>,
+    /// Why it failed, read from `error`: its line and its one action.
+    pub(crate) failure: Option<Failure>,
     /// What the task asks the person, waiting for the answer.
     pub(crate) asks: Option<String>,
     /// It became a Background task (`Event::Escalated`): it flies to the
@@ -72,10 +81,13 @@ impl Bubble {
         Self {
             conversation,
             question: shorten(question),
+            asked: question.trim().to_owned(),
+            language: crate::assistant::lines::language(question),
             phase: BubblePhase::Thinking,
             steps: Vec::new(),
             answer: String::new(),
             error: None,
+            failure: None,
             asks: None,
             escalated: false,
             ended: None,
@@ -161,6 +173,7 @@ impl Bubble {
             Event::Failed { message, .. } => {
                 self.phase = BubblePhase::Failed;
                 self.error = Some(message.clone());
+                self.failure = Some(Failure::of(message));
                 self.ended = Some(now);
                 true
             }
@@ -378,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_quick_question_shows_its_error_for_six_seconds() {
+    fn a_failed_quick_question_shows_why_until_it_can_be_acted_on() {
         let t0 = Instant::now();
         let mut bubble = None;
         Bubble::apply(&mut bubble, &quick(1), t0);
@@ -393,6 +406,7 @@ mod tests {
         let b = bubble.as_mut().unwrap();
         assert_eq!(b.phase, BubblePhase::Failed);
         assert_eq!(b.error.as_deref(), Some("Claude Code isn't signed in."));
+        assert_eq!(b.failure, Some(Failure::SignIn));
         assert_eq!(b.due(t0, true), Due::At(t0 + BUBBLE_FAILED));
         assert_eq!(b.due(t0 + BUBBLE_FAILED, false), Due::Leave);
     }
@@ -414,7 +428,7 @@ mod tests {
         assert!(Bubble::apply(&mut bubble, &quick(1), t0));
         let line = Event::AnswerDelta {
             conversation: id(1),
-            text: "Mach ich: drei Aufgaben laufen.".into(),
+            text: "Mach ich: drei Aufträge laufen.".into(),
         };
         assert!(Bubble::apply(&mut bubble, &line, t0));
         assert!(Bubble::apply(
@@ -426,7 +440,7 @@ mod tests {
         ));
         let b = bubble.as_mut().unwrap();
         assert!(b.escalated);
-        assert_eq!(b.answer, "Mach ich: drei Aufgaben laufen.");
+        assert_eq!(b.answer, "Mach ich: drei Aufträge laufen.");
         // Read aloud: it stays.
         assert!(matches!(b.due(t0, true), Due::At(_)));
         // Read, then quiet past the linger: it goes (flying to the orb).
