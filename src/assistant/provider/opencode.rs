@@ -1,5 +1,7 @@
-//! OpenCode: `opencode run --standalone --format json`, with the person's
-//! own OpenCode configuration and sign-ins.
+//! OpenCode: `opencode run --format json` (OpenCode 2 with `--standalone`),
+//! with the person's own OpenCode configuration and sign-ins. Classic
+//! OpenCode (1.x) and OpenCode 2 take different flags and config words
+//! ([`backends::opencode`](crate::assistant::backends::opencode)).
 //!
 //! Why the CLI and not the running service: Agent-Desk's other features only talk
 //! to an already running OpenCode service, but that service loads its MCP
@@ -9,7 +11,8 @@
 //! `OPENCODE_CONFIG_CONTENT` adds to the person's configuration an agent
 //! `agent-desk` (Agent-Desk's instructions; shell and file edits denied) and the
 //! guard as a local MCP server. `--auto` approves the rest, so nothing waits on a
-//! prompt; `--archived` keeps these sessions out of the person's list.
+//! prompt; `--archived` keeps these sessions out of the person's list
+//! (OpenCode 2; Classic OpenCode titles them "Agent-Desk" instead).
 //! A conversation continues with `--session <id>`.
 
 use color_eyre::{Result, eyre::eyre};
@@ -19,6 +22,7 @@ use serde_json::{Map, Value, json};
 use super::desktop::Describer;
 use super::{Control, Finished, Process, Report, Run, Stdin};
 use crate::app_settings::AssistantBackend;
+use crate::assistant::backends::opencode::{self as cli, Generation};
 
 const AGENT: &str = "hex";
 
@@ -28,6 +32,7 @@ pub(super) fn run(
     report: &mut dyn FnMut(Report),
 ) -> Result<Finished> {
     let executable = super::executable(AssistantBackend::OpenCode)?;
+    let generation = cli::generation_for(&executable);
     let mut command = super::command(&executable, &run.workdir);
     // A bring-your-own-key provider's key travels in the environment only;
     // the config names it by reference.
@@ -36,12 +41,15 @@ pub(super) fn run(
             .env_clear()
             .envs(env.iter().map(|(key, value)| (key, value)));
     }
-    command.env("OPENCODE_CONFIG_CONTENT", config(run).to_string());
+    command.env(
+        "OPENCODE_CONFIG_CONTENT",
+        config(run, generation).to_string(),
+    );
     // A Windows batch file can't take the prompt's newlines and quotes as
     // an argument; when OpenCode is one Agent-Desk couldn't unwrap, the prompt goes
     // on its input, which `opencode run` reads as the message.
     let batch = is_batch_file(&crate::assistant::backends::search::launch(&executable).0);
-    let mut args = arguments(run);
+    let mut args = arguments(run, generation);
     let stdin = if batch {
         args.truncate(args.len() - 2);
         Stdin::Write(run.prompt.clone().into_bytes())
@@ -67,19 +75,12 @@ pub(super) fn run(
     })
 }
 
-fn arguments(run: &Run) -> Vec<String> {
-    let mut args: Vec<String> = [
-        "run",
-        "--standalone",
-        "--format",
-        "json",
-        "--auto",
-        "--archived",
-        "--agent",
-        AGENT,
-    ]
-    .map(str::to_owned)
-    .into();
+fn arguments(run: &Run, generation: Generation) -> Vec<String> {
+    let mut args: Vec<String> = cli::run_args(generation)
+        .into_iter()
+        .chain(["--agent", AGENT])
+        .map(str::to_owned)
+        .collect();
     if let Some(session) = &run.resume {
         args.extend(["--session".into(), session.clone()]);
     }
@@ -110,8 +111,9 @@ fn is_batch_file(program: &std::path::Path) -> bool {
         })
 }
 
-/// What `OPENCODE_CONFIG_CONTENT` adds to the person's configuration.
-fn config(run: &Run) -> Value {
+/// What `OPENCODE_CONFIG_CONTENT` adds to the person's configuration, in
+/// `generation`'s words.
+fn config(run: &Run, generation: Generation) -> Value {
     // A job may edit and run commands in its workspace (the working
     // folder); nothing outside it.
     let permission = match run.workspace {
@@ -134,6 +136,7 @@ fn config(run: &Run) -> Value {
     if let Some(provider) = &run.provider_config {
         crate::assistant::backends::merge_config(&mut config, provider);
     }
+    cli::adapt_config(&mut config, generation);
     config
 }
 
@@ -341,7 +344,8 @@ mod tests {
             workspace: Some("/tmp/job".into()),
             ..Run::fixture(AssistantBackend::OpenCode)
         };
-        let permission = |run: &Run| config(run)["agent"][AGENT]["permission"].clone();
+        let permission =
+            |run: &Run| config(run, Generation::Two)["agent"][AGENT]["permission"].clone();
         assert_eq!(permission(&run)["external_directory"], "deny");
         run.unrestricted = true;
         assert_eq!(permission(&run)["external_directory"], "allow");
@@ -366,17 +370,55 @@ mod tests {
     fn a_bring_your_own_key_provider_is_merged_into_the_config() {
         let mut run = Run::fixture(AssistantBackend::OpenCode);
         run.provider_config = Some(json!({
-            "model": "deepseek/deepseek-chat",
-            "provider": {"deepseek": {"options": {"apiKey": "{env:DEEPSEEK_API_KEY}"}}},
+            "model": "deepseek/deepseek-v4-pro",
+            "providers": {"deepseek": {"settings": {"apiKey": "{env:DEEPSEEK_API_KEY}"}}},
         }));
-        let config = config(&run);
-        assert_eq!(config["model"], "deepseek/deepseek-chat");
+        let two = config(&run, Generation::Two);
+        assert_eq!(two["model"], "deepseek/deepseek-v4-pro");
         assert_eq!(
-            config["provider"]["deepseek"]["options"]["apiKey"],
+            two["providers"]["deepseek"]["settings"]["apiKey"],
             "{env:DEEPSEEK_API_KEY}"
         );
         // Agent-Desk's own agent stays.
-        assert_eq!(config["agent"]["hex"]["mode"], "primary");
+        assert_eq!(two["agent"]["hex"]["mode"], "primary");
+        // Classic OpenCode rejects `providers`: its own words instead.
+        let classic = config(&run, Generation::Classic);
+        assert!(classic.get("providers").is_none());
+        assert_eq!(
+            classic["provider"]["deepseek"]["options"]["apiKey"],
+            "{env:DEEPSEEK_API_KEY}"
+        );
+        assert_eq!(classic["agent"]["hex"]["mode"], "primary");
+    }
+
+    #[test]
+    fn each_opencode_gets_only_the_flags_it_knows() {
+        let mut run = Run::fixture(AssistantBackend::OpenCode);
+        run.resume = Some("ses_1".into());
+        run.model = Some("deepseek/deepseek-v4-pro".into());
+        let classic = arguments(&run, Generation::Classic);
+        assert!(
+            !classic
+                .iter()
+                .any(|arg| arg == "--standalone" || arg == "--archived")
+        );
+        let two = arguments(&run, Generation::Two);
+        assert!(two.iter().any(|arg| arg == "--standalone"));
+        for args in [classic, two] {
+            assert_eq!(args[0], "run");
+            let after = |flag: &str| {
+                args.iter()
+                    .position(|arg| arg == flag)
+                    .map(|at| args[at + 1].clone())
+            };
+            assert_eq!(after("--agent").as_deref(), Some(AGENT));
+            assert_eq!(after("--session").as_deref(), Some("ses_1"));
+            assert_eq!(
+                after("--model").as_deref(),
+                Some("deepseek/deepseek-v4-pro")
+            );
+            assert_eq!(args[args.len() - 2..], ["--".to_owned(), "hi".to_owned()]);
+        }
     }
 
     #[test]

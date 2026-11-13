@@ -9,6 +9,16 @@
 //!   Safe Storage"; macOS asks once whether Agent-Desk may read it). They are
 //!   merged into the sign-in state, newest wins. Re-imported when older than
 //!   a day ([`refresh_if_stale`]), off the main thread.
+//!
+//!   Google's and YouTube's sign-in cookies stay behind ([`kept_in_chrome`]):
+//!   Google binds a session to the browser that holds it, rotates its
+//!   cookies as it is used, and ends a session it sees used from a second
+//!   browser at once, everywhere. Twenty hidden Chromes using a copy of the
+//!   person's Google session signed them out of Google and YouTube in their
+//!   own Chrome. Their consent choice (`SOCS`, `CONSENT`) still comes over,
+//!   and the person may sign in to Google by hand in Agent-Desk's window:
+//!   that is a session of its own, which leaves Chrome's alone. A state that
+//!   held copies from before is cleaned once ([`keep_google_out`]).
 //! - **By hand** in Agent-Desk's visible sign-in window ([`super::sign_in`]).
 //!
 //! The state is a session-token file only this user may read; nothing is
@@ -46,6 +56,10 @@ pub struct Imported {
     /// Sites with cookies that came over.
     #[serde(default)]
     pub sites: Vec<String>,
+    /// Google's sign-in cookies were kept out of this import, and copies an
+    /// older one left in the state were removed ([`keep_google_out`]).
+    #[serde(default)]
+    pub google_kept_out: bool,
 }
 
 /// Chrome's profiles, from its `Local State`; empty when Chrome isn't here.
@@ -116,16 +130,19 @@ pub fn import_from_chrome(profile: &str) -> Result<Vec<String>> {
     let now = unix_now();
     let cookies: Vec<Value> = rows
         .iter()
+        .filter(|row| !kept_in_chrome(&row.host_key, &row.name))
         .filter_map(|row| cookie(row, &key, now))
         .collect();
     if cookies.is_empty() {
         return Err(eyre!("no signed-in cookies came over from Chrome"));
     }
-    let sites = merge_into_sign_in(&cookies)?;
+    let first_without_google = !last_import().is_some_and(|last| last.google_kept_out);
+    let sites = merge_into_sign_in(&cookies, first_without_google)?;
     let record = Imported {
         profile: profile.to_owned(),
         at_ms: (now * 1000.0) as u64,
         sites: sites.clone(),
+        google_kept_out: true,
     };
     if let Some(path) = record_path() {
         let _ = std::fs::write(&path, serde_json::to_vec(&record)?);
@@ -159,7 +176,10 @@ pub fn stale(at_ms: u64, now_ms: u64) -> bool {
 
 /// Takes Chrome's logins again when the last import from `profile` (the
 /// setting) is stale. Called on Agent-Desk's launch, on its own thread.
+/// First removes the copies of Google's sign-in an older import left
+/// ([`keep_google_out`]), even when no profile is chosen any more.
 pub fn refresh_if_stale(profile: Option<&str>) {
+    keep_google_out();
     let Some(profile) = profile.filter(|profile| !profile.is_empty()) else {
         return;
     };
@@ -171,6 +191,103 @@ pub fn refresh_if_stale(profile: Option<&str>) {
     if let Err(error) = import_from_chrome(profile) {
         tracing::warn!(%error, "couldn't refresh the Chrome logins");
     }
+}
+
+/// Whether the cookie `name` on `host` stays in Chrome: a Google or YouTube
+/// cookie, except the consent choice. See the module's note.
+pub fn kept_in_chrome(host: &str, name: &str) -> bool {
+    google_host(host) && !matches!(name, "SOCS" | "CONSENT")
+}
+
+/// `google.com`, `accounts.google.com`, `.google.de`, `google.co.uk`,
+/// `youtube.com`, `m.youtube.com`, `youtube-nocookie.com`: Google's own
+/// sign-in domains, wherever Chrome kept a cookie for them.
+fn google_host(host: &str) -> bool {
+    let host = host.trim_start_matches('.').to_ascii_lowercase();
+    let labels: Vec<&str> = host.split('.').collect();
+    // `google` followed by a public suffix of one or two short labels
+    // (`com`, `de`, `co.uk`, `com.br`).
+    let google = labels.iter().enumerate().any(|(at, label)| {
+        let suffix = &labels[at + 1..];
+        *label == "google"
+            && (1..=2).contains(&suffix.len())
+            && suffix.iter().all(|part| (2..=3).contains(&part.len()))
+    });
+    google
+        || matches!(
+            labels.as_slice(),
+            [.., "youtube" | "youtube-nocookie", "com"]
+        )
+}
+
+/// One-time cleanup, remove after 2027-02: imports before 2026-11-13 copied
+/// the person's Google session into every task's browser, which signed
+/// them out of Google and YouTube in Chrome. When the last import did, its
+/// Google cookies leave the sign-in state now (sign-ins made by hand in
+/// Agent-Desk's window afterwards stay).
+pub fn keep_google_out() {
+    let Some(mut last) = last_import() else {
+        return;
+    };
+    if last.google_kept_out {
+        return;
+    }
+    let Some(path) = super::sign_in_state_file() else {
+        return;
+    };
+    if let Some(mut state) = std::fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+    {
+        let removed = remove_google(&mut state);
+        if removed > 0 {
+            match serde_json::to_vec(&state)
+                .map_err(|error| eyre!("{error}"))
+                .and_then(|bytes| write_private(&path, &bytes))
+            {
+                Ok(()) => tracing::info!(
+                    removed,
+                    "removed copies of the person's Google sign-in from Agent-Desk's browsers"
+                ),
+                Err(error) => {
+                    tracing::warn!(%error, "couldn't remove the copied Google sign-in");
+                    return;
+                }
+            }
+            last.sites = super::sites_in_state(&state);
+        }
+    }
+    last.google_kept_out = true;
+    if let Some(record) = record_path()
+        && let Ok(bytes) = serde_json::to_vec(&last)
+    {
+        let _ = std::fs::write(record, bytes);
+    }
+}
+
+/// Removes the cookies [`kept_in_chrome`] keeps out from `state`; how many.
+fn remove_google(state: &mut Value) -> usize {
+    let Some(cookies) = state["cookies"].as_array_mut() else {
+        return 0;
+    };
+    let before = cookies.len();
+    cookies.retain(|cookie| {
+        !kept_in_chrome(
+            cookie["domain"].as_str().unwrap_or_default(),
+            cookie["name"].as_str().unwrap_or_default(),
+        )
+    });
+    before - cookies.len()
+}
+
+fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    std::fs::write(path, bytes)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
 }
 
 fn record_path() -> Option<PathBuf> {
@@ -348,8 +465,9 @@ fn decrypt(encrypted: &[u8], key: &[u8; 16], hashed_host: bool) -> Option<String
 
 /// Merges `cookies` into the sign-in state (one file every browser
 /// restores), replacing those with the same name, domain and path; returns
-/// the sites the state then has cookies for.
-fn merge_into_sign_in(cookies: &[Value]) -> Result<Vec<String>> {
+/// the sites the state then has cookies for. `without_google`: first
+/// removes the Google sign-in an older import copied ([`keep_google_out`]).
+fn merge_into_sign_in(cookies: &[Value], without_google: bool) -> Result<Vec<String>> {
     let path = super::sign_in_state_file().ok_or_else(|| eyre!("no home folder"))?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -358,14 +476,11 @@ fn merge_into_sign_in(cookies: &[Value]) -> Result<Vec<String>> {
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
         .unwrap_or_else(|| json!({"cookies": [], "origins": []}));
-    merge(&mut state, cookies);
-    let bytes = serde_json::to_vec(&state)?;
-    std::fs::write(&path, bytes)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    if without_google {
+        remove_google(&mut state);
     }
+    merge(&mut state, cookies);
+    write_private(&path, &serde_json::to_vec(&state)?)?;
     super::private_state();
     Ok(super::sites_in_state(&state))
 }
@@ -396,6 +511,67 @@ fn merge(state: &mut Value, cookies: &[Value]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn googles_sign_in_stays_in_chrome() {
+        for host in [
+            ".google.com",
+            "accounts.google.com",
+            "mail.google.com",
+            ".google.de",
+            ".google.co.uk",
+            "www.google.com.br",
+            ".youtube.com",
+            "m.youtube.com",
+            ".youtube-nocookie.com",
+        ] {
+            for name in ["SID", "__Secure-1PSIDTS", "SAPISID", "LOGIN_INFO", "NID"] {
+                assert!(kept_in_chrome(host, name), "{host} {name}");
+            }
+            // The consent choice comes over, so no consent wall.
+            assert!(!kept_in_chrome(host, "SOCS"), "{host}");
+            assert!(!kept_in_chrome(host, "CONSENT"), "{host}");
+        }
+        for host in [
+            "github.com",
+            ".notion.so",
+            "googlesyndication.com",
+            "google-analytics.com",
+            "mygoogle.example.com",
+            "youtube.example.org",
+            "docs.example.google.internal",
+        ] {
+            assert!(!kept_in_chrome(host, "SID"), "{host}");
+        }
+    }
+
+    #[test]
+    fn a_copied_google_sign_in_is_removed_from_the_state() {
+        let cookie = |domain: &str, name: &str| json!({"name": name, "domain": domain, "path": "/", "value": "v"});
+        let mut state = json!({"cookies": [
+            cookie(".google.com", "SID"),
+            cookie(".google.com", "SOCS"),
+            cookie(".youtube.com", "LOGIN_INFO"),
+            cookie("github.com", "user_session"),
+        ], "origins": []});
+        assert_eq!(remove_google(&mut state), 2);
+        let left: Vec<&str> = state["cookies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|cookie| cookie["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(left, ["SOCS", "user_session"]);
+        assert_eq!(remove_google(&mut state), 0);
+    }
+
+    #[test]
+    fn an_import_record_from_before_says_google_came_over() {
+        let old: Imported =
+            serde_json::from_str(r#"{"profile":"Default","at_ms":1,"sites":["google.com"]}"#)
+                .unwrap();
+        assert!(!old.google_kept_out);
+    }
 
     #[test]
     fn chrome_profiles_come_from_local_state_default_first() {

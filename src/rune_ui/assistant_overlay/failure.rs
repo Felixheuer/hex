@@ -18,6 +18,9 @@ pub(crate) enum Failure {
     Permission,
     /// The agent hit a usage or rate limit.
     Limit,
+    /// The provider account behind the agent has no credit left (a
+    /// bring-your-own-key provider such as DeepSeek): waiting won't help.
+    Credit,
     /// Anything else: it stopped, crashed, or timed out.
     Crash,
 }
@@ -44,6 +47,8 @@ impl Failure {
             Self::Off
         } else if has(&["finish setting up"]) {
             Self::Setup
+        } else if crate::assistant::provider::limit::out_of_credit(message) {
+            Self::Credit
         } else if crate::assistant::provider::limit::detect(message).is_some() {
             Self::Limit
         } else if has(&[
@@ -91,6 +96,7 @@ impl Failure {
             Self::Install => "Something the assistant needs isn't installed.",
             Self::Permission => "The assistant is missing a permission.",
             Self::Limit => "Your agent hit its usage limit.",
+            Self::Credit => "Your agent's account has no credit left.",
             Self::Crash => "That didn't work.",
         }
     }
@@ -98,7 +104,9 @@ impl Failure {
     pub(crate) fn remedy(self) -> Remedy {
         match self {
             Self::Off => Remedy::Settings,
-            Self::Setup | Self::SignIn | Self::Install | Self::Permission => Remedy::Repair,
+            Self::Setup | Self::SignIn | Self::Install | Self::Permission | Self::Credit => {
+                Remedy::Repair
+            }
             Self::Limit | Self::Crash => Remedy::Retry,
         }
     }
@@ -169,6 +177,16 @@ mod tests {
                 Remedy::Retry,
             ),
             (
+                "OpenCode: Insufficient Balance (HTTP 402)",
+                Failure::Credit,
+                Remedy::Repair,
+            ),
+            (
+                "OpenCode: Authentication Fails, Your api key: ****cdef is invalid (HTTP 401)",
+                Failure::SignIn,
+                Remedy::Repair,
+            ),
+            (
                 "The task stopped unexpectedly.",
                 Failure::Crash,
                 Remedy::Retry,
@@ -189,6 +207,7 @@ mod tests {
             Failure::Install,
             Failure::Permission,
             Failure::Limit,
+            Failure::Credit,
             Failure::Crash,
         ];
         let english = failures

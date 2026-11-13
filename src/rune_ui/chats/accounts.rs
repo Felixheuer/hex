@@ -33,6 +33,9 @@ pub(in crate::rune_ui) struct Accounts {
 
 static STATE: Mutex<Option<Accounts>> = Mutex::new(None);
 
+/// Why Google and YouTube don't come over (`accounts::kept_in_chrome`).
+const GOOGLE_STAYS: &str = "Google and YouTube stay signed in only in Chrome: Google signs you out everywhere when its login is used in a second browser. Sign in to them by hand if tasks need them";
+
 fn state() -> Accounts {
     STATE
         .lock()
@@ -127,6 +130,7 @@ pub(in crate::rune_ui) fn rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<Ca
     );
 
     let (status, ink) = import_status(&accounts, p);
+    let importing_from = chosen.is_some();
     let import: El = match chosen {
         Some(profile) if !accounts.importing => small_button(
             p,
@@ -157,6 +161,9 @@ pub(in crate::rune_ui) fn rows(ui: &Ui, p: Paint, layer: &mut Vec<El>) -> Vec<Ca
         )
         .into(),
     );
+    if importing_from {
+        rows.push(note("accounts-google-note", tr(GOOGLE_STAYS), p.muted()).into());
+    }
 
     // Signed-in sites, sign in by hand, forget all.
     let sites = &ui.chats.settings.saved_sites;

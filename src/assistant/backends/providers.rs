@@ -424,16 +424,21 @@ pub fn merge_config(base: &mut Value, fragment: &Value) {
     }
 }
 
-/// An `opencode run` for a self-test, with the chosen provider's config
-/// merged into `config` and its key in the environment; the model to pass.
+/// An `opencode run` for a self-test, as tasks run it: its `run`
+/// arguments for the installed OpenCode, the chosen provider's config
+/// merged into `config` and its key in the environment. Returns the model
+/// to pass; the caller adds it and the prompt.
 pub(super) fn opencode_check(
     command: &mut std::process::Command,
     settings: &AssistantSettings,
     mut config: Value,
 ) -> Option<String> {
+    let generation = super::opencode::generation();
     if let Some(fragment) = opencode_provider_config(settings) {
         merge_config(&mut config, &fragment);
     }
+    super::opencode::adapt_config(&mut config, generation);
+    command.args(super::opencode::run_args(generation));
     if config.as_object().is_some_and(|config| !config.is_empty()) {
         command.env("OPENCODE_CONFIG_CONTENT", config.to_string());
     }

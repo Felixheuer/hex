@@ -1922,7 +1922,7 @@ mod tests {
             modifiers: HotkeyModifiers::default(),
             key: Some(HotkeyKey::named("f8")),
         };
-        let settings = AppSettings {
+        let mut settings = AppSettings {
             typed_text_hotkey: Some(binding.clone()),
             ..AppSettings::default()
         };

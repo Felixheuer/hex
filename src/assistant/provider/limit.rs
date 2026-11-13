@@ -38,7 +38,8 @@ pub fn detect(message: &str) -> Option<Limit> {
 /// The limit `message` reports, `now_ms` being now and `offset_s` this
 /// Mac's offset from UTC.
 pub fn detect_at(message: &str, now_ms: u64, offset_s: i64) -> Option<Limit> {
-    if !is_limit(message) {
+    // An empty account doesn't fill up by waiting.
+    if !is_limit(message) || out_of_credit(message) {
         return None;
     }
     let until_ms = epoch_reset(message)
@@ -52,6 +53,22 @@ pub fn detect_at(message: &str, now_ms: u64, offset_s: i64) -> Option<Limit> {
 }
 
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// Whether `message` says the provider account has no credit or quota
+/// left (DeepSeek's 402 "Insufficient Balance", OpenAI's
+/// `insufficient_quota`, Anthropic's "credit balance is too low",
+/// OpenRouter's 402): no wait fixes it, only topping the account up.
+pub fn out_of_credit(message: &str) -> bool {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    PATTERN
+        .get_or_init(|| {
+            Regex::new(
+                r"(?i)insufficient[ _-]?(balance|quota|credits?|funds)|exceeded your current quota|credit balance is too low|(no|out of) credits?( left)?\b|payment required|\(http 402\)|\b402 payment",
+            )
+            .expect("valid pattern")
+        })
+        .is_match(message)
+}
 
 fn is_limit(message: &str) -> bool {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
@@ -230,6 +247,26 @@ fn local_offset_seconds() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_account_is_no_limit_to_wait_out() {
+        for message in [
+            "OpenCode: Insufficient Balance (HTTP 402)",
+            "OpenCode: You exceeded your current quota, please check your plan and billing details. (HTTP 429)",
+            "Your credit balance is too low to access the Anthropic API",
+            "OpenCode: This request requires more credits, or fewer max_tokens. Payment Required (HTTP 402)",
+        ] {
+            assert!(out_of_credit(message), "{message}");
+            assert_eq!(detect_at(message, NOW, BERLIN), None, "{message}");
+        }
+        for message in [
+            "OpenCode: Rate limit exceeded (HTTP 429); retry after 42 seconds",
+            "Claude AI usage limit reached|1760000000",
+            "The task stopped unexpectedly.",
+        ] {
+            assert!(!out_of_credit(message), "{message}");
+        }
+    }
 
     /// 2026-11-12 09:30 in Berlin (UTC+1).
     const NOW: u64 = 1_794_472_200_000;

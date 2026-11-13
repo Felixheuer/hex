@@ -39,6 +39,11 @@ pub enum AssistantCommand {
         /// The backend's model; the saved one by default.
         #[arg(long)]
         model: Option<String>,
+        /// OpenCode with this provider's saved API key (`deepseek`,
+        /// `openrouter`, …; `agent-desk assistant provider-key`); the saved
+        /// choice by default.
+        #[arg(long)]
+        provider: Option<String>,
         /// Its lane: `here` (the window in front; the default) or
         /// `background` (its own windows, beside other tasks).
         #[arg(long, value_enum, conflicts_with = "chat")]
@@ -79,6 +84,21 @@ pub enum AssistantCommand {
     /// Save the Anthropic API key read from standard input in the Keychain
     /// (an empty input deletes it).
     Key,
+    /// Save an API key for OpenCode (bring your own key) read from
+    /// standard input, then check it with one tiny request: `deepseek`,
+    /// `openrouter`, `openai`, … (`--list` names them all). An empty input
+    /// deletes it.
+    ProviderKey {
+        /// The provider's id.
+        #[arg(required_unless_present = "list")]
+        provider: Option<String>,
+        /// List the providers and whether a key is saved for each.
+        #[arg(long)]
+        list: bool,
+        /// Only check the key already saved.
+        #[arg(long, conflicts_with = "list")]
+        check: bool,
+    },
     /// Continue a conversation Agent-Desk quit in the middle of, and print what
     /// happens.
     Resume { id: String },
@@ -240,6 +260,7 @@ pub fn run(command: AssistantCommand) -> u8 {
             text,
             backend,
             model,
+            provider,
             lane,
             agent,
             chat,
@@ -254,6 +275,7 @@ pub fn run(command: AssistantCommand) -> u8 {
             text,
             backend: backend.map(Into::into),
             model,
+            provider,
             origin: if agent || matches!(lane, Some(LaneArg::Background)) {
                 Origin::Background
             } else if chat {
@@ -297,6 +319,11 @@ pub fn run(command: AssistantCommand) -> u8 {
         }
         AssistantCommand::Show { id } => show(&id).map(|()| true),
         AssistantCommand::Key => key().map(|()| true),
+        AssistantCommand::ProviderKey {
+            provider,
+            list,
+            check,
+        } => provider_key(provider.as_deref(), list, check),
         AssistantCommand::Mcp { spec } => super::guard::serve(&spec).map(|()| true),
         AssistantCommand::BrowserMcp { task, observe } => {
             super::browser::serve(&task, observe).map(|()| true)
@@ -399,6 +426,7 @@ struct Ask {
     text: String,
     backend: Option<AssistantBackend>,
     model: Option<String>,
+    provider: Option<String>,
     origin: Origin,
     window: Option<TaskWindow>,
     prewarm: Option<Duration>,
@@ -414,13 +442,25 @@ fn ask(ask: Ask) -> Result<bool> {
     let Ask {
         backend,
         model,
+        provider,
         no_desktop,
         speak,
         ..
     } = ask;
+    if let Some(provider) = &provider
+        && super::backends::provider(provider).is_none()
+    {
+        return Err(eyre!(
+            "Agent-Desk doesn't know the provider “{provider}” (`agent-desk assistant provider-key --list`)"
+        ));
+    }
     service::adjust_settings(move |settings| {
         if let Some(backend) = backend {
             settings.backend = backend;
+        }
+        if let Some(provider) = &provider {
+            settings.backend = AssistantBackend::OpenCode;
+            settings.opencode_provider = Some(provider.clone());
         }
         if let Some(model) = &model {
             match settings.backend {
@@ -735,6 +775,52 @@ fn show(id: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// `provider-key`: saves (or with `check` only checks) a provider's key,
+/// or lists the providers; whether all went well.
+fn provider_key(provider: Option<&str>, list: bool, check: bool) -> Result<bool> {
+    use super::backends;
+    if list {
+        for provider in backends::providers() {
+            let saved = if backends::has_provider_key(provider.id) {
+                "key saved"
+            } else {
+                "no key"
+            };
+            println!(
+                "{:<12} {:<18} {saved:<10} {}/{}",
+                provider.id, provider.name, provider.id, provider.default_model
+            );
+        }
+        return Ok(true);
+    }
+    let id = provider.unwrap_or_default();
+    let Some(provider) = backends::provider(id) else {
+        return Err(eyre!(
+            "Agent-Desk doesn't know the provider “{id}” (`agent-desk assistant provider-key --list`)"
+        ));
+    };
+    if !check {
+        let mut key = String::new();
+        std::io::stdin().read_line(&mut key)?;
+        backends::set_provider_key(provider.id, &key)?;
+        if key.trim().is_empty() {
+            println!("The saved {} key was deleted.", provider.name);
+            return Ok(true);
+        }
+        println!("The {} key is saved.", provider.name);
+    }
+    match backends::verify_provider_key(provider.id) {
+        Ok(found) => {
+            println!("{found}.");
+            Ok(true)
+        }
+        Err(why) => {
+            println!("{why}.");
+            Ok(false)
+        }
+    }
 }
 
 fn key() -> Result<()> {

@@ -1287,17 +1287,13 @@ mod tests {
     }
 
     /// Follow live transcript: only a recording meeting's transcript
-    /// follows its newest line, and only with the lab on (#1332).
+    /// follows its newest line, and not once a stop is pending (#1332).
     #[test]
-    fn only_a_recording_transcript_follows_and_only_with_its_lab() {
-        let mut settings = crate::app_settings::AppSettings::default();
+    fn only_a_recording_transcript_follows() {
+        let settings = crate::app_settings::AppSettings::default();
         let pane = MeetingsPane::fixture();
         let live = pane.meeting("preview-live").unwrap();
         let finished = pane.meeting("preview-notes").unwrap();
-        let ui = Ui::with(settings.clone(), Service::Fixture(Vec::new()));
-        assert!(!follows_live_transcript(&ui, live));
-        assert!(!follows_live_transcript(&ui, finished));
-        settings.labs.follow_live_transcript = true;
         let mut ui = Ui::with(settings, Service::Fixture(Vec::new()));
         assert!(follows_live_transcript(&ui, live));
         assert!(!follows_live_transcript(&ui, finished));
