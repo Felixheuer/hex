@@ -121,7 +121,10 @@ pub(in crate::rune_ui) fn read_facts(settings: &AppSettings) -> Facts {
                 AutomationState::NotAsked | AutomationState::Denied
             )
         },
-        personal_data: crate::desktop::data_access::all_answered(crate::desktop::data_access::read),
+        // Asked once is enough: a prompt macOS never showed (or a "no")
+        // doesn't bring the guide back at every launch.
+        personal_data: assistant.personal_data_asked
+            || crate::desktop::data_access::all_answered(crate::desktop::data_access::read),
         transcription_model: status.transcription_model,
         agent_installed: agent.is_some_and(|agent| {
             agent.path.is_some()

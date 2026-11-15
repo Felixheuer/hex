@@ -195,7 +195,10 @@ fn personal_data_row(p: Paint, primary: bool) -> El {
     let (detail, control) = if !to_ask.is_empty() {
         (
             what.to_owned(),
-            push(p, "allow", tr("Allow"), primary, |_: &mut Ui| {
+            push(p, "allow", tr("Allow"), primary, |ui: &mut Ui| {
+                if !ui.settings.assistant.personal_data_asked {
+                    ui.update(|settings| settings.assistant.personal_data_asked = true);
+                }
                 data_access::request_all_async()
             }),
         )

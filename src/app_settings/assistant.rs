@@ -92,6 +92,10 @@ pub struct AssistantSettings {
     /// The setup version finished (`desktop::setup_gaps::SETUP_VERSION`): a
     /// lower one brings back the setup steps a release added.
     pub setup_version: u32,
+    /// Allow was pressed for Contacts, Reminders, and the Calendar once:
+    /// whatever macOS answered (or couldn't ask), the repair guide doesn't
+    /// come back for them; the permissions page still shows their state.
+    pub personal_data_asked: bool,
     /// Stops every task at once, and the speech: Control-Option-Escape by
     /// default. Never Command-Option-Escape, which is macOS's Force Quit.
     pub stop_all_hotkey: Option<HotkeyBinding>,
@@ -196,6 +200,7 @@ impl Default for AssistantSettings {
             max_parallel: crate::assistant::capacity::recommended_parallel(),
             setup_done: false,
             setup_version: crate::desktop::setup_gaps::SETUP_VERSION,
+            personal_data_asked: false,
             stop_all_hotkey: Some(HotkeyBinding::stop_all_default()),
             here_physical_input: true,
             background_browser: true,

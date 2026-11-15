@@ -737,7 +737,12 @@ After setup was finished, Agent-Desk checks at launch and every five minutes
 (`desktop::setup_gaps`, read off the window's thread by `Job::Gaps`):
 Microphone, Accessibility and Screen Recording, Automation (System Events
 and Finder), Contacts, Reminders, or the Calendar never asked for (so an
-update that adds an ask shows the permissions page once), a translocated or stray copy
+update that adds an ask shows the permissions page once; once Allow was
+pressed, `assistant.personal_data_asked`, it never comes back for them, and a
+prompt macOS couldn't show, still "not asked" after Allow, counts as off and
+offers System Settings: the release entitlements carry
+`personal-information.addressbook` and `.calendars`, checked by
+`scripts/validate-app.sh`, without which the hardened runtime never prompts), a translocated or stray copy
 (`permission_doctor`), the speech model, the chosen agent installed and
 signed in, Cua Driver (installed; its last update didn't fail), agent-browser, the Action shortcut
 still free, the Agent-Desk voice's files, and `assistant.setup_version` against
