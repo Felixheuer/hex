@@ -26,6 +26,8 @@ pub(super) fn run(preview: &Preview, path: &std::path::Path) {
 
 pub(super) fn stream_once(preview: &Preview, path: &std::path::Path) -> Result<(), String> {
     let result = stream_connected(preview, path);
+    // Its picture ages from now on.
+    preview.clock.hold(false);
     // The stream is over: nothing writes to it any more.
     if let Ok(mut slot) = preview.writer.lock() {
         *slot = None;
@@ -65,6 +67,8 @@ pub(super) fn stream_connected(preview: &Preview, path: &std::path::Path) -> Res
                     let (tw, th, thumb) = fit_width(&rgba, width, height, THUMB_WIDTH);
                     preview.pixels.set(tw as u32, th as u32, thumb);
                     preview.clock.tick();
+                    // Connected with a frame: a still page stays live.
+                    preview.clock.hold(true);
                     // The full frame only while someone looks closely.
                     if preview.rate() >= Rate::Wall {
                         preview.full.set(width as u32, height as u32, rgba);
