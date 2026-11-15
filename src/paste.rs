@@ -807,7 +807,7 @@ fn sentence_initial_word(text: &str, start: usize) -> bool {
 }
 
 fn replace_character(text: &str, index: usize, replacement: impl Iterator<Item = char>) -> String {
-    let character_length = text[index..].chars().next().unwrap().len_utf8();
+    let character_length = text[index..].chars().next().map_or(0, char::len_utf8);
     let mut output = String::with_capacity(text.len());
     output.push_str(&text[..index]);
     output.extend(replacement);
