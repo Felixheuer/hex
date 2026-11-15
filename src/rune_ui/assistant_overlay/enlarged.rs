@@ -14,6 +14,7 @@ use rune::{Cx, El, col};
 use super::super::controls::Paint;
 use super::board::{Board, Phase};
 use super::live_card::{self, Driver, PAD};
+use super::terminal;
 
 /// The largest picture the panel shows, in points.
 pub(crate) const ROOM: (f32, f32) = (720.0, 450.0);
@@ -45,6 +46,9 @@ pub(crate) struct Enlarged {
     /// The picture's room ([`room_on`]).
     pub(crate) room: (f32, f32),
     pub(crate) actions: live_card::Actions<Enlarged>,
+    /// A job's terminal, when the target is one ([`terminal::SESSION`]):
+    /// what it shows, as the board last said.
+    pub(crate) terminal: Option<terminal::Large>,
 }
 
 impl Enlarged {
@@ -54,6 +58,7 @@ impl Enlarged {
             driver: Driver::Agent,
             room: ROOM,
             actions,
+            terminal: None,
         }
     }
 }
@@ -71,18 +76,29 @@ pub(crate) fn open(state: &mut Enlarged, task: &str, session: &str, board: &Boar
 /// Closes the card; whether it was open.
 pub(crate) fn close(state: &mut Enlarged) -> bool {
     state.driver = Driver::Agent;
+    state.terminal = None;
     state.target.take().is_some()
 }
 
-/// Who has the task now, from `board`; whether that changed.
+/// Who has the task now, and its terminal's lines when it shows them,
+/// from `board`; whether that changed.
 pub(crate) fn follow(state: &mut Enlarged, board: &Board) -> bool {
-    let Some((task, _)) = &state.target else {
+    let Some((task, session)) = &state.target else {
         return false;
     };
-    let phase = board.tasks.iter().find(|t| &t.id == task).map(|t| t.phase);
-    let driver = driver_for(phase);
-    let changed = state.driver != driver;
+    let found = board.tasks.iter().find(|t| &t.id == task);
+    let driver = driver_for(found.map(|t| t.phase));
+    let mut changed = state.driver != driver;
     state.driver = driver;
+    if session == terminal::SESSION {
+        // A finished job's terminal keeps its last lines until it closes.
+        if let Some(large) = found.map(terminal::Large::of)
+            && state.terminal.as_ref() != Some(&large)
+        {
+            state.terminal = Some(large);
+            changed = true;
+        }
+    }
     changed
 }
 
@@ -109,17 +125,30 @@ pub(crate) fn view(state: &Enlarged, cx: &mut Cx<Enlarged>) -> El {
         return root;
     };
     let close = state.actions.close;
+    let card = match (&state.terminal, session == terminal::SESSION) {
+        (Some(shown), true) => {
+            let still = cx.system_reduced_motion();
+            terminal::large(
+                p,
+                shown,
+                state.room,
+                close,
+                still,
+                std::time::Instant::now(),
+            )
+        }
+        _ => live_card::card(p, task, session, state.driver, state.room, state.actions),
+    };
     root.child(
-        live_card::card(p, task, session, state.driver, state.room, state.actions)
-            .on_key(move |s: &mut Enlarged, key: &rune::KeyEvent, _| {
-                if key.key == rune::Key::Escape {
-                    close(s);
-                    true
-                } else {
-                    false
-                }
-            })
-            .transition(rune::Transition::scale(0.96).combined(rune::Transition::opacity())),
+        card.on_key(move |s: &mut Enlarged, key: &rune::KeyEvent, _| {
+            if key.key == rune::Key::Escape {
+                close(s);
+                true
+            } else {
+                false
+            }
+        })
+        .transition(rune::Transition::scale(0.96).combined(rune::Transition::opacity())),
     )
 }
 

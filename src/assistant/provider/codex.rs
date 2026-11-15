@@ -133,8 +133,19 @@ impl Stream {
                     report(item);
                 }
             }
+            // A command's end and its output, for the task's terminal.
+            Some("item.completed")
+                if matches!(item_type, Some("command_execution" | "file_change")) =>
+            {
+                let output = item
+                    .get("aggregated_output")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                report(Report::tool_done(item_type.unwrap_or_default(), output));
+            }
             Some("item.completed") if item_type == Some("mcp_tool_call") => {
                 let tool = item.get("tool").and_then(Value::as_str).unwrap_or_default();
+                report(Report::tool_done(tool, ""));
                 if let Some(result) = item.get("result").filter(|result| !result.is_null()) {
                     for item in self.describer.result(tool, &result.to_string()) {
                         report(item);

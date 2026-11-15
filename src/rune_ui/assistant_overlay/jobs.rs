@@ -439,7 +439,11 @@ fn card<S: 'static>(
     // Every picture in one filmstrip, two in view; the rest scroll in
     // sideways (the trackpad, or the wheel over it), each streaming once
     // it shows.
-    let browsers = (!apps.is_empty() || !previews.is_empty()).then(|| {
+    // Its terminal, for a job that ran, searched, read, or edited
+    // anything: last in the strip, beside its windows and browsers.
+    let terminal = super::terminal::shows(task)
+        .then(|| super::terminal::mini(p, task, still, actions, Instant::now()));
+    let browsers = (!apps.is_empty() || !previews.is_empty() || terminal.is_some()).then(|| {
         let seen = line.peek.seen;
         let cells: Vec<El> = apps
             .iter()
@@ -461,6 +465,7 @@ fn card<S: 'static>(
                     seen,
                 )
             }))
+            .chain(terminal)
             .collect();
         let key = format!("job-film-{}", task.id);
         el().pl(STEP_INSET).pt(2.0).child(
@@ -575,16 +580,11 @@ pub(crate) fn whereabouts(task: &Task) -> Option<String> {
     }
 }
 
-/// What a job does now, in its plan's words (or its latest step, or
-/// Thinking…): the step its row's line ends with.
+/// What a job does now, in its plan's words, else the tool it runs or what
+/// it said last, else its latest step (`view::Task::busy_line`), else
+/// Thinking…: the step its row's line ends with.
 pub(crate) fn now_step(task: &Task) -> Option<String> {
-    if let Some(at) = task.current_step()
-        && let Some(step) = task.plan.get(at)
-    {
-        return Some(step.title.trim().to_owned());
-    }
-    task.step
-        .clone()
+    task.busy_line(Instant::now())
         .or_else(|| (task.phase == Phase::Running).then(|| tr("Thinking…").to_owned()))
 }
 

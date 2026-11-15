@@ -84,6 +84,8 @@ impl ChatsPane {
             // The view has them; the overlays draw the screen's part.
             Event::Thinking { .. }
             | Event::Step { .. }
+            | Event::Tool { .. }
+            | Event::ToolDone { .. }
             | Event::Window { .. }
             | Event::AnswerDelta { .. }
             | Event::Paused { .. }

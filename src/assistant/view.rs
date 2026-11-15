@@ -16,6 +16,8 @@
 //! No drawing, no platform, no clock of its own (every call takes `now`):
 //! every rule is a unit test.
 
+mod busy;
+pub mod console;
 mod task;
 #[cfg(test)]
 mod tests;
@@ -23,6 +25,8 @@ mod text;
 
 use std::time::Instant;
 
+pub use busy::{Busy, SHOW_ELAPSED, ToolKind, ToolUse, elapsed};
+pub use console::{CONSOLE_MAX, Console, Ink, TermLine};
 pub use task::{
     ACTING_FOR, Activity, BACK_FOR, Borrow, FINISHED_LINGER, Hold, LOG_MAX, Logged, Phase, Place,
     STOPPED_LINGER, TASK_STEPS, Task,
@@ -122,9 +126,13 @@ impl Stream {
                     if started || restarted {
                         // What it said so far is stored now: the text in
                         // flight starts afresh.
+                        task.busy = Busy::default();
                         task.answer.clear();
                         task.log.clear();
                         task.understood = None;
+                    }
+                    if restarted {
+                        task.console = Default::default();
                     }
                     if task.since.is_none() || restarted {
                         task.since = Some(now);
@@ -147,12 +155,38 @@ impl Stream {
                 let was = (task.phase, task.activity);
                 task.phase = task.phase.resumed();
                 task.activity = Activity::Thinking;
-                (task.phase, task.activity) != was
+                let busy = task.busy.apply(event, now);
+                (task.phase, task.activity) != was || busy
+            }),
+            Event::Tool {
+                conversation,
+                lines,
+                ..
+            } => self.live(conversation, |task| {
+                task.phase = task.phase.resumed();
+                task.activity = Activity::Working;
+                task.busy.apply(event, now);
+                if !lines.is_empty() {
+                    std::sync::Arc::make_mut(&mut task.console).push(lines);
+                }
+                true
+            }),
+            Event::ToolDone {
+                conversation,
+                lines,
+            } => self.live(conversation, |task| {
+                let busy = task.busy.apply(event, now);
+                if lines.is_empty() {
+                    return busy;
+                }
+                std::sync::Arc::make_mut(&mut task.console).push(lines);
+                true
             }),
             Event::Step {
                 conversation,
                 description,
             } => self.live(conversation, |task| {
+                task.busy.apply(event, now);
                 task.phase = task.phase.resumed();
                 task.activity = Activity::Working;
                 task.note_step(description);
@@ -173,7 +207,10 @@ impl Stream {
             Event::AnswerDelta { conversation, text } => self.live(conversation, |task| {
                 task.activity = Activity::Answering;
                 task.answer.push_str(text);
-                false
+                // Its interim words count once they change its line.
+                let was = task.busy.line(now);
+                task.busy.apply(event, now);
+                task.busy.line(now) != was
             }),
             Event::Answer {
                 conversation, text, ..
@@ -357,6 +394,16 @@ impl Stream {
             .filter(|task| task.origin == Origin::Background)
             .cloned()
             .collect()
+    }
+
+    /// When a live task's line next changes by itself: a long-running
+    /// tool's time ([`Busy::next_tick`]).
+    pub fn next_tick(&self, now: Instant) -> Option<Instant> {
+        self.tasks
+            .iter()
+            .filter(|task| task.phase == Phase::Running)
+            .filter_map(|task| task.busy.next_tick(now))
+            .min()
     }
 
     /// Whether any task waits out a usage limit (its countdown ticks).

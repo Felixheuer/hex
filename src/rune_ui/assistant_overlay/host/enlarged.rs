@@ -82,7 +82,12 @@ pub(super) fn open(board: &Board, task: &str, session: &str) {
     let Some(overlays) = OVERLAYS.get() else {
         return;
     };
-    pictures::view(Some((task, session)));
+    // A terminal streams nothing; a picture streams large.
+    if session == super::super::terminal::SESSION {
+        pictures::view(None);
+    } else {
+        pictures::view(Some((task, session)));
+    }
     // As large as the display under the pointer allows.
     let room = super::follow::pointer()
         .and_then(|at| {

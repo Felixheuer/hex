@@ -1,10 +1,13 @@
 //! One task as every surface reads it: where it is in its life, what it
 //! does now, what it asked, its plan, and where it works.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::assistant::{ConversationId, Origin, PlanStep, TaskState, TaskWindow};
 
+use super::busy::Busy;
+use super::console::Console;
 use super::text::{first_line, shorten};
 
 /// How long a finished task stays listed with its ✓ or ✗.
@@ -232,6 +235,12 @@ pub struct Task {
     /// A project it seems to be about while none was active: (id, name),
     /// offered with one tap until taken or it ends.
     pub suggested: Option<(String, String)>,
+    /// What it does now between its plan's words: the tool it runs, or
+    /// what it said last ([`Task::busy_line`]).
+    pub busy: Busy,
+    /// Its terminal: commands, output, searches, reads, and edits
+    /// (`view::console`), shared so a copy of the task costs nothing.
+    pub console: Arc<Console>,
 }
 
 impl Task {
@@ -265,6 +274,8 @@ impl Task {
             returned: None,
             project: None,
             suggested: None,
+            busy: Busy::default(),
+            console: Arc::default(),
         }
     }
 
@@ -312,6 +323,16 @@ impl Task {
             WEB_WORDS.iter().any(|word| step.contains(word))
         });
         if web { Place::Web } else { Place::Unknown }
+    }
+
+    /// What it does now in one line: the step its plan is on, else the
+    /// tool it runs or what it said last ([`Busy::line`]), else its latest
+    /// step. `None`: nothing yet (it thinks).
+    pub fn busy_line(&self, now: Instant) -> Option<String> {
+        if let Some(step) = self.current_step().and_then(|at| self.plan.get(at)) {
+            return Some(step.title.trim().to_owned());
+        }
+        self.busy.line(now).or_else(|| self.step.clone())
     }
 
     /// Its plan's steps done, and in all, once it has a plan.

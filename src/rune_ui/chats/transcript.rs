@@ -485,6 +485,11 @@ pub(super) fn in_flight(ui: &Ui, p: Paint, id: &str, turn: &Turn) -> El {
     if let Some(question) = super::work::question_block(ui, p, id) {
         return block.child(question);
     }
+    // What it does now, the island's and its card's line: its plan's step
+    // or the tool it runs (what it said shows above, streaming).
+    let busy = task
+        .filter(|task| task.busy.tool().is_some() || !task.plan.is_empty())
+        .and_then(|task| task.busy_line(std::time::Instant::now()));
     let doing = match pane.task(id).and_then(|task| pane.hold(task)) {
         Some(Hold::Asking(_)) => tr("Waiting for your answer").to_owned(),
         Some(Hold::Paused) => tr("Paused while you have it. Hand it back to go on").to_owned(),
@@ -495,6 +500,9 @@ pub(super) fn in_flight(ui: &Ui, p: Paint, id: &str, turn: &Turn) -> El {
         None => match task.map(|task| (task.phase, task.activity)) {
             None => tr("Sending…"),
             Some((Phase::Queued, _)) => tr("Waiting for a free slot"),
+            Some((_, Activity::Thinking | Activity::Working)) if busy.is_some() => {
+                busy.as_deref().unwrap_or_default()
+            }
             Some((_, Activity::Thinking)) => tr("Thinking…"),
             Some((_, Activity::Working)) => tr("Working…"),
             Some((_, Activity::Answering)) => tr("Writing…"),

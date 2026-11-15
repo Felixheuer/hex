@@ -150,5 +150,10 @@ pub(super) fn fold(state: &mut BubbleOverlay, tx: &mut Tx, now: Instant) -> bool
     if let Some(at) = next {
         tx.wake_after(at.saturating_duration_since(now));
     }
-    folded
+    // A long-running tool's time on the island's line.
+    let (ticked, tick) = bubble.tick(now);
+    if let Some(at) = tick {
+        tx.wake_after(at.saturating_duration_since(now));
+    }
+    folded || ticked
 }

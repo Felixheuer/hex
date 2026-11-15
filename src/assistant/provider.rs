@@ -191,9 +191,18 @@ pub enum Report {
     Session(String),
     /// A tool the agent calls, for the audit log (`assistant::audit`): its
     /// name and its arguments, compact with secrets blanked.
+    /// Also what a surface shows of it (`view::busy`) and the terminal
+    /// lines it makes (`view::console`), secrets blanked.
     Tool {
         name: String,
         input: String,
+        shown: crate::assistant::view::ToolUse,
+        lines: Vec<crate::assistant::view::TermLine>,
+    },
+    /// A tool call ended: the tail of a command's output, secrets blanked
+    /// (none for other tools).
+    ToolDone {
+        lines: Vec<crate::assistant::view::TermLine>,
     },
     /// The backend said something (a stream line) that shows nothing: a
     /// sign it still works, for a quick turn's watchdog
@@ -210,9 +219,21 @@ pub enum Report {
 impl Report {
     /// A call of `name` with `input`, for the audit log.
     pub fn tool(name: &str, input: &serde_json::Value) -> Self {
+        use crate::assistant::view::{ToolUse, console};
+        let shown = ToolUse::of(name, input);
         Self::Tool {
             name: name.to_owned(),
             input: crate::assistant::audit::compact(input),
+            lines: console::call_lines(shown.kind, input),
+            shown,
+        }
+    }
+
+    /// A call of `name` that ended with `output`.
+    pub fn tool_done(name: &str, output: &str) -> Self {
+        use crate::assistant::view::{ToolKind, console};
+        Self::ToolDone {
+            lines: console::output_lines(ToolKind::of(name), output),
         }
     }
 }

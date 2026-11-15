@@ -444,8 +444,22 @@ impl Stream {
                     let output = match block.get("content") {
                         Some(Value::String(text)) => text.clone(),
                         Some(other) => other.to_string(),
-                        None => continue,
+                        None => {
+                            report(Report::tool_done(&name, ""));
+                            continue;
+                        }
                     };
+                    // Its end, and a command's output for the terminal: the
+                    // text parts, not their JSON.
+                    let text = match block.get("content") {
+                        Some(Value::Array(parts)) => parts
+                            .iter()
+                            .filter_map(|part| part.get("text").and_then(Value::as_str))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                        _ => output.clone(),
+                    };
+                    report(Report::tool_done(&name, &text));
                     for item in self.describer.result(&name, &output) {
                         report(item);
                     }
@@ -570,6 +584,30 @@ mod tests {
         let answer = outcome.unwrap().unwrap().text;
         assert!(answer.starts_with("Drei der Apps"), "{answer}");
         assert_eq!(text, answer);
+    }
+
+    #[test]
+    fn a_command_reports_what_shows_and_its_outputs_tail() {
+        let lines = [
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"TOKEN=abcdef123 make test","description":"Run the tests"}}]}}"#,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"a\nb\nc\nd\nall passed"}]}]}}"#,
+        ];
+        let (reports, _) = replay(&lines.join("\n"));
+        let Some(Report::Tool { shown, lines, .. }) =
+            reports.iter().find(|r| matches!(r, Report::Tool { .. }))
+        else {
+            panic!("no tool: {reports:?}");
+        };
+        assert_eq!(shown.detail.as_deref(), Some("Run the tests"));
+        assert_eq!(lines[0].text, "TOKEN=••• make test");
+        let Some(Report::ToolDone { lines }) = reports
+            .iter()
+            .find(|r| matches!(r, Report::ToolDone { .. }))
+        else {
+            panic!("no end: {reports:?}");
+        };
+        let tail: Vec<&str> = lines.iter().map(|line| line.text.as_str()).collect();
+        assert_eq!(tail, ["b", "c", "d", "all passed"]);
     }
 
     #[test]
