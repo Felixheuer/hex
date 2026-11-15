@@ -1161,7 +1161,9 @@ pub fn read_wav_mono_f32(path: &Path) -> Result<(Vec<f32>, u32), String> {
         let chunk_start = pos + 8;
         let chunk_end = chunk_start.saturating_add(chunk_size).min(bytes.len());
 
-        if chunk_id == b"fmt " && chunk_size >= 16 {
+        // A truncated file ends the chunk early: read its fields only when
+        // all 16 bytes are really there.
+        if chunk_id == b"fmt " && chunk_end - chunk_start >= 16 {
             let fmt = &bytes[chunk_start..chunk_end];
             format_tag = u16::from_le_bytes([fmt[0], fmt[1]]);
             channels = u16::from_le_bytes([fmt[2], fmt[3]]);
@@ -1322,6 +1324,24 @@ pub fn render_wav_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_truncated_fmt_chunk_is_an_error_not_a_panic() {
+        // RIFF header, a 24-byte junk chunk, then a fmt chunk that claims
+        // 16 bytes while the file ends after 8 of them.
+        let mut wav = b"RIFF\0\0\0\0WAVE".to_vec();
+        wav.extend_from_slice(b"junk");
+        wav.extend_from_slice(&24_u32.to_le_bytes());
+        wav.extend_from_slice(&[0; 24]);
+        wav.extend_from_slice(b"fmt ");
+        wav.extend_from_slice(&16_u32.to_le_bytes());
+        wav.extend_from_slice(&[1, 0, 1, 0, 0x80, 0x3e, 0, 0]);
+        let path = std::env::temp_dir().join(format!("hex-trunc-{}.wav", std::process::id()));
+        std::fs::write(&path, &wav).unwrap();
+        let read = read_wav_mono_f32(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(read.is_err());
+    }
 
     fn rms_db(samples: &[f32]) -> f64 {
         if samples.is_empty() {
