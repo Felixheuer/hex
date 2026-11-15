@@ -810,8 +810,10 @@ mod tests {
     use super::*;
 
     /// Cua Driver 0.49.3, faked from what it answered on a TextEdit window.
+    type Calls = Arc<Mutex<Vec<(String, Map<String, Value>)>>>;
+
     #[derive(Clone, Default)]
-    struct Fake(Arc<Mutex<Vec<(String, Map<String, Value>)>>>);
+    struct Fake(Calls);
 
     impl Fake {
         fn calls(&self, tool: &str) -> Vec<Map<String, Value>> {
