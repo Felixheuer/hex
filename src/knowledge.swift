@@ -195,3 +195,140 @@ public func hexKnowledgeRemindersRequest() -> Int32 {
     let status = EKEventStore.authorizationStatus(for: .reminder).rawValue
     return status == 0 ? 2 : Int32(status)
 }
+
+// Adding the person's own appointments and reminders (`hex_calendar_add`),
+// without opening Calendar or Reminders. Only with access macOS already
+// granted; never asks (onboarding does). One JSON in, one JSON out.
+
+private struct AddWhen: Codable {
+    let year: Int
+    let month: Int
+    let day: Int
+    let hour: Int?
+    let minute: Int?
+}
+
+private struct AddRequest: Codable {
+    let kind: String
+    let title: String
+    let notes: String?
+    let list: String?
+    let location: String?
+    let start: AddWhen?
+    let end: AddWhen?
+    let durationMinutes: Int?
+    let alertMinutes: Int?
+}
+
+private struct AddResult: Codable {
+    var ok: Bool
+    var error: String?
+    var id: String?
+    var calendar: String?
+    var start: String?
+    var end: String?
+}
+
+private func components(_ when: AddWhen) -> DateComponents {
+    var parts = DateComponents()
+    parts.calendar = Calendar.current
+    parts.timeZone = TimeZone.current
+    parts.year = when.year
+    parts.month = when.month
+    parts.day = when.day
+    parts.hour = when.hour
+    parts.minute = when.minute
+    return parts
+}
+
+private func readable(_ date: Date, allDay: Bool) -> String {
+    let format = DateFormatter()
+    format.locale = Locale(identifier: "en_US_POSIX")
+    format.timeZone = TimeZone.current
+    format.dateFormat = allDay ? "yyyy-MM-dd" : "yyyy-MM-dd HH:mm"
+    return format.string(from: date)
+}
+
+private func failed(_ text: String) -> UnsafeMutablePointer<CChar>? {
+    encode(AddResult(ok: false, error: text))
+}
+
+/// The calendar (or reminder list) named `name` that takes new items, else
+/// the default one.
+private func target(_ store: EKEventStore, _ type: EKEntityType, _ name: String?) -> EKCalendar? {
+    let fallback = type == .event
+        ? store.defaultCalendarForNewEvents
+        : store.defaultCalendarForNewReminders()
+    guard let name, !name.trimmingCharacters(in: .whitespaces).isEmpty else { return fallback }
+    let wanted = fold(name)
+    let writable = store.calendars(for: type).filter(\.allowsContentModifications)
+    return writable.first { fold($0.title) == wanted }
+        ?? writable.first { fold($0.title).contains(wanted) }
+}
+
+@_cdecl("hex_knowledge_add")
+public func hexKnowledgeAdd(_ request: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+    guard let request,
+          let asked = try? JSONDecoder().decode(AddRequest.self, from: Data(String(cString: request).utf8))
+    else { return failed("the request couldn't be read") }
+    let isEvent = asked.kind == "event"
+    let type: EKEntityType = isEvent ? .event : .reminder
+    guard EKEventStore.authorizationStatus(for: type) == .fullAccess else {
+        return failed(isEvent
+            ? "Agent-Desk has no access to Calendar (System Settings › Privacy & Security › Calendars)"
+            : "Agent-Desk has no access to Reminders (System Settings › Privacy & Security › Reminders)")
+    }
+    let store = EKEventStore()
+    guard let calendar = target(store, type, asked.list) else {
+        let names = store.calendars(for: type).filter(\.allowsContentModifications).map(\.title)
+        return failed("there is no \(isEvent ? "calendar" : "list") “\(asked.list ?? "")”; there are: \(names.joined(separator: ", "))")
+    }
+    var result = AddResult(ok: true, calendar: calendar.title)
+    do {
+        if isEvent {
+            guard let start = asked.start, let begins = Calendar.current.date(from: components(start)) else {
+                return failed("an event needs a start")
+            }
+            let allDay = start.hour == nil
+            let ends = asked.end.flatMap { Calendar.current.date(from: components($0)) }
+                ?? asked.durationMinutes.map { begins.addingTimeInterval(TimeInterval(60 * $0)) }
+                ?? (allDay ? begins : begins.addingTimeInterval(3600))
+            guard ends >= begins else { return failed("the end is before the start") }
+            let event = EKEvent(eventStore: store)
+            event.calendar = calendar
+            event.title = asked.title
+            event.notes = asked.notes
+            event.location = asked.location
+            event.isAllDay = allDay
+            event.startDate = begins
+            event.endDate = ends
+            if let minutes = asked.alertMinutes {
+                event.addAlarm(EKAlarm(relativeOffset: TimeInterval(-60 * minutes)))
+            }
+            try store.save(event, span: .thisEvent, commit: true)
+            result.id = event.eventIdentifier
+            result.start = readable(begins, allDay: allDay)
+            result.end = readable(ends, allDay: allDay)
+        } else {
+            let reminder = EKReminder(eventStore: store)
+            reminder.calendar = calendar
+            reminder.title = asked.title
+            reminder.notes = asked.notes
+            if let due = asked.start {
+                reminder.dueDateComponents = components(due)
+                if due.hour != nil, let date = Calendar.current.date(from: components(due)) {
+                    let offset = TimeInterval(-60 * (asked.alertMinutes ?? 0))
+                    reminder.addAlarm(EKAlarm(absoluteDate: date.addingTimeInterval(offset)))
+                    result.start = readable(date, allDay: false)
+                } else if let date = Calendar.current.date(from: components(due)) {
+                    result.start = readable(date, allDay: true)
+                }
+            }
+            try store.save(reminder, commit: true)
+            result.id = reminder.calendarItemIdentifier
+        }
+    } catch {
+        return failed(error.localizedDescription)
+    }
+    return encode(result)
+}

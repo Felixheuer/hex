@@ -23,6 +23,7 @@ mod bridge {
         fn hex_knowledge_free(string: *mut c_char);
         fn hex_knowledge_contacts_request() -> i32;
         fn hex_knowledge_reminders_request() -> i32;
+        fn hex_knowledge_add(request: *const c_char) -> *mut c_char;
     }
 
     pub fn request_contacts() -> i32 {
@@ -69,6 +70,12 @@ mod bridge {
         // SAFETY: `query` outlives the call; the result is owned or null.
         take(unsafe { hex_knowledge_reminders(query.as_ptr(), limit) })
     }
+
+    pub fn add(request: &str) -> Option<String> {
+        let request = CString::new(request.replace('\0', "")).ok()?;
+        // SAFETY: `request` outlives the call; the result is owned or null.
+        take(unsafe { hex_knowledge_add(request.as_ptr()) })
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -91,6 +98,15 @@ mod bridge {
     pub fn reminders(_: &str, _: i32) -> Option<String> {
         None
     }
+    pub fn add(_: &str) -> Option<String> {
+        None
+    }
+}
+
+/// Adds an event or reminder (`add::Request` as JSON); EventKit's answer
+/// as JSON, or None where there is no EventKit.
+pub fn add(request: &str) -> Option<String> {
+    bridge::add(request)
 }
 
 /// CNAuthorizationStatus: 3 authorized, 4 limited.
