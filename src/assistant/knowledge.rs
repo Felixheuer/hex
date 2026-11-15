@@ -14,6 +14,7 @@
 //!
 //! OWNER: knowledge.
 
+mod add;
 mod agenda;
 mod apple_events;
 mod browser;
@@ -39,7 +40,7 @@ pub use apple_events::person_fix;
 pub const LOOKUP: &str = "hex_lookup";
 pub const BROWSER_TAB: &str = tab::NAME;
 /// The tools, in order: every role has both.
-pub const NAMES: [&str; 2] = [LOOKUP, BROWSER_TAB];
+pub const NAMES: [&str; 3] = [LOOKUP, BROWSER_TAB, add::NAME];
 
 /// How long an `all` lookup waits for its slowest source.
 const ALL_DEADLINE: Duration = Duration::from_millis(3000);
@@ -47,7 +48,7 @@ const DEFAULT_LIMIT: usize = 8;
 const MAX_LIMIT: usize = 25;
 
 /// A line for the system prompt: when to reach for these tools.
-pub const RULES: &str = "\nThe person's own things: hex_lookup finds their files, contacts (numbers in international form), calendar, reminders, mail (subjects and senders), the tabs open in their browser and their browsing history, and what you know about people, companies, and projects (scope memory), in milliseconds. Use it first, before opening an app or searching the web for something of theirs. When the person means a tab they have open in their browser (\u{201c}my open tab\u{201d}, \u{201c}the page I'm on\u{201d}), use hex_browser_tab on that tab, never a fresh browser; to show a page in their browser (only when they ask for it there), navigate a tab with it, which stays in the background: never open their browser app or type into its address bar.\n";
+pub const RULES: &str = "\nThe person's own things: hex_lookup finds their files, contacts (numbers in international form), calendar, reminders, mail (subjects and senders), the tabs open in their browser and their browsing history, and what you know about people, companies, and projects (scope memory), in milliseconds; hex_calendar_add adds their own appointments and reminders. Use it first, before opening an app or searching the web for something of theirs. When the person means a tab they have open in their browser (\u{201c}my open tab\u{201d}, \u{201c}the page I'm on\u{201d}), use hex_browser_tab on that tab, never a fresh browser; to show a page in their browser (only when they ask for it there), navigate a tab with it, which stays in the background: never open their browser app or type into its address bar.\n";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Scope {
@@ -129,11 +130,12 @@ pub fn definitions() -> Vec<Value> {
             }},
         }),
         tab::definition(),
+        add::definition(),
     ]
 }
 
 pub fn handles(name: &str) -> bool {
-    name == LOOKUP || name == BROWSER_TAB
+    name == LOOKUP || name == BROWSER_TAB || name == add::NAME
 }
 
 /// Runs one of the knowledge tools for the task `task` (`--task`), for
@@ -189,6 +191,7 @@ pub fn call(
             Ok(lookup(query, scope, limit))
         }
         BROWSER_TAB => tab::call(arguments, task, role),
+        add::NAME => add::call(arguments),
         other => Err(format!("There is no tool “{other}”.")),
     }
 }

@@ -735,7 +735,8 @@ fn quick_turns_run_fast_and_hand_hard_ones_to_the_strong_model() {
 // 10_700: one line for the media tools.
 // 11_300: the guard's batch, script, menu, verify and skill tools (Cua, round 7 A).
 // 11_500: projects (projects::RULES): their folder and hex_project.
-const HERE_BUDGET: usize = 11_500;
+// 11_600: hex_calendar_add (own appointments and reminders through EventKit).
+const HERE_BUDGET: usize = 11_600;
 // 15_900: the knowledge tools add a short rule; every app's ways, scripting first (APP_METHODS).
 // 16_200: acting by a window's picture (BACKGROUND_INPUT_RULES).
 // 16_500: the work-fast rules reach jobs too (speed_rules).
