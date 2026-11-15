@@ -15,6 +15,8 @@ const AHEAD_DAYS: i64 = 90;
 /// One event as it ranks: what, when, where, with whom.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Event {
+    /// EventKit's id, for hex_calendar_write's change and delete.
+    pub id: String,
     pub title: String,
     pub start_ms: i64,
     pub all_day: bool,
@@ -58,6 +60,9 @@ pub fn rank_events(events: &[Event], tokens: &[String], now_ms: i64, limit: usiz
                 }
                 detail.push(format!("with {}", people.join(", ")));
             }
+            if !event.id.is_empty() {
+                detail.push(format!("id {}", event.id));
+            }
             Some(Hit {
                 title: event.title.clone(),
                 detail: detail.join(" · "),
@@ -86,6 +91,7 @@ fn read_events(now_ms: i64) -> Result<Vec<Event>, String> {
     Ok(events
         .into_iter()
         .map(|event| Event {
+            id: event.id,
             title: event.title,
             start_ms: event.start_ms as i64,
             all_day: event.all_day,
@@ -108,6 +114,8 @@ pub fn calendar(tokens: &[String], limit: usize, now_ms: i64) -> Result<Vec<Hit>
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Reminder {
+    #[serde(default)]
+    id: String,
     title: String,
     list: String,
     due_ms: Option<f64>,
@@ -134,7 +142,11 @@ pub fn reminders(query: &str, tokens: &[String], limit: usize) -> Result<Vec<Hit
                 + if reminder.due_ms.is_some() { 0.2 } else { 0.0 }
                 + if reminder.priority > 0 { 0.1 } else { 0.0 };
             Hit {
-                detail: format!("list {}", reminder.list),
+                detail: if reminder.id.is_empty() {
+                    format!("list {}", reminder.list)
+                } else {
+                    format!("list {} · id {}", reminder.list, reminder.id)
+                },
                 title: reminder.title,
                 when_ms: reminder.due_ms.map(|ms| ms as i64),
                 score,
@@ -152,6 +164,7 @@ mod tests {
     fn the_next_matching_event_comes_first() {
         let now = 1_000 * DAY_MS;
         let event = |title: &str, start_ms, cancelled| Event {
+            id: String::new(),
             title: title.into(),
             start_ms,
             all_day: false,
@@ -169,6 +182,12 @@ mod tests {
         assert_eq!(hits.len(), 2, "cancelled and unrelated left out");
         assert_eq!(hits[0].when_ms, Some(now + 2 * DAY_MS));
         assert_eq!(hits[0].detail, "Büro · with Michael Schwarz");
+        let with_id = Event {
+            id: "E1".into(),
+            ..events[3].clone()
+        };
+        let hit = &rank_events(&[with_id], &rank::tokens("zahnarzt"), now, 1)[0];
+        assert_eq!(hit.detail, "Büro · with Michael Schwarz · id E1");
         assert_eq!(
             rank_events(&events, &rank::tokens("schwarz"), now, 5).len(),
             3,
