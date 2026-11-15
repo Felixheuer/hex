@@ -3,6 +3,7 @@
 //! read and closes a few seconds after the last sentence, so an idle Agent-Desk
 //! holds no output open.
 
+use crate::sync_ext::LockExt;
 use std::num::NonZero;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
@@ -40,9 +41,7 @@ pub struct Shared {
 
 impl Shared {
     pub fn playback(&self) -> MutexGuard<'_, Playback> {
-        self.playback
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+        self.playback.lock_ok()
     }
 
     /// Wakes the output thread for a new sentence.

@@ -9,6 +9,7 @@
 //! loop's thread; it must hand the text to its own thread and never wait.
 //! The text is provisional: it is only ever shown, never pasted or kept.
 
+use crate::sync_ext::LockExt;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -36,7 +37,7 @@ static TYPING: AtomicUsize = AtomicUsize::new(0);
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
 
 fn board() -> MutexGuard<'static, Board> {
-    BOARD.lock().unwrap_or_else(|error| error.into_inner())
+    BOARD.lock_ok()
 }
 
 /// Calls `watcher` with each new text, and with `None` once the recording
@@ -179,7 +180,7 @@ mod tests {
     static TURN: Mutex<()> = Mutex::new(());
 
     fn turn() -> MutexGuard<'static, ()> {
-        TURN.lock().unwrap_or_else(|error| error.into_inner())
+        TURN.lock_ok()
     }
 
     fn said(stable: &str) -> Partial {

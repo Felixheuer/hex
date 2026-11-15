@@ -8,6 +8,7 @@
 //! whose Agent-Desk is gone (and that are still the very processes noted, not a
 //! later one given the same pid).
 
+use crate::sync_ext::LockExt;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -56,7 +57,7 @@ pub(super) fn note(pid: u32) {
     let Some(path) = path() else {
         return;
     };
-    let _held = LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _held = LOCK.lock_ok();
     let mut records = load(&path);
     let me = std::process::id();
     records.retain(|record| record.pid != pid);
@@ -74,7 +75,7 @@ pub(super) fn forget(pid: u32) {
     let Some(path) = path() else {
         return;
     };
-    let _held = LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _held = LOCK.lock_ok();
     let mut records = load(&path);
     let before = records.len();
     records.retain(|record| record.pid != pid);
@@ -89,7 +90,7 @@ pub fn sweep() -> usize {
     let Some(path) = path() else {
         return 0;
     };
-    let _held = LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _held = LOCK.lock_ok();
     let records = load(&path);
     let (left, kept) = orphaned(records, |pid, started| {
         crate::assistant::guard::process_running(pid, started)
@@ -114,7 +115,7 @@ pub fn end_own() -> usize {
     let Some(path) = path() else {
         return 0;
     };
-    let _held = LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _held = LOCK.lock_ok();
     let me = std::process::id();
     let records = load(&path);
     let (mine, others): (Vec<Record>, Vec<Record>) =

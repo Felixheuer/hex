@@ -13,6 +13,7 @@
 //!
 //! OWNER: brain.
 
+use crate::sync_ext::LockExt;
 use std::sync::Mutex;
 
 /// What a click on a notification does: its conversation, and whether the
@@ -26,7 +27,7 @@ static OPEN: Mutex<Option<Open>> = Mutex::new(None);
 /// window on it. Called on a notification's own thread, so post to the UI
 /// and return at once.
 pub fn set_open(open: impl Fn(&str, bool) + Send + Sync + 'static) {
-    *OPEN.lock().unwrap_or_else(|error| error.into_inner()) = Some(Box::new(open));
+    *OPEN.lock_ok() = Some(Box::new(open));
     #[cfg(target_os = "macos")]
     bridge::listen();
 }
@@ -34,11 +35,7 @@ pub fn set_open(open: impl Fn(&str, bool) + Send + Sync + 'static) {
 /// A click on the notification for `conversation`; `window` when it was
 /// its "Open Agent-Desk" action.
 fn clicked(conversation: &str, window: bool) {
-    match OPEN
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .as_ref()
-    {
+    match OPEN.lock_ok().as_ref() {
         Some(open) => open(conversation, window),
         None => tracing::debug!("a notification was clicked before the overlays could show it"),
     }
@@ -224,6 +221,7 @@ mod linux {
 
 #[cfg(target_os = "windows")]
 mod windows {
+    use crate::sync_ext::LockExt;
     use std::sync::Mutex;
 
     use windows::Data::Xml::Dom::XmlDocument;
@@ -270,7 +268,7 @@ mod windows {
         ))?;
         ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(APP_ID))?
             .Show(&toast)?;
-        let mut shown = SHOWN.lock().unwrap_or_else(|error| error.into_inner());
+        let mut shown = SHOWN.lock_ok();
         // The newest few are all a person can still click.
         if shown.len() >= 16 {
             shown.remove(0);

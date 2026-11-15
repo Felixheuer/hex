@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_char, c_float, c_int, c_void};
 use std::ptr;
@@ -35,10 +36,7 @@ struct ReadinessState {
 
 fn readiness() -> std::sync::MutexGuard<'static, ReadinessState> {
     static STATE: OnceLock<Mutex<ReadinessState>> = OnceLock::new();
-    STATE
-        .get_or_init(Default::default)
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+    STATE.get_or_init(Default::default).lock_ok()
 }
 
 // The retained Swift actor is safe to move to the dedicated inference thread.

@@ -14,6 +14,7 @@
 //!
 //! OWNER: speech output.
 
+use crate::sync_ext::LockExt;
 #[cfg(target_os = "macos")]
 mod bridge;
 mod language;
@@ -282,10 +283,7 @@ static ENGINE_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 static ENGINE_STATE: Mutex<(Option<Instant>, Option<Instant>)> = Mutex::new((None, None));
 
 fn rest_engine() {
-    ENGINE_STATE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .0 = Some(Instant::now() + ENGINE_REST);
+    ENGINE_STATE.lock_ok().0 = Some(Instant::now() + ENGINE_REST);
 }
 
 /// Whether the speech engine can read now: it lists voices, and the main
@@ -294,9 +292,7 @@ fn rest_engine() {
 fn engine_answers() -> bool {
     let now = Instant::now();
     {
-        let state = ENGINE_STATE
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let state = ENGINE_STATE.lock_ok();
         if state.0.is_some_and(|until| now < until) {
             return false;
         }
@@ -315,10 +311,7 @@ fn engine_answers() -> bool {
     }
     match bridge::main_state(MAIN_TIMEOUT_MS) {
         bridge::Main::Answers => {
-            ENGINE_STATE
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .1 = Some(now);
+            ENGINE_STATE.lock_ok().1 = Some(now);
             true
         }
         bridge::Main::Pumped => true,
@@ -415,7 +408,7 @@ pub fn voices_with_languages() -> Vec<Voice> {
 #[cfg(target_os = "macos")]
 fn engine_voices() -> Vec<Voice> {
     static VOICES: Mutex<Option<(Instant, Vec<Voice>)>> = Mutex::new(None);
-    let mut cached = VOICES.lock().unwrap_or_else(|error| error.into_inner());
+    let mut cached = VOICES.lock_ok();
     if let Some((at, voices)) = cached.as_ref()
         && at.elapsed() < VOICES_FRESH
     {
@@ -431,7 +424,7 @@ fn engine_voices() -> Vec<Voice> {
 /// voices can be installed meanwhile.
 fn say_voices() -> Vec<Voice> {
     static VOICES: Mutex<Option<(Instant, Vec<Voice>)>> = Mutex::new(None);
-    let mut cached = VOICES.lock().unwrap_or_else(|error| error.into_inner());
+    let mut cached = VOICES.lock_ok();
     if let Some((at, voices)) = cached.as_ref()
         && at.elapsed() < VOICES_FRESH
     {

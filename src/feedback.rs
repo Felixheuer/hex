@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 use std::io::Cursor;
 #[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
@@ -563,10 +564,10 @@ pub fn play_at(tone: Tone, percent: u8) {
     }
     match tone {
         Tone::DictationStop => {
-            *LAST_STOP.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+            *LAST_STOP.lock_ok() = Some(Instant::now());
         }
         Tone::DictationDone => {
-            let stopped = *LAST_STOP.lock().unwrap_or_else(|e| e.into_inner());
+            let stopped = *LAST_STOP.lock_ok();
             if !done_plays(PENDING_STOPS.get(), stopped, Instant::now()) {
                 return;
             }

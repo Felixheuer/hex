@@ -10,6 +10,7 @@
 //! capture would bring. With Labs, the same states
 //! are stories in Agent-Desk's own window playground too ([`stories`]).
 
+use crate::sync_ext::LockExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -99,16 +100,11 @@ fn init() -> CapsuleState {
     let actions: Arc<Mutex<Vec<Action>>> = Arc::default();
     state.act = Some(Arc::new({
         let actions = actions.clone();
-        move |action| {
-            actions
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push(action)
-        }
+        move |action| actions.lock_ok().push(action)
     }));
     let cues: Arc<Mutex<Vec<Cue>>> = Arc::default();
     state.sound = Some(Arc::new(move |cue| {
-        cues.lock().unwrap_or_else(|e| e.into_inner()).push(cue);
+        cues.lock_ok().push(cue);
         crate::feedback::play(tone(cue));
     }));
     state.backdrop = true;
@@ -499,7 +495,7 @@ fn poll(s: &mut CapsuleState, wall: f64, tx: &mut Tx) -> bool {
     pg.wall = Some(wall);
     pg.clock += dt * scale;
     let now = pg.clock;
-    let actions = std::mem::take(&mut *pg.actions.lock().unwrap_or_else(|e| e.into_inner()));
+    let actions = std::mem::take(&mut *pg.actions.lock_ok());
     for action in actions {
         pg.answer(action);
     }
@@ -531,12 +527,7 @@ fn poll(s: &mut CapsuleState, wall: f64, tx: &mut Tx) -> bool {
             tx.wake_after(Duration::from_secs_f64(((next - now) / scale).max(0.0)));
         }
         // Actions from a click land on the next frame.
-        if !pg
-            .actions
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_empty()
-        {
+        if !pg.actions.lock_ok().is_empty() {
             tx.wake_after(Duration::ZERO);
         }
     }

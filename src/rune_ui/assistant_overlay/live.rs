@@ -28,6 +28,7 @@
 //! their `rune::Pixels`, and a browser coming or going, or its page
 //! changing, calls the hooks set with [`on_change`].
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -311,20 +312,14 @@ struct Registry {
 
 fn registry() -> std::sync::MutexGuard<'static, Registry> {
     static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
-    REGISTRY
-        .get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+    REGISTRY.get_or_init(Mutex::default).lock_ok()
 }
 
 type Hook = Box<dyn Fn() + Send + Sync>;
 
 fn hooks() -> std::sync::MutexGuard<'static, Vec<Hook>> {
     static HOOKS: OnceLock<Mutex<Vec<Hook>>> = OnceLock::new();
-    HOOKS
-        .get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+    HOOKS.get_or_init(Mutex::default).lock_ok()
 }
 
 /// Calls `hook` (on any thread) whenever a browser comes or goes, a page

@@ -6,6 +6,7 @@
 //! `sel!`), so builds link no macOS-27-only symbols and older macOS releases
 //! run unchanged with [`available`] returning `false`.
 
+use crate::sync_ext::LockExt;
 use std::ffi::{CStr, c_void};
 use std::path::Path;
 use std::ptr;
@@ -547,7 +548,7 @@ fn error_completion_channel() -> (ErrorCompletionBlock, ErrorCompletionRx) {
     let (tx, rx) = mpsc::sync_channel(1);
     let slot = Mutex::new(Some(tx));
     let block = RcBlock::with_encoding::<_, _, _, ErrorBlockEncoding>(move |err: *mut NSError| {
-        if let Some(tx) = slot.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        if let Some(tx) = slot.lock_ok().take() {
             let res = if err.is_null() {
                 Ok(())
             } else {
@@ -566,7 +567,7 @@ fn fetch_shareable_content() -> Result<Retained<AnyObject>, String> {
     let slot = Mutex::new(Some(tx));
     let block = RcBlock::with_encoding::<_, _, _, ShareableContentBlockEncoding>(
         move |content: *mut AnyObject, err: *mut NSError| {
-            if let Some(tx) = slot.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            if let Some(tx) = slot.lock_ok().take() {
                 let res = if !content.is_null() {
                     // SAFETY: Retain `SCShareableContent *` across threads before callback returns.
                     unsafe { Retained::retain(content) }

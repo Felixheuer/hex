@@ -7,6 +7,7 @@
 //! that cannot stream always takes the offline path. Commands are handled in
 //! order on one thread, because a live stream holds the model's compute lease.
 
+use crate::sync_ext::LockExt;
 use std::collections::VecDeque;
 mod streaming;
 
@@ -169,7 +170,7 @@ struct Published {
 impl Partials {
     /// Publishes `partial`; returns whether it changed the text.
     pub(crate) fn publish(&self, partial: Partial) -> bool {
-        let mut published = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        let mut published = self.0.lock_ok();
         if published.partial.as_ref() == Some(&partial) {
             return false;
         }
@@ -179,16 +180,12 @@ impl Partials {
     }
 
     fn latest(&self) -> Option<Partial> {
-        self.0
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .partial
-            .clone()
+        self.0.lock_ok().partial.clone()
     }
 
     /// The latest partial when it is newer than `seen`, which it advances.
     fn newer_than(&self, seen: &mut u64) -> Option<Partial> {
-        let published = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        let published = self.0.lock_ok();
         if published.seq <= *seen {
             return None;
         }
@@ -364,7 +361,7 @@ struct RunningState {
 
 impl Running {
     fn enter(&self, cancel: &CancelToken) {
-        let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self.0.lock_ok();
         if state.stopping {
             cancel.cancel();
         }
@@ -372,7 +369,7 @@ impl Running {
     }
 
     fn stop(&self) {
-        let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self.0.lock_ok();
         state.stopping = true;
         if let Some(cancel) = &state.cancel {
             cancel.cancel();
@@ -833,15 +830,12 @@ impl TranscriptionEngine {
 
     /// Makes this the engine that meeting transcription and the local API share.
     pub fn share(self: &Arc<Self>) {
-        *SHARED.lock().unwrap_or_else(|error| error.into_inner()) = Arc::downgrade(self);
+        *SHARED.lock_ok() = Arc::downgrade(self);
     }
 
     /// The running app's engine, when one is shared.
     pub fn shared() -> Option<Arc<Self>> {
-        SHARED
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .upgrade()
+        SHARED.lock_ok().upgrade()
     }
 
     /// Whether the model holds the GGUF `selection` as of its last finished
@@ -850,11 +844,7 @@ impl TranscriptionEngine {
         &self,
         selection: &crate::transcription::models::TranscriptionSelection,
     ) -> bool {
-        self.held
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .as_ref()
-            == Some(selection)
+        self.held.lock_ok().as_ref() == Some(selection)
     }
 }
 
@@ -863,10 +853,7 @@ impl TranscriptionEngine {
     pub(crate) fn held_selection(
         &self,
     ) -> Option<crate::transcription::models::TranscriptionSelection> {
-        self.held
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone()
+        self.held.lock_ok().clone()
     }
 }
 
@@ -1196,7 +1183,7 @@ impl Worker {
             Some(model) => model.gguf_selection(),
             None => self.parked.as_ref(),
         };
-        let mut held = self.held.lock().unwrap_or_else(|error| error.into_inner());
+        let mut held = self.held.lock_ok();
         if held.as_ref() != current {
             *held = current.cloned();
         }

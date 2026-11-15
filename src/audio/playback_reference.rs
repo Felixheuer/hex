@@ -7,6 +7,7 @@
 //! while the device is open), so the timeline has no holes while Agent-Desk
 //! reads; a query outside what was played gets zeros.
 
+use crate::sync_ext::LockExt;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -96,7 +97,7 @@ fn push(slot: &mut Option<Ring>, samples: &[f32], rate: u32, at: u64) {
 /// played nothing audible in the 400 ms before `end`: there is no echo of
 /// it to look for.
 pub fn recent(end: CaptureInstant, length: Duration, rate: u32) -> Option<Vec<f32>> {
-    let ring = RING.lock().unwrap_or_else(|error| error.into_inner());
+    let ring = RING.lock_ok();
     window(ring.as_ref()?, end.as_nanos(), length, rate)
 }
 

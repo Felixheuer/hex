@@ -14,6 +14,7 @@
 //! Rust refuses, or would have `cmd.exe` mangle, arguments with newlines or
 //! quotes for a batch file, and agents get just such arguments.
 
+use crate::sync_ext::LockExt;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -43,13 +44,13 @@ static SHELL: Mutex<Option<Shell>> = Mutex::new(None);
 /// The login shell's answer, asked on the first call (up to a few seconds)
 /// and kept until [`forget`].
 pub fn shell() -> Shell {
-    let mut cached = SHELL.lock().unwrap_or_else(|error| error.into_inner());
+    let mut cached = SHELL.lock_ok();
     cached.get_or_insert_with(ask_shell).clone()
 }
 
 /// Forgets the login shell's answer (after an install).
 pub fn forget() {
-    *SHELL.lock().unwrap_or_else(|error| error.into_inner()) = None;
+    *SHELL.lock_ok() = None;
 }
 
 /// The person's login shell: `$SHELL`, else their account's, else the

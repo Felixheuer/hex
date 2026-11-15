@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 #[cfg(unix)]
@@ -285,13 +286,7 @@ impl EventLog {
     }
 
     fn check_error(&self) -> io::Result<()> {
-        match self
-            .inner
-            .error
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .as_ref()
-        {
+        match self.inner.error.lock_ok().as_ref() {
             Some((kind, message)) => Err(io::Error::new(*kind, message.clone())),
             None => Ok(()),
         }
@@ -395,7 +390,7 @@ fn run_event_writer(
     let record_error = |result: io::Result<()>| -> Option<(io::ErrorKind, String)> {
         let write_error = result.err()?;
         let failure = (write_error.kind(), write_error.to_string());
-        *error.lock().unwrap_or_else(|error| error.into_inner()) = Some(failure.clone());
+        *error.lock_ok() = Some(failure.clone());
         Some(failure)
     };
     while let Ok(message) = receiver.recv() {

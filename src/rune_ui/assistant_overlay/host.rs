@@ -27,6 +27,7 @@
 //! GPU surface while hidden. The service sends nothing while the assistant
 //! is off, and nothing floats before its setup is done.
 
+use crate::sync_ext::LockExt;
 mod answer;
 mod displays;
 mod enlarged;
@@ -72,10 +73,7 @@ pub(crate) use orb_panel::{open_projects, toggle_tasks};
 pub(crate) use stage::{needs_repair, show_result, takes as stage_takes};
 #[cfg(test)]
 pub(crate) fn projected() -> Vec<String> {
-    stage::PROJECTED
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone()
+    stage::PROJECTED.lock_ok().clone()
 }
 use orb_panel::{
     ask_again, board_changed, cancel_project, close_peek, create_project, fold, hover_task,
@@ -547,10 +545,7 @@ static HINT_SHOWN: Mutex<Option<bool>> = Mutex::new(None);
 
 /// Whether the hint shows now.
 fn hint_shown() -> bool {
-    HINT_SHOWN
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .is_some()
+    HINT_SHOWN.lock_ok().is_some()
 }
 
 /// What the HUD says past itself while the Action shortcut is held:
@@ -560,7 +555,7 @@ fn hint_shown() -> bool {
 /// event, once it has placed itself; a repeat does nothing. Nothing shows
 /// before the assistant's setup is done.
 pub(crate) fn ask_hint(asking: Option<bool>) {
-    let mut shown = HINT_SHOWN.lock().unwrap_or_else(|error| error.into_inner());
+    let mut shown = HINT_SHOWN.lock_ok();
     if *shown == asking {
         return;
     }
@@ -714,10 +709,7 @@ fn cards_shown(island: Option<bool>, stage: Option<bool>) {
 static HANDS: Mutex<Option<ConversationId>> = Mutex::new(None);
 
 fn hands_task() -> Option<ConversationId> {
-    HANDS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone()
+    HANDS.lock_ok().clone()
 }
 
 /// Notes `task` moving the real pointer: Esc stops it, and the Here
@@ -725,7 +717,7 @@ fn hands_task() -> Option<ConversationId> {
 /// shown by the watcher). Main thread.
 fn set_hands(task: Option<ConversationId>) {
     {
-        let mut hands = HANDS.lock().unwrap_or_else(|error| error.into_inner());
+        let mut hands = HANDS.lock_ok();
         if *hands == task {
             return;
         }

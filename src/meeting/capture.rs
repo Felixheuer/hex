@@ -7,6 +7,7 @@
 //! Audio process tap on macOS, a PipeWire monitor of the default output on
 //! Linux, and WASAPI loopback on Windows.
 
+use crate::sync_ext::LockExt;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -302,12 +303,7 @@ struct SeenInput {
 impl InputRecorders {
     /// Whether the shared baseline is for `uid`.
     fn same_input(&self, uid: Option<&str>) -> bool {
-        self.seen
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .uid
-            .as_deref()
-            == uid
+        self.seen.lock_ok().uid.as_deref() == uid
     }
 
     /// Records `current` for `uid`, reporting whether a process known on that
@@ -316,11 +312,8 @@ impl InputRecorders {
     /// within [`RENEGOTIATION_SETTLE`] of it, ignores a disappearing pid:
     /// the driver is restarting its streams, not another app letting go.
     fn update(&self, uid: Option<&str>, current: Vec<i32>, now: Instant) -> bool {
-        let mut renegotiated = self
-            .renegotiated
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let mut seen = self.seen.lock().unwrap_or_else(|error| error.into_inner());
+        let mut renegotiated = self.renegotiated.lock_ok();
+        let mut seen = self.seen.lock_ok();
         let same_input = seen.uid.as_deref() == uid;
         if !same_input {
             // The old input's rate change means nothing to this one.
@@ -335,7 +328,7 @@ impl InputRecorders {
 
     /// Starts over on `uid` without treating its difference as a release.
     fn reset(&self, uid: Option<&str>, current: Vec<i32>) {
-        *self.seen.lock().unwrap_or_else(|error| error.into_inner()) = SeenInput {
+        *self.seen.lock_ok() = SeenInput {
             uid: uid.map(str::to_owned),
             pids: current,
         };
@@ -344,10 +337,7 @@ impl InputRecorders {
     /// Notes that this open renegotiated the device's sample rate, which
     /// restarts its other streams.
     fn note_renegotiation(&self, now: Instant) {
-        *self
-            .renegotiated
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = Some(now);
+        *self.renegotiated.lock_ok() = Some(now);
     }
 }
 

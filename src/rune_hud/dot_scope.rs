@@ -8,6 +8,7 @@
 //! 240 Hz, so any frame rate draws the same picture, and yields one
 //! brightness pair per dot for `rune_hud.wgsl` to draw.
 
+use crate::sync_ext::LockExt;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -374,14 +375,11 @@ static LAB: std::sync::Mutex<Option<Tuning>> = std::sync::Mutex::new(None);
 /// The playground's HUD stories start from it and change it, so HUD Lab
 /// and the stories edit one tuning.
 pub fn lab() -> Tuning {
-    *LAB.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .get_or_insert_with(Tuning::load)
+    *LAB.lock_ok().get_or_insert_with(Tuning::load)
 }
 
 pub fn set_lab(tuning: Tuning) {
-    *LAB.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(tuning);
+    *LAB.lock_ok() = Some(tuning);
 }
 
 /// A meter's RMS as dBFS.

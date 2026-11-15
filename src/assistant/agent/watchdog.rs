@@ -7,6 +7,7 @@
 //!
 //! OWNER: brain.
 
+use crate::sync_ext::LockExt;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -57,7 +58,7 @@ pub fn watch<T>(
     };
     let last = Mutex::new(Instant::now());
     let done = AtomicBool::new(false);
-    let touch = || *last.lock().unwrap_or_else(|error| error.into_inner()) = Instant::now();
+    let touch = || *last.lock_ok() = Instant::now();
     let tick = (limit / 20).clamp(Duration::from_millis(5), Duration::from_millis(500));
     std::thread::scope(|scope| {
         scope.spawn(|| {
@@ -66,7 +67,7 @@ pub fn watch<T>(
                 if control.cancelled() {
                     return;
                 }
-                let mut last = last.lock().unwrap_or_else(|error| error.into_inner());
+                let mut last = last.lock_ok();
                 if last.elapsed() >= limit && !done.load(Ordering::Acquire) {
                     if paused() {
                         *last = Instant::now();

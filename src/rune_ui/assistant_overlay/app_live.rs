@@ -16,6 +16,7 @@
 //! `app:<window number>` ([`session`], [`number_of`]), beside the browsers'
 //! agent-browser sessions.
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -155,10 +156,7 @@ struct Registry {
 
 fn registry() -> std::sync::MutexGuard<'static, Registry> {
     static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
-    REGISTRY
-        .get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+    REGISTRY.get_or_init(Mutex::default).lock_ok()
 }
 
 /// The windows worth a picture among `windows`: those the driver named

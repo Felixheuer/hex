@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -209,21 +210,13 @@ impl JobControl {
     }
 
     fn answer_print(&self, transcript: crate::control::PrintedTranscript) {
-        if let Some(reply) = self
-            .print
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .take()
-        {
+        if let Some(reply) = self.print.lock_ok().take() {
             reply.send(transcript);
         }
     }
 
     fn begin_output(&self) -> bool {
-        let mut output_started = self
-            .output_started
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut output_started = self.output_started.lock_ok();
         if self.is_cancelled() {
             return false;
         }
@@ -388,7 +381,7 @@ impl DictationWorker {
     /// lab is on, and never Agent-Desk itself.
     pub fn remember_return_to_app(&self) {
         let return_to = crate::paste::return_to_app::capture_start();
-        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self.state.lock_ok();
         state.return_to = return_to;
     }
 
@@ -438,7 +431,7 @@ impl DictationWorker {
         context: ContextSnapshot,
         print: Option<crate::control::PrintReply>,
     ) -> Result<DictationJobId, &'static str> {
-        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self.state.lock_ok();
         let job_id = DictationJobId(state.next_output_sequence()?);
         // Return to app: only a paste returns to an app; a printing
         // stop and the service never paste.
@@ -513,7 +506,7 @@ impl DictationWorker {
     }
 
     pub fn prepare_paste(&self) {
-        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let state = self.state.lock_ok();
         if !state.jobs.is_empty() || state.pending_pastes > 0 {
             return;
         }
@@ -548,7 +541,7 @@ impl DictationWorker {
     }
 
     fn submit_paste(&self, kind: PasteKind) -> Result<(), &'static str> {
-        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self.state.lock_ok();
         let sequence = state.next_output_sequence()?;
         self.output_jobs
             .as_ref()
@@ -566,16 +559,12 @@ impl DictationWorker {
     }
 
     pub fn is_busy(&self) -> bool {
-        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let state = self.state.lock_ok();
         !state.jobs.is_empty() || state.pending_pastes > 0
     }
 
     pub fn pending_count(&self) -> usize {
-        self.state
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .jobs
-            .len()
+        self.state.lock_ok().jobs.len()
     }
 
     fn shutdown(&mut self) {
@@ -618,7 +607,7 @@ fn run_output_worker(
                 &mut last_transcript,
                 history.as_ref(),
             );
-            let mut state = state.lock().unwrap_or_else(|error| error.into_inner());
+            let mut state = state.lock_ok();
             match &event {
                 WorkerEvent::Completed { job_id, .. } | WorkerEvent::Cancelled { job_id } => {
                     state.jobs.remove(job_id);
@@ -643,10 +632,7 @@ fn run_processor_worker(
     transformations: &crate::personal_commands::TransformationClient,
 ) {
     loop {
-        let job = jobs
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .recv();
+        let job = jobs.lock_ok().recv();
         let Ok(job) = job else { break };
         if job.control.is_cancelled() {
             let _ = output.send(OutputJob::Cancelled { job_id: job.job_id });

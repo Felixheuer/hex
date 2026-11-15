@@ -17,6 +17,7 @@
 //! manifest's SHA-256, and the ed25519 signature over that SHA-256
 //! (`signature`) are the integrity checks.
 
+use crate::sync_ext::LockExt;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub mod legacy;
 pub(crate) mod notes;
@@ -506,7 +507,7 @@ pub fn managed_by_policy() -> bool {
 pub const MANAGED_LABEL: &str = "Updates Managed by Your Organization";
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|error| error.into_inner())
+    mutex.lock_ok()
 }
 
 /// Waits `delay` or until woken; true when the updater should stop.

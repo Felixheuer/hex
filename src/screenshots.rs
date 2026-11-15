@@ -12,6 +12,7 @@
 //! what it picks as an Annotate capture, and pressing it again stops; the
 //! recording then lands on the same card ([`recording`]).
 
+use crate::sync_ext::LockExt;
 pub(crate) mod narration;
 mod recording;
 pub(crate) mod save;
@@ -558,7 +559,7 @@ pub(crate) struct Key {
 /// off and no key it took is still down.
 pub(crate) fn key(key: Key) -> Take {
     static TAKEN: std::sync::Mutex<Taken> = std::sync::Mutex::new(Taken(0));
-    let mut taken = TAKEN.lock().unwrap_or_else(|error| error.into_inner());
+    let mut taken = TAKEN.lock_ok();
     let picking = picking();
     if taken.0 == 0 && !picking && !crate::features::screenshots() {
         return Take::No;
@@ -606,7 +607,7 @@ pub(crate) fn system_takes_shortcut() -> bool {
     static LAST: std::sync::Mutex<Option<(Instant, Option<RuntimeHotkey>, bool)>> =
         std::sync::Mutex::new(None);
     let hotkey = crate::app_settings::screenshot_hotkey();
-    let mut last = LAST.lock().unwrap_or_else(|error| error.into_inner());
+    let mut last = LAST.lock_ok();
     if let Some((at, read_for, takes)) = *last
         && read_for == hotkey
         && at.elapsed() < Duration::from_secs(2)

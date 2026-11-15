@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 use std::ffi::{CStr, c_char, c_void};
 use std::ptr;
 
@@ -234,7 +235,7 @@ pub fn browser_pages(pid: i32) -> crate::dictation::browser_page::BrowserPages {
 /// process. Other apps ignore the attribute.
 fn request_web_accessibility(pid: i32, application: &CfObject) {
     static ASKED: std::sync::Mutex<Vec<i32>> = std::sync::Mutex::new(Vec::new());
-    let mut asked = ASKED.lock().unwrap_or_else(|error| error.into_inner());
+    let mut asked = ASKED.lock_ok();
     if asked.contains(&pid) {
         return;
     }

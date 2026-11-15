@@ -5,6 +5,7 @@
 //! environment variables. Answers are kept for a minute per scheme and host,
 //! since WPAD can take seconds.
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -27,8 +28,7 @@ pub fn proxy_for(url: &str) -> Option<ureq::Proxy> {
     let host = parsed.host_str()?.to_owned();
     let key = format!("{}://{host}", parsed.scheme());
     let cached = ANSWERS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .lock_ok()
         .get(&key)
         .filter(|(at, _)| at.elapsed() < KEEP)
         .map(|(_, proxy)| proxy.clone());
@@ -40,8 +40,7 @@ pub fn proxy_for(url: &str) -> Option<ureq::Proxy> {
                 tracing::info!(host, proxy = %redact(proxy), "using a proxy");
             }
             ANSWERS
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
+                .lock_ok()
                 .insert(key, (Instant::now(), proxy.clone()));
             proxy
         }

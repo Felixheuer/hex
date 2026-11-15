@@ -6,6 +6,7 @@
 //! device: ggml keeps the lost Vulkan device for the process, and asking a
 //! hung driver again can hang the whole desktop's GPU again.
 
+use crate::sync_ext::LockExt;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -41,9 +42,7 @@ fn path() -> Option<PathBuf> {
 }
 
 fn with_failures<R>(work: impl FnOnce(&mut Vec<Failure>) -> R) -> R {
-    let mut failures = FAILURES
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut failures = FAILURES.lock_ok();
     let failures = failures.get_or_insert_with(|| {
         path()
             .and_then(|path| std::fs::read(path).ok())

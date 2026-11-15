@@ -7,6 +7,7 @@
 //! enlarged card's What it did, and the repair check's card. Voice acts on
 //! what it shows ([`takes`]).
 
+use crate::sync_ext::LockExt;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -118,7 +119,7 @@ fn poll(state: &mut Stage, _clock: f64, tx: &mut Tx) -> bool {
     }
     let now = Instant::now();
     let held = state.hovered || crate::assistant::speech::speaking();
-    let mut at = HELD_AT.lock().unwrap_or_else(|error| error.into_inner());
+    let mut at = HELD_AT.lock_ok();
     if held || at.is_none() {
         *at = Some(now);
     }
@@ -143,8 +144,8 @@ pub(crate) fn show(panel: Panel) {
         return;
     };
     let keys = panel.takes_keys();
-    *TARGETS.lock().unwrap_or_else(|error| error.into_inner()) = panel.targets();
-    *HELD_AT.lock().unwrap_or_else(|error| error.into_inner()) = Some(Instant::now());
+    *TARGETS.lock_ok() = panel.targets();
+    *HELD_AT.lock_ok() = Some(Instant::now());
     let key = answer_key();
     overlays.stage.update(move |state, tx| {
         state.answer_key = key;
@@ -181,8 +182,7 @@ fn place(handle: &OverlayHandle<Stage>) {
     let rect = super::super::screens::snap(want, screen.scale);
     // Its card's top, which shows whatever it projects: the outlines'
     // labels shorten beside it.
-    *STAGE_AT.lock().unwrap_or_else(|error| error.into_inner()) =
-        Some([want[0] + inset, want[1] + inset, w - 2.0 * inset, 200.0]);
+    *STAGE_AT.lock_ok() = Some([want[0] + inset, want[1] + inset, w - 2.0 * inset, 200.0]);
     super::follow::set_rect(handle, rect.map(|v| v as f32));
 }
 
@@ -190,7 +190,7 @@ fn place(handle: &OverlayHandle<Stage>) {
 static STAGE_AT: Mutex<Option<[f64; 4]>> = Mutex::new(None);
 
 pub(super) fn stage_area() -> Option<[f64; 4]> {
-    *STAGE_AT.lock().unwrap_or_else(|error| error.into_inner())
+    *STAGE_AT.lock_ok()
 }
 
 /// ×, Esc, or folding away: the panel goes.
@@ -198,14 +198,11 @@ fn close(state: &mut Stage) {
     state.panel = None;
     state.pinned = false;
     state.menu = false;
-    TARGETS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clear();
+    TARGETS.lock_ok().clear();
     if let Some(overlays) = OVERLAYS.get() {
         overlays.stage.fade_out(FADE);
     }
-    *STAGE_AT.lock().unwrap_or_else(|error| error.into_inner()) = None;
+    *STAGE_AT.lock_ok() = None;
     super::cards_shown(None, Some(false));
 }
 
@@ -223,10 +220,7 @@ pub(super) fn show_answer(id: &str, question: &str, text: &str) {
 /// conversation.
 pub(crate) fn show_result(id: &str) {
     #[cfg(test)]
-    PROJECTED
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .push(id.to_owned());
+    PROJECTED.lock_ok().push(id.to_owned());
     let Some(overlays) = OVERLAYS.get() else {
         return;
     };
@@ -348,10 +342,7 @@ pub(crate) fn needs_repair(gaps: Vec<Gap>) {
 /// true when it took the words ("open the folder"), so they don't go to
 /// the assistant. Any thread.
 pub(crate) fn takes(words: &str) -> bool {
-    let targets = TARGETS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone();
+    let targets = TARGETS.lock_ok().clone();
     let Some((at, verb)) = stage::spoken(words, &targets) else {
         return false;
     };

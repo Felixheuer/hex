@@ -9,6 +9,7 @@
 //! to live, when evicted, when the reservation it was started for goes
 //! unused (`end_for`), or when Agent-Desk ends (its input closes).
 
+use crate::sync_ext::LockExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
@@ -32,7 +33,7 @@ static POOL: Mutex<Vec<Warm>> = Mutex::new(Vec::new());
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
 fn pool() -> MutexGuard<'static, Vec<Warm>> {
-    POOL.lock().unwrap_or_else(|error| error.into_inner())
+    POOL.lock_ok()
 }
 
 /// Keeps `process` (started with arguments `key`, on backend `session`) for

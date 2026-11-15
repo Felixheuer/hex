@@ -18,6 +18,7 @@
 //! ```
 
 use crate::app_settings::{AppSettings, HotkeyBinding, HotkeySlot, ModifierSide};
+use crate::sync_ext::LockExt;
 
 mod apps;
 mod plist;
@@ -110,7 +111,7 @@ pub(crate) fn cached(slot: HotkeySlot, settings: &AppSettings) -> Vec<Conflict> 
     )>;
     static LAST: std::sync::Mutex<Last> = std::sync::Mutex::new(Vec::new());
     let wanted = shortcut(slot, settings);
-    let mut last = LAST.lock().unwrap_or_else(|error| error.into_inner());
+    let mut last = LAST.lock_ok();
     if let Some((.., found)) = last.iter().find(|(s, binding, read, _)| {
         *s == slot && *binding == wanted && read.elapsed() < Duration::from_secs(3)
     }) {

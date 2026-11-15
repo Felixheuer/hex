@@ -7,6 +7,7 @@
 //!
 //! Nothing here is persisted: a restart starts unpaused.
 
+use crate::sync_ext::LockExt;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::{Duration, Instant};
@@ -191,7 +192,7 @@ static STATE: AtomicU8 = AtomicU8::new(State::Running.code());
 static SLOW_RESUME_WARNED: AtomicBool = AtomicBool::new(false);
 
 fn with<T>(change: impl FnOnce(&mut Machine) -> T) -> T {
-    let mut machine = MACHINE.lock().unwrap_or_else(|error| error.into_inner());
+    let mut machine = MACHINE.lock_ok();
     let result = change(&mut machine);
     STATE.store(machine.state().code(), Ordering::Release);
     result

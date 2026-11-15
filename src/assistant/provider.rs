@@ -14,6 +14,7 @@
 //!
 //! OWNER: brain.
 
+use crate::sync_ext::LockExt;
 mod claude_api;
 mod claude_code;
 mod codex;
@@ -273,11 +274,7 @@ impl Control {
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
         self.hold(false);
-        let groups = self
-            .groups
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let groups = self.groups.lock_ok().clone();
         for group in groups {
             end_group(group);
         }
@@ -290,16 +287,10 @@ impl Control {
     /// Holds (taken over) or lets go (handed back) the shell commands this
     /// task's backend runs (`hold`); the backend itself keeps running.
     pub fn hold(&self, on: bool) {
-        let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
+        let mut held = self.held.lock_ok();
         if on {
             if held.is_empty() {
-                let roots: Vec<u32> = self
-                    .groups
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .iter()
-                    .map(Tree::pid)
-                    .collect();
+                let roots: Vec<u32> = self.groups.lock_ok().iter().map(Tree::pid).collect();
                 *held = hold::stop(&roots);
             }
         } else {
@@ -320,7 +311,7 @@ impl Control {
 
     /// Stops the task as failed, for `reason` (it ran too long).
     pub fn fail(&self, reason: &str) {
-        *self.failure.lock().unwrap_or_else(|e| e.into_inner()) = Some(reason.to_owned());
+        *self.failure.lock_ok() = Some(reason.to_owned());
         self.cancel();
     }
 
@@ -329,11 +320,7 @@ impl Control {
     /// task goes on: the strong model takes the turn over, or it fails.
     pub fn stall(&self) {
         self.stalls.fetch_add(1, Ordering::AcqRel);
-        let groups = self
-            .groups
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let groups = self.groups.lock_ok().clone();
         for group in groups {
             end_group(group);
         }
@@ -344,11 +331,7 @@ impl Control {
     /// goes on.
     pub fn rotate(&self) {
         self.rotations.fetch_add(1, Ordering::AcqRel);
-        let groups = self
-            .groups
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let groups = self.groups.lock_ok().clone();
         for group in groups {
             end_group(group);
         }
@@ -366,18 +349,12 @@ impl Control {
 
     /// Why Agent-Desk stopped the task as failed, if it did.
     pub fn failure(&self) -> Option<String> {
-        self.failure
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+        self.failure.lock_ok().clone()
     }
 
     fn track(&self, tree: &Tree) {
         orphans::note(tree.pid());
-        self.groups
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(tree.clone());
+        self.groups.lock_ok().push(tree.clone());
         if self.cancelled() {
             end_group(tree.clone());
         }
@@ -385,10 +362,7 @@ impl Control {
 
     fn untrack(&self, pid: u32) {
         orphans::forget(pid);
-        self.groups
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .retain(|group| group.pid() != pid);
+        self.groups.lock_ok().retain(|group| group.pid() != pid);
     }
 }
 
@@ -543,7 +517,7 @@ impl Process {
             let tail = Arc::clone(&stderr);
             std::thread::spawn(move || {
                 for line in BufReader::new(pipe).lines().map_while(|line| line.ok()) {
-                    let mut tail = tail.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut tail = tail.lock_ok();
                     tail.push_back(line);
                     if tail.len() > 40 {
                         tail.pop_front();
@@ -586,8 +560,7 @@ impl Process {
         }
         let stderr = self
             .stderr
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .lock_ok()
             .iter()
             .filter(|line| !line.trim().is_empty())
             .cloned()

@@ -5,6 +5,7 @@
 //! games, canvases). The last reading per window is kept while its picture
 //! hasn't changed, so asking twice costs one capture.
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -40,8 +41,7 @@ pub fn read(number: u32, size: Option<(f64, f64)>) -> Result<Reading, String> {
     let key = fingerprint(&rgba);
     static CACHE: Mutex<Option<HashMap<u32, (u64, Vec<Line>)>>> = Mutex::new(None);
     if let Some((seen, lines)) = CACHE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .lock_ok()
         .as_ref()
         .and_then(|cache| cache.get(&number))
         && *seen == key
@@ -55,8 +55,7 @@ pub fn read(number: u32, size: Option<(f64, f64)>) -> Result<Reading, String> {
     let (points_w, points_h) = size.unwrap_or((f64::from(width), f64::from(height)));
     let lines = place(&boxes, points_w, points_h);
     CACHE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .lock_ok()
         .get_or_insert_with(HashMap::new)
         .insert(number, (key, lines.clone()));
     Ok(Reading {

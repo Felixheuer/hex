@@ -13,6 +13,7 @@
 //!
 //! OWNER: hands (with `speech`).
 
+use crate::sync_ext::LockExt;
 use color_eyre::{Result, eyre::eyre};
 
 /// The screen as the model sees it.
@@ -191,7 +192,7 @@ pub struct Reading {
 
 impl Reading {
     fn update(&self, change: impl FnOnce(&mut Read)) {
-        let mut read = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut read = self.shared.state.lock_ok();
         if !read.cancelled {
             change(&mut read);
         }
@@ -211,17 +212,13 @@ impl Reading {
     }
 
     pub fn cancelled(&self) -> bool {
-        self.shared
-            .state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .cancelled
+        self.shared.state.lock_ok().cancelled
     }
 }
 
 impl Drop for Reading {
     fn drop(&mut self) {
-        let mut read = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut read = self.shared.state.lock_ok();
         read.done = true;
         self.shared.changed.notify_all();
     }
@@ -246,11 +243,7 @@ impl ContextHandle {
 
     /// Whether the read has finished (or failed to start).
     pub fn is_done(&self) -> bool {
-        self.shared
-            .state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .done
+        self.shared.state.lock_ok().done
     }
 
     /// The context, waiting at most `timeout` for the read to finish; past
@@ -258,7 +251,7 @@ impl ContextHandle {
     /// rest is dropped when it comes.
     pub fn wait(self, timeout: std::time::Duration) -> crate::assistant::Context {
         let deadline = std::time::Instant::now() + timeout;
-        let mut read = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut read = self.shared.state.lock_ok();
         while !read.done {
             let left = deadline.saturating_duration_since(std::time::Instant::now());
             if left.is_zero() {
@@ -277,7 +270,7 @@ impl ContextHandle {
 
 impl Drop for ContextHandle {
     fn drop(&mut self) {
-        let mut read = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut read = self.shared.state.lock_ok();
         read.cancelled = true;
         // A screenshot nobody will send is freed now, not when the thread ends.
         read.context = None;

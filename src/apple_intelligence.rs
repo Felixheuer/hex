@@ -1,6 +1,7 @@
 //! The FoundationModels adapter: Apple's on-device language model behind a
 //! small C bridge in `apple_intelligence.swift`.
 
+use crate::sync_ext::LockExt;
 use std::ffi::{CStr, CString, c_char};
 use std::ptr;
 use std::sync::Mutex;
@@ -85,7 +86,7 @@ impl Availability {
 /// render paths can ask freely.
 pub fn availability() -> Availability {
     static CACHE: Mutex<Option<(Instant, Availability)>> = Mutex::new(None);
-    let mut cache = CACHE.lock().unwrap_or_else(|error| error.into_inner());
+    let mut cache = CACHE.lock_ok();
     if let Some((checked, availability)) = *cache
         && checked.elapsed() < AVAILABILITY_TTL
     {

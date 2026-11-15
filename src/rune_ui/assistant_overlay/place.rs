@@ -9,6 +9,7 @@
 //! display. Plain geometry here; the host reads the screens and the
 //! watcher's outline rects.
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -362,7 +363,7 @@ static DRAGGED: Mutex<Option<Dragged>> = Mutex::new(None);
 type Dragged = HashMap<String, (f64, f64)>;
 
 fn with_dragged<T>(f: impl FnOnce(&mut Dragged) -> T) -> T {
-    let mut dragged = DRAGGED.lock().unwrap_or_else(|error| error.into_inner());
+    let mut dragged = DRAGGED.lock_ok();
     f(dragged.get_or_insert_with(load))
 }
 

@@ -25,6 +25,7 @@
 //!
 //! OWNER: brain.
 
+use crate::sync_ext::LockExt;
 pub mod command;
 pub mod soul;
 pub mod tool;
@@ -803,22 +804,15 @@ static LISTENERS: Mutex<Vec<Listener>> = Mutex::new(Vec::new());
 /// Something about the projects changed in this process: the snapshot is
 /// read again and the listeners hear it.
 fn changed() {
-    *SNAPSHOT.lock().unwrap_or_else(|error| error.into_inner()) = None;
-    for listener in LISTENERS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .iter()
-    {
+    *SNAPSHOT.lock_ok() = None;
+    for listener in LISTENERS.lock_ok().iter() {
         listener();
     }
 }
 
 /// Calls `listener` whenever the active project or the list changes here.
 pub fn on_change(listener: impl Fn() + Send + Sync + 'static) {
-    LISTENERS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .push(Box::new(listener));
+    LISTENERS.lock_ok().push(Box::new(listener));
 }
 
 impl Projects {
@@ -838,7 +832,7 @@ impl Projects {
 
 /// The person's [`Snapshot`].
 pub fn snapshot() -> Snapshot {
-    let mut cached = SNAPSHOT.lock().unwrap_or_else(|error| error.into_inner());
+    let mut cached = SNAPSHOT.lock_ok();
     if let Some((at, snapshot)) = cached.as_ref()
         && at.elapsed() < SNAPSHOT_FOR
     {

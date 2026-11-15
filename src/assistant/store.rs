@@ -8,6 +8,7 @@
 //!
 //! OWNER: brain.
 
+use crate::sync_ext::LockExt;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -176,7 +177,7 @@ impl Store {
     /// saves the copy it holds never drops them.
     pub fn save(&self, stored: &Stored) -> Result<()> {
         let lock = conversation_lock(&stored.conversation.id);
-        let _held = lock.lock().unwrap_or_else(|error| error.into_inner());
+        let _held = lock.lock_ok();
         self.save_held(stored)
     }
 
@@ -216,7 +217,7 @@ impl Store {
         // can't land in between and be overwritten by the older copy read
         // here.
         let lock = conversation_lock(id);
-        let _held = lock.lock().unwrap_or_else(|error| error.into_inner());
+        let _held = lock.lock_ok();
         let mut side = self.side(id);
         side.push(message);
         write_private(&path, &serde_json::to_vec(&side)?)
@@ -494,7 +495,7 @@ fn conversation_lock(id: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     static HELD: Mutex<Option<HashMap<String, Arc<Mutex<()>>>>> = Mutex::new(None);
-    let mut held = HELD.lock().unwrap_or_else(|error| error.into_inner());
+    let mut held = HELD.lock_ok();
     let map = held.get_or_insert_with(HashMap::new);
     // Forget conversations no one holds, so the map stays small.
     map.retain(|_, lock| Arc::strong_count(lock) > 1);

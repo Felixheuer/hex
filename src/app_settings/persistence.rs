@@ -3,6 +3,7 @@
 //! a fresh read sees a fix; the first write over invalid fields preserves
 //! those bytes beside the original, including when a migration is first.
 
+use crate::sync_ext::LockExt;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
@@ -216,7 +217,7 @@ impl AppSettings {
 
     pub(super) fn write_managed_to(&self, path: &Path, policy: Policy) -> Result<()> {
         self.validate_recording_duck_volume()?;
-        let _writer = WRITER.lock().unwrap_or_else(|error| error.into_inner());
+        let _writer = WRITER.lock_ok();
         let parent = path
             .parent()
             .ok_or_else(|| eyre!("settings path has no parent"))?;
@@ -281,9 +282,7 @@ fn warn(key: &str, reason: &str) {
 }
 
 fn remember_unparseable(path: &Path, unparseable: bool) {
-    let mut paths = UNPARSEABLE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let mut paths = UNPARSEABLE.lock_ok();
     if unparseable {
         paths.insert(path.to_path_buf());
     } else {
@@ -292,10 +291,7 @@ fn remember_unparseable(path: &Path, unparseable: bool) {
 }
 
 fn load_found_unparseable(path: &Path) -> bool {
-    UNPARSEABLE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .contains(path)
+    UNPARSEABLE.lock_ok().contains(path)
 }
 
 /// Why a load used defaults without a settings JSON object on disk, even

@@ -8,6 +8,7 @@
 //! retention choice remains subject to hard entry and byte caps, writes are
 //! atomic, and files are owner-only.
 
+use crate::sync_ext::LockExt;
 use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -826,7 +827,7 @@ impl History {
     }
 
     fn synced(&self) -> std::sync::MutexGuard<'_, HistoryStore> {
-        let mut store = self.store.lock().unwrap_or_else(|error| error.into_inner());
+        let mut store = self.store.lock_ok();
         store.sync();
         store
     }

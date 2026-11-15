@@ -6,6 +6,7 @@
 //! `"partials": true` also streams the text so far (`/partials`) where the
 //! listener streams the recording (`dictationPartials`).
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::io::Write;
 use std::net::TcpStream;
@@ -76,7 +77,7 @@ struct Subscription<T> {
 
 impl<T> Subscriptions<T> {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<u64, Subscription<T>>> {
-        self.0.lock().unwrap_or_else(|error| error.into_inner())
+        self.0.lock_ok()
     }
 
     fn insert(&self, id: u64, owner_token: String, receiver: Receiver<T>) {

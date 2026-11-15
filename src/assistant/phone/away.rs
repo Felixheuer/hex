@@ -2,6 +2,7 @@
 //! screen locked, no input for `minutes`, or „ich gehe jetzt …“ said, until
 //! they're back at the keyboard.
 
+use crate::sync_ext::LockExt;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -75,12 +76,12 @@ pub fn manual() -> bool {
 
 /// The person just said they're leaving.
 pub fn left_now() {
-    *LEFT.lock().unwrap_or_else(|error| error.into_inner()) = Some(Instant::now());
+    *LEFT.lock_ok() = Some(Instant::now());
 }
 
 /// [`is_away`] on this Mac now; clears „ich gehe jetzt“ once they're back.
 pub fn is_away_now(minutes: u32) -> bool {
-    let mut left = LEFT.lock().unwrap_or_else(|error| error.into_inner());
+    let mut left = LEFT.lock_ok();
     let signals = Signals {
         manual: manual(),
         locked: probe::screen_locked(),

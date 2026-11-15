@@ -4,6 +4,7 @@
 //! transcript text, or audio. With the toggle off, or with nobody
 //! subscribed, nothing is queued or kept.
 
+use crate::sync_ext::LockExt;
 use std::sync::Mutex;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::time::Duration;
@@ -37,10 +38,7 @@ impl Hub {
 
     /// Takes the one subscriber slot; `None` while another subscriber holds it.
     pub(crate) fn subscribe(&'static self) -> Option<Subscription> {
-        let mut slot = self
-            .subscriber
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut slot = self.subscriber.lock_ok();
         if slot.is_some() {
             return None;
         }
@@ -57,10 +55,7 @@ impl Hub {
         if !enabled {
             return;
         }
-        let mut slot = self
-            .subscriber
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut slot = self.subscriber.lock_ok();
         let Some(sender) = slot.as_ref() else {
             return;
         };
@@ -92,11 +87,7 @@ impl Subscription {
 
 impl Drop for Subscription {
     fn drop(&mut self) {
-        *self
-            .hub
-            .subscriber
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = None;
+        *self.hub.subscriber.lock_ok() = None;
     }
 }
 

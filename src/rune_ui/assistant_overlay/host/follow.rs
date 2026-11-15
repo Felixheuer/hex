@@ -7,6 +7,7 @@
 //! flips to the display's left edge, and back once it's gone
 //! (`place::anchor_clear` with the watcher's outline rects). Main thread.
 
+use crate::sync_ext::LockExt;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -95,7 +96,7 @@ pub(super) fn screens() -> Vec<Screen> {
             })
         })
         .collect();
-    *NOTCHES.lock().unwrap_or_else(|error| error.into_inner()) = notches;
+    *NOTCHES.lock_ok() = notches;
     read
 }
 
@@ -109,8 +110,7 @@ static NOTCHES: Mutex<Vec<(u32, f64, f64)>> = Mutex::new(Vec::new());
 /// its bottom. Any thread: the notches are as [`screens`] last read them.
 pub(super) fn island_hang(screen: &Screen) -> (f64, f64, f64, f64) {
     let notch = NOTCHES
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .lock_ok()
         .iter()
         .find(|(id, _, _)| *id == screen.id)
         .map(|(_, x, height)| (*x, *height));
@@ -133,7 +133,7 @@ pub(super) fn island_hang(screen: &Screen) -> (f64, f64, f64, f64) {
 static RAIL_AT: Mutex<Option<place::Area>> = Mutex::new(None);
 
 pub(super) fn rail_area() -> Option<place::Area> {
-    *RAIL_AT.lock().unwrap_or_else(|error| error.into_inner())
+    *RAIL_AT.lock_ok()
 }
 
 /// The front window's title bar (global points): the card never covers
@@ -245,7 +245,7 @@ static ORB_AT: Mutex<Option<(f64, f64)>> = Mutex::new(None);
 static PLACED_ON: Mutex<Option<u32>> = Mutex::new(None);
 
 fn note_placed(id: u32) {
-    *PLACED_ON.lock().unwrap_or_else(|error| error.into_inner()) = Some(id);
+    *PLACED_ON.lock_ok() = Some(id);
 }
 
 /// Where the rail's head goes on `screen`: where it was dragged there,
@@ -278,14 +278,13 @@ pub(super) fn place_orb(handle: &OverlayHandle<Orb>, orb: &mut Orb) {
     };
     let anchor = rail_anchor(orb, &screen, &all);
     orb.grow = place::grow(anchor, screen.visible);
-    *ORB_AT.lock().unwrap_or_else(|error| error.into_inner()) = Some(anchor);
+    *ORB_AT.lock_ok() = Some(anchor);
     let rect = screens::snap(
         place::fitted(anchor, orb.grow, screen.visible).map(f64::from),
         screen.scale,
     );
     orb.room = rect[3] as f32;
-    *RAIL_AT.lock().unwrap_or_else(|error| error.into_inner()) =
-        Some(place::footprint(anchor, orb.grow, rail_height(orb)));
+    *RAIL_AT.lock_ok() = Some(place::footprint(anchor, orb.grow, rail_height(orb)));
     set_rect(handle, rect.map(|v| v as f32));
     note_placed(screen.id);
 }
@@ -310,7 +309,7 @@ pub(super) fn drag_orb(orb: &mut Orb, drag: &rune::Drag) {
     let Some(pointer) = pointer() else {
         return;
     };
-    let at = *ORB_AT.lock().unwrap_or_else(|error| error.into_inner());
+    let at = *ORB_AT.lock_ok();
     match drag.phase {
         rune::Phase::Down => DRAG.set(at.map(|anchor| (pointer, anchor))),
         rune::Phase::Move => {
@@ -345,7 +344,7 @@ pub(super) fn drag_orb(orb: &mut Orb, drag: &rune::Drag) {
             if !drag.cancelled() {
                 place::remember(&screen.key, screen.visible, dropped);
             }
-            *ORB_AT.lock().unwrap_or_else(|error| error.into_inner()) = Some(dropped);
+            *ORB_AT.lock_ok() = Some(dropped);
             note_placed(screen.id);
         }
     }
@@ -371,11 +370,11 @@ fn follow_now(orb: &mut Orb, force: bool) {
     let Some((screen, _)) = working() else {
         return;
     };
-    let before = *PLACED_ON.lock().unwrap_or_else(|error| error.into_inner());
+    let before = *PLACED_ON.lock_ok();
     if !force && before.is_none_or(|id| id == screen.id) {
         // Same display: the rail still flips when an outlined window came
         // under it or left (not while it's dragged).
-        let at = *ORB_AT.lock().unwrap_or_else(|error| error.into_inner());
+        let at = *ORB_AT.lock_ok();
         if orb.shown && DRAG.get().is_none() && before.is_some() {
             let all = screens();
             let anchor = rail_anchor(orb, &screen, &all);
