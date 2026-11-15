@@ -162,9 +162,13 @@ impl<D: Desktop> Guard<D> {
         }
         // Cua Driver launches in the background, but an app may still come
         // forward by itself as it finishes starting: watched a moment.
+        // Out of the person's way at once, then the front watched: parking
+        // after the watch left the new window over the person's work for
+        // the whole settle time.
+        self.place_arrivals();
         let took = self.processes_of(&app, launched.pid);
         self.keep_front(before, &took, super::front::SETTLE);
-        // Out of the person's way now, before the task acts in it.
+        // A window the app opened while it settled goes the same way.
         self.place_arrivals();
         // The notes `adopt` left say the same; the data has it.
         self.notes.clear();
@@ -320,6 +324,7 @@ impl<D: Desktop> Guard<D> {
                 pid,
             };
             mine = self.wait_for_window(&launched, &held_before);
+            self.place_arrivals();
             let took = self.processes_of(app, pid);
             self.keep_front(before, &took, super::front::SETTLE);
             self.place_arrivals();
