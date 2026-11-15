@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -543,10 +544,7 @@ fn wake_acceptor(port: u16) {
 
 fn http_worker(pending: Arc<Mutex<Receiver<TcpStream>>>, context: Arc<HttpContext>) {
     loop {
-        let stream = pending
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .recv();
+        let stream = pending.lock_ok().recv();
         let Ok(mut stream) = stream else {
             return;
         };
@@ -1305,7 +1303,7 @@ fn model_prepare_error(code: &str, message: &str) -> serde_json::Value {
 impl AuthObservationLimiter {
     fn observe(&self, events: &EventLog, method: &str, path: &str) {
         let now = Instant::now();
-        let mut last = self.last.lock().unwrap_or_else(|error| error.into_inner());
+        let mut last = self.last.lock_ok();
         if last.is_some_and(|last| now.duration_since(last) < AUTH_OBSERVATION_INTERVAL) {
             return;
         }

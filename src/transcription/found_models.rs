@@ -12,6 +12,7 @@
 //! under "Found on this computer" and, once chosen, is hashed in full once
 //! and registered as an in-place import (`custom_models`).
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -102,11 +103,7 @@ static CACHE: LazyLock<Mutex<Cache>> = LazyLock::new(Mutex::default);
 
 /// The models the last scan found, without scanning.
 pub fn last() -> Vec<Found> {
-    CACHE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .last
-        .clone()
+    CACHE.lock_ok().last.clone()
 }
 
 /// Scans the hub cache now: headers only, and only files that changed since
@@ -116,11 +113,7 @@ pub fn scan() -> Vec<Found> {
     for model in &mut found {
         model.too_big = likely_too_big(model.tensor_bytes);
     }
-    CACHE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .last
-        .clone_from(&found);
+    CACHE.lock_ok().last.clone_from(&found);
     found
 }
 
@@ -207,7 +200,7 @@ pub(crate) fn inode(metadata: &std::fs::Metadata) -> Option<u64> {
 /// One file's result, from the cache while its stamp holds.
 fn read(path: &Path, repository: &str, revision: &str) -> Option<Found> {
     let stamp = stamp(path)?;
-    let cache = CACHE.lock().unwrap_or_else(|error| error.into_inner());
+    let cache = CACHE.lock_ok();
     if let Some((cached, found)) = cache.files.get(path)
         && *cached == stamp
     {
@@ -216,8 +209,7 @@ fn read(path: &Path, repository: &str, revision: &str) -> Option<Found> {
     drop(cache);
     let found = inspect(path, repository, revision, stamp.bytes);
     CACHE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .lock_ok()
         .files
         .insert(path.to_path_buf(), (stamp, found.clone()));
     found
@@ -759,11 +751,7 @@ mod tests {
             Some(artifact.sha256.to_owned()),
             model.id,
         );
-        CACHE
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .last
-            .push(found);
+        CACHE.lock_ok().last.push(found);
         assert_eq!(catalog_candidate(model), Some(path.clone()));
         assert!(super::super::models::is_in_place(model));
         let before = snapshot_of(&hub);
@@ -774,11 +762,7 @@ mod tests {
         assert!(!super::super::models::is_in_place(model));
         assert!(!super::super::models::is_installed(model, "en"));
         assert_eq!(snapshot_of(&hub), before, "the cache is never written");
-        CACHE
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .last
-            .retain(|found| found.path != path);
+        CACHE.lock_ok().last.retain(|found| found.path != path);
         super::super::models::set_test_models_dir(None);
         fs::remove_dir_all(hub).unwrap();
         fs::remove_dir_all(models).unwrap();

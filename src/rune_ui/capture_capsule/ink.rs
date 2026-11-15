@@ -17,6 +17,7 @@
 //! the view only draws it, and the overlay asks for frames only while a
 //! capture records.
 
+use crate::sync_ext::LockExt;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -256,12 +257,10 @@ fn poll(s: &mut InkState, _now: f64, tx: &mut Tx) -> bool {
     };
     let telemetry = &source.telemetry;
     let ink = telemetry.ink_snapshot();
-    let tip = telemetry.shift_held.load(Ordering::Acquire).then(|| {
-        *telemetry
-            .pointer_screen
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-    });
+    let tip = telemetry
+        .shift_held
+        .load(Ordering::Acquire)
+        .then(|| *telemetry.pointer_screen.lock_ok());
     let scale = crate::capture_host::pixels_per_point() as f32;
     #[cfg(target_os = "linux")]
     let mut scene = Scene::at(&ink, source.now_ms(), tip).in_points(scale);

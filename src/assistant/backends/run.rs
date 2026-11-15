@@ -2,6 +2,7 @@
 //! threads, and at the limit it and everything it started (an agent's MCP
 //! servers, a login shell's children) are killed as one process group.
 
+use crate::sync_ext::LockExt;
 use std::io::Read;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
@@ -177,10 +178,7 @@ fn reader(stream: Option<impl Read + Send + 'static>, done: mpsc::Sender<()>) ->
         if let Some(mut stream) = stream {
             let mut chunk = [0_u8; 8192];
             while let Ok(read @ 1..) = stream.read(&mut chunk) {
-                filling
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .extend_from_slice(&chunk[..read]);
+                filling.lock_ok().extend_from_slice(&chunk[..read]);
             }
         }
         let _ = done.send(());
@@ -189,7 +187,7 @@ fn reader(stream: Option<impl Read + Send + 'static>, done: mpsc::Sender<()>) ->
 }
 
 fn take(buffer: &Buffer) -> String {
-    let bytes = buffer.lock().unwrap_or_else(|error| error.into_inner());
+    let bytes = buffer.lock_ok();
     String::from_utf8_lossy(&bytes).into_owned()
 }
 

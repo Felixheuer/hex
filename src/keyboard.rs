@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex, RwLock};
@@ -160,9 +161,7 @@ fn resolve_key_code(character: char, command: bool) -> Result<u16> {
     // Headless callers retain live-layout resolution. GUI callers publish the
     // snapshot on the main thread; even a cache miss then returns without
     // entering TIS.
-    let _access = LAYOUT_ACCESS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let _access = LAYOUT_ACCESS.lock_ok();
     if let Some(result) = cached() {
         return result;
     }
@@ -228,9 +227,7 @@ pub fn key_code_for_base_label(character: char) -> Option<u16> {
 ///
 /// Enters TIS, so only the main thread or a headless CLI process may call it.
 fn with_layout<T>(read: impl FnOnce(*const u8) -> T) -> Option<T> {
-    let _access = LAYOUT_ACCESS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let _access = LAYOUT_ACCESS.lock_ok();
     let source = LayoutSource::current().ok()?;
     let layout = source.layout_bytes().ok()?;
     Some(read(layout))
@@ -258,9 +255,7 @@ pub fn initialize_layout() -> Result<()> {
     if KEY_CODES.get().is_some() {
         return Ok(());
     }
-    let _access = LAYOUT_ACCESS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let _access = LAYOUT_ACCESS.lock_ok();
     if KEY_CODES.get().is_none() {
         KEY_CODES.publish(read_layout()?);
     }
@@ -270,9 +265,7 @@ pub fn initialize_layout() -> Result<()> {
 /// Rebuilds the snapshot from the now-selected input source, on the main
 /// thread, and publishes it whole. Returns whether any key moved.
 pub fn refresh_layout(_mtm: objc2::MainThreadMarker) -> Result<bool> {
-    let _access = LAYOUT_ACCESS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let _access = LAYOUT_ACCESS.lock_ok();
     Ok(KEY_CODES.publish(read_layout()?))
 }
 

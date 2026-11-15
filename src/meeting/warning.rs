@@ -1,6 +1,7 @@
 //! Track warnings that outlive the recording's live state, and the digital
 //! silence policy that raises them.
 
+use crate::sync_ext::LockExt;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -55,7 +56,7 @@ impl TrackWarnings {
 
     /// The warning the controller shows right now.
     pub(super) fn live(&self) -> Option<TrackWarning> {
-        *self.live.lock().unwrap_or_else(|error| error.into_inner())
+        *self.live.lock_ok()
     }
 
     /// The warning for the final manifest: the microphone was digitally
@@ -82,7 +83,7 @@ impl TrackWarnings {
     /// Commits `warning` once the controller has it, so a dropped update is
     /// retried by the next chunk instead of leaving the UI stale.
     fn set(&self, warning: Option<TrackWarning>) -> bool {
-        let mut live = self.live.lock().unwrap_or_else(|error| error.into_inner());
+        let mut live = self.live.lock_ok();
         if *live == warning {
             return true;
         }

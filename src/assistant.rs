@@ -28,6 +28,8 @@
 #![cfg_attr(target_os = "macos", allow(dead_code))]
 #![allow(unused_imports)]
 
+use crate::sync_ext::LockExt;
+
 pub mod actions;
 pub mod agent;
 pub mod audit;
@@ -96,11 +98,11 @@ pub const fn available() -> bool {
 static SETUP_GAP: std::sync::Mutex<Option<&'static str>> = std::sync::Mutex::new(None);
 
 pub fn set_setup_gap(gap: Option<&'static str>) {
-    *SETUP_GAP.lock().unwrap_or_else(|error| error.into_inner()) = gap;
+    *SETUP_GAP.lock_ok() = gap;
 }
 
 pub fn setup_gap() -> Option<&'static str> {
-    *SETUP_GAP.lock().unwrap_or_else(|error| error.into_inner())
+    *SETUP_GAP.lock_ok()
 }
 
 /// Whether the assistant may answer: enabled, and its setup finished (or

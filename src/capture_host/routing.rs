@@ -10,6 +10,7 @@
 //! capsule's Send and Undo for the newest capture, in the order
 //! they came. Every change lands in the snapshot's `last.route`.
 
+use crate::sync_ext::LockExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -269,12 +270,9 @@ fn look_with(context: RouteContext, router: Router, senses: look::Senses) -> Opt
                         context.app_pid,
                         deadline,
                         &senses,
-                        |url| {
-                            local.lock().unwrap_or_else(|e| e.into_inner()).url =
-                                url.map(str::to_owned)
-                        },
+                        |url| local.lock_ok().url = url.map(str::to_owned),
                     );
-                    *local.lock().unwrap_or_else(|e| e.into_inner()) = live.clone();
+                    *local.lock_ok() = live.clone();
                     Some(live)
                 });
                 let _ = found.try_send(live);
@@ -338,8 +336,7 @@ pub(super) fn send_bundle(
     always: bool,
 ) -> Result<String, String> {
     let jobs = JOBS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .lock_ok()
         .as_ref()
         .map(|(_, jobs)| jobs.clone())
         .ok_or("captures are off")?;
@@ -372,7 +369,7 @@ impl Routes {
             .name("capture-route".into())
             .spawn(move || Worker::new(outcomes).run(&queued))?;
         let id = NEXT_ROUTES.fetch_add(1, Ordering::Relaxed);
-        *JOBS.lock().unwrap_or_else(|error| error.into_inner()) = Some((id, jobs.clone()));
+        *JOBS.lock_ok() = Some((id, jobs.clone()));
         Ok(Self { id, jobs, thread })
     }
 
@@ -388,7 +385,7 @@ impl Routes {
     /// Ends the thread once its queue is empty and every other sender is
     /// gone.
     pub(super) fn stop(self, deadline: Instant) {
-        let mut global = JOBS.lock().unwrap_or_else(|error| error.into_inner());
+        let mut global = JOBS.lock_ok();
         if global.as_ref().is_some_and(|(id, _)| *id == self.id) {
             *global = None;
         }

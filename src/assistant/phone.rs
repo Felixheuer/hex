@@ -18,6 +18,7 @@
 //!
 //! OWNER: brain.
 
+use crate::sync_ext::LockExt;
 pub mod away;
 pub mod incoming;
 pub mod outgoing;
@@ -99,7 +100,7 @@ pub fn send_test(settings: &AssistantSettings) -> bool {
 static MESSAGES: Mutex<Option<AutomationState>> = Mutex::new(None);
 
 pub fn messages_permission() -> Option<AutomationState> {
-    *MESSAGES.lock().unwrap_or_else(|error| error.into_inner())
+    *MESSAGES.lock_ok()
 }
 
 /// Asks macOS (once it shows a prompt) whether Agent-Desk may control Messages,
@@ -109,7 +110,7 @@ pub fn ask_messages() {
         .name("phone-permission".into())
         .spawn(|| {
             let state = crate::desktop::automation::messages(true);
-            *MESSAGES.lock().unwrap_or_else(|error| error.into_inner()) = Some(state);
+            *MESSAGES.lock_ok() = Some(state);
         });
 }
 
@@ -135,9 +136,7 @@ fn send_async(handle: String, message: String) {
                     return;
                 }
             };
-            *LAST_FAILED
-                .lock()
-                .unwrap_or_else(|error| error.into_inner()) = failed;
+            *LAST_FAILED.lock_ok() = failed;
         });
 }
 
@@ -149,9 +148,7 @@ static LAST_FAILED: Mutex<bool> = Mutex::new(false);
 
 /// Whether the last message to the phone couldn't be delivered.
 pub fn last_delivery_failed() -> bool {
-    *LAST_FAILED
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+    *LAST_FAILED.lock_ok()
 }
 
 static STARTED: AtomicBool = AtomicBool::new(false);
@@ -179,11 +176,11 @@ fn poll_once() {
         return;
     };
     let Some(handle) = configured(&settings) else {
-        *CURSOR.lock().unwrap_or_else(|error| error.into_inner()) = None;
+        *CURSOR.lock_ok() = None;
         return;
     };
     let away = away::is_away_now(settings.phone_away_minutes);
-    let mut cursor = CURSOR.lock().unwrap_or_else(|error| error.into_inner());
+    let mut cursor = CURSOR.lock_ok();
     if !away {
         *cursor = None;
         return;

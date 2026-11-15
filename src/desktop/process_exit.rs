@@ -21,6 +21,7 @@
 //! [`arm_deadline`] when stopping begins, and a drain still running after
 //! [`STOP_DEADLINE`] ends with the same `_exit`, logging what was pending.
 
+use crate::sync_ext::LockExt;
 use std::io::Write;
 use std::sync::Mutex;
 #[cfg(target_os = "linux")]
@@ -81,7 +82,7 @@ impl Drain {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<Box<dyn FnOnce() + Send>>> {
-        self.0.lock().unwrap_or_else(|error| error.into_inner())
+        self.0.lock_ok()
     }
 }
 

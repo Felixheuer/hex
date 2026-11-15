@@ -20,6 +20,7 @@
 //! └── nothing within `wait` -> NothingReceived
 //! ```
 
+use crate::sync_ext::LockExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Mutex, MutexGuard};
@@ -143,7 +144,7 @@ static PROBE: Mutex<Option<Probe>> = Mutex::new(None);
 static LISTENING: AtomicBool = AtomicBool::new(false);
 
 fn probe() -> MutexGuard<'static, Option<Probe>> {
-    PROBE.lock().unwrap_or_else(|error| error.into_inner())
+    PROBE.lock_ok()
 }
 
 fn finish(slot: &mut Option<Probe>, result: ProbeResult) {

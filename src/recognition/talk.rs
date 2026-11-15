@@ -21,6 +21,7 @@
 //!   microphone policy (release while idle) holds: the microphone opens for
 //!   the window and is released after.
 
+use crate::sync_ext::LockExt;
 use std::sync::{Mutex, Once};
 use std::time::{Duration, Instant};
 
@@ -415,19 +416,14 @@ fn answered() -> Vec<ConversationId> {
     static SUBSCRIBE: Once = Once::new();
     SUBSCRIBE.call_once(|| {
         crate::assistant::subscribe(Box::new(|event| {
-            let mut heard = HEARD.lock().unwrap_or_else(|error| error.into_inner());
+            let mut heard = HEARD.lock_ok();
             let Heard { here, answered } = &mut *heard;
             if let Some(conversation) = note(event, here) {
                 answered.push(conversation);
             }
         }));
     });
-    std::mem::take(
-        &mut HEARD
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .answered,
-    )
+    std::mem::take(&mut HEARD.lock_ok().answered)
 }
 
 struct Heard {

@@ -7,6 +7,7 @@
 //! late wake on a busy machine delivers the chunk late but never moves it.
 //! Device enumeration is skipped: the fixture is the only input.
 
+use crate::sync_ext::LockExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
@@ -39,7 +40,7 @@ pub(super) fn path() -> Option<&'static Path> {
 fn clip(path: &Path) -> Result<(Arc<Vec<f32>>, u32)> {
     type Decoded = (PathBuf, Arc<Vec<f32>>, u32);
     static CLIP: Mutex<Option<Decoded>> = Mutex::new(None);
-    let mut cached = CLIP.lock().unwrap_or_else(|error| error.into_inner());
+    let mut cached = CLIP.lock_ok();
     if let Some((_, samples, rate)) = cached.as_ref().filter(|(at, ..)| at == path) {
         return Ok((samples.clone(), *rate));
     }

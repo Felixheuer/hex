@@ -2,6 +2,7 @@
 //! tap, with ScreenCaptureKit as the fallback when the tap is not
 //! authorized, its consents, and Finder and Trash.
 
+use crate::sync_ext::LockExt;
 use std::ffi::{CStr, c_void};
 use std::path::Path;
 use std::ptr::NonNull;
@@ -533,10 +534,7 @@ impl ScreenCaptureSource {
             &filter,
             &config,
             ErrorHandler::new(move |stream_error| {
-                *delegate_error
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
-                    Some(stream_error.to_string());
+                *delegate_error.lock_ok() = Some(stream_error.to_string());
             }),
         )
         .map_err(|error| eyre!(error).wrap_err("could not create meeting capture stream"))?;
@@ -558,9 +556,7 @@ impl ScreenCaptureSource {
                         handler_sink.drops.fetch_add(1, Ordering::Relaxed);
                         return;
                     };
-                    let mut resampler = resamplers
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    let mut resampler = resamplers.lock_ok();
                     if resampler
                         .as_ref()
                         .is_none_or(|current| current.rate != rate)
@@ -584,12 +580,7 @@ impl ScreenCaptureSource {
 impl LiveSource for ScreenCaptureSource {
     fn poll(&mut self, _sink: &PacketSink) -> std::result::Result<(), String> {
         thread::sleep(POLL_INTERVAL);
-        match self
-            .error
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
-        {
+        match self.error.lock_ok().take() {
             Some(error) => Err(error),
             None => Ok(()),
         }

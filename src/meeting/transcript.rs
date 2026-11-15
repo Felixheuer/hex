@@ -6,6 +6,7 @@
 //! drops microphone utterances that echo the remote audio, and a Markdown
 //! copy is published to the user's meeting folder.
 
+use crate::sync_ext::LockExt;
 use std::collections::VecDeque;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
@@ -1119,18 +1120,12 @@ pub(super) struct FlushRegistration(String);
 
 impl Drop for FlushRegistration {
     fn drop(&mut self) {
-        FLUSHERS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .retain(|(id, _)| *id != self.0);
+        FLUSHERS.lock_ok().retain(|(id, _)| *id != self.0);
     }
 }
 
 pub(super) fn register_flusher(id: &str, flusher: RollingFlusher) -> FlushRegistration {
-    FLUSHERS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .push((id.to_string(), flusher));
+    FLUSHERS.lock_ok().push((id.to_string(), flusher));
     FlushRegistration(id.to_string())
 }
 
@@ -1146,8 +1141,7 @@ pub(super) enum Flushed {
 /// Transcribes meeting `id` up to now when this process records it.
 pub(super) fn transcribe_up_to_now(id: &str, wait: Duration) -> Flushed {
     let flusher = FLUSHERS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .lock_ok()
         .iter()
         .find(|(recording, _)| recording == id)
         .map(|(_, flusher)| flusher.clone());

@@ -9,6 +9,7 @@
 //! The desk lives in the guard's files, written by other processes, so a
 //! thread looks at it every second and wakes the orb when it changed.
 
+use crate::sync_ext::LockExt;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -45,7 +46,7 @@ fn state() -> std::sync::MutexGuard<'static, Desk> {
         windows: Vec::new(),
         browsers: Vec::new(),
     });
-    STATE.lock().unwrap_or_else(|error| error.into_inner())
+    STATE.lock_ok()
 }
 
 /// The desk as last read.

@@ -5,6 +5,7 @@
 //! shows the assistant's Web section calls [`rows`] (and [`read`] when it
 //! opens).
 
+use crate::sync_ext::LockExt;
 use std::sync::Mutex;
 
 use rune::El;
@@ -37,15 +38,11 @@ static STATE: Mutex<Option<Accounts>> = Mutex::new(None);
 const GOOGLE_STAYS: &str = "Google and YouTube stay signed in only in Chrome: Google signs you out everywhere when its login is used in a second browser. Sign in to them by hand if tasks need them";
 
 fn state() -> Accounts {
-    STATE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone()
-        .unwrap_or_default()
+    STATE.lock_ok().clone().unwrap_or_default()
 }
 
 fn set(update: impl FnOnce(&mut Accounts)) {
-    let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+    let mut state = STATE.lock_ok();
     update(state.get_or_insert_with(Accounts::default));
 }
 

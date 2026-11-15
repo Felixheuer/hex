@@ -14,6 +14,7 @@
 //! Ported from Scrawl's Rune capsule (`scrawl-pill-lab`, `rune_pill`); its
 //! colours are the OpenCode theme's, so it follows the system appearance.
 
+use crate::sync_ext::LockExt;
 pub(crate) mod feed;
 pub(crate) mod flow;
 pub(crate) mod ink;
@@ -207,7 +208,7 @@ impl Meter {
             self.publish(t);
         }
         let kick = f32::from_bits(self.kick.swap(0, Ordering::AcqRel));
-        let mut glow = self.glowing.lock().unwrap_or_else(|e| e.into_inner());
+        let mut glow = self.glowing.lock_ok();
         if kick > 0.0 {
             glow.since = Some((t, kick, glow.level));
         }

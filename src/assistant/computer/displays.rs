@@ -5,6 +5,7 @@
 //! (the one holding the focused window), and which one Background tasks'
 //! windows go to (the agents' display).
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -228,18 +229,12 @@ static NAMES: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
 static ASKING: Mutex<bool> = Mutex::new(false);
 
 fn name_of(id: &str) -> Option<String> {
-    NAMES
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .as_ref()?
-        .get(id)
-        .cloned()
+    NAMES.lock_ok().as_ref()?.get(id).cloned()
 }
 
 fn remember_names(names: impl IntoIterator<Item = (String, String)>) {
     NAMES
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .lock_ok()
         .get_or_insert_with(HashMap::new)
         .extend(names);
 }
@@ -278,7 +273,7 @@ pub fn profiler_names(json: &str) -> Vec<(String, String)> {
 /// second), once at a time.
 fn learn_names() {
     {
-        let mut asking = ASKING.lock().unwrap_or_else(|error| error.into_inner());
+        let mut asking = ASKING.lock_ok();
         if *asking {
             return;
         }
@@ -293,10 +288,10 @@ fn learn_names() {
             if let Ok(output) = output {
                 remember_names(profiler_names(&String::from_utf8_lossy(&output.stdout)));
             }
-            *ASKING.lock().unwrap_or_else(|error| error.into_inner()) = false;
+            *ASKING.lock_ok() = false;
         });
     if spawned.is_err() {
-        *ASKING.lock().unwrap_or_else(|error| error.into_inner()) = false;
+        *ASKING.lock_ok() = false;
     }
 }
 

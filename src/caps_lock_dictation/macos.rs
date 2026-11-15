@@ -13,6 +13,7 @@
 //! bounded refresh instead, so keyboards plugged in later are discovered
 //! rather than trusting a device list that never updates.
 
+use crate::sync_ext::LockExt;
 use std::ffi::{c_char, c_void};
 use std::ptr;
 use std::sync::atomic::Ordering;
@@ -503,22 +504,15 @@ impl CapsLockDictation {
                 return;
             }
             while inner.presses.try_recv().is_ok() {}
-            super::HID_GATE
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .clear();
+            super::HID_GATE.lock_ok().clear();
             super::seed_alpha_shift(crate::suppression::alpha_shift_now());
             inner.model = LedModel::default();
             inner.pattern = LedPattern::Off;
             LED_PATTERN.store(LedPattern::Off.code(), Ordering::Release);
             let (commands, receiver) = mpsc::channel();
             let (done, done_receiver) = mpsc::sync_channel(1);
-            *super::WORKER
-                .lock()
-                .unwrap_or_else(|error| error.into_inner()) = Some(commands.clone());
-            *super::PRESSES
-                .lock()
-                .unwrap_or_else(|error| error.into_inner()) = Some(self.presses.clone());
+            *super::WORKER.lock_ok() = Some(commands.clone());
+            *super::PRESSES.lock_ok() = Some(self.presses.clone());
             ENABLED.store(true, Ordering::Release);
             crate::suppression::physical_keys::watch_caps_lock(Some(super::physical_press));
             let worker = thread::Builder::new()
@@ -540,28 +534,17 @@ impl CapsLockDictation {
                     }
                     ENABLED.store(false, Ordering::Release);
                     crate::suppression::physical_keys::watch_caps_lock(None);
-                    *super::WORKER
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner()) = None;
-                    *super::PRESSES
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner()) = None;
+                    *super::WORKER.lock_ok() = None;
+                    *super::PRESSES.lock_ok() = None;
                 }
             }
         } else {
             ENABLED.store(false, Ordering::Release);
             crate::suppression::physical_keys::watch_caps_lock(None);
             super::RESETTING.store(false, Ordering::Release);
-            super::HID_GATE
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .clear();
-            *super::WORKER
-                .lock()
-                .unwrap_or_else(|error| error.into_inner()) = None;
-            *super::PRESSES
-                .lock()
-                .unwrap_or_else(|error| error.into_inner()) = None;
+            super::HID_GATE.lock_ok().clear();
+            *super::WORKER.lock_ok() = None;
+            *super::PRESSES.lock_ok() = None;
             LED_PATTERN.store(LedPattern::Off.code(), Ordering::Release);
             inner.model = LedModel::default();
             inner.pattern = LedPattern::Off;
@@ -606,7 +589,7 @@ impl CapsLockDictation {
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
-        self.inner.lock().unwrap_or_else(|error| error.into_inner())
+        self.inner.lock_ok()
     }
 }
 

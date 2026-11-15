@@ -8,6 +8,7 @@
 //! reads the grant, and a real one-frame capture tells whether this process
 //! can use it or must restart first.
 
+use crate::sync_ext::LockExt;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -67,7 +68,7 @@ fn cached_read(fresh_for: Duration) -> ScreenAccess {
     if crate::meeting::screen_recording_permitted() {
         return ScreenAccess::Allowed;
     }
-    let mut cached = CACHED.lock().unwrap_or_else(|e| e.into_inner());
+    let mut cached = CACHED.lock_ok();
     let stale = is_stale(cached.at, Instant::now(), fresh_for);
     if stale && cached.reading.is_none() {
         let generation = next_generation(&mut cached);
@@ -77,7 +78,7 @@ fn cached_read(fresh_for: Duration) -> ScreenAccess {
             .spawn(move || {
                 let _reading = Reading(generation);
                 let access = read();
-                let mut cached = CACHED.lock().unwrap_or_else(|e| e.into_inner());
+                let mut cached = CACHED.lock_ok();
                 accept(&mut cached, generation, access, Instant::now());
             });
         if spawned.is_err() {
@@ -128,17 +129,14 @@ struct Reading(u64);
 
 impl Drop for Reading {
     fn drop(&mut self) {
-        finish_reading(
-            &mut CACHED.lock().unwrap_or_else(|e| e.into_inner()),
-            self.0,
-        );
+        finish_reading(&mut CACHED.lock_ok(), self.0);
     }
 }
 
 /// Marks the cached Screen Recording state stale so the next [`screen_access`]
 /// read spawns a fresh check; one already running lands nowhere.
 pub fn invalidate_screen_access() {
-    let mut cached = CACHED.lock().unwrap_or_else(|e| e.into_inner());
+    let mut cached = CACHED.lock_ok();
     invalidate(&mut cached);
 }
 
@@ -147,9 +145,9 @@ pub fn screen_access_now() -> ScreenAccess {
     if crate::meeting::screen_recording_permitted() {
         return ScreenAccess::Allowed;
     }
-    let generation = next_generation(&mut CACHED.lock().unwrap_or_else(|e| e.into_inner()));
+    let generation = next_generation(&mut CACHED.lock_ok());
     let access = read();
-    let mut cached = CACHED.lock().unwrap_or_else(|e| e.into_inner());
+    let mut cached = CACHED.lock_ok();
     accept(&mut cached, generation, access, Instant::now());
     access
 }

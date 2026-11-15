@@ -8,6 +8,7 @@
 //! consequential action the autonomy mode is enforced ([`Consent`]), and
 //! while the person has the task (Take over) its calls wait ([`Pause`]).
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
@@ -173,7 +174,7 @@ pub fn relay<W: Write + Send + 'static>(
     let from_server = child.stdout.take().ok_or_else(|| eyre!("no stdout"))?;
     let output = Arc::new(Mutex::new(output));
     let write = |output: &Mutex<W>, line: &str| {
-        let mut output = output.lock().unwrap_or_else(|error| error.into_inner());
+        let mut output = output.lock_ok();
         writeln!(output, "{line}").and_then(|()| output.flush())
     };
     let pending = Pending::default();
@@ -192,7 +193,7 @@ pub fn relay<W: Write + Send + 'static>(
                 }
                 continue;
             }
-            let mut consent = gate.lock().unwrap_or_else(|error| error.into_inner());
+            let mut consent = gate.lock_ok();
             let rewritten = rewrite_request(&line, &mut sessions, &mut consent, &running, &asked);
             drop(consent);
             let sent = match rewritten {
@@ -343,10 +344,7 @@ fn remember(request: &Value, pending: &Pending) {
         _ => return,
     };
     if let Some(id) = request.get("id") {
-        pending
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(id.to_string(), asked);
+        pending.lock_ok().insert(id.to_string(), asked);
     }
 }
 
@@ -403,10 +401,7 @@ fn rewrite_response(line: &str, pending: &Pending, consent: &Mutex<Consent>) -> 
         let Some(id) = reply.get("id").map(Value::to_string) else {
             continue;
         };
-        let asked = pending
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .remove(&id);
+        let asked = pending.lock_ok().remove(&id);
         let Some(result) = reply.get_mut("result") else {
             continue;
         };
@@ -414,10 +409,7 @@ fn rewrite_response(line: &str, pending: &Pending, consent: &Mutex<Consent>) -> 
             Some(Asked::Initialize) => instruct(result),
             Some(Asked::ToolsList) => sessions::describe_tools(result),
             Some(Asked::Call(session)) => {
-                consent
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .observe(&session, result);
+                consent.lock_ok().observe(&session, result);
                 continue;
             }
             None => continue,

@@ -22,6 +22,7 @@
 //! Membership and states live on disk, so a restart that resumes the lead
 //! and its helpers keeps the team together.
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -393,8 +394,7 @@ fn index() -> std::sync::MutexGuard<'static, HashMap<String, String>> {
             }
             Mutex::new(index)
         })
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .lock_ok()
 }
 
 /// The lead `conversation` helps, if it's a helper.

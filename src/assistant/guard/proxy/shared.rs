@@ -8,6 +8,7 @@
 //! (locked per call only), the screen, and what results taught (refs'
 //! windows and labels, element spots, pictures) with the guard.
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -37,7 +38,7 @@ impl<T> Shared<T> {
 impl<T: ?Sized> Shared<T> {
     /// The value; a reader that panicked leaves it as it was.
     pub fn lock(&self) -> MutexGuard<'_, T> {
-        self.0.lock().unwrap_or_else(|error| error.into_inner())
+        self.0.lock_ok()
     }
 }
 

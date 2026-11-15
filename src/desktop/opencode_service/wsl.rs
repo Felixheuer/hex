@@ -10,6 +10,7 @@
 //! Escape, or a zero budget is "OpenCode isn't running", and a later try
 //! finds a distribution that has finished starting.
 
+use crate::sync_ext::LockExt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -392,17 +393,13 @@ fn matching_home(cache: &Option<CachedHome>, distribution: &str, uid: u32) -> Op
 
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn cached_home(distribution: &str, uid: u32) -> Option<WslHome> {
-    let cache = CACHED_HOME
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
+    let cache = CACHED_HOME.lock_ok();
     matching_home(&cache, distribution, uid)
 }
 
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn remember_home(distribution: &str, uid: u32, home: &WslHome) {
-    let mut cache = CACHED_HOME
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
+    let mut cache = CACHED_HOME.lock_ok();
     *cache = Some(CachedHome {
         distribution: distribution.to_owned(),
         uid,
@@ -411,9 +408,7 @@ fn remember_home(distribution: &str, uid: u32, home: &WslHome) {
 }
 
 fn clear_cached_home() {
-    let mut cache = CACHED_HOME
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
+    let mut cache = CACHED_HOME.lock_ok();
     *cache = None;
 }
 
@@ -430,16 +425,12 @@ fn still_deferred(until: Option<Instant>, now: Instant) -> bool {
 }
 
 fn skip_active() -> bool {
-    let until = *SKIP_UNTIL
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
+    let until = *SKIP_UNTIL.lock_ok();
     still_deferred(until, Instant::now())
 }
 
 fn defer_lookups() {
-    let mut until = SKIP_UNTIL
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
+    let mut until = SKIP_UNTIL.lock_ok();
     *until = Some(Instant::now() + WSL_SKIP_AFTER_TIMEOUT);
 }
 
@@ -452,10 +443,7 @@ fn wait_for_pending(
     cancelled: &AtomicBool,
 ) -> Result<Service, Missing> {
     let started = Instant::now();
-    let mut result = pending
-        .result
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
+    let mut result = pending.result.lock_ok();
     loop {
         if let Some(result) = result.as_ref() {
             return result.clone();
@@ -477,10 +465,7 @@ fn wait_for_pending(
 
 /// Publishes the helper's answer and wakes every caller waiting on it.
 fn publish(pending: &Pending, result: Result<Service, Missing>) {
-    let mut slot = pending
-        .result
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
+    let mut slot = pending.result.lock_ok();
     *slot = Some(result);
     drop(slot);
     pending.ready.notify_all();
@@ -488,9 +473,7 @@ fn publish(pending: &Pending, result: Result<Service, Missing>) {
 
 /// Clears the in-flight slot if it is still this lookup.
 fn finish(pending: &Arc<Pending>) {
-    let mut slot = IN_FLIGHT
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
+    let mut slot = IN_FLIGHT.lock_ok();
     if slot
         .as_ref()
         .is_some_and(|in_flight| Arc::ptr_eq(in_flight, pending))
@@ -520,9 +503,7 @@ fn run_shared_lookup(
 ) -> Result<Service, Missing> {
     let own_cap = budget.unwrap_or(lookup_cap);
     let (pending, spawn) = {
-        let mut slot = IN_FLIGHT
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+        let mut slot = IN_FLIGHT.lock_ok();
         match slot.as_ref() {
             Some(pending) => (Arc::clone(pending), false),
             None if skip_active() => return Err(Missing::NotRunning),
@@ -688,12 +669,8 @@ mod tests {
     static LOOKUP_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn clear_lookup_state() {
-        *IN_FLIGHT
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner()) = None;
-        *SKIP_UNTIL
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner()) = None;
+        *IN_FLIGHT.lock_ok() = None;
+        *SKIP_UNTIL.lock_ok() = None;
     }
 
     #[test]
@@ -839,9 +816,7 @@ mod tests {
 
     #[test]
     fn one_lookup_serves_every_caller_and_a_short_wait_stops() {
-        let _guard = LOOKUP_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+        let _guard = LOOKUP_TEST_LOCK.lock_ok();
         clear_lookup_state();
         let (started, started_rx) = mpsc::channel();
         let (release, release_rx) = mpsc::channel();
@@ -920,9 +895,7 @@ mod tests {
 
     #[test]
     fn a_joiner_does_not_wait_for_a_lookup_older_than_its_cap() {
-        let _guard = LOOKUP_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+        let _guard = LOOKUP_TEST_LOCK.lock_ok();
         clear_lookup_state();
         let cap = Duration::from_millis(100);
         let (started, started_rx) = mpsc::channel();
@@ -982,9 +955,7 @@ mod tests {
 
     #[test]
     fn a_timed_out_lookup_defers_the_next_one() {
-        let _guard = LOOKUP_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+        let _guard = LOOKUP_TEST_LOCK.lock_ok();
         clear_lookup_state();
         let now = Instant::now();
         assert!(still_deferred(Some(now + WSL_SKIP_AFTER_TIMEOUT), now));

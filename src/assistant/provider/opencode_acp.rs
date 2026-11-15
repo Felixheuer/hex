@@ -18,6 +18,7 @@
 //! turn runs through `opencode run` instead; once the question is asked,
 //! a failure is the turn's.
 
+use crate::sync_ext::LockExt;
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::time::Duration;
@@ -120,7 +121,7 @@ pub(super) fn run(run: &Run, control: &Control, report: &mut dyn FnMut(Report)) 
 static STARTING: std::sync::Mutex<Vec<(String, bool)>> = std::sync::Mutex::new(Vec::new());
 
 fn starting() -> std::sync::MutexGuard<'static, Vec<(String, bool)>> {
-    STARTING.lock().unwrap_or_else(|error| error.into_inner())
+    STARTING.lock_ok()
 }
 
 /// Waits (a few seconds at most) for a process still being started ahead
@@ -157,17 +158,12 @@ fn current() -> Option<(std::path::PathBuf, Option<std::time::SystemTime>)> {
 }
 
 fn unavailable() -> bool {
-    let marked = UNAVAILABLE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone();
+    let marked = UNAVAILABLE.lock_ok().clone();
     marked.is_some() && marked == current()
 }
 
 fn mark_unavailable() {
-    *UNAVAILABLE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner()) = current();
+    *UNAVAILABLE.lock_ok() = current();
 }
 
 /// Starts OpenCode's ACP for `run` with its session open, and leaves it

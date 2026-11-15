@@ -12,6 +12,7 @@
 //! Holding `capture.replay_hotkey` freezes the 15 s clip at the moment of the
 //! press and records voice narration until release.
 
+use crate::sync_ext::LockExt;
 #[cfg(target_os = "macos")]
 mod sck;
 
@@ -639,7 +640,7 @@ fn check_screen_permission() -> Option<ControlReply> {
 
 #[cfg(target_os = "macos")]
 fn current_exclusions() -> ([Option<u32>; 3], bool) {
-    let windows = *super::OWN_WINDOWS.lock().unwrap_or_else(|e| e.into_inner());
+    let windows = *super::OWN_WINDOWS.lock_ok();
     let recorded = super::own_windows_recorded();
     (windows, recorded)
 }

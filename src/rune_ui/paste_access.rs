@@ -4,7 +4,8 @@
 //! Settings explain it and ask before a paste would, so the dialog never
 //! shows unexplained.
 
-use std::sync::{Mutex, PoisonError};
+use crate::sync_ext::LockExt;
+use std::sync::Mutex;
 
 use super::Ui;
 
@@ -58,7 +59,7 @@ pub(super) fn ask(ui: &mut Ui) {
                     tracing::warn!(error = format!("{error:#}"), "paste permission not granted");
                 })
                 .is_ok();
-            *ANSWER.lock().unwrap_or_else(PoisonError::into_inner) = Some(allowed);
+            *ANSWER.lock_ok() = Some(allowed);
             if let Some(waker) = waker {
                 waker();
             }
@@ -73,7 +74,7 @@ pub(super) fn later(ui: &mut Ui) {
 
 /// Adopts the desktop's answer; true when it arrived.
 pub(super) fn poll(ui: &mut Ui) -> bool {
-    let Some(allowed) = ANSWER.lock().unwrap_or_else(PoisonError::into_inner).take() else {
+    let Some(allowed) = ANSWER.lock_ok().take() else {
         return false;
     };
     ui.platform.paste = Some(if allowed {

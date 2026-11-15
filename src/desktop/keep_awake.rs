@@ -12,6 +12,7 @@
 //! macOS uses IOKit assertions, Windows `SetThreadExecutionState`; elsewhere
 //! this does nothing.
 
+use crate::sync_ext::LockExt;
 use std::sync::Mutex;
 
 /// What to hold.
@@ -67,7 +68,7 @@ fn update_in(
     jobs: usize,
 ) {
     let next = want_for(keep_awake, keep_display_awake, desktop, jobs);
-    let mut held = state.lock().unwrap_or_else(|error| error.into_inner());
+    let mut held = state.lock_ok();
     let current = held.as_ref().map_or(Want::Nothing, |held| held.want);
     let same_count = held.as_ref().is_some_and(|held| held.jobs == jobs);
     if current == next && (next == Want::Nothing || same_count) {

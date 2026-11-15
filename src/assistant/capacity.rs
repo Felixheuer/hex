@@ -10,6 +10,7 @@
 //! verdict on macOS) and [`background_room`] holds new ones back while it's
 //! tight; they start by themselves once it eases, and one always runs.
 
+use crate::sync_ext::LockExt;
 use std::sync::OnceLock;
 
 /// The most tasks Settings offers at once.
@@ -178,7 +179,7 @@ pub fn pressure() -> Pressure {
     use std::sync::Mutex;
     use std::time::{Duration, Instant};
     static LAST: Mutex<Option<(Instant, Pressure)>> = Mutex::new(None);
-    let mut last = LAST.lock().unwrap_or_else(|error| error.into_inner());
+    let mut last = LAST.lock_ok();
     if let Some((at, pressure)) = *last
         && at.elapsed() < Duration::from_secs(2)
     {

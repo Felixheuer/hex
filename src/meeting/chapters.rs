@@ -6,6 +6,7 @@
 //! Chapters live in the meeting manifest and extend the shown title unless
 //! the user typed it.
 
+use crate::sync_ext::LockExt;
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -536,9 +537,7 @@ impl LiveChapters {
     }
 
     fn shared(&self) -> std::sync::MutexGuard<'_, Shared> {
-        self.shared
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+        self.shared.lock_ok()
     }
 
     /// The chapters, when they changed since the last take.
@@ -592,11 +591,7 @@ fn chapter_while_recording(
                 continue;
             }
         };
-        let mut next = shared
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .state
-            .clone();
+        let mut next = shared.lock_ok().state.clone();
         let timeline_ms = entries.iter().map(|entry| entry.end_ms).max().unwrap_or(0);
         if !plan.due(&next, timeline_ms, fresh_words(&entries, next.covered_ms)) {
             continue;
@@ -626,7 +621,7 @@ fn chapter_while_recording(
                     chapters = next.chapters.len(),
                     "live meeting chapter pass"
                 );
-                let mut shared = shared.lock().unwrap_or_else(|error| error.into_inner());
+                let mut shared = shared.lock_ok();
                 // Stop already took the chapters; a late pass is discarded.
                 if stop.load(Ordering::Relaxed) {
                     return;

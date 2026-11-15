@@ -2,6 +2,7 @@
 //! `capture_host`'s published snapshot from its start to its outcome, and
 //! hands presses back to the listener as `agent-desk capture` commands.
 
+use crate::sync_ext::LockExt;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -430,7 +431,7 @@ fn watch_grant(capsule: CaptureCapsule, need: CaptureNeed) {
     use std::sync::atomic::{AtomicBool, Ordering};
     static WATCHING: AtomicBool = AtomicBool::new(false);
     static NEED: Mutex<Option<CaptureNeed>> = Mutex::new(None);
-    *NEED.lock().unwrap_or_else(|e| e.into_inner()) = Some(need);
+    *NEED.lock_ok() = Some(need);
     if WATCHING.swap(true, Ordering::AcqRel) {
         return;
     }
@@ -439,7 +440,7 @@ fn watch_grant(capsule: CaptureCapsule, need: CaptureNeed) {
         .spawn(move || {
             let started = std::time::Instant::now();
             while started.elapsed().as_secs_f64() < super::flow::PERMISSION_HOLD_S {
-                let Some(need) = *NEED.lock().unwrap_or_else(|e| e.into_inner()) else {
+                let Some(need) = *NEED.lock_ok() else {
                     break;
                 };
                 let grant = match crate::capture_host::permission_state(need, false) {

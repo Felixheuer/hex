@@ -13,6 +13,7 @@
 //! and beside the weights); the inference is ported from Supertone's MIT
 //! example.
 
+use crate::sync_ext::LockExt;
 pub mod files;
 mod model;
 pub mod text;
@@ -158,8 +159,7 @@ static FAILED_ONCE: AtomicBool = AtomicBool::new(false);
 fn send(work: Work) -> Result<(), Work> {
     WORKER
         .get_or_init(|| Mutex::new(start()))
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .lock_ok()
         .send(work)
         .map_err(|mpsc::SendError(work)| work)
 }

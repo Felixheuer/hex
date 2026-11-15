@@ -13,6 +13,7 @@
 //! dictation is idle: after the dictation already sent, before meeting
 //! chunks, and never inside a dictation stream.
 
+use crate::sync_ext::LockExt;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
@@ -362,7 +363,7 @@ struct Shared {
 
 impl Shared {
     fn lock(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(|error| error.into_inner())
+        self.state.lock_ok()
     }
 }
 
@@ -559,10 +560,7 @@ impl Streams {
         selection: TranscriptionSelection,
         owner_token: String,
     ) -> Result<Arc<Stream>, CreateError> {
-        let mut current = self
-            .current
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut current = self.current.lock_ok();
         if current.as_ref().is_some_and(|stream| !stream.ended()) {
             return Err(CreateError::Busy);
         }
@@ -601,8 +599,7 @@ impl Streams {
 
     pub(crate) fn get(&self, id: u64) -> Option<Arc<Stream>> {
         self.current
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .lock_ok()
             .as_ref()
             .filter(|stream| stream.id == id)
             .cloned()
