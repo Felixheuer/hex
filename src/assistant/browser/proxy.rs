@@ -28,7 +28,8 @@ for anything on the web instead of the person's browser windows. Omit `session` 
 task's main browser, or name others (\"a\", \"b\", …) to read several pages at once; \
 hex_browser_sessions lists them. A browser is clean and light unless its first call says \
 signedIn: true, which starts real Chrome with the sites the person signed in to for Agent-Desk \
-(for heavy web apps and logins). Nothing is saved.";
+(for heavy web apps and logins). Nothing is saved. Files a page downloads land in the \
+task's folder, under downloads/.";
 
 /// Serves `task`'s browser tool on stdin and stdout until the agent closes
 /// it.
@@ -39,6 +40,9 @@ signedIn: true, which starts real Chrome with the sites the person signed in to 
 pub fn serve(task: &str, observe: bool) -> Result<()> {
     let path = super::executable().ok_or_else(|| eyre!("agent-browser isn't installed"))?;
     let mut command = super::command(&path, &super::session(task));
+    if let Some(folder) = downloads(task) {
+        command.env("AGENT_BROWSER_DOWNLOAD_PATH", folder);
+    }
     command.arg("mcp");
     let task_id = task.to_owned();
     let policy = if observe {
@@ -61,6 +65,19 @@ pub fn serve(task: &str, observe: bool) -> Result<()> {
         BufReader::new(std::io::stdin()),
         std::io::stdout(),
     )
+}
+
+/// Where `task`'s browsers save downloads: `downloads` in its folder (the
+/// workspace, else Agent-Desk's media folder), created on demand.
+fn downloads(task: &str) -> Option<std::path::PathBuf> {
+    let folder = crate::assistant::media::out::folder(Some(task)).ok()?;
+    downloads_in(&folder)
+}
+
+fn downloads_in(folder: &std::path::Path) -> Option<std::path::PathBuf> {
+    let dir = folder.join("downloads");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
 }
 
 /// What the agent hears when it acts after the person had the task.
@@ -454,6 +471,19 @@ mod tests {
     use crate::assistant::autonomy::{Authorized, Autonomy};
     use crate::assistant::browser::consent::{Inspection, Probe};
     use crate::assistant::browser::sessions::Engine;
+
+    /// Downloads go to `downloads` inside the task's folder, made on demand.
+    #[test]
+    fn downloads_land_in_the_task_folder() {
+        let dir = std::env::temp_dir().join(format!("agent-desk-dl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let got = downloads_in(&dir).unwrap();
+        assert_eq!(got, dir.join("downloads"));
+        assert!(got.is_dir());
+        assert!(NOTE.contains("downloads/"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// A pinned call marks its browser used (it shows as a mini); closing
     /// it forgets that; other messages mark nothing.
