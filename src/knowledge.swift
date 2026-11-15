@@ -19,7 +19,12 @@ private struct BridgeContact: Codable {
     let jobTitle: String
     let phones: [BridgePhone]
     let emails: [String]
+    let addresses: [String]
+    let me: Bool
 }
+
+/// Words that find the person's own card ("me" in Contacts).
+private let meWords = "me ich mich mein meine my myself selbst"
 
 private struct BridgeReminder: Codable {
     let id: String
@@ -73,13 +78,17 @@ public func hexKnowledgeContacts(_ query: UnsafePointer<CChar>?, _ limit: Int32)
         CNContactGivenNameKey, CNContactFamilyNameKey, CNContactNicknameKey,
         CNContactOrganizationNameKey, CNContactJobTitleKey,
         CNContactPhoneNumbersKey, CNContactEmailAddressesKey,
+        CNContactPostalAddressesKey,
     ] as [CNKeyDescriptor]
     let request = CNContactFetchRequest(keysToFetch: keys)
     request.unifyResults = true
+    let store = CNContactStore()
+    let meId = (try? store.unifiedMeContactWithKeys(toFetch: [CNContactIdentifierKey as CNKeyDescriptor]))?.identifier
+    let formatter = CNPostalAddressFormatter()
     let cap = Int(max(limit, 1))
     var found: [BridgeContact] = []
     do {
-        try CNContactStore().enumerateContacts(with: request) { contact, stop in
+        try store.enumerateContacts(with: request) { contact, stop in
             let phones = contact.phoneNumbers.map { labeled in
                 BridgePhone(
                     label: labeled.label.map { CNLabeledValue<CNPhoneNumber>.localizedString(forLabel: $0) } ?? "",
@@ -91,9 +100,15 @@ public func hexKnowledgeContacts(_ query: UnsafePointer<CChar>?, _ limit: Int32)
                 .filter { !$0.isEmpty }
                 .joined(separator: " ")
             let digits = phones.map { $0.number.filter(\.isNumber) }
+            let addresses = contact.postalAddresses.map { labeled in
+                formatter.string(from: labeled.value)
+                    .split(whereSeparator: \.isNewline)
+                    .joined(separator: ", ")
+            }
+            let isMe = contact.identifier == meId
             let haystack = fold(
-                ([name, contact.nickname, contact.organizationName, contact.jobTitle]
-                    + emails + phones.map(\.number) + digits).joined(separator: " ")
+                ([name, contact.nickname, contact.organizationName, contact.jobTitle, isMe ? meWords : ""]
+                    + emails + phones.map(\.number) + digits + addresses).joined(separator: " ")
             )
             guard tokens.allSatisfy({ haystack.contains($0) }) else { return }
             found.append(BridgeContact(
@@ -102,7 +117,9 @@ public func hexKnowledgeContacts(_ query: UnsafePointer<CChar>?, _ limit: Int32)
                 organization: contact.organizationName,
                 jobTitle: contact.jobTitle,
                 phones: phones,
-                emails: emails
+                emails: emails,
+                addresses: addresses,
+                me: isMe
             ))
             if found.count >= cap { stop.pointee = true }
         }

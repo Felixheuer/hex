@@ -5,6 +5,7 @@
 //! permissions, then back to centre stage for `"Agent-Desk is ready"`.
 
 use crate::desktop::i18n::{tr, tr_named};
+#[cfg(not(test))]
 use crate::sync_ext::LockExt;
 use rune::{Align, El, Spring, Transition, el, icon, row, text};
 #[cfg(not(test))]

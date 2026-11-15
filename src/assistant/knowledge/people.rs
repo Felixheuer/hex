@@ -23,7 +23,14 @@ pub struct Contact {
     pub job_title: String,
     pub phones: Vec<Phone>,
     pub emails: Vec<String>,
+    /// Postal addresses, one line each.
+    pub addresses: Vec<String>,
+    /// The person's own card ("me" in Contacts).
+    pub me: bool,
 }
+
+/// What the person's own card also answers to ("my address", "meine Nummer").
+const ME_WORDS: &str = "me ich mich mein meine my myself selbst";
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default)]
@@ -65,8 +72,12 @@ fn label(raw: &str) -> String {
 /// address (a number's digits compare without spacing or prefix).
 pub fn score(contact: &Contact, tokens: &[String]) -> f64 {
     let names = format!(
-        "{} {} {} {}",
-        contact.name, contact.nickname, contact.organization, contact.job_title
+        "{} {} {} {} {}",
+        contact.name,
+        contact.nickname,
+        contact.organization,
+        contact.job_title,
+        if contact.me { ME_WORDS } else { "" }
     );
     let by_name = rank::score(&names, tokens);
     let reachable: Vec<String> = contact
@@ -80,6 +91,7 @@ pub fn score(contact: &Contact, tokens: &[String]) -> f64 {
             ]
         })
         .chain(contact.emails.iter().cloned())
+        .chain(contact.addresses.iter().cloned())
         .collect();
     let tokens_digits: Vec<String> = tokens
         .iter()
@@ -106,6 +118,9 @@ pub fn hit(contact: &Contact, score: f64, region: &str) -> Hit {
     if !contact.nickname.is_empty() {
         title.push_str(&format!(" ({})", contact.nickname));
     }
+    if contact.me {
+        title.push_str(" [the person's own card]");
+    }
     let mut parts = Vec::new();
     if !contact.name.is_empty() && !contact.organization.is_empty() {
         parts.push(if contact.job_title.is_empty() {
@@ -123,6 +138,7 @@ pub fn hit(contact: &Contact, score: f64, region: &str) -> Hit {
         });
     }
     parts.extend(contact.emails.iter().take(3).cloned());
+    parts.extend(contact.addresses.iter().take(2).cloned());
     Hit {
         title,
         detail: parts.join(" · "),
@@ -197,6 +213,7 @@ pub fn from_rows(rows: &[Value]) -> Vec<Contact> {
                 job_title: text(row, "job"),
                 phones,
                 emails,
+                ..Default::default()
             }
         })
         .collect()
@@ -296,5 +313,23 @@ mod tests {
         assert!(score(&contact, &rank::tokens("0162 1234567")) > 0.0);
         assert!(score(&contact, &rank::tokens("m@kalibermarkt.de")) > 0.0);
         assert_eq!(score(&contact, &rank::tokens("michael weber")), 0.0);
+        assert_eq!(score(&contact, &rank::tokens("me")), 0.0);
+    }
+
+    /// The person's own card answers to "me"/"ich" and shows its address.
+    #[test]
+    fn the_own_card_answers_to_me_and_shows_its_address() {
+        let contact = Contact {
+            name: "Felix Heuer".into(),
+            addresses: vec!["Hauptstr. 1, 10115 Berlin".into()],
+            me: true,
+            ..Default::default()
+        };
+        assert!(score(&contact, &rank::tokens("ich")) > 0.9);
+        assert!(score(&contact, &rank::tokens("me")) > 0.9);
+        assert!(score(&contact, &rank::tokens("berlin")) > 0.0);
+        let line = hit(&contact, 1.0, "DE");
+        assert_eq!(line.title, "Felix Heuer [the person's own card]");
+        assert_eq!(line.detail, "Hauptstr. 1, 10115 Berlin");
     }
 }
