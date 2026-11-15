@@ -3,6 +3,10 @@
 `AGENTS.md` is the guide for this repo. It is large (about 125 KB), so grep it
 for the section you need instead of reading it whole.
 
+Search code with `rg` or the Grep tool, not `grep -r`: `grep -r` walks
+`target/` (tens of GB), `.claude/worktrees/` and `codedb.snapshot`, and one
+search can take minutes. `rg` skips them through `.gitignore`.
+
 ## Rules that protect the person's Mac
 
 - **Never run the whole test suite more than once at a time.** Many tests
