@@ -295,7 +295,7 @@ impl<D: Desktop> Guard<D> {
                  open a new window of it from its File menu."
                     .to_owned()
             };
-            let note = if !window.focused && window.visible && self.to_desk(&window.id) {
+            let note = if !window.focused && window.visible && self.send_to_desk(&window.id) {
                 format!("{note} {}", super::DESK_NOTE)
             } else {
                 note

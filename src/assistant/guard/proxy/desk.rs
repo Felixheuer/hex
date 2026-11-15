@@ -134,7 +134,7 @@ impl<D: Desktop> Guard<D> {
 
     /// Hands window `id` (this task's) to the desk, in a quick turn with a
     /// desk to hand to; whether it is on the desk now.
-    pub(super) fn to_desk(&mut self, id: &str) -> bool {
+    pub(super) fn send_to_desk(&mut self, id: &str) -> bool {
         let Some(desk) = self.desk else {
             return false;
         };
@@ -156,7 +156,7 @@ impl<D: Desktop> Guard<D> {
         handed
     }
 
-    /// [`Self::to_desk`] for each window in a `hex_open_app` answer's list;
+    /// [`Self::send_to_desk`] for each window in a `hex_open_app` answer's list;
     /// whether any went.
     pub(super) fn windows_to_desk(&mut self, windows: &[Value]) -> bool {
         let ids: Vec<String> = windows
@@ -165,7 +165,7 @@ impl<D: Desktop> Guard<D> {
             .collect();
         let mut any = false;
         for id in ids {
-            any |= self.to_desk(&id);
+            any |= self.send_to_desk(&id);
         }
         any
     }

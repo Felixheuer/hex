@@ -87,7 +87,7 @@ pub const NEW_WINDOW_COMMANDS: &[&str] = &[
 /// The AppleScript that asks app `bundle_id` for a new window, trying each
 /// of [`NEW_WINDOW_COMMANDS`].
 pub fn new_window_script(bundle_id: &str) -> String {
-    let id = bundle_id.replace('\\', "").replace('"', "");
+    let id = bundle_id.replace(['\\', '"'], "");
     let tries: String = NEW_WINDOW_COMMANDS
         .iter()
         .map(|command| format!("\ttry\n\t\t{command}\n\t\treturn \"ok\"\n\tend try\n"))

@@ -39,7 +39,9 @@ const EDGE: u32 = 2400;
 pub fn read(number: u32, size: Option<(f64, f64)>) -> Result<Reading, String> {
     let (width, height, rgba) = capture(number)?;
     let key = fingerprint(&rgba);
-    static CACHE: Mutex<Option<HashMap<u32, (u64, Vec<Line>)>>> = Mutex::new(None);
+    /// Each window's last picture fingerprint and the lines read from it.
+    type Cache = HashMap<u32, (u64, Vec<Line>)>;
+    static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
     if let Some((seen, lines)) = CACHE
         .lock_ok()
         .as_ref()

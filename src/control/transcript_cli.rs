@@ -343,9 +343,6 @@ fn stats_output(
     })
 }
 
-/// Dictation stats are a Labs feature, refused before History is read
-/// while its toggle is off.
-
 /// `agent-desk history stats`.
 fn history_stats(since: Option<&str>, until: Option<&str>, json: bool) -> Result<()> {
     let root = crate::app_paths::support_dir()?;
@@ -606,7 +603,6 @@ pub fn meetings(command: &MeetingsCommand) -> Result<()> {
             ..
         } => {
             let subtitles = SubtitleFormat::from_flags(*srt, *vtt);
-            if subtitles.is_some() {}
             let range = OffsetRange::parse(from.as_deref(), to.as_deref())?;
             let meeting = resolve(&library, id)?;
             if let Some(format) = subtitles {
@@ -698,9 +694,6 @@ impl SubtitleFormat {
         }
     }
 }
-
-/// Subtitle export is a Labs feature, refused before any meeting is read
-/// while its toggle is off.
 
 /// One cue per transcript entry (a speaker turn), timed by the entry's
 /// offsets from the meeting's start and labelled You or Them.
