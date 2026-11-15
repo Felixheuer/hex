@@ -548,3 +548,228 @@ fn the_understood_line_is_kept_until_a_follow_up_starts_afresh() {
     );
     assert_eq!(stream.tasks[0].understood, None);
 }
+
+fn tool(n: u32, name: &str, input: serde_json::Value) -> Event {
+    let shown = ToolUse::of(name, &input);
+    Event::Tool {
+        conversation: id(n),
+        lines: console::call_lines(shown.kind, &input),
+        tool: shown,
+    }
+}
+
+fn said(n: u32, text: &str) -> Event {
+    Event::AnswerDelta {
+        conversation: id(n),
+        text: text.into(),
+    }
+}
+
+#[test]
+fn a_task_without_a_plan_says_what_it_does_now() {
+    crate::desktop::i18n::apply(Some("de"));
+    let t0 = Instant::now();
+    let mut stream = Stream::default();
+    stream.apply(
+        &started(1, Origin::Background, "Verbessere dich iterativ"),
+        None,
+        t0,
+    );
+    assert_eq!(
+        stream.tasks[0].busy_line(t0),
+        None,
+        "nothing yet: it thinks"
+    );
+    // What it said, while nothing runs: its first sentence.
+    stream.apply(
+        &said(
+            1,
+            "Ich prüfe noch die native Kontakte-Abfrage. Danach teste ich.",
+        ),
+        None,
+        t0,
+    );
+    assert_eq!(
+        stream.tasks[0].busy_line(t0).as_deref(),
+        Some("Ich prüfe noch die native Kontakte-Abfrage.")
+    );
+    // A tool now: its kind and description, in the person's language.
+    let search = tool(
+        1,
+        "Grep",
+        serde_json::json!({"pattern": "link_contact", "description": "Kontakte verknüpfen"}),
+    );
+    assert!(stream.apply(&search, None, t0));
+    assert_eq!(
+        stream.tasks[0].busy_line(t0).as_deref(),
+        Some("Sucht im Code: Kontakte verknüpfen")
+    );
+    stream.apply(
+        &tool(
+            1,
+            "Read",
+            serde_json::json!({"file_path": "/repo/src/setup_gaps.rs"}),
+        ),
+        None,
+        t0,
+    );
+    assert_eq!(
+        stream.tasks[0].busy_line(t0).as_deref(),
+        Some("Liest setup_gaps.rs")
+    );
+    // A command never shows itself, only its description or its kind.
+    stream.apply(
+        &tool(
+            1,
+            "Bash",
+            serde_json::json!({"command": "TOKEN=abc123456 ./deploy.sh"}),
+        ),
+        None,
+        t0,
+    );
+    assert_eq!(
+        stream.tasks[0].busy_line(t0).as_deref(),
+        Some("Führt Befehl aus")
+    );
+    assert_eq!(
+        stream.tasks[0].console.len(),
+        3,
+        "search, read, and command lines"
+    );
+    assert!(
+        stream.tasks[0]
+            .console
+            .lines()
+            .all(|line| !line.text.contains("abc123456")),
+        "the terminal keeps no secret"
+    );
+    stream.apply(
+        &tool(
+            1,
+            "WebFetch",
+            serde_json::json!({"url": "https://www.example.com/a"}),
+        ),
+        None,
+        t0,
+    );
+    assert_eq!(
+        stream.tasks[0].busy_line(t0).as_deref(),
+        Some("Lädt example.com")
+    );
+    stream.apply(
+        &tool(
+            1,
+            "mcp__agent-browser__browser_open",
+            serde_json::json!({"url": "https://example.com"}),
+        ),
+        None,
+        t0,
+    );
+    assert_eq!(
+        stream.tasks[0].busy_line(t0).as_deref(),
+        Some("Öffnet Browser: example.com")
+    );
+    // Its end: back to what it said last, before the tool.
+    stream.apply(
+        &Event::ToolDone {
+            conversation: id(1),
+            lines: Vec::new(),
+        },
+        None,
+        t0,
+    );
+    assert_eq!(
+        stream.tasks[0].busy_line(t0).as_deref(),
+        Some("Ich prüfe noch die native Kontakte-Abfrage.")
+    );
+    // What it says after a tool starts afresh.
+    stream.apply(&search, None, t0);
+    stream.apply(&said(1, "Gefunden: zwei Stellen\n\n"), None, t0);
+    assert_eq!(stream.tasks[0].busy_line(t0).as_deref(), Some("Gefunden"));
+    // A plan's step comes first once there is one.
+    stream.apply(
+        &Event::Plan {
+            conversation: id(1),
+            steps: vec![PlanStep {
+                title: "Tests schreiben".into(),
+                done: false,
+            }],
+        },
+        None,
+        t0,
+    );
+    stream.apply(&search, None, t0);
+    assert_eq!(
+        stream.tasks[0].busy_line(t0).as_deref(),
+        Some("Tests schreiben")
+    );
+    crate::desktop::i18n::apply(Some("en"));
+}
+
+#[test]
+fn a_long_running_tool_says_how_long_it_runs() {
+    crate::desktop::i18n::apply(Some("de"));
+    let t0 = Instant::now();
+    let mut stream = Stream::default();
+    stream.apply(&started(1, Origin::Background, "Build it"), None, t0);
+    stream.apply(
+        &tool(1, "Bash", serde_json::json!({"command": "cargo build"})),
+        None,
+        t0,
+    );
+    let at = |secs: u64| t0 + Duration::from_secs(secs);
+    assert_eq!(
+        stream.tasks[0].busy_line(at(9)).as_deref(),
+        Some("Führt Befehl aus")
+    );
+    assert_eq!(
+        stream.next_tick(at(3)),
+        Some(at(10)),
+        "first at ten seconds"
+    );
+    assert_eq!(
+        stream.tasks[0].busy_line(at(80)).as_deref(),
+        Some("Führt Befehl aus · 1:20")
+    );
+    assert_eq!(stream.next_tick(at(80)), Some(at(81)), "then each second");
+    assert_eq!(elapsed(Duration::from_secs(3723)), "1:02:03");
+    // Its output's tail goes to the terminal, and the clock stops.
+    stream.apply(
+        &Event::ToolDone {
+            conversation: id(1),
+            lines: console::output_lines(ToolKind::Command, "Compiling\nFinished"),
+        },
+        None,
+        at(90),
+    );
+    assert_eq!(stream.next_tick(at(90)), None);
+    assert_eq!(stream.tasks[0].console.tail(1)[0].text, "Finished");
+    crate::desktop::i18n::apply(Some("en"));
+}
+
+#[test]
+fn tools_are_read_by_their_kind_for_every_backend() {
+    for (name, kind) in [
+        ("Bash", ToolKind::Command),
+        ("exec_command", ToolKind::Command),
+        ("command_execution", ToolKind::Command),
+        ("Grep", ToolKind::Search),
+        ("Glob", ToolKind::Search),
+        ("mcp__fs__list_directory", ToolKind::Search),
+        ("Read", ToolKind::Read),
+        ("mcp__fs__read_file", ToolKind::Read),
+        ("Edit", ToolKind::Edit),
+        ("Write", ToolKind::Edit),
+        ("file_change", ToolKind::Edit),
+        ("apply_patch", ToolKind::Edit),
+        ("WebSearch", ToolKind::WebSearch),
+        ("WebFetch", ToolKind::Fetch),
+        ("mcp__agent-browser__browser_snapshot", ToolKind::Browser),
+        ("mcp__desktop__desktop_click", ToolKind::Desktop),
+        ("Task", ToolKind::Helper),
+        ("TodoWrite", ToolKind::Plan),
+        ("mcp__hex__hex_remember", ToolKind::Other),
+    ] {
+        assert_eq!(ToolKind::of(name), kind, "{name}");
+    }
+}

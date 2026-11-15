@@ -960,7 +960,21 @@ fn run_backend(
                 });
             }
         }
-        Report::Tool { name, input } => {
+        Report::ToolDone { lines } => emit(Event::ToolDone {
+            conversation: id.clone(),
+            lines,
+        }),
+        Report::Tool {
+            name,
+            input,
+            shown,
+            lines,
+        } => {
+            emit(Event::Tool {
+                conversation: id.clone(),
+                tool: shown,
+                lines,
+            });
             if let Some(acts) = crate::assistant::guard::screen_work(&name) {
                 emit(Event::Acting {
                     conversation: id.clone(),

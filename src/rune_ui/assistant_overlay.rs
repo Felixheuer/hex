@@ -84,6 +84,7 @@ mod stack;
 mod stage;
 #[cfg(target_os = "macos")]
 pub(crate) mod stories;
+mod terminal;
 #[cfg(test)]
 mod tests;
 mod wall;

@@ -194,6 +194,16 @@ fn plan(done: usize) -> Event {
     }
 }
 
+/// A tool call, as every backend reports it (`view::busy`).
+fn tool(name: &str, input: serde_json::Value) -> Event {
+    let shown = crate::assistant::view::ToolUse::of(name, &input);
+    Event::Tool {
+        conversation: "nopa".into(),
+        lines: crate::assistant::view::console::call_lines(shown.kind, &input),
+        tool: shown,
+    }
+}
+
 fn step(description: &str) -> Event {
     Event::Step {
         conversation: "nopa".into(),
@@ -245,6 +255,17 @@ fn scenes() -> Vec<(&'static str, Scene)> {
                 understood(),
                 step("Opened Calendar"),
                 step("Read this afternoon's events"),
+            ])),
+        ),
+        // No plan: what it does now, the tool it runs.
+        (
+            "acting-tool",
+            none(quick(vec![
+                understood(),
+                tool(
+                    "Grep",
+                    serde_json::json!({"pattern": "reserve", "description": "booking flow"}),
+                ),
             ])),
         ),
         ("asking", none(Some(asking))),
@@ -371,6 +392,51 @@ fn the_reasoning_card_shows_understood_before_its_steps() {
         Some("Find Nopa tonight for 2"),
         "the island says what it does now"
     );
+}
+
+#[test]
+fn without_a_plan_the_island_says_the_tool_it_runs_or_what_it_said() {
+    crate::desktop::i18n::apply(Some("de"));
+    let words = |events: Vec<Event>| {
+        let rt = runtime(
+            Scene {
+                held: None,
+                bubble: quick(events),
+                front: None,
+            },
+            scene_view,
+            SCENE,
+            false,
+        );
+        text_of(&rt, "island-words")
+    };
+    let search = tool(
+        "Grep",
+        serde_json::json!({"pattern": "x", "description": "Kontakte verknüpfen"}),
+    );
+    assert_eq!(
+        words(vec![understood(), search.clone()]).as_deref(),
+        Some("Sucht im Code: Kontakte verknüpfen")
+    );
+    // A tool after a step: the newer one says it.
+    assert_eq!(
+        words(vec![
+            step("Opened Resy"),
+            tool("Read", serde_json::json!({"file_path": "a/setup_gaps.rs"})),
+        ])
+        .as_deref(),
+        Some("Liest setup_gaps.rs")
+    );
+    // A command shows its kind only, never itself.
+    assert_eq!(
+        words(vec![tool(
+            "Bash",
+            serde_json::json!({"command": "curl -H 'Authorization: Bearer abcdef123'"}),
+        )])
+        .as_deref(),
+        Some("Führt Befehl aus")
+    );
+    crate::desktop::i18n::apply(Some("en"));
 }
 
 /// The bubble's panel: the island's line above the card once the HUD has

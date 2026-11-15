@@ -115,13 +115,23 @@ pub(crate) fn line_with(
             trail: None,
         },
         BubblePhase::Working => {
+            // Its plan's step, else what it does now (the tool it runs, or
+            // what it said last; `view::Busy`), else its latest step.
             let reasoning = bubble.reasoning();
-            let now = reasoning
-                .iter()
-                .find(|reason| reason.tag == Tag::Now)
-                .map(|reason| reason.words.clone())
-                .or_else(|| bubble.steps.last().cloned())
-                .unwrap_or_else(|| tr("Thinking…").to_owned());
+            let now_reason = || {
+                reasoning
+                    .iter()
+                    .find(|reason| reason.tag == Tag::Now)
+                    .map(|reason| reason.words.clone())
+            };
+            let busy = || bubble.busy.line(std::time::Instant::now());
+            let now = if bubble.plan.is_empty() {
+                busy().or_else(now_reason)
+            } else {
+                now_reason().or_else(busy)
+            }
+            .or_else(|| bubble.steps.last().cloned())
+            .unwrap_or_else(|| tr("Thinking…").to_owned());
             let done = bubble.plan.iter().filter(|step| step.done).count();
             Line {
                 state: State::Working,

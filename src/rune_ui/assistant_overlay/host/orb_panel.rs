@@ -586,12 +586,15 @@ pub(super) fn arm(orb: &mut Orb, tx: &mut Tx, now: Instant) {
     // stalled stream's mini says how long ago its last frame came.
     let live = super::super::jobs::watching(&orb.board, orb.expanded)
         .then(|| now + super::super::look::LIVE_TICK);
+    // A long-running tool's time on its card's line.
+    let busy = orb.board.next_tick(now);
     let next = orb
         .board
         .next_expiry()
         .into_iter()
         .chain(tick)
         .chain(live)
+        .chain(busy)
         .min();
     if let Some(at) = next
         && next != orb.armed
@@ -616,7 +619,9 @@ pub(super) fn orb_poll(orb: &mut Orb, _clock: f64, tx: &mut Tx) -> bool {
         // A countdown's minute, or woken a little early: look again.
         orb.armed = None;
         arm(orb, tx, now);
-        return orb.board.waiting() || super::super::jobs::watching(&orb.board, orb.expanded);
+        return orb.board.waiting()
+            || super::super::jobs::watching(&orb.board, orb.expanded)
+            || orb.board.next_tick(now).is_some();
     }
     false
 }

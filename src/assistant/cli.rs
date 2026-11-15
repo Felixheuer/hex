@@ -600,6 +600,8 @@ fn follow(id: &str, events: &mpsc::Receiver<Event>, speak: bool) -> bool {
             Event::Started { origin, .. } => println!("[started] {origin:?}"),
             Event::Thinking { .. } => println!("[thinking]"),
             Event::Step { description, .. } => println!("[step] {description}"),
+            Event::Tool { tool, .. } => println!("[tool] {}", tool.line()),
+            Event::ToolDone { .. } => {}
             Event::Window { window, .. } => match &window.window_id {
                 Some(id) => println!("[window] {} ({id})", window.app),
                 None => println!("[window] {}", window.app),

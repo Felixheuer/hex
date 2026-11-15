@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use crate::assistant::{ConversationId, Event, Origin, PlanStep};
 
 use super::failure::Failure;
-use crate::assistant::view::shorten;
+use crate::assistant::view::{Busy, shorten};
 
 /// How many of a quick question's latest steps its bubble lists.
 pub(crate) const BUBBLE_STEPS: usize = 3;
@@ -68,6 +68,11 @@ pub(crate) struct Bubble {
     /// A project it seems to be about while none is active
     /// (`Event::ProjectSuggested`): (id, name), offered with one tap.
     pub(crate) suggested: Option<(String, String)>,
+    /// The tool it runs now, or what it said last (`view::Busy`): the
+    /// island's line while no plan step says.
+    pub(crate) busy: Busy,
+    /// When its running tool's time next changes the island's line.
+    busy_tick: Option<Instant>,
     /// When its first step came: the reasoning folds to Now and Next
     /// [`REASONING_FOLDS`] after.
     working_since: Option<Instant>,
@@ -108,6 +113,8 @@ impl Bubble {
             understood: None,
             plan: Vec::new(),
             suggested: None,
+            busy: Busy::default(),
+            busy_tick: None,
             working_since: None,
             folded: false,
             ended: None,
@@ -168,7 +175,14 @@ impl Bubble {
         if self.ended.is_some() {
             return false;
         }
+        let busy = self.busy.apply(event, now);
         match event {
+            Event::Tool { .. } => {
+                if self.phase == BubblePhase::Thinking {
+                    self.phase = BubblePhase::Working;
+                }
+                true
+            }
             Event::ProjectSuggested { id, name, .. } => {
                 let offer = Some((id.clone(), name.clone()));
                 let changed = self.suggested != offer;
@@ -176,7 +190,7 @@ impl Bubble {
                 changed
             }
             Event::InProject { .. } => self.suggested.take().is_some(),
-            Event::Thinking { .. } => false,
+            Event::Thinking { .. } | Event::ToolDone { .. } => busy,
             Event::Understood { text, .. } => {
                 let text = text.trim();
                 if text.is_empty() || self.understood.as_deref() == Some(text) {
@@ -259,6 +273,14 @@ impl Bubble {
         }
     }
 
+    /// A running tool's time on the island's line: whether it changed
+    /// since the last look, and when to look again.
+    pub(crate) fn tick(&mut self, now: Instant) -> (bool, Option<Instant>) {
+        let ticked = self.busy_tick.is_some_and(|at| now >= at);
+        self.busy_tick = self.busy.next_tick(now).filter(|_| self.ended.is_none());
+        (ticked, self.busy_tick)
+    }
+
     /// What the card shows of the agent's reasoning while it thinks and
     /// works, top-down, at most [`REASONING_LINES`]: **Understood** (what
     /// it understood the question as), **Plan** (its plan's steps in one
@@ -292,6 +314,13 @@ impl Bubble {
             if let Some(next) = open.next() {
                 lines.push(Reason::new(Tag::Next, &next.title, Mark::Next));
             }
+        } else if let Some(busy) = self.busy.line(Instant::now()) {
+            // What it does now (a tool, or what it said), newer than its
+            // steps, which are ticked.
+            for step in &self.steps {
+                lines.push(Reason::new(Tag::Earlier, step, Mark::Done));
+            }
+            lines.push(Reason::new(Tag::Now, &busy, Mark::Now));
         } else if let Some((now, earlier)) = self.steps.split_last() {
             for step in earlier {
                 lines.push(Reason::new(Tag::Earlier, step, Mark::Done));

@@ -236,6 +236,7 @@ impl Stream {
                         report(item);
                     }
                     if let Some(output) = part.pointer("/state/output").and_then(Value::as_str) {
+                        report(Report::tool_done(&tool, output));
                         for item in self.describer.result(&tool, output) {
                             report(item);
                         }

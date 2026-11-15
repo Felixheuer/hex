@@ -1785,6 +1785,8 @@ mod tests {
         include_str!("../rune_ui/assistant_overlay/project.rs"),
         include_str!("../rune_ui/chats/settings/projects.rs"),
         include_str!("../assistant/projects/soul.rs"),
+        include_str!("../assistant/view/busy.rs"),
+        include_str!("../rune_ui/assistant_overlay/terminal.rs"),
     ];
 
     /// The string literals passed to `tr`, `tr_fill`, and `tr_named`.

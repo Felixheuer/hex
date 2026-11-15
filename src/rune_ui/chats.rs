@@ -747,6 +747,9 @@ pub(super) fn poll(ui: &mut Ui, tx: &mut Tx) -> bool {
     {
         // The countdown ticks.
         tx.wake_after(Duration::from_secs(1));
+    } else if let Some(at) = ui.chats.view.next_tick(now) {
+        // A long-running tool's time on its status line.
+        tx.wake_after(at.saturating_duration_since(now));
     }
     let focus = if showing {
         ui.chats.selected.clone()

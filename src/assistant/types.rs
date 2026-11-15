@@ -246,6 +246,20 @@ pub enum Event {
         conversation: ConversationId,
         description: String,
     },
+    /// It called a tool (`view::busy`): what kind and a detail safe to
+    /// show, and the terminal lines the call makes (`view::console`),
+    /// secrets blanked. Only what a surface shows, never the raw input.
+    Tool {
+        conversation: ConversationId,
+        tool: crate::assistant::view::ToolUse,
+        lines: Vec<crate::assistant::view::TermLine>,
+    },
+    /// A tool call it made ended: the tail of a command's output, secrets
+    /// blanked (none for other tools).
+    ToolDone {
+        conversation: ConversationId,
+        lines: Vec<crate::assistant::view::TermLine>,
+    },
     /// More of the answer's text as it streams (may never come).
     AnswerDelta {
         conversation: ConversationId,
@@ -381,6 +395,8 @@ impl Event {
             | Self::Started { conversation, .. }
             | Self::Thinking { conversation }
             | Self::Step { conversation, .. }
+            | Self::Tool { conversation, .. }
+            | Self::ToolDone { conversation, .. }
             | Self::AnswerDelta { conversation, .. }
             | Self::Answer { conversation, .. }
             | Self::Failed { conversation, .. }
