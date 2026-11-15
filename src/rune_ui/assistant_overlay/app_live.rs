@@ -37,6 +37,35 @@ const CARD_EVERY: Duration = Duration::from_millis(200);
 const LARGE_EVERY: Duration = Duration::from_millis(80);
 /// How often a window nothing draws looks whether it shows again.
 const IDLE_POLL: Duration = Duration::from_millis(250);
+/// The longest a card waits between captures of a window that didn't
+/// change: an idle app costs a capture a second instead of five, and its
+/// badge still reads live (well under `look::STALL`).
+const CARD_IDLE_EVERY: Duration = Duration::from_millis(1000);
+
+/// How long a card waits before its next capture: [`CARD_EVERY`] while the
+/// window changes, doubling with every unchanged picture up to
+/// [`CARD_IDLE_EVERY`]. The window shown large always gets [`LARGE_EVERY`].
+fn next_wait(large: bool, unchanged: u32) -> Duration {
+    if large {
+        return LARGE_EVERY;
+    }
+    CARD_EVERY
+        .saturating_mul(1u32 << unchanged.min(4))
+        .min(CARD_IDLE_EVERY)
+}
+
+/// A cheap fingerprint of a picture: its size and every 61st byte, enough
+/// to see that a window changed without hashing megabytes five times a
+/// second.
+fn fingerprint(width: u32, height: u32, rgba: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (width, height).hash(&mut hasher);
+    rgba.iter()
+        .step_by(61)
+        .for_each(|byte| byte.hash(&mut hasher));
+    hasher.finish()
+}
 
 /// One app window of a job and its latest picture.
 pub(crate) struct AppPreview {
@@ -392,6 +421,8 @@ fn start(window: TaskWindow, number: u32) -> Arc<AppPreview> {
 
 /// Captures `preview`'s window while it shows, until it stops.
 fn run(preview: &AppPreview) {
+    let mut last: Option<u64> = None;
+    let mut unchanged = 0u32;
     while !preview.stop.load(Ordering::Acquire) {
         if !preview.shown.load(Ordering::Acquire) {
             std::thread::sleep(IDLE_POLL);
@@ -405,37 +436,52 @@ fn run(preview: &AppPreview) {
                 // opacity, its rounded corners) would let the desktop show
                 // through the mini: its picture is drawn opaque.
                 opaque(&mut rgba);
-                // Where the agent just acted in it, as a ring.
+                // Where the agent just acted in it, as a ring (fingerprinted
+                // with the picture, so a fading ring still redraws).
                 crate::assistant::input::pointer::stamp_recent(
                     preview.number,
                     &mut rgba,
                     width,
                     height,
                 );
-                let first = !preview.has_frame();
-                let (tw, th, thumb) = super::live::fit_width(
-                    &rgba,
-                    width as usize,
-                    height as usize,
-                    super::live::THUMB_WIDTH,
-                );
-                preview.pixels.set(tw as u32, th as u32, thumb);
-                preview.clock.tick();
-                if large {
-                    preview.full.set(width, height, rgba);
-                }
-                if preview.failed.swap(false, Ordering::AcqRel) || first {
-                    super::live::notify();
+                let print = fingerprint(width, height, &rgba);
+                if last == Some(print) && !large && preview.has_frame() {
+                    // The same picture: still live, nothing to filter or draw.
+                    unchanged = unchanged.saturating_add(1);
+                    preview.clock.tick();
+                    if preview.failed.swap(false, Ordering::AcqRel) {
+                        super::live::notify();
+                    }
+                } else {
+                    unchanged = 0;
+                    last = Some(print);
+                    let first = !preview.has_frame();
+                    let (tw, th, thumb) = super::live::fit_width(
+                        &rgba,
+                        width as usize,
+                        height as usize,
+                        super::live::THUMB_WIDTH,
+                    );
+                    preview.pixels.set(tw as u32, th as u32, thumb);
+                    preview.clock.tick();
+                    if large {
+                        preview.full.set(width, height, rgba);
+                    }
+                    if preview.failed.swap(false, Ordering::AcqRel) || first {
+                        super::live::notify();
+                    }
                 }
             }
             None => {
+                last = None;
+                unchanged = 0;
                 if !preview.failed.swap(true, Ordering::AcqRel) {
                     super::live::notify();
                 }
             }
         }
         // Wait out the round, waking early when it's shown large.
-        let every = if large { LARGE_EVERY } else { CARD_EVERY };
+        let every = next_wait(large, unchanged);
         let mut waited = Duration::ZERO;
         while waited < every && !preview.stop.load(Ordering::Acquire) {
             if !large && preview.large.load(Ordering::Acquire) {
@@ -456,6 +502,26 @@ mod tests {
             app: app.into(),
             window_id: id.map(str::to_owned),
         }
+    }
+
+    #[test]
+    fn an_unchanged_window_is_captured_less_often() {
+        assert_eq!(next_wait(false, 0), CARD_EVERY);
+        assert_eq!(next_wait(false, 1), Duration::from_millis(400));
+        assert_eq!(next_wait(false, 2), Duration::from_millis(800));
+        assert_eq!(next_wait(false, 9), CARD_IDLE_EVERY);
+        assert_eq!(next_wait(true, 9), LARGE_EVERY);
+        assert!(CARD_IDLE_EVERY < crate::rune_ui::assistant_overlay::look::STALL);
+    }
+
+    #[test]
+    fn a_changed_picture_has_another_fingerprint() {
+        let a = vec![0u8; 400 * 4];
+        let mut b = a.clone();
+        assert_eq!(fingerprint(20, 20, &a), fingerprint(20, 20, &b));
+        b[0] = 9;
+        assert_ne!(fingerprint(20, 20, &a), fingerprint(20, 20, &b));
+        assert_ne!(fingerprint(20, 20, &a), fingerprint(40, 10, &a));
     }
 
     #[test]
