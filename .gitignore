@@ -1,4 +1,6 @@
 /target
+/.claude/worktrees/
+/codedb.snapshot
 /.venv
 /logs
 /perf/transcription-corpus
