@@ -1214,8 +1214,10 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     /// Cua Driver, faked: answers like the recorded 0.49.1 and keeps calls.
+    type Calls = Arc<Mutex<Vec<(String, Map<String, Value>)>>>;
+
     #[derive(Clone, Default)]
-    struct Fake(Arc<Mutex<Vec<(String, Map<String, Value>)>>>);
+    struct Fake(Calls);
 
     fn structured(value: Value) -> Value {
         json!({"content": [{"type": "text", "text": "ok"}], "structuredContent": value})

@@ -1384,7 +1384,7 @@ mod repair {
         gaps(&mut rt, vec![Gap::ScreenRecording]);
         assert!(rt.state.chats.setup.is_none());
         // A hold of the Action shortcut brings it back.
-        rt.update(|ui, tx| super::super::open_setup_from_hold(ui, tx));
+        rt.update(super::super::open_setup_from_hold);
         settle(&mut rt);
         assert_eq!(page(&rt), Page::Permissions);
     }

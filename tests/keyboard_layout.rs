@@ -6,7 +6,7 @@
 mod keyboard;
 // keyboard.rs locks through `crate::sync_ext::LockExt`.
 #[cfg(target_os = "macos")]
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)]
 #[path = "../src/sync_ext.rs"]
 mod sync_ext;
 

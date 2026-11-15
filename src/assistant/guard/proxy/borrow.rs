@@ -359,9 +359,9 @@ mod tests {
         };
         assert!(hangs_off(
             (1799.0, 1168.0, 900.0, 600.0),
-            &[display.clone()]
+            std::slice::from_ref(&display)
         ));
-        assert!(!hangs_off((100.0, 100.0, 900.0, 600.0), &[display.clone()]));
+        assert!(!hangs_off((100.0, 100.0, 900.0, 600.0), std::slice::from_ref(&display)));
         assert_eq!(on_screen_spot(&[display]), Some((80.0, 80.0)));
     }
 }

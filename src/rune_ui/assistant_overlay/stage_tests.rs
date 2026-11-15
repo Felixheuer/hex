@@ -196,11 +196,11 @@ fn every_target_row_has_a_verb() {
         let targets = panel.targets();
         assert!(!targets.is_empty());
         let rt = runtime(stage(panel), true);
-        for index in 0..targets.len() {
+        for (index, target) in targets.iter().enumerate() {
             assert!(
                 !keyed(&rt, &format!("stage-verb-{index}-")).is_empty(),
                 "row {index} ({:?}) has a verb",
-                targets[index]
+                target
             );
         }
         assert_eq!(keyed(&rt, "stage-primary").len(), 1, "one primary");

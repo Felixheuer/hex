@@ -161,6 +161,7 @@ pub(crate) fn with_flow<T>(flow: CapsuleFlow, body: impl FnOnce() -> T) -> T {
 }
 
 /// The values in use: [`DEFAULT`] unless the playground changed them.
+#[cfg_attr(test, allow(clippy::needless_return))]
 pub(crate) fn get() -> Tuning {
     #[cfg(test)]
     {
