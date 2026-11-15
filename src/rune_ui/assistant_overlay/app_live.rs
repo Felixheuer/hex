@@ -82,6 +82,8 @@ pub(crate) struct AppPreview {
     shown: AtomicBool,
     large: AtomicBool,
     failed: AtomicBool,
+    /// Its window was closed: it leaves the job's pictures.
+    closed: AtomicBool,
     stop: AtomicBool,
     /// Painted by a fixture ([`fake`]): no window behind it, so it is never
     /// captured or brought back, and stays until a fixture replaces it.
@@ -99,6 +101,7 @@ impl AppPreview {
             shown: AtomicBool::new(false),
             large: AtomicBool::new(false),
             failed: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             fixture: false,
         }
@@ -303,10 +306,27 @@ pub(crate) fn view(target: Option<(&str, u32)>) {
     apply(&registry);
 }
 
-/// `task`'s windows, while it works.
+/// `task`'s windows, while it works; ones closed meanwhile leave.
 pub(crate) fn previews(task: &str) -> Vec<Arc<AppPreview>> {
-    registry().tasks.get(task).cloned().unwrap_or_default()
+    registry()
+        .tasks
+        .get(task)
+        .map(|previews| open_only(previews))
+        .unwrap_or_default()
 }
+
+/// `previews` without those whose window was closed.
+fn open_only(previews: &[Arc<AppPreview>]) -> Vec<Arc<AppPreview>> {
+    previews
+        .iter()
+        .filter(|preview| !preview.closed.load(Ordering::Acquire))
+        .cloned()
+        .collect()
+}
+
+/// How many captures in a row may fail before the window is looked up:
+/// one failure is often a window between Spaces.
+const MISSES_BEFORE_LOOKUP: u32 = 3;
 
 /// The playground's stories, renders, and layout tests: `task` works in `windows` (app, number), each
 /// showing the picture `paint` draws for its index.
@@ -421,6 +441,7 @@ fn start(window: TaskWindow, number: u32) -> Arc<AppPreview> {
 fn run(preview: &AppPreview) {
     let mut last: Option<u64> = None;
     let mut unchanged = 0u32;
+    let mut misses = 0u32;
     while !preview.stop.load(Ordering::Acquire) {
         if !preview.shown.load(Ordering::Acquire) {
             std::thread::sleep(IDLE_POLL);
@@ -430,6 +451,7 @@ fn run(preview: &AppPreview) {
         let edge = if large { LARGE_EDGE } else { CARD_EDGE };
         match scrawl_capture::capture::capture_window(preview.number, edge) {
             Some((width, height, mut rgba)) => {
+                misses = 0;
                 // A window with a see-through background (a terminal's
                 // opacity, its rounded corners) would let the desktop show
                 // through the mini: its picture is drawn opaque.
@@ -473,6 +495,17 @@ fn run(preview: &AppPreview) {
             None => {
                 last = None;
                 unchanged = 0;
+                misses = misses.saturating_add(1);
+                if misses >= MISSES_BEFORE_LOOKUP
+                    && !preview.fixture
+                    && !scrawl_capture::windows::window_exists(preview.number)
+                {
+                    // Closed: its picture leaves the card, and nothing
+                    // captures it any more.
+                    preview.closed.store(true, Ordering::Release);
+                    super::live::notify();
+                    break;
+                }
                 if !preview.failed.swap(true, Ordering::AcqRel) {
                     super::live::notify();
                 }
@@ -500,6 +533,25 @@ mod tests {
             app: app.into(),
             window_id: id.map(str::to_owned),
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_window_that_never_was_does_not_exist() {
+        assert!(!scrawl_capture::windows::window_exists(u32::MAX - 7));
+        if let Some(shown) = scrawl_capture::windows::raw_windows().first() {
+            assert!(scrawl_capture::windows::window_exists(shown.id));
+        }
+    }
+
+    #[test]
+    fn a_closed_window_leaves_the_pictures() {
+        let open = Arc::new(AppPreview::new(window("Notes", Some("w-1")), 1));
+        let closed = Arc::new(AppPreview::new(window("Mail", Some("w-2")), 2));
+        closed.closed.store(true, Ordering::Release);
+        let shown = open_only(&[open, closed]);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].number, 1);
     }
 
     #[test]
