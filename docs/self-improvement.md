@@ -33,11 +33,16 @@ Agent-Desk works on this repository as a background job. Each loop:
 | #107 | A closed app window leaves the job's card (CGWindowList check). |
 | #108 | Mail hits carry `mail id N` (Mail's message id) for scripts and attachments; `tests/keyboard_layout.rs` builds again. |
 | #109 | No panic on a truncated WAV fmt chunk or a paste index at the text's end. |
+| #112, #113 | `hex_calendar_write`: events and reminders through EventKit (add, change, done, delete), ids in `hex_lookup`; no Automation consent needed. |
+| #114 | Hidden browsers download into the task's `downloads/` folder. |
+| #115 | `hex_lookup` contacts: the person's own card ("me"/"ich") and postal addresses. |
+| #116 | `hex_app_capabilities`: ready script lines for export, save, and playback. |
+| #117 | `cargo clippy --all-targets` without a single warning. |
 
 ## Open (next loop)
 
-- [ ] `hex_calendar_add` / `hex_reminder_add` through EventKit (today: AppleScript to
-      Calendar/Reminders works, but is slower and needs Automation consent).
+- [x] Calendar/Reminders through EventKit (#112, #113).
+- [ ] New tools must be named in the rules (toolset test) and keep `HERE_BUDGET`; keep rule lines short.
 - [ ] Move large inline test modules into `tests.rs` files next to their module.
 - [ ] Focus hand-back on macOS 14+ (`ActivateIgnoringOtherApps` is ignored); only testable on
       a real Mac with a person in front.
