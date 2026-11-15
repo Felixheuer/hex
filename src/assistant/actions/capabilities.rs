@@ -86,6 +86,7 @@ pub fn compose(
         ui.describe()
     ));
     ways.push("read: hex_read_window reads any window's text from its picture".into());
+    let hints = sdef.map(script_hints).unwrap_or_default();
     json!({
         "app": name,
         "bundle_id": bundle_id,
@@ -110,7 +111,38 @@ pub fn compose(
         "default_for": default_for,
         "command_line_tools": tools,
         "ways": ways,
+        "script_hints": hints,
     })
+}
+
+/// Ready lines for what people ask of a scriptable app most, from the
+/// commands its dictionary declares: exporting and saving a document to a
+/// path (no Save dialog) where it keeps documents, and playback.
+pub fn script_hints(sdef: &str) -> Vec<String> {
+    let has = |command: &str| sdef.contains(&format!("<command name=\"{command}\""));
+    let documents = sdef.contains("<class name=\"document\"");
+    let mut hints = Vec::new();
+    if documents && has("export") {
+        hints.push(
+            "export without a dialog: `export front document to POSIX file \"/abs/path/out.pdf\" \
+             as PDF` (its export formats are in the dictionary)"
+                .to_owned(),
+        );
+    }
+    if documents && has("save") {
+        hints.push(
+            "save without a dialog: `save front document in POSIX file \"/abs/path/name.ext\"`"
+                .to_owned(),
+        );
+    }
+    if has("play") {
+        hints.push(
+            "playback: `play`, `pause`, `next track` drive it in the background; `play track \
+             \"<id or uri>\"` starts a given item, where its dictionary takes one"
+                .to_owned(),
+        );
+    }
+    hints
 }
 
 /// Where app bundles keep the command-line tools they ship.
@@ -418,5 +450,22 @@ mod tests {
         );
         assert!(editor["ways"][0].as_str().unwrap().starts_with("cli:"));
         assert_eq!(plain["ui"], "electron");
+        assert!(plain["script_hints"].as_array().unwrap().is_empty());
+    }
+
+    /// Export, save and playback commands come with a ready line.
+    #[test]
+    fn declared_commands_bring_ready_lines() {
+        let deck = r#"<dictionary><suite name="s"><class name="document" code="d"/>
+            <command name="export" code="x"/>
+            <command name="save" code="y"/></suite></dictionary>"#;
+        let hints = script_hints(deck);
+        assert_eq!(hints.len(), 2);
+        assert!(hints[0].contains("as PDF") && hints[1].contains("save front document"));
+        let player = r#"<command name="play" code="p"/><command name="playpause" code="q"/>"#;
+        assert_eq!(script_hints(player).len(), 1);
+        assert!(script_hints(r#"<command name="exporter" code="z"/>"#).is_empty());
+        // Without documents (a music library) export means something else.
+        assert!(script_hints(r#"<command name="export" code="x"/>"#).is_empty());
     }
 }
