@@ -11,6 +11,7 @@
 //! Windows  Windows.Media.SpeechSynthesis       (the installed Windows voices, in process)
 //! ```
 
+use crate::sync_ext::LockExt;
 use std::io::Write;
 use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -99,11 +100,7 @@ pub fn speak(job: Job, deliver: Deliver) {
 /// Drops every queued sentence and ends the one being written.
 pub fn stop() {
     GENERATION.fetch_add(1, Ordering::AcqRel);
-    if let Some(mut child) = CURRENT
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .take()
-    {
+    if let Some(mut child) = CURRENT.lock_ok().take() {
         crate::assistant::backends::run::kill_group(&mut child);
     }
 }
@@ -156,7 +153,7 @@ fn write(job: &Job, generation: u64) -> Option<Vec<f32>> {
     };
     let stdin = child.stdin.take();
     {
-        let mut current = CURRENT.lock().unwrap_or_else(|error| error.into_inner());
+        let mut current = CURRENT.lock_ok();
         if generation != GENERATION.load(Ordering::Acquire) {
             crate::assistant::backends::run::kill_group(&mut child);
             return None;
@@ -168,7 +165,7 @@ fn write(job: &Job, generation: u64) -> Option<Vec<f32>> {
         let _ = stdin.write_all(text.as_bytes());
     }
     let status = loop {
-        let mut current = CURRENT.lock().unwrap_or_else(|error| error.into_inner());
+        let mut current = CURRENT.lock_ok();
         let Some(child) = current.as_mut() else {
             // Stopped.
             let _ = std::fs::remove_file(&file);

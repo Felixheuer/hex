@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{
@@ -266,11 +267,7 @@ impl DictationAudio {
     }
 
     pub fn device_name(&self) -> String {
-        self.state
-            .device_name
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone()
+        self.state.device_name.lock_ok().clone()
     }
 
     pub fn is_recording(&self) -> bool {
@@ -406,10 +403,7 @@ impl DictationAudio {
     /// the failure.
     pub fn take_loss(&self) -> Option<LostCapture> {
         let generation = self.capture_generation();
-        let mut deferred = self
-            .deferred
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut deferred = self.deferred.lock_ok();
         deferred.extend(self.events.try_iter());
         deferred.iter_mut().find_map(|event| match event {
             DictationAudioEvent::OpenFailed {
@@ -441,10 +435,7 @@ impl DictationAudio {
     /// Near-silent audio stays in the event, which reports the failure.
     pub fn take_kept_hotkey(&self) -> Option<DictationClip> {
         let generation = self.capture_generation();
-        let mut deferred = self
-            .deferred
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut deferred = self.deferred.lock_ok();
         deferred.extend(self.events.try_iter());
         deferred.iter_mut().find_map(|event| match event {
             DictationAudioEvent::Interrupted {
@@ -463,11 +454,7 @@ impl DictationAudio {
 
     pub fn try_recv_event(&self) -> Option<DictationAudioEvent> {
         loop {
-            let deferred = self
-                .deferred
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .pop_front();
+            let deferred = self.deferred.lock_ok().pop_front();
             let event = deferred.or_else(|| self.events.try_recv().ok())?;
             let generation = match &event {
                 DictationAudioEvent::OpenFailed {
@@ -986,12 +973,7 @@ impl Owner {
                     .sample_rate
                     .store(u64::from(sample_rate), Ordering::Release);
                 self.state.captured_through.store(0, Ordering::Release);
-                *self
-                    .state
-                    .device_name
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner()) =
-                    self.input.device_name().to_owned();
+                *self.state.device_name.lock_ok() = self.input.device_name().to_owned();
                 self.state.recovering.store(false, Ordering::Release);
                 if let Some(pending) = self.pending_capture.take() {
                     self.start_capture_at(pending.kind, pending.at);
@@ -1152,12 +1134,7 @@ impl Owner {
 
     fn clip_source(&self) -> ClipSource {
         ClipSource {
-            device: self
-                .state
-                .device_name
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .clone(),
+            device: self.state.device_name.lock_ok().clone(),
             stream_age: self.stream_opened_at.map(|at| at.elapsed()),
             since_discontinuity: self.discontinuity_at.map(|at| at.elapsed()),
             since_glitch: crate::audio::since_last_stream_glitch(),

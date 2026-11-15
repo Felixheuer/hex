@@ -16,6 +16,7 @@
 //! `app:<window number>` ([`session`], [`number_of`]), beside the browsers'
 //! agent-browser sessions.
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -37,6 +38,35 @@ const CARD_EVERY: Duration = Duration::from_millis(200);
 const LARGE_EVERY: Duration = Duration::from_millis(80);
 /// How often a window nothing draws looks whether it shows again.
 const IDLE_POLL: Duration = Duration::from_millis(250);
+/// The longest a card waits between captures of a window that didn't
+/// change: an idle app costs a capture a second instead of five, and its
+/// badge still reads live (well under `look::STALL`).
+const CARD_IDLE_EVERY: Duration = Duration::from_millis(1000);
+
+/// How long a card waits before its next capture: [`CARD_EVERY`] while the
+/// window changes, doubling with every unchanged picture up to
+/// [`CARD_IDLE_EVERY`]. The window shown large always gets [`LARGE_EVERY`].
+fn next_wait(large: bool, unchanged: u32) -> Duration {
+    if large {
+        return LARGE_EVERY;
+    }
+    CARD_EVERY
+        .saturating_mul(1u32 << unchanged.min(4))
+        .min(CARD_IDLE_EVERY)
+}
+
+/// A cheap fingerprint of a picture: its size and every 61st byte, enough
+/// to see that a window changed without hashing megabytes five times a
+/// second.
+fn fingerprint(width: u32, height: u32, rgba: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (width, height).hash(&mut hasher);
+    rgba.iter()
+        .step_by(61)
+        .for_each(|byte| byte.hash(&mut hasher));
+    hasher.finish()
+}
 
 /// One app window of a job and its latest picture.
 pub(crate) struct AppPreview {
@@ -52,6 +82,8 @@ pub(crate) struct AppPreview {
     shown: AtomicBool,
     large: AtomicBool,
     failed: AtomicBool,
+    /// Its window was closed: it leaves the job's pictures.
+    closed: AtomicBool,
     stop: AtomicBool,
     /// Painted by a fixture ([`fake`]): no window behind it, so it is never
     /// captured or brought back, and stays until a fixture replaces it.
@@ -69,6 +101,7 @@ impl AppPreview {
             shown: AtomicBool::new(false),
             large: AtomicBool::new(false),
             failed: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             fixture: false,
         }
@@ -126,10 +159,7 @@ struct Registry {
 
 fn registry() -> std::sync::MutexGuard<'static, Registry> {
     static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
-    REGISTRY
-        .get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+    REGISTRY.get_or_init(Mutex::default).lock_ok()
 }
 
 /// The windows worth a picture among `windows`: those the driver named
@@ -276,10 +306,27 @@ pub(crate) fn view(target: Option<(&str, u32)>) {
     apply(&registry);
 }
 
-/// `task`'s windows, while it works.
+/// `task`'s windows, while it works; ones closed meanwhile leave.
 pub(crate) fn previews(task: &str) -> Vec<Arc<AppPreview>> {
-    registry().tasks.get(task).cloned().unwrap_or_default()
+    registry()
+        .tasks
+        .get(task)
+        .map(|previews| open_only(previews))
+        .unwrap_or_default()
 }
+
+/// `previews` without those whose window was closed.
+fn open_only(previews: &[Arc<AppPreview>]) -> Vec<Arc<AppPreview>> {
+    previews
+        .iter()
+        .filter(|preview| !preview.closed.load(Ordering::Acquire))
+        .cloned()
+        .collect()
+}
+
+/// How many captures in a row may fail before the window is looked up:
+/// one failure is often a window between Spaces.
+const MISSES_BEFORE_LOOKUP: u32 = 3;
 
 /// The playground's stories, renders, and layout tests: `task` works in `windows` (app, number), each
 /// showing the picture `paint` draws for its index.
@@ -392,6 +439,9 @@ fn start(window: TaskWindow, number: u32) -> Arc<AppPreview> {
 
 /// Captures `preview`'s window while it shows, until it stops.
 fn run(preview: &AppPreview) {
+    let mut last: Option<u64> = None;
+    let mut unchanged = 0u32;
+    let mut misses = 0u32;
     while !preview.stop.load(Ordering::Acquire) {
         if !preview.shown.load(Ordering::Acquire) {
             std::thread::sleep(IDLE_POLL);
@@ -401,41 +451,68 @@ fn run(preview: &AppPreview) {
         let edge = if large { LARGE_EDGE } else { CARD_EDGE };
         match scrawl_capture::capture::capture_window(preview.number, edge) {
             Some((width, height, mut rgba)) => {
+                misses = 0;
                 // A window with a see-through background (a terminal's
                 // opacity, its rounded corners) would let the desktop show
                 // through the mini: its picture is drawn opaque.
                 opaque(&mut rgba);
-                // Where the agent just acted in it, as a ring.
+                // Where the agent just acted in it, as a ring (fingerprinted
+                // with the picture, so a fading ring still redraws).
                 crate::assistant::input::pointer::stamp_recent(
                     preview.number,
                     &mut rgba,
                     width,
                     height,
                 );
-                let first = !preview.has_frame();
-                let (tw, th, thumb) = super::live::fit_width(
-                    &rgba,
-                    width as usize,
-                    height as usize,
-                    super::live::THUMB_WIDTH,
-                );
-                preview.pixels.set(tw as u32, th as u32, thumb);
-                preview.clock.tick();
-                if large {
-                    preview.full.set(width, height, rgba);
-                }
-                if preview.failed.swap(false, Ordering::AcqRel) || first {
-                    super::live::notify();
+                let print = fingerprint(width, height, &rgba);
+                if last == Some(print) && !large && preview.has_frame() {
+                    // The same picture: still live, nothing to filter or draw.
+                    unchanged = unchanged.saturating_add(1);
+                    preview.clock.tick();
+                    if preview.failed.swap(false, Ordering::AcqRel) {
+                        super::live::notify();
+                    }
+                } else {
+                    unchanged = 0;
+                    last = Some(print);
+                    let first = !preview.has_frame();
+                    let (tw, th, thumb) = super::live::fit_width(
+                        &rgba,
+                        width as usize,
+                        height as usize,
+                        super::live::THUMB_WIDTH,
+                    );
+                    preview.pixels.set(tw as u32, th as u32, thumb);
+                    preview.clock.tick();
+                    if large {
+                        preview.full.set(width, height, rgba);
+                    }
+                    if preview.failed.swap(false, Ordering::AcqRel) || first {
+                        super::live::notify();
+                    }
                 }
             }
             None => {
+                last = None;
+                unchanged = 0;
+                misses = misses.saturating_add(1);
+                if misses >= MISSES_BEFORE_LOOKUP
+                    && !preview.fixture
+                    && !scrawl_capture::windows::window_exists(preview.number)
+                {
+                    // Closed: its picture leaves the card, and nothing
+                    // captures it any more.
+                    preview.closed.store(true, Ordering::Release);
+                    super::live::notify();
+                    break;
+                }
                 if !preview.failed.swap(true, Ordering::AcqRel) {
                     super::live::notify();
                 }
             }
         }
         // Wait out the round, waking early when it's shown large.
-        let every = if large { LARGE_EVERY } else { CARD_EVERY };
+        let every = next_wait(large, unchanged);
         let mut waited = Duration::ZERO;
         while waited < every && !preview.stop.load(Ordering::Acquire) {
             if !large && preview.large.load(Ordering::Acquire) {
@@ -456,6 +533,45 @@ mod tests {
             app: app.into(),
             window_id: id.map(str::to_owned),
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_window_that_never_was_does_not_exist() {
+        assert!(!scrawl_capture::windows::window_exists(u32::MAX - 7));
+        if let Some(shown) = scrawl_capture::windows::raw_windows().first() {
+            assert!(scrawl_capture::windows::window_exists(shown.id));
+        }
+    }
+
+    #[test]
+    fn a_closed_window_leaves_the_pictures() {
+        let open = Arc::new(AppPreview::new(window("Notes", Some("w-1")), 1));
+        let closed = Arc::new(AppPreview::new(window("Mail", Some("w-2")), 2));
+        closed.closed.store(true, Ordering::Release);
+        let shown = open_only(&[open, closed]);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].number, 1);
+    }
+
+    #[test]
+    fn an_unchanged_window_is_captured_less_often() {
+        assert_eq!(next_wait(false, 0), CARD_EVERY);
+        assert_eq!(next_wait(false, 1), Duration::from_millis(400));
+        assert_eq!(next_wait(false, 2), Duration::from_millis(800));
+        assert_eq!(next_wait(false, 9), CARD_IDLE_EVERY);
+        assert_eq!(next_wait(true, 9), LARGE_EVERY);
+        assert!(CARD_IDLE_EVERY < crate::rune_ui::assistant_overlay::look::STALL);
+    }
+
+    #[test]
+    fn a_changed_picture_has_another_fingerprint() {
+        let a = vec![0u8; 400 * 4];
+        let mut b = a.clone();
+        assert_eq!(fingerprint(20, 20, &a), fingerprint(20, 20, &b));
+        b[0] = 9;
+        assert_ne!(fingerprint(20, 20, &a), fingerprint(20, 20, &b));
+        assert_ne!(fingerprint(20, 20, &a), fingerprint(40, 10, &a));
     }
 
     #[test]

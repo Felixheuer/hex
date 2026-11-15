@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::c_void;
 use std::ptr;
@@ -254,22 +255,15 @@ impl PendingInputEvents {
     }
 
     pub fn oldest(&self) -> Option<CaptureInstant> {
-        self.0
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .front()
-            .map(|(_, at)| *at)
+        self.0.lock_ok().front().map(|(_, at)| *at)
     }
 
     fn push(&self, sequence: u64, at: CaptureInstant) {
-        self.0
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .push_back((sequence, at));
+        self.0.lock_ok().push_back((sequence, at));
     }
 
     fn acknowledge(&self, sequence: u64) {
-        let mut pending = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        let mut pending = self.0.lock_ok();
         if pending.front().is_some_and(|(next, _)| *next == sequence) {
             pending.pop_front();
         }
@@ -495,10 +489,7 @@ impl InputSink {
 
     /// False once the listener is gone.
     fn send(&self, event: InputEvent, capture_at: CaptureInstant) -> bool {
-        let sender = self
-            .sender
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let sender = self.sender.lock_ok();
         let sequence = self.next_sequence.fetch_add(1, Ordering::Relaxed);
         self.pending.push(sequence, capture_at);
         let sent = sender
@@ -746,8 +737,7 @@ unsafe extern "C" fn event_callback(
             && u16::try_from(button).ok().is_some_and(|button| {
                 context
                     .shortcut_suppression
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
+                    .lock_ok()
                     .suppresses_mouse_drag(button)
             });
         return if suppress { ptr::null_mut() } else { event };
@@ -796,8 +786,7 @@ unsafe extern "C" fn event_callback(
                         .then(|| {
                             context
                                 .shortcut_suppression
-                                .lock()
-                                .unwrap_or_else(|error| error.into_inner())
+                                .lock_ok()
                                 .tracked_mouse_release(button, flags)
                         })
                         .flatten()
@@ -815,18 +804,11 @@ unsafe extern "C" fn event_callback(
     let capture_at = CaptureInstant::from_nanos(unsafe { CGEventGetTimestamp(event) });
     if crate::app_settings::shortcuts_suspended() {
         context.activity.observe(input, false);
-        context
-            .shortcut_suppression
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .reset();
+        context.shortcut_suppression.lock_ok().reset();
         return event;
     }
     let delivered = send_input(context, input, capture_at);
-    let mut suppression = context
-        .shortcut_suppression
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let mut suppression = context.shortcut_suppression.lock_ok();
     let mut hotkeys = crate::app_settings::runtime_hotkeys();
     hotkeys.cancel = tap_cancel_binding(
         hotkeys.cancel,
@@ -935,7 +917,7 @@ fn list_tap(event_type: u32, event: EventRef) -> ListSwallow {
     let Some(bit) = 1u128.checked_shl(u32::from(code)) else {
         return ListSwallow::No;
     };
-    let mut taken = TAKEN.lock().unwrap_or_else(|error| error.into_inner());
+    let mut taken = TAKEN.lock_ok();
     if event_type == EVENT_KEY_UP {
         let ours = *taken & bit != 0;
         *taken &= !bit;
@@ -979,7 +961,7 @@ fn list_tap(event_type: u32, event: EventRef) -> ListSwallow {
             if capsule_key(key) {
                 ListSwallow::AfterListener
             } else {
-                *TAKEN.lock().unwrap_or_else(|error| error.into_inner()) &= !bit;
+                *TAKEN.lock_ok() &= !bit;
                 ListSwallow::No
             }
         }

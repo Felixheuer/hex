@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 use std::collections::HashSet;
 use std::ffi::c_void;
 use std::mem::size_of;
@@ -169,7 +170,7 @@ static RESTORERS: Mutex<Vec<JoinHandle<()>>> = Mutex::new(Vec::new());
 /// `_exit`, which would otherwise leave the output muted.
 pub fn wait_until_restored(deadline: Duration) -> bool {
     let started = Instant::now();
-    let mut restorers = RESTORERS.lock().unwrap_or_else(|error| error.into_inner());
+    let mut restorers = RESTORERS.lock_ok();
     loop {
         restorers.retain(|restorer| !restorer.is_finished());
         if restorers.is_empty() {
@@ -195,7 +196,7 @@ impl RecordingEnvironmentController {
 
     fn restoring<H: 'static>(hold: impl Fn(Effect) -> H + Send + 'static) -> Self {
         let (controller, restorer) = Self::with_environment(hold);
-        let mut restorers = RESTORERS.lock().unwrap_or_else(|error| error.into_inner());
+        let mut restorers = RESTORERS.lock_ok();
         restorers.retain(|restorer| !restorer.is_finished());
         restorers.push(restorer);
         controller

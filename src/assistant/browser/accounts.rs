@@ -27,6 +27,7 @@
 //!
 //! OWNER: browser.
 
+use crate::sync_ext::LockExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -295,7 +296,7 @@ pub fn keep_google_out() {
 /// (an import, the cleanup), so neither overwrites the other's change.
 fn state_lock() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    LOCK.lock().unwrap_or_else(|error| error.into_inner())
+    LOCK.lock_ok()
 }
 
 /// Removes the cookies [`kept_in_chrome`] keeps out from `state`; how many.

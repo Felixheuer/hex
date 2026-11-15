@@ -7,6 +7,7 @@
 //! and, while a task might hold the real pointer, asks the guard who does.
 //! It sleeps while there's nothing to show, move, or ask.
 
+use crate::sync_ext::LockExt;
 use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -66,7 +67,7 @@ static WATCH_CHANGED: Condvar = Condvar::new();
 static WATCHER: OnceLock<()> = OnceLock::new();
 
 fn watch() -> MutexGuard<'static, Watch> {
-    WATCH.lock().unwrap_or_else(|error| error.into_inner())
+    WATCH.lock_ok()
 }
 
 /// Shows the desk frame until `until` (`None` hides it), and its `tab`.
@@ -84,10 +85,7 @@ static OUTLINED_AT: Mutex<Vec<[f64; 4]>> = Mutex::new(Vec::new());
 
 /// The windows outlined now, in global points.
 pub(super) fn outlined_rects() -> Vec<[f64; 4]> {
-    OUTLINED_AT
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone()
+    OUTLINED_AT.lock_ok().clone()
 }
 
 /// The windows to outline, and whether any task is live.
@@ -457,9 +455,7 @@ impl Watcher {
                 wanted.push((item, display, full, piece, label, (window.2, window.3)));
             }
         }
-        *OUTLINED_AT
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = drawn.clone();
+        *OUTLINED_AT.lock_ok() = drawn.clone();
         let keys: Vec<_> = wanted
             .iter()
             .map(|(item, display, ..)| (item.task.clone(), item.window.clone(), *display))
@@ -603,7 +599,7 @@ thread_local! {
 /// is in front, as the tab says; `None` stops watching. Main thread.
 pub(super) fn escape_stops(task: Option<ConversationId>) {
     let on = task.is_some();
-    *IN_FRONT.lock().unwrap_or_else(|error| error.into_inner()) = task;
+    *IN_FRONT.lock_ok() = task;
     watch_in_front_escape(on);
 }
 
@@ -630,10 +626,7 @@ fn watch_in_front_escape(on: bool) {
                     if event.keyCode() != ESCAPE || !super::answer::pressed_by_person(event) {
                         return;
                     }
-                    let task = IN_FRONT
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .clone();
+                    let task = IN_FRONT.lock_ok().clone();
                     if let Some(task) = task {
                         crate::assistant::cancel(&task);
                     }

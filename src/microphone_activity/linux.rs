@@ -4,6 +4,7 @@
 //! system audio, are not microphone users. Only stream metadata is read;
 //! no audio is captured.
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::io::BufReader;
 use std::os::unix::process::CommandExt;
@@ -171,7 +172,7 @@ impl Monitor {
                     let Ok(objects) = update else {
                         return;
                     };
-                    let mut graph = shared.lock().unwrap_or_else(|error| error.into_inner());
+                    let mut graph = shared.lock_ok();
                     for object in &objects {
                         graph.apply(object);
                     }
@@ -193,7 +194,7 @@ const RETRY: Duration = Duration::from_secs(60);
 /// PipeWire this fails once, then reports none until the next try.
 pub fn active_microphone_applications() -> Result<Vec<ActiveMicrophoneApplication>> {
     static MONITOR: Mutex<Option<std::result::Result<Monitor, Instant>>> = Mutex::new(None);
-    let mut monitor = MONITOR.lock().unwrap_or_else(|error| error.into_inner());
+    let mut monitor = MONITOR.lock_ok();
     let current = match monitor.as_mut() {
         Some(Ok(running)) => running.alive(),
         Some(Err(failed_at)) => failed_at.elapsed() < RETRY,
@@ -211,8 +212,7 @@ pub fn active_microphone_applications() -> Result<Vec<ActiveMicrophoneApplicatio
     match monitor.as_ref() {
         Some(Ok(running)) => Ok(running
             .graph
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .lock_ok()
             .microphone_users(std::process::id() as i32)),
         _ => Ok(Vec::new()),
     }

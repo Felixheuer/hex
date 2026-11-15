@@ -23,6 +23,7 @@
 //!
 //! OWNER: onboarding.
 
+use crate::sync_ext::LockExt;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 /// System Events, the app tasks script to operate other apps.
@@ -281,7 +282,7 @@ pub fn first_use_notice(input: &str) -> Option<String> {
     if apps.is_empty() {
         return None;
     }
-    let mut noticed = NOTICED.lock().unwrap_or_else(|e| e.into_inner());
+    let mut noticed = NOTICED.lock_ok();
     let up_front: HashSet<&str> = UP_FRONT.iter().map(|(_, name)| *name).collect();
     for app in apps {
         if up_front.iter().any(|name| name.eq_ignore_ascii_case(&app))

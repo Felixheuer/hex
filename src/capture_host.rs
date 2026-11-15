@@ -31,6 +31,7 @@
 //! the screen recording, stopped, the engine's stages, settled) publishes
 //! one [`CaptureSnapshot`], which [`snapshot`] reads and [`watch`] wakes on.
 
+use crate::sync_ext::LockExt;
 use std::fs;
 use std::fs::DirBuilder;
 #[cfg(unix)]
@@ -463,11 +464,7 @@ impl Host for HexHost {
     }
 
     fn own_windows(&self) -> OwnWindows {
-        own_windows_of(
-            &OWN_WINDOWS
-                .lock()
-                .unwrap_or_else(|error| error.into_inner()),
-        )
+        own_windows_of(&OWN_WINDOWS.lock_ok())
     }
 }
 
@@ -508,17 +505,13 @@ static CAPSULE_PILL: Mutex<Option<[f32; 4]>> = Mutex::new(None);
 /// hides: the capsule's panel is far larger than the pill and lets clicks
 /// through everywhere else.
 pub fn set_capsule_pill(pill: Option<[f32; 4]>) {
-    *CAPSULE_PILL
-        .lock()
-        .unwrap_or_else(|error| error.into_inner()) = pill;
+    *CAPSULE_PILL.lock_ok() = pill;
 }
 
 /// The capsule's pill in its panel's points, while it shows.
 #[cfg(target_os = "linux")]
 pub fn capsule_pill() -> Option<[f32; 4]> {
-    *CAPSULE_PILL
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+    *CAPSULE_PILL.lock_ok()
 }
 
 /// The engine's units per overlay point: Windows' targets, windows, and
@@ -542,16 +535,10 @@ struct CapsulePill {
 
 impl CapsulePill {
     fn contains(&mut self, x: f64, y: f64) -> bool {
-        let Some(pill) = *CAPSULE_PILL
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-        else {
+        let Some(pill) = *CAPSULE_PILL.lock_ok() else {
             return false;
         };
-        let Some(window) = OWN_WINDOWS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())[OwnWindow::Capsule as usize]
-        else {
+        let Some(window) = OWN_WINDOWS.lock_ok()[OwnWindow::Capsule as usize] else {
             return false;
         };
         let origin = match self.panel {
@@ -604,9 +591,7 @@ pub enum OwnWindow {
 /// window that last held `role`. Rune makes the overlays' windows for each
 /// show (#1315), so one made while a capture records joins it too.
 pub fn exclude_window(role: OwnWindow, window: u32) {
-    let mut own = OWN_WINDOWS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let mut own = OWN_WINDOWS.lock_ok();
     own[role as usize] = Some(window);
     let joined = own_windows_of(&own);
     drop(own);
@@ -615,7 +600,7 @@ pub fn exclude_window(role: OwnWindow, window: u32) {
         (&*source.telemetry.excluded_window_ids, joined.excluded),
         (&source.telemetry.passthrough_window_ids, joined.passthrough),
     ] {
-        let mut ids = ids.lock().unwrap_or_else(|error| error.into_inner());
+        let mut ids = ids.lock_ok();
         for id in list {
             if !ids.contains(&id) {
                 ids.push(id);
@@ -653,9 +638,7 @@ static DICTATION_ENGINE: Mutex<Option<Weak<TranscriptionEngine>>> = Mutex::new(N
 /// Points captures at the listener's new engine after a model change.
 #[cfg(not(target_os = "macos"))]
 pub fn use_engine(engine: &Arc<TranscriptionEngine>) {
-    *DICTATION_ENGINE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner()) = Some(Arc::downgrade(engine));
+    *DICTATION_ENGINE.lock_ok() = Some(Arc::downgrade(engine));
 }
 
 /// The process's one capture engine (it keeps process-global state), made
@@ -664,10 +647,8 @@ fn shared_engine(
     dictation: Option<&Arc<TranscriptionEngine>>,
 ) -> Result<Arc<scrawl_capture::capture::Engine>> {
     static ENGINE: Mutex<Option<Arc<scrawl_capture::capture::Engine>>> = Mutex::new(None);
-    *DICTATION_ENGINE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner()) = dictation.map(Arc::downgrade);
-    let mut engine = ENGINE.lock().unwrap_or_else(|error| error.into_inner());
+    *DICTATION_ENGINE.lock_ok() = dictation.map(Arc::downgrade);
+    let mut engine = ENGINE.lock_ok();
     if let Some(engine) = &*engine {
         return Ok(engine.clone());
     }
@@ -692,10 +673,7 @@ impl Transcriber for ChosenTranscriber {
     fn transcribe(&self, audio: &RecordedAudio) -> anyhow::Result<Option<TranscriptData>> {
         match crate::app_settings::capture_settings().transcriber {
             crate::app_settings::CaptureTranscriber::Parakeet => HexTranscriber {
-                engine: DICTATION_ENGINE
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .clone(),
+                engine: DICTATION_ENGINE.lock_ok().clone(),
             }
             .transcribe(audio),
             #[cfg(target_os = "macos")]
@@ -705,10 +683,7 @@ impl Transcriber for ChosenTranscriber {
             // Apple's SpeechAnalyzer is macOS's; elsewhere it is Agent-Desk's model.
             #[cfg(not(target_os = "macos"))]
             crate::app_settings::CaptureTranscriber::Apple => HexTranscriber {
-                engine: DICTATION_ENGINE
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .clone(),
+                engine: DICTATION_ENGINE.lock_ok().clone(),
             }
             .transcribe(audio),
         }
@@ -920,7 +895,7 @@ fn new_bundle_dir(captures_dir: &Path) -> Result<PathBuf> {
         .unwrap_or_default()
         .as_millis();
     let stamp = {
-        let mut last = LAST_STAMP.lock().unwrap_or_else(|error| error.into_inner());
+        let mut last = LAST_STAMP.lock_ok();
         *last = now.max(*last + 1);
         *last
     };
@@ -1147,10 +1122,7 @@ impl Feed {
 
     fn publish(&self, mut next: CaptureSnapshot) {
         {
-            let mut snapshot = self
-                .snapshot
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
+            let mut snapshot = self.snapshot.lock_ok();
             next.generation = snapshot.generation;
             if *snapshot == next {
                 return;
@@ -1160,25 +1132,18 @@ impl Feed {
         }
         // A full wake-up is already pending; a gone watcher stops watching.
         self.watchers
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .lock_ok()
             .retain(|wake| !matches!(wake.try_send(()), Err(TrySendError::Disconnected(()))));
     }
 
     fn snapshot(&self) -> CaptureSnapshot {
-        self.snapshot
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone()
+        self.snapshot.lock_ok().clone()
     }
 
     fn watch(&'static self) -> CaptureWatch {
         let (wake, woken) = mpsc::sync_channel(1);
         let _ = wake.try_send(());
-        self.watchers
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .push(wake);
+        self.watchers.lock_ok().push(wake);
         CaptureWatch { feed: self, woken }
     }
 }
@@ -1474,7 +1439,7 @@ static LIVE_OUTCOMES: Mutex<Weak<Mutex<Outcomes>>> = Mutex::new(Weak::new());
 type SharedOutcomes = Arc<Mutex<Outcomes>>;
 
 fn lock(outcomes: &Mutex<Outcomes>) -> std::sync::MutexGuard<'_, Outcomes> {
-    outcomes.lock().unwrap_or_else(|error| error.into_inner())
+    outcomes.lock_ok()
 }
 
 /// The `agent-desk capture` controller, owned by the listener beside its
@@ -1543,7 +1508,7 @@ impl CaptureHost {
         watch_scrawl();
         match (host.is_some(), crate::app_settings::capture_on()) {
             (false, true) => {
-                let mut retry_at = RETRY_AT.lock().unwrap_or_else(|error| error.into_inner());
+                let mut retry_at = RETRY_AT.lock_ok();
                 if retry_at.is_some_and(|at| Instant::now() < at) {
                     return;
                 }
@@ -1554,7 +1519,7 @@ impl CaptureHost {
                 *retry_at = host.is_none().then(|| Instant::now() + START_RETRY);
             }
             (false, false) => {
-                *RETRY_AT.lock().unwrap_or_else(|error| error.into_inner()) = None;
+                *RETRY_AT.lock_ok() = None;
             }
             (true, false) => {
                 if let Some(mut stopped) = host.take() {
@@ -1573,9 +1538,7 @@ impl CaptureHost {
 
     fn with(engine: Arc<dyn CaptureEngine>, captures_dir: Option<PathBuf>) -> Result<Self> {
         let outcomes = SharedOutcomes::default();
-        *LIVE_OUTCOMES
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = Arc::downgrade(&outcomes);
+        *LIVE_OUTCOMES.lock_ok() = Arc::downgrade(&outcomes);
         let routes = routing::Routes::start(outcomes.clone())?;
         let (jobs, queued) = mpsc::sync_channel(MAX_FINISHING);
         let finisher = {
@@ -2226,7 +2189,7 @@ fn watch_scrawl() {
         crate::app_settings::set_scrawl_app_running(false);
         return;
     }
-    let mut last = LAST.lock().unwrap_or_else(|error| error.into_inner());
+    let mut last = LAST.lock_ok();
     if last.is_some_and(|at| at.elapsed() < EVERY) {
         return;
     }
@@ -2353,7 +2316,7 @@ static PEN: AtomicBool = AtomicBool::new(false);
 static PEN_DOWN: AtomicBool = AtomicBool::new(false);
 
 fn draw_held() -> std::sync::MutexGuard<'static, Option<std::time::Instant>> {
-    DRAW_HELD.lock().unwrap_or_else(|error| error.into_inner())
+    DRAW_HELD.lock_ok()
 }
 
 /// Whether the overlay takes the pointer now: only while a capture
@@ -2455,13 +2418,7 @@ fn reset_drawing() {
 /// Ends a stroke under way where the pointer is, as letting go of Shift does.
 fn end_stroke() {
     let [x, y] = ink_source()
-        .map(|source| {
-            *source
-                .telemetry
-                .pointer_screen
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-        })
+        .map(|source| *source.telemetry.pointer_screen.lock_ok())
         .unwrap_or_default();
     report_input(
         CaptureInstant::now(),
@@ -2537,11 +2494,7 @@ pub fn draw(x: f32, y: f32, scale: f32) {
                 [width as f32 / scale, height as f32 / scale],
                 |(width, height)| [width as f32, height as f32],
             );
-        let mut frame = source
-            .telemetry
-            .target_frame
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut frame = source.telemetry.target_frame.lock_ok();
         frame.x = 0.0;
         frame.y = 0.0;
         frame.width = f64::from(area[0]);
@@ -2590,15 +2543,13 @@ static SHARED_INPUT: Mutex<Option<LiveInput>> = Mutex::new(None);
 static INK: Mutex<Option<InkSource>> = Mutex::new(None);
 
 fn set_ink(source: Option<InkSource>) {
-    *INK.lock().unwrap_or_else(|error| error.into_inner()) = source;
+    *INK.lock_ok() = source;
 }
 
 /// The recording capture's ink, laser, and pointer, for the ink overlay to
 /// draw: `None` until its engine started, and once it ended.
 pub fn ink_source() -> Option<InkSource> {
-    INK.lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone()
+    INK.lock_ok().clone()
 }
 
 /// Where a recording capture keeps its strokes, and its clock.
@@ -2637,9 +2588,7 @@ struct InputTarget {
 impl LiveInput {
     /// The process's one target and its `capture-input` thread.
     fn shared() -> Result<Self> {
-        let mut shared = SHARED_INPUT
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut shared = SHARED_INPUT.lock_ok();
         if let Some(live) = &*shared {
             return Ok(live.clone());
         }
@@ -2655,7 +2604,7 @@ impl LiveInput {
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, InputState> {
-        self.0.lock().unwrap_or_else(|error| error.into_inner())
+        self.0.lock_ok()
     }
 
     /// The host started (`Some`) or ended a capture.
@@ -2826,8 +2775,7 @@ static LISTENER: Mutex<Option<SyncSender<CaptureControl>>> = Mutex::new(None);
 #[cfg(not(target_os = "macos"))]
 pub fn send_to_listener(control: CaptureControl) -> Result<()> {
     LISTENER
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .lock_ok()
         .as_ref()
         .ok_or_else(|| eyre!("Agent-Desk is not listening"))?
         .try_send(control)
@@ -2838,7 +2786,7 @@ pub fn send_to_listener(control: CaptureControl) -> Result<()> {
 #[cfg(not(target_os = "macos"))]
 pub fn listen_for_controls() -> Receiver<CaptureControl> {
     let (send, receive) = mpsc::sync_channel(16);
-    *LISTENER.lock().unwrap_or_else(|error| error.into_inner()) = Some(send);
+    *LISTENER.lock_ok() = Some(send);
     receive
 }
 
@@ -3119,7 +3067,7 @@ fn keys_code(keys: Option<CapsuleKeys>) -> u8 {
 }
 
 fn grab() -> std::sync::MutexGuard<'static, Option<KeyGrab>> {
-    GRAB.lock().unwrap_or_else(|error| error.into_inner())
+    GRAB.lock_ok()
 }
 
 /// The capsule takes `keys` until the guard drops; [`CapsuleKeyGrab::set`]
@@ -3285,20 +3233,14 @@ fn log_events(events: Receiver<Event>) {
     for event in events {
         if let Event::PhoneEnded = event {
             tracing::info!("the iPhone mirror ended on its own");
-            let live = LIVE_OUTCOMES
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .upgrade();
+            let live = LIVE_OUTCOMES.lock_ok().upgrade();
             if let Some(outcomes) = live {
                 lock(&outcomes).phone_ended = true;
             }
         }
         if let Event::Progress { bundle, stage } = event {
             tracing::info!(bundle = %bundle.display(), stage = stage.label(), "capture progress");
-            let live = LIVE_OUTCOMES
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .upgrade();
+            let live = LIVE_OUTCOMES.lock_ok().upgrade();
             if let Some(outcomes) = live {
                 lock(&outcomes).progress(&bundle, stage);
             }
@@ -3455,7 +3397,7 @@ fn with_linux_paster(
     use_it: impl FnOnce(&mut crate::linux::paste::LinuxPaster) -> Result<()>,
 ) -> anyhow::Result<()> {
     static PASTER: Mutex<Option<crate::linux::paste::LinuxPaster>> = Mutex::new(None);
-    let mut paster = PASTER.lock().unwrap_or_else(|error| error.into_inner());
+    let mut paster = PASTER.lock_ok();
     if paster.is_none() {
         let shift = crate::app_settings::AppSettings::load()
             .map(|settings| settings.paste_with_shift)
@@ -3704,19 +3646,12 @@ impl AudioTimeline for WavTimeline {
             }
         });
         let ends = since + crate::audio::duration_for_frames(self.samples.len(), sample_rate);
-        *self
-            .feeder
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = Some((feeder, ends));
+        *self.feeder.lock_ok() = Some((feeder, ends));
         Ok(())
     }
 
     fn close_sink(&self, _through: CaptureInstant) -> Result<Option<CaptureSinkClosed>> {
-        let feeder = self
-            .feeder
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .take();
+        let feeder = self.feeder.lock_ok().take();
         Ok(feeder.map(|(feeder, ends)| {
             let _ = feeder.join();
             CaptureSinkClosed {

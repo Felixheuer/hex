@@ -10,6 +10,7 @@
 //! like History is.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
+use crate::sync_ext::LockExt;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -286,7 +287,7 @@ fn shared() -> Option<MutexGuard<'static, CaptureStore>> {
             }
         })
         .as_ref()
-        .map(|store| store.lock().unwrap_or_else(|error| error.into_inner()))
+        .map(|store| store.lock_ok())
 }
 
 /// Remembers a capture. Safe from any thread; a failure is logged.

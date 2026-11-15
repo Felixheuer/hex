@@ -369,6 +369,22 @@ pub fn raw_windows() -> Vec<RawWindow> {
     out
 }
 
+/// Whether window `number` still exists anywhere (on screen, parked off
+/// it, minimized, or on another Space): `false` once it was closed.
+#[cfg(target_os = "macos")]
+pub fn window_exists(number: u32) -> bool {
+    use core_foundation::array::CFArray;
+    use core_graphics::window::{copy_window_info, kCGWindowListOptionIncludingWindow};
+    copy_window_info(kCGWindowListOptionIncludingWindow, number)
+        .is_some_and(|list: CFArray| list.len() > 0)
+}
+
+/// Elsewhere a window can't be looked up by number: it is taken to exist.
+#[cfg(not(target_os = "macos"))]
+pub fn window_exists(_number: u32) -> bool {
+    true
+}
+
 /// Wayland lists no windows to an app: the window log stays empty on Linux.
 #[cfg(target_os = "linux")]
 pub fn raw_windows() -> Vec<RawWindow> {

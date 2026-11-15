@@ -10,6 +10,7 @@
 //! it before a reveal, so it never reappears with the last dictation's
 //! words for a frame.
 
+use crate::sync_ext::LockExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Mutex, OnceLock};
@@ -212,7 +213,7 @@ static NOTICE: Mutex<FailureNotice> = Mutex::new(FailureNotice {
 static TIMER: OnceLock<Sender<Instant>> = OnceLock::new();
 
 fn notice() -> std::sync::MutexGuard<'static, FailureNotice> {
-    NOTICE.lock().unwrap_or_else(|error| error.into_inner())
+    NOTICE.lock_ok()
 }
 
 /// Moves a shown plate to the display under the pointer when it changed

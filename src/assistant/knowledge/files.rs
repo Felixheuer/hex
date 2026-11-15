@@ -77,6 +77,18 @@ pub struct Found {
     pub path: String,
     pub used_ms: Option<i64>,
     pub changed_ms: Option<i64>,
+    /// When it came into its folder (a download, a file saved there).
+    pub added_ms: Option<i64>,
+}
+
+impl Found {
+    /// Its newest date: used, changed, or added.
+    fn newest_ms(&self) -> Option<i64> {
+        [self.used_ms, self.changed_ms, self.added_ms]
+            .into_iter()
+            .flatten()
+            .max()
+    }
 }
 
 /// `mdfind -attr kMDItemLastUsedDate -attr kMDItemFSContentChangeDate`
@@ -92,6 +104,7 @@ pub fn parse(output: &str) -> Vec<Found> {
                 path,
                 used_ms: None,
                 changed_ms: None,
+                added_ms: None,
             };
             for part in parts {
                 if let Some((key, value)) = part.split_once(" = ") {
@@ -99,6 +112,7 @@ pub fn parse(output: &str) -> Vec<Found> {
                     match key.trim() {
                         "LastUsedDate" => found.used_ms = date,
                         "FSContentChangeDate" => found.changed_ms = date,
+                        "DateAdded" => found.added_ms = date,
                         _ => {}
                     }
                 }
@@ -110,15 +124,21 @@ pub fn parse(output: &str) -> Vec<Found> {
 
 fn mdfind(query: &str) -> Result<Vec<Found>, String> {
     let home = crate::app_paths::home_dir().ok_or("no home folder")?;
+    mdfind_in(&home, query)
+}
+
+fn mdfind_in(folder: &Path, query: &str) -> Result<Vec<Found>, String> {
     let text = exec::output(
         Command::new("/usr/bin/mdfind")
             .arg("-onlyin")
-            .arg(&home)
+            .arg(folder)
             .args([
                 "-attr",
                 "kMDItemLastUsedDate",
                 "-attr",
                 "kMDItemFSContentChangeDate",
+                "-attr",
+                "kMDItemDateAdded",
             ])
             .arg(query),
         TIMEOUT,
@@ -160,10 +180,135 @@ pub fn rank(found: Vec<Found>, tokens: &[String], by_content: bool, now_ms: i64)
         .collect()
 }
 
-/// Files whose names (else contents) hold every word of the query.
+/// Where and what the person means besides a file's name: a folder they
+/// named ("in Downloads", "auf dem Schreibtisch"), a kind ("pdf"), and the
+/// words left for the name.
+#[derive(Debug, PartialEq)]
+pub struct Wanted {
+    /// A folder in the home folder ("Downloads").
+    pub folder: Option<&'static str>,
+    /// A file extension, lowercase ("pdf").
+    pub kind: Option<String>,
+    pub words: Vec<String>,
+}
+
+/// Folded words naming a folder in the home folder.
+const FOLDERS: [(&str, &str); 10] = [
+    ("downloads", "Downloads"),
+    ("download", "Downloads"),
+    ("downloadordner", "Downloads"),
+    ("schreibtisch", "Desktop"),
+    ("desktop", "Desktop"),
+    ("dokumente", "Documents"),
+    ("documents", "Documents"),
+    ("dokumenten", "Documents"),
+    ("bilder", "Pictures"),
+    ("pictures", "Pictures"),
+];
+
+/// Extensions a request names as a kind of file.
+const KINDS: [&str; 22] = [
+    "pdf", "docx", "doc", "xlsx", "xls", "csv", "pptx", "ppt", "key", "pages", "numbers", "png",
+    "jpg", "jpeg", "heic", "zip", "txt", "md", "mp3", "mp4", "mov", "dmg",
+];
+
+/// Words that only glue a folder or kind into a sentence.
+const GLUE: [&str; 20] = [
+    "in", "im", "auf", "dem", "der", "die", "das", "den", "ordner", "folder", "datei", "dateien",
+    "file", "files", "the", "on", "my", "meine", "mein", "meinem",
+];
+
+/// Splits `tokens` into a folder, a kind, and the words for the name; the
+/// glue words go only when a folder or kind was named.
+pub fn wanted(tokens: &[String]) -> Wanted {
+    let mut folder = None;
+    let mut kind = None;
+    let mut words = Vec::new();
+    for token in tokens {
+        let bare = token.trim_start_matches('.');
+        if let Some((_, name)) = FOLDERS.iter().find(|(word, _)| *word == token) {
+            folder.get_or_insert(*name);
+        } else if kind.is_none() && KINDS.contains(&bare) {
+            kind = Some(bare.to_owned());
+        } else {
+            words.push(token.clone());
+        }
+    }
+    if folder.is_some() || kind.is_some() {
+        words.retain(|word| !GLUE.contains(&word.as_str()));
+    }
+    Wanted {
+        folder,
+        kind,
+        words,
+    }
+}
+
+/// Files in `kind` (any when `None`), named with every word when there are
+/// words, else changed, used, or added in the last `days` days.
+pub fn scoped_query(wanted: &Wanted, days: u32) -> String {
+    let mut parts = vec!["kMDItemContentType != public.folder".to_owned()];
+    if let Some(kind) = &wanted.kind {
+        parts.push(format!("kMDItemFSName == \"*.{kind}\"c"));
+    }
+    if wanted.words.is_empty() {
+        parts.push(format!(
+            "(kMDItemDateAdded >= $time.today(-{days}) || kMDItemLastUsedDate >= $time.today(-{days}) || kMDItemFSContentChangeDate >= $time.today(-{days}))"
+        ));
+    } else {
+        parts.push(name_query(&wanted.words));
+    }
+    parts.join(" && ")
+}
+
+/// Files in the folder or of the kind the query names: by name, else the
+/// newest there.
+fn scoped(wanted: &Wanted, limit: usize, now_ms: i64) -> Result<Vec<Hit>, String> {
+    let home = crate::app_paths::home_dir().ok_or("no home folder")?;
+    let folder = match wanted.folder {
+        Some(name) if home.join(name).is_dir() => home.join(name),
+        _ => home,
+    };
+    let found = mdfind_in(&folder, &scoped_query(wanted, 60))?;
+    if !wanted.words.is_empty() {
+        return Ok(rank::top(rank(found, &wanted.words, false, now_ms), limit));
+    }
+    Ok(newest(found, limit))
+}
+
+/// `found` newest first (used, changed, or added), build folders left out.
+fn newest(mut found: Vec<Found>, limit: usize) -> Vec<Hit> {
+    found.retain(|found| !NOISE.iter().any(|folder| found.path.contains(folder)));
+    found.sort_by_key(|found| std::cmp::Reverse(found.newest_ms()));
+    found
+        .into_iter()
+        .take(limit)
+        .map(|found| Hit {
+            title: Path::new(&found.path)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            when_ms: found.newest_ms(),
+            detail: found.path,
+            score: 1.0,
+        })
+        .collect()
+}
+
+/// Files whose names (else contents) hold every word of the query. A
+/// folder ("Downloads") or kind ("pdf") in the query narrows the search
+/// first; with nothing found there, every word counts for the name again.
 pub fn files(tokens: &[String], limit: usize, now_ms: i64) -> Result<Vec<Hit>, String> {
     if tokens.is_empty() {
         return recent(tokens, limit);
+    }
+    let wanted = wanted(tokens);
+    if wanted.folder.is_some() || wanted.kind.is_some() {
+        match scoped(&wanted, limit, now_ms) {
+            Ok(hits) if !hits.is_empty() => return Ok(hits),
+            Ok(_) => {}
+            Err(error) => tracing::debug!(%error, "scoped file lookup failed"),
+        }
     }
     let mut hits = rank(mdfind(&name_query(tokens))?, tokens, false, now_ms);
     if hits.len() < limit {
@@ -176,6 +321,19 @@ pub fn files(tokens: &[String], limit: usize, now_ms: i64) -> Result<Vec<Hit>, S
 /// Files used in the last two weeks, newest first (named like the query,
 /// when there is one).
 pub fn recent(tokens: &[String], limit: usize) -> Result<Vec<Hit>, String> {
+    let wanted = wanted(tokens);
+    if wanted.folder.is_some() || wanted.kind.is_some() {
+        let home = crate::app_paths::home_dir().ok_or("no home folder")?;
+        let folder = wanted
+            .folder
+            .map(|name| home.join(name))
+            .filter(|folder| folder.is_dir())
+            .unwrap_or(home);
+        let found = mdfind_in(&folder, &scoped_query(&wanted, 14))?;
+        if !found.is_empty() {
+            return Ok(newest(found, limit));
+        }
+    }
     let mut found = mdfind(&recent_query(tokens, 14))?;
     found.sort_by_key(|found| std::cmp::Reverse(found.used_ms));
     let hits = found
@@ -231,11 +389,13 @@ mod tests {
                     path: "/Users/f/Downloads/Bild 1.png".into(),
                     used_ms: Some(1_794_563_907_000),
                     changed_ms: None,
+                    added_ms: None,
                 },
                 Found {
                     path: "/x".into(),
                     used_ms: None,
                     changed_ms: Some(86_400_000),
+                    added_ms: None,
                 },
             ]
         );
@@ -248,6 +408,7 @@ mod tests {
             path: path.into(),
             used_ms: used,
             changed_ms: None,
+            added_ms: None,
         };
         let hits = rank(
             vec![
@@ -265,5 +426,60 @@ mod tests {
         let ranked = rank::top(hits, 3);
         assert_eq!(ranked[0].title, "Rechnung Mai.pdf");
         assert_eq!(ranked[2].title, "rechnung.txt");
+    }
+
+    #[test]
+    fn a_named_folder_and_kind_narrow_the_search() {
+        let wanted = wanted(&rank::tokens("die PDF in Downloads"));
+        assert_eq!(
+            wanted,
+            Wanted {
+                folder: Some("Downloads"),
+                kind: Some("pdf".into()),
+                words: vec![],
+            }
+        );
+        let query = scoped_query(&wanted, 7);
+        assert!(query.contains(r#"kMDItemFSName == "*.pdf"c"#));
+        assert!(query.contains("kMDItemDateAdded >= $time.today(-7)"));
+        let named = wanted_words("Rechnung Schreibtisch");
+        assert_eq!(named.folder, Some("Desktop"));
+        assert_eq!(named.words, ["rechnung"]);
+        assert!(scoped_query(&named, 7).contains("kMDItemDisplayName"));
+        // Without a folder or kind, glue words stay name words.
+        assert_eq!(wanted_words("die Zeit").words, ["die", "zeit"]);
+    }
+
+    fn wanted_words(query: &str) -> Wanted {
+        wanted(&rank::tokens(query))
+    }
+
+    #[test]
+    fn the_newest_download_comes_first() {
+        let found = |path: &str, added: i64| Found {
+            path: path.into(),
+            used_ms: None,
+            changed_ms: Some(1),
+            added_ms: Some(added),
+        };
+        let hits = newest(
+            vec![
+                found("/Users/f/Downloads/alt.pdf", 10),
+                found("/Users/f/Downloads/neu.pdf", 99),
+                found("/Users/f/Downloads/x/node_modules/a.pdf", 500),
+            ],
+            5,
+        );
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].title, "neu.pdf");
+        assert_eq!(hits[0].when_ms, Some(99));
+    }
+
+    #[test]
+    fn spotlight_lines_read_the_added_date() {
+        let found = parse(
+            "/a.pdf   kMDItemLastUsedDate = (null)   kMDItemFSContentChangeDate = (null)   kMDItemDateAdded = 1970-01-02 00:00:00 +0000\n",
+        );
+        assert_eq!(found[0].added_ms, Some(86_400_000));
     }
 }

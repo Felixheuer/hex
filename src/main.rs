@@ -75,6 +75,7 @@ mod shortcut_conflicts;
 mod shortcut_pause;
 #[cfg(target_os = "macos")]
 mod suppression;
+mod sync_ext;
 mod transcription;
 mod updater;
 #[cfg(target_os = "windows")]

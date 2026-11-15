@@ -6,6 +6,7 @@
 //! trusted, and an unfinished draft is shown as interrupted, as the app does.
 //! Unreadable folders and lines are skipped and reported, never repaired.
 
+use crate::sync_ext::LockExt;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::fs::{self, File};
@@ -297,7 +298,7 @@ impl Library {
                 ));
             }
         };
-        let mut cache = self.cache.lock().unwrap_or_else(|error| error.into_inner());
+        let mut cache = self.cache.lock_ok();
         let mut seen = HashSet::new();
         for entry in entries.flatten() {
             let directory = entry.path();

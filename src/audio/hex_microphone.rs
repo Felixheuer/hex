@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 use std::cell::UnsafeCell;
 use std::io::Cursor;
 use std::path::PathBuf;
@@ -579,17 +580,12 @@ fn driver_action_lock() -> &'static Mutex<DriverActionState> {
 }
 
 fn set_driver_action_state(state: DriverActionState) {
-    let mut guard = driver_action_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut guard = driver_action_lock().lock_ok();
     *guard = state;
 }
 
 fn current_driver_action_state() -> DriverActionState {
-    driver_action_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
+    driver_action_lock().lock_ok().clone()
 }
 
 fn driver_action_in_progress() -> bool {

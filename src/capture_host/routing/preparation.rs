@@ -3,6 +3,7 @@
 //! or move a session row the capsule already lists.
 
 use super::*;
+use crate::sync_ext::LockExt;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -113,7 +114,7 @@ impl Worker {
             lock(&self.outcomes).routed(&bundle, unrouted());
             return;
         };
-        let live = look.local.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let live = look.local.lock_ok().clone();
         let ruled = rule_live(&look.router, &loaded, &live);
         let app = loaded.target.app.clone();
         let rule = policy::rule_key(live.url.as_deref(), loaded.target.bundle_id.as_deref());
@@ -184,7 +185,7 @@ impl Worker {
                     .flatten()
                     .unwrap_or_else(|| look::Live {
                         error: Some("OpenCode didn't answer in time".into()),
-                        ..look.local.lock().unwrap_or_else(|e| e.into_inner()).clone()
+                        ..look.local.lock_ok().clone()
                     });
                 if cancel.load(Ordering::Relaxed) {
                     return;

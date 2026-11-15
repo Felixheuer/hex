@@ -3,6 +3,7 @@
 //! events drive, and the recording state the trays read. The macOS app runs
 //! the same controller and capsules from `macos_rune`.
 
+use crate::sync_ext::LockExt;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Mutex, OnceLock};
@@ -110,10 +111,7 @@ pub(crate) fn request(request: MeetingRequest) -> Result<(), String> {
 
 /// The recording state the tray shows.
 pub(crate) fn state() -> MeetingMenuState {
-    STATE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone()
+    STATE.lock_ok().clone()
 }
 
 /// The recorder as the tray shows it; `None` while Meetings is off.
@@ -156,7 +154,7 @@ fn offer_unshown(window: &rune::AppHandle<Ui>, reason: String) {
 
 /// Mirrors an event into the recording state and the window.
 fn follow(event: &ControllerEvent, window: &rune::AppHandle<Ui>) {
-    let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+    let mut state = STATE.lock_ok();
     match event {
         ControllerEvent::Starting => *state = MeetingMenuState::Starting,
         ControllerEvent::RecordingStarted { id, title, .. } => {

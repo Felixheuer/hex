@@ -10,6 +10,7 @@
 //! [`Request`] on the question's own thread, so nothing is pasted, copied,
 //! or kept for History.
 
+use crate::sync_ext::LockExt;
 mod barge_in;
 mod latin;
 pub(crate) mod spoken_stop;
@@ -44,17 +45,11 @@ static TOGGLE_TASKS: Mutex<Option<Hook>> = Mutex::new(None);
 /// until the first, a double tap only plays its tone.
 // Called by the overlays (`rune_ui::assistant_overlay`) as they install.
 pub(crate) fn set_toggle_tasks(toggle: impl Fn() + Send + Sync + 'static) {
-    *TOGGLE_TASKS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner()) = Some(Box::new(toggle));
+    *TOGGLE_TASKS.lock_ok() = Some(Box::new(toggle));
 }
 
 pub(crate) fn toggle_tasks() {
-    match TOGGLE_TASKS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .as_ref()
-    {
+    match TOGGLE_TASKS.lock_ok().as_ref() {
         Some(toggle) => toggle(),
         None => tracing::debug!("double tap: no task list to show yet"),
     }
@@ -71,15 +66,11 @@ static OPEN_SETUP: Mutex<Option<Hook>> = Mutex::new(None);
 /// return at once; until it is set, such a hold does nothing.
 // Called by the app (`rune_ui::window_link`) as it starts.
 pub(crate) fn set_open_setup(open: impl Fn() + Send + Sync + 'static) {
-    *OPEN_SETUP.lock().unwrap_or_else(|error| error.into_inner()) = Some(Box::new(open));
+    *OPEN_SETUP.lock_ok() = Some(Box::new(open));
 }
 
 pub(crate) fn open_setup() {
-    match OPEN_SETUP
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .as_ref()
-    {
+    match OPEN_SETUP.lock_ok().as_ref() {
         Some(open) => open(),
         None => tracing::info!("Action shortcut held before the assistant's setup finished"),
     }

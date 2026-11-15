@@ -2,6 +2,7 @@
 //! queued and spoken in turn while the rest is still being written, so the
 //! first words come out long before the whole answer is there.
 
+use crate::sync_ext::LockExt;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -198,7 +199,7 @@ struct State {
 
 impl Voice {
     fn state(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(|error| error.into_inner())
+        self.state.lock_ok()
     }
 
     /// More of `conversation`'s answer: speaks the sentences it finishes.
@@ -314,9 +315,7 @@ impl Voice {
     }
 
     fn pending(&self) -> MutexGuard<'_, Pending> {
-        self.pending
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+        self.pending.lock_ok()
     }
 
     /// Reads `text` aloud for `conversation` in its turn (`Priority`): never

@@ -2,6 +2,7 @@
 //! lists and results pass through as the driver's adapter (`cua`) wrote them; the guard
 //! decides each call (`proxy`).
 
+use crate::sync_ext::LockExt;
 use std::sync::{Arc, Mutex};
 
 use color_eyre::eyre::{Result, eyre};
@@ -57,10 +58,7 @@ impl<D: Desktop + 'static> ServerHandler for Server<D> {
         let guard = self.guard.clone();
         let value = tokio::task::spawn_blocking(move || match reader {
             Some(mut reader) => reader.call(&name, args),
-            None => guard
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .call(&name, args),
+            None => guard.lock_ok().call(&name, args),
         })
         .await
         .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;

@@ -12,6 +12,7 @@
 //! stays saved, and the listener runs the default model until it is fixed
 //! ([`runnable`]).
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -199,16 +200,13 @@ struct Registry {
 static REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(Mutex::default);
 
 fn registry() -> MutexGuard<'static, Registry> {
-    let mut registry = REGISTRY.lock().unwrap_or_else(|error| error.into_inner());
+    let mut registry = REGISTRY.lock_ok();
     registry.refresh();
     registry
 }
 
 fn invalidate() {
-    REGISTRY
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .stamp = None;
+    REGISTRY.lock_ok().stamp = None;
 }
 
 pub fn directory() -> Result<PathBuf> {

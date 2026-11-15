@@ -2,6 +2,7 @@
 //! the HUD, and the global Esc that dismisses it and stops a task holding
 //! the real pointer.
 
+use crate::sync_ext::LockExt;
 use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
@@ -183,7 +184,7 @@ pub(super) fn hide_bubble(state: &mut BubbleOverlay) {
     state.shown = false;
     state.speaking = false;
     super::cards_shown(Some(false), None);
-    *CARD_AT.lock().unwrap_or_else(|error| error.into_inner()) = None;
+    *CARD_AT.lock_ok() = None;
     want_escape(Some(false), None);
     if let Some(overlays) = OVERLAYS.get() {
         overlays.bubble.fade_out(BUBBLE_OUT);
@@ -214,7 +215,7 @@ pub(super) fn place_bubble(state: &mut BubbleOverlay, handle: &OverlayHandle<Bub
     };
     if state.held.is_some() || state.setup.is_some() {
         state.hang = None;
-        *CARD_AT.lock().unwrap_or_else(|error| error.into_inner()) = None;
+        *CARD_AT.lock_ok() = None;
         state.below = place_past_hud(handle, &screen, &all);
         return;
     }
@@ -252,7 +253,7 @@ pub(super) fn place_bubble(state: &mut BubbleOverlay, handle: &OverlayHandle<Bub
     let px = (mid - pw / 2.0).clamp(screen.frame[0], screen.frame[0] + screen.frame[2] - pw);
     let cx = cx.clamp(px, px + pw - cw);
     let cy = cy.min(top + ph - ch);
-    *CARD_AT.lock().unwrap_or_else(|error| error.into_inner()) = Some([cx, cy, cw, card_h]);
+    *CARD_AT.lock_ok() = Some([cx, cy, cw, card_h]);
     state.hang = Some(bubble::Hang {
         island: ((mid - px) as f32, 0.0),
         notch: notch as f32,
@@ -267,7 +268,7 @@ pub(super) fn place_bubble(state: &mut BubbleOverlay, handle: &OverlayHandle<Bub
 static CARD_AT: std::sync::Mutex<Option<[f64; 4]>> = std::sync::Mutex::new(None);
 
 pub(super) fn card_area() -> Option<[f64; 4]> {
-    *CARD_AT.lock().unwrap_or_else(|error| error.into_inner())
+    *CARD_AT.lock_ok()
 }
 
 /// The panel just past the HUD's plate (and Live text's), the card at its

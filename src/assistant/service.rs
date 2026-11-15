@@ -31,6 +31,7 @@
 //! OWNER: brain. The signatures here are the contract the Action shortcut,
 //! the HUD, and the Chats pane build against.
 
+use crate::sync_ext::LockExt;
 mod focus;
 use focus::{focus_in, focus_past, job_named};
 mod context;
@@ -326,9 +327,7 @@ impl Hooks {
             front_window: Box::new(super::computer::front_window_quick),
             browser_ahead: Box::new(super::browser::prewarm_for),
             signed_in_sites: Box::new(super::browser::signed_in_sites),
-            requests: Box::new(move || {
-                remote::take_new(&mut seen.lock().unwrap_or_else(|error| error.into_inner()))
-            }),
+            requests: Box::new(move || remote::take_new(&mut seen.lock_ok())),
             make_workspace: Box::new(|inside, title| {
                 let root = match inside {
                     Some(folder) => folder.to_path_buf(),
@@ -413,7 +412,7 @@ fn speak_next(text: &str, voice: Option<&str>) {
 fn current_settings() -> (bool, AssistantSettings) {
     static READ: Mutex<Option<(Instant, (bool, AssistantSettings))>> = Mutex::new(None);
     let (on, mut settings) = crate::app_settings::assistant_runtime().unwrap_or_else(|| {
-        let mut read = READ.lock().unwrap_or_else(|error| error.into_inner());
+        let mut read = READ.lock_ok();
         match read.as_ref() {
             Some((at, settings)) if at.elapsed() < Duration::from_secs(2) => settings.clone(),
             _ => {
@@ -425,11 +424,7 @@ fn current_settings() -> (bool, AssistantSettings) {
             }
         }
     });
-    if let Some(adjust) = ADJUST
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .as_ref()
-    {
+    if let Some(adjust) = ADJUST.lock_ok().as_ref() {
         adjust(&mut settings);
     }
     let from_cli = FROM_CLI.load(Ordering::Acquire);
@@ -556,7 +551,7 @@ impl Runner {
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(|error| error.into_inner())
+        self.state.lock_ok()
     }
 
     fn now(&self) -> u64 {
@@ -564,10 +559,7 @@ impl Runner {
     }
 
     pub(crate) fn subscribe(&self, subscriber: Subscriber) {
-        self.subscribers
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .push(Arc::new(subscriber));
+        self.subscribers.lock_ok().push(Arc::new(subscriber));
     }
 
     /// Tells every subscriber, after noting a step or window on its task and
@@ -608,11 +600,7 @@ impl Runner {
             }
             _ => {}
         }
-        let subscribers = self
-            .subscribers
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone();
+        let subscribers = self.subscribers.lock_ok().clone();
         for subscriber in subscribers {
             subscriber(event);
         }

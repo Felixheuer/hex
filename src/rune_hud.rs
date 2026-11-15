@@ -11,6 +11,7 @@
 //!
 //! The Sounds sheet draws its preview of the HUD with the same [`Painter`].
 
+use crate::sync_ext::LockExt;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) mod dot_scope;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -67,12 +68,12 @@ static LIVE_TEXT: Mutex<Option<Spot>> = Mutex::new(None);
 /// Where the live text plate starts: just past the HUD's plate, on its
 /// screen; with the HUD hidden, where its plate would be.
 pub(crate) fn live_text_place() -> Spot {
-    let spot = *LIVE_TEXT.lock().unwrap_or_else(|error| error.into_inner());
+    let spot = *LIVE_TEXT.lock_ok();
     spot.unwrap_or(Spot::Edge(ScreenEdge::Top, 40.0))
 }
 
 fn set_live_text(spot: Spot) {
-    *LIVE_TEXT.lock().unwrap_or_else(|error| error.into_inner()) = Some(spot);
+    *LIVE_TEXT.lock_ok() = Some(spot);
 }
 
 /// How a listener reports to the HUD; sending never waits.
@@ -227,7 +228,7 @@ impl HudSender {
         #[cfg(target_os = "windows")]
         if matches!(&event, HudEvent::Started) {
             let presents = self.overlay.surface_stats().totals.presents;
-            let mut watch = self.watch.lock().unwrap_or_else(|error| error.into_inner());
+            let mut watch = self.watch.lock_ok();
             if watch.position != IndicatorPosition::Hidden {
                 // Every start is a fresh attempt: its own baseline, clock and
                 // hide, even when the last one never resolved.
@@ -248,10 +249,7 @@ impl HudSender {
     pub(crate) fn set_position(&self, position: IndicatorPosition) {
         #[cfg(target_os = "windows")]
         {
-            self.watch
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .position = position;
+            self.watch.lock_ok().position = position;
         }
         self.overlay
             .update(move |hud, _| hud.set_position(position));
@@ -262,7 +260,7 @@ impl HudSender {
     /// reason is seen; what draws the HUD is logged once it exists.
     #[cfg(target_os = "windows")]
     pub(crate) fn failure(&self) -> Option<String> {
-        let mut watch = self.watch.lock().unwrap_or_else(|error| error.into_inner());
+        let mut watch = self.watch.lock_ok();
         let surface = self.overlay.surface_description();
         if !watch.described
             && let Some(surface) = &surface
@@ -552,7 +550,7 @@ static PREBUILT: Mutex<Option<(wgpu::Device, Painter)>> = Mutex::new(None);
 /// it goes after a while, since it keeps the device alive.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub(crate) fn prepare_gpu(device: &wgpu::Device) {
-    let lock = || PREBUILT.lock().unwrap_or_else(|error| error.into_inner());
+    let lock = || PREBUILT.lock_ok();
     if lock().as_ref().is_some_and(|(made, _)| made == device) {
         return;
     }
@@ -572,7 +570,7 @@ pub(crate) fn prepare_gpu(device: &wgpu::Device) {
 
 /// `prepare_gpu`'s painter, when it was made on `device` for `format`.
 fn prebuilt(device: &wgpu::Device, format: wgpu::TextureFormat) -> Option<Painter> {
-    let mut slot = PREBUILT.lock().unwrap_or_else(|error| error.into_inner());
+    let mut slot = PREBUILT.lock_ok();
     slot.as_ref()
         .is_some_and(|(made, painter)| made == device && painter.format == format)
         .then(|| slot.take().map(|(_, painter)| painter))
@@ -933,7 +931,7 @@ impl HudCompositor {
     /// from dropping the painter mid-frame.
     #[cfg(not(target_os = "macos"))]
     fn draw(&self, f: &mut Frame<'_, Hud>, drawn: &DotFrame, layout: Layout, target: Target) {
-        let mut gpu = self.gpu.lock().unwrap_or_else(|error| error.into_inner());
+        let mut gpu = self.gpu.lock_ok();
         gpu.generation = gpu.generation.wrapping_add(1);
         let painter = painter(&mut gpu.painter, f);
         paint(painter, f, drawn, layout, target);
@@ -947,7 +945,7 @@ impl HudCompositor {
 /// the HUD stops drawing and a hide Rune never draws again call it.
 #[cfg(not(target_os = "macos"))]
 fn release_painter(gpu: &Arc<Mutex<GpuSlot>>) {
-    let mut slot = gpu.lock().unwrap_or_else(|error| error.into_inner());
+    let mut slot = gpu.lock_ok();
     let generation = slot.generation;
     if slot.painter.is_none() || slot.releasing == Some(generation) {
         return;
@@ -959,7 +957,7 @@ fn release_painter(gpu: &Arc<Mutex<GpuSlot>>) {
         .name("hud-release".into())
         .spawn(move || {
             std::thread::sleep(PAINTER_IDLE);
-            let mut slot = slot.lock().unwrap_or_else(|error| error.into_inner());
+            let mut slot = slot.lock_ok();
             if slot.generation == generation {
                 slot.painter = None;
             }

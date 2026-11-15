@@ -20,6 +20,7 @@
 //! `IOHIDSystem` parameter connection on every AlphaShift change, so a press
 //! never uppercases what follows.
 
+use crate::sync_ext::LockExt;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
@@ -309,22 +310,14 @@ static WORKER: LazyLock<Mutex<Option<Sender<macos::WorkerCommand>>>> =
 
 #[cfg(target_os = "macos")]
 fn send_press(at: CaptureInstant) {
-    if let Some(sender) = PRESSES
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .as_ref()
-    {
+    if let Some(sender) = PRESSES.lock_ok().as_ref() {
         let _ = sender.send(at);
     }
 }
 
 #[cfg(target_os = "macos")]
 fn wake_worker(command: macos::WorkerCommand) {
-    if let Some(sender) = WORKER
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .as_ref()
-    {
+    if let Some(sender) = WORKER.lock_ok().as_ref() {
         let _ = sender.send(command);
     }
 }
@@ -337,10 +330,7 @@ pub(crate) fn physical_press(at: CaptureInstant) {
     if !ENABLED.load(Ordering::Acquire) || crate::app_settings::shortcuts_suspended() {
         return;
     }
-    let matched = HID_GATE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .hid_press(at);
+    let matched = HID_GATE.lock_ok().hid_press(at);
     if let Some(pressed) = matched {
         send_press(pressed);
     }
@@ -365,10 +355,7 @@ pub(crate) fn alpha_shift(shift: bool, at: CaptureInstant) {
         return;
     }
     let tracker_active = crate::suppression::physical_keys::snapshot().is_some();
-    let pressed = HID_GATE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .alpha_shift(tracker_active, shift, at);
+    let pressed = HID_GATE.lock_ok().alpha_shift(tracker_active, shift, at);
     if let Some(pressed) = pressed {
         send_press(pressed);
     }

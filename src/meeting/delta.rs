@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 use std::sync::OnceLock;
 
 use super::*;
@@ -136,8 +137,7 @@ pub fn consume_delta_for_id(
 ) -> Result<String> {
     let entries = entries_for_copy(id)?;
     shared_paste_cursor()
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .lock_ok()
         .consume_entries(id, &entries, commit_output)
 }
 
@@ -162,8 +162,7 @@ pub fn try_consume_delta_from(
 /// Speaker turns in `entries` that the shared cursor has not handed out.
 pub fn pending_delta_turns(id: &str, entries: &[TranscriptEntry]) -> usize {
     shared_paste_cursor()
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .lock_ok()
         .pending_turn_count(id, entries)
 }
 

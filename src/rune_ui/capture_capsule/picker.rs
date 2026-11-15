@@ -15,6 +15,7 @@
 //! edge of the display around the target, so it moves with the target in
 //! one piece.
 
+use crate::sync_ext::LockExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -503,7 +504,7 @@ impl PickerState {
         let Some(aim) = &self.aim else {
             return false;
         };
-        *self.shortcut.lock().unwrap_or_else(|e| e.into_inner()) = aim.shortcut();
+        *self.shortcut.lock_ok() = aim.shortcut();
         let mut scene = Scene::labelled(aim, self.rest, self.screen_label);
         if scene.kind == Kind::None && self.scene.kind != Kind::None {
             // The target closes onto the pointer, and grows from it next.
@@ -603,7 +604,7 @@ impl PickerState {
     }
 
     fn picked(&mut self) {
-        *self.shortcut.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self.shortcut.lock_ok() = None;
         self.picked = Some(self.now);
         self.fading_in = 2;
         if let Some(overlay) = &self.overlay {
@@ -706,7 +707,7 @@ impl PickerState {
         }
         match want {
             Some(Mode::Iphone) | None => {
-                *self.shortcut.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                *self.shortcut.lock_ok() = None;
                 self.scene.on = false;
                 self.fading_in = 0;
                 self.opening = false;
@@ -1019,7 +1020,7 @@ impl PickerOverlay {
     /// What the capture shortcut records now, and the picker fades as a
     /// click's pick would. `None` while windows load.
     fn take_shortcut(&self) -> Option<CaptureTarget> {
-        let target = *self.shortcut.lock().unwrap_or_else(|e| e.into_inner());
+        let target = *self.shortcut.lock_ok();
         if target.is_some() {
             self.overlay.update(|s, tx| {
                 s.picked();

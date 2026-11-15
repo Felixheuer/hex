@@ -25,6 +25,7 @@
 //! overlays (`rune_ui::meeting_capsules`): non-activating panels fed from
 //! the controller events here.
 
+use crate::sync_ext::LockExt;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -243,7 +244,7 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|error| error.into_inner())
+    mutex.lock_ok()
 }
 
 /// Asks a running 2.3.1 or Swift Agent-Desk, and the other of Live and Dev

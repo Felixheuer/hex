@@ -4,6 +4,7 @@
 //! publication one call over a bounded excerpt writes the final title and a
 //! summary of at most two sentences. Agents read the transcript for detail.
 
+use crate::sync_ext::LockExt;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
@@ -569,10 +570,7 @@ impl ProvisionalTitles {
     }
 
     pub fn take(&self) -> Option<String> {
-        self.latest
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .take()
+        self.latest.lock_ok().take()
     }
 }
 
@@ -624,7 +622,7 @@ fn name_while_recording(id: &str, stop: &AtomicBool, latest: &Mutex<Option<Strin
                     words = progress.words,
                     "generated provisional meeting title"
                 );
-                *latest.lock().unwrap_or_else(|error| error.into_inner()) = Some(title);
+                *latest.lock_ok() = Some(title);
                 plan.record(true, progress);
             }
             Err(error) => {
@@ -823,8 +821,7 @@ struct InProgress(String);
 impl InProgress {
     fn claim(id: &str) -> Option<Self> {
         IN_PROGRESS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .lock_ok()
             .insert(id.to_string())
             .then(|| Self(id.to_string()))
     }
@@ -832,18 +829,12 @@ impl InProgress {
 
 impl Drop for InProgress {
     fn drop(&mut self) {
-        IN_PROGRESS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .remove(&self.0);
+        IN_PROGRESS.lock_ok().remove(&self.0);
     }
 }
 
 pub fn notes_in_progress(id: &str) -> bool {
-    IN_PROGRESS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .contains(id)
+    IN_PROGRESS.lock_ok().contains(id)
 }
 
 /// Whether finished meetings should be summarized automatically.

@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 #[cfg(target_os = "macos")]
 pub(crate) mod browser_media;
 mod call_input;
@@ -406,10 +407,7 @@ impl AudioInput {
     #[cfg(test)]
     fn watch_stalls_for_test(&mut self, after: Duration) {
         self.stall_after = Some(after);
-        *self
-            .last_delivery
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = Instant::now();
+        *self.last_delivery.lock_ok() = Instant::now();
     }
 
     #[cfg(test)]
@@ -524,10 +522,7 @@ impl AudioInput {
             Ok((samples, captured_through)) => {
                 self.report_period(samples.len());
                 if self.stall_after.is_some() {
-                    *self
-                        .last_delivery
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner()) = Instant::now();
+                    *self.last_delivery.lock_ok() = Instant::now();
                 }
                 AudioInputEvent::Chunk {
                     samples,
@@ -535,13 +530,9 @@ impl AudioInput {
                 }
             }
             Err(RecvTimeoutError::Timeout) => {
-                let stalled = self.stall_after.is_some_and(|after| {
-                    self.last_delivery
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .elapsed()
-                        >= after
-                });
+                let stalled = self
+                    .stall_after
+                    .is_some_and(|after| self.last_delivery.lock_ok().elapsed() >= after);
                 if stalled {
                     AudioInputEvent::StreamFailed("microphone stopped delivering audio".into())
                 } else {

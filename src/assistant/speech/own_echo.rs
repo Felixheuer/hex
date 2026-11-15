@@ -10,6 +10,7 @@
 //! opening words are lined up, in order, with what Agent-Desk read, and what follows
 //! the last of them is the person's.
 
+use crate::sync_ext::LockExt;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -38,7 +39,7 @@ pub fn heard_back(transcript: &str) -> bool {
 }
 
 fn note_at(spoken: &Mutex<VecDeque<(Instant, String)>>, now: Instant, text: &str) {
-    let mut spoken = spoken.lock().unwrap_or_else(|error| error.into_inner());
+    let mut spoken = spoken.lock_ok();
     spoken.retain(|(at, _)| now.duration_since(*at) < RECENT);
     spoken.push_back((now, text.to_owned()));
     while spoken.len() > KEPT {
@@ -55,7 +56,7 @@ fn heard_back_at(
     if heard.len() < MIN_WORDS {
         return false;
     }
-    let spoken = spoken.lock().unwrap_or_else(|error| error.into_inner());
+    let spoken = spoken.lock_ok();
     let said: HashSet<String> = spoken
         .iter()
         .filter(|(at, _)| now.duration_since(*at) < RECENT)
@@ -82,7 +83,7 @@ const MIN_RUN: usize = 3;
 /// the speakers before the person spoke): the person's words, or "" when
 /// it held nothing else. Unchanged when it doesn't open with the reading.
 pub fn without_own_words(transcript: &str) -> String {
-    let spoken = SPOKEN.lock().unwrap_or_else(|error| error.into_inner());
+    let spoken = SPOKEN.lock_ok();
     let now = Instant::now();
     let said: Vec<String> = spoken
         .iter()

@@ -2,6 +2,7 @@
 //! Assistant pane, and `agent-desk assistant` call. Each goes to the one runner.
 
 use super::*;
+use crate::sync_ext::LockExt;
 
 /// Queues `request` and returns its conversation's id at once (a new id when
 /// `request.conversation` is `None`).
@@ -294,7 +295,7 @@ pub(super) static FROM_CLI: AtomicBool = AtomicBool::new(false);
 /// Changes the settings every later task reads, in this process only (for
 /// `agent-desk assistant ask --backend …`).
 pub fn adjust_settings(adjust: impl Fn(&mut AssistantSettings) + Send + Sync + 'static) {
-    *ADJUST.lock().unwrap_or_else(|error| error.into_inner()) = Some(Box::new(adjust));
+    *ADJUST.lock_ok() = Some(Box::new(adjust));
 }
 
 pub(super) type Adjust = Box<dyn Fn(&mut AssistantSettings) + Send + Sync>;

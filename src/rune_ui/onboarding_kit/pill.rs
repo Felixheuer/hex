@@ -5,6 +5,7 @@
 //! permissions, then back to centre stage for `"Agent-Desk is ready"`.
 
 use crate::desktop::i18n::{tr, tr_named};
+use crate::sync_ext::LockExt;
 use rune::{Align, El, Spring, Transition, el, icon, row, text};
 #[cfg(not(test))]
 use std::sync::Mutex;
@@ -73,9 +74,7 @@ fn set_other(value: String) {
 
 #[cfg(not(test))]
 fn set_other(value: String) {
-    *OTHER
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = value;
+    *OTHER.lock_ok() = value;
 }
 
 pub(crate) fn set_other_label(label: Option<&str>) {

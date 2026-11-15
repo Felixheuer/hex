@@ -1,6 +1,7 @@
 use super::accessibility_tests::a11y_value;
 use super::settings::{desktop_shortcut, recorded_binding, validate};
 use super::*;
+use crate::sync_ext::LockExt;
 use crate::transcription::models::TranscriptionSelection;
 use rune::render::Gpu;
 use rune::text::TextSystem;
@@ -2804,10 +2805,7 @@ fn gpu() -> Option<std::sync::MutexGuard<'static, Gpu>> {
             .map(std::sync::Mutex::new)
     })
     .as_ref()
-    .map(|gpu| {
-        gpu.lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    })
+    .map(|gpu| gpu.lock_ok())
 }
 
 fn render(scene: &str, dark: bool, size: (f32, f32)) -> Option<(u32, u32, Vec<u8>)> {

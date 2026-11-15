@@ -4,6 +4,11 @@
 #[allow(dead_code, unused_imports)]
 #[path = "../src/keyboard.rs"]
 mod keyboard;
+// keyboard.rs locks through `crate::sync_ext::LockExt`.
+#[cfg(target_os = "macos")]
+#[allow(dead_code)]
+#[path = "../src/sync_ext.rs"]
+mod sync_ext;
 
 // The harness answers libtest's `--list` (which nextest uses to discover
 // tests): one `name: test` line per case, and nothing for `--ignored`.

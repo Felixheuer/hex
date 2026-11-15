@@ -15,6 +15,7 @@
 //! needing Fn isn't registered, and a sided binding matches either side.
 //! Escape and plain typing still never arrive while secure input is on.
 
+use crate::sync_ext::LockExt;
 use std::cell::RefCell;
 use std::sync::Weak;
 
@@ -90,13 +91,11 @@ static SINK: Mutex<Weak<InputSink>> = Mutex::new(Weak::new());
 
 /// Points the secure-input hotkeys at a new input monitor's channel.
 pub(super) fn attach(sink: &Arc<InputSink>) {
-    *SINK.lock().unwrap_or_else(|error| error.into_inner()) = Arc::downgrade(sink);
+    *SINK.lock_ok() = Arc::downgrade(sink);
 }
 
 fn sink() -> Option<Arc<InputSink>> {
-    SINK.lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .upgrade()
+    SINK.lock_ok().upgrade()
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

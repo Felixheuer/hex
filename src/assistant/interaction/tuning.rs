@@ -16,6 +16,7 @@
 //! `<assistant dir>/barge-in.json`; `agent-desk assistant barge-in` shows them and
 //! `--reset` forgets them. Every decision is logged as `barge-in: learned`.
 
+use crate::sync_ext::LockExt;
 use std::collections::VecDeque;
 use std::sync::{Mutex, OnceLock};
 
@@ -170,10 +171,7 @@ struct State {
 
 fn state() -> std::sync::MutexGuard<'static, State> {
     static STATE: OnceLock<Mutex<State>> = OnceLock::new();
-    let mut state = STATE
-        .get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let mut state = STATE.get_or_init(Mutex::default).lock_ok();
     if !state.loaded {
         state.loaded = true;
         state.saved = load().unwrap_or_default();

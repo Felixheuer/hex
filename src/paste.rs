@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 pub(crate) mod return_to_app;
 
 use std::ffi::{c_char, c_void};
@@ -199,10 +200,7 @@ impl Paster {
             return;
         }
         self.prepared_clipboard = None;
-        let _restore = self
-            .clipboard_restore
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let _restore = self.clipboard_restore.lock_ok();
         let started = Instant::now();
         match capture_clipboard(&self.clipboard) {
             Ok(snapshot) => {
@@ -259,10 +257,7 @@ impl Paster {
                     tracing::debug!("typing instead of pasting into Chromium 155 or 156");
                     keyboard::type_text(&text)?;
                     if crate::features::keep_on_clipboard() {
-                        self.clipboard_restore
-                            .lock()
-                            .unwrap_or_else(|error| error.into_inner())
-                            .keep();
+                        self.clipboard_restore.lock_ok().keep();
                         if let Err(error) = write_clipboard_text(&self.clipboard, &text, false) {
                             tracing::warn!(%error, "could not leave the dictation on the clipboard");
                         }
@@ -290,10 +285,7 @@ impl Paster {
             |()| {
                 self.continuation = None;
                 self.prepared_clipboard = None;
-                self.clipboard_restore
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .keep();
+                self.clipboard_restore.lock_ok().keep();
                 write_clipboard_text(&self.clipboard, text, false)
             },
         )
@@ -307,10 +299,7 @@ impl Paster {
     ) -> Result<()> {
         let generation = commit_prepared_paste(
             || {
-                let restore = self
-                    .clipboard_restore
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner());
+                let restore = self.clipboard_restore.lock_ok();
                 let previous_change_count = self.clipboard.changeCount();
                 let prepared = self.prepared_clipboard.take();
                 let previous = if let Some(prepared) = prepared
@@ -372,9 +361,7 @@ impl Paster {
                 };
                 thread::spawn(move || {
                     thread::sleep(Duration::from_millis(500));
-                    let mut restore = clipboard_restore
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner());
+                    let mut restore = clipboard_restore.lock_ok();
                     if restore.generation != generation {
                         return;
                     }
@@ -820,7 +807,7 @@ fn sentence_initial_word(text: &str, start: usize) -> bool {
 }
 
 fn replace_character(text: &str, index: usize, replacement: impl Iterator<Item = char>) -> String {
-    let character_length = text[index..].chars().next().unwrap().len_utf8();
+    let character_length = text[index..].chars().next().map_or(0, char::len_utf8);
     let mut output = String::with_capacity(text.len());
     output.push_str(&text[..index]);
     output.extend(replacement);

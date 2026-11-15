@@ -28,6 +28,7 @@
 //! their `rune::Pixels`, and a browser coming or going, or its page
 //! changing, calls the hooks set with [`on_change`].
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -118,23 +119,45 @@ pub(crate) struct Preview {
 
 /// When a live picture's latest frame came: its mini says "live" while
 /// frames keep coming and how long ago the last one came once they stall
-/// (`look::live_badge`).
+/// (`look::live_badge`). A browser streams only when its page changes, so
+/// while its stream stays connected ([`FrameClock::hold`]) a still page is
+/// live too, not "8 s ago".
 #[derive(Debug, Default)]
-pub(crate) struct FrameClock(Mutex<Option<Instant>>);
+pub(crate) struct FrameClock {
+    at: Mutex<Option<Instant>>,
+    held: AtomicBool,
+}
 
 impl FrameClock {
     /// A frame came now.
     pub(crate) fn tick(&self) {
-        if let Ok(mut at) = self.0.lock() {
+        if let Ok(mut at) = self.at.lock() {
             *at = Some(Instant::now());
+        }
+    }
+
+    /// Whether the source is connected and would send a change at once:
+    /// its picture is current however long ago the last frame came.
+    pub(crate) fn hold(&self, connected: bool) {
+        if !connected {
+            // The last frame is as old as the connection's end, no older.
+            self.tick_if_held();
+        }
+        self.held.store(connected, Ordering::Release);
+    }
+
+    fn tick_if_held(&self) {
+        if self.held.load(Ordering::Acquire) {
+            self.tick();
         }
     }
 
     /// How long ago the latest frame came; a picture painted without a
     /// stream (a fixture) is always fresh, and one without a frame has none.
     pub(crate) fn age(&self, has_frame: bool) -> Option<Duration> {
-        let at = self.0.lock().ok().and_then(|at| *at);
+        let at = self.at.lock().ok().and_then(|at| *at);
         match at {
+            Some(_) if self.held.load(Ordering::Acquire) => Some(Duration::ZERO),
             Some(at) => Some(at.elapsed()),
             None => has_frame.then_some(Duration::ZERO),
         }
@@ -289,20 +312,14 @@ struct Registry {
 
 fn registry() -> std::sync::MutexGuard<'static, Registry> {
     static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
-    REGISTRY
-        .get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+    REGISTRY.get_or_init(Mutex::default).lock_ok()
 }
 
 type Hook = Box<dyn Fn() + Send + Sync>;
 
 fn hooks() -> std::sync::MutexGuard<'static, Vec<Hook>> {
     static HOOKS: OnceLock<Mutex<Vec<Hook>>> = OnceLock::new();
-    HOOKS
-        .get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+    HOOKS.get_or_init(Mutex::default).lock_ok()
 }
 
 /// Calls `hook` (on any thread) whenever a browser comes or goes, a page
@@ -731,6 +748,20 @@ pub(crate) fn host_of(url: &str) -> Option<String> {
 mod tests {
     use super::frames::decode;
     use super::*;
+
+    #[test]
+    fn a_still_page_on_a_connected_stream_stays_live() {
+        let clock = FrameClock::default();
+        assert_eq!(clock.age(false), None);
+        clock.tick();
+        clock.hold(true);
+        std::thread::sleep(Duration::from_millis(20));
+        assert_eq!(clock.age(true), Some(Duration::ZERO));
+        clock.hold(false);
+        std::thread::sleep(Duration::from_millis(20));
+        let age = clock.age(true).unwrap();
+        assert!(age >= Duration::from_millis(15) && age < Duration::from_secs(2));
+    }
 
     #[test]
     fn a_browser_is_named_as_the_agent_names_it() {

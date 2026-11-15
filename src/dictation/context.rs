@@ -1,3 +1,4 @@
+use crate::sync_ext::LockExt;
 #[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -623,7 +624,7 @@ impl ScriptableBrowser {
     /// Logs a failed tab read once per browser.
     fn warn_once(self, error: &color_eyre::Report) {
         static WARNED: std::sync::Mutex<Vec<&str>> = std::sync::Mutex::new(Vec::new());
-        let mut warned = WARNED.lock().unwrap_or_else(|error| error.into_inner());
+        let mut warned = WARNED.lock_ok();
         if !warned.contains(&self.bundle_id) {
             warned.push(self.bundle_id);
             tracing::warn!(

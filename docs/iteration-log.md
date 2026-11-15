@@ -160,3 +160,4 @@ maintainable, and nothing that isn't possible.
 | pilot.61 | Window + onboarding redesign |
 | pilot.62 | Media tools |
 | pilot.63 | Cua fully used, skills |
+- [Self-improvement loop](self-improvement.md): Agent-Desk working on its own code, 2026-11-15 (PRs #102–#109).

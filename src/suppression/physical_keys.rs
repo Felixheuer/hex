@@ -18,6 +18,7 @@
 //! prompting, and matching keeps using CoreGraphics flags unchanged, including
 //! Right Control starting from a remapped Caps Lock.
 
+use crate::sync_ext::LockExt;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr;
@@ -127,9 +128,7 @@ static CAPS_LOCK_PRESSED: Mutex<Option<fn(CaptureInstant)>> = Mutex::new(None);
 /// independent of the feature: with no listener it records held keys as
 /// before.
 pub(crate) fn watch_caps_lock(pressed: Option<fn(CaptureInstant)>) {
-    *CAPS_LOCK_PRESSED
-        .lock()
-        .unwrap_or_else(|error| error.into_inner()) = pressed;
+    *CAPS_LOCK_PRESSED.lock_ok() = pressed;
 }
 
 /// The physical keys held right now, or `None` while the tracker is
@@ -203,10 +202,7 @@ unsafe extern "C" fn value_changed(
     }
     // SAFETY: as above; a key element's value is 1 while held, 0 on release.
     let down = unsafe { IOHIDValueGetIntegerValue(value) } != 0;
-    let mut devices = context
-        .devices
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let mut devices = context.devices.lock_ok();
     let held = devices.entry(device as usize).or_default();
     let newly_pressed = down && usage == CAPS_LOCK_USAGE && *held & (1_u16 << bit) == 0;
     if down {
@@ -224,9 +220,7 @@ unsafe extern "C" fn value_changed(
         let raw = unsafe { IOHIDValueGetTimeStamp(value) };
         let received_at = CaptureInstant::now();
         let (pressed_at, _) = super::physical_event_instant(raw, received_at);
-        let listener = *CAPS_LOCK_PRESSED
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let listener = *CAPS_LOCK_PRESSED.lock_ok();
         if let Some(listener) = listener {
             listener(pressed_at);
         }
@@ -246,10 +240,7 @@ unsafe extern "C" fn device_removed(
     }
     // SAFETY: see the callback contract above.
     let context = unsafe { &*context.cast::<TrackerContext>() };
-    let mut devices = context
-        .devices
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let mut devices = context.devices.lock_ok();
     devices.remove(&(device as usize));
     context.publish(&devices);
 }

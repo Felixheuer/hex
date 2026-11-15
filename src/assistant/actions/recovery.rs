@@ -87,7 +87,7 @@ pub const NEW_WINDOW_COMMANDS: &[&str] = &[
 /// The AppleScript that asks app `bundle_id` for a new window, trying each
 /// of [`NEW_WINDOW_COMMANDS`].
 pub fn new_window_script(bundle_id: &str) -> String {
-    let id = bundle_id.replace('\\', "").replace('"', "");
+    let id = bundle_id.replace(['\\', '"'], "");
     let tries: String = NEW_WINDOW_COMMANDS
         .iter()
         .map(|command| format!("\ttry\n\t\t{command}\n\t\treturn \"ok\"\n\tend try\n"))
@@ -380,16 +380,111 @@ pub fn relaunch(
     opened
 }
 
-/// Runs AppleScript `script`; its output, or why not.
+/// How long one AppleScript may run before it is stopped: an app waiting on
+/// a dialog (macOS's first "allow control", an unsaved document) would
+/// otherwise hold the task forever.
+const OSASCRIPT_LIMIT: std::time::Duration = std::time::Duration::from_secs(45);
+
+/// Runs AppleScript `script`; its output, or why not, in words the agent
+/// can act on (`explain_osascript_error`). Stopped after [`OSASCRIPT_LIMIT`].
 pub fn run_osascript(script: &str) -> Result<String, String> {
-    let output = std::process::Command::new("/usr/bin/osascript")
+    run_osascript_within(script, OSASCRIPT_LIMIT)
+}
+
+fn run_osascript_within(script: &str, limit: std::time::Duration) -> Result<String, String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("/usr/bin/osascript")
         .args(["-e", script])
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| format!("osascript: {error}"))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    // Read both pipes on their own threads, so a chatty script can't fill
+    // one and stall while the clock runs.
+    let pipe = |reader: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            if let Some(mut reader) = reader {
+                let _ = reader.read_to_string(&mut text);
+            }
+            text
+        })
+    };
+    let stdout = pipe(
+        child
+            .stdout
+            .take()
+            .map(|r| Box::new(r) as Box<dyn Read + Send>),
+    );
+    let stderr = pipe(
+        child
+            .stderr
+            .take()
+            .map(|r| Box::new(r) as Box<dyn Read + Send>),
+    );
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() >= limit => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(20)),
+            Err(error) => return Err(format!("osascript: {error}")),
+        }
+    };
+    let out = stdout.join().unwrap_or_default();
+    let err = stderr.join().unwrap_or_default();
+    match status {
+        Some(status) if status.success() => Ok(out.trim().to_owned()),
+        Some(_) => Err(explain_osascript_error(err.trim())),
+        None => Err(format!(
+            "The script was stopped after {} s: the app didn't answer. It may be \
+             showing a dialog (a permission prompt, an unsaved document): look at \
+             its window, or try a shorter script.",
+            limit.as_secs()
+        )),
+    }
+}
+
+/// macOS's AppleScript error, with what to do about the common ones
+/// appended; the raw text stays first, so nothing is lost.
+pub fn explain_osascript_error(raw: &str) -> String {
+    let hint = if raw.contains("-1743") {
+        Some(
+            "macOS doesn't let Agent-Desk control this app: the person turns it on in \
+             System Settings › Privacy & Security › Automation (Agent-Desk, then the \
+             app). Use the app's window (Accessibility) meanwhile.",
+        )
+    } else if raw.contains("-600") {
+        Some("The app isn't running: open it with hex_open_app, then run the script again.")
+    } else if raw.contains("-1712") {
+        Some(
+            "The app didn't answer in time: it may be busy or showing a dialog; look at \
+             its window, or split the script.",
+        )
+    } else if raw.contains("-1728") || raw.contains("-1719") {
+        Some(
+            "The script named something that isn't there: read the app's names first \
+             (`name of every …`), then use `whose` to find it.",
+        )
+    } else if raw.contains("-2741") || raw.contains("-2740") || raw.contains("-2753") {
+        Some(
+            "The script doesn't compile: check the app's dictionary (hex_app_capabilities) \
+             for the right terms.",
+        )
     } else {
-        Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
+        None
+    };
+    match hint {
+        Some(hint) if raw.is_empty() => hint.to_owned(),
+        Some(hint) => format!("{raw}\n{hint}"),
+        None if raw.is_empty() => "The script failed without saying why.".to_owned(),
+        None => raw.to_owned(),
     }
 }
 
@@ -398,6 +493,35 @@ mod tests {
     use super::super::ax::AxWindow;
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn applescript_errors_say_what_to_do() {
+        let denied = explain_osascript_error(
+            "execution error: Not authorized to send Apple events to Notes. (-1743)",
+        );
+        assert!(denied.starts_with("execution error"));
+        assert!(denied.contains("Automation"));
+        assert!(
+            explain_osascript_error("Application isn't running. (-600)").contains("hex_open_app")
+        );
+        assert!(explain_osascript_error("AppleEvent timed out. (-1712)").contains("dialog"));
+        assert!(explain_osascript_error("Can't get note \"x\". (-1728)").contains("whose"));
+        assert_eq!(explain_osascript_error("odd"), "odd");
+        assert!(!explain_osascript_error("").is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_script_that_hangs_is_stopped() {
+        let started = std::time::Instant::now();
+        let outcome = run_osascript_within("delay 5", std::time::Duration::from_millis(300));
+        assert!(started.elapsed() < std::time::Duration::from_secs(3));
+        assert!(outcome.unwrap_err().contains("stopped"));
+        assert_eq!(
+            run_osascript_within("return 1 + 1", std::time::Duration::from_secs(10)),
+            Ok("2".to_owned())
+        );
+    }
 
     fn app(traits: Traits, windows: Vec<WindowState>) -> AppState {
         AppState {

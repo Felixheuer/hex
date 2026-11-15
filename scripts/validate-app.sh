@@ -61,6 +61,10 @@ fi
 entitlements=$(codesign -d --entitlements - "$bundle" 2>/dev/null)
 printf '%s\n' "$entitlements" | grep -Fq 'com.apple.security.device.audio-input' || fail "microphone entitlement is missing"
 printf '%s\n' "$entitlements" | grep -Fq 'com.apple.security.automation.apple-events' || fail "automation entitlement is missing"
+# Under the hardened runtime macOS never shows the Contacts or Calendar and
+# Reminders prompt without these: the permission would read "not asked" forever.
+printf '%s\n' "$entitlements" | grep -Fq 'com.apple.security.personal-information.addressbook' || fail "contacts entitlement is missing"
+printf '%s\n' "$entitlements" | grep -Fq 'com.apple.security.personal-information.calendars' || fail "calendars entitlement is missing"
 if printf '%s\n' "$entitlements" | grep -Fq 'com.apple.security.app-sandbox'; then
   fail "Rust application must not be sandboxed"
 fi

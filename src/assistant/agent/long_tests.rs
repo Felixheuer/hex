@@ -7,6 +7,7 @@
 //! work. Nothing may be done twice, and the journal must tell the story in
 //! order.
 
+use crate::sync_ext::LockExt;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -42,7 +43,7 @@ struct Fake {
 
 impl Fake {
     fn world(&self) -> std::sync::MutexGuard<'_, World> {
-        self.world.lock().unwrap_or_else(|error| error.into_inner())
+        self.world.lock_ok()
     }
 }
 

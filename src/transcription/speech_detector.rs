@@ -4,6 +4,7 @@
 //! The detector is optional. While its file is missing it downloads in the
 //! background, and every caller falls back to its level-only silence check.
 
+use crate::sync_ext::LockExt;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 #[cfg(not(test))]
@@ -78,7 +79,7 @@ pub(crate) fn prewarm() {
 
 #[cfg_attr(test, allow(dead_code))]
 fn lock_state() -> MutexGuard<'static, State> {
-    STATE.lock().unwrap_or_else(|error| error.into_inner())
+    STATE.lock_ok()
 }
 
 /// The loaded session, loading it on first use. A missing detector starts a

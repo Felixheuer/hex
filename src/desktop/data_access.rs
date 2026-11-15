@@ -17,7 +17,7 @@
 //! kept here, as `automation` keeps its own, so the page reads them
 //! without blocking. OWNER: onboarding.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 /// A kind of the person's data.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -127,16 +127,32 @@ pub fn last(source: Source) -> Access {
     Access::from_code(LAST[source.index()].load(Ordering::Acquire))
 }
 
+/// Whether Allow asked macOS for `source` in this process.
+static REQUESTED: [AtomicBool; 4] = [const { AtomicBool::new(false) }; 4];
+
 fn remember(source: Source, access: Access) -> Access {
-    // A grant made in this process can still read "not asked" until Agent-Desk
-    // relaunches (EventKit); the grant stands until macOS says otherwise.
-    let access = if access == Access::NotAsked && last(source) == Access::Granted {
-        Access::Granted
-    } else {
-        access
-    };
+    let access = settle(
+        access,
+        last(source),
+        REQUESTED[source.index()].load(Ordering::Acquire),
+    );
     LAST[source.index()].store(access.code(), Ordering::Release);
     access
+}
+
+/// What a fresh read of `source` means, given the answer kept before and
+/// whether Allow asked in this process. A grant made in this process can
+/// still read "not asked" until Agent-Desk relaunches (EventKit): the grant
+/// stands. And once Allow asked, "not asked" means macOS couldn't show its
+/// prompt (a build without the entitlement, a managed Mac): that counts as
+/// off, so the repair guide doesn't come back for it again and again, and
+/// the page offers System Settings instead of an Allow that does nothing.
+fn settle(read: Access, kept: Access, requested: bool) -> Access {
+    match (read, kept) {
+        (Access::NotAsked, Access::Granted) => Access::Granted,
+        (Access::NotAsked, _) if requested => Access::Denied,
+        _ => read,
+    }
 }
 
 /// Reads `source` now, without asking. Quick; off the main thread all the
@@ -201,6 +217,7 @@ pub fn request_all_async() {
         .name("data-access-request".into())
         .spawn(move || {
             for source in sources {
+                REQUESTED[source.index()].store(true, Ordering::Release);
                 let answer = remember(source, request(source));
                 tracing::info!(?source, ?answer, "asked macOS for the assistant's data");
             }
@@ -318,6 +335,39 @@ mod tests {
         // Not read yet: asking is harmless, macOS answers at once if it knows.
         assert_eq!(to_ask(|_| Access::Unknown), Source::ASKED);
         assert!(to_ask(|_| Access::Granted).is_empty());
+    }
+
+    #[test]
+    fn a_prompt_macos_could_not_show_counts_as_off_not_as_never_asked() {
+        // Never asked, nothing kept: Allow is still offered.
+        assert_eq!(
+            settle(Access::NotAsked, Access::Unknown, false),
+            Access::NotAsked
+        );
+        // Allow asked, macOS showed nothing and still says "not asked":
+        // off, so the guide doesn't return for it (the contacts loop).
+        assert_eq!(
+            settle(Access::NotAsked, Access::Denied, true),
+            Access::Denied
+        );
+        assert_eq!(
+            settle(Access::NotAsked, Access::Unknown, true),
+            Access::Denied
+        );
+        // A grant made in this process stands while EventKit lags.
+        assert_eq!(
+            settle(Access::NotAsked, Access::Granted, false),
+            Access::Granted
+        );
+        // Real answers always win.
+        assert_eq!(
+            settle(Access::Granted, Access::Denied, true),
+            Access::Granted
+        );
+        assert_eq!(
+            settle(Access::Denied, Access::Granted, true),
+            Access::Denied
+        );
     }
 
     #[test]
