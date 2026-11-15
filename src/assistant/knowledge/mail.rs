@@ -41,7 +41,7 @@ pub fn sql(words: &[String]) -> String {
         })
         .collect();
     let mut sql = String::from(
-        "SELECT s.subject AS subject, a.address AS address, a.comment AS name, \
+        "SELECT m.ROWID AS id, s.subject AS subject, a.address AS address, a.comment AS name, \
          m.date_received AS received, mb.url AS mailbox \
          FROM messages m \
          JOIN subjects s ON s.ROWID = m.subject \
@@ -114,7 +114,14 @@ pub fn rank_rows(rows: &[Value], tokens: &[String], now_ms: i64, limit: usize) -
                 (true, true) => String::new(),
             };
             let place = mailbox(&text(row, "mailbox"));
-            let detail = [from, place]
+            // Mail's own `id` of the message: a script reaches it (and its
+            // attachments) by `whose id is N` without searching again.
+            let id = row
+                .get("id")
+                .and_then(Value::as_i64)
+                .map(|id| format!("mail id {id}"))
+                .unwrap_or_default();
+            let detail = [from, place, id]
                 .into_iter()
                 .filter(|part| !part.is_empty())
                 .collect::<Vec<_>>()
@@ -163,7 +170,7 @@ mod tests {
     #[test]
     fn envelopes_rank_and_read_well() {
         let rows = [
-            json!({"subject": "Rechnung 1043", "address": "buchhaltung@x.de", "name": "Buchhaltung",
+            json!({"id": 42, "subject": "Rechnung 1043", "address": "buchhaltung@x.de", "name": "Buchhaltung",
                    "received": 1_700_000_000, "mailbox": "imap://a%40b@imap.x.de/INBOX"}),
             json!({"subject": "Re: Angebot", "address": "rechnung@y.de", "name": null,
                    "received": 1_800_000_000, "mailbox": "imap://x/%5BGmail%5D/Gesendet"}),
@@ -172,7 +179,7 @@ mod tests {
         assert_eq!(hits[0].title, "Rechnung 1043");
         assert_eq!(
             hits[0].detail,
-            "from Buchhaltung <buchhaltung@x.de> · INBOX"
+            "from Buchhaltung <buchhaltung@x.de> · INBOX · mail id 42"
         );
         assert_eq!(hits[1].detail, "from rechnung@y.de · Gesendet");
         assert_eq!(mailbox("imap://x/%5BGmail%5D"), "[Gmail]");
