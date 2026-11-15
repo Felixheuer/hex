@@ -22,6 +22,7 @@ private struct BridgeContact: Codable {
 }
 
 private struct BridgeReminder: Codable {
+    let id: String
     let title: String
     let list: String
     let dueMs: Double?
@@ -144,6 +145,7 @@ public func hexKnowledgeReminders(_ query: UnsafePointer<CChar>?, _ limit: Int32
         .prefix(cap)
         .map { reminder in
             BridgeReminder(
+                id: reminder.calendarItemIdentifier,
                 title: reminder.title ?? "",
                 list: reminder.calendar?.title ?? "",
                 dueMs: reminder.dueDateComponents
@@ -209,8 +211,10 @@ private struct AddWhen: Codable {
 }
 
 private struct AddRequest: Codable {
+    let action: String
+    let id: String?
     let kind: String
-    let title: String
+    let title: String?
     let notes: String?
     let list: String?
     let location: String?
@@ -218,6 +222,7 @@ private struct AddRequest: Codable {
     let end: AddWhen?
     let durationMinutes: Int?
     let alertMinutes: Int?
+    let completed: Bool?
 }
 
 private struct AddResult: Codable {
@@ -227,6 +232,7 @@ private struct AddResult: Codable {
     var calendar: String?
     var start: String?
     var end: String?
+    var title: String?
 }
 
 private func components(_ when: AddWhen) -> DateComponents {
@@ -266,6 +272,75 @@ private func target(_ store: EKEventStore, _ type: EKEntityType, _ name: String?
         ?? writable.first { fold($0.title).contains(wanted) }
 }
 
+private func alarmed(_ item: EKCalendarItem, _ alarm: EKAlarm?) {
+    for old in item.alarms ?? [] { item.removeAlarm(old) }
+    if let alarm { item.addAlarm(alarm) }
+}
+
+/// The reminder's alarm: `minutes` before its due time (a time is needed).
+private func reminderAlarm(_ due: AddWhen?, _ minutes: Int?) -> EKAlarm? {
+    guard let due, due.hour != nil, let date = Calendar.current.date(from: components(due)) else { return nil }
+    return EKAlarm(absoluteDate: date.addingTimeInterval(TimeInterval(-60 * (minutes ?? 0))))
+}
+
+private func saveEvent(_ store: EKEventStore, _ event: EKEvent, _ asked: AddRequest, isNew: Bool) throws -> AddResult? {
+    if let title = asked.title { event.title = title }
+    if let notes = asked.notes { event.notes = notes }
+    if let location = asked.location { event.location = location }
+    if let list = asked.list {
+        guard let calendar = target(store, .event, list) else { return nil }
+        event.calendar = calendar
+    }
+    let oldLength = isNew ? nil : event.endDate.timeIntervalSince(event.startDate)
+    if let start = asked.start, let begins = Calendar.current.date(from: components(start)) {
+        let allDay = start.hour == nil
+        event.isAllDay = allDay
+        event.startDate = begins
+        event.endDate = asked.end.flatMap { Calendar.current.date(from: components($0)) }
+            ?? asked.durationMinutes.map { begins.addingTimeInterval(TimeInterval(60 * $0)) }
+            ?? oldLength.map { begins.addingTimeInterval($0) }
+            ?? (allDay ? begins : begins.addingTimeInterval(3600))
+    } else if let end = asked.end.flatMap({ Calendar.current.date(from: components($0)) }) {
+        event.endDate = end
+    } else if let minutes = asked.durationMinutes {
+        event.endDate = event.startDate.addingTimeInterval(TimeInterval(60 * minutes))
+    }
+    guard event.endDate >= event.startDate else {
+        throw NSError(domain: "hex", code: 1, userInfo: [NSLocalizedDescriptionKey: "the end is before the start"])
+    }
+    if let minutes = asked.alertMinutes {
+        alarmed(event, EKAlarm(relativeOffset: TimeInterval(-60 * minutes)))
+    }
+    try store.save(event, span: .thisEvent, commit: true)
+    return AddResult(
+        ok: true, id: event.eventIdentifier, calendar: event.calendar?.title,
+        start: readable(event.startDate, allDay: event.isAllDay),
+        end: readable(event.endDate, allDay: event.isAllDay), title: event.title
+    )
+}
+
+private func saveReminder(_ store: EKEventStore, _ reminder: EKReminder, _ asked: AddRequest) throws -> AddResult? {
+    if let title = asked.title { reminder.title = title }
+    if let notes = asked.notes { reminder.notes = notes }
+    if let list = asked.list {
+        guard let calendar = target(store, .reminder, list) else { return nil }
+        reminder.calendar = calendar
+    }
+    if let due = asked.start {
+        reminder.dueDateComponents = components(due)
+        alarmed(reminder, reminderAlarm(due, asked.alertMinutes))
+    }
+    if let completed = asked.completed { reminder.isCompleted = completed }
+    try store.save(reminder, commit: true)
+    let due = reminder.dueDateComponents.flatMap { Calendar.current.date(from: $0) }
+    return AddResult(
+        ok: true, id: reminder.calendarItemIdentifier, calendar: reminder.calendar?.title,
+        start: due.map { readable($0, allDay: reminder.dueDateComponents?.hour == nil) },
+        title: reminder.title
+    )
+}
+
+/// Adds, changes, completes, or deletes one event or reminder.
 @_cdecl("hex_knowledge_add")
 public func hexKnowledgeAdd(_ request: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     guard let request,
@@ -279,56 +354,51 @@ public func hexKnowledgeAdd(_ request: UnsafePointer<CChar>?) -> UnsafeMutablePo
             : "Agent-Desk has no access to Reminders (System Settings › Privacy & Security › Reminders)")
     }
     let store = EKEventStore()
-    guard let calendar = target(store, type, asked.list) else {
+    let noList = {
         let names = store.calendars(for: type).filter(\.allowsContentModifications).map(\.title)
         return failed("there is no \(isEvent ? "calendar" : "list") “\(asked.list ?? "")”; there are: \(names.joined(separator: ", "))")
     }
-    var result = AddResult(ok: true, calendar: calendar.title)
     do {
-        if isEvent {
-            guard let start = asked.start, let begins = Calendar.current.date(from: components(start)) else {
-                return failed("an event needs a start")
+        if asked.action == "add" {
+            guard let calendar = target(store, type, asked.list) else { return noList() }
+            let item: AddResult?
+            if isEvent {
+                let event = EKEvent(eventStore: store)
+                event.calendar = calendar
+                item = try saveEvent(store, event, asked, isNew: true)
+            } else {
+                let reminder = EKReminder(eventStore: store)
+                reminder.calendar = calendar
+                item = try saveReminder(store, reminder, asked)
             }
-            let allDay = start.hour == nil
-            let ends = asked.end.flatMap { Calendar.current.date(from: components($0)) }
-                ?? asked.durationMinutes.map { begins.addingTimeInterval(TimeInterval(60 * $0)) }
-                ?? (allDay ? begins : begins.addingTimeInterval(3600))
-            guard ends >= begins else { return failed("the end is before the start") }
-            let event = EKEvent(eventStore: store)
-            event.calendar = calendar
-            event.title = asked.title
-            event.notes = asked.notes
-            event.location = asked.location
-            event.isAllDay = allDay
-            event.startDate = begins
-            event.endDate = ends
-            if let minutes = asked.alertMinutes {
-                event.addAlarm(EKAlarm(relativeOffset: TimeInterval(-60 * minutes)))
-            }
-            try store.save(event, span: .thisEvent, commit: true)
-            result.id = event.eventIdentifier
-            result.start = readable(begins, allDay: allDay)
-            result.end = readable(ends, allDay: allDay)
-        } else {
-            let reminder = EKReminder(eventStore: store)
-            reminder.calendar = calendar
-            reminder.title = asked.title
-            reminder.notes = asked.notes
-            if let due = asked.start {
-                reminder.dueDateComponents = components(due)
-                if due.hour != nil, let date = Calendar.current.date(from: components(due)) {
-                    let offset = TimeInterval(-60 * (asked.alertMinutes ?? 0))
-                    reminder.addAlarm(EKAlarm(absoluteDate: date.addingTimeInterval(offset)))
-                    result.start = readable(date, allDay: false)
-                } else if let date = Calendar.current.date(from: components(due)) {
-                    result.start = readable(date, allDay: true)
-                }
-            }
-            try store.save(reminder, commit: true)
-            result.id = reminder.calendarItemIdentifier
+            return item.map { encode($0) } ?? noList()
         }
+        guard let id = asked.id else { return failed("changing or deleting needs the id from hex_lookup") }
+        let found: EKCalendarItem? = isEvent
+            ? store.event(withIdentifier: id) ?? store.calendarItem(withIdentifier: id)
+            : store.calendarItem(withIdentifier: id)
+        guard let found, found.calendar?.allowsContentModifications ?? false else {
+            return failed("there is no \(isEvent ? "event" : "reminder") with the id \(id) that can be changed")
+        }
+        if asked.action == "delete" {
+            let title = found.title
+            if let event = found as? EKEvent {
+                try store.remove(event, span: .thisEvent, commit: true)
+            } else if let reminder = found as? EKReminder {
+                try store.remove(reminder, commit: true)
+            }
+            return encode(AddResult(ok: true, id: id, calendar: found.calendar?.title, title: title))
+        }
+        let item: AddResult?
+        if let event = found as? EKEvent {
+            item = try saveEvent(store, event, asked, isNew: false)
+        } else if let reminder = found as? EKReminder {
+            item = try saveReminder(store, reminder, asked)
+        } else {
+            return failed("the id \(id) is neither an event nor a reminder")
+        }
+        return item.map { encode($0) } ?? noList()
     } catch {
         return failed(error.localizedDescription)
     }
-    return encode(result)
 }

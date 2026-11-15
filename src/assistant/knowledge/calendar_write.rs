@@ -1,18 +1,21 @@
-//! `hex_calendar_add`: the person's own appointment or reminder, written
-//! straight into Calendar or Reminders through EventKit (`knowledge.swift`),
+//! `hex_calendar_write`: the person's own appointments and reminders, added,
+//! changed, ticked off, or deleted straight in Calendar or Reminders through
+//! EventKit (`knowledge.swift`),
 //! without opening either app and without Automation consent. Only with the
 //! access onboarding already got; a tool call never asks.
 
 use serde::Serialize;
 use serde_json::{Value, json};
 
-pub const NAME: &str = "hex_calendar_add";
+pub const NAME: &str = "hex_calendar_write";
 
 pub fn definition() -> Value {
     json!({
         "name": NAME,
-        "description": "Add the person's own appointment (kind event) to Calendar or a reminder (kind reminder) to Reminders, directly and in the background, without opening either app. Times are local: \"2026-11-16 15:00\", or a date alone for an all-day event or a reminder without a time. Answers with the calendar or list it went into and the times as saved; check them against the request.",
+        "description": "Write the person's own appointments (kind event, Calendar) and reminders (kind reminder, Reminders) directly and in the background, without opening either app: action add (default), change (only the fields given; moving the start keeps the length), done (a reminder ticked off), or delete (only when the person asks). change, done, and delete take the id hex_lookup shows (scope calendar or reminders). Times are local: \"2026-11-16 15:00\", or a date alone for all day or a reminder without a time. Answers with the calendar or list and the times as saved; check them against the request.",
         "inputSchema": {"type": "object", "properties": {
+            "action": {"type": "string", "enum": ["add", "change", "done", "delete"]},
+            "id": {"type": "string", "description": "change, done, delete: the event's or reminder's id from hex_lookup."},
             "kind": {"type": "string", "enum": ["event", "reminder"]},
             "title": {"type": "string"},
             "start": {"type": "string", "description": "event: its start; reminder: when it is due (optional). \"YYYY-MM-DD HH:MM\" or \"YYYY-MM-DD\", local time."},
@@ -22,7 +25,7 @@ pub fn definition() -> Value {
             "list": {"type": "string", "description": "The calendar or reminder list's name (default: the person's default one)."},
             "location": {"type": "string"},
             "notes": {"type": "string"}
-        }, "required": ["kind", "title"]},
+        }, "required": ["kind"]},
     })
 }
 
@@ -41,9 +44,8 @@ pub struct When {
 /// "2026-11-16", "2026-11-16 15:00", "2026-11-16T15:00:00", "16.11.2026 15:00".
 pub fn parse_when(text: &str) -> Result<When, String> {
     let text = text.trim();
-    let invalid = || {
-        format!("“{text}” isn't a local date and time like 2026-11-16 15:00 or 2026-11-16")
-    };
+    let invalid =
+        || format!("“{text}” isn't a local date and time like 2026-11-16 15:00 or 2026-11-16");
     let (date, time) = match text.split_once(['T', ' ']) {
         Some((date, time)) => (date.trim(), Some(time.trim())),
         None => (text, None),
@@ -105,10 +107,30 @@ pub fn request(arguments: &Value) -> Result<Value, String> {
         Some(kind @ ("event" | "reminder")) => kind,
         _ => return Err(format!("{NAME} needs “kind”: event or reminder")),
     };
-    let title = text("title").ok_or_else(|| format!("{NAME} needs a “title”"))?;
+    let action = match text("action").unwrap_or("add") {
+        action @ ("add" | "change" | "done" | "delete") => action,
+        other => {
+            return Err(format!(
+                "{NAME} has no action “{other}”; use add, change, done, or delete"
+            ));
+        }
+    };
+    if action == "done" && kind == "event" {
+        return Err("only a reminder is ticked off (done); an event is changed or deleted".into());
+    }
+    let id = text("id");
+    if action != "add" && id.is_none() {
+        return Err(format!(
+            "{NAME} needs the “id” hex_lookup shows to {action} an {kind}"
+        ));
+    }
+    let title = text("title");
+    if action == "add" && title.is_none() {
+        return Err(format!("{NAME} needs a “title”"));
+    }
     let start = text("start").map(parse_when).transpose()?;
     let end = text("end").map(parse_when).transpose()?;
-    if kind == "event" && start.is_none() {
+    if action == "add" && kind == "event" && start.is_none() {
         return Err(format!("{NAME} needs a “start” for an event"));
     }
     if let (Some(start), Some(end)) = (start, end)
@@ -123,6 +145,9 @@ pub fn request(arguments: &Value) -> Result<Value, String> {
             .map(|minutes| minutes.min(60 * 24 * 365))
     };
     Ok(json!({
+        "action": if action == "done" { "change" } else { action },
+        "id": id,
+        "completed": (action == "done").then_some(true),
         "kind": kind,
         "title": title,
         "notes": text("notes"),
@@ -136,21 +161,39 @@ pub fn request(arguments: &Value) -> Result<Value, String> {
 }
 
 /// EventKit's answer as the tool's text.
-pub fn answer(kind: &str, title: &str, reply: &Value) -> Result<String, String> {
-    if reply.get("ok").and_then(Value::as_bool) != Some(true) {
-        let why = reply
-            .get("error")
-            .and_then(Value::as_str)
-            .unwrap_or("EventKit didn't save it");
-        return Err(format!("Couldn't add “{title}”: {why}"));
-    }
+pub fn answer(request: &Value, reply: &Value) -> Result<String, String> {
+    let asked = |key: &str| request.get(key).and_then(Value::as_str).unwrap_or_default();
     let field = |key: &str| reply.get(key).and_then(Value::as_str).unwrap_or_default();
-    let what = if kind == "event" { "event" } else { "reminder" };
-    let mut text = format!("Added the {what} “{title}” to {}", field("calendar"));
-    match (field("start"), field("end")) {
-        ("", _) => {}
-        (start, "") => text.push_str(&format!(", {start}")),
-        (start, end) => text.push_str(&format!(", {start} – {end}")),
+    let title = match field("title") {
+        "" => asked("title"),
+        saved => saved,
+    };
+    let what = asked("kind");
+    if reply.get("ok").and_then(Value::as_bool) != Some(true) {
+        let why = field("error");
+        let why = if why.is_empty() {
+            "EventKit didn't save it"
+        } else {
+            why
+        };
+        return Err(format!("Couldn't write the {what} “{title}”: {why}"));
+    }
+    let done = request.get("completed").and_then(Value::as_bool) == Some(true);
+    let mut text = match asked("action") {
+        "delete" => format!("Deleted the {what} “{title}” from {}", field("calendar")),
+        "change" if done => format!("Ticked off the reminder “{title}” in {}", field("calendar")),
+        "change" => format!("Changed the {what} “{title}” in {}", field("calendar")),
+        _ => format!("Added the {what} “{title}” to {}", field("calendar")),
+    };
+    if asked("action") != "delete" {
+        match (field("start"), field("end")) {
+            ("", _) => {}
+            (start, "") => text.push_str(&format!(", {start}")),
+            (start, end) => text.push_str(&format!(", {start} – {end}")),
+        }
+        if !field("id").is_empty() {
+            text.push_str(&format!(" (id {})", field("id")));
+        }
     }
     text.push('.');
     Ok(text)
@@ -158,12 +201,10 @@ pub fn answer(kind: &str, title: &str, reply: &Value) -> Result<String, String> 
 
 pub fn call(arguments: &Value) -> Result<String, String> {
     let request = request(arguments)?;
-    let kind = request["kind"].as_str().unwrap_or_default().to_owned();
-    let title = request["title"].as_str().unwrap_or_default().to_owned();
     let reply = super::native::add(&request.to_string())
         .ok_or("Calendar and Reminders can only be written on macOS")?;
     let reply: Value = serde_json::from_str(&reply).map_err(|error| error.to_string())?;
-    answer(&kind, &title, &reply)
+    answer(&request, &reply)
 }
 
 #[cfg(test)]
@@ -180,11 +221,20 @@ mod tests {
             minute,
         };
         assert_eq!(parse_when("2026-11-16 15:00"), Ok(at(Some(15), Some(0))));
-        assert_eq!(parse_when("2026-11-16T15:30:00"), Ok(at(Some(15), Some(30))));
+        assert_eq!(
+            parse_when("2026-11-16T15:30:00"),
+            Ok(at(Some(15), Some(30)))
+        );
         assert_eq!(parse_when("16.11.2026 15:30"), Ok(at(Some(15), Some(30))));
         assert_eq!(parse_when("2026-11-16"), Ok(at(None, None)));
         assert_eq!(parse_when("2028-02-29").map(|when| when.day), Ok(29));
-        for bad in ["morgen", "2026-02-29", "2026-11-16 25:00", "2026-13-01", "16.11."] {
+        for bad in [
+            "morgen",
+            "2026-02-29",
+            "2026-11-16 25:00",
+            "2026-13-01",
+            "16.11.",
+        ] {
             assert!(parse_when(bad).is_err(), "{bad}");
         }
     }
@@ -208,25 +258,69 @@ mod tests {
         assert!(request(&json!({"kind": "event", "title": "x"})).is_err());
         assert!(request(&json!({"kind": "note", "title": "x"})).is_err());
         assert!(
-            request(&json!({"kind": "event", "title": "x", "start": "2026-11-16 15:00",
-                "end": "2026-11-17"}))
+            request(
+                &json!({"kind": "event", "title": "x", "start": "2026-11-16 15:00",
+                "end": "2026-11-17"})
+            )
             .is_err()
         );
     }
 
     #[test]
+    fn changes_need_an_id_and_done_is_for_reminders() {
+        let change = request(&json!({"action": "change", "kind": "event", "id": "E1",
+            "start": "2026-11-16 16:00"}))
+        .unwrap();
+        assert_eq!(change["action"], "change");
+        assert_eq!(change["title"], Value::Null, "only the fields given change");
+        let done = request(&json!({"action": "done", "kind": "reminder", "id": "R1"})).unwrap();
+        assert_eq!(
+            (done["action"].as_str(), done["completed"].as_bool()),
+            (Some("change"), Some(true))
+        );
+        assert!(request(&json!({"action": "delete", "kind": "event"})).is_err());
+        assert!(request(&json!({"action": "done", "kind": "event", "id": "E1"})).is_err());
+        assert!(request(&json!({"action": "move", "kind": "event", "id": "E1"})).is_err());
+    }
+
+    #[test]
     fn answers_say_where_it_went() {
-        let saved = json!({"ok": true, "calendar": "Privat",
+        let add =
+            request(&json!({"kind": "event", "title": "Zahnarzt", "start": "2026-11-16 15:00"}))
+                .unwrap();
+        let saved = json!({"ok": true, "calendar": "Privat", "id": "E1", "title": "Zahnarzt",
             "start": "2026-11-16 15:00", "end": "2026-11-16 15:45"});
         assert_eq!(
-            answer("event", "Zahnarzt", &saved).unwrap(),
-            "Added the event “Zahnarzt” to Privat, 2026-11-16 15:00 – 2026-11-16 15:45."
+            answer(&add, &saved).unwrap(),
+            "Added the event “Zahnarzt” to Privat, 2026-11-16 15:00 – 2026-11-16 15:45 (id E1)."
         );
+        let milk = request(&json!({"kind": "reminder", "title": "Milch"})).unwrap();
         assert_eq!(
-            answer("reminder", "Milch", &json!({"ok": true, "calendar": "Einkauf"})).unwrap(),
+            answer(&milk, &json!({"ok": true, "calendar": "Einkauf"})).unwrap(),
             "Added the reminder “Milch” to Einkauf."
         );
-        let refused = answer("event", "x", &json!({"ok": false, "error": "no access"}));
-        assert_eq!(refused.unwrap_err(), "Couldn't add “x”: no access");
+        let done = request(&json!({"action": "done", "kind": "reminder", "id": "R1"})).unwrap();
+        assert_eq!(
+            answer(
+                &done,
+                &json!({"ok": true, "calendar": "Einkauf", "title": "Milch"})
+            )
+            .unwrap(),
+            "Ticked off the reminder “Milch” in Einkauf."
+        );
+        let delete = request(&json!({"action": "delete", "kind": "event", "id": "E1"})).unwrap();
+        assert_eq!(
+            answer(
+                &delete,
+                &json!({"ok": true, "calendar": "Privat", "title": "Zahnarzt", "id": "E1"})
+            )
+            .unwrap(),
+            "Deleted the event “Zahnarzt” from Privat."
+        );
+        let refused = answer(&add, &json!({"ok": false, "error": "no access"}));
+        assert_eq!(
+            refused.unwrap_err(),
+            "Couldn't write the event “Zahnarzt”: no access"
+        );
     }
 }
